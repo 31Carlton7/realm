@@ -525,7 +525,7 @@ kbd { font: 11px var(--font-mono); }
 .skill-picker-count { flex: none; font-size: 11px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 .skill-picker-list { flex: 1; min-height: 0; max-height: min(46vh, 340px); overflow-y: auto; padding: 6px; }
 .skill-picker-group + .skill-picker-group { margin-top: 6px; }
-.skill-picker-group-label { padding: 5px 8px 3px; font-size: 10.5px; font-weight: var(--fw-title); letter-spacing: .04em;
+.skill-picker-group-label { padding: 5px 8px 3px; font-size: 11px; font-weight: var(--fw-title); letter-spacing: .04em;
   text-transform: uppercase; color: var(--rl-text-faint); }
 .skill-picker-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: var(--r-ctl); cursor: pointer;
   transition: background-color var(--dur-hover) ease; }
@@ -549,7 +549,7 @@ kbd { font: 11px var(--font-mono); }
 .skills-filter-input::placeholder { color: var(--rl-text-faint); }
 .skills-filter-toggle { flex: none; display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--rl-text-dim); cursor: pointer; }
 .skills-origin-group { margin-top: 10px; }
-.skills-origin-label { padding: 0 0 4px; font-size: 10.5px; font-weight: var(--fw-title); letter-spacing: .04em;
+.skills-origin-label { padding: 0 0 4px; font-size: 11px; font-weight: var(--fw-title); letter-spacing: .04em;
   text-transform: uppercase; color: var(--rl-text-faint); }
 
 /* ── Model picker (prompter): search, grouped model list, and a detail pane ── */
@@ -600,7 +600,7 @@ kbd { font: 11px var(--font-mono); }
 .mp-group + .mp-group { margin-top: 6px; }
 /* Section headings for the harness groups: the quietest thing on the surface, because they label
    rows rather than competing with them. */
-.mp-group-label { padding: 5px 8px 3px; font-size: 10px; font-weight: var(--fw-title); letter-spacing: .06em;
+.mp-group-label { padding: 5px 8px 3px; font-size: 11px; font-weight: var(--fw-title); letter-spacing: .06em;
   text-transform: uppercase; color: var(--rl-text-faint); }
 .mp-row { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: var(--r-ctl); cursor: pointer;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
@@ -621,7 +621,7 @@ kbd { font: 11px var(--font-mono); }
 /* The ⌘-digit badge: quiet until the row is under the cursor, because it labels a shortcut for the
    row you are already looking at rather than competing with the model's name. */
 .mp-kbd { flex: none; padding: 1px 5px; border-radius: var(--r-chip); background: var(--hover-2); color: var(--rl-text-faint);
-  font-size: 10.5px; font-family: inherit; letter-spacing: .02em; }
+  font-size: 11px; font-family: inherit; letter-spacing: .02em; }
 /* The star holds its column on every row — hollow when unstarred, so the list keeps one alignment
    instead of shifting text as rows are favourited. It only brightens on hover or when it is on. */
 .mp-star { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: var(--r-chip);
@@ -645,7 +645,7 @@ kbd { font: 11px var(--font-mono); }
 .mp-detail-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--rl-text-dim); }
 .mp-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 14px; }
 .mp-stat { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.mp-stat-k { font-size: 9.5px; font-weight: var(--fw-title); letter-spacing: .05em; text-transform: uppercase; color: var(--rl-text-faint); }
+.mp-stat-k { font-size: 11px; font-weight: var(--fw-title); letter-spacing: .05em; text-transform: uppercase; color: var(--rl-text-faint); }
 .mp-stat-v { font-size: 12.5px; color: var(--rl-text-bright); font-variant-numeric: tabular-nums; }
 .mp-routes { display: flex; flex-direction: column; gap: 6px; }
 .mp-route-pills { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -667,7 +667,7 @@ kbd { font: 11px var(--font-mono); }
 .mp-detail-foot { flex: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--rl-hairline);
   display: flex; flex-direction: column; gap: 7px; }
 .mp-seg-group { display: flex; align-items: center; gap: 9px; }
-.mp-seg-label { flex: none; width: 62px; font-size: 10px; font-weight: var(--fw-title); letter-spacing: .05em; text-transform: uppercase; color: var(--rl-text-faint); }
+.mp-seg-label { flex: none; width: 62px; font-size: 11px; font-weight: var(--fw-title); letter-spacing: .05em; text-transform: uppercase; color: var(--rl-text-faint); }
 /* Speed carries a note under its switch, so its row wraps where the others never do. The note is
    indented to the label's own gutter so it reads as belonging to the control above it. */
 .mp-fast { flex-wrap: wrap; }
@@ -702,7 +702,7 @@ kbd { font: 11px var(--font-mono); }
 .ip-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 12.5px; color: var(--rl-text-bright); }
 .ip-search input::placeholder { color: var(--rl-text-faint); }
 .ip-emoji-groups { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px 8px; }
-.ip-emoji-group-btn { padding: 3px 7px; border-radius: var(--r-chip); font-size: 10.5px; color: var(--rl-text-dim); background: var(--rl-panel); }
+.ip-emoji-group-btn { padding: 3px 7px; border-radius: var(--r-chip); font-size: 11px; color: var(--rl-text-dim); background: var(--rl-panel); }
 .ip-emoji-group-btn[aria-pressed="true"] { background: var(--hover-2); color: var(--rl-text-bright); }
 .ip-grid { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; max-height: min(46vh, 300px); overflow-y: auto; }
 .ip-emoji { font-size: 18px; }
@@ -746,7 +746,7 @@ kbd { font: 11px var(--font-mono); }
 .group-head[data-active] { color: var(--rl-text-bright); }
 .group-head[data-drop] { outline: 1.5px solid var(--rl-accent); outline-offset: -1px; border-radius: var(--r-ctl); }
 .group-head-name { font: inherit; color: inherit; text-align: left; }
-.group-head-badge { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--rl-text-faint);
+.group-head-badge { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--rl-text-faint);
   border: 1px solid var(--rl-hairline); border-radius: 999px; padding: 0 5px; }
 .group-label-renaming { padding: 8px 8px 4px; }
 /* The shelf's heading: a disclosure triangle wearing the group heading's own type, so it reads as a
@@ -881,7 +881,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .browser-ticker { flex: none; display: flex; align-items: center; gap: 6px; margin-left: 8px; max-width: 40%; min-width: 0; }
 .browser-ticker-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--rl-text-dim); }
 .browser-ticker-text[data-failed] { color: var(--rl-danger); }
-.browser-ticker-time { flex: none; font-size: 10.5px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.browser-ticker-time { flex: none; font-size: 11px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 /* Plan 23 W4's blocked-download bar. A ROW between the chrome and the view host, never a floating
    toast: the native view composites over anything inside its rectangle, so a toast there would be
    invisible (W2's no-overlay invariant). Its height comes out of the view's, which the pane's
@@ -988,7 +988,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .palette-opt { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-ctl); cursor: pointer; }
 .palette-opt.selected, .palette-opt:hover { background: var(--hover); }
 .palette-opt.disabled { opacity: .45; cursor: default; }
-.palette-sec { padding: 8px 10px 3px; font-size: 10.5px; font-weight: var(--fw-title); letter-spacing: .06em; text-transform: uppercase; color: var(--rl-text-faint); }
+.palette-sec { padding: 8px 10px 3px; font-size: 11px; font-weight: var(--fw-title); letter-spacing: .06em; text-transform: uppercase; color: var(--rl-text-faint); }
 .palette-sec:not(:first-child) { margin-top: 4px; }
 .palette-hint .item-glyph { display: inline-grid; vertical-align: middle; }
 .palette-hint kbd { padding: 1px 5px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-chip); }
@@ -1013,7 +1013,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .spaces-search kbd { padding: 1px 5px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-chip); }
 .spaces-list { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 14px 14px; }
 .spaces-section + .spaces-section { margin-top: 14px; }
-.spaces-section-head { display: flex; align-items: center; gap: 7px; margin: 0 0 8px; font-size: 10.5px; font-weight: var(--fw-strong); letter-spacing: .06em; text-transform: uppercase; color: var(--rl-text-faint); }
+.spaces-section-head { display: flex; align-items: center; gap: 7px; margin: 0 0 8px; font-size: 11px; font-weight: var(--fw-strong); letter-spacing: .06em; text-transform: uppercase; color: var(--rl-text-faint); }
 .spaces-section-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 .spaces-section-count { font-variant-numeric: tabular-nums; }
 /* Fixed three columns: SpaceOverview's arrow keys step by that stride, so the two must agree. */
@@ -1468,7 +1468,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* Copy ✓ rides §6's icon swap (the shared rule down in the motion block); the tick's colour is the
    only part of it that belongs to this button. */
 .tool-copy .copied-icon { color: var(--rl-success); }
-.tool-label { display: flex; align-items: center; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--rl-text-dim); margin-bottom: 4px; }
+.tool-label { display: flex; align-items: center; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--rl-text-dim); margin-bottom: 4px; }
 .tool-copy { margin-left: auto; display: grid; place-items: center; width: 20px; height: 20px; border-radius: var(--r-chip); color: var(--rl-text-dim); }
 .tool-copy:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .tool-expand { align-self: flex-start; margin-top: 4px; font-size: 11px; color: var(--rl-text-dim); padding: 2px 6px; border-radius: var(--r-chip); background: var(--rl-raised); }
@@ -1560,7 +1560,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .fd-line[data-kind="del"] .fd-mark { background: color-mix(in srgb, var(--red) 26%, transparent); }
 /* The elision rail between hunks. A line of its own so the reader can see that something was
    skipped and how much — a diff that silently jumps is a diff you cannot trust. */
-.fd-skip { display: flex; align-items: center; gap: 8px; padding: 3px 10px; font-size: 10.5px; color: var(--rl-text-faint); background: var(--inset); }
+.fd-skip { display: flex; align-items: center; gap: 8px; padding: 3px 10px; font-size: 11px; color: var(--rl-text-faint); background: var(--inset); }
 .fd-skip::before, .fd-skip::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 .fd-note { padding: 6px 10px; font-size: 11.5px; color: var(--rl-text-faint); }
 
@@ -1690,15 +1690,15 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .permission-option-label { flex: 1; min-width: 0; }
 /* kbd number chips: BUI's inset fill + hairline ring. */
 .permission-num { display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: var(--r-chip);
-  background: var(--inset); box-shadow: var(--shadow-hairline); color: var(--ink-3); font-size: 10.5px; flex: none; }
+  background: var(--inset); box-shadow: var(--shadow-hairline); color: var(--ink-3); font-size: 11px; flex: none; }
 .permission-option[data-selected] .permission-num { color: var(--ink); }
-.permission-option-kbd { color: var(--rl-text-faint); font-size: 10px; flex: none; }
+.permission-option-kbd { color: var(--rl-text-faint); font-size: 11px; flex: none; }
 
 /* Footer (ApprovalCard's primitive-card-footer): hairline-topped, bleeding to the card edge —
    navigation hints left, accent Submit pill right. */
 .permission-footer { display: flex; align-items: center; gap: 10px; margin: 4px -14px -14px; padding: 8px 14px; border-top: 1px solid var(--line); }
 .permission-hints { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--rl-text-faint); }
-.permission-hints kbd { margin-right: 3px; padding: 0 4px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-chip); font-size: 10px; }
+.permission-hints kbd { margin-right: 3px; padding: 0 4px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-chip); font-size: 11px; }
 .permission-submit { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: var(--fw-label); }
 .permission-submit kbd { opacity: .7; }
 
@@ -1741,7 +1741,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 
 .question-footer { display: flex; align-items: center; gap: 10px; margin: 2px -16px -16px; padding: 8px 16px; border-top: 1px solid var(--line); }
 .question-hints { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--rl-text-faint); }
-.question-hints kbd { margin-right: 3px; padding: 0 4px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-chip); font-size: 10px; }
+.question-hints kbd { margin-right: 3px; padding: 0 4px; border: 1px solid var(--rl-line-strong); border-radius: var(--r-chip); font-size: 11px; }
 .question-continue { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: var(--fw-label); }
 .question-continue kbd { opacity: .7; }
 
@@ -1885,7 +1885,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   box-shadow: var(--shadow-raised); pointer-events: none; opacity: 0;
   transition: opacity var(--dur-fast) var(--ease-out-strong), transform var(--dur-fast) var(--ease-out-strong); }
 .attach-tip-name { font-size: 11.5px; line-height: 1.35; font-weight: var(--fw-medium); overflow-wrap: anywhere; }
-.attach-tip-detail { font-size: 10.5px; line-height: 1.35; color: var(--tooltip-muted); }
+.attach-tip-detail { font-size: 11px; line-height: 1.35; color: var(--tooltip-muted); }
 .attach-tile:hover .attach-tip, .attach-tile:focus-within .attach-tip {
   opacity: 1; transform: translateX(-50%) translateY(0); }
 /* Remove rides the corner and only exists while the pointer is on the tile — at rest the tile is the
@@ -1901,7 +1901,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .composer-attach-note { display: flex; align-items: baseline; margin: 6px 0 0; padding: 0 12px; font-size: 11px; line-height: 1.45; color: var(--rl-text-faint); }
 .composer-attach-note[data-disposition="ignored"] { color: var(--rl-warning); }
 .composer-attach-note .attach-note-glyph { flex: none; align-self: center; margin-right: 5px; }
-.composer-attach-note .attach-note-files { color: var(--rl-text-faint); font-family: var(--font-mono); font-size: 10.5px;
+.composer-attach-note .attach-note-files { color: var(--rl-text-faint); font-family: var(--font-mono); font-size: 11px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 
 /* Row 2 — input: 15px/1.55 (Ara refresh §1: placeholder and prose read at 15), 16px inline padding
@@ -2180,7 +2180,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 @keyframes rl-usage-in { from { opacity: 0; scale: 0.97; translate: 0 4px; } to { opacity: 1; scale: 1; translate: 0 0; } }
 .session-usage-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .session-usage-label { color: var(--rl-text-faint); }
-.session-usage-value { color: var(--rl-text-bright); font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 10.5px; }
+.session-usage-value { color: var(--rl-text-bright); font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 11px; }
 /* The "+" menu (Plan 12 W1): the in-place Connectors submenu's header rows and health dots. */
 .plus-submenu-label { display: inline-flex; align-items: center; gap: 6px; }
 .plus-submenu-label .plus-submenu-caret { color: var(--rl-text-faint); }
@@ -2569,7 +2569,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .btn-quiet:hover:not(:disabled) { background: var(--rl-hover); color: var(--rl-text-bright); }
 .btn-quiet.danger { color: var(--rl-danger); }
 .diff-body { padding: 0 0 6px 26px; }
-.diff-side { padding: 4px 8px; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--rl-text-faint); }
+.diff-side { padding: 4px 8px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--rl-text-faint); }
 /* Plan 9 W2 — the patch wears BUI CodeBlock's diff view: a surface panel behind a hairline ring,
    12.5/1.65 mono, changed rows tinted with the token tints and marked by a 3px accent bar —
    solid green for adds, BUI's red 45° hatch for deletes — with the gutter numbers taking the
@@ -2612,7 +2612,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* "Partial" as a chip on the title, not a sentence under it: it is a property of the review, and the
    header is where a reader looks to find out what they are about to read. */
 .diff-review-chip {
-  flex: none; padding: 1px 8px; border-radius: 999px; font-size: 10.5px; font-weight: var(--fw-label);
+  flex: none; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: var(--fw-label);
   background: color-mix(in srgb, var(--orange) 18%, transparent); color: var(--orange);
 }
 .diff-review-note { margin: 0; font-size: 12px; color: var(--rl-text-faint); }
@@ -2672,7 +2672,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* The undo point is the one row whose meaning differs from its neighbours, so it is the one row that
    is allowed a colour. */
 .cp-row[data-kind="pre-restore"] .cp-kind { color: var(--rl-warning); }
-.cp-kind { flex: none; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--rl-text-faint); width: 74px; }
+.cp-kind { flex: none; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--rl-text-faint); width: 74px; }
 .cp-label { flex: 1; min-width: 0; font-size: 12.5px; color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cp-when { flex: none; font-size: 11px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 .cp-target { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -2702,9 +2702,9 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .env-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 10px 0; }
 .env-main { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--rl-text-dim); }
 .env-name { font-size: 12.5px; color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.env-kind { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--rl-text-faint); }
+.env-kind { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--rl-text-faint); }
 .env-meta { grid-column: 1; display: flex; flex-wrap: wrap; gap: 8px; font-size: 11px; color: var(--rl-text-faint); }
-.env-path { font-family: var(--font-mono); font-size: 10.5px; word-break: break-all; }
+.env-path { font-family: var(--font-mono); font-size: 11px; word-break: break-all; }
 .env-actions { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: center; gap: 4px; }
 
 /* ── Space settings: MCP servers, auth and per-tool policy (W6) ───── */
@@ -2716,7 +2716,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .mcp-enable { display: flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--rl-text-dim); }
 /* §3 status pills: tinted fill + full-strength colored text — the one thing the hub status dot alone
    can't say (auth is a different axis from connectivity; see McpServerRow). */
-.mcp-reauth-badge { font-size: 10px; padding: 1px 6px; border-radius: var(--r-chip); line-height: 1.5;
+.mcp-reauth-badge { font-size: 11px; padding: 1px 6px; border-radius: var(--r-chip); line-height: 1.5;
   background: color-mix(in srgb, var(--rl-warning) 14%, transparent); color: var(--rl-warning); }
 .mcp-form { padding: 10px 0 2px; margin-top: 8px; gap: 10px; }
 .mcp-auth-choice { display: flex; gap: 12px; font-size: 12px; color: var(--rl-text-dim); }
@@ -2724,7 +2724,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .mcp-secrets { gap: 6px; }
 .mcp-secret-row { display: flex; gap: 6px; }
 .mcp-secret-row input { flex: 1; min-width: 0; }
-.mcp-secret-hint, .mcp-secret-note { margin: 0; font-size: 10.5px; color: var(--rl-text-faint); line-height: 1.5; }
+.mcp-secret-hint, .mcp-secret-note { margin: 0; font-size: 11px; color: var(--rl-text-faint); line-height: 1.5; }
 .mcp-warning { margin: 0; font-size: 11px; color: var(--rl-warning); }
 /* W5's live-check result, on `.env-meta`'s wrapping flex row. A failure is the informative case and
    wears the danger tone; a success is deliberately quiet (§3: nothing routine wears a success color),
@@ -2738,8 +2738,8 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .mcp-tools-head { display: flex; align-items: center; justify-content: space-between; }
 .mcp-tool-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .mcp-tool-list label { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--rl-text-dim); }
-.mcp-tool-name { font-family: var(--font-mono); font-size: 10.5px; }
-.mcp-agent-notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 10.5px; }
+.mcp-tool-name { font-family: var(--font-mono); font-size: 11px; }
+.mcp-agent-notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 11px; }
 /* The "MCP servers" label moved off `.field`'s direct child (a sibling "Activity" button joined it), so
    its own label styling has to be restated here rather than inherited from `.field > span`. */
 .mcp-section-head { display: flex; align-items: center; justify-content: space-between; }
@@ -2783,7 +2783,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* Browser origins (Plan 14 W4): the add form is one inline row inside the field. */
 .origin-add { display: flex; gap: 8px; }
 .origin-add input { flex: 1; }
-.settings-note code { font: 10.5px var(--font-mono); }
+.settings-note code { font: 11px var(--font-mono); }
 /* Settings → Sign-ins: a stacked label+input inside a `.field`. Its own label line rather than
    `.field > span`, which is already spoken for by the field's own heading. */
 .settings-input-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--rl-text-dim); }
@@ -2805,12 +2805,12 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .settings-row-desc { flex-basis: 100%; font-size: 11.5px; line-height: 1.45; color: var(--rl-text-dim); }
 /* An invalid skill is SHOWN, reason and all — the silence W1 designed against would start here. */
 .settings-row-problem { flex-basis: 100%; display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--rl-warning); }
-.settings-chip { padding: 1px 7px; border-radius: 999px; font: 10.5px var(--font-mono); color: var(--rl-text-dim); background: var(--rl-hover); white-space: nowrap; }
+.settings-chip { padding: 1px 7px; border-radius: 999px; font: 11px var(--font-mono); color: var(--rl-text-dim); background: var(--rl-hover); white-space: nowrap; }
 
 .settings-agent-row { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; }
 .settings-agent-row > svg { flex: none; margin-top: 1px; }
 .settings-agent-note { font-size: 11.5px; line-height: 1.5; color: var(--rl-text-dim); }
-.settings-agent-note code { font: 10.5px var(--font-mono); }
+.settings-agent-note code { font: 11px var(--font-mono); }
 
 /* One switch idiom for every per-space toggle: a native checkbox drawn as a 30×17 pill. */
 .switch { appearance: none; flex: none; width: 30px; height: 17px; margin: 2px 0 0; border-radius: 999px; background: var(--rl-line-strong); position: relative; cursor: pointer; transition: background var(--dur-press) var(--ease-out-strong); }
@@ -3075,7 +3075,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .task-lens .page-row[data-selected] { background: var(--rl-hover); }
 /* The state chip. Colour is the only thing that separates "needs you" from the rest at a glance, so
    `blocked` gets the accent and the failures get the warning tone; everything else stays quiet. */
-.run-state { flex: none; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: var(--fw-title);
+.run-state { flex: none; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: var(--fw-title);
   letter-spacing: 0.02em; border: 1px solid var(--rl-line-strong); color: var(--rl-text-faint); }
 .run-state[data-state="blocked"] { border-color: var(--rl-accent); color: var(--rl-accent); }
 .run-state[data-state="running"] { color: var(--rl-text-dim); }
@@ -3315,13 +3315,13 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .mac-row-actions { flex: none; display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin-top: 1px; }
 .mac-row-actions .btn-quiet { white-space: nowrap; }
 /* The command Realm is about to run, shown before it runs. */
-.mac-grant-cmd code { font: 10.5px var(--font-mono); color: var(--rl-text-bright); }
+.mac-grant-cmd code { font: 11px var(--font-mono); color: var(--rl-text-bright); }
 .settings-page-pane .settings-tabs { max-width: 340px; }
 .settings-page-pane .bypass-confirm { align-self: flex-start; margin-top: 6px; text-align: left; }
 
 .scope-group { display: flex; flex-direction: column; gap: 4px; }
 .scope-group + .scope-group { margin-top: 12px; }
-.scope-group-label { margin: 0; font-size: 10.5px; font-weight: var(--fw-title); text-transform: uppercase; letter-spacing: .06em; color: var(--rl-text-faint); }
+.scope-group-label { margin: 0; font-size: 11px; font-weight: var(--fw-title); text-transform: uppercase; letter-spacing: .06em; color: var(--rl-text-faint); }
 .scope-move { flex: none; font-size: 11.5px; }
 .scope-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 8px; border-radius: var(--r-ctl); background: var(--rl-raised); font-size: 12px; }
 .scope-confirm-copy { flex: 1; min-width: min(200px, 100%); color: var(--rl-text-dim); } /* a floor wider than the pane is a floor that overflows it */
@@ -3353,7 +3353,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .import-row-desc { flex: 1 1 30%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 /* The match rule that fired. Quiet, but present on every row: a wrong destination should be
    traceable to the rule that chose it, not just noticed. */
-.import-row-why { flex: none; width: 88px; text-align: right; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; }
+.import-row-why { flex: none; width: 88px; text-align: right; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
 .import-target { flex: none; max-width: 190px; height: 24px; padding: 0 8px; border-radius: var(--r-ctl);
   border: 1px solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); font-size: 11.5px; }
 .import-actions { align-items: flex-start; }
@@ -3981,7 +3981,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 /* Today is ringed rather than recoloured: its level is a fact about the day's traffic and must not
    be overwritten by the fact that it happens to be now. */
 .cal-cell[data-today] { box-shadow: 0 0 0 1px var(--rl-text-dim); }
-.cal-legend { display: flex; align-items: center; gap: 4px; margin-left: auto; font-size: 10.5px; color: var(--rl-text-faint); }
+.cal-legend { display: flex; align-items: center; gap: 4px; margin-left: auto; font-size: 11px; color: var(--rl-text-faint); }
 .cal-key { display: inline-block; flex: none; }
 
 /* ——— the plot ——— */

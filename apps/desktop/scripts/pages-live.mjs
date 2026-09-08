@@ -232,6 +232,36 @@ async function main() {
   check("cards do not overflow the list", eng.box.r <= eng.list.r + 1, eng);
   await shot(c, "engines", { x: eng.list.l - 16, y: eng.list.t - 60, width: eng.list.w + 32, height: 560 });
 
+  /* ── 1c. Nothing overflows after the type sweep ─────────────────────────── */
+  // Thirty-seven rules went from 10-10.5px to 11px. Individually invisible; together the kind of
+  // change that pushes a fixed-width label out of its own box, which no stylesheet read can see.
+  for (const dest of ["Connections", "Library", "Settings"]) {
+    await evalIn(c, `__live.dest(${JSON.stringify(dest)})`);
+    await until(() => evalIn(c, `!!document.querySelector('.page-content, .page-body')`), 15000, `${dest} body`);
+    await sleep(450);
+    const spill = await evalIn(c, `(() => {
+      const page = document.querySelector('.page');
+      const pr = page.getBoundingClientRect();
+      const bad = [];
+      for (const el of page.querySelectorAll('*')) {
+        const b = el.getBoundingClientRect();
+        if (b.width === 0 || b.height === 0) continue;
+        // Past the pane's own right edge by more than a rounding pixel.
+        if (b.right > pr.right + 1) bad.push((el.className || el.tagName) + ' +' + Math.round(b.right - pr.right));
+        /* A single-line box whose TEXT no longer fits the height it was given. Form controls are
+           skipped: their scroll box does not mean what it means elsewhere, and the checkbox's own
+           transparent hit-area pseudo (inset -8px) counts against its scrollHeight while clipping
+           nothing — a false positive about a control that has no text in it at all. */
+        if (el.children.length === 0 && el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA'
+            && (el.textContent || '').trim() !== ''
+            && el.scrollHeight > el.clientHeight + 2 && getComputedStyle(el).overflowY === 'visible')
+          bad.push((el.className || el.tagName) + ' clipped');
+      }
+      return [...new Set(bad)].slice(0, 6);
+    })()`);
+    check(`${dest}: nothing spills out of the pane after the type sweep`, spill.length === 0, spill);
+  }
+
   /* ── 2. The checkbox ────────────────────────────────────────────────────── */
   await evalIn(c, `__live.dest("Settings")`);
   await until(() => evalIn(c, `!!document.querySelector('.page-rail .settings-tab')`), 15000, "settings");

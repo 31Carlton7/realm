@@ -502,6 +502,28 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(css).not.toMatch(/border-radius:\s*(?:4|6|8|10|12|14|16)px/);
   });
 
+  it("nothing is set below 11px, the type scale's own floor for a tiny label", () => {
+    /* design.md puts the floor at 11/14 for tiny operational labels, and thirty-seven rules sat
+       under it — 10.5px uppercase group labels, 10px badges, a 9.5px stat key. Individually each
+       looked like a considered micro-label; together they were most of why the connections, library,
+       tasks and settings pages read as unreadable.
+
+       The exceptions are geometry or typography, not taste, and each is named rather than tolerated
+       by a range: a superscript citation is sized against its own line, and the rest live inside
+       boxes whose height is fixed by something other than the text (a 44px attachment tile, a 12px
+       calendar row, an SVG axis). */
+    const EXEMPT = new Set([".md-cite", ".attach-ext", ".cal-month", ".cal-weekday", ".chart-tick",
+      ".summary-step-mark", ".tile-title"]);
+    const tooSmall = RULES
+      .filter((r) => {
+        const m = r.body.match(/font(?:-size)?:\s*(?:[\w-]+\s+)*?([\d.]+)px/);
+        return m !== null && Number(m[1]) < 11;
+      })
+      .flatMap((r) => r.selectors)
+      .filter((sel) => ![...EXEMPT].some((e) => sel.includes(e)));
+    expect([...new Set(tooSmall)].sort(), "below the 11px floor — raise it, or name the geometry that forbids it").toEqual([]);
+  });
+
   it("the weight ladder is four named rungs on tembo's values — no bare weight survives in a component rule", () => {
     const root = css.match(/:root \{([^}]*)\}/)?.[1] ?? "";
     // 450/500/560/600. The old 500/550/600/650 spread had two rungs nobody could tell apart.
