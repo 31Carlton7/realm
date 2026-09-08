@@ -179,6 +179,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const retryLastTurn = useApp((s) => s.retryLastTurn);
   const rateMessage = useApp((s) => s.rateMessage);
   const respondPermission = useApp((s) => s.respondPermission);
+  const setParkedPermission = useApp((s) => s.setParkedPermission);
   const openSheet = useApp((s) => s.openSheet);
   const setSessionOptions = useApp((s) => s.setSessionOptions);
   const setSessionAgent = useApp((s) => s.setSessionAgent);
@@ -387,6 +388,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
               if (modelId !== null) await setSessionOptions(id, { model: modelId });
             })}
             onMode={(mode) => run(() => setSessionMode(id, mode))} planReturn={planReturn}
+            onParkPermission={(permissionMode) => run(() => setParkedPermission(id, permissionMode))}
             // The agent's own modes off THIS session's init event (Plan 14 W3): null = handshake not
             // seen yet, [] = the agent named none — the difference between "wait" and "no Plan here".
             acpModes={transcript.init ? transcript.init.availableModes ?? [] : null}

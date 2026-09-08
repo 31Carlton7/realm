@@ -261,7 +261,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, supportsFastMode }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, supportsFastMode }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** Open the diff pane for the session's checkout (W3) — what the branch/diff chips do. */
   onOpenDiff: () => void;
@@ -276,6 +276,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   onAttachFiles: (files: File[]) => void;
   onRemoveAttachment: (path: string) => void;
   onSend: (text: string) => void; onStop: () => void; onOptions: (o: SessionOptions) => void;
+  /** Set the permission Build will return to, while a read-only mode is in force. Absent leaves the
+   *  chip a label, which is what the read-only mounts want. */
+  onParkPermission?: (permissionMode: string) => void;
   /** Sets agent AND model in one action — the picker's rows are (agent, model) pairs. */
   onPickModel: (kind: AgentKind, modelId: string | null) => void;
   /** Build ⇄ Plan. The store parks and restores the permission mode around the trip. */
@@ -756,14 +759,23 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     return (selected && modelInfo[selected.key]?.context) ?? null;
   }, [rows, modelInfo]);
 
-  const permissionItems = PERMISSION_MODES.map((m) => ({
-    label: m.label, checked: session.permissionMode === m.id,
-    onSelect: () => {
-      if (m.id === "bypassPermissions" && session.permissionMode !== "bypassPermissions") { setConfirmBypass(true); return; }
-      setConfirmBypass(false);
-      onOptions({ permissionMode: m.id });
-    },
-  }));
+  /* One builder, two targets. In Build the picker writes the LIVE permission; in Plan or Ask it
+     writes the park — the value returning to Build will restore — because that is the only real,
+     settable thing behind the label there. The bypass confirm is on both paths deliberately: a
+     "Full access" chosen in Plan is still a full-access session the moment the plan is approved, and
+     a gate you can walk around by being in the right mode is not a gate. */
+  const buildPermissionItems = (current: string, apply: (id: string) => void) =>
+    PERMISSION_MODES.map((m) => ({
+      label: m.label, checked: current === m.id,
+      onSelect: () => {
+        if (m.id === "bypassPermissions" && current !== "bypassPermissions") { setConfirmBypass(true); return; }
+        setConfirmBypass(false);
+        apply(m.id);
+      },
+    }));
+  const permissionItems = buildPermissionItems(session.permissionMode, (id) => onOptions({ permissionMode: id }));
+  const parked = planReturn ?? "default";
+  const parkedItems = buildPermissionItems(parked, (id) => onParkPermission?.(id));
 
   // Overflow collapse (§3): the control row never wraps. When the left group cannot fit at the
   // card's width, the permission chip folds into the model menu instead (effort already lives
@@ -899,14 +911,16 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
                 and mode chips sit against the attach button; the git chip trails them. */}
             {/* In Plan and in Ask the permission mode is not in effect — Claude's `plan` replaces it
                 outright, Realm's own gate refuses in Ask, and Codex forces read-only either way — so
-                the control becomes a LABEL naming what Build will restore.
-                Offering a picker whose selection changes nothing is the lie this split exists to end;
-                hiding it instead would lose the answer to "what happens when I go back?". */}
+                the picker writes the PARK instead of the live value: what returning to Build will
+                restore. It was a dead label for exactly that reason, which was half right. Offering a
+                picker whose selection changes nothing would be a lie; so would having no way to
+                answer "what should happen when I approve this plan?" at the moment you are asking
+                it. Same control, same list, pointed at the value that is actually settable here. */}
             {canSetPermissionMode && (
               inReadOnly
-                ? <ChipMenu ariaLabel="Permission mode" items={[]}
-                    title={`${MODE_LABEL[mode]} is read-only — returning to Build restores ${permissionLabel(planReturn ?? "default")}`}
-                    label={permissionLabel(planReturn ?? "default")} />
+                ? <ChipMenu ariaLabel="Permission mode" warning={parked === "bypassPermissions"}
+                    title={`${MODE_LABEL[mode]} is read-only — this is what returning to Build will restore`}
+                    label={permissionLabel(parked)} items={parkedItems} />
                 : !collapsed && <ChipMenu ariaLabel="Permission mode" warning={session.permissionMode === "bypassPermissions"}
                     label={permissionLabel(session.permissionMode)} items={permissionItems} />
             )}
@@ -922,7 +936,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             )}
             {confirmBypass && (
               <button className="composer-chip bypass-confirm"
-                onClick={() => { setConfirmBypass(false); onOptions({ permissionMode: "bypassPermissions" }); }}>
+                onClick={() => { setConfirmBypass(false); if (inReadOnly) onParkPermission?.("bypassPermissions"); else onOptions({ permissionMode: "bypassPermissions" }); }}>
                 Allow everything? Confirm
               </button>
             )}

@@ -462,15 +462,14 @@ a {
   --fill-bevel: inset 0 1px 0 oklch(1 0 0 / 0.14);
   --shadow-pill: 0 2px 9px 0 #00000052;
   --shadow-btn: 0 0 0 var(--hairline-w) var(--overlay-lighten-400), 0 1px 2px #00000052;
-  /* The same shadow without its ring, for the secondary button. `--shadow-btn` keeps the ring
-   * because the SELECTED segment and the pressed documents-mode still need one — a raised control
-   * inside a strip is told from its neighbours by that hairline and nothing else. A standalone
-   * button is not in a strip and had no such job for it. */
-  --shadow-btn-drop: 0 1px 2px #00000052;
+  /* The ring on its own, for the secondary button: the edge WITHOUT the lift. `--shadow-btn` keeps
+   * both layers because the SELECTED segment and the pressed documents-mode read as raised — a
+   * control inside a strip needs the drop to sit above its neighbours. A standalone button has
+   * nothing to sit above, and the drop under it was reading as a smudge rather than as depth. */
+  --btn-ring: var(--overlay-lighten-400);
   /* Same two layers, split, for a button the worklet paints. Its border box is a SQUARE there
    * (border-radius: 0), so the ring goes to the painter and the drop becomes a filter, which
    * follows the painted alpha instead of the box. Same numbers as above, deliberately. */
-  --shadow-btn-filter: drop-shadow(0 1px 2px #00000052);
   /* The card stack, stated as its two halves and then composed. The squircle surfaces need them
    * apart: a box-shadow ring is always drawn on the `border-radius` rounded rect, so on a card whose
    * corner is a painted superellipse the ring cuts across the fill and the painter has to stroke the
@@ -511,12 +510,7 @@ a {
   --shadow-bevel: inset 0 1px 0.5px #00000026;
   --shadow-pill: 0 2px 9px 0 #0000000f;
   --shadow-btn: 0 0 0 var(--hairline-w) var(--overlay-darken-300), 0 1px 2px #03071214;
-  /* The same shadow without its ring, for the secondary button. `--shadow-btn` keeps the ring
-   * because the SELECTED segment and the pressed documents-mode still need one — a raised control
-   * inside a strip is told from its neighbours by that hairline and nothing else. A standalone
-   * button is not in a strip and had no such job for it. */
-  --shadow-btn-drop: 0 1px 2px #03071214;
-  --shadow-btn-filter: drop-shadow(0 1px 2px #03071214);
+  --btn-ring: var(--overlay-darken-300);
   --card-ring: #03071214;
   --shadow-card-lift: 0 2px 4px 0 #0307120a;
   --shadow-card-lift-filter: drop-shadow(0 2px 4px #0307120a);

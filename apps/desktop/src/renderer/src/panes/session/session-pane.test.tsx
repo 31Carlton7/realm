@@ -962,15 +962,26 @@ describe("prompter mode chip (Build / Plan)", () => {
     await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("acceptEdits"));
   });
 
-  it("names what Build will restore while in Plan, and stops offering a picker that would do nothing", async () => {
+  it("names what Build will restore while in Plan, and lets you change it there", async () => {
     const { store } = await mountFresh({ permissionMode: "acceptEdits" });
     await setMode("Plan");
     await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("plan"));
-    // Plan is read-only regardless of permission mode, so the control is a label, not a menu.
-    expect(permissionChip()).toBeNull();
-    const label = document.querySelector('.ghost-chip[data-static][title^="Plan is read-only"]');
-    expect(label).toHaveTextContent("Accept edits");
-    expect(label!.tagName).toBe("SPAN");
+    // Still names the parked value — "what happens when I go back?" is the question this chip
+    // answers in Plan, and it was answering it before the answer became settable.
+    const chip = permissionChip()!;
+    expect(chip).toHaveTextContent("Accept edits");
+
+    /* And it is a real picker now. Choosing here writes the PARK, never the live permission: the
+       session has to stay on the wire value that keeps it read-only, or picking "Ask each time"
+       would quietly drop it out of Plan halfway through a plan. That split is the whole control. */
+    fireEvent.click(chip);
+    fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Ask each time" }));
+    await waitFor(() => expect(store.getState().planReturn.se1).toBe("default"));
+    expect(store.getState().sessions.se1?.permissionMode).toBe("plan");
+
+    // …and Build restores what was chosen IN Plan, not what was parked on the way in.
+    await setMode("Build");
+    await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("default"));
   });
 
   it("is hidden for an agent with no plan mode, and shown for the ones that have it", async () => {

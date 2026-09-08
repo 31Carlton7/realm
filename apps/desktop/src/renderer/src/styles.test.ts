@@ -1255,15 +1255,19 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     const btn = bodiesFor(".btn").join(" ");
     expect(btn).toContain("--fill: var(--surface)");
     expect(btn).toContain("background: var(--fill)");
-    /* The DROP, not the ring. A secondary button's hairline was doing an outline's job on a control
-       that already has a fill a step off its ground, so it read as a border drawn around the button
-       instead of the button's own edge. `--shadow-btn` keeps its ring for the controls that still
-       need one — a selected segment inside a strip is told from its neighbours by that hairline and
-       nothing else — so the two shadows are separate tokens rather than one edited in place. */
-    expect(btn).toContain("box-shadow: var(--shadow-btn-drop)");
+    /* The EDGE, not the lift. A drop under a secondary button says it is floating above the sheet,
+       which it is not doing — at 30px it landed as a smudge along the bottom rather than as depth,
+       and it fought the ring for the job of saying where the button ends. `--shadow-btn` keeps both
+       layers for the controls that really are raised (the selected segment, the pressed
+       documents-mode), which is why the ring is its own token rather than that one edited. */
+    expect(btn).toContain("box-shadow: 0 0 0 var(--hairline-w) var(--btn-ring)");
     expect(btn).not.toContain("box-shadow: var(--shadow-btn)");
-    // …and no ring under the painter either, where a `--sq-ring` would draw the same outline.
-    expect(bodiesFor(":root[data-squircle] .btn").join(" ")).toContain("--sq-ring-w: 0");
+    /* Painted, the edge has to be the PAINTER's ring: a box-shadow would trace the square border box
+       that `border-radius: 0` leaves behind, which is the bug that squared these corners twice. */
+    const paintedBtn = bodiesFor(":root[data-squircle] .btn").join(" ");
+    expect(paintedBtn).toContain("--sq-ring: var(--btn-ring)");
+    expect(paintedBtn).toContain("--sq-ring-w: var(--hairline-w)");
+    expect(paintedBtn).not.toContain("filter:");
     /* `--hover`, not `--inset`, and the direction is the point rather than the token name. `--inset`
        is a rung of the SURFACE ladder and sits below `--surface` on a dark face, so a hovered button
        sank while every row and menu item beside it lifted — which is what read as the button lurching
@@ -1299,17 +1303,51 @@ describe("scrollbars", () => {
     expect(bodiesFor(":hover").join(" ")).toContain("scrollbar-color: var(--rl-line-strong) transparent");
   });
 
-  it("the legacy ::-webkit-scrollbar rules are gone, not merely overridden", () => {
-    // They had been inert since Chromium 121 — setting either standard property makes the browser
-    // ignore the pseudo-elements outright, and every selector they targeted also set
-    // `scrollbar-width: thin`. Re-adding one would read as styling that does nothing.
-    expect(css).not.toContain("::-webkit-scrollbar");
+  /** Base selectors that own a `::-webkit-scrollbar*` rule, deduped. */
+  const webkitBarOwners = (): string[] => [...new Set(RULES
+    .flatMap((r) => r.selectors)
+    .filter((sel) => sel.includes("::-webkit-scrollbar"))
+    .map((sel) => sel.slice(0, sel.indexOf("::-webkit-scrollbar")).replace(/:hover$/, "").trim()))];
+
+  it("a ::-webkit-scrollbar rule only exists where the standard properties have been handed back", () => {
+    /* The regression this closes is styling that does nothing. Setting either standard property
+       makes Chromium ignore the pseudo-elements outright — and `scrollbar-color` is set on :root and
+       INHERITS, so every scroller in the app starts out ignoring them. Nine such rules had been dead
+       since Chromium 121 for exactly that reason.
+
+       So the rule is not "never use the pseudo-elements". It is: if you use them, say so on the
+       element by returning both standard properties to `auto` first, in a rule of its own. Anything
+       else is a pseudo-element that will never paint. (`.space-body` is the one that needs them —
+       see its carve-out: only `::-webkit-scrollbar-track`'s margin can hold a thumb clear of the
+       mask fading that column's two ends.) */
+    for (const owner of webkitBarOwners()) {
+      const body = bodiesFor(owner).join(" ");
+      expect(body, `${owner} styles a webkit scrollbar without reclaiming it`).toContain("scrollbar-color: auto");
+      expect(body, `${owner} styles a webkit scrollbar without reclaiming it`).toContain("scrollbar-width: auto");
+    }
+  });
+
+  it("the sidebar's thumb is held clear of the mask, by the mask's own two depths", () => {
+    /* `.space-body` is masked at both ends, and a mask applies to the element's whole rendering —
+       scrollbar included — so the thumb dissolved at exactly the two places a scrollbar is most
+       used. The track's margin is what holds it clear, and it is written as the same two custom
+       properties the mask reads rather than as numbers: tune one end of the fade and the thumb
+       follows it instead of drifting back under it.
+       Only the wiring is checkable here. That the thumb is actually crisp at both ends is a
+       composited-pixel question, and jsdom has no scrollbars at all. */
+    const track = bodiesFor(".space-body::-webkit-scrollbar-track").join(" ");
+    expect(track).toContain("margin-block: var(--fade-top-h) var(--fade-h)");
+    const masked = bodiesFor(".space-body").join(" ");
+    expect(masked).toContain("var(--fade-top-h)");
+    expect(masked).toContain("var(--fade-h)");
   });
 
   it("every scroller in the stylesheet has had a deliberate decision made about its bar", () => {
     // The regression this closes is how the app got here: nine containers were styled by hand and
     // every scroller added afterwards shipped with the default bar and a visible track.
-    const covered = new Set(SCROLLERS.map(leaf));
+    // Covered = named in the shared `:where(...)` list, OR carrying a webkit treatment of its own
+    // (which the test above holds to its own standard).
+    const covered = new Set([...SCROLLERS.map(leaf), ...webkitBarOwners().map(leaf)]);
     // Left out on purpose. The horizontal strips hide their bar entirely (they fade at the edges or
     // are short tab rows, and a bar under them would be the tallest thing in the row) and say so with
     // `scrollbar-width: none` in their own rule, which is why they are filtered rather than listed.

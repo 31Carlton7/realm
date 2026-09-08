@@ -1109,6 +1109,8 @@ export type AppState = {
   /** Move a session between Build and Plan (the prompter's mode chip), parking and restoring the
    *  permission mode around the trip. See the implementation for why the parking is necessary. */
   setSessionMode(id: string, mode: SessionMode): Promise<void>;
+  /** Choose the permission a read-only mode will hand back to Build, without leaving that mode. */
+  setParkedPermission(id: string, permissionMode: string): Promise<void>;
   /** Switch an unstarted session's agent (prompter model picker). The server refuses once events exist —
    *  cross-agent rows go unavailable there, so this is only ever called while it is legal. */
   setSessionAgent(id: string, agentKind: AgentKind): Promise<void>;
@@ -2961,6 +2963,29 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           set({ planReturn });
           await get().setSessionOptions(id, { permissionMode: back });
         }
+      },
+      /**
+       * Set the permission Build will return to, from inside Plan or Ask.
+       *
+       * The picker used to go dead in those modes, and the reasoning was sound as far as it went: the
+       * permission is genuinely not in force there — Claude's `plan` replaces it, Realm's own gate
+       * refuses in Ask, Codex forces read-only either way — so a control that appeared to change it
+       * would have been lying. What that missed is that there is still a real, settable value behind
+       * the label: the PARK. Writing it is the honest version of the same gesture, and it is the one
+       * moment a user actually thinks about what should happen when the plan is approved.
+       *
+       * In Build there is no park to write — the permission is live — so this defers to the ordinary
+       * path rather than quietly storing a value nothing would ever read.
+       */
+      async setParkedPermission(id, permissionMode) {
+        const s = get().sessions[id];
+        if (!s) return;
+        if (sessionModeOf(s.permissionMode) === "build") { await get().setSessionOptions(id, { permissionMode }); return; }
+        // Only the kinds that park at all (see `setSessionMode`): for an ACP agent Plan and Ask are
+        // its own modes with no permission behind them, and a park would be invented state that
+        // leaving the mode then reads back as a setting the user never had.
+        if (!AGENT_SUPPORTS_PERMISSION_MODES[s.agentKind]) return;
+        set({ planReturn: { ...get().planReturn, [id]: permissionMode } });
       },
       async loadFailover() {
         const sid = get().activeSpaceId; if (!sid) return;

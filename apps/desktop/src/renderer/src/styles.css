@@ -281,7 +281,12 @@ kbd { font: 11px var(--font-mono); }
 .swiper { flex: 1; min-height: 0; overflow: clip; position: relative; }
 .swiper-track { display: flex; height: 100%; width: 100%; will-change: transform; }
 .space-page { position: relative; flex: 0 0 100%; min-width: 0; height: 100%; display: flex; flex-direction: column; padding: 4px 16px 8px; overflow: hidden;
-  --fade-h: 44px; }
+  --fade-h: 44px;
+  /* A shallower top band than the app's 40, and the gap under the workspace header follows it: the
+     list's padding is `band + 4`, so 40 put 44px of nothing between "Live" and the first session.
+     The band only has to be deep enough that a row cannot be caught half-dissolved under the header
+     — at 32px rows, 20 does that and 40 was buying a second row's worth of air for nothing. */
+  --fade-top-h: 20px; }
 /* A full band of bottom padding, not a fraction of one, for the reason the diff list needs the same:
    these are 32px rows of dense text, so a row that ends inside the ramp is a session you scrolled
    down to read and then cannot. Scrolled to the end, the last row sits entirely clear of the band and
@@ -871,7 +876,14 @@ kbd { font: 11px var(--font-mono); }
 .group-bar { flex: none; display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 10px 0 12px;
   background: var(--rl-panel); -webkit-app-region: drag; }
 .group-bar button, .group-bar input { -webkit-app-region: no-drag; }
-.group-tabs { display: flex; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+/* The padding is for the FOCUS RING, and the negative margin is so paying for it costs no height.
+   `overflow-x: auto` makes this a scrollport, and a scrollport clips both axes however only one of
+   them scrolls — so the global `:focus-visible` outline (2px at +1px offset) was being sliced off
+   the top and bottom of a focused tab, which is what made the highlight look cut into. The padding
+   gives the ring room inside the clip box; the margin takes the same amount back out of the layout,
+   so the bar keeps its 34px and nothing below it moves. */
+.group-tabs { display: flex; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none;
+  padding-block: 4px; margin-block: -4px; }
 .group-tab { display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: var(--r-ctl); corner-shape: squircle;
   font-size: 12.5px; color: var(--rl-text-dim); white-space: nowrap; }
 .group-tab:hover { background: var(--rl-hover); }
@@ -1104,13 +1116,13 @@ button.panel-title:hover { background: var(--rl-hover); }
 .profile-add-row { display: flex; gap: 6px; } .profile-add-row input { flex: 1; min-width: 0; }
 .profile-add-link { align-self: flex-start; font-size: 12px; color: var(--rl-text-dim); padding: 1px 0; }
 .profile-add-link:hover { color: var(--rl-text-bright); }
-/* Plan 9 W3 — BUI Button's tiers. Secondary = surface, no ring, hover steps to the inset fill.
-   The ring came off: it was doing the work of an OUTLINE on a control that already has a fill a
-   step off its ground, so at every size it read as a border drawn around the button rather than as
-   the button's own edge. What tells a secondary button from the sheet it sits on is the fill and
-   the 1px drop under it, which is what BUI's own secondary does. (The ring stays on the SELECTED
-   segment and the pressed documents-mode — a raised control inside a strip is told from its
-   neighbours by that hairline and by nothing else.)
+/* Plan 9 W3 — BUI Button's tiers. Secondary = surface with an EDGE and no lift.
+   The ring is the button's outline and stays; the 1px drop under it went. A drop says "this is
+   floating above the sheet", which a secondary button is not doing — at this size it landed as a
+   smudge along the bottom edge rather than as depth, and it fought the ring for the job of saying
+   where the button ends. One of the two had to go and the edge is the one that carries the shape.
+   (`--shadow-btn` keeps BOTH layers for the selected segment and the pressed documents-mode: those
+   really are raised above their neighbours, and there the drop is doing the work.)
    Primary = the accent treatment: inset top highlight, accent-ink hover ladder. Press stays §6's
    app-wide .97 (BUI's own is .96 — one press scale everywhere beats a per-atom fork). */
 /* A button is a ROW, not a block of text: the icon-plus-label buttons ("+ New session", "Generate")
@@ -1123,7 +1135,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .btn { --btn-h: 30px; height: var(--btn-h); padding: 0 12px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; border: none;
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   flex-shrink: 0; white-space: nowrap;
-  --fill: var(--surface); background: var(--fill); box-shadow: var(--shadow-btn-drop); }
+  --fill: var(--surface); background: var(--fill); box-shadow: 0 0 0 var(--hairline-w) var(--btn-ring); }
 .btn > svg { flex: none; }
 .btn:hover:not(:disabled) { --fill: var(--inset); }
 .btn.primary { --fill: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: var(--fill-bevel); }
@@ -2516,7 +2528,9 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    The RING is the same story as the fill: only the plain button wears one, and the filled variants
    turn it off by width rather than by colour — `--sq-ring: none` would hand the canvas an invalid
    strokeStyle, which it IGNORES, leaving the default black. */
-:root[data-squircle] .btn { box-shadow: none; filter: var(--shadow-btn-filter); --sq-ring-w: 0; }
+/* Painted, the edge is the painter's ring — a box-shadow one would trace the SQUARE border box
+   `border-radius: 0` leaves behind. No `filter`: that was carrying the drop, and the drop is gone. */
+:root[data-squircle] .btn { box-shadow: none; --sq-ring: var(--btn-ring); --sq-ring-w: var(--hairline-w); }
 :root[data-squircle] .btn.primary,
 :root[data-squircle] .btn.destructive,
 :root[data-squircle] .btn.danger,
@@ -2712,8 +2726,8 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 :root { scrollbar-color: var(--rl-line) transparent; }
 :hover { scrollbar-color: var(--rl-line-strong) transparent; }
 :where(
-  /* chrome and navigation */
-  .space-body, .menu, .mention-picker, .skill-picker-list, .mp-list, .mp-detail-body, .ip-grid,
+  /* chrome and navigation. `.space-body` is NOT here — see the carve-out below. */
+  .menu, .mention-picker, .skill-picker-list, .mp-list, .mp-detail-body, .ip-grid,
   .palette-list, .spaces-list, .sheet, .onboarding-stage, .page-content, .summary-scroll, .ql-view,
   /* the transcript and everything it draws inside itself */
   .transcript, .md pre, .msg-error pre, .tool-well, .tool-body pre, .permission-details pre,
@@ -2756,6 +2770,27 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 @keyframes rl-menu-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(.97); } }
 
 /* Sheets (§6): enter 240ms, scale .96 + fade, origin center; the scrim fades on its own at 160ms.
+/* The sidebar's list is the one scroller that cannot take the standard properties, and it is worth
+   the fork because two separate things go wrong without it.
+   Its bar was `thin`, which is 11px on this runtime and reads as heavy in a 280px column. And this
+   scroller is MASKED at both ends — the mask exists because the column is translucent and a
+   backdrop-filter over it smudges the window's own transparency — and a mask applies to the
+   element's whole rendering, scrollbar included. So the thumb dissolved at exactly the two places a
+   scrollbar is most used: the ends.
+   `::-webkit-scrollbar-track`'s margin is the only way to hold a thumb clear of a region, and the
+   pseudo-elements are ignored the moment either standard property is set — `scrollbar-color` is
+   inherited from :root, so it has to be given back explicitly here. Track margins match the mask's
+   own two depths, so the thumb starts where the list stops dissolving and the two cannot drift. */
+.space-body { scrollbar-color: auto; scrollbar-width: auto; }
+.space-body::-webkit-scrollbar { width: 8px; }
+.space-body::-webkit-scrollbar-track { background: transparent; margin-block: var(--fade-top-h) var(--fade-h); }
+.space-body::-webkit-scrollbar-thumb { background: var(--rl-line); border-radius: 999px;
+  /* Inset from the 8px channel so the thumb reads as a 4px line with air either side rather than a
+     bar wedged against the column's edge. `background-clip: content-box` is what makes the border
+     transparent padding instead of a second colour. */
+  border: 2px solid transparent; background-clip: content-box; }
+.space-body:hover::-webkit-scrollbar-thumb { background: var(--rl-line-strong); background-clip: content-box; }
+
    One rule for every sheet — W4b's `.sheet.onboarding` carve-out is gone. */
 .sheet { animation: rl-sheet-in var(--dur-slow) var(--ease-out-strong); }
 @keyframes rl-sheet-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
