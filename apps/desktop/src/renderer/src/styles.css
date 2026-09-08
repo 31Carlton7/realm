@@ -213,9 +213,19 @@ kbd { font: 11px var(--font-mono); }
 .sb-toggle:hover { color: var(--rl-text-bright); background: var(--field); }
 /* Plan 9 W3 — BUI SidebarNav's chat-search field: field fill behind a hairline ring, 13/500,
    ink-3 → ink-2 as the pointer arrives (the fill itself does not change; the field IS the state). */
-.search { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 10px; border-radius: var(--r-ctl);
-  background: var(--field); box-shadow: var(--shadow-hairline); border: none; color: var(--rl-text-faint); text-align: left;
-  font-size: 13px; font-weight: var(--fw-medium); }
+/* The search field is the prompter's little sibling: same surface, same ring, same curve — at its
+   own size. The corner is `height × --sq-ratio` rather than a number, because copying the composer's
+   36px onto a 30px control makes a pill, and copying `--r-ctl` makes it a plain button that happens
+   to sit above a squircle. The ratio is the thing that transfers. */
+.search {
+  --search-h: 30px;
+  display: flex; align-items: center; gap: 8px; width: 100%; height: var(--search-h); padding: 0 11px;
+  border-radius: calc(var(--search-h) * var(--sq-ratio)); corner-shape: squircle;
+  background: var(--surface); box-shadow: var(--shadow-card); border: none; color: var(--rl-text-faint);
+  font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+  transition: background var(--dur-hover) ease, color var(--dur-hover) ease, scale var(--dur-press) var(--ease-out-strong);
+}
+.search:active { scale: 0.98; }
 .search:hover { color: var(--rl-text-dim); }
 .search span { flex: 1; } .search kbd { opacity: .7; }
 
@@ -2226,6 +2236,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    - Nothing else. The soft LIFT stays on box-shadow (--shadow-card-lift, --rl-shadow): it is blurred
      several times wider than the two curves ever diverge, and a mask — the obvious alternative to
      painting the fill — would have clipped it away entirely. */
+:root[data-squircle] .search,
 :root[data-squircle] .md-code,
 :root[data-squircle] .diff-review,
 :root[data-squircle] .composer,
@@ -2289,6 +2300,16 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* Same treatment, one rung up the surface ladder: the review sits ON the diff pane rather than
    inside a message, so it takes the raised fill. */
 :root[data-squircle] .diff-review { --sq-fill: var(--rl-raised); box-shadow: none; }
+/* The search field, exactly as the composer is drawn — fill, ring and all — with its own radii. The
+   painted surfaces set `border-radius: 0`, so the ratio has to be restated here as the worklet's
+   own inputs or the curve would come back square. */
+:root[data-squircle] .search {
+  --sq-fill: var(--surface); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
+  --sq-radius-top: calc(var(--search-h) * var(--sq-ratio));
+  --sq-radius-bottom: calc(var(--search-h) * var(--sq-ratio));
+  box-shadow: none;
+}
+:root[data-squircle] .search:hover { --sq-ring: var(--line-strong); }
 /* Focus is still PromptBar's border-brighten, now traced on the curve instead of around it. */
 :root[data-squircle] .composer:focus-within, :root[data-squircle] .commit-card:focus-within {
   --sq-ring: var(--line-strong); --sq-ring-w: 1px;
@@ -2446,9 +2467,13 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
  * The exit is softer and shorter than the enter, per §6's own rule for exits: 4px of drift rather
  * than 6, opacity only on the scale. `prefers-reduced-motion` kills both through the global rule.
  */
-.palette { animation: rl-palette-in var(--dur-hover) var(--ease-out-strong); transform-origin: 50% 0; }
-.palette-backdrop { animation: rl-fade-in var(--dur-hover) var(--ease-out-strong); }
-@keyframes rl-palette-in { from { opacity: 0; scale: 0.97; translate: 0 -6px; } to { opacity: 1; scale: 1; translate: 0 0; } }
+/* --dur-pop, §6's rung for a popover unfolding out of its trigger, and a scale/travel big enough to
+   be SEEN. The first pass ran 100ms at 0.97 and 6px, which is a real animation that reads as the
+   palette simply appearing — under the threshold where the eye registers an arrival at all. The
+   budget was never the problem; the amplitude was. */
+.palette { animation: rl-palette-in var(--dur-pop) var(--ease-out-strong); transform-origin: 50% 0; }
+.palette-backdrop { animation: rl-fade-in var(--dur-pop) var(--ease-out-strong); }
+@keyframes rl-palette-in { from { opacity: 0; scale: 0.94; translate: 0 -14px; } to { opacity: 1; scale: 1; translate: 0 0; } }
 @keyframes rl-fade-in { from { opacity: 0; } to { opacity: 1; } }
 /* Closing. `pointer-events: none` because the palette outlives its own state for 90ms, and a click
    aimed at what is behind it must not land on a dialog that is already gone as far as the app is

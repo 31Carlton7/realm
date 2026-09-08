@@ -732,7 +732,10 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
         .map((sel) => sel.replace(":root[data-squircle] ", "").trim()),
     );
     const declared = RULES
-      .filter((r) => /corner-shape:\s*squircle/.test(r.body) && /border-radius:[^;]*--r-squircle\b/.test(r.body))
+      .filter((r) => /corner-shape:\s*squircle/.test(r.body)
+        // Either form of the signature: the composer's own token, or a smaller control taking the
+        // same curve by ratio (`height * --sq-ratio`). Both are the product mark; both must paint.
+        && (/border-radius:[^;]*--r-squircle\b/.test(r.body) || /border-radius:[^;]*--sq-ratio\b/.test(r.body)))
       .flatMap((r) => r.selectors);
     expect(declared.filter((sel) => !painted.has(sel)).sort(),
       "these wear the signature curve but are never painted — they will render as round rects").toEqual([]);
@@ -999,10 +1002,21 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(bodiesFor(".item[data-active]").join(" ")).toContain("background: var(--rl-active)");
   });
 
-  it("the sidebar search is SidebarNav's field: field fill behind a hairline ring at 13/500; rows and labels take BUI's 8px/12.5px", () => {
+  it("the sidebar search is the PROMPTER's little sibling — same surface, same curve, its own size", () => {
+    /* It was a field fill behind a hairline ring, which is the treatment for something you type in.
+       This is a button that opens ⌘K, and it sits in the same window as a composer wearing a large
+       squircle — so it takes the composer's surface and the composer's corner.
+
+       The corner is `height × --sq-ratio`, never a number. Copying 36px onto a 30px control makes a
+       pill; copying `--r-ctl` makes a plain button that happens to sit above a squircle. The RATIO is
+       the thing that transfers, and it was measured off the rendered composer (36 on 96). */
     const search = bodiesFor(".search").join(" ");
-    expect(search).toContain("background: var(--field)");
-    expect(search).toContain("box-shadow: var(--shadow-hairline)");
+    expect(search).toContain("background: var(--surface)");
+    expect(search).toContain("corner-shape: squircle");
+    expect(search).toContain("calc(var(--search-h) * var(--sq-ratio))");
+    expect(search).not.toContain("var(--r-ctl)");
+    // …and it is painted, because `corner-shape` is inert here and an unpainted curve is a round rect.
+    expect(bodiesFor(":root[data-squircle] .search").join(" ")).toContain("--sq-fill: var(--surface)");
     expect(search).toContain("font-size: 13px");
     expect(bodiesFor(".item").join(" ")).toContain("border-radius: var(--r-ctl)");
     expect(bodiesFor(".group-label").join(" ")).toContain("font-size: 12.5px");
