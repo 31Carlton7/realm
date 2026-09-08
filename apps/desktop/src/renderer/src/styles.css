@@ -2798,11 +2798,18 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    that stays readable. */
 .settings-hint[data-tone="warn"] { color: var(--orange); }
 
-.settings-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.settings-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; }
+/* Cards, not rows. The list used to be flush blocks of prose stacked with no separation — which on
+   the Library page, where every skill carries three lines of description, is the "text splattered
+   everywhere" this pass exists to end. Air and a surface separate them now; nothing draws a rule. */
+.settings-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.settings-row {
+  display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px;
+  background: var(--rl-frame); border-radius: var(--r-panel); corner-shape: squircle;
+}
 .settings-row-main { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
-.settings-row-name { font-size: 12.5px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
-.settings-row-desc { flex-basis: 100%; font-size: 11.5px; line-height: 1.45; color: var(--rl-text-dim); }
+.settings-row-name { font-size: 13.5px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
+/* 12.5/1.5 — this is reading copy, not a caption. On the Library page it is three lines per card. */
+.settings-row-desc { flex-basis: 100%; font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim); }
 /* An invalid skill is SHOWN, reason and all — the silence W1 designed against would start here. */
 .settings-row-problem { flex-basis: 100%; display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--rl-warning); }
 .settings-chip { padding: 1px 7px; border-radius: 999px; font: 11px var(--font-mono); color: var(--rl-text-dim); background: var(--rl-hover); white-space: nowrap; }

@@ -260,6 +260,7 @@ async function main() {
       return [...new Set(bad)].slice(0, 6);
     })()`);
     check(`${dest}: nothing spills out of the pane after the type sweep`, spill.length === 0, spill);
+    if (dest !== "Settings") await shot(c, `page-${dest.toLowerCase()}`, { x: 600, y: 60, width: 780, height: 620 });
   }
 
   /* ── 2. The checkbox ────────────────────────────────────────────────────── */
