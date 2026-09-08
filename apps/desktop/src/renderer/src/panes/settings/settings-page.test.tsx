@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GROUND_ALPHA_RANGE } from "@realm/ui";
+import { DEFAULT_GROUND_ALPHA, GROUND_ALPHA_RANGE } from "@realm/ui";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AGENT_CLI_COMMANDS, DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, PAGE_REF_IDS } from "@realm/contracts";
 import { engineVersionLabel, SettingsPage } from "./SettingsPage";
@@ -393,14 +393,14 @@ describe("App tab", () => {
     const { store } = await openApp();
     const sw = screen.getByRole("switch", { name: "Translucent sidebar" });
     const slider = screen.getByRole("slider", { name: "Background transparency" });
-    expect(sw).toBeChecked();               // 82 by default, which is translucent
+    expect(sw).toBeChecked();               // the default is translucent
     fireEvent.click(sw);
     await waitFor(() => expect(store.getState().groundAlpha).toBe(100));
     expect(screen.getByRole("switch", { name: "Translucent sidebar" })).not.toBeChecked();
     // Off means opaque, and the amount is inert rather than showing a value nothing is using.
     expect(screen.getByRole("slider", { name: "Background transparency" })).toBeDisabled();
     fireEvent.click(screen.getByRole("switch", { name: "Translucent sidebar" }));
-    await waitFor(() => expect(store.getState().groundAlpha).toBe(82));
+    await waitFor(() => expect(store.getState().groundAlpha).toBe(DEFAULT_GROUND_ALPHA));
     // Dragging the amount to fully opaque turns the switch off, because that IS off.
     fireEvent.change(slider, { target: { value: "55" } });
     await waitFor(() => expect(store.getState().groundAlpha).toBe(100));
@@ -414,15 +414,19 @@ describe("App tab", () => {
     const { store, api } = await openApp();
     const slider = screen.getByRole("slider", { name: "Background transparency" });
     expect(slider).not.toBeDisabled();
-    // Stored 82% opaque shows as 18% transparent, and the thumb sits at the complement.
-    expect(screen.getByText("18%")).toBeInTheDocument();
-    // Dragging to the transparent end has to land on the OPAQUE end of the stored range.
-    fireEvent.change(slider, { target: { value: String(GROUND_ALPHA_RANGE.max) } });
-    // THE inverted-slider mutant: drop the flip on one side only. Dragging right would then make
-    // the sidebar MORE opaque while the readout says more transparent.
-    await waitFor(() => expect(store.getState().groundAlpha).toBe(GROUND_ALPHA_RANGE.min));
-    expect(screen.getByText(`${100 - GROUND_ALPHA_RANGE.min}%`)).toBeInTheDocument();
-    await waitFor(() => expect(api.calls).toContain(`setSetting:ui.groundAlpha=${GROUND_ALPHA_RANGE.min}`));
+    // The stored value is an OPACITY and the label reads as transparency, so they are complements.
+    expect(screen.getByText(`${100 - DEFAULT_GROUND_ALPHA}%`)).toBeInTheDocument();
+    /* Dragged to the slider's LOW end, which the flip makes the opaque end of the stored range.
+       Away from the default rather than toward it: the default is the transparent end now, so
+       dragging that way would leave the value where it started and assert nothing.
+
+       THE inverted-slider mutant: drop the flip on one side only. The stored value would then
+       follow the slider directly, and the sidebar would go more transparent while the readout
+       beside it counted down toward 0%. */
+    fireEvent.change(slider, { target: { value: String(GROUND_ALPHA_RANGE.min) } });
+    await waitFor(() => expect(store.getState().groundAlpha).toBe(GROUND_ALPHA_RANGE.max));
+    expect(screen.getByText(`${100 - GROUND_ALPHA_RANGE.max}%`)).toBeInTheDocument();
+    await waitFor(() => expect(api.calls).toContain(`setSetting:ui.groundAlpha=${GROUND_ALPHA_RANGE.max}`));
   });
 
   it("off macOS the control is inert and says why, rather than appearing and doing nothing", async () => {

@@ -195,6 +195,14 @@ kbd { font: 11px var(--font-mono); }
   background: var(--sidebar-ground); -webkit-app-region: drag;
 }
 .sidebar button, .sidebar input, .sidebar [data-swiper] { -webkit-app-region: no-drag; }
+/* The boundary, back as a line — on .main, because .main is the opaque side.
+   "A change of surface is the boundary" held while the sidebar painted 82% of the window ground:
+   near-opaque, and plainly a different surface from the panel beside it. The default is the floor
+   now, and at that transparency the sidebar's tone is partly the user's wallpaper — so on some
+   desktops the two surfaces meet at almost no contrast at all and the app reads as one wash.
+   Drawn as an inset shadow on the panel rather than a border on the sidebar so it renders the same
+   whatever is showing through: the line is between them, and only one of them has a fixed colour. */
+.main { box-shadow: inset 1px 0 0 var(--rl-line); }
 /* The traffic-light band, as a real row rather than .sb-top's old 40px of top padding: the toggle
    sits at its right edge, mirroring the lights at its left. Height + .sb-top's new padding sum to
    the 48px of head room the sidebar had before, so nothing below it moves. */
@@ -833,10 +841,16 @@ kbd { font: 11px var(--font-mono); }
 .group-tab-renaming { padding: 2px 4px; }
 .group-tab-renaming .rename { width: 120px; }
 .group-add { color: var(--rl-text-faint); }
+/* The row that carries the unfocus card takes the PANE BAR's metrics — same height, same right
+   padding — so the card and the pane's close button land in one column down the right edge instead
+   of two that miss each other by a couple of pixels. It is only this row: a group bar showing tabs
+   is a tab strip and keeps its tighter rhythm. */
+.group-bar:has(.group-unfocus) { min-height: 40px; padding-right: 12px; }
 /* Pushed to the far right: the way out of a focus is the one control that must be findable without
    looking, and the right edge is where it stays put as tabs come and go. */
-.group-unfocus { margin-left: auto; display: flex; align-items: center; gap: 6px; padding: 4px 10px;
-  border-radius: var(--r-ctl); font-size: 12px; color: var(--rl-text-bright); background: var(--rl-hover); }
+.group-unfocus { margin-left: auto; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
+  border-radius: calc(28px * var(--sq-ratio-ctl)); corner-shape: squircle;
+  font-size: 12px; color: var(--rl-text-bright); background: var(--rl-hover); }
 .group-unfocus:hover { background: var(--rl-active); }
 .group-unfocus-hint { color: var(--rl-text-faint); border-left: var(--hairline-w) solid var(--rl-hairline); padding-left: 8px; }
 
@@ -878,7 +892,7 @@ kbd { font: 11px var(--font-mono); }
    the top of every pane in every split, which is most of what made the app read as gridded.
 
    What still separates a pane from what is around it is unchanged and load-bearing: `.resize-handle`
-   between panes, and the sidebar's own `border-right`. Those are boundaries between surfaces. This
+   between panes, and the line between the sidebar and .main. Those are boundaries between surfaces. This
    was a boundary inside one. */
 .panel-bar { flex: none; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px 0 16px; font-size: 14px; -webkit-app-region: drag; }
 .panel-bar button, .panel-bar input { -webkit-app-region: no-drag; }
@@ -3142,10 +3156,32 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* Cards, not rows. The list used to be flush blocks of prose stacked with no separation — which on
    the Library page, where every skill carries three lines of description, is the "text splattered
    everywhere" this pass exists to end. Air and a surface separate them now; nothing draws a rule. */
-.settings-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+/* No gap: the rows mesh into one surface, and a gap is what would break the run back into cards. */
+.settings-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
+/* ── Grouped settings lists ────────────────────────────────────────────────
+   A settings row used to be a free-standing card: its own fill, its own 12px corner, 6px of air
+   under it. Ten of them made ten boxes, and the eye spent its first pass finding the boundaries
+   rather than reading the labels. They MESH now — one surface per run of adjacent rows, divided by
+   a hairline that starts where the text does, which is the grouped-list pattern every settings
+   screen worth copying uses.
+
+   Done entirely on the rows, with no wrapper class, because `.settings-row` appears under a dozen
+   different containers (`<ul>`s, `<div>`s, ScopeGroups' generated lists) and a class every one of
+   them had to adopt would be a class half of them forgot. A "run" is defined by adjacency: the
+   first row after anything that is not a row rounds its top, the last before anything that is not
+   a row rounds its bottom, and a lone row is a card again — which is right, because one row is not
+   a list. */
 .settings-row {
+  position: relative;
   display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px;
-  background: var(--rl-frame); border-radius: var(--r-panel); corner-shape: squircle;
+  background: var(--rl-frame); border-radius: 0; corner-shape: squircle;
+}
+.settings-row:not(.settings-row + .settings-row) { border-start-start-radius: var(--r-panel); border-start-end-radius: var(--r-panel); }
+.settings-row:not(:has(+ .settings-row)) { border-end-start-radius: var(--r-panel); border-end-end-radius: var(--r-panel); }
+/* The divider, inset to the label's own edge. Drawn on the LOWER row, so a run's last row can never
+   end on a rule with nothing under it. */
+.settings-row + .settings-row::before {
+  content: ""; position: absolute; inset: 0 0 auto 14px; height: var(--hairline-w); background: var(--rl-hairline);
 }
 .settings-row-main { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
 .settings-row-name { font-size: 13.5px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
@@ -3566,10 +3602,16 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .notif-cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 /* A card, not a row: separated by air and a surface rather than by a rule, which is what lets each
    one carry a body line without the list reading as a wall. */
+/* A notification is a ROW, not a card. It carried `--rl-frame` at rest, which drew a filled tile
+   behind every one of them and turned a day's feed into a wall of stacked boxes — with the unread
+   ones on a second, brighter fill on top, so the only two things worth seeing (unread, selected)
+   competed with a background that was always on. The fill is a state now: nothing at rest, the
+   list's own hover under the pointer, the list's own selection when picked. Unread keeps the
+   brightened ink and its dot, which is what it always actually read by. */
 .notif-row {
   display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 11px 12px;
   text-align: left; color: var(--rl-text-dim); font: inherit; cursor: pointer;
-  background: var(--rl-frame); border: none; border-radius: var(--r-panel); corner-shape: squircle;
+  background: transparent; border: none; border-radius: var(--r-ctl); corner-shape: squircle;
   transition: background var(--dur-press) var(--ease-out-strong), scale var(--dur-press) var(--ease-out-strong);
 }
 .notif-row:active { scale: 0.96; }
@@ -3577,7 +3619,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .notif-row[data-selected] { background: var(--rl-active); }
 /* An unread card is lifted by its SURFACE, not only by a dot — a 6px mark and a colour are the two
    things design.md will not let carry a state on their own. */
-.notif-row[data-unread] { background: var(--rl-raised); color: var(--rl-text-bright); }
+.notif-row[data-unread] { color: var(--rl-text-bright); }
 .notif-row[data-selected] .notif-title { color: var(--rl-text-bright); }
 .notif-glyph { flex: none; display: inline-flex; margin-top: 2px; color: var(--rl-text-faint); }
 .notif-row[data-unread] .notif-glyph { color: inherit; }
@@ -3610,17 +3652,28 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    Placed after the `flex: 1` above on purpose — a container query carries no extra specificity. */
 @container (max-width: 640px) { .engines-head .page-lede { flex-basis: 100%; } }
 /* ── Engines: one card per agent ─────────────────────────────────────────────────────────────── */
-.engines-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+/* Twelve engines, meshed into one list rather than stacked as twelve cards — same reasoning as
+   `.settings-row` above, and the same mechanics, on the list where the count makes it matter most. */
+.engines-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
 /* A card, not a row. Twelve engines each carrying a status, a version, a sign-in and sometimes a
    command block is more than a hairline-separated list can hold legibly. */
 .engine-card {
+  position: relative;
   display: flex; flex-direction: column; gap: 8px; padding: 14px 16px;
-  background: var(--rl-frame); border-radius: var(--r-panel); corner-shape: squircle;
+  background: var(--rl-frame); border-radius: 0; corner-shape: squircle;
+}
+.engine-card:first-child { border-start-start-radius: var(--r-panel); border-start-end-radius: var(--r-panel); }
+.engine-card:last-child { border-end-start-radius: var(--r-panel); border-end-end-radius: var(--r-panel); }
+.engine-card + .engine-card::before {
+  content: ""; position: absolute; inset: 0 0 auto 16px; height: var(--hairline-w); background: var(--rl-hairline);
 }
 /* The one that needs you is the one that stands out — a warm edge rather than a colour on the text,
    so it survives being read by someone who cannot tell the two apart. */
+/* An engine that needs something from you keeps its warning edge — as a bar down its inside edge,
+   not a ring. A ring on a meshed row would redraw the box the mesh just removed, and would have to
+   cross the dividers of the rows either side of it to do it. */
 .engine-card[data-state="missing"], .engine-card[data-state="logged_out"] {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--orange) 34%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--orange) 55%, transparent);
 }
 .engine-head { display: flex; align-items: center; gap: 10px; }
 .engine-mark { flex: none; display: inline-flex; }
@@ -3706,7 +3759,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .settings-page-pane .settings-tabs { max-width: 340px; }
 .settings-page-pane .bypass-confirm { align-self: flex-start; margin-top: 6px; text-align: left; }
 
-.scope-group { display: flex; flex-direction: column; gap: 4px; }
+.scope-group { display: flex; flex-direction: column; gap: 0; }
 .scope-group + .scope-group { margin-top: 12px; }
 .scope-group-label { margin: 0; font-size: 11px; font-weight: var(--fw-title); text-transform: uppercase; letter-spacing: .06em; color: var(--rl-text-faint); }
 .scope-move { flex: none; font-size: 11.5px; }

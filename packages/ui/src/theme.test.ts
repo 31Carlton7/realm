@@ -117,7 +117,9 @@ describe("the adjustable ground", () => {
     const root = { style: { setProperty: (k: string, v: string) => { props[k] = v; }, removeProperty: () => {} }, dataset: {} } as unknown as HTMLElement;
     applyTheme({ space: "#7c6cff", mode: "dark" }, root);
     expect(props["--ground-alpha"]).toBe(`${DEFAULT_GROUND_ALPHA}%`);
-    expect(DEFAULT_GROUND_ALPHA).toBe(82);
+    // The default is the floor: the most transparent the sidebar is allowed to be, because the
+    // floor is where its own labels stop being legible over a bright desktop.
+    expect(DEFAULT_GROUND_ALPHA).toBe(GROUND_ALPHA_RANGE.min);
   });
 
   it("clamps, so no stored or hand-edited value can make the sidebar unreadable or negative", () => {

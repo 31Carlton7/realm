@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
 import { createAppStore, findEmptySiblingOf, hasLeafIn, patchKey, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_LAST_AGENT, type DropEdge } from "./store";
 import { allItems, findLeafOfItem, firstLeaf, itemIdOfLeaf, MAX_ELEMENT_CHIPS, scanElementChips, sessionEvent, PAGE_REF_IDS, type BrowserPickedElement, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
 import { fakeApi, iconAsset, item, mcpServer, profile, session, skillRow, space, type FakeApi } from "./store.test-fakes";
+import { DEFAULT_GROUND_ALPHA } from "@realm/ui";
 
 const leaf = (id: string, itemId: string | null): Layout => ({ type: "leaf", id, itemId });
 const split = (id: string, dir: "row" | "col", children: Layout[]): Layout =>
@@ -312,7 +313,7 @@ describe("app store", () => {
   it("groundAlpha persists once per gesture, and boot clamps whatever it reads back", async () => {
     const set: string[] = []; const store = createAppStore({ ...api, setSetting: async (k, v) => { set.push(`${k}=${v}`); } });
     await store.getState().boot();
-    expect(store.getState().groundAlpha).toBe(82);
+    expect(store.getState().groundAlpha).toBe(DEFAULT_GROUND_ALPHA);
     // A drag is many calls; the window follows each one and only the last is written.
     for (const v of [80, 74, 68, 62]) await store.getState().setGroundAlpha(v);
     expect(store.getState().groundAlpha).toBe(62);
@@ -332,7 +333,7 @@ describe("app store", () => {
     };
     expect(await read(64)).toBe(64);
     expect(await read(0)).toBe(55);   // clamped on the way in, not only on the way out
-    expect(await read("very")).toBe(82);
+    expect(await read("very")).toBe(DEFAULT_GROUND_ALPHA);  // junk falls back to the default
   });
 
   it("boot reads a palette per face; garbage and an unknown name both fall back to realm", async () => {

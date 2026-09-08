@@ -49,13 +49,6 @@ export function spaceColor(hex: string, mode: Mode): string {
     : { h: h.h, s, l: Math.min(55, Math.max(35, h.l)) });
 }
 
-/** How much of the window ground the sidebar paints over the macOS material, as a percentage. 82 is
- *  the value the sidebar has always used and the one the design was calibrated on; it lives here
- *  rather than in the stylesheet so there is exactly one of it. tokens.css declares 100% for the case
- *  where this module never runs, which is a different fact — a renderer that failed to boot should
- *  show an opaque sidebar, not a see-through one. */
-export const DEFAULT_GROUND_ALPHA = 82;
-
 /** Fully opaque at the top — which is what "off" means, since covering the material is the same as
  *  not having asked for it. The floor is where the ground stops carrying the sidebar's own text:
  *  screenshotting the built app over a bright desktop, the nav labels wash out somewhere below 55%,
@@ -68,6 +61,21 @@ export const DEFAULT_GROUND_ALPHA = 82;
  *  contents, so a CDP screenshot never sees it (see transparency-live.mjs). This number came from
  *  looking. */
 export const GROUND_ALPHA_RANGE = { min: 55, max: 100 } as const;
+
+/** How much of the window ground the sidebar paints over the macOS material, as a percentage. It
+ *  lives here rather than in the stylesheet so there is exactly one of it. tokens.css declares 100%
+ *  for the case where this module never runs, which is a different fact — a renderer that failed to
+ *  boot should show an opaque sidebar, not a see-through one.
+ *
+ *  The default IS the floor now. It was 82, which is the value the design was calibrated on and is
+ *  barely see-through: over most desktops you cannot tell the material is there. Asked for "50%",
+ *  which is below GROUND_ALPHA_RANGE.min — and that floor is a measured legibility limit, not a
+ *  round number, so the answer is the most transparent value the app will let the sidebar be rather
+ *  than a floor lowered to meet a request. A user who wants less can move the slider; there is
+ *  nothing below 55 to move it to. */
+export const DEFAULT_GROUND_ALPHA = GROUND_ALPHA_RANGE.min;
+
+
 
 export const clampGroundAlpha = (pct: number): number =>
   Math.round(Math.min(GROUND_ALPHA_RANGE.max, Math.max(GROUND_ALPHA_RANGE.min, pct)));
