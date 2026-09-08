@@ -18,6 +18,9 @@ function repoFile(rel: string): string {
 /* Comments are stripped first: they sit between rules and would otherwise be swallowed into the
    following selector, and prose about `transition: all` must not read as a use of it. */
 const css = readFileSync(repoFile("apps/desktop/src/renderer/src/styles.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+/** tokens.css, whole. Two describes below read their own copy for a mode BLOCK; this one is for the
+ *  handful of scalars a stylesheet rule is written against. */
+const tokensCss = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
 
 /** Flat (non-nested) rules: `selector { body }`. Bodies containing braces — @media, @keyframes —
  *  never match as a whole, so their inner rules are picked up with their own bare selectors instead. */
@@ -370,6 +373,47 @@ describe("Ara refresh §3/§4 geometry", () => {
           `${rule.selectors.join(",")} { ${decl} }`).toContain(prop);
       }
     }
+  });
+
+  it("a chip run wears the app's chip corner, and both kinds wear the SAME one", () => {
+    /* The runs are painted at 3px, which is the corner of an inline code mark — and one of them IS
+       an inline code mark (`.ch-code`), which is why it keeps it. A picked element is not code, it
+       is a control the user pointed at, and it read as a snippet.
+
+       Stated concentrically, because a run may carry no padding (`draft-format.ts`): the 2px
+       box-shadow is the chip's visible edge, so the fill's radius is the chip corner LESS that
+       spread and the outline lands on `--r-chip`.
+
+       THE mutant: give one of the two its own number. They are the same chip — the test below says
+       so about their hover — and two chips that lift identically but round differently is worse than
+       either treatment on its own. */
+    const radius = "border-radius: calc(var(--r-chip) - 2px)";
+    for (const sel of [".ch-element", ".ch-mention"]) expect(bodiesFor(sel).join(" "), sel).toContain(radius);
+    // The code mark stays a code mark. §"Shape" gives 2px to ticks, rails and code marks.
+    expect(bodiesFor(".ch-code").join(" ")).toContain("border-radius: 3px");
+  });
+
+  it("a chip is the same chip once the message is SENT — one treatment, no per-kind fill", () => {
+    /* `.msg-chip[data-kind="element"]` used to take `--inset` under bright ink. The bubble it lands
+       in is `--rl-raised`, one step away: 1.05:1, which is a chip that exists only as text with a
+       smudge behind it — "hard to even contrast it or see it in general".
+       The accent tint is what separates a named thing from the prose around it, and it holds on both
+       faces (measured on the shipped palette: the fill stands 1.24:1 off the dark bubble and 1.19:1
+       off the light one, against 1.05 and 1.06 before, and the accent ink on it measures 4.35:1 dark
+       / 3.05:1 light — the same pairing the mention chip and the composer's own chips already ship,
+       and above the 2.9 floor `--rl-accent` is derived against).
+       THE mutant: re-add a `[data-kind]` rule with a fill in it. */
+    const chip = bodiesFor(".msg-chip").join(" ");
+    expect(chip).toContain("color: var(--rl-accent)");
+    expect(chip).toContain("background: color-mix(in srgb, var(--rl-accent) 14%, transparent)");
+    // The composer paints the same pair, so what you typed and what you sent are one object.
+    expect(bodiesFor(".ch-element").join(" ")).toContain("color: var(--rl-accent)");
+    expect(bodiesFor(".ch-element").join(" ")).toContain("var(--rl-accent) 14%");
+    const variants = RULES.flatMap((r) => r.selectors.map((sel) => ({ sel, body: r.body })))
+      .filter(({ sel }) => /^\.msg-chip\[/.test(sel))
+      .filter(({ body }) => /(?:^|[;\s])(?:background(?:-color)?|color):/.test(body))
+      .map(({ sel }) => sel);
+    expect(variants).toEqual([]);
   });
 
   it("a hovered chip is the same chip lifted, never a new shape", () => {
@@ -1104,6 +1148,95 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(search).toContain("font-size: 13px");
     expect(bodiesFor(".item").join(" ")).toContain("border-radius: var(--r-ctl)");
     expect(bodiesFor(".group-label").join(" ")).toContain("font-size: 12.5px");
+  });
+
+  it("a painted control rounds the EXPONENT down, because its radius has nowhere left to go", () => {
+    /* The complaint this answers is "the buttons are still slightly too square", and the obvious
+       lever is the wrong one. `--sq-ratio-ctl` is 0.48 — a radius may not pass half the short side,
+       so a 30px button is already spending 96% of the room it has, and the 0.6px between there and
+       0.5 is both invisible and a literal pill for every control that renders the circular
+       FALLBACK (`.icon-btn`, `.filter-chip`, `.btn-quiet`, the settings fields…).
+
+       What was left to win is the curve. A superellipse is a corner plus the flat run beside it; a
+       surface's 36px corner is a third of its height and has a run, a control's corner is the whole
+       of its short side and has none, so n = 4 there renders as squareness and nothing else.
+
+       THE mutant: drop `--sq-n` from the painted-control block. The buttons go back to the surface
+       exponent and nothing else in the suite notices, because jsdom cannot see a painted curve —
+       squircle-live.mjs measures the corner itself. */
+    expect(tokensCss).toMatch(/--sq-n-ctl: [\d.]+;/);
+    const n = Number(/--sq-n-ctl: ([\d.]+);/.exec(tokensCss)![1]);
+    // 2 is a circle, and a circle at this ratio is a pill — a shape --r-pill already means something
+    // by. 4 is the surfaces' own, which is where this started.
+    expect(n).toBeGreaterThan(2);
+    expect(n).toBeLessThan(4);
+    // The ratio stays clear of half the box for the fallback's sake, which is the reason the
+    // exponent had to be the lever at all.
+    expect(Number(/--sq-ratio-ctl: ([\d.]+);/.exec(tokensCss)![1])).toBeLessThan(0.5);
+    // Every painted CONTROL takes it — both the block of them and the search field, which is one.
+    for (const sel of [":root[data-squircle] .btn", ":root[data-squircle] .search", ":root[data-squircle] .search-field"])
+      expect(bodiesFor(sel).join(" "), sel).toContain("--sq-n: var(--sq-n-ctl)");
+    // …and no SURFACE does. The signature is the 36px corner, and it is the one place the shape has
+    // the run it needs to read as smooth rather than as blunt.
+    for (const sel of [".composer", ".palette", ".md-code", ".install-card", ".commit-card"])
+      expect(bodiesFor(`:root[data-squircle] ${sel}`).join(" "), sel).not.toContain("--sq-n");
+  });
+
+  it("a painted control's hover FADES — `background-color` has nothing to animate when the background is a paint", () => {
+    /* The bug: under the gate a painted control's `background` is `paint(rl-squircle)`, which does
+       not interpolate, so the §6 hover declaration animated a property that never changed and every
+       painted fill snapped while its unpainted neighbours faded.
+       THE mutant: delete `--sq-fill` from either list below. Both rules carry it, because a control
+       must have ONE fill timing however the fill is drawn.
+       The second half is the registration: an unregistered custom property computes to a token
+       stream, and token streams do not interpolate — so `--sq-fill` transitioning at all depends on
+       theme/squircle.ts declaring it `<color>`. squircle-live.mjs measures the composited midpoint. */
+    for (const sel of [".btn", ".ghost-chip", ".palette-opt"]) {
+      expect(bodiesFor(sel).join(" "), sel).toContain(`--sq-fill ${dur("--dur-hover")} ease`);
+    }
+    const registrar = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/squircle.ts"), "utf8");
+    expect(registrar).toContain('{ name: "--sq-fill", syntax: "<color>"');
+  });
+
+  it("the two search bars in the app are one control — same height, same corner, same painter", () => {
+    /* They were 34px and 32px, one painted and one not, so the sidebar's read as a rounded rect and
+       the Library's as a pill. A corner stated as a PROPORTION of height cannot be consistent across
+       two controls that disagree about their height, and a superellipse cannot be consistent with a
+       circular arc at all — so both halves had to be settled, not just the number.
+       THE mutant: change either `--search-h`. */
+    for (const sel of [".search", ".search-field"]) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toContain("--search-h: 34px");
+      expect(body, sel).toContain("border-radius: calc(var(--search-h) * var(--sq-ratio-ctl))");
+      expect(body, sel).toContain("corner-shape: squircle");
+      const painted = bodiesFor(`:root[data-squircle] ${sel}`).join(" ");
+      expect(painted, sel).toContain("--sq-radius-top: calc(var(--search-h) * var(--sq-ratio-ctl))");
+      expect(painted, sel).toContain("--sq-n: var(--sq-n-ctl)");
+    }
+    // The field's focus ring goes to the PAINTER. Under the gate its border box is a square, so a
+    // box-shadow ring would trace one around a curve the worklet drew correctly underneath.
+    const focus = bodiesFor(":root[data-squircle] .search-field:focus").join(" ");
+    expect(focus).toContain("--sq-ring: color-mix(in srgb, var(--rl-accent) 35%, transparent)");
+    expect(focus).toContain("box-shadow: none");
+  });
+
+  it("the Skills tab types into the Library's search field, not a bar of its own", () => {
+    /* What it had was a `.skills-filter` box with a magnifier inside it and an `<input>` inside
+       that — and `.field input` (0,3,1) out-specified the input's own class, so the form's plain
+       text-field rule drew a second bordered box within the first. A search bar inside a search bar,
+       which is what it looked like.
+       THE mutant: drop `:not(.search-field)` from the `.field input` rule and the inner box returns
+       wherever a search field sits in a form. */
+    // The row and the toggle survive — they are the two controls standing apart. The box, its
+    // magnifier and its inner input do not, and a rule with no user is how one comes back.
+    expect(css).not.toMatch(/\.skills-filter(?!-row|-toggle)/);
+    const panel = readFileSync(repoFile("apps/desktop/src/renderer/src/components/settings/SkillsPanel.tsx"), "utf8");
+    expect(panel).toContain('className="search-field" type="search"');
+    expect(panel).not.toContain("skills-filter-input");
+    // The toggle beside it is still its own control, and still outside the field's box.
+    expect(panel).toContain('className="skills-filter-toggle"');
+    const field = RULES.find((r) => r.selectors.some((sel) => sel.startsWith(".field input")) && r.body.includes("height: 30px"));
+    expect(field?.selectors.find((x) => x.startsWith(".field input"))).toContain(":not(.search-field)");
   });
 
   it("buttons are BUI Button's tiers: secondary = surface on shadow-btn stepping to inset; primary = accent with the filled highlight and accent-ink hover", () => {

@@ -138,7 +138,10 @@ describe("the skills panel", () => {
     await store.getState().boot();
     render(<StoreContext.Provider value={store}><SkillsPanel spaceId="s1" /></StoreContext.Provider>);
     await screen.findByText("mac");
-    fireEvent.change(screen.getByRole("textbox", { name: "Search skills" }), { target: { value: "apple" } });
+    // `searchbox`, not `textbox`: this is the Library's `.search-field` — an `<input type="search">` —
+    // rather than the tab's own filter box, and the role follows the type. Asserting the role is what
+    // notices if it is ever swapped back for something that only looks like a search field.
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search skills" }), { target: { value: "apple" } });
     expect(screen.queryByText("mac")).toBeNull();
     expect(screen.getByRole("switch", { name: "Skill agents.apple-design in this space" })).toBeInTheDocument();
     // One of the two is enabled (the library row); the discovered one is not.

@@ -378,6 +378,96 @@ async function main() {
     document.documentElement.style.removeProperty("--card-ring");
     return true; })()`);
 
+  /* ── the CONTROL corner: a flatter superellipse than the surfaces wear ───
+     `--sq-ratio-ctl` is 0.48 and a radius may not pass half the short side, so a 30px button spends
+     96% of the room it has — the squareness "the buttons are still slightly too square" was
+     describing is the CURVE's, not the number's, and the lever is the exponent. That claim is
+     geometric and this is the only place it can be checked: jsdom sees a custom property, not a path.
+
+     Two probes rather than a button off the pane: the exponent is a property of the painter, and a
+     synthetic pair pins it without depending on which controls a given view happens to show. The
+     wiring — that a real `.btn` reaches the painter with the control exponent rather than the
+     surfaces' 4 — is the line after them. Measured as a DIFFERENCE, the way the under-strip and the
+     bubble are: antialiasing biases both counts the same way and cancels. */
+  const probeSetup = `(() => {
+    const n = getComputedStyle(document.documentElement).getPropertyValue("--sq-n-ctl").trim();
+    const make = (id, top, exponent) => {
+      document.getElementById(id)?.remove();
+      const d = document.createElement("div");
+      d.id = id;
+      d.style.cssText = "position:fixed;left:120px;top:" + top + "px;width:160px;height:30px;z-index:9999;"
+        + "border-radius:0;background:paint(rl-squircle);--sq-radius-top:14.4px;--sq-radius-bottom:14.4px;"
+        + "--sq-fill:#ffffff;--sq-n:" + exponent + ";";
+      document.body.appendChild(d);
+    };
+    make("sq-probe-surface", 200, "4");
+    make("sq-probe-control", 260, n);
+    document.getElementById("sq-probe-btn")?.remove();
+    const b = document.createElement("button");
+    b.className = "btn"; b.id = "sq-probe-btn"; b.textContent = "probe";
+    // Wide, so the fill can be sampled clear of both the corner and the centred label.
+    b.style.cssText = "position:fixed;left:120px;top:320px;width:200px;z-index:9999;";
+    document.body.appendChild(b);
+    return { n, btn: getComputedStyle(b).getPropertyValue("--sq-n").trim() };
+  })()`;
+  const probes = await evalIn(c, probeSetup);
+  await sleep(300);
+  const probeShot = await shotOf(c);
+  const surfaceCorner = await evalIn(c, `__live.cornerFill(${JSON.stringify(probeShot)}, "#sq-probe-surface", "tl")`);
+  const controlCorner = await evalIn(c, `__live.cornerFill(${JSON.stringify(probeShot)}, "#sq-probe-control", "tl")`);
+  check("the painter honours --sq-n: the control exponent rounds the corner off more than the surfaces' 4",
+    !surfaceCorner.error && !controlCorner.error
+      && controlCorner.fraction < surfaceCorner.fraction - 0.02
+      && controlCorner.fraction > CIRCLE + 0.02,
+    { atFour: surfaceCorner.fraction ?? surfaceCorner, atControl: controlCorner.fraction ?? controlCorner, circle: +CIRCLE.toFixed(3), n: probes.n });
+  check("a real .btn reaches the painter with the control exponent, not the surfaces'",
+    probes.btn === probes.n, probes);
+
+  /* ── the painted fill ANIMATES ───────────────────────────────────────────
+     Under the gate a control's `background` is `paint(rl-squircle)`, which does not interpolate — so
+     §6's `background-color` hover transition animated a property that never changed and every
+     painted fill snapped while its unpainted neighbours faded. The fix transitions `--sq-fill`,
+     which works only because theme/squircle.ts registers it `<color>`; an unregistered custom
+     property computes to a token stream, and token streams do not interpolate.
+
+     Stretched to four seconds and sampled in the middle, so the window is a second wide rather than
+     a frame. Its mutant is the same button with `--sq-fill` struck from the transition list: the
+     sample then has to be AT the destination, because nothing is tweening. */
+  const fillProbe = (transitionProps, ms) => `(() => {
+    const b = document.getElementById("sq-probe-btn");
+    b.style.transitionProperty = "${transitionProps}";
+    b.style.transitionDuration = "${ms}ms";
+    b.style.transitionTimingFunction = "linear";
+    b.style.setProperty("--fill", "#ffffff");
+    return true;
+  })()`;
+  const probeTone = async (b64) => evalIn(c, `(async () => {
+    const s = await __live.sampler(${JSON.stringify(b64)});
+    const b = document.getElementById("sq-probe-btn").getBoundingClientRect();
+    return s.tone(b.left + 22, b.top + 5, b.left + 52, b.bottom - 5);
+  })()`);
+  const resetFill = `(() => { const b = document.getElementById("sq-probe-btn");
+    b.style.removeProperty("--fill"); b.style.transitionProperty = "none"; return true; })()`;
+  await evalIn(c, resetFill);
+  await sleep(200);
+  const fillRest = await probeTone(await shotOf(c));
+  await evalIn(c, fillProbe("--sq-fill", 4000));
+  await sleep(2000);
+  const fillMid = await probeTone(await shotOf(c));
+  await sleep(2600);
+  const fillEnd = await probeTone(await shotOf(c));
+  check("a painted control's fill FADES — --sq-fill interpolates and the worklet repaints as it does",
+    fillMid > fillRest + 8 && fillMid < fillEnd - 8,
+    { rest: Math.round(fillRest), mid: Math.round(fillMid), end: Math.round(fillEnd) });
+  await evalIn(c, resetFill);
+  await sleep(200);
+  await evalIn(c, fillProbe("background-color, color, transform", 4000));
+  await sleep(2000);
+  const snapMid = await probeTone(await shotOf(c));
+  check("the mutant snaps: with --sq-fill off the list, `background-color` has nothing to animate",
+    Math.abs(snapMid - fillEnd) < 8, { mid: Math.round(snapMid), end: Math.round(fillEnd) });
+  await evalIn(c, `(() => { for (const id of ["sq-probe-surface", "sq-probe-control", "sq-probe-btn"]) document.getElementById(id)?.remove(); return true; })()`);
+
   for (const [tag, data] of [["squircle", restShot], ["focused", focusShot], ["fallback", fallbackShot]]) {
     const out = path.join(os.tmpdir(), `realm-squircle-${tag}.png`);
     fs.writeFileSync(out, Buffer.from(data, "base64"));

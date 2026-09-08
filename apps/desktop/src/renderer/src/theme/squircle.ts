@@ -23,6 +23,9 @@ const PAINT_INPUTS: readonly PropertyDefinition[] = [
   { name: "--sq-ring-w", syntax: "<length>", initialValue: "0px", inherits: false },
   { name: "--sq-radius-top", syntax: "<length>", initialValue: "0px", inherits: false },
   { name: "--sq-radius-bottom", syntax: "<length>", initialValue: "0px", inherits: false },
+  /* The superellipse exponent. Its initial value is the signature 4, so every surface that says
+   * nothing keeps the corner it had; only the controls that opt down (`--sq-n-ctl`) change. */
+  { name: "--sq-n", syntax: "<number>", initialValue: "4", inherits: false },
 ];
 
 export async function enableSquircles(root: HTMLElement = document.documentElement): Promise<boolean> {

@@ -69,13 +69,12 @@ export function SkillsPanel({ spaceId }: { spaceId: string }) {
         ) : (
           <>
             {/* The field and the filter are two controls, so they stand apart. Sharing one bordered
-                box made the toggle read as something INSIDE the search rather than beside it. */}
+                box made the toggle read as something INSIDE the search rather than beside it.
+                The field is the Library Files tab's `.search-field`, not a bar of this tab's own:
+                two tabs of one page asking the same question look the same asking it. */}
             <div className="skills-filter-row">
-              <div className="skills-filter">
-                <Icon name="search" size={14} className="skills-filter-glyph" />
-                <input type="text" className="skills-filter-input" placeholder={`Search ${all.length} skills…`}
-                  aria-label="Search skills" value={query} onChange={(e) => setQuery(e.target.value)} />
-              </div>
+              <input className="search-field" type="search" placeholder={`Search ${all.length} skills…`}
+                aria-label="Search skills" value={query} onChange={(e) => setQuery(e.target.value)} />
               <label className="skills-filter-toggle">
                 <input type="checkbox" className="checkbox" checked={onlyEnabled} onChange={(e) => setOnlyEnabled(e.target.checked)} />
                 On only ({enabledCount})

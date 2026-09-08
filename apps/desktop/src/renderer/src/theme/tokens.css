@@ -402,8 +402,27 @@ a {
    * painted 30px button at 12.6 read as square next to an unpainted one at the same number. 0.48
    * puts that button at 14.4 and a 34px control at 16.3; 0.5 would be a pill, which is a different
    * shape with a different meaning in this app (see --r-pill).
+   *
+   * It is also the CEILING, and that is worth knowing before reaching for this number again: a
+   * radius may not pass half the short side, so 0.48 already spends 96% of the room a 30px control
+   * has. A button that still reads square cannot be answered here — 0.5 buys six tenths of a pixel
+   * and turns every control that renders the circular FALLBACK into a literal pill. The corner that
+   * is left to win is the curve's, not the radius's, which is what --sq-n-ctl below is for.
    */
   --sq-ratio-ctl: 0.48;
+  /* The superellipse exponent a painted CONTROL is drawn with, against the 4 the signature surfaces
+   * keep (public/squircle-paint.js registers 4 as the initial value of --sq-n).
+   *
+   * A superellipse is a corner plus the flat run beside it, and the run is what makes the corner
+   * read as a smooth departure from an edge rather than as a blunt one. A surface has that run: the
+   * prompter's 36px corner is a third of its height. A control does not — at --sq-ratio-ctl the
+   * corner IS the whole short side, so at n = 4 nothing is left of the shape but its squareness,
+   * which is exactly what the button looked like. Both Figma and iOS taper corner smoothing as the
+   * radius approaches half the box for this reason.
+   *
+   * 3, not 2. Two is a circle, and a circle at this ratio is a pill — the shape --r-pill means
+   * something by. Three halves the distance to it and keeps a visible flat top and bottom. */
+  --sq-n-ctl: 3;
   --dur-drag: 80ms;   /* the drop target appearing mid-drag: fast enough not to read as motion */
   --dur-hover: 100ms; /* a fill or an ink step answering the pointer */
   --dur-press: 120ms; /* a control resolving inside the gesture that caused it — the .97 press, the switch throw */

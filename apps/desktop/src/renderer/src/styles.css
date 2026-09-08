@@ -605,23 +605,14 @@ kbd { font: 11px var(--font-mono); }
 .skill-picker-manage:hover { color: var(--rl-text-bright); }
 
 /* ── Skills settings: search/filter bar and the per-source groups ── */
-/* The same treatment the sidebar's search field takes: the prompter's surface and curve at this
-   control's own height, with no border. It was a bordered field inside a card inside a page — three
-   nested outlines to say "you can type here". */
+/* The row is the whole rule now: the field is `.search-field`, the SAME control the Library's Files
+   tab types into, so the two tabs of one page do not each have their own idea of a search bar.
+   What was here before was a box with a magnifier glyph inside it, and inside THAT an input which
+   `.field input` was drawing its own bordered field around — a search bar within a search bar, which
+   is what it looked like. A search input needs no glyph to say what it is; its placeholder does. */
 /* The field and the filter are two controls, so they look like two controls. They shared one
    bordered box, which made the toggle read as something inside the search rather than beside it. */
 .skills-filter-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-.skills-filter {
-  --search-h: 34px;
-  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
-  height: var(--search-h); padding: 0 12px;
-  border: none; border-radius: calc(var(--search-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
-  background: var(--field); box-shadow: none;
-}
-.skills-filter:focus-within { box-shadow: 0 0 0 var(--hairline-w) var(--rl-line-strong); }
-.skills-filter-glyph { flex: none; }
-.skills-filter-input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 12.5px; color: var(--rl-text-bright); }
-.skills-filter-input::placeholder { color: var(--rl-text-faint); }
 /* Its own control, outside the field. Whitespace and a hit area of its own — no box, because a
    second box beside a search box is two search boxes as far as the eye is concerned. */
 .skills-filter-toggle {
@@ -1067,19 +1058,22 @@ button.panel-title:hover { background: var(--rl-hover); }
 .form { display: flex; flex-direction: column; gap: 12px; }
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field > span { font-size: 12px; color: var(--rl-text-dim); }
-/* `:not(.switch):not(.checkbox)` is load-bearing, not tidiness. This rule is about TEXT fields —
-   height, padding, a hairline and a field fill — and `.field input` (0,1,1) out-specifies `.switch`
-   (0,1,0), so a switch inside a field was silently rendered as a 30px-tall rounded rectangle with
-   the control radius on it. That is the "weird square" it looked like: not a switch design at all,
-   a text input wearing a knob. It got worse, not different, when the control radius went up. */
-.field input:not(.switch):not(.checkbox), .field select { height: 30px; padding: 0 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
+/* `:not(.switch):not(.checkbox):not(.search-field)` is load-bearing, not tidiness. This rule is
+   about the PLAIN text field a form is built out of — height, padding, a hairline and a field fill —
+   and `.field input` (0,1,1) out-specifies every one-class control (0,1,0), so an input that is
+   already something else got this rule's box drawn around it. A switch inside a field came out as a
+   30px rounded rectangle with the control radius on it — a text input wearing a knob. The search
+   field came out as a bordered box inside the search field, which is the "search bar within a search
+   bar" the Skills tab showed: the same failure, wearing the same rule. Every exclusion here names a
+   control that owns its own skin. */
+.field input:not(.switch):not(.checkbox):not(.search-field), .field select { height: 30px; padding: 0 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
 /* A multi-line field is the same control with room: same ring, same ground, same radius — only the
    height and the wrapping differ, so a form mixing the two reads as one form. */
 .field textarea { padding: 7px 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field);
   color: var(--rl-text-bright); outline: none; font: inherit; line-height: 1.5; resize: vertical; }
 .field textarea:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); outline: none; }
 /* One focus-ring formula for every text-entry surface (§3): neutral ink at 35%, 2px. */
-.field input:not(.switch):not(.checkbox):focus, .field select:focus, .rename:focus, .hex:focus {
+.field input:not(.switch):not(.checkbox):not(.search-field):focus, .field select:focus, .rename:focus, .hex:focus {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); outline: none; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .profile-add-row { display: flex; gap: 6px; } .profile-add-row input { flex: 1; min-width: 0; }
@@ -1392,7 +1386,11 @@ button.panel-title:hover { background: var(--rl-hover); }
 .msg-chip { display: inline-flex; align-items: center; vertical-align: baseline; line-height: 1;
   padding: 2px 6px; border-radius: var(--r-ctl); corner-shape: squircle; font-size: 0.88em;
   color: var(--rl-accent); background: color-mix(in srgb, var(--rl-accent) 14%, transparent); }
-.msg-chip[data-kind="element"] { color: var(--rl-text-bright); background: var(--inset); }
+/* No `[data-kind]` variant. A picked element and a skill mention are the same chip in the composer —
+   told apart by what they SAY — and they have to stay the same chip a moment later, in the log. The
+   element chip had `--inset` under bright ink, which is one step off the bubble's own `raised` fill:
+   on the surface it actually lands on, that is a dark box on a dark box, legible only as text with a
+   faint smudge behind it. The accent tint is what makes a chip read as a chip on either face. */
 /* The sent message wears the prompter's corner, one rung down. It is the same object a moment later —
    what you typed, now in the log — and giving it the composer's continuous curve is what makes the
    send read as a move rather than a hand-off between two differently-shaped boxes. Declarative
@@ -2138,14 +2136,19 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    change, and the caret under this layer is the textarea's. `box-shadow` with a spread and no offset
    is the whole trick: it paints a pill OUTSIDE the run's box without the run occupying a pixel more
    than the glyphs do, so the two layers stay character-for-character aligned. */
-.ch-mention { color: var(--rl-accent); background: color-mix(in srgb, var(--rl-accent) 14%, transparent); border-radius: 3px;
+/* The corner is stated once for both chips and it is stated CONCENTRICALLY: the 2px box-shadow is
+   the chip's visible edge — a run may not carry padding (draft-format.ts) — so the painted outline
+   lands `--r-chip` out from the text while the fill under it is that radius less the spread. At 3px
+   the outline came out at 5 on a 23px chip, which is the corner of an inline code mark; a chip the
+   user pointed at in a browser pane should read as a control, not as a snippet. */
+.ch-mention { color: var(--rl-accent); background: color-mix(in srgb, var(--rl-accent) 14%, transparent); border-radius: calc(var(--r-chip) - 2px);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 14%, transparent); }
 /* A picked element wears the SAME chip as a skill mention. It used to be a grey inset box behind a
    hairline, which in a prompter that already renders inline code that way read as code rather than
    as a chip — and it is not code, it is a thing the user pointed at and is about to send. The two
    are told apart by what they SAY (@[button#submit] against @realm:skill), which is the difference
    that matters, rather than by two chip treatments a reader has to learn. */
-.ch-element { color: var(--rl-accent); background: color-mix(in srgb, var(--rl-accent) 14%, transparent); border-radius: 3px;
+.ch-element { color: var(--rl-accent); background: color-mix(in srgb, var(--rl-accent) 14%, transparent); border-radius: calc(var(--r-chip) - 2px);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 14%, transparent); }
 /* Declared but no longer resolvable: the `@` goes as plain text. Same warning tone as the note the
    card already shows under it, so the two read as one statement about the same token. */
@@ -2420,7 +2423,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
      several times wider than the two curves ever diverge, and a mask — the obvious alternative to
      painting the fill — would have clipped it away entirely. */
 :root[data-squircle] .search,
-:root[data-squircle] .skills-filter,
+:root[data-squircle] .search-field,
 :root[data-squircle] .palette,
 :root[data-squircle] .md-code,
 :root[data-squircle] .diff-review,
@@ -2466,6 +2469,10 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   --sq-ring-w: 0;
   --sq-radius-top: calc(var(--btn-h) * var(--sq-ratio-ctl));
   --sq-radius-bottom: calc(var(--btn-h) * var(--sq-ratio-ctl));
+  /* A flatter superellipse than the surfaces wear. The radius above is already 96% of the most a
+     30px control can take, so the squareness the eye was still reading was the CURVE's, not the
+     number's — see --sq-n-ctl. */
+  --sq-n: var(--sq-n-ctl);
 }
 /* The button's shadow, split the way .palette's was: its two layers were a hairline ring and a 1px
    drop, and both were drawn on the border box — which is a square here. The ring goes to the
@@ -2558,16 +2565,26 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   --sq-fill: var(--surface); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
   --sq-radius-top: calc(var(--search-h) * var(--sq-ratio-ctl));
   --sq-radius-bottom: calc(var(--search-h) * var(--sq-ratio-ctl));
+  --sq-n: var(--sq-n-ctl);
   box-shadow: none;
 }
 :root[data-squircle] .search:hover { --sq-ring: var(--line-strong); }
-:root[data-squircle] .skills-filter {
-  --sq-fill: var(--surface); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
+/* The typed field, drawn as the same object: same height, same radius, same exponent, so the two
+   search bars in this app are one shape rather than two numbers that happen to be close. It was the
+   only one of the pair the worklet did not draw, which is why the sidebar's read as a rounded rect
+   and the Library's as a pill. Its focus ring moves to the painter for the usual reason — the border
+   box under a painted corner is a SQUARE, so a box-shadow ring would trace one. */
+:root[data-squircle] .search-field {
+  --sq-fill: var(--field);
   --sq-radius-top: calc(var(--search-h) * var(--sq-ratio-ctl));
   --sq-radius-bottom: calc(var(--search-h) * var(--sq-ratio-ctl));
+  --sq-n: var(--sq-n-ctl);
   box-shadow: none;
 }
-:root[data-squircle] .skills-filter:focus-within { --sq-ring: var(--line-strong); }
+:root[data-squircle] .search-field:focus {
+  --sq-ring: color-mix(in srgb, var(--rl-accent) 35%, transparent); --sq-ring-w: 2px;
+  box-shadow: none;
+}
 /*
  * Buttons declare the curve but are NOT painted, and that is deliberate.
  *
@@ -2777,17 +2794,25 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   opacity: 0; transform: scale(.25); filter: blur(4px); }
 
 /* Hover fills (§6): 100ms `ease`, background (and the text colour riding along with it) only —
-   never `all`, never geometry. */
+   never `all`, never geometry.
+   `--sq-fill` is the same declaration for the controls the worklet draws. Under `data-squircle` a
+   painted control's `background` is `paint(rl-squircle)` — a value that does not interpolate — so
+   `background-color` had nothing to animate and every one of those fills SNAPPED while its
+   unpainted neighbours faded. The property is registered `<color>` (theme/squircle.ts), which is
+   what makes it animatable at all: an unregistered custom property computes to a token stream and
+   token streams do not interpolate. It rides these two rules rather than a third of its own so a
+   control's fill has ONE timing however the fill is drawn; on the rows that never paint it names a
+   property that never changes, which costs nothing. */
 .item-row, .item-close, .item-shelf, .icon-btn, .btn, .ghost-chip, .tool-row, .tool-group-row, .tool-copy, .msg-action,
 .delegation-row, .delegation-item,
 .strip-space, .strip-profile, .space-card, .palette-opt, .permission-option, .menu [role^="menuitem"],
 .question-option, .question-skip {
-  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease;
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease, --sq-fill var(--dur-hover) ease;
 }
 /* Press (§6): 120ms to scale .97 on every pressable — buttons, chips, send, permission options.
    Full-width rows (.tool-row, .item-row) are left out: a wide surface shrinking reads as a glitch. */
 .btn, .icon-btn, .ghost-chip, .composer-send, .permission-option, .tool-copy, .msg-action {
-  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease, transform var(--dur-press) var(--ease-out-strong);
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease, --sq-fill var(--dur-hover) ease, transform var(--dur-press) var(--ease-out-strong);
 }
 .btn:active:not(:disabled), .icon-btn:active:not(:disabled), .ghost-chip:active:not(:disabled),
 .composer-send:active:not(:disabled),
@@ -3516,10 +3541,14 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    search sits first and full width because it is the coarser instrument — a user with forty
    schedules types before they click — and the chips read as a segmented set below it. */
 .page-filters { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+/* `--search-h`, and the same 34 the sidebar's `.search` sets, because the two ARE one control in two
+   places: the corner is a proportion of the height, so a field two pixels shorter than its sibling
+   wears a visibly different curve for no reason a user could name. Sharing the custom property is
+   what keeps them from drifting again. */
 .search-field {
-  --btn-h: 32px;
-  width: 100%; height: var(--btn-h); padding: 0 12px;
-  border: none; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
+  --search-h: 34px;
+  width: 100%; min-width: 0; height: var(--search-h); padding: 0 12px;
+  border: none; border-radius: calc(var(--search-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
   background: var(--field); color: var(--rl-text-bright); font: inherit; font-size: 13px; outline: none;
 }
 .search-field::placeholder { color: var(--rl-text-faint); }
