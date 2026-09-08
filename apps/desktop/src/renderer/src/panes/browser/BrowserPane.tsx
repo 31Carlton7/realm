@@ -122,7 +122,11 @@ function useElementPicker(browserId: string, store: StoreApi<AppState> | null) {
     // stays lit over a view that is not picking — the one failure this whole path exists to avoid.
     let picked: BrowserPickedElement | null = null;
     try {
-      picked = await getBrowserBridges().host.pickElement(browserId);
+      // The overlay wears the user's own accent. Read off the live document rather than from the
+      // theme store, because the value that matters is the one the page will actually be painted
+      // beside — the same resolved colour every other surface in the window is using.
+      const accent = getComputedStyle(document.documentElement).getPropertyValue("--rl-accent").trim();
+      picked = await getBrowserBridges().host.pickElement(browserId, accent || undefined);
     } catch {
       setNote("Realm could not take control of this page — is DevTools open on it?");
     } finally {
@@ -144,6 +148,23 @@ function useElementPicker(browserId: string, store: StoreApi<AppState> | null) {
       : `Added ${label} to ${target.title}.`);
   };
 
+  /*
+   * The note goes away on its own.
+   *
+   * It was a banner across the chrome with a manual dismiss, and it stayed until you closed it —
+   * which for "Added button#submit to Refactor the parser" is a receipt for something you have
+   * already watched happen. A toast is the right shape.
+   *
+   * It lives in the browser CHROME rather than floating over the pane, and that is not a
+   * compromise: a native `WebContentsView` composites over anything in its rectangle (W2's
+   * no-overlay rule), so a toast placed over the view is a toast nobody sees.
+   */
+  useEffect(() => {
+    if (!note) return;
+    const t = setTimeout(() => setNote(null), PICK_NOTE_MS);
+    return () => clearTimeout(t);
+  }, [note]);
+
   return { armed, note, toggle, clearNote: () => setNote(null) };
 }
 
@@ -157,6 +178,10 @@ function useElementPicker(browserId: string, store: StoreApi<AppState> | null) {
  * throttle), and during pane drags the view hides outright rather than visibly trailing the
  * placeholder (the research's bounds-lag mitigation; drags are on the do-NOT-animate list).
  */
+/** How long the pick receipt stays up. Long enough to read a session name, short enough that it is
+ *  gone before you look for the thing it is covering. */
+export const PICK_NOTE_MS = 3200;
+
 export function BrowserPane({ item, visible, focused }: PaneProps) {
   const browserId = item.refId;
   const [state, setState] = useState<BrowserViewState | null>(null);
@@ -377,12 +402,9 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
         </div>
       )}
       {picker.note && (
-        <div className="browser-notice" role="status">
+        <div className="browser-toast" role="status">
           <Icon name="target" size={12} />
-          <span className="browser-notice-text">{picker.note}</span>
-          <button type="button" className="icon-btn" aria-label="Dismiss" onClick={picker.clearNote}>
-            <Icon name="close" size={12} />
-          </button>
+          <span className="browser-toast-text">{picker.note}</span>
         </div>
       )}
       <div className="browser-view-host" ref={hostRef}>

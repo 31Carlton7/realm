@@ -137,7 +137,10 @@ contextBridge.exposeInMainWorld("realm", {
       return () => ipcRenderer.removeListener("realm:browser-state", handler);
     },
     /** Arms the element picker; unlike every other member here, it stays pending until the user acts. */
-    pickElement: (id: string): Promise<BrowserPickedElement | null> => ipcRenderer.invoke("browser:pick-element", id),
+    /** `accent` is the user's theme colour, so the picker's overlay is the colour of the app it
+     *  belongs to rather than a fixed blue. Optional — main falls back to Realm's default. */
+    pickElement: (id: string, accent?: string): Promise<BrowserPickedElement | null> =>
+      ipcRenderer.invoke("browser:pick-element", id, accent),
     cancelPick: (id: string): Promise<void> => ipcRenderer.invoke("browser:cancel-pick", id),
     /**
      * Plan 23 W4 — downloads the pane blocked, and the user's own consent to fetch one.

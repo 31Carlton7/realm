@@ -222,7 +222,7 @@ ipcMain.on("browser:set-bounds", (_e, id: string, rect: ViewRect, dpr: number, v
  * pending for as long as a person takes to aim. Kept off the agent bridge on purpose — see
  * `BrowserAgentHost.pickElement`.
  */
-ipcMain.handle("browser:pick-element", (_e, id: string) => agentHost?.pickElement(String(id)) ?? null);
+ipcMain.handle("browser:pick-element", (_e, id: string, accent?: string) => agentHost?.pickElement(String(id), typeof accent === "string" ? accent : undefined) ?? null);
 ipcMain.handle("browser:cancel-pick", (_e, id: string) => { agentHost?.cancelPick(String(id)); });
 
 /**

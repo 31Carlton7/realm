@@ -690,6 +690,27 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
     expect(RULES.flatMap((r) => r.selectors).filter((s) => /^\.tool-(card|group)\[data-open\] [^>]/.test(s))).toEqual([]);
   });
 
+  it("every surface on the prompter's curve is also PAINTED on it", () => {
+    /* `corner-shape: squircle` is inert in the Chromium this app ships on, so a surface that
+       declares the curve without appearing in the paint-worklet rule renders a plain rounded rect
+       next to a composer wearing a real squircle — which is worse than not having asked. design.md
+       states the rule; this is what makes it hold.
+
+       Scoped to `--r-squircle` deliberately. The chip and control rungs also carry `corner-shape`,
+       and at 8-10px the difference between a squircle and a round rect is not visible — those are
+       forward-compatibility, not a signature. */
+    const painted = new Set(
+      RULES.filter((r) => r.selectors.some((sel) => sel.startsWith(":root[data-squircle]")))
+        .flatMap((r) => r.selectors)
+        .map((sel) => sel.replace(":root[data-squircle] ", "").trim()),
+    );
+    const declared = RULES
+      .filter((r) => /corner-shape:\s*squircle/.test(r.body) && /border-radius:[^;]*--r-squircle\b/.test(r.body))
+      .flatMap((r) => r.selectors);
+    expect(declared.filter((sel) => !painted.has(sel)).sort(),
+      "these wear the signature curve but are never painted — they will render as round rects").toEqual([]);
+  });
+
   it("fenced code is a ringless panel on the prompter's curve, with a 12.5/1.65 mono body", () => {
     /* Changed deliberately from the hairline-ringed 12px card this used to pin. A fenced block is
        the same KIND of surface the composer is — a machine-text panel the eye rests in — so it

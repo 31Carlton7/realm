@@ -128,23 +128,28 @@ function ReviewSection({ environmentId, review }: { environmentId: string; revie
   const reviewerItem = items.find((i) => i.kind === "session" && i.refId === review.sessionId);
   const note = REVIEW_OUTCOME_NOTE[review.outcome];
   return (
-    <section className="diff-review" aria-label="Review">
+    <section className="diff-review" aria-label="Review" data-partial={note ? "" : undefined}>
       <div className="diff-review-head">
-        <Icon name="diff" size={12} />
         <span className="diff-review-title">Review</span>
+        {/* Partial-ness is a PROPERTY of the review, so it rides the title as a chip rather than
+            sitting under the head as a second paragraph of prose. The card is short and the header
+            is where a reader looks to find out what they are about to read. */}
+        {note && <span className="diff-review-chip">Partial</span>}
+        <span className="diff-head-spacer" />
         <span className="diff-review-dim">{relativeTime(review.createdAt, Date.now())}</span>
         {reviewerItem && (
-          <button type="button" className="btn-quiet" onClick={() => run(() => openItem(reviewerItem.id))}>
+          <button type="button" className="btn-quiet diff-review-by"
+            title={`Open ${review.sessionTitle}`}
+            onClick={() => run(() => openItem(reviewerItem.id))}>
             {review.sessionTitle}
           </button>
         )}
-        <span className="diff-head-spacer" />
         <button type="button" className="icon-btn" aria-label="Dismiss review"
           onClick={() => run(() => dismissReview(environmentId))}>
-          <Icon name="close" size={14} />
+          <Icon name="close" size={12} />
         </button>
       </div>
-      {note && <p className="diff-note">{note}</p>}
+      {note && <p className="diff-review-note">{note}</p>}
       {/* Agent output, visibly fenced off from Realm's own chrome — the reviewer's words, verbatim. */}
       <div className="diff-review-body" data-agent-output>
         <Markdown text={review.text} />

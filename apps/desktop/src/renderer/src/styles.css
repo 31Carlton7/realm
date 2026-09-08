@@ -887,6 +887,20 @@ button.panel-title:hover { background: var(--rl-hover); }
    invisible (W2's no-overlay invariant). Its height comes out of the view's, which the pane's
    ResizeObserver already syncs. */
 .browser-notice { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-bottom: 1px solid var(--rl-hairline); background: var(--rl-hover); }
+/* The pick receipt. A toast rather than the full-width banner this was: it reports something the
+   user has already watched happen, and a receipt that has to be dismissed is a chore.
+   In the CHROME rather than floating over the pane, and that is not a compromise — a native
+   WebContentsView composites over anything inside its rectangle, so a toast over the view is a
+   toast nobody sees. */
+.browser-toast {
+  flex: none; align-self: center; display: flex; align-items: center; gap: 8px;
+  margin: 6px 0 2px; padding: 6px 12px;
+  border-radius: 999px; background: var(--rl-raised); color: var(--rl-text-bright);
+  box-shadow: var(--shadow-raised);
+  animation: rl-toast-in var(--dur-enter) var(--ease-out-strong);
+}
+@keyframes rl-toast-in { from { opacity: 0; translate: 0 -6px; } to { opacity: 1; translate: 0 0; } }
+.browser-toast-text { font-size: 11.5px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .browser-notice-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--rl-text-dim); }
 .browser-notice-text strong { font-weight: var(--fw-title); color: var(--rl-text-bright); }
 /* The placeholder the native view is bounds-synced onto. Painted the view's own opaque white so the
@@ -2196,6 +2210,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
      several times wider than the two curves ever diverge, and a mask — the obvious alternative to
      painting the fill — would have clipped it away entirely. */
 :root[data-squircle] .md-code,
+:root[data-squircle] .diff-review,
 :root[data-squircle] .composer,
 :root[data-squircle] .composer-drop-hint,
 :root[data-squircle] .composer-todos,
@@ -2254,6 +2269,9 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    `overflow: hidden` still clips a square, which costs nothing here: the only child is a `<pre>`
    with no background of its own, so there is nothing at the corners for the square clip to reveal. */
 :root[data-squircle] .md-code { --sq-fill: var(--surface); box-shadow: none; }
+/* Same treatment, one rung up the surface ladder: the review sits ON the diff pane rather than
+   inside a message, so it takes the raised fill. */
+:root[data-squircle] .diff-review { --sq-fill: var(--rl-raised); box-shadow: none; }
 /* Focus is still PromptBar's border-brighten, now traced on the curve instead of around it. */
 :root[data-squircle] .composer:focus-within, :root[data-squircle] .commit-card:focus-within {
   --sq-ring: var(--line-strong); --sq-ring-w: 1px;
@@ -2557,9 +2575,30 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* Review section (Plan 13 W3): the reviewer's fenced verdict, visibly agent output, above the commit
    dock it deliberately does not touch. Capped height with its own scroll — a long verdict must not
    push the commit controls off the pane. */
-.diff-review { flex: none; display: flex; flex-direction: column; gap: 6px; margin: 0 12px 8px; padding: 8px 10px; max-height: 40%;
-  background: var(--rl-raised); border: 1px solid var(--rl-hairline); border-radius: var(--r-ctl); overflow: hidden; }
-.diff-review-head { flex: none; display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--rl-text-dim); }
+/* The reviewer's verdict, on the prompter's own curve.
+   It was a hairline-bordered box with a 12px corner and a 11.5px header, sitting a few inches above
+   a composer wearing a 36px squircle — the two read as parts of different apps. It is the same KIND
+   of surface as the composer by design.md's rule (a panel the eye rests IN rather than a row it
+   scans past), so it wears the same corner and, like every surface that does, drops its ring. */
+.diff-review {
+  flex: none; display: flex; flex-direction: column; gap: 8px;
+  margin: 0 12px 10px; padding: 14px 16px; max-height: 40%;
+  background: var(--rl-raised); border-radius: var(--r-squircle); corner-shape: squircle;
+}
+.diff-review-head { flex: none; display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--rl-text-dim); }
+/* 14px. The card's own title, on the label rung rather than the caption one it shared with the
+   timestamp beside it — a heading set the same size as its own metadata is not a heading. */
+.diff-review-title { font-size: 14px; }
+/* Whose review it is, folded to the right with the time. A button reading a session title mid-header
+   pushed the dismiss control off the end at any real title length. */
+.diff-review-by { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* "Partial" as a chip on the title, not a sentence under it: it is a property of the review, and the
+   header is where a reader looks to find out what they are about to read. */
+.diff-review-chip {
+  flex: none; padding: 1px 8px; border-radius: 999px; font-size: 10.5px; font-weight: var(--fw-label);
+  background: color-mix(in srgb, var(--orange) 18%, transparent); color: var(--orange);
+}
+.diff-review-note { margin: 0; font-size: 12px; color: var(--rl-text-faint); }
 .diff-review-title { font-weight: var(--fw-title); color: var(--rl-text-bright); }
 .diff-review-dim { color: var(--rl-text-faint); }
 .diff-review-body { overflow-y: auto; font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim); }

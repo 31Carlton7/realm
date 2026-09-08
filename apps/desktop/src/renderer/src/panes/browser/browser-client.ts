@@ -59,7 +59,8 @@ export type BrowserHostBridge = {
   onState(cb: (s: BrowserViewState) => void): () => void;
   /** Arms the picker; resolves when the user clicks an element, or null if the pick did not happen.
    *  Stays pending for as long as the user takes to aim. */
-  pickElement(id: string): Promise<BrowserPickedElement | null>;
+  /** `accent` is the theme colour the page-side overlay is drawn in. */
+  pickElement(id: string, accent?: string): Promise<BrowserPickedElement | null>;
   cancelPick(id: string): Promise<void>;
   blockedDownloads(id: string): Promise<BlockedDownload[]>;
   saveDownload(id: string, blockedId: string, dir: string): Promise<BrowserDownloadResult>;

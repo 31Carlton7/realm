@@ -252,8 +252,11 @@ const HANDLERS: Record<string, Handler> = {
     const gate = await d.broker.gate(ctx.sessionId, "browser_open", title, { url });
     if (!gate.allowed) return err(gate.reason);
     const opened = d.browserService.open({ spaceId: ctx.spaceId, url });
+    /* No ticker entry. The ticker reports what an agent DID inside a pane, and this is the act that
+       created the pane — "Open a browser pane at https://…" printed inside that very pane, with a
+       timestamp, restates the address bar an inch above it. `browser.agentOpened` already tells the
+       renderer the pane exists, which is the part it cannot infer. */
     d.rpc.broadcast("browser.agentOpened", { spaceId: ctx.spaceId, browserId: opened.browserId, itemId: opened.itemId });
-    d.rpc.broadcast("browser.action", { spaceId: ctx.spaceId, browserId: opened.browserId, text: title, ok: true, ts: Date.now() });
     return ok(`Opened browser pane ${opened.browserId} at ${url}. The page renders in the app's pane; use browser_snapshot to read it once loaded.`);
   },
 
@@ -424,8 +427,8 @@ async function runBatchMutation(d: Deps, ctx: ProviderCallContext, tool: string,
     const oauth = refuseOAuth(url); if (oauth) return oauth;
     const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_open", url); if (limited) return err(limited);
     const opened = d.browserService.open({ spaceId: ctx.spaceId, url });
+    // Same as `browser_open` above: opening the pane IS the visible event, so it gets no tick.
     d.rpc.broadcast("browser.agentOpened", { spaceId: ctx.spaceId, browserId: opened.browserId, itemId: opened.itemId });
-    d.rpc.broadcast("browser.action", { spaceId: ctx.spaceId, browserId: opened.browserId, text: `Open a browser pane at ${url}`, ok: true, ts: Date.now() });
     return ok(`Opened browser pane ${opened.browserId} at ${url}.`);
   }
   if (tool === "browser_navigate") {

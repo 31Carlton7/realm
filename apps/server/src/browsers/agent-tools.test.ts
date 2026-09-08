@@ -283,8 +283,11 @@ describe("results and scoping", () => {
     const r = await call("browser_open", { url: "https://example.com/docs" });
     expect(r.isError).toBe(false);
     expect(calls.opened).toEqual(["https://example.com/docs"]);
-    // agentOpened first (the pane must join the layout), then the W4 ticker's action record.
-    expect(calls.broadcasts.map((b) => b.event)).toEqual(["browser.agentOpened", "browser.action"]);
+    /* `agentOpened` and nothing else. There used to be a ticker entry too, and it read "Open a
+       browser pane at https://…" INSIDE that very pane, with a timestamp, an inch under an address
+       bar already saying so. The ticker reports what an agent did in a pane; the act that created
+       the pane is reported by the pane appearing. */
+    expect(calls.broadcasts.map((b) => b.event)).toEqual(["browser.agentOpened"]);
   });
 
   it("the provider disabled for a space lists no tools and refuses calls", async () => {

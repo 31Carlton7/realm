@@ -8,9 +8,10 @@
  *
  *   1. inspect mode CONSUMES the picking click — the page's own handler never runs, so aiming at a
  *      link does not navigate. This is the whole reason Overlay was chosen over an injected listener.
- *   2. `Overlay.inspectNodeRequested` carries a backendNodeId the ordinary describe path resolves,
- *      and the page-side read produces a selector that finds the node again.
- *   3. Chrome does NOT leave inspect mode after emitting the event — a picker that does not disarm
+ *   2. The picker's own binding carries the pick back, `resolvePickedNode` turns the stamped
+ *      attribute into a backendNodeId the ordinary describe path resolves, and the page-side read
+ *      produces a selector that finds the node again.
+ *   3. The injected overlay does NOT come down on its own — a picker that does not disarm
  *      keeps eating the user's clicks. (If this one ever flips, the comment must flip with it.)
  *   4. `disarmElementPick` actually gives the page its clicks back.
  *
@@ -102,6 +103,9 @@ async function main() {
     hasView: (id) => pane.hasView(id),
     navigate: (id, url) => pane.host.navigate(id, url),
     pageState: (id) => pane.pageState(id),
+    // Required by `ensure`; a no-op here because this harness has no off-screen eviction budget to
+    // keep a view alive against. Its absence used to throw the moment a pick was armed.
+    touch: () => {},
   });
   pane.onViewDestroyed((id) => host.release(id));
 
@@ -138,19 +142,28 @@ async function main() {
   ok("the picking click never reached the page — no handler ran", (await pageHits(pageWc)) === 0, `hits=${await pageHits(pageWc)}`);
   ok("…and the page did not navigate", (await pageHash(pageWc)) === "", `hash=${JSON.stringify(await pageHash(pageWc))}`);
 
-  // ---- 3: does Chrome clear inspect mode by itself? ----
-  log("re-arming by hand, to see whether Chrome self-clears");
+  /* ---- 3: the picker takes ITSELF down on the pick ----
+     This assertion is the inverse of what it used to be. Under Chrome's `Overlay.setInspectMode`,
+     inspect mode stayed armed after emitting its event and kept swallowing clicks until the frontend
+     disarmed it — so the old check was that a SECOND click was also swallowed. Realm's own overlay
+     calls its own `stop()` inside the click handler, so the page has its clicks back on the very next
+     one, and the host's disarm afterwards is belt and braces. That is strictly better: there is no
+     window in which the page is dead to a user who has already finished picking. */
+  log("re-arming by hand, to see whether the picker frees the page on its own");
   const binding = pane.attachCdp("b1");
+  let pickedBack = null;
+  binding.onEvent((method, params) => { if (method === "Runtime.bindingCalled") pickedBack = params; });
   await armElementPick(binding.send);
   await sleep(300);
-  let armedEvent = null;
-  binding.onEvent((method, params) => { if (method === "Overlay.inspectNodeRequested") armedEvent = params; });
+  const before = await pageHits(pageWc);
   await clickPage(pageWc);
   await sleep(400);
-  const swallowedAfterEvent = (await pageHits(pageWc)) === 0;
-  ok("Chrome leaves inspect mode ARMED after emitting inspectNodeRequested (the comment's claim)",
-    swallowedAfterEvent && armedEvent !== null,
-    swallowedAfterEvent ? "second click also swallowed" : "second click reached the page — Chrome DOES self-clear, fix the comment");
+  ok("the pick is reported through the binding", pickedBack !== null, JSON.stringify(pickedBack));
+  ok("the picking click is still swallowed", (await pageHits(pageWc)) === before, `hits=${await pageHits(pageWc)}`);
+  await clickPage(pageWc);
+  await sleep(300);
+  ok("…and the NEXT click reaches the page — the picker stopped itself",
+    (await pageHits(pageWc)) > before, `hits=${await pageHits(pageWc)}`);
 
   // ---- 4: disarm gives the page its clicks back ----
   await disarmElementPick(binding.send);

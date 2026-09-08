@@ -6,7 +6,7 @@
  * previous snapshot's fingerprint index that `*[new]` markers diff against.
  */
 import { DOWNLOAD_GRANT_TTL_MS, normalizeOrigin, type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserDescribeResult, type BrowserDownloadResult, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
-import { armElementPick, buildSnapshot, describeElement, describePick, disarmElementPick, highlightTargetRef, performAct, performFillCredential, readPageText, showActionHighlight, type CdpSend, type SnapshotIndex } from "./browser-agent";
+import { PICK_BINDING, armElementPick, buildSnapshot, describeElement, describePick, disarmElementPick, highlightTargetRef, performAct, performFillCredential, readPageText, resolvePickedNode, showActionHighlight, type CdpSend, type SnapshotIndex } from "./browser-agent";
 import type { CredentialAuditEntry } from "./secret-store";
 
 /** The thin CDP surface browser-pane.ts implements over `webContents.debugger`. `onEvent`'s
@@ -120,14 +120,14 @@ export class BrowserAgentHost {
    * One pick at a time per view — re-arming settles the previous one empty, so a double-press of the
    * toolbar button leaves exactly one live promise rather than two racing for the same click.
    */
-  async pickElement(browserId: string): Promise<BrowserPickedElement | null> {
+  async pickElement(browserId: string, accent?: string): Promise<BrowserPickedElement | null> {
     if (!this.d.hasView(browserId)) return null;
     const entry = this.ensure(browserId);
     const gen = ++entry.pickGen;
     entry.pick?.(null);
     const ref = await new Promise<number | null>((resolve) => {
       entry.pick = resolve;
-      void armElementPick(entry.binding.send).catch(() => this.settlePick(entry, null));
+      void armElementPick(entry.binding.send, accent).catch(() => this.settlePick(entry, null));
     });
     // A later `pickElement` has taken the view over — it owns inspect mode now, and disarming from
     // here would switch off the picker the user has just re-armed.
@@ -345,11 +345,17 @@ export class BrowserAgentHost {
     } else if (method === "Network.loadingFailed") {
       const row = entry.network.get(String(p.requestId ?? ""));
       if (row) row.failed = String(p.errorText ?? "failed");
-    } else if (method === "Overlay.inspectNodeRequested") {
-      // The user clicked. Chrome hands over a backendNodeId and nothing else — the same kind of ref
-      // every act takes — and does NOT leave inspect mode on its own; `pickElement` disarms.
-      const ref = Number((p as { backendNodeId?: unknown }).backendNodeId);
-      this.settlePick(entry, Number.isInteger(ref) && ref > 0 ? ref : null);
+    } else if (method === "Runtime.bindingCalled" && p.name === PICK_BINDING) {
+      /* The user clicked, or pressed Escape. Realm's own overlay does the picking now rather than
+         Chrome's inspector, so what arrives is a stamped attribute rather than a backendNodeId —
+         `resolvePickedNode` turns one into the other and clears the stamp. An empty payload is the
+         Escape, and settles the pick with nothing. */
+      // Guarded on a pick actually being armed. `settlePick` on a settled promise is silent, but
+      // `resolvePickedNode` is not: it costs three CDP round trips and clears an attribute off a page
+      // nobody is picking in. A cancelled pick whose click lands a frame later would do exactly that.
+      if (entry.pick === null) { /* nobody is waiting */ }
+      else if (String(p.payload ?? "") === "") this.settlePick(entry, null);
+      else void resolvePickedNode(entry.binding.send).then((ref) => this.settlePick(entry, ref));
     } else if (method === "Page.frameNavigated" && (p.frame as { parentId?: string } | undefined)?.parentId === undefined) {
       // A main-frame navigation resets the overlay agent, so an armed picker silently stops picking.
       // Settling it empty is what keeps the toolbar button from staying lit over a page it can no

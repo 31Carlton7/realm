@@ -731,32 +731,145 @@ export async function describeElement(send: CdpSend, backendNodeId: number): Pro
  * user nothing — but a synthetic click that skips the move is not a test of this code
  * (`element-picker-live.cjs` sends the move for exactly that reason).
  */
-const INSPECT_HIGHLIGHT = {
-  showInfo: true,
-  contentColor: { r: 76, g: 141, b: 255, a: 0.24 },
-  paddingColor: { r: 76, g: 141, b: 255, a: 0.1 },
-  borderColor: { r: 76, g: 141, b: 255, a: 0.36 },
-  marginColor: { r: 246, g: 178, b: 107, a: 0.2 },
-};
+/**
+ * The picker's page-side half — Realm's own overlay, not Chrome's.
+ *
+ * `Overlay.setInspectMode` is the DevTools inspector: a flat blue box with a node-info tooltip, and
+ * it looks exactly like what it is. This app is not DevTools, and a person picking an element to
+ * talk to an agent about is doing a Realm thing.
+ *
+ * So the overlay is injected. It follows the pointer over `elementFromPoint`, draws a thick accent
+ * border with an inward glow on the app's own curve, and names the element in a chip that reads like
+ * every other chip in Realm. The click is taken in the CAPTURE phase and cancelled, so picking a
+ * link does not navigate — the failure the whole feature would otherwise have on any real page.
+ *
+ * The element is handed back by stamping a one-shot attribute on it and calling a CDP binding; main
+ * turns that attribute into a `backendNodeId` (`resolvePickedNode`) and clears it. That is the whole
+ * bridge: everything downstream — `describePick`, `describeElement` — is untouched and still speaks
+ * in backendNodeIds.
+ *
+ * Written as a string rather than a real module because it runs in the PAGE, whose globals are not
+ * ours and whose bundler is not ours either. No backticks inside: this is embedded in a template
+ * literal, and one would end it.
+ */
+export const PICK_BINDING = "__realmPickDone";
+export const PICK_ATTR = "data-realm-picked";
 
-/** Arm inspect mode. The caller listens for `Overlay.inspectNodeRequested`, whose `backendNodeId` is
- *  a ref of exactly the kind every other op takes. */
-export async function armElementPick(send: CdpSend): Promise<void> {
-  await send("Overlay.enable");
-  await send("Overlay.setInspectMode", { mode: "searchForNode", highlightConfig: INSPECT_HIGHLIGHT });
+const PICKER_SCRIPT = `(() => {
+  if (window.__realmPicker) window.__realmPicker.stop();
+  const ACCENT = ACCENT_RGB;
+  const host = document.createElement("div");
+  host.style.cssText = "position:fixed;inset:0;z-index:2147483647;pointer-events:none";
+  const box = document.createElement("div");
+  /* 2px rather than the inspector's hairline, an inward glow instead of a flat fill, and the app's
+     own large corner. inset box-shadow so the glow reads as light coming off the edge of the thing
+     you are about to pick rather than as a tint laid over it. */
+  box.style.cssText = "position:absolute;box-sizing:border-box;border:2px solid " + ACCENT
+    + ";border-radius:14px;box-shadow: inset 0 0 24px -4px " + ACCENT + ", 0 0 0 9999px rgba(0,0,0,0.04);"
+    + "transition:all 90ms cubic-bezier(0.2,0,0,1);opacity:0";
+  const chip = document.createElement("div");
+  chip.style.cssText = "position:absolute;padding:3px 9px;border-radius:8px;background:" + ACCENT
+    + ";color:#fff;font:500 11px/1.4 ui-sans-serif,system-ui,sans-serif;white-space:nowrap;"
+    + "box-shadow:0 2px 10px rgba(0,0,0,0.25);opacity:0";
+  host.appendChild(box); host.appendChild(chip);
+  document.documentElement.appendChild(host);
+
+  let current = null;
+  const name = (el) => {
+    const tag = el.tagName.toLowerCase();
+    const id = el.id ? "#" + el.id : "";
+    const cls = typeof el.className === "string" && el.className.trim()
+      ? "." + el.className.trim().split(/\s+/).slice(0, 2).join(".") : "";
+    return (tag + id + cls).slice(0, 60);
+  };
+  const draw = (el) => {
+    current = el;
+    if (!el) { box.style.opacity = "0"; chip.style.opacity = "0"; return; }
+    const r = el.getBoundingClientRect();
+    box.style.opacity = "1"; chip.style.opacity = "1";
+    box.style.left = r.left + "px"; box.style.top = r.top + "px";
+    box.style.width = r.width + "px"; box.style.height = r.height + "px";
+    chip.textContent = name(el) + "  " + Math.round(r.width) + "x" + Math.round(r.height);
+    /* Above the element, unless there is no room — then inside its top edge. A label that runs off
+       the viewport is a label nobody can read. */
+    const above = r.top >= 26;
+    chip.style.left = Math.max(4, Math.min(r.left, window.innerWidth - chip.offsetWidth - 4)) + "px";
+    chip.style.top = (above ? r.top - 24 : r.top + 4) + "px";
+  };
+  const onMove = (e) => {
+    host.style.display = "none";
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    host.style.display = "";
+    if (el && el !== current) draw(el);
+  };
+  const onClick = (e) => {
+    if (!current) return;
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    const el = current;
+    stop();
+    el.setAttribute(PICK_ATTR_NAME, "1");
+    window[BINDING_NAME]("1");
+  };
+  const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); stop(); window[BINDING_NAME](""); } };
+  function stop() {
+    window.removeEventListener("mousemove", onMove, true);
+    window.removeEventListener("click", onClick, true);
+    window.removeEventListener("keydown", onKey, true);
+    host.remove();
+    window.__realmPicker = null;
+  }
+  window.addEventListener("mousemove", onMove, true);
+  window.addEventListener("click", onClick, true);
+  window.addEventListener("keydown", onKey, true);
+  window.__realmPicker = { stop };
+})()`;
+
+/** The picker script with its three page-side constants substituted in. `accent` is the user's own
+ *  theme colour, so the overlay is the colour of the app it belongs to rather than a fixed blue. */
+function pickerScript(accent: string): string {
+  return PICKER_SCRIPT
+    .replace("ACCENT_RGB", JSON.stringify(accent))
+    .replace(/PICK_ATTR_NAME/g, JSON.stringify(PICK_ATTR))
+    .replace(/BINDING_NAME/g, JSON.stringify(PICK_BINDING));
 }
 
 /**
- * Disarm — after a pick, on cancel, and on navigation.
- *
- * Emitting `inspectNodeRequested` does NOT take Chrome out of inspect mode; in DevTools it is the
- * frontend that turns the button off afterwards. A picker that does not disarm therefore keeps
- * swallowing the user's clicks after it has already delivered an element. Both halves are
- * best-effort because the ordinary way to reach this path is a view that just died.
+ * Arm the picker. The caller listens for `Runtime.bindingCalled` on `PICK_BINDING`; a non-empty
+ * payload means the page has stamped `PICK_ATTR` on the chosen element, and an empty one means the
+ * user pressed Escape.
  */
+export async function armElementPick(send: CdpSend, accent?: string): Promise<void> {
+  await send("Runtime.enable").catch(() => {});
+  await send("Runtime.addBinding", { name: PICK_BINDING });
+  await send("Runtime.evaluate", { expression: pickerScript(accent ?? DEFAULT_PICK_ACCENT), returnByValue: true });
+}
+
+/** The accent used when the renderer has not told us the theme's — Realm's default blue. */
+export const DEFAULT_PICK_ACCENT = "rgb(76, 141, 255)";
+
+/**
+ * Turn the stamped attribute into the `backendNodeId` everything downstream speaks in, and clear it.
+ *
+ * The attribute is removed whatever happens: a page left carrying `data-realm-picked` would match
+ * the NEXT pick's query and hand back the wrong element — the kind of bug that only appears on the
+ * second use and is then very hard to see.
+ */
+export async function resolvePickedNode(send: CdpSend): Promise<number | null> {
+  try {
+    const { root } = await send("DOM.getDocument", { depth: 0 }) as { root: { nodeId: number } };
+    const { nodeId } = await send("DOM.querySelector", { nodeId: root.nodeId, selector: `[${PICK_ATTR}]` }) as { nodeId: number };
+    if (!nodeId) return null;
+    const { node } = await send("DOM.describeNode", { nodeId }) as { node: { backendNodeId: number } };
+    await send("DOM.removeAttribute", { nodeId, name: PICK_ATTR }).catch(() => {});
+    return node.backendNodeId > 0 ? node.backendNodeId : null;
+  } catch { return null; }
+}
+
 export async function disarmElementPick(send: CdpSend): Promise<void> {
-  await send("Overlay.setInspectMode", { mode: "none" }).catch(() => {});
-  await send("Overlay.disable").catch(() => {});
+  // Idempotent on the page side (`stop()` removes its own listeners and its own overlay), so calling
+  // this on a page that was never armed, or twice, costs nothing.
+  await send("Runtime.evaluate", { expression: "window.__realmPicker && window.__realmPicker.stop()" }).catch(() => {});
+  await send("Runtime.removeBinding", { name: PICK_BINDING }).catch(() => {});
 }
 
 /**

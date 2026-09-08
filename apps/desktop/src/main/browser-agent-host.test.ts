@@ -325,21 +325,37 @@ describe("BrowserAgentHost — download", () => {
  * fail to settle leaves the pane's toolbar button lit over a view that is still eating clicks.
  */
 const PICKED = {
-  "DOM.describeNode": { node: { nodeName: "BUTTON", attributes: ["id", "submit", "class", "btn"] } },
+  // The stamped-attribute bridge: Realm's own overlay marks the element the user clicked, and the
+  // host turns that mark into the backendNodeId everything downstream speaks in.
+  "DOM.getDocument": { root: { nodeId: 1 } },
+  "DOM.querySelector": { nodeId: 5 },
+  "DOM.describeNode": { node: { backendNodeId: 42, nodeName: "BUTTON", attributes: ["id", "submit", "class", "btn"] } },
   "Accessibility.getPartialAXTree": { nodes: [{ role: { value: "button" }, name: { value: "Sign in" } }] },
   "DOM.resolveNode": { object: { objectId: "obj-1" } },
   "Runtime.callFunctionOn": {
     result: { value: { selector: "#submit", text: "Sign in", html: '<button id="submit">Sign in</button>', rect: { x: 4, y: 8, w: 90, h: 32 } } },
   },
 };
-const overlayCalls = (calls: { method: string; params?: Record<string, unknown> }[]) =>
-  calls.filter((c) => c.method.startsWith("Overlay.")).map((c) => `${c.method}${c.params?.mode ? ` ${String(c.params.mode)}` : ""}`);
+/** The picker is Realm's own injected overlay now, not Chrome's inspector — so what is asserted is
+ *  the binding it hands the pick back through and the evaluate that takes the overlay down. */
+const pickCalls = (calls: { method: string; params?: Record<string, unknown> }[]) =>
+  calls.filter((c) => c.method === "Runtime.addBinding" || c.method === "Runtime.removeBinding"
+    || (c.method === "Runtime.evaluate" && String(c.params?.expression ?? "").includes("__realmPicker")))
+    // Told apart by `addEventListener`, which only the arming script has. Matching on `.stop()`
+    // does not work: the arming script defines and calls that too.
+    .map((c) => (c.method === "Runtime.evaluate"
+      ? (String(c.params?.expression ?? "").includes("addEventListener") ? "picker.arm" : "picker.stop")
+      : c.method));
+
+/** The page calling back through the binding: a non-empty payload is a pick, "" is Escape. */
+const emitPick = (emitEvent: (m: string, p: unknown) => void, payload = "1") =>
+  emitEvent("Runtime.bindingCalled", { name: "__realmPickDone", payload });
 
 describe("BrowserAgentHost — element picking", () => {
   it("resolves with the element the user clicked, named by AX and located by a url the page cannot author", async () => {
     const { host, emitEvent } = setup({ responses: PICKED });
     const pending = host.pickElement("b1");
-    emitEvent("Overlay.inspectNodeRequested", { backendNodeId: 42 });
+    emitPick(emitEvent);
     expect(await pending).toEqual({
       ref: 42, url: "https://example.com/x", title: "Example",
       tag: "button", role: "button", name: "Sign in",
@@ -348,26 +364,30 @@ describe("BrowserAgentHost — element picking", () => {
     });
   });
 
-  it("arms Chrome's own inspect mode and disarms after the pick — Chrome does not clear it itself", async () => {
+  it("arms Realm's own overlay and takes it down after the pick", async () => {
+    /* It used to arm `Overlay.setInspectMode` — Chrome's DevTools inspector, which looks exactly
+       like what it is. The overlay is injected now, so what has to hold is that the binding it
+       reports through is added, the picker is installed, and BOTH are undone afterwards: a page
+       left with a live mousemove listener keeps drawing a box over a pane nobody is picking in. */
     const { host, calls, emitEvent } = setup({ responses: PICKED });
     const pending = host.pickElement("b1");
-    emitEvent("Overlay.inspectNodeRequested", { backendNodeId: 42 });
+    emitPick(emitEvent);
     await pending;
-    expect(overlayCalls(calls)).toEqual([
-      "Overlay.enable", "Overlay.setInspectMode searchForNode", "Overlay.setInspectMode none", "Overlay.disable",
+    expect(pickCalls(calls)).toEqual([
+      "Runtime.addBinding", "picker.arm", "picker.stop", "Runtime.removeBinding",
     ]);
   });
 
-  it("cancelPick settles the armed pick empty and takes inspect mode down", async () => {
+  it("cancelPick settles the armed pick empty and takes the overlay down", async () => {
     const { host, calls, emitEvent } = setup({ responses: PICKED });
     const pending = host.pickElement("b1");
     host.cancelPick("b1");
     expect(await pending).toBeNull();
-    expect(overlayCalls(calls)).toContain("Overlay.setInspectMode none");
+    expect(pickCalls(calls)).toContain("picker.stop");
     // And the view is no longer picking. A late event must settle nothing and disarm nothing —
     // resolving an already-settled promise is silent, so the CDP traffic is what can be read.
     const after = calls.length;
-    emitEvent("Overlay.inspectNodeRequested", { backendNodeId: 42 });
+    emitPick(emitEvent);
     expect(calls.length).toBe(after);
   });
 
@@ -382,8 +402,11 @@ describe("BrowserAgentHost — element picking", () => {
     const { host, emitEvent } = setup({ responses: PICKED });
     const pending = host.pickElement("b1");
     emitEvent("Page.frameNavigated", { frame: { id: "f2", parentId: "f1", url: "https://ads.example/x" } });
-    emitEvent("Overlay.inspectNodeRequested", { backendNodeId: 7 });
-    expect((await pending)?.ref).toBe(7);
+    emitPick(emitEvent);
+    // 42 rather than a number the event carried: the ref comes from resolving the STAMPED element
+    // now, so it is the fixture's `DOM.describeNode`. What this test is about is that the pick was
+    // still armed to be settled at all.
+    expect((await pending)?.ref).toBe(42);
   });
 
   it("closing the pane settles the armed pick instead of leaving the toolbar button lit forever", async () => {
@@ -398,8 +421,8 @@ describe("BrowserAgentHost — element picking", () => {
     const first = host.pickElement("b1");
     const second = host.pickElement("b1");
     expect(await first).toBeNull();
-    emitEvent("Overlay.inspectNodeRequested", { backendNodeId: 9 });
-    expect((await second)?.ref).toBe(9);
+    emitPick(emitEvent);
+    expect((await second)?.ref).toBe(42);
   });
 
   it("a superseded pick does not disarm on its way out — it would switch off the picker just re-armed", async () => {
@@ -407,9 +430,9 @@ describe("BrowserAgentHost — element picking", () => {
     const first = host.pickElement("b1");
     const second = host.pickElement("b1");
     await first;
-    expect(overlayCalls(calls)).not.toContain("Overlay.setInspectMode none");
-    expect(overlayCalls(calls)).not.toContain("Overlay.disable");
-    emitEvent("Overlay.inspectNodeRequested", { backendNodeId: 9 });
+    expect(pickCalls(calls)).not.toContain("picker.stop");
+    expect(pickCalls(calls)).not.toContain("Overlay.disable");
+    emitPick(emitEvent);
     await second;
   });
 
@@ -421,7 +444,7 @@ describe("BrowserAgentHost — element picking", () => {
   it("an element whose page-side read fails is still picked — the AX identity alone is a usable chip", async () => {
     const { host, emitEvent } = setup({ responses: { ...PICKED, "DOM.resolveNode": {} } });
     const pending = host.pickElement("b1");
-    emitEvent("Overlay.inspectNodeRequested", { backendNodeId: 42 });
+    emitPick(emitEvent);
     expect(await pending).toMatchObject({ ref: 42, role: "button", name: "Sign in", selector: "", html: "" });
   });
 
@@ -431,7 +454,7 @@ describe("BrowserAgentHost — element picking", () => {
       responses: { ...PICKED, "Runtime.callFunctionOn": { result: { value: { selector: "#a", text: "y".repeat(900), html, rect: { x: 0, y: 0, w: 1, h: 1 } } } } },
     });
     const pending = host.pickElement("b1");
-    emitEvent("Overlay.inspectNodeRequested", { backendNodeId: 42 });
+    emitPick(emitEvent);
     const picked = (await pending)!;
     expect(picked.html).toHaveLength(PICK_HTML_MAX);
     expect(picked.text).toHaveLength(PICK_TEXT_MAX);
