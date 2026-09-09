@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "shader:render": "node --experimental-strip-types scripts/render-shader.ts"
+    "capture:product": "node scripts/capture-product.mjs"
   },
   "dependencies": {
     "next": "16.3.4",

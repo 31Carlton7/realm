@@ -7,9 +7,7 @@
 # agree, so `pnpm install` here resolves against site/pnpm-lock.yaml and nothing else.
 packages: []
 
-# Built without approval on a fresh install; both are transitive native deps of `vgpu` that only the
-# Dawn-backed Node entrypoint uses. The site renders in the browser, so a deploy never needs them —
-# see scripts/render-shader.ts for the scratch project that does.
+# Browser builds do not use vGPU's optional native Dawn adapter.
 ignoredBuiltDependencies:
   - "@vgpu/adapter-node"
   - webgpu

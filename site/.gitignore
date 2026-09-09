@@ -7,3 +7,4 @@ next-env.d.ts
 .env*.local
 /scripts/*.png
 /scripts/node_modules
+.vercel
