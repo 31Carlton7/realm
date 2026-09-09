@@ -148,4 +148,29 @@ describe("map-sdk-message", () => {
       expect(e?.type === "usage" && "contextTokens" in e.payload).toBe(false);
     });
   });
+
+  /**
+   * Background sub-agents. The signals are `system` messages, not anything on the assistant or user
+   * turns — see `background-task.test.ts`, which drives the whole live capture through this mapper.
+   * What is worth pinning HERE is that the system branch still does its original job.
+   */
+  describe("background sub-agents", () => {
+    it("keeps mapping system/init while also reading the task protocol", () => {
+      const out = createSdkMapper().map({ type: "system", subtype: "init", session_id: "s", model: "m", tools: [], cwd: "/w", uuid: "u" } as never);
+      expect(out.map((e) => e.type)).toEqual(["init"]);
+    });
+
+    it("says nothing for a system message it does not recognise", () => {
+      expect(createSdkMapper().map({ type: "system", subtype: "hook_started", uuid: "u", session_id: "s" } as never)).toEqual([]);
+    });
+
+    it("no longer reads the launch text off a tool result — an ordinary result stays one event", () => {
+      // The first attempt at this feature matched "Async agent launched successfully" here. It is
+      // prose the harness writes for the model, it never crossed this wire in a live run, and a
+      // transcript that merely quotes it must not start a phantom run.
+      const userMsg = { type: "user", session_id: "s", parent_tool_use_id: null, uuid: "u",
+        message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_9", content: "Async agent launched successfully. agentId: a02" }] } };
+      expect(createSdkMapper().map(userMsg as never).map((e) => e.type)).toEqual(["tool_result"]);
+    });
+  });
 });

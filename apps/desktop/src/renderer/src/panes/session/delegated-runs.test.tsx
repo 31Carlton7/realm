@@ -170,3 +170,57 @@ describe("sub-agents the HARNESS is running", () => {
     expect(dockText()).toEqual(["audit the mapper"]);
   });
 });
+
+/**
+ * BACKGROUND sub-agents — the mode that showed nothing at all.
+ *
+ * A background `Agent` call returns within a second and then runs for minutes, so "the result has
+ * not landed" (which is what the blocking case above keys on) is false for the entire run. Ten of
+ * them read as ten finished calls. The adapter now marks the launch and the harness's completion
+ * notification as `background_task` events, and these are what the dock reads instead.
+ */
+describe("background sub-agents the harness is running", () => {
+  const launch = (id: string, description: string) => [
+    sessionEvent("tool_call", { toolUseId: id, name: "Agent", input: { description }, parentToolUseId: null }),
+    // The launch result lands almost immediately — this is the whole difficulty.
+    sessionEvent("tool_result", { toolUseId: id, content: "Async agent launched successfully.", isError: false }),
+    sessionEvent("background_task", { toolUseId: id, status: "running" }),
+  ];
+  const stopped = (id: string) => sessionEvent("background_task", { toolUseId: id, status: "stopped", summary: "finished" });
+  const dockText = () => [...document.querySelectorAll(".delegation-item .delegation-title")].map((n) => n.textContent);
+
+  async function mountWith(events: ReturnType<typeof sessionEvent>[]) {
+    const api = fakeApi({ items: ITEMS, sessions: SESSIONS, delegatedRuns: {} });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { se1: "running" }, transcripts: { se1: { lastSeq: 0, t: reduceAll(events) } } });
+    await store.getState().openItem("i9");
+    return render(<StoreContext.Provider value={store}><SessionPane item={ITEMS.s1[0]!} visible /></StoreContext.Provider>);
+  }
+
+  it("lists agents whose launch call has ALREADY returned — the case that showed nothing", async () => {
+    await mountWith([...launch("t1", "Agent 1: hold 10m"), ...launch("t2", "Agent 2: hold 10m")]);
+    // THE MUTANT: keep the old `result === null` rule. Both calls have results, so the dock does not
+    // render at all — which is exactly the bug this was reported as.
+    await waitFor(() => expect(screen.getByText("2 agents running")).toBeInTheDocument());
+    expect(dockText()).toEqual(["Agent 1: hold 10m", "Agent 2: hold 10m"]);
+  });
+
+  it("drops the row when the harness notifies that the agent stopped", async () => {
+    await mountWith([...launch("t1", "Agent 1"), ...launch("t2", "Agent 2"), stopped("t1")]);
+    await waitFor(() => expect(dockText()).toEqual(["Agent 2"]));
+    expect(screen.getByText("1 agent running")).toBeInTheDocument();
+  });
+
+  it("leaves entirely once the last one stops", async () => {
+    await mountWith([...launch("t1", "Agent 1"), stopped("t1")]);
+    // THE MUTANT: fold the stop onto nothing (or read only the launch). A row for an agent that
+    // finished ten minutes ago is worse than the blank the dock used to show.
+    expect(document.querySelector(".delegation-dock")).toBeNull();
+  });
+
+  it("ignores a notification naming a call this transcript has never seen", async () => {
+    await mountWith([...launch("t1", "Agent 1"), stopped("nonexistent")]);
+    // A stray notification must not close somebody else's run, and must not invent a row of its own.
+    await waitFor(() => expect(dockText()).toEqual(["Agent 1"]));
+  });
+});

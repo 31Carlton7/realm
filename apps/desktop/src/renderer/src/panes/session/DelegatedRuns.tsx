@@ -36,22 +36,40 @@ const ASKED_META = { icon: "session", label: "Asked a question (agent_ask)" };
 const SUBAGENT_TOOLS = new Set(["Task", "Agent", "Workflow"]);
 
 /**
+ * Whether this call still has an agent working behind it — the two ways that can be true, because
+ * the harness runs sub-agents in two modes and they look nothing alike on the wire.
+ *
+ * **Blocking**: the call stays open for the agent's whole life, so an unfinished call IS a running
+ * agent. Recognised by tool name, which is all there is to go on before a result exists.
+ *
+ * **Background**: the call returns in about a second — "Async agent launched successfully" — and the
+ * agent then runs for minutes. The result being present says nothing about whether it is done. This
+ * is the case that showed nothing at all: ten background agents were ten completed tool calls as far
+ * as this list could tell. `background` is set by the adapter, off the harness's own launch text and
+ * completion notification, and it is the only honest signal for the mode.
+ */
+function stillWorking(b: Extract<Block, { kind: "tool" }>): boolean {
+  if (b.background !== undefined) return b.background === "running";
+  return SUBAGENT_TOOLS.has(b.name) && b.result === null;
+}
+
+/**
  * Sub-agents the HARNESS is running, read off the transcript.
  *
  * These are a different animal to a delegated run and the difference is why they were invisible:
  * `agent_run` creates a real Realm session, with a row, a pane and a place in the layout, and the
- * dock below lists those. Claude's own `Task` tool creates none of that — the subagent lives and
- * dies inside the CLI process, and Realm never hears about it except as a tool call that has not
- * come back yet. So ten `Task` calls in flight showed nothing at all here.
+ * dock below lists those. Claude's own `Task`/`Agent` tools create none of that — the subagent lives
+ * and dies inside the CLI process, and the only trace it leaves on the wire is its launching call.
+ * See `stillWorking` for the two very different shapes that trace takes.
  *
  * What they get is the same card and honestly less than a real run does: elapsed time and what they
  * were asked, but no jump — there is no pane to jump to. Pretending otherwise would be a button that
  * cannot work.
  */
-function harnessSubagents(blocks: readonly Block[], now: number): { id: string; label: string; ms: number }[] {
+function harnessSubagents(blocks: readonly Block[]): { id: string; label: string; startedAt: number }[] {
   return blocks
     .filter((b): b is Extract<Block, { kind: "tool" }> =>
-      b.kind === "tool" && SUBAGENT_TOOLS.has(b.name) && b.result === null
+      b.kind === "tool" && stillWorking(b)
       // A call made UNDER another Task is that Task's business, not a second row here.
       && b.parentToolUseId === undefined)
     .map((b) => ({
@@ -59,7 +77,11 @@ function harnessSubagents(blocks: readonly Block[], now: number): { id: string; 
       // `name` is what a Workflow calls itself; `description` is Task's. Falling through both before
       // the prompt, because a prompt's first eighty characters are usually boilerplate.
       label: labelOf(b.input).slice(0, 80),
-      ms: Math.max(0, now - b.ts),
+      // The START, not an elapsed span frozen at the moment this list was last rebuilt. A background
+      // agent produces no transcript events while it runs, so the list is rebuilt once and then not
+      // again for ten minutes — a precomputed duration would sit at "0s" for the entire run, next to
+      // a header clock that ticks. The Dock's one clock subtracts this instead.
+      startedAt: b.ts,
     }));
 }
 
@@ -83,7 +105,7 @@ export function DelegatedRuns({ sessionId }: { sessionId: string }) {
   // Covers the runs that began before this window connected — a reload, a second window, a pane
   // opened ten minutes into a delegation. Every later change arrives on `delegation.changed`.
   useEffect(() => { run(() => refreshDelegatedRuns(sessionId)); }, [sessionId, refreshDelegatedRuns, run]);
-  const inHarness = useMemo(() => harnessSubagents(blocks, Date.now()), [blocks]);
+  const inHarness = useMemo(() => harnessSubagents(blocks), [blocks]);
   if ((!running || running.length === 0) && inHarness.length === 0) return null;
   return <Dock sessionId={sessionId} running={running ?? NO_RUNS} harness={inHarness} />;
 }
@@ -114,7 +136,7 @@ function Dock({ sessionId, running, harness }: {
   sessionId: string;
   running: readonly DelegatedRun[];
   /** Sub-agents the harness is running in-process — no session, no pane, no jump. */
-  harness: { id: string; label: string; ms: number }[];
+  harness: { id: string; label: string; startedAt: number }[];
 }) {
   const sessions = useApp((s) => s.sessions);
   const sessionStatus = useApp((s) => s.sessionStatus);
@@ -127,7 +149,7 @@ function Dock({ sessionId, running, harness }: {
   const total = rows.length + harness.length;
   // The oldest thing in flight, whichever kind it is — the header's clock is "how long has this
   // session been waiting on anyone", and starting it at the newest would keep resetting it.
-  const since = Math.min(...rows.map((r) => r.startedAt), ...harness.map((h) => Date.now() - h.ms));
+  const since = Math.min(...rows.map((r) => r.startedAt), ...harness.map((h) => h.startedAt));
   // Always ticking: this component only exists while the engine is holding runs open, so the clock
   // stops by unmounting rather than by a flag. One clock for every row too — reading `Date.now()`
   // per row instead would have them disagree with the header by however long the render took.
@@ -195,7 +217,7 @@ function Dock({ sessionId, running, harness }: {
                 <Icon name="bot" size={14} />
                 <span className="delegation-title">{h.label}</span>
                 <span className="delegation-dim">in the agent</span>
-                <span className="delegation-dim">{formatDuration(h.ms)}</span>
+                <span className="delegation-dim">{formatDuration(Math.max(0, now - h.startedAt))}</span>
               </button>
             </li>
           ))}

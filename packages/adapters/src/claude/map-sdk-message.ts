@@ -1,5 +1,6 @@
 import { sessionEvent, type SessionEvent } from "@realm/contracts";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { backgroundTaskFrom } from "./background-task";
 
 type Block = { type: string; [k: string]: unknown };
 
@@ -45,9 +46,15 @@ export function createSdkMapper() {
     map(msg: SDKMessage): SessionEvent[] {
       const out: SessionEvent[] = [];
       switch (msg.type) {
-        case "system":
-          if (msg.subtype === "init") out.push(sessionEvent("init", { providerSessionId: msg.session_id, model: msg.model, tools: msg.tools, cwd: msg.cwd }));
+        case "system": {
+          if (msg.subtype === "init") { out.push(sessionEvent("init", { providerSessionId: msg.session_id, model: msg.model, tools: msg.tools, cwd: msg.cwd })); break; }
+          // The harness's task protocol — how a BACKGROUND sub-agent says it started and stopped.
+          // Nothing else on the wire says it: its launching call returns immediately and then the
+          // agent works for minutes in silence. See background-task.ts for the whole shape.
+          const task = backgroundTaskFrom(msg);
+          if (task) out.push(sessionEvent("background_task", task));
           break;
+        }
         case "stream_event": {
           const parent = msg.parent_tool_use_id;
           const ev = msg.event as { type: string; index?: number; content_block?: Block; delta?: Block };

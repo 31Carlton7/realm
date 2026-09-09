@@ -16,6 +16,32 @@ const P = {
   thinking: z.object({ messageId: z.string(), text: z.string() }),
   tool_call: z.object({ toolUseId: z.string(), name: z.string(), input: z.record(z.unknown()), parentToolUseId: z.string().nullable() }),
   tool_result: z.object({ toolUseId: z.string(), content: z.string(), isError: z.boolean() }),
+  /**
+   * A sub-agent the HARNESS is running in its own process, started or stopped.
+   *
+   * The gap this closes: a BACKGROUND sub-agent (`Agent`/`Task` launched async) returns its tool
+   * result within a second — "Async agent launched successfully" — and then works for minutes with
+   * nothing on the wire. Realm's only signal that a call was still running was a tool result that
+   * had not arrived, so ten background agents looked exactly like ten finished ones, and the
+   * delegation dock showed nothing for the whole run.
+   *
+   * `toolUseId` is the LAUNCHING call's id, which is how the harness itself refers back to the agent
+   * in its completion notification. The harness's internal agent id is deliberately NOT carried: it
+   * tells the model, in the tool result, not to repeat it, and a field Realm never renders is a field
+   * Realm should never have.
+   *
+   * `stopped` rather than `finished` because that is what the notification means — it fires each time
+   * the agent comes to rest, and the parent may send it another message and start it again. Realm
+   * drops the row on the first stop, which under-reports a resumed agent rather than leaving a row
+   * that outlives the work it names.
+   */
+  background_task: z.object({
+    toolUseId: z.string(),
+    status: z.enum(["running", "stopped"]),
+    /** The harness's own one-line account of how it ended. Absent on `running`, and absent on a stop
+     *  whose notification carried no summary — never defaulted to a sentence Realm made up. */
+    summary: z.string().optional(),
+  }),
   permission_request: z.object({ requestId: z.string(), toolName: z.string(), input: z.record(z.unknown()), title: z.string(), suggestions: z.array(z.unknown()) }),
   /** `answers` present only for question-shaped tools (AskUserQuestion): question text -> chosen label.
    *  Persisted so a replayed transcript records what was actually answered, not just that it was allowed. */
@@ -145,6 +171,7 @@ export const SessionEventSchema = z.discriminatedUnion("type", [
   variant("thinking"),
   variant("tool_call"),
   variant("tool_result"),
+  variant("background_task"),
   variant("permission_request"),
   variant("permission_response"),
   variant("status"),
@@ -166,7 +193,7 @@ export function sessionEvent<T extends SessionEventType>(type: T, payload: Sessi
 }
 
 /** Event types the server persists; the rest (assistant_delta) are ephemeral. */
-export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff"];
+export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff"];
 
 export const StoredSessionEventSchema = z.object({ seq: z.number().int(), sessionId: z.string(), event: SessionEventSchema });
 export type StoredSessionEvent = { seq: number; sessionId: string; event: SessionEvent };

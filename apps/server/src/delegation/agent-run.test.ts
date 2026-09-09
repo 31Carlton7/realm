@@ -156,6 +156,15 @@ describe("agent_run — the delegated session", () => {
     expect(started.systemContext).toContain("depth 1 of 2");
   });
 
+  it("does NOT stack the general capabilities preamble on top of the child's brief", async () => {
+    const { fake, spaceId, parentId } = await boot({ parentKind: "claude" });
+    await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "Refactor the parser" });
+    // THE MUTANT: compose the capabilities preamble for every session. A child spawned with one job
+    // and a stated depth budget would then also read a general argument for spawning more agents,
+    // beside the brief that just told it how deep it may go.
+    expect(fake.seen[0]!.systemContext).not.toContain("This session runs in Realm");
+  });
+
   it("tells a child that has SPENT the budget it cannot delegate — the preamble tracks depth", async () => {
     const { fake, spaceId, parentId } = await boot({ parentKind: "claude", maxDepth: 1 });
     await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "Refactor the parser" });
