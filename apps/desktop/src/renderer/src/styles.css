@@ -209,9 +209,24 @@ kbd { font: 11px var(--font-mono); }
    near-opaque, and plainly a different surface from the panel beside it. The default is the floor
    now, and at that transparency the sidebar's tone is partly the user's wallpaper — so on some
    desktops the two surfaces meet at almost no contrast at all and the app reads as one wash.
-   Drawn as an inset shadow on the panel rather than a border on the sidebar so it renders the same
-   whatever is showing through: the line is between them, and only one of them has a fixed colour. */
-.main { box-shadow: inset 1px 0 0 var(--rl-line); }
+   Drawn on the panel rather than on the sidebar so it renders the same whatever is showing through:
+   the line is between them, and only one of them has a fixed colour.
+
+   A BORDER, not the inset shadow this was written as. An inset shadow paints above the element's own
+   background and below its children's, and `.main`'s children — `.panehost`, and every `.panel`
+   inside it — carry `--rl-panel` edge to edge. So the line was covered by the pane on top of it and
+   drew nothing at all: measured live, removing the shadow entirely changed not one pixel across the
+   seam. A border is box decoration on `.main` itself; a child laid out in the padding box cannot
+   reach it. `sidebar-edge-live.mjs` measures the pixels either way.
+
+   line-STRONG, not line: this is the one hairline in the app that has to hold against an unknown
+   backdrop. Everywhere else a hairline separates two surfaces Realm painted itself, and --rl-line is
+   sized for that; here the left side is partly the user's desktop, so the same 8% white lands
+   somewhere between subtle and absent depending on the wallpaper.
+
+   Only while the sidebar is there. Collapsed, nothing takes the column's place, so this same line
+   would be a stray rule down the window's own left edge. */
+.app:not([data-sidebar-collapsed]) .main { border-left: var(--hairline-w) solid var(--rl-line-strong); }
 /* The traffic-light band, as a real row rather than .sb-top's old 40px of top padding: the toggle
    sits at its right edge, mirroring the lights at its left. Height + .sb-top's new padding sum to
    the 48px of head room the sidebar had before, so nothing below it moves. */
@@ -230,6 +245,14 @@ kbd { font: 11px var(--font-mono); }
    touching it — .panel-nav opens with a -8px margin, so the gap has to be budgeted at 16 to land
    as 8 on screen. */
 .app[data-sidebar-collapsed] { --corner-w: 118px; }
+/* The lights' clearance moves on the same rung as the column. Without this the pane bar's indent
+   snaps to 118px on the first frame while the sidebar is still a third of the way out, and the two
+   halves of one gesture read as two events. */
+.main > .error-bar:first-child,
+.main > .group-bar:first-child,
+.main > .panehost:first-child .panel[data-first-leaf] > .panel-bar {
+  transition: padding-left var(--dur-move) var(--ease-in-out-strong);
+}
 .sb-corner { position: absolute; top: 0; left: 0; z-index: 5; height: 40px; display: flex; align-items: center;
   padding-left: 76px; -webkit-app-region: drag;
   /* Fades in behind the departing column rather than appearing under it mid-slide. No exit: it is
@@ -249,14 +272,6 @@ kbd { font: 11px var(--font-mono); }
 /* The group bar is 34px at rest and takes the panel bar's 40px when it is the strip under the lights. */
 .app[data-sidebar-collapsed] .main > .group-bar:first-child { min-height: 40px; }
 /* ink-3 → ink-2 on hover, matching .search: the glyph itself IS the state, no fill change. */
-/* The lights' clearance moves on the same rung as the column. Without this the pane bar's indent
-   snaps to 118px on the first frame while the sidebar is still a third of the way out, and the two
-   halves of one gesture read as two events. */
-.main > .error-bar:first-child,
-.main > .group-bar:first-child,
-.main > .panehost:first-child .panel[data-first-leaf] > .panel-bar {
-  transition: padding-left var(--dur-move) var(--ease-in-out-strong);
-}
 .sb-toggle { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px;
   border-radius: var(--r-ctl); corner-shape: squircle; color: var(--rl-text-faint); }
 .sb-toggle:hover { color: var(--rl-text-bright); background: var(--field); }
@@ -598,9 +613,29 @@ kbd { font: 11px var(--font-mono); }
    The picture sits in no well of its own. It is either a `.media-*` frame, which brings its own
    surface and hairline, or QuickLook's render, which gets the same inset outline every image in the
    app wears. A frame around either would be a second box around a thing that already has one. */
-.file-preview-art { display: flex; justify-content: center; margin: 0 0 12px; }
-.file-preview-still { display: block; max-width: 100%; max-height: 320px; object-fit: contain;
-  border-radius: var(--r-row); box-shadow: var(--shadow-hairline); }
+/* The preview WELL: the sheet's own width, not a square floated in the middle of it.
+   A QuickLook render of a text file is a tall page. Centred at its natural size it was a small
+   square of unreadable grey in a wide sheet — the picture was there and said nothing. Filling the
+   column and cropping to the TOP shows the first lines at a size they can be read at, which is the
+   only part of a page-of-source anyone looks at in a preview.
+   `--inset` is the surface ladder's well, one step under the sheet's `--surface`: recessed, which is
+   what a thing you look INTO should be, and it is what makes the crop's edge legible without a
+   second border around a picture that already carries its own outline. */
+.file-preview-art { width: 100%; margin: 0 0 12px; border-radius: var(--r-panel); overflow: hidden;
+  background: var(--inset); box-shadow: var(--shadow-hairline); }
+/* Media keeps its own frame, which brings its own sizing — the well only has to not squeeze it. */
+.file-preview-art > * { display: block; margin: 0 auto; }
+/* Until the load handler has measured it, a picture is drawn the safe way: contained, at its own
+   size. A `page` that flashed at icon size is a beat of the old behaviour; an `icon` that flashed
+   full-bleed is a 480px file-type glyph, which is the failure worth avoiding. */
+.file-preview-still { display: block; max-width: 100%; max-height: 200px; margin: 0 auto;
+  object-fit: contain; border-radius: 0; box-shadow: none; }
+/* A render of the file's CONTENT. It fills the column and is cropped to its top, because the first
+   lines are the whole of what a preview of a page is read for. */
+.file-preview-still[data-fit="page"] { width: 100%; max-width: none; max-height: 260px;
+  object-fit: cover; object-position: top center; }
+/* A generic type icon. It is a mark, not a picture — drawn at a mark's size, with air around it. */
+.file-preview-still[data-fit="icon"] { width: auto; max-height: 128px; margin: 24px auto; }
 /* The path is machine state, so it reads in mono and wraps at any character — a long path must not
    push the sheet wider than the column it was centered over. */
 .summary-file-path, .file-preview-path { margin: 0 0 4px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5;
@@ -615,7 +650,13 @@ kbd { font: 11px var(--font-mono); }
 .file-preview-from-gone { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The overflow takes the far end of the footer and the primary keeps the near one, so the decision
    and the drawer of secondary verbs never trade places as the action set changes with the file. */
-.file-preview-more { margin-right: auto; padding: 0 10px; }
+/* An icon-only control, so it takes the app's icon-button shape rather than a text button's. At a
+   near-square aspect the painted superellipse (--sq-n-ctl: 3) reads as a rounded SQUARE, which is
+   what the hover fill was drawing here — the flat sides of a wide button are what normally hide it. */
+.file-preview-more { margin-right: auto; }
+/* One slot for the whole menu, sized to the glyph so every label starts on the same left edge. */
+.menu-icon { flex: none; display: grid; place-items: center; width: 16px; height: 16px; }
+.menu-icon-img { width: 16px; height: 16px; object-fit: contain; }
 .summary-plan-prose { font-size: 13.5px; }
 .summary-plan-steps { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .summary-plan-steps li { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--rl-text-dim); }
@@ -924,7 +965,6 @@ kbd { font: 11px var(--font-mono); }
 .group-head-name { font: inherit; color: inherit; text-align: left; }
 .group-head-badge { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--rl-text-faint);
   border: var(--hairline-w) solid var(--rl-hairline); border-radius: 999px; padding: 0 5px; }
-.group-label-renaming { padding: 8px 8px 4px; }
 /* The shelf's heading: a disclosure triangle wearing the group heading's own type, so it reads as a
    sibling of "Space" rather than a control bolted under it. */
 .archived-head { padding-top: 14px; }
@@ -1124,14 +1164,20 @@ button.panel-title:hover { background: var(--rl-hover); }
    field came out as a bordered box inside the search field, which is the "search bar within a search
    bar" the Skills tab showed: the same failure, wearing the same rule. Every exclusion here names a
    control that owns its own skin. */
-.field input:not(.switch):not(.checkbox):not(.search-field), .field select { height: 30px; padding: 0 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
+/* `select` is deliberately NOT scoped to `.field`, unlike the input beside it. A `<select>` has no
+   useful native skin to fall back to — left alone it draws Chromium's own control, complete with a
+   SQUARE focus ring, inside a window where every other control is rounded. Five of the app's ten
+   selects live outside a `.field` (the font pair, the code font, the usage scope, the schedule
+   preset) and every one of them shipped as that raw control. Scoping the skin to a wrapper made
+   forgetting the wrapper a silent visual regression; an element selector cannot be forgotten. */
+.field input:not(.switch):not(.checkbox):not(.search-field), select { height: 30px; padding: 0 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
 /* A multi-line field is the same control with room: same ring, same ground, same radius — only the
    height and the wrapping differ, so a form mixing the two reads as one form. */
 .field textarea { padding: 7px 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field);
   color: var(--rl-text-bright); outline: none; font: inherit; line-height: 1.5; resize: vertical; }
 .field textarea:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); outline: none; }
 /* One focus-ring formula for every text-entry surface (§3): neutral ink at 35%, 2px. */
-.field input:not(.switch):not(.checkbox):not(.search-field):focus, .field select:focus, .rename:focus, .hex:focus {
+.field input:not(.switch):not(.checkbox):not(.search-field):focus, select:focus, .rename:focus, .hex:focus {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); outline: none; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .profile-add-row { display: flex; gap: 6px; } .profile-add-row input { flex: 1; min-width: 0; }
@@ -1158,7 +1204,12 @@ button.panel-title:hover { background: var(--rl-hover); }
   flex-shrink: 0; white-space: nowrap;
   --fill: var(--surface); background: var(--fill); box-shadow: 0 0 0 var(--hairline-w) var(--btn-ring); }
 .btn > svg { flex: none; }
-.btn:hover:not(:disabled) { --fill: var(--inset); }
+/* `--hover`, not `--inset`. The two move in OPPOSITE directions on a dark face: `--inset` is a rung
+   of the surface ladder and sits BELOW `--surface` (0.243 against 0.260), so a hovered button dropped
+   into a well while every row, menu and chip beside it lifted. `--hover` is the interaction rung and
+   is authored per mode to move the right way on both faces — lighter on dark, darker on light. The
+   danger variant already reached for it; now all three do. */
+.btn:hover:not(:disabled) { --fill: var(--hover); }
 .btn.primary { --fill: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: var(--fill-bevel); }
 .btn.primary:hover:not(:disabled) { --fill: var(--accent-ink); }
 .btn.danger { --fill: transparent; color: var(--rl-danger); box-shadow: none; }
@@ -1615,11 +1666,11 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* Dimmer than the duration beside it. "How long did that take" is the question the line is answering;
    "when did it end" is the one you only ask on the way back to an old session. */
 .msg-run-at { color: color-mix(in srgb, var(--rl-text-faint) 72%, transparent); }
-/* The closing line of a session nobody has touched in a while. Quieter than the run label above it
-   and italic, because it is the one line in the transcript that is Realm talking about the session
-   rather than anything that happened in it — a register the reader should be able to tell apart
-   without reading the words. */
-.msg-idle-summary { margin: 6px 0 0; font-size: 11.5px; font-style: italic; line-height: 1.5;
+/* The closing line of a settled session. Quieter than the run label above it and italic, because it
+   is the one line in the transcript that is Realm talking about the session rather than anything
+   that happened in it — a register the reader should be able to tell apart without reading the
+   words, and one that matters more now it is on screen by default rather than after five minutes. */
+.msg-transcript-summary { margin: 6px 0 0; font-size: 11.5px; font-style: italic; line-height: 1.5;
   color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 .new-msgs-pill { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; font-size: 12px;
   background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: var(--rl-shadow); }
@@ -2787,10 +2838,12 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .status-pill[data-tone="warning"] { color: var(--orange); background: var(--orange-tint); }
 .status-pill[data-tone="muted"] { color: var(--rl-text-faint); background: var(--rl-hover); }
 
-/* Custom selects (V-F1, sheets/forms only now): drop the raw Chromium arrow and draw our own chevron.
+/* Custom selects: drop the raw Chromium arrow and draw our own chevron.
    background-image cannot use currentColor, so the chevron is one fixed mid-grey (#85868f) chosen to
-   read on both modes' surfaces (≈ dark textDim, ≈ light textFaint). */
-.field select { appearance: none; padding-right: 22px;
+   read on both modes' surfaces (≈ dark textDim, ≈ light textFaint). Unscoped for the reason the skin
+   above is: `appearance: none` is what removes the native arrow AND the native focus ring, so a
+   select that misses this rule is the one that draws a square. */
+select { appearance: none; padding-right: 22px;
   background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="8" height="5" viewBox="0 0 8 5"><path d="M1 1l3 3 3-3" fill="none" stroke="%2385868f" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>');
   background-repeat: no-repeat; background-position: right 6px center; }
 
@@ -2838,6 +2891,27 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   /* the prompter — only the pinned strip's copy of the list is bounded enough to scroll */
   .composer-todos .todo-list
 ) { scrollbar-width: thin; }
+/* The sidebar's list is the one scroller that cannot take the standard properties, and it is worth
+   the fork because two separate things go wrong without it.
+   Its bar was `thin`, which is 11px on this runtime and reads as heavy in a 280px column. And this
+   scroller is MASKED at both ends — the mask exists because the column is translucent and a
+   backdrop-filter over it smudges the window's own transparency — and a mask applies to the
+   element's whole rendering, scrollbar included. So the thumb dissolved at exactly the two places a
+   scrollbar is most used: the ends.
+   `::-webkit-scrollbar-track`'s margin is the only way to hold a thumb clear of a region, and the
+   pseudo-elements are ignored the moment either standard property is set — `scrollbar-color` is
+   inherited from :root, so it has to be given back explicitly here. Track margins match the mask's
+   own two depths, so the thumb starts where the list stops dissolving and the two cannot drift. */
+.space-body { scrollbar-color: auto; scrollbar-width: auto; }
+.space-body::-webkit-scrollbar { width: 8px; }
+.space-body::-webkit-scrollbar-track { background: transparent; margin-block: var(--fade-top-h) var(--fade-h); }
+.space-body::-webkit-scrollbar-thumb { background: var(--rl-line); border-radius: 999px;
+  /* Inset from the 8px channel so the thumb reads as a 4px line with air either side rather than a
+     bar wedged against the column's edge. `background-clip: content-box` is what makes the border
+     transparent padding instead of a second colour. */
+  border: 2px solid transparent; background-clip: content-box; }
+.space-body:hover::-webkit-scrollbar-thumb { background: var(--rl-line-strong); background-clip: content-box; }
+
 /* xterm keeps an explicit treatment rather than inheriting the app's. It owns this element: it
    measures the viewport to decide the terminal's column count, and its interior is a dark world in
    both app modes (`color-scheme: dark` on .terminal-pane), so the thumb here answers to the terminal
@@ -2866,27 +2940,6 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 @keyframes rl-menu-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(.97); } }
 
 /* Sheets (§6): enter 240ms, scale .96 + fade, origin center; the scrim fades on its own at 160ms.
-/* The sidebar's list is the one scroller that cannot take the standard properties, and it is worth
-   the fork because two separate things go wrong without it.
-   Its bar was `thin`, which is 11px on this runtime and reads as heavy in a 280px column. And this
-   scroller is MASKED at both ends — the mask exists because the column is translucent and a
-   backdrop-filter over it smudges the window's own transparency — and a mask applies to the
-   element's whole rendering, scrollbar included. So the thumb dissolved at exactly the two places a
-   scrollbar is most used: the ends.
-   `::-webkit-scrollbar-track`'s margin is the only way to hold a thumb clear of a region, and the
-   pseudo-elements are ignored the moment either standard property is set — `scrollbar-color` is
-   inherited from :root, so it has to be given back explicitly here. Track margins match the mask's
-   own two depths, so the thumb starts where the list stops dissolving and the two cannot drift. */
-.space-body { scrollbar-color: auto; scrollbar-width: auto; }
-.space-body::-webkit-scrollbar { width: 8px; }
-.space-body::-webkit-scrollbar-track { background: transparent; margin-block: var(--fade-top-h) var(--fade-h); }
-.space-body::-webkit-scrollbar-thumb { background: var(--rl-line); border-radius: 999px;
-  /* Inset from the 8px channel so the thumb reads as a 4px line with air either side rather than a
-     bar wedged against the column's edge. `background-clip: content-box` is what makes the border
-     transparent padding instead of a second colour. */
-  border: 2px solid transparent; background-clip: content-box; }
-.space-body:hover::-webkit-scrollbar-thumb { background: var(--rl-line-strong); background-clip: content-box; }
-
    One rule for every sheet — W4b's `.sheet.onboarding` carve-out is gone. */
 .sheet { animation: rl-sheet-in var(--dur-slow) var(--ease-out-strong); }
 @keyframes rl-sheet-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
@@ -3428,7 +3481,10 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   appearance: none; flex: none; width: 34px; height: 20px; margin: 0; border-radius: 999px;
   background: var(--rl-line); box-shadow: inset 0 0 0 var(--hairline-w) var(--rl-line-strong);
   position: relative; cursor: pointer;
-  transition: background var(--dur-press) var(--ease-out-strong), box-shadow var(--dur-press) ease;
+  /* Two rungs, because these are two different events: the TRACK's fill is hover feedback and rides
+     the hover rung with every other fill in the app, while the knob below is a state change and
+     stays on press. Both were on press, which is what made a hover read as a flick. */
+  transition: background var(--dur-hover) var(--ease-out-strong), box-shadow var(--dur-hover) ease;
 }
 .switch:hover:not(:disabled) { background: var(--rl-line-strong); }
 /* The knob carries its own small lift, which is what stops it reading as a hole in the track. */
@@ -3599,6 +3655,14 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    heading arrives smudged. The band says "there is more this way", so it appears when that is true. */
 .edge-fade { opacity: 0; transition: opacity var(--dur-fast) ease; }
 .edge-fade[data-on] { opacity: 1; }
+/* A control that lives INSIDE a faded column outranks the band, the same way `.composer-dock` outranks
+   the transcript's. A band gated on scroll still catches whatever is at the top of the column the
+   moment it moves, and in the Library that is the search field and the filter chips: scroll the grid
+   and the chips a user is reading go to a smudge — a rendering fault, not depth. Chrome never goes
+   soft (design.md). The bar still scrolls away with the column; it is only excused from being
+   BACKDROP, which is all it takes, since `.page-content` is a static box and a positioned child of it
+   with a z-index above the band's 1 sorts against the band in the same stacking context. */
+.page-filters, .skills-filter-row { position: relative; z-index: 2; }
 .page-content { flex: 1; min-width: 0; min-height: 0; max-width: 720px; overflow-y: auto;
   box-sizing: content-box; padding: 4px 4px 34px; margin: -4px -4px 0;
   scroll-padding: 24px 0 34px; }
@@ -3716,6 +3780,13 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .library-tile-mark[data-type="video"], .library-tile-mark[data-type="audio"] { color: var(--rl-accent); }
 .library-tile-mark[data-type="data"] { color: var(--orange); }
 .library-tile-mark[data-type="code"] { color: var(--rl-text-bright); }
+/* A mark holding a PICTURE is a different object from a mark holding a glyph, and the tinted well is
+   the difference. A glyph needs the well to read as a mark at all; a picture is the subject and wants
+   the whole square, so the fill goes and the hairline comes on — the same one-device-pixel inset
+   outline every other image in the app wears (`.attach-art`), which is what keeps a screenshot with a
+   pale edge from bleeding into the card behind it. */
+.library-tile-mark[data-thumb] { background: none; box-shadow: var(--shadow-hairline); overflow: hidden; }
+.library-tile-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
 .library-tile-name { min-width: 0; font-size: 13px; color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .library-tile-from { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 11.5px; color: var(--rl-text-faint); }
 .library-tile-kind { flex: none; }
@@ -3750,13 +3821,6 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   --btn-h: 28px;
   display: inline-flex; align-items: center; gap: 6px; height: var(--btn-h); padding: 0 11px;
   border: none; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
-/* A mark holding a PICTURE is a different object from a mark holding a glyph, and the tinted well is
-   the difference. A glyph needs the well to read as a mark at all; a picture is the subject and wants
-   the whole square, so the fill goes and the hairline comes on — the same one-device-pixel inset
-   outline every other image in the app wears (`.attach-art`), which is what keeps a screenshot with a
-   pale edge from bleeding into the card behind it. */
-.library-tile-mark[data-thumb] { background: none; box-shadow: var(--shadow-hairline); overflow: hidden; }
-.library-tile-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
   background: var(--rl-hover); color: var(--rl-text-dim); font: inherit; font-size: 12.5px; cursor: pointer;
   transition: background var(--dur-hover) ease, color var(--dur-hover) ease;
 }
@@ -4402,7 +4466,8 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    poster that reads better large — but blowing a small image up to 680px is how an icon becomes a
    smear, so the image frame is fit-content and the picture keeps its own size. */
 .media-image { width: fit-content; max-width: 100%; cursor: zoom-in; line-height: 0; }
-.media-image:disabled { cursor: default; }
+/* Expansion is disabled in the full-size viewer; the image itself must stay undimmed. */
+.media-image:disabled { cursor: default; opacity: 1; }
 /* A tall render must not become a column-height wall; the cap is generous enough that a 9:16 phone
    mockup is still watchable in place and short enough that the prose after it stays reachable. */
 .media-el { display: block; max-width: 100%; max-height: 420px; object-fit: contain; background: var(--rl-frame); }
@@ -4577,7 +4642,10 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
    A native range on the app's accent, with the value beside it in tabular figures so the number does
    not jitter as the thumb moves. Disabled off macOS, where the window has no material behind it. */
 .font-row { display: flex; align-items: center; gap: 8px; }
-.font-row select { flex: 1; min-width: 0; max-width: 220px; }
+/* Content-sized, not an even split. `flex: 1` gave the family and the weight the same width however
+   long their labels were, so "Regular" clipped beside a box of spare room. `0 1 auto` lets each take
+   what its longest option needs and yield only when the row runs out. */
+.font-row select { flex: 0 1 auto; min-width: 0; max-width: 220px; }
 .slider-row { display: flex; align-items: center; gap: 10px; }
 /*
  * The track. It was the OS control tinted with `accent-color` — a hairline groove under an
@@ -4736,10 +4804,12 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 
 .usage-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .usage-refresh { margin-left: auto; }
-.usage-scope select {
-  height: 26px; padding: 0 8px; font: inherit; font-size: 12px; color: var(--rl-text-bright);
-  background: var(--rl-raised); border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-ctl);
-}
+/* Only what is genuinely different from the shared select skin: this one is a compact chip in a
+   toolbar rather than a form control. It used to restate the whole skin — ground, border, radius,
+   padding — which is how it came to be missing the one declaration that mattered (`appearance:
+   none`) and drew a native arrow with a square focus ring inside a rounded toolbar. The padding
+   keeps `padding-right` off the shorthand so the shared chevron still has its gutter. */
+.usage-scope select { height: 26px; padding-left: 8px; font-size: 12px; }
 
 /* A segmented control: one row of radios wearing a shared track. */
 .seg { display: inline-flex; gap: 2px; margin: 0; padding: 2px; border: var(--hairline-w) solid var(--rl-line);

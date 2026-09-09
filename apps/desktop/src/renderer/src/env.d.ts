@@ -46,6 +46,8 @@ interface Window {
        *  a page of source). Null for a type macOS has no generator for. */
       preview(path: string): Promise<string | null>;
       reveal(path: string): Promise<void>;
+      /** Finder's own icon as a data URL, read off this machine. Null when it cannot be read. */
+      finderIcon(): Promise<string | null>;
       /** Copy it where the user points; the saved path, or null when they cancelled. */
       saveCopy(path: string): Promise<string | null>;
     };

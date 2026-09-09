@@ -17,6 +17,7 @@ function bridge(over: Record<string, unknown> = {}) {
     preview: vi.fn(async () => null),
     reveal: vi.fn(async (_path: string) => undefined),
     saveCopy: vi.fn(async (_path: string) => "/Users/me/Downloads/report.md"),
+    finderIcon: vi.fn(async () => "data:image/png;base64,FINDER"),
   };
   const realm = {
     files,
@@ -162,6 +163,23 @@ describe("previewing a file from the Library", () => {
     await openCard("/tmp/archive.zip");
     fireEvent.click(await screen.findByRole("button", { name: "Open with the default app" }));
     await waitFor(() => expect(realm.openAttachment).toHaveBeenCalledWith("/tmp/archive.zip"));
+  });
+
+  it("wears Finder's own icon on Reveal in Finder, and falls back rather than waiting on it", async () => {
+    /* The mark is Apple's, so it is read off THIS machine at runtime rather than shipped with the
+       app. A machine that cannot produce it (or has not yet) still gets a usable menu — the item
+       draws Realm's folder glyph instead of holding the menu back for a picture. */
+    bridge();
+    await mount({ artifacts: [file({ id: "report.md", path: "/tmp/report.md" })] });
+    await openCard("/tmp/report.md");
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    const item = await screen.findByRole("menuitem", { name: "Reveal in Finder" });
+    await waitFor(() => expect(item.querySelector("img.menu-icon-img")).not.toBeNull());
+
+    // THE MUTANT: draw the slot only on the item that has an icon. Every other label then starts
+    // 24px to its left and the menu reads as broken rather than as emphasised.
+    const copyPath = screen.getByRole("menuitem", { name: "Copy path" });
+    expect(copyPath.querySelector(".menu-icon")).not.toBeNull();
   });
 
   it("saves a copy, reveals and copies the path through the bridge that can do all three", async () => {

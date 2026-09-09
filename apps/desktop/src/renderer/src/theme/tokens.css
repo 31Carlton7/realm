@@ -424,7 +424,7 @@ a {
    * something by. Three halves the distance to it and keeps a visible flat top and bottom. */
   --sq-n-ctl: 3;
   --dur-drag: 80ms;   /* the drop target appearing mid-drag: fast enough not to read as motion */
-  --dur-hover: 100ms; /* a fill or an ink step answering the pointer */
+  --dur-hover: 180ms; /* a fill or an ink step answering the pointer */
   --dur-press: 120ms; /* a control resolving inside the gesture that caused it — the .97 press, the switch throw */
   --dur-pop: 140ms;   /* a popover unfolding out of its trigger */
   --dur-fast: 150ms;  /* a fade with no gesture behind it: a tip arriving, a panel dimming to refetch */

@@ -5,6 +5,10 @@ import { useAnchoredPopover } from "./use-anchored-popover";
 
 export type MenuItem =
   | { kind?: "item"; label: ReactNode; onSelect: () => void; disabled?: boolean; title?: string; checked?: boolean; danger?: boolean;
+      /** A glyph before the label. Drawn in a fixed slot that EVERY item in the menu reserves as soon
+       *  as one item asks for it, so labels stay on one left edge — a menu where three rows start at
+       *  x and one starts at x+20 reads as a mistake rather than as emphasis. */
+      icon?: ReactNode;
       /** Right-aligned shortcut hint, e.g. "⌘W". Purely visual — the binding lives in hotkeys.ts. */
       kbd?: string;
       /** Selecting keeps the menu open (two-step confirms rebuild their items in place). */
@@ -60,6 +64,8 @@ export function Menu({ items, onClose, at, anchorRef, returnFocusRef, align = "l
   // the tab order, out of the accessibility tree, and un-hit-testable, so the app behind it behaves
   // as though the menu had already gone. The stylesheet takes its pointer events away as well, for
   // the browsers that paint the fade before they honour the attribute.
+  /** Whether ANY item carries a glyph. One reserved slot for the whole menu, or none — see `icon`. */
+  const anyIcon = items.some((it) => it.kind !== "separator" && it.icon !== undefined);
   return createPortal(
     <div ref={ref} role="menu" aria-label={label} className="menu" style={style} onKeyDown={onKeyDown}
       data-closing={closing || undefined} inert={closing}>
@@ -70,6 +76,7 @@ export function Menu({ items, onClose, at, anchorRef, returnFocusRef, align = "l
             disabled={it.disabled} title={it.title} aria-checked={it.checked !== undefined ? it.checked : undefined}
             className={(it.checked ? "checked" : "") + (it.danger ? " danger" : "")}
             onClick={() => { it.onSelect(); if (!it.keepOpen) close(); }}>
+            {anyIcon && <span className="menu-icon" aria-hidden="true">{it.icon}</span>}
             <span className="menu-label">{it.label}</span>
             {it.kbd && <kbd className="menu-kbd">{it.kbd}</kbd>}
             {it.checked && <Icon name="check" size={14} className="menu-check" />}

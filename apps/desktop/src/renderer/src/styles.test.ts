@@ -36,6 +36,10 @@ const bodiesFor = (selector: string): string[] => {
   return hits;
 };
 
+it("keeps expanded images at full opacity when their expansion button is disabled", () => {
+  expect(bodiesFor(".media-image:disabled").join(" ")).toMatch(/opacity:\s*1\s*;/);
+});
+
 /** Brace-balanced contents of every block introduced by `prelude` (an at-rule or keyframes header). */
 function blocksAfter(prelude: string): string[] {
   const out: string[] = [];
@@ -70,7 +74,7 @@ const dur = (rung: string): string => {
 describe("§6 motion ladder", () => {
   it("is the one place a duration is written, and these are its rungs", () => {
     expect(LADDER).toEqual({
-      "--dur-drag": 80, "--dur-hover": 100, "--dur-press": 120, "--dur-pop": 140, "--dur-fast": 150,
+      "--dur-drag": 80, "--dur-hover": 180, "--dur-press": 120, "--dur-pop": 140, "--dur-fast": 150,
       "--dur-swap": 160, "--dur-enter": 180, "--dur-base": 200, "--dur-rise": 220, "--dur-slow": 240,
       "--dur-move": 320,
     });
@@ -157,7 +161,7 @@ describe("§6 motion table", () => {
     expect(blockAfter("@keyframes rl-msg-in")).toContain("translateY(6px)");
   });
 
-  it("hover fills run 100ms on plain `ease` and touch background/colour only — never geometry", () => {
+  it("hover fills run on the hover rung, on plain `ease`, and touch background/colour only — never geometry", () => {
     const hover = bodiesFor(".item-row").join(" ");
     expect(hover).toContain(`transition: background-color ${dur("--dur-hover")} ease, color ${dur("--dur-hover")} ease`);
     expect(hover).not.toContain("transform");
@@ -461,7 +465,7 @@ describe("Ara refresh §3/§4 geometry", () => {
   });
 
   it("the group's corner is a CHIP corner, not a pill — the stadium hid the shape", () => {
-    /* At 0.48 \u00d7 28px the circular clip was a stadium, while a `.btn` beside it paints a superellipse
+    /* At 0.48 × 28px the circular clip was a stadium, while a `.btn` beside it paints a superellipse
        at the same ratio and shows real flat runs. `--r-chip` is the rung where a circular corner and
        a superellipse are the same picture (see the paint-worklet test above), so this reads like the
        buttons today AND needs no revisit when `corner-shape` starts doing something.
@@ -781,6 +785,22 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(bodiesFor(".sb-head").join(" ")).toContain("height: 40px");
     expect(bodiesFor(".panel-bar").join(" ")).toContain("height: 40px");
     expect(bodiesFor(".app[data-sidebar-collapsed] .main > .group-bar:first-child").join(" ")).toContain("min-height: 40px");
+  });
+
+  it("the sidebar's right edge is a BORDER on .main, and only while the sidebar is there", () => {
+    /* Measured live (`sidebar-edge-live.mjs`): as an inset box-shadow this line computed perfectly
+       and painted nothing at all. An inset shadow sits below the element's children, and `.main`'s
+       children — `.panehost` and every `.panel` — carry --rl-panel edge to edge, so the pane covered
+       it. A border is box decoration on `.main` itself and cannot be covered by a child laid out in
+       its padding box. This test is the cheap half; the pixels are the real one. */
+    const edge = RULES.filter((r) => r.selectors.some((sel) => /(^|\s)\.main$/.test(sel.trim())) && r.body.includes("border-left"))
+      .flatMap((r) => r.selectors);
+    expect(edge).toEqual([".app:not([data-sidebar-collapsed]) .main"]);
+    // THE mutant: drop the :not(). Collapsed, nothing takes the sidebar's column, so the same line
+    // becomes a stray rule down the window's own left edge.
+    expect(bodiesFor(".app:not([data-sidebar-collapsed]) .main").join(" ")).toContain("var(--rl-line-strong)");
+    // And no inset shadow creeps back onto .main to say the same thing twice, invisibly.
+    expect(bodiesFor(".main").join(" ")).not.toContain("box-shadow: inset");
   });
 
   it("the sidebar keeps its vibrancy, and it is the app's ONE adjustable ground", () => {
@@ -1131,7 +1151,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
 
   it("the bypass pills speak a tone PAIR (StatusPill), not a hand-rolled color-mix", () => {
     /* The invariant is the pair — an ink token and its matching tint — rather than which hue it is.
-       Both moved orange \u2192 red when the permission chip joined the mode chip in one control (see the
+       Both moved orange → red when the permission chip joined the mode chip in one control (see the
        Full-access test above); what must not come back is the ad-hoc `color-mix` these replaced. */
     const pill = bodiesFor(".bypass-confirm").join(" ");
     expect(pill).toContain("color: var(--rl-danger)");
@@ -1330,7 +1350,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(field?.selectors.find((x) => x.startsWith(".field input"))).toContain(":not(.search-field)");
   });
 
-  it("buttons are BUI Button's tiers: secondary = surface on shadow-btn stepping to inset; primary = accent with the filled highlight and accent-ink hover", () => {
+  it("buttons are BUI Button's tiers: secondary = surface on shadow-btn LIFTING to hover; primary = accent with the filled highlight and accent-ink hover", () => {
     /* The tiers are unchanged; where they are WRITTEN moved. Each state sets `--fill` and the base
        rule paints it, so the painted regime can read one property instead of racing each state on
        specificity — see the painted-control test above for the square-on-hover bug that forced it. */
@@ -2020,6 +2040,26 @@ describe("narrow panes", () => {
     const scroll = bodiesFor(".page-scroll").join(" ");
     expect(scroll).toContain("--fade-h");
     expect(scroll).toContain("--fade-top-h");
+  });
+
+  it("a filter bar INSIDE the column outranks the band, so scrolling never smudges a control", () => {
+    /* Keeping the bands off the rail only covers the chrome that sits BESIDE the column. The Library's
+       search field and filter chips sit inside it, and a band gated on scroll catches them the moment
+       the grid moves: the chips went to a smudge, which reads as a rendering fault rather than as
+       depth (design.md — chrome never goes soft). A backdrop-filter takes whatever is painted beneath
+       it, so the bar is lifted out of the backdrop instead of being excused from the scroll.
+       THE mutant: drop the z-index, or the position that makes it apply. Measured on pixels either
+       way by `filter-bar-fade-live.mjs`, which parks the chips in the band and scores the strip. */
+    const bar = bodiesFor(".page-filters").join(" ");
+    expect(bar).toContain("position: relative");
+    // Pinned to the band's own layer, not to a literal: whoever changes one has to look at the other.
+    const band = Number(/z-index:\s*(\d+)/.exec(bodiesFor(".edge-fade").join(" "))?.[1]);
+    expect(band).toBe(1);
+    expect(Number(/z-index:\s*(\d+)/.exec(bar)?.[1])).toBeGreaterThan(band);
+    // Both bars are covered by the one rule; a third that forgets it is the regression.
+    for (const sel of [".page-filters", ".skills-filter-row"]) {
+      expect(RULES.some((r) => r.selectors.includes(sel) && /z-index/.test(r.body)), sel).toBe(true);
+    }
   });
 
   it("a stacked settings row opts out of the narrow pass's wrap, which means the opposite in a column", () => {

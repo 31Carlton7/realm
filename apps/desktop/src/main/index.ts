@@ -496,6 +496,26 @@ ipcMain.handle("mac:app-icon", async (_e, id: unknown): Promise<string | null> =
   return url;
 });
 
+/**
+ * Finder's own icon, for the one menu item that names it.
+ *
+ * The path is a CONSTANT, never a parameter: `mac:app-icon` above is guarded by a capability id
+ * precisely because a caller-supplied bundle path would let a renderer point the extractor at any
+ * file on disk, and this handler exists so that guard does not have to be loosened for a glyph.
+ *
+ * Read from the user's own system rather than shipped as artwork — the mark belongs to Apple, and
+ * the copy on the machine is the one that already matches whatever macOS the user is running. Null
+ * on any failure, and the menu falls back to Realm's own folder glyph.
+ */
+ipcMain.handle("files:finder-icon", async (): Promise<string | null> => {
+  const bundle = "/System/Library/CoreServices/Finder.app";
+  const cached = APP_ICON_CACHE.get(bundle);
+  if (cached !== undefined) return cached;
+  const url = existsSync(bundle) ? await readAppIcon(bundle) : null;
+  APP_ICON_CACHE.set(bundle, url);
+  return url;
+});
+
 /** Icons never change while the app runs, and the permissions page asks for all thirteen at once
  *  every time it mounts. One `sips` per bundle per launch. */
 const APP_ICON_CACHE = new Map<string, string | null>();

@@ -64,6 +64,9 @@ contextBridge.exposeInMainWorld("realm", {
      *  page of source), as a data: URL. Null for a type macOS has no generator for. */
     preview: (path: string): Promise<string | null> => ipcRenderer.invoke("files:preview", path),
     reveal: (path: string): Promise<void> => ipcRenderer.invoke("files:reveal", path),
+    /** Finder's own icon as a data URL, for the menu item that names it. Takes no argument on
+     *  purpose — the bundle path is fixed in main. */
+    finderIcon: (): Promise<string | null> => ipcRenderer.invoke("files:finder-icon"),
     /** Copy it where the user points; the saved path, or null when they cancelled. */
     saveCopy: (path: string): Promise<string | null> => ipcRenderer.invoke("files:save-copy", path),
   },

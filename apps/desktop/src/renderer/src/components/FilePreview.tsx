@@ -60,6 +60,17 @@ export function FilePreview({ path, from = null, onClose }: {
   // spending a child process on a second, worse picture of a file already on screen is waste.
   const still = useThumbnail(media ? null : path, "preview");
 
+  /* Finder's own icon, read off this machine once per launch (main caches it). Null until it
+     arrives and null forever on a machine that cannot read it, and the item then wears Realm's
+     folder glyph — the menu never waits on a picture to draw a verb. */
+  const [finderIcon, setFinderIcon] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    void (window.realm?.files?.finderIcon?.() ?? Promise.resolve(null))
+      .catch(() => null).then((url) => { if (live) setFinderIcon(url); });
+    return () => { live = false; };
+  }, []);
+
   const [file, setFile] = useState<{ size: number; mtimeMs: number } | null | undefined>(undefined);
   const [lightbox, setLightbox] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -98,7 +109,11 @@ export function FilePreview({ path, from = null, onClose }: {
 
   const items: MenuItem[] = [
     { label: "Save a copy…", onSelect: () => { void window.realm?.files?.saveCopy?.(path); } },
-    { label: "Reveal in Finder", onSelect: () => { void window.realm?.files?.reveal?.(path); } },
+    { label: "Reveal in Finder",
+      icon: finderIcon
+        ? <img className="menu-icon-img" src={finderIcon} alt="" draggable={false} />
+        : <Icon name="folder" size={14} />,
+      onSelect: () => { void window.realm?.files?.reveal?.(path); } },
     // Offered alongside the pane for media: an image opens in the lightbox, and "open it in the app I
     // actually edit pictures in" is a different request the lightbox cannot answer.
     ...(toOs && (media || !inPane) ? [{ label: "Open with the default app", onSelect: () => { void window.realm?.openAttachment?.(path); } }] : []),
@@ -124,7 +139,7 @@ export function FilePreview({ path, from = null, onClose }: {
       <Sheet title={name} onClose={close} width={520}
         footer={gone ? undefined : (
           <>
-            <button ref={overflow} type="button" className="btn file-preview-more" aria-label="More actions"
+            <button ref={overflow} type="button" className="icon-btn file-preview-more" aria-label="More actions"
               aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}>
               <Icon name="more" size={14} />
             </button>
@@ -135,7 +150,21 @@ export function FilePreview({ path, from = null, onClose }: {
             the size of a preview is a claim on room it had nothing to put in. */}
         {media
           ? <div className="file-preview-art"><MediaFrame file={media} onExpand={() => setLightbox(true)} /></div>
-          : still && <div className="file-preview-art"><img className="file-preview-still" src={still} alt="" draggable={false} /></div>}
+          : still && (
+            <div className="file-preview-art">
+              {/* QuickLook answers two different KINDS of picture with the same call: a render of the
+                  file's content (a page of source, page one of a PDF — tall), and a generic type
+                  icon for anything it cannot draw (square). Filling the column suits the first and
+                  ruins the second, which would be scaled to 480px and cropped. The aspect is the
+                  only thing that tells them apart, and it is known at load. */}
+              <img className="file-preview-still" src={still} alt="" draggable={false}
+                onLoad={(e) => {
+                  const el = e.currentTarget;
+                  const ratio = el.naturalHeight > 0 ? el.naturalWidth / el.naturalHeight : 1;
+                  el.dataset.fit = ratio > 0.92 && ratio < 1.08 ? "icon" : "page";
+                }} />
+            </div>
+          )}
 
         <p className="file-preview-path" title={path}>{path}</p>
 
