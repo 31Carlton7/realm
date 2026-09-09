@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "capture:product": "node scripts/capture-product.mjs"
+    "capture:product": "node scripts/capture-product.mjs",
+    "capture:share": "node scripts/capture-share-images.mjs"
   },
   "dependencies": {
     "next": "16.3.4",

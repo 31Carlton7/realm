@@ -9,12 +9,12 @@
       <stop offset=".5" stop-color="#e2e3e5"/>
       <stop offset="1" stop-color="#c5c7ca"/>
     </linearGradient>
-    <linearGradient id="face-a" x1="10" y1="32" x2="31" y2="42" gradientUnits="userSpaceOnUse"><stop stop-color="#f4f5f6"/><stop offset="1" stop-color="#bdc0c4"/></linearGradient>
-    <linearGradient id="face-b" x1="8" y1="6" x2="26" y2="16" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff"/><stop offset="1" stop-color="#d5d7da"/></linearGradient>
-    <linearGradient id="face-c" x1="10" y1="15" x2="39" y2="31" gradientUnits="userSpaceOnUse"><stop stop-color="#eceef0"/><stop offset=".55" stop-color="#d2d5d8"/><stop offset="1" stop-color="#b9bdc1"/></linearGradient>
-    <linearGradient id="joint-a" x1="5" y1="25" x2="14" y2="41" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff"/><stop offset=".48" stop-color="#f2f3f4"/><stop offset="1" stop-color="#cfd2d5"/></linearGradient>
-    <linearGradient id="face-d" x1="1" y1="16" x2="28" y2="32" gradientUnits="userSpaceOnUse"><stop stop-color="#e9ebed"/><stop offset=".55" stop-color="#cdd0d3"/><stop offset="1" stop-color="#aeb2b7"/></linearGradient>
-    <linearGradient id="joint-b" x1="25" y1="7" x2="35" y2="24" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff"/><stop offset=".5" stop-color="#f1f2f3"/><stop offset="1" stop-color="#cbd0d4"/></linearGradient>
+    <linearGradient id="face-a" x1="10" y1="32" x2="31" y2="42" gradientUnits="userSpaceOnUse"><stop stop-color="#8d939a"/><stop offset="1" stop-color="#697078"/></linearGradient>
+    <linearGradient id="face-b" x1="8" y1="6" x2="26" y2="16" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff"/><stop offset="1" stop-color="#e6e8eb"/></linearGradient>
+    <linearGradient id="face-c" x1="10" y1="15" x2="39" y2="31" gradientUnits="userSpaceOnUse"><stop stop-color="#b9bec4"/><stop offset=".55" stop-color="#a0a6ac"/><stop offset="1" stop-color="#8a9097"/></linearGradient>
+    <linearGradient id="joint-a" x1="5" y1="25" x2="14" y2="41" gradientUnits="userSpaceOnUse"><stop stop-color="#eef0f2"/><stop offset=".48" stop-color="#dcdfe3"/><stop offset="1" stop-color="#bfc4c9"/></linearGradient>
+    <linearGradient id="face-d" x1="1" y1="16" x2="28" y2="32" gradientUnits="userSpaceOnUse"><stop stop-color="#dcdfe3"/><stop offset=".55" stop-color="#c6cacf"/><stop offset="1" stop-color="#b0b5bb"/></linearGradient>
+    <linearGradient id="joint-b" x1="25" y1="7" x2="35" y2="24" gradientUnits="userSpaceOnUse"><stop stop-color="#fbfbfc"/><stop offset=".5" stop-color="#eaecee"/><stop offset="1" stop-color="#cfd3d8"/></linearGradient>
   </defs>
   <rect x="100" y="100" width="824" height="824" rx="190" fill="url(#shell)"/>
   <rect x="101" y="101" width="822" height="822" rx="189" stroke="white" stroke-opacity=".16" stroke-width="2"/>
