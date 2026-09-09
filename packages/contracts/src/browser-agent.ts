@@ -350,7 +350,42 @@ export type BrowserPickedElement = {
   text: string;
   /** `outerHTML`, truncated rather than elided so what is shown is exactly what is there. */
   html: string;
+  /**
+   * Present only when the pick landed inside a STREAMED DEVICE surface — a simulator mirrored into
+   * the pane by serve-sim — rather than on an ordinary page element.
+   *
+   * The device's UI is pixels as far as the DOM is concerned: the whole screen is one `<canvas>` or
+   * `<img>`, so `elementFromPoint` can only ever return the surface itself. What the device DOES
+   * publish is its accessibility tree, and this is one element out of it, chosen by the point the
+   * user clicked. The DOM half of this object then describes the SURFACE (that is what was picked,
+   * and saying otherwise would be a lie the agent acts on) while `role`, `name` and `rect` are
+   * overwritten with the device element's own, because those three are what the chip is FOR.
+   *
+   * `selector` and `html` stay empty rather than being filled with something selector-shaped: there
+   * is no CSS path to a thing that is not in the document, and `elementContext` prints the device
+   * block instead.
+   *
+   * The consequence the agent has to know: `browser_act` cannot address this. `ref` names the
+   * surface, so acting on it would click the middle of the screen. Driving it means the device's own
+   * input channel, which is why `frame` and `screen` travel — they are what a tap is computed from.
+   */
+  device?: {
+    /** The device's identifier for the element (`com.apple.settings.general`), stable across snapshots. */
+    id: string;
+    /** Index path in the device's accessibility tree (`0.1.1`). Stable only within one screen state. */
+    path: string;
+    /** Whether the device reports the element as enabled. */
+    enabled: boolean;
+    /** The element's frame in DEVICE POINTS, relative to `screen` — not pane pixels. */
+    frame: { x: number; y: number; width: number; height: number };
+    /** The device screen those points are in, so a normalized tap is `(frame.x + frame.width / 2) / screen.width`. */
+    screen: { width: number; height: number };
+  };
 };
+
+/** Clamps for the device half. `id` and `path` are the device's own strings and travel into a prompt
+ *  like every other picked field, so they are bounded at the same place. */
+export const PICK_DEVICE_ID_MAX = 200;
 
 /** Clamps for the page-authored halves of a `BrowserPickedElement`. A picked element is headed for a
  *  prompt, where every character is paid for twice — once in the composer's width and once in the

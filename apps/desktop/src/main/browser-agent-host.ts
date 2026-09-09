@@ -5,9 +5,48 @@
  * (filled from CDP events from the moment of first attach), the download-block notes, and the
  * previous snapshot's fingerprint index that `*[new]` markers diff against.
  */
-import { DOWNLOAD_GRANT_TTL_MS, normalizeOrigin, type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserDescribeResult, type BrowserDownloadResult, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
+import { DOWNLOAD_GRANT_TTL_MS, normalizeOrigin, type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserDescribeResult, type BrowserDownloadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
 import { PICK_BINDING, armElementPick, buildSnapshot, describeElement, describePick, disarmElementPick, highlightTargetRef, performAct, performFillCredential, readPageText, resolvePickedNode, showActionHighlight, type CdpSend, type SnapshotIndex } from "./browser-agent";
 import type { CredentialAuditEntry } from "./secret-store";
+import { axElementAt, readAxSnapshot } from "./device-ax";
+
+/**
+ * The picker's payload: where in the picked element the click landed, normalized to that element's
+ * box. Anything unparseable is null rather than a throw — the binding is reachable only from Realm's
+ * own injected script, but a pane armed before an update sends the older `"1"`, and that pick should
+ * still resolve to its DOM element rather than failing.
+ *
+ * Out-of-range values are dropped too: a point outside 0..1 did not come from inside the element,
+ * and clamping it would resolve a device pick to whatever sits at the edge of the screen.
+ */
+export type PickPoint = { x: number; y: number; surface: { x: number; y: number; w: number; h: number } | null };
+
+export function parsePickPoint(payload: string): PickPoint | null {
+  try {
+    const v = JSON.parse(payload) as { x?: unknown; y?: unknown; surface?: unknown };
+    const x = v?.x, y = v?.y;
+    if (typeof x !== "number" || typeof y !== "number") return null;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    if (x < 0 || x > 1 || y < 0 || y > 1) return null;
+    return { x, y, surface: parseSurface(v?.surface) };
+  } catch {
+    return null;
+  }
+}
+
+/** The stream surface's box, or null when the click was not over one. A surface with no area is null
+ *  too: it is what a device frame is divided by, and dividing by it would produce Infinity. */
+function parseSurface(v: unknown): PickPoint["surface"] {
+  const s = v as { x?: unknown; y?: unknown; w?: unknown; h?: unknown } | null;
+  if (!s || typeof s !== "object") return null;
+  const nums = [s.x, s.y, s.w, s.h];
+  if (!nums.every((n) => typeof n === "number" && Number.isFinite(n))) return null;
+  const box = { x: s.x as number, y: s.y as number, w: s.w as number, h: s.h as number };
+  return box.w > 0 && box.h > 0 ? box : null;
+}
+
+/** Device strings are the device's own and travel into a prompt like every other picked field. */
+const clipField = (v: string, max = PICK_NAME_MAX): string => (v.length > max ? v.slice(0, max) : v);
 
 /** The thin CDP surface browser-pane.ts implements over `webContents.debugger`. `onEvent`'s
  *  unsubscribe is never needed here — a binding dies with its view, taking the listener with it. */
@@ -80,6 +119,10 @@ type Attached = {
   lastSnapshot: SnapshotIndex | null;
   /** Resolver for the pick currently armed on this view, if any — see `pickElement`. */
   pick: ((ref: number | null) => void) | null;
+  /** Where in the picked element the click landed, normalized to that element's own box. Null when
+   *  the page reported no point (a pane armed by an older injected script, or a zero-sized element).
+   *  Only a streamed device surface needs it — see `device-ax.ts`. */
+  pickPoint: PickPoint | null;
   /** Bumped by every `pickElement`, so a superseded call can tell it no longer owns inspect mode. */
   pickGen: number;
 };
@@ -142,7 +185,60 @@ export class BrowserAgentHost {
     // writes the title. What they are not is unbounded, which is what the clip below is for.
     // Clipped here rather than at the schema, which rejects: this is the last point that knows the
     // difference between "a page made its title enormous" and "this did not come from the picker".
-    return { ...picked, url: (state?.url ?? "").slice(0, PICK_URL_MAX), title: (state?.title ?? "").slice(0, PICK_TITLE_MAX) };
+    const url = (state?.url ?? "").slice(0, PICK_URL_MAX);
+    const base: BrowserPickedElement = { ...picked, url, title: (state?.title ?? "").slice(0, PICK_TITLE_MAX) };
+    return (await this.asDeviceElement(base, url, entry.pickPoint)) ?? base;
+  }
+
+  /**
+   * Upgrade a pick on a streamed device surface into the device element actually under the pointer.
+   *
+   * Gated on the picked node being a `canvas` or `img`, which is what a stream is drawn into — so an
+   * ordinary page costs nothing and never probes anything. Only then is `/ax` asked, and only when it
+   * answers with a tree containing that point does the pick change shape; every other path returns
+   * null and the caller keeps the DOM element the user genuinely clicked.
+   *
+   * `role`, `name` and `rect` are overwritten because those three are what a chip is read from, and
+   * "the canvas" is not what the user pointed at. `selector` and `html` are cleared rather than left
+   * describing the surface: they would be true of the wrong thing.
+   */
+  private async asDeviceElement(el: BrowserPickedElement, url: string, point: PickPoint | null): Promise<BrowserPickedElement | null> {
+    // Gated on the click having landed over a stream SURFACE, which is a fact only the page can
+    // report: the picked element itself is routinely a transparent div the page lays over its canvas
+    // (serve-sim does exactly that), so its tag says nothing about what was under the pointer. No
+    // surface, no probe — an ordinary page never asks anything of the network.
+    if (!point?.surface) return null;
+    const origin = normalizeOrigin(url);
+    if (!origin) return null;
+    const snap = await readAxSnapshot(origin);
+    if (!snap) return null;
+    const hit = axElementAt(snap, point.x, point.y);
+    if (!hit) return null;
+    // The device's frame, put back into the pane's coordinates: `rect` means "where this is on
+    // screen" everywhere else, and a chip whose rect was in device points would be the one field
+    // measured in a different unit from all its neighbours.
+    const scaleX = point.surface.w / snap.screen.width, scaleY = point.surface.h / snap.screen.height;
+    return {
+      ...el,
+      role: clipField(hit.role || hit.type),
+      name: clipField(hit.label),
+      text: clipField(hit.value, PICK_TEXT_MAX),
+      selector: "",
+      html: "",
+      rect: {
+        x: point.surface.x + hit.frame.x * scaleX,
+        y: point.surface.y + hit.frame.y * scaleY,
+        w: hit.frame.width * scaleX,
+        h: hit.frame.height * scaleY,
+      },
+      device: {
+        id: clipField(hit.id, PICK_DEVICE_ID_MAX),
+        path: clipField(hit.path, PICK_DEVICE_ID_MAX),
+        enabled: hit.enabled !== false,
+        frame: hit.frame,
+        screen: snap.screen,
+      },
+    };
   }
 
   /** Take the picker down without a pick. The armed promise resolves null and the caller un-arms. */
@@ -308,7 +404,7 @@ export class BrowserAgentHost {
     if (cached) return cached;
     const binding = this.d.attach(browserId);
     if (!binding) throw new Error(`could not attach the debugger to browser ${browserId}`);
-    const entry: Attached = { binding, consoleLines: [], network: new Map(), networkOrder: [], lastSnapshot: null, pick: null, pickGen: 0 };
+    const entry: Attached = { binding, consoleLines: [], network: new Map(), networkOrder: [], lastSnapshot: null, pick: null, pickPoint: null, pickGen: 0 };
     binding.onEvent((method, rawParams) => this.onCdpEvent(entry, method, rawParams));
     this.attached.set(browserId, entry);
     // Enable the event domains the buffers feed on. Fire-and-forget: an enable that fails costs a
@@ -355,7 +451,13 @@ export class BrowserAgentHost {
       // nobody is picking in. A cancelled pick whose click lands a frame later would do exactly that.
       if (entry.pick === null) { /* nobody is waiting */ }
       else if (String(p.payload ?? "") === "") this.settlePick(entry, null);
-      else void resolvePickedNode(entry.binding.send).then((ref) => this.settlePick(entry, ref));
+      else {
+        // The payload carries WHERE in the element the click landed. Parsed leniently: a page that
+        // is not the picker cannot call this binding, but a payload from an older injected script
+        // (a pane armed before an update) is a string that is not JSON, and it should still pick.
+        entry.pickPoint = parsePickPoint(String(p.payload ?? ""));
+        void resolvePickedNode(entry.binding.send).then((ref) => this.settlePick(entry, ref));
+      }
     } else if (method === "Page.frameNavigated" && (p.frame as { parentId?: string } | undefined)?.parentId === undefined) {
       // A main-frame navigation resets the overlay agent, so an armed picker silently stops picking.
       // Settling it empty is what keeps the toolbar button from staying lit over a page it can no

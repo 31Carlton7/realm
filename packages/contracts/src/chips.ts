@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { normalizeOrigin, PICK_HTML_MAX, PICK_NAME_MAX, PICK_SELECTOR_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement } from "./browser-agent";
+import { normalizeOrigin, PICK_DEVICE_ID_MAX, PICK_HTML_MAX, PICK_NAME_MAX, PICK_SELECTOR_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement } from "./browser-agent";
 import { fenceUntrusted } from "./fence";
 import { scanMentions } from "./mentions";
 
@@ -63,6 +63,15 @@ export const ElementChipSchema = z.object({
     name: z.string().max(PICK_NAME_MAX),
     text: z.string().max(PICK_TEXT_MAX),
     html: z.string().max(PICK_HTML_MAX),
+    /** Present only for a pick inside a streamed device surface — see `BrowserPickedElement.device`.
+     *  Optional so every chip written before device picks existed still parses. */
+    device: z.object({
+      id: z.string().max(PICK_DEVICE_ID_MAX),
+      path: z.string().max(PICK_DEVICE_ID_MAX),
+      enabled: z.boolean(),
+      frame: z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() }),
+      screen: z.object({ width: z.number().positive(), height: z.number().positive() }),
+    }).optional(),
   }),
 });
 
@@ -155,18 +164,36 @@ export function elementChipLabel(el: BrowserPickedElement, taken: Iterable<strin
  */
 export function elementContext(chips: readonly ElementChip[]): string {
   if (chips.length === 0) return "";
-  const detail = chips.map((c) => [
-    elementChipToken(c.label),
-    `url: ${c.element.url}`,
-    `selector: ${c.element.selector || "(none found)"}`,
-    `role: ${c.element.role}`,
-    `tag: ${c.element.tag}`,
-    ...(c.element.text ? [`text: ${c.element.text}`] : []),
-    ...(c.element.html ? [`html: ${c.element.html}`] : []),
-  ].join("\n")).join("\n\n");
+  const detail = chips.map((c) => {
+    const d = c.element.device;
+    return [
+      elementChipToken(c.label),
+      `url: ${c.element.url}`,
+      // A device element has no CSS path and no markup, so it is described by what it DOES have:
+      // the device's own identity and the geometry a tap is computed from. Printing an empty
+      // `selector:` beside it would read as "we looked and found none", which is a different fact.
+      ...(d
+        ? [`device element: yes`, `id: ${d.id}`, `path: ${d.path}`, `enabled: ${d.enabled}`,
+           `frame: x=${round(d.frame.x)} y=${round(d.frame.y)} w=${round(d.frame.width)} h=${round(d.frame.height)} in a ${round(d.screen.width)}×${round(d.screen.height)} point screen`]
+        : [`selector: ${c.element.selector || "(none found)"}`, `tag: ${c.element.tag}`]),
+      `role: ${c.element.role}`,
+      ...(c.element.text ? [`text: ${c.element.text}`] : []),
+      ...(c.element.html ? [`html: ${c.element.html}`] : []),
+    ].join("\n");
+  }).join("\n\n");
   const index = chips.map((c) => `  ${elementChipToken(c.label)} — ${normalizeOrigin(c.element.url) ?? "(no ordinary web origin)"}`).join("\n");
-  return `\n\nElements the user picked in Realm's browser pane, one per chip above:\n${index}\n\n${fenceUntrusted(detail)}`;
+  // Said in Realm's own voice, OUTSIDE the fence, because it is a fact about the tools rather than
+  // anything the page or the device said: an agent that tries `browser_act` on one of these clicks
+  // the middle of a video frame and reports success.
+  const deviceNote = chips.some((c) => c.element.device)
+    ? "\nOne or more of these is a DEVICE element, inside a simulator streamed into the pane. It has no DOM node, so browser_act cannot address it — drive it through the device's own input channel, computing the tap from the frame below.\n"
+    : "";
+  return `\n\nElements the user picked in Realm's browser pane, one per chip above:\n${index}\n${deviceNote}\n${fenceUntrusted(detail)}`;
 }
+
+/** Device frames arrive as floats (`293.33333333333337`). A prompt is read by a person and a model,
+ *  and neither is helped by the eleventh decimal place. */
+const round = (n: number): number => Math.round(n * 10) / 10;
 
 /** One run of a message: either a chip, or the plain text between two of them. */
 export type ChipRun = { chip: Chip | null; text: string };

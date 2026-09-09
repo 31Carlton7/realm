@@ -806,9 +806,24 @@ const PICKER_SCRIPT = `(() => {
     if (!current) return;
     e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
     const el = current;
+    /* WHERE the click landed, and whether it landed on a STREAMED SURFACE.
+       Ordinarily the picked element is the whole answer and this is redundant. It stops being
+       redundant over a mirrored device: the entire screen is drawn into one <canvas>, so the element
+       says only "the simulator" and the point is the whole content of the pick.
+       The surface is looked up through elementsFromPoint rather than taken from the picked element,
+       because a page may lay its own transparent divs over the canvas — serve-sim does — and the
+       topmost node at the point is then a div while the geometry that matters is still the canvas's.
+       Its box travels too: it is what a device point is scaled by, and only the page can measure it. */
+    const stack = typeof document.elementsFromPoint === "function" ? document.elementsFromPoint(e.clientX, e.clientY) : [];
+    const surfaceEl = stack.find((n) => n.tagName === "CANVAS" || n.tagName === "IMG") || null;
+    const boxEl = surfaceEl || el;
+    const box = boxEl.getBoundingClientRect();
+    const nx = box.width > 0 ? (e.clientX - box.left) / box.width : 0;
+    const ny = box.height > 0 ? (e.clientY - box.top) / box.height : 0;
+    const surface = surfaceEl ? { x: box.left, y: box.top, w: box.width, h: box.height } : null;
     stop();
     el.setAttribute(PICK_ATTR_NAME, "1");
-    window[BINDING_NAME]("1");
+    window[BINDING_NAME](JSON.stringify({ x: nx, y: ny, surface }));
   };
   const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); stop(); window[BINDING_NAME](""); } };
   function stop() {

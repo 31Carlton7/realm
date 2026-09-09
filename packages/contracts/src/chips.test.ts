@@ -117,6 +117,35 @@ describe("elementContext", () => {
     expect(out.slice(0, out.indexOf("Everything between"))).not.toContain("/login");
   });
 
+  it("describes a DEVICE element by what it has, and never by a selector it does not", () => {
+    const el = picked({
+      selector: "", html: "", tag: "canvas", role: "button", name: "General", text: "",
+      url: "http://127.0.0.1:3200/", title: "Simulator - iPhone 17 Pro",
+      device: { id: "com.apple.settings.general", path: "0.1.1", enabled: true,
+        frame: { x: 16, y: 293.3333333333333, width: 370, height: 44 }, screen: { width: 402, height: 874 } },
+    });
+    const out = elementContext([{ label: 'button "General"', element: el }]);
+    expect(out).toContain("id: com.apple.settings.general");
+    expect(out).toContain("path: 0.1.1");
+    // Rounded: a prompt is read by a person and a model, and neither is helped by 293.3333333333333.
+    expect(out).toContain("frame: x=16 y=293.3 w=370 h=44 in a 402×874 point screen");
+    // THE MUTANT: keep printing the DOM lines for a device element. `selector: (none found)` reads as
+    // "we looked and there was none", which is a different claim from "this is not in the document".
+    expect(out).not.toContain("selector:");
+    expect(out).not.toContain("tag:");
+  });
+
+  it("warns, in Realm's own voice, that a device element cannot be acted on through the browser", () => {
+    const el = picked({ device: { id: "a", path: "0", enabled: true, frame: { x: 0, y: 0, width: 1, height: 1 }, screen: { width: 10, height: 10 } } });
+    const out = elementContext([{ label: "x", element: el }]);
+    // OUTSIDE the fence: it is a fact about Realm's tools, not something the page or device said.
+    // THE MUTANT: drop it, and an agent tries browser_act on a chip whose ref is the video surface —
+    // clicking the middle of the screen and reporting success.
+    expect(out.slice(0, out.indexOf("Everything between"))).toContain("browser_act cannot address it");
+    // And an ordinary web pick is left exactly as it was: no note, no new bytes.
+    expect(elementContext([{ label: "x", element: picked() }])).not.toContain("browser_act cannot address it");
+  });
+
   it("gives each chip a fresh fence token, so page markup cannot close one it has seen before", () => {
     const a = elementContext([{ label: "x", element: picked() }]).match(/untrusted-[0-9a-f]{16}/)![0];
     const b = elementContext([{ label: "x", element: picked() }]).match(/untrusted-[0-9a-f]{16}/)![0];
