@@ -38,14 +38,12 @@ const ACCENT = [0.238, 0.6036, 1] as const
 const ACCENT_INK = [0.4933, 0.7529, 1] as const
 
 const TONEMAP = 1.35
-const VIGNETTE_EDGE = 0.62
 
 /**
- * The corners of the canvas have to land on `--color-page` after the vignette and the tonemap, or
- * the canvas reads as a rectangle against the body. Solve the tonemap backwards for the value that
- * gets there.
+ * The ground has to come out of the tonemap as exactly `--color-page`, or the canvas reads as a
+ * rectangle against the body. Solve the tonemap backwards for the value that gets there.
  */
-const BASE = PAGE.map((channel) => -Math.log(1 - channel) / (TONEMAP * VIGNETTE_EDGE))
+const BASE = PAGE.map((channel) => -Math.log(1 - channel) / TONEMAP)
 
 const vec3 = (rgb: readonly number[], scale = 1) =>
   `vec3f(${rgb.map((channel) => (channel * scale).toFixed(4)).join(", ")})`
@@ -125,10 +123,6 @@ struct Params { time: f32, aspect: f32 }
 @group(0) @binding(2) var gradientTexture: texture_2d<f32>;
 @group(0) @binding(3) var fieldSampler: sampler;
 
-fn hash(point: vec2f) -> f32 {
-  return fract(sin(dot(point, vec2f(127.1, 311.7))) * 43758.5453);
-}
-
 fn lightStreams(point: vec2f, seconds: f32) -> vec3f {
   let direction = normalize(vec2f(0.7071 + sin(seconds) * 5.0, -0.7071));
   let normal = vec2f(0.7071, 0.7071);
@@ -167,7 +161,7 @@ fn lightStreams(point: vec2f, seconds: f32) -> vec3f {
   let p = (uv - 0.5) * 2.0 * vec2f(params.aspect, 1.0);
   // The mark is wider than the example's, so on a portrait viewport the field shrinks with the
   // aspect instead of running off both edges.
-  let fieldScale = 0.72 * min(1.0, params.aspect / 0.8);
+  let fieldScale = 0.56 * min(1.0, params.aspect / 0.8);
   let fieldUv = p / fieldScale * 0.5 + 0.5;
   let distance = textureSampleLevel(sdfTexture, fieldSampler, fieldUv, 0.0).x * fieldScale;
   let smoothedDerivative = textureSampleLevel(gradientTexture, fieldSampler, fieldUv, 0.0);
@@ -181,8 +175,6 @@ fn lightStreams(point: vec2f, seconds: f32) -> vec3f {
 
   let streams = lightStreams(p, seconds);
   let refracted = lightStreams(warpedPoint * 1.06 - vec2f(0.025, -0.015), seconds + 0.18);
-  let grain = hash(floor(uv * 520.0) + floor(seconds * 3.0)) - 0.5;
-  let vignette = 1.0 - ${(1 - VIGNETTE_EDGE).toFixed(2)} * smoothstep(0.35, 1.45, length(p));
   var color = ${vec3(BASE)};
   color += streams * 0.2;
   color = mix(color, refracted * 1.08 + color * 0.25, logoMask);
@@ -195,8 +187,6 @@ fn lightStreams(point: vec2f, seconds: f32) -> vec3f {
   color += ${vec3(ACCENT, 0.55)} * innerGlow * 0.22;
   color += ${vec3(ACCENT_INK)} * rim * 0.32;
   color += ${vec3(INK)} * specular * 1.2;
-  color += grain * 0.018;
-  color *= vignette;
   color = vec3f(1.0) - exp(-color * ${TONEMAP}); // tonemapping
 
   return vec4f(color, 1.0);
