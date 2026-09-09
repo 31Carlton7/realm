@@ -20,8 +20,8 @@ export default function SharePage() {
   return (
     <main className="relative h-[100dvh] overflow-hidden">
       <div className="absolute inset-x-0 bottom-0 p-14">
-        <Wordmark className="text-ink" />
-        <p className="mt-5 max-w-[19ch] text-[64px] leading-[1.02] font-[560] tracking-[-0.042em] text-balance text-ink">
+        <Wordmark size="display" className="text-ink" />
+        <p className="mt-7 max-w-[19ch] text-[64px] leading-[1.02] font-[560] tracking-[-0.042em] text-balance text-ink">
           {site.tagline}
         </p>
       </div>
