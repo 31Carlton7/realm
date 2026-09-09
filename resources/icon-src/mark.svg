@@ -1,0 +1,23 @@
+<svg fill="none" height="48" viewBox="0 0 40 48" width="40" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="realm-mark" x1="4" y1="5" x2="36" y2="43" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff"/>
+      <stop offset=".5" stop-color="#e2e3e5"/>
+      <stop offset="1" stop-color="#c5c7ca"/>
+    </linearGradient>
+    <linearGradient id="face-a" x1="10" y1="32" x2="31" y2="42" gradientUnits="userSpaceOnUse"><stop stop-color="#f4f5f6"/><stop offset="1" stop-color="#bdc0c4"/></linearGradient>
+    <linearGradient id="face-b" x1="8" y1="6" x2="26" y2="16" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff"/><stop offset="1" stop-color="#d5d7da"/></linearGradient>
+    <linearGradient id="face-c" x1="10" y1="15" x2="39" y2="31" gradientUnits="userSpaceOnUse"><stop stop-color="#eceef0"/><stop offset=".55" stop-color="#d2d5d8"/><stop offset="1" stop-color="#b9bdc1"/></linearGradient>
+    <linearGradient id="joint-a" x1="5" y1="25" x2="14" y2="41" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff"/><stop offset=".48" stop-color="#f2f3f4"/><stop offset="1" stop-color="#cfd2d5"/></linearGradient>
+    <linearGradient id="face-d" x1="1" y1="16" x2="28" y2="32" gradientUnits="userSpaceOnUse"><stop stop-color="#e9ebed"/><stop offset=".55" stop-color="#cdd0d3"/><stop offset="1" stop-color="#aeb2b7"/></linearGradient>
+    <linearGradient id="joint-b" x1="25" y1="7" x2="35" y2="24" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff"/><stop offset=".5" stop-color="#f1f2f3"/><stop offset="1" stop-color="#cbd0d4"/></linearGradient>
+  </defs>
+  <g>
+    <path fill="url(#face-a)" d="m9.72461 41.7983h18.49589c1.2717 0 2.4469-.6785 3.0827-1.7798l4.1102-7.1191h-20.5481z"/>
+    <path fill="url(#face-b)" d="m25.1445 15.1015h-20.55661l4.11021-7.11909c.63585-1.10133 1.811-1.77977 3.0827-1.77977h18.4959z"/>
+    <path fill="url(#face-c)" d="m39.5272 25.7801c.6358-1.1014.6358-2.4582 0-3.5596l-4.1102-7.1191-5.1378 8.8989h-20.55068l5.13718 8.8989h20.5481l.0016-.0027.0016.0027z"/>
+    <path fill="url(#joint-a)" d="m14.8634 32.8992-5.13775-8.8988-5.13776 8.8988 5.13776 8.8989z"/>
+    <path fill="url(#face-d)" d="m25.1445 15.1014h-20.55593l-4.108166 7.1192c-.635516 1.1013-.635318 2.458.000521 3.5591l4.111125 7.1195 5.13775-8.8989h20.55l.0013-.0021z"/>
+    <path fill="url(#joint-b)" d="m35.4181 15.1015-5.1378-8.89886-5.1377 8.89886 5.1377 8.8989z"/>
+  </g>
+</svg>
