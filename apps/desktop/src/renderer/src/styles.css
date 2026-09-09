@@ -2288,12 +2288,29 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    declaration is inert in Chromium 138 like every other one in this file, and the day Electron
    ships 139 the CLIP becomes a real superellipse and the whole group upgrades at once.
 
-   No divider between the segments. Where the fills are tinted the colour change already is one, and
-   where they are not there is nothing to divide — these are ghost chips and rest transparent. */
+   A hairline ring, always. These are GHOST chips: they rest transparent, and a permission of
+   "Accept edits" beside a mode of "Build" — the ordinary case, not an edge one — put two labels on
+   the card with no shape at all under them. Tinted, the fill said "control" and the ring says
+   nothing new; untinted, the ring is the only thing that does. Drawn as an `outline` at a NEGATIVE
+   offset rather than a border, for two reasons: a border would add its width to a group whose
+   height is its children's, pushing it out of line with the "+" beside it, and an outline drawn
+   outward would be clipped by `.composer-opts`, which hides its own overflow to measure the row.
+
+   The divider follows from the ring rather than being a second decision. With the group visible,
+   two untinted segments read as ONE button; where a tint already changes colour at the seam the
+   hairline lands exactly on that change and costs nothing. So it is unconditional, like the ring. */
 .chip-group {
   --btn-h: 28px; display: inline-flex; align-items: center; min-width: 0;
   border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; overflow: hidden;
+  outline: var(--hairline-w) solid var(--rl-line); outline-offset: calc(-1 * var(--hairline-w));
 }
+/* Inset, so it draws above each segment's fill — painted or not — and below its label. */
+.chip-group > .ghost-chip + .ghost-chip { box-shadow: inset var(--hairline-w) 0 0 var(--rl-line); }
+/* The focus ring comes INSIDE, because the group hides its overflow. §"focus is always visible"
+   was being broken by the grouping itself: the global `:focus-visible` sits 1px outside the
+   control, an ancestor's `overflow: hidden` clips a descendant's outline, and a focused segment was
+   left showing a single blue stub on the one edge that happened to fall inside the group. */
+.chip-group > .ghost-chip:focus-visible { outline-offset: -2px; }
 /* Both chips are conditional (a session may offer neither), so the wrapper is always rendered and
    hides itself rather than making the composer's JSX prove which of four combinations it is in. */
 .chip-group:empty { display: none; }

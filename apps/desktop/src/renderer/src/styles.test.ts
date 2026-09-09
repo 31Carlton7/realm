@@ -431,6 +431,33 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(painted).toContain("--sq-radius-bottom: 0px");
   });
 
+  it("an untinted chip group is still a control — a hairline ring, drawn INWARD", () => {
+    /* Ghost chips rest transparent, so "Accept edits · Build" — the ordinary permission and mode,
+       not an edge case — put two labels on the card with nothing under them. The ring is the only
+       thing that says "control" there.
+       Inward, and an outline rather than a border, for two mechanical reasons: a border adds its
+       width to a group whose height comes from its children, and `.composer-opts` hides its own
+       overflow to measure the row, so anything drawn outward is clipped away. */
+    const group = bodiesFor(".chip-group").join(" ");
+    expect(group).toContain("outline: var(--hairline-w) solid var(--rl-line)");
+    expect(group).toContain("outline-offset: calc(-1 * var(--hairline-w))");
+    expect(group).not.toContain("border:");
+    // With the group visible, two untinted segments read as ONE button without this.
+    expect(bodiesFor(".chip-group > .ghost-chip + .ghost-chip").join(" "))
+      .toContain("box-shadow: inset var(--hairline-w) 0 0 var(--rl-line)");
+  });
+
+  it("a focused segment's ring comes inside the group, which hides its overflow", () => {
+    /* The grouping broke §"focus is always visible" on its own: the global `:focus-visible` sits
+       1px OUTSIDE the control, an ancestor's `overflow: hidden` clips a descendant's outline, and a
+       focused segment was left drawing a single blue stub on the one edge that fell inside the
+       group. Measured in Electron before the fix. The mutant is the whole bug: drop this line and
+       keyboard focus goes back to a stub. */
+    expect(bodiesFor(".chip-group > .ghost-chip:focus-visible").join(" ")).toContain("outline-offset: -2px");
+    // The global ring this overrides — if its offset ever goes negative, this rule is dead weight.
+    expect(bodiesFor(":focus-visible").join(" ")).toContain("outline-offset: 1px");
+  });
+
   it("nothing inside a chip group can shrink — the row's overflow collapse depends on it", () => {
     /* `.composer-opts > *` used to reach the chips directly; the group took them out of its range.
        Composer.tsx measures `scrollWidth > clientWidth` to decide when the permission chip folds
