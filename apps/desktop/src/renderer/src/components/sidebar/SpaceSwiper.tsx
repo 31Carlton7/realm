@@ -6,7 +6,6 @@ import { createDragSwipe, type SwipePhase, type SwipeUpdate } from "../../state/
 import { SpaceHeader } from "./SpaceHeader";
 import { PinnedGrid } from "./PinnedGrid";
 import { ItemList } from "./ItemList";
-import { GroupRenameInput } from "../RenameInput";
 
 const IDLE_MS = 320;
 const DEBUG = () => { try { return localStorage.getItem("realm.debugSwipe") === "1"; } catch { return false; } };
@@ -273,15 +272,16 @@ function ArchivedSection({ items }: { items: Item[] }) {
 /** One group's heading and rows. The heading is a drop target: dragging a row onto it moves that pane
  *  into the group, the sidebar twin of dropping onto a tab in the GroupBar. */
 function GroupSection({ group, items, active, sole }: { group: PaneGroup; items: Item[]; active: boolean; sole: boolean }) {
-  const renamingGroupId = useApp((s) => s.renamingGroupId);
-  const requestGroupRename = useApp((s) => s.requestGroupRename);
   const activatePaneGroup = useApp((s) => s.activatePaneGroup);
   const moveItemToPaneGroup = useApp((s) => s.moveItemToPaneGroup);
   const run = useApp((s) => s.run);
   const [hot, setHot] = useState(false);
-  if (group.id === renamingGroupId) {
-    return <div className="group-label group-label-renaming"><GroupRenameInput group={group} onDone={() => requestGroupRename(null)} /></div>;
-  }
+  /* No rename editor here, deliberately. The only gesture that arms one is the tab strip's own
+     context menu, and this used to answer it too — so BOTH surfaces mounted an autoFocus input for
+     the same group, the second stole focus from the first, the first's blur committed an unchanged
+     name and cleared the request, and the field vanished in the same tick it appeared. Renaming a
+     group was impossible for as long as the two existed together, which is whenever the strip is on
+     screen at all. The editor belongs where the gesture happened. */
   return (
     <>
       <div className="group-label group-head" data-active={active || undefined} data-drop={hot || undefined}

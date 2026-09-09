@@ -105,6 +105,36 @@ describe("GroupBar", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: "Remove group?" }));
     await waitFor(() => expect(store.getState().groups!.groups).toHaveLength(1));
   });
+
+  it("renaming a group from its tab actually renames it", async () => {
+    /* The bug this pins: the sidebar rendered a rename editor for the same group as the tab strip,
+       both autoFocus. The second to mount took focus, the first fired blur, and blur commits — with
+       an unchanged value, so it renamed nothing and cleared the request. `renamingGroupId` went
+       id → null inside the one click, both fields unmounted, and the name was never editable. */
+    const { store } = await mount();
+    await twoPanes(store);
+    await act(async () => { await store.getState().newPaneGroup("Read"); });
+    fireEvent.contextMenu((await screen.findAllByRole("tab"))[1]!);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Rename group" }));
+
+    const field = await screen.findByRole("textbox", { name: "Rename Read" });
+    fireEvent.change(field, { target: { value: "Ship" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(store.getState().groups!.groups.map((g) => g.name)).toContain("Ship"));
+  });
+
+  it("arms exactly ONE editor — the tab's, not a twin in the sidebar", async () => {
+    // THE MUTANT: render a second GroupRenameInput for `renamingGroupId` anywhere else in the tree.
+    // Both take autoFocus, and whichever loses the fight commits an unchanged name and closes both.
+    const { store } = await mount("both");
+    await twoPanes(store);
+    await act(async () => { await store.getState().newPaneGroup("Read"); });
+    fireEvent.contextMenu((await screen.findAllByRole("tab"))[1]!);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Rename group" }));
+    expect(screen.getAllByRole("textbox", { name: "Rename Read" })).toHaveLength(1);
+    // And the request survives the mount, which is the thing the twin destroyed.
+    expect(store.getState().renamingGroupId).not.toBeNull();
+  });
 });
 
 describe("focusing a pane", () => {

@@ -73,8 +73,11 @@ export function GroupBar() {
   );
 }
 
-/** Right-click a tab: rename in place (a prompt-free inline field would need a whole popover; the
- *  menu's Rename arms the sidebar's own inline editor instead), or remove the group. */
+/** Right-click a tab: rename in place, or remove the group.
+ *
+ *  Rename turns THIS tab into the field. It used to arm an editor in the sidebar as well, and the
+ *  two autoFocus inputs took the focus off each other — see `GroupSection` in SpaceSwiper.tsx, where
+ *  the twin was removed. One gesture, one editor, where the gesture happened. */
 function GroupMenu({ group, at, onClose }: { group: PaneGroup; at: { x: number; y: number }; onClose: () => void }) {
   const groups = useApp((s) => s.groups);
   const removePaneGroup = useApp((s) => s.removePaneGroup);
