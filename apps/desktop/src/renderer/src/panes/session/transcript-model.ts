@@ -14,7 +14,10 @@ export type Block =
    *  `parent_tool_use_id`, set only on a sub-agent's own calls. Absent is the ordinary case: the
    *  agent made the call itself, and every adapter that reports no hierarchy at all leaves it
    *  absent throughout, so those transcripts nest nothing and read exactly as before. */
-  | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; parentToolUseId?: string; result: { content: string; isError: boolean } | null; ts: number }
+  /** `background` is set only on a call that launched a BACKGROUND sub-agent: `running` from the
+   *   moment the launch result lands, `stopped` when the harness notifies. Absent on every ordinary
+   *   call, including a blocking sub-agent — whose "still going" is simply `result === null`. */
+  | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; parentToolUseId?: string; result: { content: string; isError: boolean } | null; background?: "running" | "stopped"; ts: number }
   | { kind: "error"; message: string; ts: number }
   /**
    * The session changed agents mid-turn, because the one it was on could not finish (failover).
@@ -141,6 +144,24 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
       const i = findLast(blocks, (b) => b.kind === "tool" && b.toolUseId === e.payload.toolUseId);
       const b = i >= 0 ? blocks[i] : undefined;
       if (b && b.kind === "tool") blocks[i] = { ...b, result: { content: e.payload.content, isError: e.payload.isError } };
+      return { ...t, blocks };
+    }
+    /* A background sub-agent started or stopped. Folded onto the LAUNCHING call's block, which is
+       where the dock reads it from and where the transcript already shows the call itself.
+       A notification naming a call this transcript has never seen is dropped on the floor rather
+       than pushing a block of its own: the row it would create has no label, no start time and
+       nothing to open, and inventing one out of an unattributable message is how a stray `<task-
+       notification>` in some quoted text becomes a phantom agent. */
+    case "background_task": {
+      const i = findLast(blocks, (b) => b.kind === "tool" && b.toolUseId === e.payload.toolUseId);
+      const b = i >= 0 ? blocks[i] : undefined;
+      if (!b || b.kind !== "tool") return t;
+      // A stop only ever settles a call this transcript watched START. The harness notifies about
+      // every task it finishes, including the shell commands a sub-agent runs inside itself, and
+      // those arrive naming a real `tool_use_id` — the Bash call's. Marking that block `stopped`
+      // would be recording an agent's end on a call that never had an agent behind it.
+      if (e.payload.status === "stopped" && b.background !== "running") return t;
+      blocks[i] = { ...b, background: e.payload.status };
       return { ...t, blocks };
     }
     case "permission_request": {

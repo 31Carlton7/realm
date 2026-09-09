@@ -308,3 +308,37 @@ describe("a session that changed agents mid-turn", () => {
     expect(new Set(t.blocks.map(blockKey)).size).toBe(t.blocks.length);
   });
 });
+
+describe("a background sub-agent's start and stop", () => {
+  const tool = (id: string, name: string) => sessionEvent("tool_call", { toolUseId: id, name, input: {}, parentToolUseId: null });
+
+  it("marks the launching call running, then stopped", () => {
+    const t = reduceAll([
+      tool("t1", "Agent"),
+      sessionEvent("background_task", { toolUseId: "t1", status: "running" }),
+    ]);
+    expect(t.blocks.find((b) => b.kind === "tool" && b.toolUseId === "t1")).toMatchObject({ background: "running" });
+    const done = reduceAll([
+      tool("t1", "Agent"),
+      sessionEvent("background_task", { toolUseId: "t1", status: "running" }),
+      sessionEvent("background_task", { toolUseId: "t1", status: "stopped", summary: "done" }),
+    ]);
+    expect(done.blocks.find((b) => b.kind === "tool" && b.toolUseId === "t1")).toMatchObject({ background: "stopped" });
+  });
+
+  it("ignores a stop for a call that was never running — the sub-agent's own shell command", () => {
+    /* The harness notifies about EVERY task it finishes, including the `sleep` a background agent
+       ran inside itself, and that notification names the Bash call's real tool_use_id. Marking that
+       block would be recording an agent's end on a call that never had an agent behind it. */
+    const t = reduceAll([
+      tool("b1", "Bash"),
+      sessionEvent("background_task", { toolUseId: "b1", status: "stopped", summary: "Sleep for 12 seconds" }),
+    ]);
+    expect(t.blocks.find((b) => b.kind === "tool" && b.toolUseId === "b1")).not.toHaveProperty("background");
+  });
+
+  it("ignores a task naming a call this transcript never saw", () => {
+    const t = reduceAll([tool("t1", "Agent"), sessionEvent("background_task", { toolUseId: "nope", status: "running" })]);
+    expect(t.blocks).toHaveLength(1);
+  });
+});

@@ -15,7 +15,7 @@ import { finishedAt, finishedOn, formatDuration, groupTranscript, withEnter } fr
 import { blockKey, lastUserMessage, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
 import { runLabelFor } from "./run-label";
 import { useEnterTracker } from "./transcript-enter";
-import { IdleSummary } from "./IdleSummary";
+import { TranscriptSummary } from "./TranscriptSummary";
 import { MediaStrip } from "./media/MediaView";
 import { useMediaFiles } from "./media/use-media";
 
@@ -325,7 +325,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
         {/* Last in the column, so it reads as the closing line of the session rather than as another
             message in it. Draws nothing while a turn is live, and nothing on a session with nothing
             to count. */}
-        <IdleSummary blocks={transcript.blocks} status={sessionStatus} lastActivity={lastText?.ts ?? null} />
+        <TranscriptSummary blocks={transcript.blocks} status={sessionStatus} />
         </div>
       </div>
       {/* The transcript dissolves at BOTH edges instead of being clipped at either — siblings of the
