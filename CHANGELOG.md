@@ -44,8 +44,9 @@ device screen is one canvas as far as the DOM is concerned, so Realm resolves th
 device's own accessibility tree and says plainly, in the prompt, that `browser_act` cannot address it.
 
 **A new app icon.** The old one was a shader that read as a smudge at 32px. This is a drawn mark —
-two interlocking bays on the app's own near-black — taken from one SVG to every native size, so the
-menu bar and the dock come off the same geometry.
+two interlocking bays on the app's own near-black, each face lit by the way it points: a white top,
+grey sides, a near-black base — taken from one SVG to every native size, so the menu bar and the
+dock come off the same geometry.
 
 **Design.** Fast mode, OpenHands as an agent, ⌘K on the app's own curve, real app icons on the
 permissions page, per-CLI self-update, and a pass over every control: buttons and fields on the
@@ -53,9 +54,10 @@ squircle rather than snapping square on hover, hairlines and blurs softened, set
 rebuilt as cards, list edges dissolved, the sidebar actually translucent, and nothing set below 11px
 anywhere in the renderer.
 
-**The site** was rebuilt around what Realm does rather than how to configure it: a features page over
-real product screenshots, a changelog, and a download button that asks GitHub for the current release
-instead of pinning a URL that goes stale.
+**The site** was rebuilt around what Realm does rather than how to configure it: the mark drawn live
+as liquid glass on the GPU, a features page over real product screenshots, a changelog, share images
+for links, and a download button that asks GitHub for the current release instead of pinning a URL
+that goes stale.
 
 ## v0.6.1 — 2026-09-06
 

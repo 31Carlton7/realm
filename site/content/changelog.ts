@@ -9,6 +9,40 @@ import type { Entry } from "@/lib/changelog"
  */
 export const entries: Entry[] = [
   {
+    slug: "v1-0-0",
+    title: "Realm v1.0.0",
+    date: "2026-09-09",
+    version: "v1.0.0",
+    area: "Release",
+    summary:
+      "The 1.0. Documents and files sit beside the session working on them, runs can be scheduled and delegated, and the whole interface has been through one design pass.",
+    body: [
+      { kind: "p", text: "The 1.0. Realm stops being a place to run one agent and becomes a workspace: documents and files sit beside the session that is working on them, runs can be scheduled and delegated, and the whole interface has been taken through a single design pass so it reads as one instrument." },
+      { kind: "h", text: "Documents" },
+      { kind: "p", text: "Word, Excel, Keynote, PDF and Markdown files open in a pane of their own, beside the session rather than on top of it. A tab is marked unsaved while you type, and a file changed on disk under an open editor asks rather than picking a winner. The pane scrolls, and tables look like tables." },
+      { kind: "h", text: "The Library" },
+      { kind: "p", text: "It holds the files now, not just the skills. A card carries a real thumbnail where the picture is the file, and clicking any card opens one preview — the render, the path, the size, and a button back to the session that produced it, switching space when it lives in another one. Save a copy, Reveal in Finder, Copy path, Expand and Open all route through the same predicate a session summary uses, so a file cannot open two different ways depending on which list reached it. The skills page was restructured alongside it, and no longer rejects a file it has just written itself." },
+      { kind: "h", text: "Scheduled tasks" },
+      { kind: "p", text: "A clock in front of the runs — work that fires on its own schedule, with a search field and four counted chips over the list. Beside it, a year of the days Realm was used, drawn as a grid." },
+      { kind: "h", text: "Delegation" },
+      { kind: "p", text: "The dock lists the sub-agents the harness is running, not just the ones Realm made. Background `Agent`/`Task` calls return in under a second and then work for minutes, so ten of them used to look exactly like ten finished calls; Realm now reads the harness's own task protocol and shows them for as long as they run." },
+      { kind: "h", text: "What a session knows" },
+      { kind: "p", text: "Every session is now told, at start, what Realm's own tools are for — and only the ones it actually has. A space that switched the browser off is never handed a paragraph about driving one, and each block says when not to reach for the tools, so nothing gets delegated that would have been a one-line edit." },
+      { kind: "h", text: "Plan mode" },
+      { kind: "p", text: "Plan mode looks like planning, and a plan has somewhere to go when it is finished. The permission and mode chips are drawn as one control, and Full access no longer borrows Plan's colour." },
+      { kind: "h", text: "Prompter" },
+      { kind: "p", text: "The prompter takes `/` commands, starting with Export session, and a turn's summary now lands in the transcript instead of covering the thing you type into — so what a turn produced is still readable tomorrow." },
+      { kind: "h", text: "Simulators" },
+      { kind: "p", text: "A control inside an Apple Simulator streamed into a browser pane can be picked. The device screen is one canvas as far as the DOM is concerned, so Realm resolves the click against the device's own accessibility tree and says plainly, in the prompt, that `browser_act` cannot address it." },
+      { kind: "h", text: "A new app icon" },
+      { kind: "p", text: "The old one was a shader that read as a smudge at 32px. This is a drawn mark — two interlocking bays on the app's own near-black, each face lit by the way it points: a white top, grey sides, a near-black base — taken from one SVG to every native size, so the menu bar and the dock come off the same geometry." },
+      { kind: "h", text: "Design" },
+      { kind: "p", text: "Fast mode, OpenHands as an agent, ⌘K on the app's own curve, real app icons on the permissions page, per-CLI self-update, and a pass over every control: buttons and fields on the squircle rather than snapping square on hover, hairlines and blurs softened, settings and connections rebuilt as cards, list edges dissolved, the sidebar actually translucent, and nothing set below 11px anywhere in the renderer." },
+      { kind: "h", text: "Site" },
+      { kind: "p", text: "The site was rebuilt around what Realm does rather than how to configure it: the mark drawn live as liquid glass on the GPU, a features page over real product screenshots, a changelog, share images for links, and a download button that asks GitHub for the current release instead of pinning a URL that goes stale." }
+    ],
+  },
+  {
     slug: "plan-mode-looks-like-planning",
     title: "Plan mode looks like planning",
     date: "2026-09-08",
