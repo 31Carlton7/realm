@@ -2,7 +2,7 @@
   "name": "realm-icon-src",
   "private": true,
   "type": "module",
-  "description": "Renders the Realm app icon (resources/icon.png + icon.icns) from app-icon.svg with qlmanage + iconutil (`npm run render`). vgpu and pngjs are for render-candidates.mjs / render-dock.mjs, which draw the WGSL studies in candidates/. Not part of the pnpm workspace.",
+  "description": "Renders the Realm app icon (resources/icon.png + icon.icns) from app-icon.svg with headless Chrome + iconutil (`npm run render`). vgpu and pngjs are for render-candidates.mjs / render-dock.mjs, which draw the WGSL studies in candidates/. Not part of the pnpm workspace.",
   "scripts": {
     "render": "node render.mjs"
   },
