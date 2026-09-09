@@ -647,6 +647,36 @@ describe("in-process providers (Plan 11 W3)", () => {
     await client.close();
   });
 
+  /* `realmProvidersFor` — what the capabilities preamble is allowed to claim a session has. It is a
+   * PROMISE about tools, so the two ways it can lie are the two the preamble would repeat: naming a
+   * provider the space switched off, and naming one this session's toolset hides. */
+  it("realmProvidersFor names the registered providers this space has enabled — and drops one it turned off", async () => {
+    const app = await setupApp();
+    app.gateway.registerProvider(fakeProvider("realm-browser"));
+    app.gateway.registerProvider(fakeProvider("realm-docs"));
+    expect(app.gateway.realmProvidersFor(app.sessionId, app.spaceId).sort()).toEqual(["realm-browser", "realm-docs"]);
+    // THE MUTANT: skip the providerEnabled half. The session is then told how to open a browser pane
+    // in a space whose whole point was that it has no browser tools.
+    app.mcp.setProviderEnabled(app.spaceId, "realm-browser", false);
+    expect(app.gateway.realmProvidersFor(app.sessionId, app.spaceId)).toEqual(["realm-docs"]);
+    // Per-space, like every other provider switch: the other space still has both.
+    const other = app.createSpaceAndSession("Other");
+    expect(app.gateway.realmProvidersFor(other.sessionId, other.spaceId).sort()).toEqual(["realm-browser", "realm-docs"]);
+  });
+
+  it("realmProvidersFor honors a delegated session's toolset shape, both only-mode and exclude-mode", async () => {
+    const shapes = new Map<string, import("./gateway").SessionToolset>();
+    const app = await setupApp({ sessionToolset: (id) => shapes.get(id) ?? null });
+    for (const name of ["realm-agent", "realm-browser", "realm-docs"]) app.gateway.registerProvider(fakeProvider(name));
+    expect(app.gateway.realmProvidersFor(app.sessionId, app.spaceId)).toEqual(["realm-agent", "realm-browser", "realm-docs"]);
+    // A browser-agent child: only-mode. Everything else is invisible and unroutable to it.
+    shapes.set(app.sessionId, ["realm-browser"]);
+    expect(app.gateway.realmProvidersFor(app.sessionId, app.spaceId)).toEqual(["realm-browser"]);
+    // A reviewer / spent agent_run child: exclude-mode, the full surface minus delegation.
+    shapes.set(app.sessionId, { exclude: ["realm-agent"] });
+    expect(app.gateway.realmProvidersFor(app.sessionId, app.spaceId)).toEqual(["realm-browser", "realm-docs"]);
+  });
+
   it("routes a provider call with the CALLING session's identity — the permission model's ground truth", async () => {
     const app = await setupApp();
     const seen: { sessionId: string; spaceId: string }[] = [];

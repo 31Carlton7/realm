@@ -220,6 +220,23 @@ describe("bundledSkillsDir", () => {
     expect(readdirSync(dir!)).toContain("mac");
   });
 
+  it("every skill this repo ships parses, and says what it is for", () => {
+    /* A skill whose frontmatter is broken is not a skill that works badly — `parseMeta` marks it
+       invalid and it never reaches an agent at all. Nothing else in the suite reads the REAL
+       skills/ directory, so a shipped skill with a typo'd `---` block would install on first boot
+       and silently do nothing. Every agent picks a skill from its DESCRIPTION alone, so an empty
+       one is the same failure wearing a valid file. */
+    const real = new SkillsService({ home, settings, bundledDir: bundledSkillsDir()! });
+    real.installBundled();
+    const shipped = real.list(SPACE).skills;
+    expect(shipped.length).toBeGreaterThan(0);
+    for (const s of shipped) {
+      expect(s.valid, `${s.id}: ${s.reason ?? ""}`).toBe(true);
+      expect(s.name.trim(), s.id).not.toBe("");
+      expect(s.description.trim(), s.id).not.toBe("");
+    }
+  });
+
   it("honours REALM_BUNDLED_SKILLS, and reports nothing when it points nowhere", () => {
     vi.stubEnv("REALM_BUNDLED_SKILLS", bundled);
     expect(bundledSkillsDir()).toBe(bundled);

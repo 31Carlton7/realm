@@ -149,6 +149,23 @@ export class McpGateway {
     return [...this.providers.keys()];
   }
 
+  /**
+   * The Realm-native providers one session would actually see tools from right now: registered,
+   * visible under its toolset shape, and enabled for its space. What the capabilities preamble
+   * (`capabilities.ts`, composed in `SessionService.ensureLive`) is allowed to tell that session it
+   * has — computed here, from the same two facts `listTools` filters on, so a space that switched the
+   * browser off can never be handed a paragraph about driving one.
+   *
+   * PROVIDER-level, not tool-level. An `agent_run` child with budget left appears here as having
+   * `realm-agent` while that provider's own `tools()` narrows it to four of its tools; the one caller
+   * skips delegated children entirely, so the gap is not reachable today. A caller that needs the
+   * exact tool list must ask `tools()`, which is async and authoritative.
+   */
+  realmProvidersFor(sessionId: string, spaceId: string): string[] {
+    const toolset = this.toolsetOf(sessionId);
+    return [...this.providers.keys()].filter((name) => providerVisible(name, toolset) && this.d.mcp.providerEnabled(spaceId, name));
+  }
+
   /** Binds 127.0.0.1:0 (OS-assigned — see the plan's port-0 amendment) and returns the bound port. */
   async listen(): Promise<number> {
     this.httpServer = createServer((req, res) => void this.handleHttp(req, res));

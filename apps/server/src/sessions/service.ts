@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementContext, scanMentions, sessionEvent, stripMentionAts, type AgentKind, type ElementChip, type Environment, type Session, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
+import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementContext, scanMentions, sessionEvent, stripMentionAts, type AgentKind, type ElementChip, type Environment, type Session, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
 import type { AdapterRegistry, AgentHandle, PermissionDecision, ProbeResult, SkillMention, UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -19,6 +19,7 @@ import type { CheckpointService } from "../checkpoints/service";
 import { ProbeCache } from "./probe-cache";
 import type { SkillsService } from "../skills/service";
 import type { McpGateway } from "../mcp/gateway";
+import { capabilitiesContext } from "../mcp/capabilities";
 import type { MemoryService } from "../memory/service";
 import type { MemorySources } from "@realm/contracts";
 
@@ -694,7 +695,19 @@ export class SessionService {
     // text. LAST, so it is the most recent thing the incoming agent reads — and re-injected on every
     // start rather than sent once, because the adapter it is briefing can be restarted at any time.
     const handoffContext = this.d.failover?.extraSystemContext(id);
-    const joined = [baseContext, agentContext, handoffContext].filter((p): p is string => Boolean(p)).join("\n\n");
+    // What Realm's own tools are for, named while the agent is still planning rather than left to be
+    // discovered in a tool list it may never read (capabilities.ts). FIRST in the join: it is the most
+    // general thing in the prompt, and the user's memory documents must be able to overrule it.
+    //
+    // Skipped for a session that already carries `agentContext` — a delegated child, a reviewer, an
+    // unattended worker. Each of those was spawned with a brief written for one job, and generic advice
+    // about spawning MORE agents beside a brief that just told it how deep it may go is noise at best.
+    // Also skipped where the agent has no context channel at all, the same honesty `systemContextFor`
+    // applies: Cursor's ACP session/new takes no per-session context, so this would be told to nobody.
+    const capabilities = agentContext || AGENT_MEMORY_CHANNEL[s.agentKind] === "none"
+      ? undefined
+      : capabilitiesContext(this.d.gateway.realmProvidersFor(id, s.spaceId));
+    const joined = [capabilities, baseContext, agentContext, handoffContext].filter((p): p is string => Boolean(p)).join("\n\n");
     const systemContext = joined.length > 0 ? joined : undefined;
     let handle: AgentHandle;
     try {

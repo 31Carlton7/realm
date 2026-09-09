@@ -175,7 +175,10 @@ describe("memory over rpc", () => {
     await startSession(c, spA.id, "claude");
     await waitFor(() => claude.starts.length === 1);
     expect(claude.starts[0]!.skills).toBeUndefined();
-    expect(claude.starts[0]!.systemContext).toBeUndefined();
+    // Not "systemContext is undefined": the session still receives Realm's capabilities preamble
+    // (mcp/capabilities.ts). What must be absent is the user's own memory file, which the CLI is
+    // loading for itself here — re-injecting it would double it.
+    expect(claude.starts[0]!.systemContext).not.toContain("USER_MEMORY_MARKER_9317");
     c.close();
   });
 
