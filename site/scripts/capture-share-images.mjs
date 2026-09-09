@@ -28,7 +28,7 @@ if (!fs.existsSync(chrome)) throw new Error(`No Chrome at ${chrome}; point REALM
 const WIDTH = 1200
 const HEIGHT = 630
 const TIMEOUT_MS = 90_000
-const ALT = "Realm, with the words: A local-first control plane for coding agents."
+const ALT = "Realm, with the words: One workspace for every coding agent, on your Mac."
 const IEND = Buffer.from([0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82])
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-share-"))

@@ -1,1 +1,1 @@
-Realm, with the words: A local-first control plane for coding agents.
+Realm, with the words: One workspace for every coding agent, on your Mac.
