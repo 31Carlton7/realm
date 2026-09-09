@@ -11,3 +11,6 @@ apps/desktop/native/bin/
 apps/desktop/.pack-stage/
 apps/desktop/build/
 apps/desktop/release/
+
+# Playwright CLI scratch — console logs, page snapshots and screenshots from live checks.
+.playwright-cli/
