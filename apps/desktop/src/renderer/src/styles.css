@@ -2269,7 +2269,13 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .ghost-chip:hover:not([data-static]) { --fill: var(--rl-hover); color: var(--rl-text-bright); }
 /* Nothing to pick: rendered as a <span> (see ChipMenu) — a label, never a dimmed control. */
 .ghost-chip[data-static] { cursor: default; }
-.ghost-chip[data-warning] { color: var(--orange); --fill: var(--orange-tint); } /* BUI orange tone pair (StatusPill) */
+/* Red, not orange, and the reason is the chip GROUP it now sits in. Orange is already Plan's tone
+   on the segment immediately to its right, so a session in Plan with Full access parked drew two
+   orange halves and read as one undifferentiated block — the two states it is meant to tell apart
+   were the same colour, touching. Red also says the right thing on its own: this is the one setting
+   that takes a gate away, and it is the only one the app makes you confirm. `data-warning` is set
+   by nothing but this chip (ChipMenu's `warning` prop), so the tone pair moves with it. */
+.ghost-chip[data-warning] { color: var(--rl-danger); --fill: var(--red-tint); }
 .ghost-chip .chip-caret { color: var(--rl-text-faint); flex: none; }
 /* The brand mark is filled where the rest of the set is stroked, so it reads a touch heavier at the
    same box; it keeps the chip's own colour (§7: text-dim at rest) and never shrinks. */
@@ -2300,10 +2306,14 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    two untinted segments read as ONE button; where a tint already changes colour at the seam the
    hairline lands exactly on that change and costs nothing. So it is unconditional, like the ring. */
 .chip-group {
-  --btn-h: 28px; display: inline-flex; align-items: center; min-width: 0;
-  border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; overflow: hidden;
+  display: inline-flex; align-items: center; min-width: 0;
+  border-radius: var(--r-chip); corner-shape: squircle; overflow: hidden;
   outline: var(--hairline-w) solid var(--rl-line); outline-offset: calc(-1 * var(--hairline-w));
 }
+/* A lone segment takes the group's corner rather than its own. Its painted superellipse at 13.44px
+   hugs the corner harder than a 10px circular clip does, so the two curves would cross and leave a
+   corner that is neither — and the group is the shape on screen, so the group's number wins. */
+.chip-group > .ghost-chip:only-child { border-radius: var(--r-chip); }
 /* Inset, so it draws above each segment's fill — painted or not — and below its label. */
 .chip-group > .ghost-chip + .ghost-chip { box-shadow: inset var(--hairline-w) 0 0 var(--rl-line); }
 /* The focus ring comes INSIDE, because the group hides its overflow. §"focus is always visible"
@@ -2335,8 +2345,10 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .model-chip .chip-effort { flex: none; color: var(--rl-text-faint); }
 .composer-chip { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; height: 24px; border-radius: var(--r-chip); corner-shape: squircle; font-size: 12px; color: var(--rl-text-dim); background: var(--rl-hover); max-width: 220px; min-width: 0; white-space: nowrap; }
 /* One-time bypass confirm (U-M7): warning-toned status pill (§3 formula), clickable, gone in 5s. */
-.bypass-confirm { color: var(--orange); background: var(--orange-tint); cursor: pointer; }
-.bypass-confirm:hover { background: color-mix(in srgb, var(--orange) 24%, transparent); }
+/* The confirm STEP for the chip above, so it wears the chip's tone: "Allow everything?" leading to a
+   red chip through an orange button would read as two different warnings about one decision. */
+.bypass-confirm { color: var(--rl-danger); background: var(--red-tint); cursor: pointer; }
+.bypass-confirm:hover { background: color-mix(in srgb, var(--red) 24%, transparent); }
 /* Narrow panes, in the order the row can afford to lose things. Every threshold is the pane width at
    which the branch would otherwise be squeezed under its floor, read off a measured sweep rather than
    guessed, and every one is the SESSION PANE's own width — a session in a three-way split is narrow
@@ -2596,6 +2608,9 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    four of each segment's corners and the two would meet in a lens-shaped notch. */
 :root[data-squircle] .chip-group > .ghost-chip:not(:only-child) {
   --sq-radius-top: 0px; --sq-radius-bottom: 0px;
+}
+:root[data-squircle] .chip-group > .ghost-chip:only-child {
+  --sq-radius-top: var(--r-chip); --sq-radius-bottom: var(--r-chip);
 }
 /* The button's shadow, split the way .palette's was: its two layers were a hairline ring and a 1px
    drop, and both were drawn on the border box — which is a square here. The ring goes to the

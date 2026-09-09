@@ -424,7 +424,7 @@ describe("Ara refresh §3/§4 geometry", () => {
        runs in and the one no unpainted assertion would catch. */
     const group = bodiesFor(".chip-group").join(" ");
     expect(group).toContain("overflow: hidden");
-    expect(group).toContain("border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl))");
+    expect(group).toContain("border-radius: var(--r-chip)");
     expect(bodiesFor(".chip-group > .ghost-chip:not(:only-child)").join(" ")).toContain("border-radius: 0");
     const painted = bodiesFor(":root[data-squircle] .chip-group > .ghost-chip:not(:only-child)").join(" ");
     expect(painted).toContain("--sq-radius-top: 0px");
@@ -445,6 +445,32 @@ describe("Ara refresh §3/§4 geometry", () => {
     // With the group visible, two untinted segments read as ONE button without this.
     expect(bodiesFor(".chip-group > .ghost-chip + .ghost-chip").join(" "))
       .toContain("box-shadow: inset var(--hairline-w) 0 0 var(--rl-line)");
+  });
+
+  it("Full access does not wear Plan's colour, because they sit in one control touching", () => {
+    /* The collision this closes is only visible in the grouped control: `.ghost-chip[data-warning]`
+       is the permission chip and nothing else, and Plan tints the segment immediately right of it.
+       Both orange meant a session in Plan with Full access parked drew two orange halves reading as
+       one block — the two states the group exists to tell apart, the same colour, touching. */
+    expect(bodiesFor('.ghost-chip[data-warning]').join(" ")).toContain("--fill: var(--red-tint)");
+    expect(bodiesFor('.ghost-chip[data-warning]').join(" ")).not.toContain("orange");
+    expect(bodiesFor('.composer[data-mode="plan"] .ghost-chip[aria-label="Mode"]').join(" "))
+      .toContain("var(--rl-warning)");
+    // The confirm STEP for the same decision, so one decision is one colour.
+    expect(bodiesFor(".bypass-confirm").join(" ")).toContain("background: var(--red-tint)");
+  });
+
+  it("the group's corner is a CHIP corner, not a pill — the stadium hid the shape", () => {
+    /* At 0.48 \u00d7 28px the circular clip was a stadium, while a `.btn` beside it paints a superellipse
+       at the same ratio and shows real flat runs. `--r-chip` is the rung where a circular corner and
+       a superellipse are the same picture (see the paint-worklet test above), so this reads like the
+       buttons today AND needs no revisit when `corner-shape` starts doing something.
+       The lone segment has to follow, or its own painted 13.44px crosses the group's 10px clip. */
+    expect(bodiesFor(".chip-group").join(" ")).toContain("border-radius: var(--r-chip)");
+    expect(bodiesFor(".chip-group > .ghost-chip:only-child").join(" ")).toContain("border-radius: var(--r-chip)");
+    const painted = bodiesFor(":root[data-squircle] .chip-group > .ghost-chip:only-child").join(" ");
+    expect(painted).toContain("--sq-radius-top: var(--r-chip)");
+    expect(painted).toContain("--sq-radius-bottom: var(--r-chip)");
   });
 
   it("a focused segment's ring comes inside the group, which hides its overflow", () => {
@@ -1103,11 +1129,17 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(shimmer?.selectors).toContain(".composer-thinking span");
   });
 
-  it("warning pills speak the orange tone pair (StatusPill), not the old color-mix formula", () => {
+  it("the bypass pills speak a tone PAIR (StatusPill), not a hand-rolled color-mix", () => {
+    /* The invariant is the pair — an ink token and its matching tint — rather than which hue it is.
+       Both moved orange \u2192 red when the permission chip joined the mode chip in one control (see the
+       Full-access test above); what must not come back is the ad-hoc `color-mix` these replaced. */
     const pill = bodiesFor(".bypass-confirm").join(" ");
-    expect(pill).toContain("color: var(--orange)");
-    expect(pill).toContain("background: var(--orange-tint)");
-    expect(bodiesFor('.ghost-chip[data-warning]').join(" ")).toContain("var(--orange-tint)");
+    expect(pill).toContain("color: var(--rl-danger)");
+    expect(pill).toContain("background: var(--red-tint)");
+    expect(bodiesFor('.ghost-chip[data-warning]').join(" ")).toContain("var(--red-tint)");
+    for (const body of [pill, bodiesFor('.ghost-chip[data-warning]').join(" ")]) {
+      expect(body).not.toMatch(/(?:color|background|--fill):\s*color-mix/);
+    }
   });
 
   it("menus and the model picker are surface cards on shadow-raised with the opaque hover ladder (GlideMenu's surface, minus its JS glide layer)", () => {
