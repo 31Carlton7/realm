@@ -6,6 +6,8 @@ import type { MachinesStore } from "../store/machines";
 import type { SpacesStore } from "../store/spaces";
 import { NotFoundError, RpcError } from "../store/rows";
 import { machineSecretBox } from "./secret";
+import { RfbDriver } from "./rfb-driver";
+import type { MachineDriver } from "./driver";
 import type { MachineTarget, MachineWsProxy } from "./ws-proxy";
 
 /**
@@ -35,6 +37,18 @@ export class MachineService {
   /** Live status, keyed by machine id. Absent means `off`, so a machine nobody has touched costs a
    *  map entry of nothing and a restart starts everything in the one honest state. */
   private readonly state = new Map<string, MachineState>();
+
+  /**
+   * The AGENT's connection, one per machine, built on first use.
+   *
+   * A different socket from the human's, and that is the design rather than an accident: the pane's
+   * RFB connection carries pixels to a canvas at whatever rate the screen changes, and this one
+   * takes a still frame every few seconds and writes input. Neither can starve or evict the other.
+   *
+   * It also means an agent can drive a machine with no pane open at all — which is exactly when one
+   * is most likely to be working.
+   */
+  private readonly drivers = new Map<string, MachineDriver>();
 
   constructor(private readonly d: MachineServiceDeps) {}
 
@@ -140,16 +154,44 @@ export class MachineService {
     if (row.source !== "vnc") throw new RpcError("INVALID_ARGUMENT", UNBUILT[row.source as Exclude<MachineSource, "vnc">]);
     if (!row.endpoint) return this.fail(machineId, "unreachable", "this machine has no address saved");
     // Drop any previous bridge first: a Start on a machine that is already connected is a user
-    // asking for a fresh connection, and two live sockets to one screen is two sets of input.
+    // asking for a fresh connection, and two live sockets to one screen is two sets of input. The
+    // agent's driver goes with it — its target may have moved.
+    this.dropDriver(machineId);
     this.d.proxy.disconnect(machineId);
     const wsUrl = this.d.proxy.urlFor(machineId);
     this.d.machines.setWsPort(machineId, this.d.proxy.info().port);
     return this.set({ machineId, status: "booting", wsUrl, width: null, height: null, error: null, detail: null });
   }
 
+  /**
+   * The agent's own connection to this machine, or null when there is nowhere to connect to.
+   *
+   * Deliberately NOT gated on the human's connection being up: the whole point of a second socket is
+   * that an agent can work on a machine nobody is watching. What it IS gated on is the row having an
+   * address, because a machine with none has nothing to dial.
+   */
+  async driverFor(machineId: string): Promise<MachineDriver | null> {
+    const existing = this.drivers.get(machineId);
+    if (existing) return existing;
+    const target = this.targetFor(machineId);
+    if (!target) return null;
+    const driver = new RfbDriver(target);
+    this.drivers.set(machineId, driver);
+    return driver;
+  }
+
+  /** Drop the agent's connection. Called wherever the human's is dropped, because a driver holding a
+   *  socket to a machine the user stopped is exactly the invisible compute the sidebar dot exists
+   *  to prevent — and this one has no dot. */
+  private dropDriver(machineId: string): void {
+    this.drivers.get(machineId)?.close();
+    this.drivers.delete(machineId);
+  }
+
   /** Drop the connection and go back to `off`. Idempotent: stopping a stopped machine is what a
    *  double-press of the power toggle is, and it is not an error. */
   stop(machineId: string): MachineState {
+    this.dropDriver(machineId);
     this.d.proxy.disconnect(machineId);
     this.d.machines.setWsPort(machineId, null);
     return this.set({ machineId, status: "off", wsUrl: null, width: null, height: null, error: null, detail: null });
@@ -195,6 +237,7 @@ export class MachineService {
   restoreAll(): void {
     this.d.machines.clearAllWsPorts();
     this.state.clear();
+    for (const id of [...this.drivers.keys()]) this.dropDriver(id);
   }
 
   /**
@@ -211,6 +254,7 @@ export class MachineService {
     const row = this.d.machines.get(machineId);
     const item = this.d.items.findByRefId(machineId);
     if (!row && !item) throw new NotFoundError("machine", machineId);
+    this.dropDriver(machineId);
     this.d.proxy.disconnect(machineId);
     this.state.delete(machineId);
     this.d.machines.delete(machineId);
@@ -224,6 +268,7 @@ export class MachineService {
    *  the in-memory state do not, and a leaked socket to somebody's Mac is worse than a leaked row. */
   closeAllInSpace(spaceId: string): void {
     for (const m of this.d.machines.list(spaceId)) {
+      this.dropDriver(m.id);
       this.d.proxy.disconnect(m.id);
       this.state.delete(m.id);
     }
@@ -231,6 +276,7 @@ export class MachineService {
 
   /** Quit. Every bridge down before the process goes, so nothing is left half-open on a far end. */
   async closeAll(): Promise<void> {
+    for (const id of [...this.drivers.keys()]) this.dropDriver(id);
     this.state.clear();
     await this.d.proxy.close();
   }

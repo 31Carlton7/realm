@@ -1291,6 +1291,13 @@ export const Events = {
    *  field here a password could occupy — the URL's token authorises a loopback socket whose far end
    *  the server has ALREADY authenticated. */
   "machine.status": MachineStateSchema,
+  /** A mutating machine tool call SETTLED (Plan 25 W4) — the browser ticker's twin. `text` is the
+   *  same sentence the permission card showed, which for a machine names the coordinates: they mean
+   *  little to a person, but they are the only thing telling two clicks apart. */
+  "machine.action": z.object({ spaceId: IdSchema, machineId: IdSchema, text: z.string(), ok: z.boolean(), ts: z.number() }),
+  /** An agent's act is in flight (`true`) or has settled (`false`) on this machine. Every `true` is
+   *  followed by a `false` whatever the outcome, so a failed act cannot leave the dot lit. */
+  "machine.driving": z.object({ spaceId: IdSchema, machineId: IdSchema, driving: z.boolean() }),
 } as const;
 export type EventName = keyof typeof Events;
 export type EventPayload<E extends EventName> = z.infer<(typeof Events)[E]>;

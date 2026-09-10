@@ -38,3 +38,4 @@ export * from "./links";
 export * from "./connectors";
 export * from "./machine";
 export * from "./sandbox";
+export * from "./keysym";

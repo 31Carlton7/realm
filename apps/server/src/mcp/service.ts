@@ -1,4 +1,4 @@
-import { COMPUTER_PROVIDER_NAME, MCP_SECRET_STORAGE_NOTE, type ItemScope, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
+import { COMPUTER_PROVIDER_NAME, MACHINE_PROVIDER_NAME, MCP_SECRET_STORAGE_NOTE, type ItemScope, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
 import { RpcError } from "../store/rows";
 import { liveCheck, type McpTestResult } from "./live-check";
 import type { SettingsStore } from "../store/settings";
@@ -39,13 +39,19 @@ const providersEnabledKey = (spaceId: string): string => `mcp.providersEnabled:$
 /**
  * Providers that are OFF until a space turns them on, inverting the default the others get.
  *
- * `realm-computer` is the only one, and the reason is its blast radius rather than its
- * trustworthiness. Every other provider acts inside Realm — a browser pane Realm owns, the space's
- * own folder — so shipping it IS the opt-in. Computer use reaches every application on the Mac,
- * including ones the user has never mentioned to Realm, and a capability like that should be
- * something a space was given rather than something it woke up holding.
+ * Every other provider acts inside Realm — a browser pane Realm owns, the space's own folder — so
+ * shipping it IS the opt-in. These two do not, and their reasons differ enough to be worth stating
+ * separately rather than filed under one heading:
+ *
+ *   - `realm-computer` reaches every application on THIS Mac, including ones the user has never
+ *     mentioned to Realm. That is a capability a space should have been given rather than woken up
+ *     holding.
+ *   - `realm-vm` (Plan 25 W4) reaches a machine, which is a different shape of reach: a computer the
+ *     user's files can be shared into, whose network is the user's network, and — for the most
+ *     likely case, a second Mac at an address — somebody's actual desktop with their actual session
+ *     signed in. The blast radius is not this Mac; it is a whole other one.
  */
-const OPT_IN_PROVIDERS = new Set<string>([COMPUTER_PROVIDER_NAME]);
+const OPT_IN_PROVIDERS = new Set<string>([COMPUTER_PROVIDER_NAME, MACHINE_PROVIDER_NAME]);
 
 
 /** What `mcp.add` / `mcp.update` accept, before the transport decides which half of it is meaningful. */

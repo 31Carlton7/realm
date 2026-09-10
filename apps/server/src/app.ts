@@ -30,6 +30,8 @@ import { BrowserHostBridge } from "./browsers/host-bridge";
 import { BrowserPermissionBroker } from "./browsers/permissions";
 import { createBrowserAgentProvider } from "./browsers/agent-tools";
 import { createComputerAgentProvider } from "./computer/agent-tools";
+import { createMachineAgentProvider } from "./machines/agent-tools";
+import { MachineAllowlist } from "./machines/allowlist";
 import { ComputerAppAllowlist } from "./computer/allowlist";
 import { BrowserAgentService, createRealmAgentProvider, REALM_AGENT_PROVIDER_NAME } from "./browsers/browser-agent";
 import { DelegationEngine } from "./delegation/engine";
@@ -603,6 +605,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     openPath: (p) => documents.openPath(p),
     progressForSpace: (spaceId, path) => documents.progressRead(documents.open({ spaceId }).documentsId, path),
   }));
+  // Plan 25 W4, on the same terms: off until a space asks for it, a card per MACHINE rather than per
+  // tool, and the card kept in bypassPermissions. Registered here and not conditionally — the
+  // gateway's own per-space enablement is what decides whether a session sees the tools.
+  const machineAllowlist = new MachineAllowlist({ settings });
+  mcpGateway.registerProvider(createMachineAgentProvider({ mcp, machines, broker: browserBroker, allowlist: machineAllowlist, rpc }));
   // The graphify CLI seam (probe + `graphify update`). Only the space's checkout path crosses into
   // it — it never learns what a space or a database is.
   const graphify = new GraphifyService({ rootForSpace: (id) => documents.rootForSpace(id) });

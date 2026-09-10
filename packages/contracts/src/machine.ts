@@ -130,6 +130,9 @@ export const MACHINE_ERRORS = [
 ] as const;
 export type MachineError = (typeof MACHINE_ERRORS)[number];
 
+/** The gateway name `realm-vm`'s tools arrive under, mirroring `COMPUTER_PROVIDER_NAME`. */
+export const MACHINE_PROVIDER_NAME = "realm-vm";
+
 /** What an agent may ask a machine to do (Plan 25 W4). Declared here with the rest so the renderer's
  *  action ticker and the provider speak one vocabulary rather than two. */
 export const VmActionSchema = z.discriminatedUnion("kind", [
