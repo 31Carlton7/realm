@@ -316,3 +316,24 @@ export const SessionSchema = z.object({
   ...Timestamps,
 });
 export type Session = z.infer<typeof SessionSchema>;
+
+/**
+ * A message the user typed while a turn was running and chose not to interrupt it with.
+ *
+ * Not a `user_message` yet, and that is the point: the transcript records what an agent was actually
+ * asked, so a queued message earns its line there when it goes OUT, not when it is written. Until
+ * then it lives in the prompter as a chip the user can drop or send now.
+ *
+ * `attachments` rides along because a queued message keeps the files it was composed with, and those
+ * are paths on disk — a file moved between queueing and draining degrades exactly as it does for any
+ * other attachment. `mentions` and `elements` are deliberately absent from the WIRE shape: they are
+ * resolved against the session's live state at send time (`resolveMentions`), so the queue carries
+ * them server-side and shows the prompter only what it draws.
+ */
+export const QueuedPromptSchema = z.object({
+  id: z.string().min(1),
+  text: z.string(),
+  attachments: z.array(z.object({ path: z.string(), mime: z.string() })),
+  ts: z.number(),
+});
+export type QueuedPrompt = z.infer<typeof QueuedPromptSchema>;

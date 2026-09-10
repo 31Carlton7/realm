@@ -773,3 +773,40 @@ export const AGENT_LOGIN_HINTS = {
   "acp:hermes": "Run `cd ~/.hermes/hermes-agent && uv pip install -e '.[acp]'` to add its ACP mode, then `hermes setup` (or `hermes model`) to pick a provider and sign in.",
   fake: "Scripted offline agent used for development.",
 } as const satisfies Record<import("./entities").AgentKind, string>;
+
+/**
+ * Settings key for what a message typed DURING a turn does (queue it, or send it straight through).
+ *
+ * Read server-side in `SessionService.send`, in one place, so the prompter, the quick-chat window and
+ * the palette cannot disagree about what pressing Enter mid-turn means. `"queue"` is the default for
+ * the reason `AGENT_MIDTURN_DELIVERY` spells out: on every kind but Codex, sending mid-turn costs an
+ * interrupt, and a default that silently aborts the tool call the agent is running is not a default.
+ */
+export const MID_TURN_MODE_KEY = "sessions.midTurnMode";
+
+export const MID_TURN_MODES = ["queue", "steer"] as const;
+export type MidTurnMode = (typeof MID_TURN_MODES)[number];
+
+/** The stored key, or `"queue"` for anything unrecognised — including the unset case on an existing
+ *  home, which must land on the safe rung rather than the interrupting one. */
+export function resolveMidTurnMode(stored: unknown): MidTurnMode {
+  return MID_TURN_MODES.includes(stored as MidTurnMode) ? (stored as MidTurnMode) : "queue";
+}
+
+/** Whether sending into THIS kind's live turn ends that turn. The one thing the prompter has to say
+ *  differently per agent, and the one `AGENT_MIDTURN_DELIVERY` was written to answer. */
+export const steerInterrupts = (kind: import("./entities").AgentKind): boolean => AGENT_MIDTURN_DELIVERY[kind] === "interrupt";
+
+/**
+ * What the steer action promises, named per kind because the two outcomes are not degrees of one
+ * thing (`AGENT_MIDTURN_DELIVERY`): Codex takes the message into the turn it is already running,
+ * every other kind has its turn stopped and is re-prompted. The interrupt's real costs — the
+ * in-flight tool call, any open permission prompt — are the ones a person would want back, so they
+ * are named rather than summarised as "may interrupt".
+ */
+export function steerNote(kind: import("./entities").AgentKind): string {
+  const label = AGENT_META[kind].label;
+  return steerInterrupts(kind)
+    ? `Sends now. ${label} stops the running turn to take it, which aborts the tool call in flight and denies any permission prompt waiting.`
+    : `Sends now, into the turn ${label} is already running. Nothing is interrupted.`;
+}

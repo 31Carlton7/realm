@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { CliJobStart, CliStatus } from "./cli";
-import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, IconAssetSchema, DocumentWorkspaceSchema, DocumentEntrySchema, DocumentKindSchema } from "./entities";
+import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, IconAssetSchema, DocumentWorkspaceSchema, DocumentEntrySchema, DocumentKindSchema, QueuedPromptSchema } from "./entities";
 
 import { ElementChipSchema, MAX_ELEMENT_CHIPS } from "./chips";
 import { LayoutSchema } from "./layout";
@@ -1083,8 +1083,15 @@ export const Methods = {
    *  `elements` is OPTIONAL rather than defaulted, and the prompter omits the key outright when the
    *  draft has no element chips — so a message that never touched a browser pane puts exactly the
    *  bytes on this wire that it always has. */
-  "sessions.send":   { params: z.object({ id: IdSchema, text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]), mentions: z.array(SkillIdSchema).max(32).default([]), elements: z.array(ElementChipSchema).max(MAX_ELEMENT_CHIPS).optional() })
+  "sessions.send":   { params: z.object({ id: IdSchema, text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]), mentions: z.array(SkillIdSchema).max(32).default([]), elements: z.array(ElementChipSchema).max(MAX_ELEMENT_CHIPS).optional(), delivery: z.enum(["auto", "queue", "steer"]).default("auto") })
     .refine((p) => p.text.length > 0 || p.attachments.length > 0, { message: "a message needs text or at least one attachment" }), result: z.object({ ok: z.literal(true) }) },
+  /** Drop one message off the queue before its turn comes. `queuedId` rather than an index: the queue
+   *  drains on its own as turns settle, so an index the prompter read a moment ago may already name a
+   *  different message. Unknown ids are a no-op — the drain that removed it got there first. */
+  "sessions.dequeue": { params: z.object({ id: IdSchema, queuedId: z.string().min(1) }), result: z.object({ ok: z.literal(true) }) },
+  /** The queue as it stands, for a pane that has just mounted. Live changes arrive on `session.queue`;
+   *  this is the initial read, the same split `sessions.events` and `session.event` already use. */
+  "sessions.queued": { params: z.object({ id: IdSchema }), result: z.object({ queued: z.array(QueuedPromptSchema) }) },
   "sessions.interrupt": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /** The reader's verdict on one assistant message, appended to that session's own event log and
    *  going nowhere else — there is no endpoint behind this and no aggregate anywhere. `rating: null`
@@ -1212,6 +1219,10 @@ export const Events = {
   /** ephemeral = not persisted (seq = -1), e.g. assistant_delta */
   "session.event":    StoredSessionEventSchema.extend({ ephemeral: z.boolean() }),
   "session.status":   z.object({ sessionId: IdSchema, status: SessionStatusSchema }),
+  /** This session's queue changed — a message was queued, sent now, dropped, or drained into a turn.
+   *  Carries the whole list rather than a delta: it is a handful of short strings, and a prompter that
+   *  applied deltas would have to reason about one arriving before its initial `sessions.queued` read. */
+  "session.queue":    z.object({ sessionId: IdSchema, queued: z.array(QueuedPromptSchema) }),
   /** One browser CDP operation for the registered browser host (Plan 11 W3). Sent TARGETED to the one
    *  client that called `browserHost.register`, never broadcast — see that method's doc comment. The
    *  host answers with a `browserHost.result` call carrying the same `callId`. */

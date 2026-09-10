@@ -69,7 +69,10 @@ export class FakeAdapter implements AgentAdapter {
         }
       }
       q.push(sessionEvent("usage", { costUsd: 0.001, inputTokens: 10, outputTokens: 10, numTurns: 1 }));
-      q.push(sessionEvent("status", { status: "idle" }));
+      // Carries `interrupted` exactly as the real adapters do (claude-adapter's result branch): the
+      // settle is what tells a reader "you stopped this" apart from "this finished", and anything
+      // downstream that branches on a user-stopped turn can only be exercised if the fake says so.
+      q.push(sessionEvent("status", { status: "idle", ...(interrupted ? { interrupted: true } : {}) }));
     };
 
     let chain = Promise.resolve();

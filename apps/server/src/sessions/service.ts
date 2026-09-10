@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementContext, scanMentions, sessionEvent, stripMentionAts, type AgentKind, type ElementChip, type Environment, type Session, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
+import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementContext, newId, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type ElementChip, type Environment, type QueuedPrompt, type Session, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
 import type { AdapterRegistry, AgentHandle, PermissionDecision, ProbeResult, SkillMention, UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -45,7 +45,9 @@ export function titleFromMessage(text: string): string {
 export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId: string | null; environmentId?: string | null; model: string | null; effort: string | null; permissionMode: string | null; title?: string;
   /** Plan 13 W1: the dispatch origin recorded on the row when a delegation tool (or W2's dispatch
    *  gesture) creates the session. Absent/null for every user-created session — never defaulted. */
-  dispatchedBy?: import("@realm/contracts").DispatchedBy | null };
+  dispatchedBy?: import("@realm/contracts").DispatchedBy | null;
+  /** No item row, and so no place in any list — see `sessions.create`'s schema. */
+  unlisted?: boolean };
 
 /**
  * The permission mode a session starts in when its creator named none (Plan 12 W6) — every
@@ -75,6 +77,16 @@ type Live = { handle: AgentHandle; pump: Promise<void>; skillsInjected: boolean 
  */
 export class SessionService {
   private live = new Map<string, Live>();
+  /**
+   * Messages waiting for the current turn to end, oldest first, per session.
+   *
+   * In memory rather than in SQLite, deliberately. A queue exists only because a turn is in flight,
+   * and after a restart none is — `markStaleOnBoot` has already put every row back to `idle`. A
+   * persisted queue would therefore drain the moment the app came up, sending messages the user
+   * queued yesterday and has stopped expecting. It survives what it needs to survive: a pane closed
+   * and reopened, a window reloaded, a client disconnecting, all of which leave the server up.
+   */
+  private queued = new Map<string, { prompt: QueuedPrompt; msg: SendMessage }[]>();
   private closing = false;
   constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; settings: SettingsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; skills: SkillsService; gateway: McpGateway; memory: MemoryService; checkpoints?: CheckpointService;
     /** Failover (fallbacks + forks). Optional so a server built without it behaves exactly as
@@ -136,7 +148,12 @@ export class SessionService {
   get(id: string): Session { const s = this.d.sessions.get(id); if (!s) throw new NotFoundError("session", id); return s; }
   events(id: string, afterSeq: number, limit: number): StoredSessionEvent[] { this.get(id); return this.d.events.listAfter(id, afterSeq, limit); }
 
-  create(input: CreateSessionInput): { session: Session; itemId: string } {
+  /* Two signatures for one function, because `unlisted` is the only thing that makes `itemId` null
+     and every other caller may go on relying on it. An overload says that in the type instead of
+     asking four call sites to assert it. */
+  create(input: CreateSessionInput & { unlisted?: false }): { session: Session; itemId: string };
+  create(input: CreateSessionInput): { session: Session; itemId: string | null };
+  create(input: CreateSessionInput): { session: Session; itemId: string | null } {
     const space = this.d.spaces.get(input.spaceId); if (!space) throw new NotFoundError("space", input.spaceId);
     if (!this.d.adapters[input.agentKind]) throw new RpcError("AGENT_UNAVAILABLE", `${input.agentKind} is not registered`);
     const project = input.projectId ? this.d.projects.get(input.projectId) : null;
@@ -146,6 +163,10 @@ export class SessionService {
     // A named mode travels verbatim; null (the instant-create paths) is the user's configured default.
     const permissionMode = input.permissionMode ?? resolveDefaultPermissionMode(input.agentKind, this.d.settings.get(DEFAULT_PERMISSION_MODE_KEY));
     const session = this.d.sessions.create({ spaceId: input.spaceId, projectId: project?.id ?? null, agentKind: input.agentKind, model: input.model, effort: input.effort, permissionMode, environmentId: env.id, title, dispatchedBy: input.dispatchedBy ?? null });
+    /* An UNLISTED session gets no item, and so appears in no list anywhere — see `sessions.create`'s
+       schema for what that is for. No broadcast either: nothing about this space's items changed,
+       and telling every client otherwise would have them all re-fetch to find that out. */
+    if (input.unlisted) return { session, itemId: null };
     const item = this.d.items.create({ spaceId: input.spaceId, kind: "session", title, refId: session.id });
     this.d.rpc.broadcast("items.changed", { spaceId: input.spaceId });
     return { session, itemId: item.id };
@@ -168,8 +189,102 @@ export class SessionService {
     return this.d.environments.ensurePrimary(spaceId);
   }
 
-  /** Emits `user_message` (persisted + broadcast) and hands the message to the adapter, starting it if needed. */
-  async send(id: string, msg: SendMessage): Promise<void> {
+  /**
+   * Emits `user_message` (persisted + broadcast) and hands the message to the adapter, starting it if
+   * needed — unless a turn is already running, in which case what happens is the user's setting.
+   *
+   * `delivery` is the prompter's override of that setting for ONE message: `"steer"` is the chip's
+   * send-now, `"queue"` is a queue asked for explicitly. `"auto"` — every internal caller, since the
+   * delegation and run services send into children they have just created — reads the setting.
+   */
+  async send(id: string, msg: SendMessage, delivery: "auto" | "queue" | "steer" = "auto"): Promise<void> {
+    // `waiting_permission` counts: the turn has not ended, it is blocked on a card the user has not
+    // answered. The prompter draws both states the same way for the same reason, and a message typed
+    // against an open permission card is the one most likely to be a correction.
+    const status = this.d.sessions.get(id)?.status;
+    const turnInFlight = status === "running" || status === "waiting_permission";
+    if (turnInFlight) {
+      const mode = delivery === "auto" ? resolveMidTurnMode(this.d.settings.get(MID_TURN_MODE_KEY)) : delivery;
+      if (mode === "queue") { this.enqueue(id, msg); return; }
+      await this.steer(id, msg);
+      return;
+    }
+    await this.deliver(id, msg);
+  }
+
+  /**
+   * Put a message at the back of the queue and tell the prompter.
+   *
+   * The `SendMessage` is kept whole beside the wire shape rather than rebuilt from it at drain time:
+   * `mentions` and `elements` are part of what the user composed, and a queue that dropped them
+   * would turn an `@skill` typed during a turn into plain text for no reason the user could see.
+   */
+  private enqueue(id: string, msg: SendMessage): void {
+    const prompt: QueuedPrompt = { id: newId(), text: msg.text, attachments: msg.attachments, ts: Date.now() };
+    this.queued.set(id, [...(this.queued.get(id) ?? []), { prompt, msg }]);
+    this.broadcastQueue(id);
+  }
+
+  /**
+   * Send into a running turn.
+   *
+   * The interrupt is the HANDLE's, for the reason `deliverInterjection` documents: this class's
+   * `interrupt` also fires `parentInterrupted`, which would cancel a delegated run this session is
+   * blocked on — and the user asked to redirect the agent, not to kill its child.
+   *
+   * `deliver` rather than a bare `handle.send` afterwards, because this message IS the user's and
+   * earns everything a typed message earns — its `user_message` line, a title for an untitled
+   * session. The one thing it does not earn is `deliver`'s checkpoint, which is why the capture is
+   * skipped: the agent may be mid-write, and `send`'s own comment names that race ("a capture racing
+   * the agent's first write would record a tree that never existed").
+   */
+  private async steer(id: string, msg: SendMessage): Promise<void> {
+    if (steerInterrupts(this.get(id).agentKind)) await this.live.get(id)?.handle.interrupt();
+    await this.deliver(id, msg, { checkpoint: false });
+  }
+
+  /**
+   * Send the oldest queued message, if there is one. Called on the settle — the transition INTO idle
+   * — which is the moment the turn that was blocking it ended.
+   *
+   * One message per settle, not the whole queue: each queued message is its own turn, and draining
+   * three of them into one `handle.send` would merge three things the user asked separately. The next
+   * settle takes the next one, which is also what keeps the queue draining if the user queues more
+   * while a drained message is running.
+   */
+  private async drainQueue(id: string): Promise<void> {
+    const [next, ...rest] = this.queued.get(id) ?? [];
+    if (!next) return;
+    if (rest.length === 0) this.queued.delete(id); else this.queued.set(id, rest);
+    this.broadcastQueue(id);
+    await this.deliver(id, next.msg);
+  }
+
+  /** Drop a queued message before its turn comes. An id the queue no longer holds is a no-op: the
+   *  drain got there first, which is a race the prompter cannot win and should not have to. */
+  dequeue(id: string, queuedId: string): void {
+    this.get(id);
+    const waiting = this.queued.get(id);
+    if (!waiting) return;
+    const left = waiting.filter((w) => w.prompt.id !== queuedId);
+    if (left.length === waiting.length) return;
+    if (left.length === 0) this.queued.delete(id); else this.queued.set(id, left);
+    this.broadcastQueue(id);
+  }
+
+  /** This session's queue, for a pane that has just mounted. */
+  queuedPrompts(id: string): QueuedPrompt[] {
+    this.get(id);
+    return (this.queued.get(id) ?? []).map((w) => w.prompt);
+  }
+
+  private broadcastQueue(id: string): void {
+    this.d.rpc.broadcast("session.queue", { sessionId: id, queued: (this.queued.get(id) ?? []).map((w) => w.prompt) });
+  }
+
+  /** Everything a typed message earns on its way to the adapter. Split out of `send` so the queue's
+   *  drain and the steer path reach it without re-deciding what `send` already decided. */
+  private async deliver(id: string, msg: SendMessage, opts: { checkpoint?: boolean } = {}): Promise<void> {
     // Claim the environment's port block before the adapter can be spawned — `ensureLive` reads it
     // back off the row, so this is the only place the (async) allocation has to happen.
     await this.ensurePorts(id);
@@ -177,7 +292,7 @@ export class SessionService {
     // than fired off: a capture racing the agent's first write would record a tree that never existed.
     // It reports its own failures and returns null — a checkpoint is a safety net, and a safety net
     // that can refuse a message is a worse failure than not having one.
-    await this.checkpointTurn(id, msg.text);
+    if (opts.checkpoint !== false) await this.checkpointTurn(id, msg.text);
     const handle = this.ensureLive(id);
     // Recorded BEFORE the message goes out, because the failure this enables recovery from can
     // arrive on the very first event back. A new turn also clears the previous one's retry budget
@@ -490,6 +605,8 @@ export class SessionService {
     this.d.browserAgents?.release(id);
     // And its carried handoff context, plus any retry still on a timer.
     this.d.failover?.release(id);
+    // Nothing left to send into. No broadcast: the session's own row is going away with it.
+    this.queued.delete(id);
     // The terminal belongs to the session: deleting the session must not leave its pty running.
     const term = s.terminalItemId ? this.d.items.get(s.terminalItemId) : null;
     if (term) this.closeTerminalItem(term.refId);
@@ -788,7 +905,18 @@ export class SessionService {
       // stops moving, and it is the only one worth summarizing. Fired after the events of the turn
       // are persisted below on their own passes — the summary reads the log, so it must not run
       // until the log is the log. `void`, because a turn is never held up for a nicety.
-      if (ev.payload.status === "idle" && before.status !== "idle") void this.d.summaries?.onSettled(id);
+      if (ev.payload.status === "idle" && before.status !== "idle") {
+        void this.d.summaries?.onSettled(id);
+        /* The turn that was blocking the queue just ended — unless the USER ended it, in which case
+         * the queue stays parked. Stop has to mean stop: a queued message that started a fresh turn
+         * a moment after the button was pressed would read as the button not working. The messages
+         * are not thrown away either, which would lose text the user wrote — they keep their chips,
+         * and the send-now on each is how the user releases one deliberately.
+         *
+         * `void` for the same reason the summary is: this runs inside the adapter pump, and awaiting
+         * a send here would hold the pump open across the next turn's first events. */
+        if (!ev.payload.interrupted) void this.drainQueue(id).catch(() => {});
+      }
     }
     if (PERSISTED_EVENT_TYPES.includes(ev.type)) {
       const stored = this.persist(id, ev);
