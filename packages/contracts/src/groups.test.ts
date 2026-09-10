@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_GROUP_NAME, SpaceGroupsSchema, activeGroup, activeLayout, addGroup, allGroupItems,
   detachItemFrom, firstEmptyLeafId, groupAtOffset, groupOfItem, groupsFromLayout, migrateGroups,
-  moveItemToGroup, nextGroupName, reconcileGroups, removeGroup, renameGroup, setActiveGroup,
+  moveGroup, moveItemToGroup, nextGroupName, reconcileGroups, removeGroup, renameGroup, setActiveGroup,
   setActiveLayout, toggleZoom, unzoom, zoomLeaf, type PaneGroup, type SpaceGroups,
 } from "./groups";
 import { allItems, findLeafOfItem, type Layout, type LayoutLeaf } from "./layout";
@@ -130,6 +130,29 @@ describe("group set edits", () => {
     expect(setActiveGroup(gs, ULID(99))).toBe(gs);
     expect(setActiveGroup(gs, ULID(1))).toBe(gs);
     expect(setActiveGroup(gs, ULID(2)).activeGroupId).toBe(ULID(2));
+  });
+  it("moveGroup reorders the strip and leaves which group you are looking at alone", () => {
+    const gs = { groups: [group(1, leaf("A")), group(2, leaf("B")), group(3, leaf("C"))], activeGroupId: ULID(1) };
+    const moved = moveGroup(gs, ULID(1), 2);
+    expect(moved.groups.map((g) => g.id)).toEqual([ULID(2), ULID(3), ULID(1)]);
+    // A reorder says where a group SITS, never which one is on screen.
+    expect(moved.activeGroupId).toBe(ULID(1));
+  });
+  it("moveGroup takes the index the group ends AT, so a drag right does not land one short", () => {
+    // THE reorder bug: treating the target as an insertion point in the array as it stands. Removing
+    // the moved group first shifts everything after it down one, so 0 → 1 must end up at 1, not 0.
+    const gs = { groups: [group(1, leaf("A")), group(2, leaf("B")), group(3, leaf("C"))], activeGroupId: ULID(1) };
+    expect(moveGroup(gs, ULID(1), 1).groups.map((g) => g.id)).toEqual([ULID(2), ULID(1), ULID(3)]);
+    expect(moveGroup(gs, ULID(3), 0).groups.map((g) => g.id)).toEqual([ULID(3), ULID(1), ULID(2)]);
+  });
+  it("moveGroup clamps past either end and is a no-op where nothing moves", () => {
+    const gs = two();
+    // Dropping past the last tab means "the end" — a thing the pointer can say, not an error.
+    expect(moveGroup(gs, ULID(1), 99).groups.map((g) => g.id)).toEqual([ULID(2), ULID(1)]);
+    expect(moveGroup(gs, ULID(2), -5).groups.map((g) => g.id)).toEqual([ULID(2), ULID(1)]);
+    // Same object back when it would not move: a tab dropped where it already was is not a write.
+    expect(moveGroup(gs, ULID(1), 0)).toBe(gs);
+    expect(moveGroup(gs, ULID(99), 1)).toBe(gs);
   });
   it("groupAtOffset clamps at the ends rather than wrapping", () => {
     const gs = two();

@@ -208,6 +208,31 @@ export function renameGroup(gs: SpaceGroups, groupId: string, name: string): Spa
   return mapGroup(gs, groupId, (g) => (g.name === trimmed ? g : { ...g, name: trimmed }));
 }
 
+/**
+ * Move a group to a new position in the strip. The tabs are the space's own ordering of its
+ * arrangements, and ⌘⇧[ / ⌘⇧] step along it, so the order is a thing the user should be able to set.
+ *
+ * `to` is the index the group ends at AFTER the move, so dropping onto a later tab lands past it
+ * rather than one short of it — the difference the caller cannot fix afterwards, because by then the
+ * dragged tab has already left its slot and shifted every index behind it. Clamped rather than
+ * refused: a drop past the last tab means "the end", which is a thing a user can express with the
+ * pointer and should not be an error.
+ *
+ * Returns the same object when nothing moves, so a tab dropped where it already was is not a write —
+ * the same rule `mapGroup` follows, and the reason `activeGroupId` never has to be touched here: a
+ * reorder changes where a group sits, never which one you are looking at.
+ */
+export function moveGroup(gs: SpaceGroups, groupId: string, to: number): SpaceGroups {
+  const at = gs.groups.findIndex((g) => g.id === groupId);
+  if (at === -1) return gs;
+  const target = Math.max(0, Math.min(gs.groups.length - 1, Math.trunc(to)));
+  if (target === at) return gs;
+  const groups = [...gs.groups];
+  const [moved] = groups.splice(at, 1);
+  groups.splice(target, 0, moved!);
+  return { ...gs, groups };
+}
+
 /** Switch which group is on screen. Unknown ids (a group deleted elsewhere) are a no-op. */
 export function setActiveGroup(gs: SpaceGroups, groupId: string): SpaceGroups {
   if (gs.activeGroupId === groupId || !gs.groups.some((g) => g.id === groupId)) return gs;

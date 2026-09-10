@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
+import { render, screen, fireEvent, createEvent, waitFor, act, within } from "@testing-library/react";
 import { allItems, findLeafOfItem } from "@realm/contracts";
 import { Main } from "../App";
 import { Sidebar } from "./sidebar/Sidebar";
@@ -304,6 +304,108 @@ describe("sidebar group sections", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: "Read" }));
     await waitFor(() => expect(allItems(store.getState().groups!.groups[1]!.layout)).toEqual(["i2"]));
     expect(allItems(store.getState().groups!.groups[0]!.layout)).toEqual(["i1"]);
+  });
+});
+
+describe("reordering the tab strip", () => {
+  /** A drag payload that behaves like the real one: keyed, and reporting its own types. */
+  const transfer = (type: string, value: string) => {
+    const store = new Map([[type, value]]);
+    return { types: [...store.keys()], getData: (k: string) => store.get(k) ?? "", setData: (k: string, v: string) => { store.set(k, v); }, effectAllowed: "", dropEffect: "" };
+  };
+  /** jsdom lays nothing out, so which HALF of a tab the pointer is over has to be stated. */
+  const withRect = (el: HTMLElement, left: number, width: number) => {
+    el.getBoundingClientRect = () => ({ left, width, right: left + width, top: 0, bottom: 24, height: 24, x: left, y: 0, toJSON: () => ({}) }) as DOMRect;
+  };
+  /** jsdom's DragEvent drops the mouse coordinates, so `fireEvent.dragOver(el, { clientX })` arrives
+   *  with `clientX: undefined` and every comparison against the tab's midpoint reads false — both
+   *  halves would test the same branch. Building the event and defining the property is what makes
+   *  the near/far distinction actually exercisable. */
+  const dragAt = (kind: "dragOver" | "drop", el: HTMLElement, dataTransfer: unknown, clientX: number) => {
+    const ev = createEvent[kind](el, { dataTransfer } as never);
+    Object.defineProperty(ev, "clientX", { value: clientX });
+    fireEvent(el, ev);
+  };
+  /** Three tabs: Main, Read, Notes. */
+  const three = async () => {
+    const { store } = await mount();
+    await twoPanes(store);
+    await act(async () => { await store.getState().newPaneGroup("Read"); });
+    await act(async () => { await store.getState().newPaneGroup("Notes"); });
+    return store;
+  };
+  const names = (store: ReturnType<typeof createAppStore>) => store.getState().groups!.groups.map((g) => g.name);
+
+  it("drops a tab onto the far half of another and lands PAST it, not one short", async () => {
+    // The classic reorder bug: the gap under the pointer is an index in the strip as it stands, and
+    // the dragged tab has not left its slot yet. Dragging Main onto the right half of Read must end
+    // Main after Read.
+    const store = await three();
+    const tabs = await screen.findAllByRole("tab");
+    const dt = transfer("application/x-realm-group", store.getState().groups!.groups[0]!.id);
+    fireEvent.dragStart(tabs[0]!, { dataTransfer: dt });
+    // Right half of the middle tab. jsdom gives every element a zero rect, so `clientX` past 0 is
+    // the far half — which is exactly the branch under test.
+    withRect(tabs[1]!, 100, 60);
+    dragAt("dragOver", tabs[1]!, dt, 145); // far half
+    dragAt("drop", tabs[1]!, dt, 145);
+    await waitFor(() => expect(names(store)).toEqual(["Read", "Main", "Notes"]));
+  });
+
+  it("drops onto the near half and lands before it", async () => {
+    const store = await three();
+    const tabs = await screen.findAllByRole("tab");
+    const dt = transfer("application/x-realm-group", store.getState().groups!.groups[2]!.id);
+    fireEvent.dragStart(tabs[2]!, { dataTransfer: dt });
+    withRect(tabs[1]!, 100, 60);
+    dragAt("dragOver", tabs[1]!, dt, 115); // near half
+    dragAt("drop", tabs[1]!, dt, 115);
+    await waitFor(() => expect(names(store)).toEqual(["Main", "Notes", "Read"]));
+  });
+
+  it("keeps which arrangement is on screen — a reorder is not a switch", async () => {
+    const store = await three();
+    const active = store.getState().groups!.activeGroupId;
+    const tabs = await screen.findAllByRole("tab");
+    const dt = transfer("application/x-realm-group", store.getState().groups!.groups[0]!.id);
+    fireEvent.dragStart(tabs[0]!, { dataTransfer: dt });
+    withRect(tabs[2]!, 200, 60);
+    dragAt("dragOver", tabs[2]!, dt, 245);
+    dragAt("drop", tabs[2]!, dt, 245);
+    await waitFor(() => expect(names(store)).toEqual(["Read", "Notes", "Main"]));
+    expect(store.getState().groups!.activeGroupId).toBe(active);
+  });
+
+  it("still moves a PANE when a sidebar row is the thing being dragged", async () => {
+    // The two gestures share these tabs. A tab drop must not swallow the pane drop, and the payload
+    // is what tells them apart — the mutant is keying off "a drag is in flight" instead.
+    const store = await three();
+    const tabs = await screen.findAllByRole("tab");
+    const before = names(store);
+    const dt = transfer("application/x-realm-item", "i1");
+    fireEvent.dragOver(tabs[1]!, { dataTransfer: dt });
+    fireEvent.drop(tabs[1]!, { dataTransfer: dt });
+    await waitFor(() => expect(allItems(store.getState().groups!.groups[1]!.layout)).toEqual(["i1"]));
+    expect(names(store)).toEqual(before); // and the strip did not reorder
+  });
+
+  it("moves a tab from the keyboard, so the gesture is not pointer-only", async () => {
+    const store = await three();
+    const tabs = await screen.findAllByRole("tab");
+    fireEvent.keyDown(tabs[0]!, { key: "ArrowRight", altKey: true });
+    await waitFor(() => expect(names(store)).toEqual(["Read", "Main", "Notes"]));
+    const moved = (await screen.findAllByRole("tab"))[1]!;
+    fireEvent.keyDown(moved, { key: "ArrowLeft", altKey: true });
+    await waitFor(() => expect(names(store)).toEqual(["Main", "Read", "Notes"]));
+  });
+
+  it("leaves the arrow keys alone without the modifier", async () => {
+    // ← / → belong to the tablist's own roving focus; only ⌥ makes them a move.
+    const store = await three();
+    const tabs = await screen.findAllByRole("tab");
+    fireEvent.keyDown(tabs[0]!, { key: "ArrowRight" });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(names(store)).toEqual(["Main", "Read", "Notes"]);
   });
 });
 
