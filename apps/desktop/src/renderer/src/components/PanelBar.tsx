@@ -1,7 +1,7 @@
 import { Icon } from "@realm/ui";
 import { useRef, useState } from "react";
 import { PAGE_REF_IDS, type Item } from "@realm/contracts";
-import { paneActions, paneMeta } from "../panes/registry";
+import { paneActions, paneMeta, usePaneMenuItems } from "../panes/registry";
 import { useApp } from "../state/store";
 import { Menu } from "./Menu";
 import { RenameInput } from "./RenameInput";
@@ -59,6 +59,7 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
   // Two-step destructive confirm (U-H2), same pattern as the sidebar's item menu.
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const menuBtn = useRef<HTMLButtonElement>(null);
+  const kindItems = usePaneMenuItems(item);
   const Meta = paneMeta[item.kind];
   const Actions = paneActions[item.kind];
   const isBrowser = item.kind === "browser";
@@ -152,6 +153,9 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
       {!isBrowser && menuOpen && (
         <Menu anchorRef={menuBtn} align="right" label={`Actions for ${item.title}`} onClose={closeMenu} items={[
           { label: "Rename", onSelect: () => setRenaming(true) },
+          /* The pane kind's own rows, above the layout ones every pane shares — a machine's Send key
+             and Clipboard belong with the thing they act on rather than under Split right. */
+          ...kindItems,
           { kind: "separator" },
           { label: "Split right", kbd: "⌘\\", onSelect: () => onSplit("row") },
           { label: "Split down", kbd: "⌘⇧\\", onSelect: () => onSplit("col") },

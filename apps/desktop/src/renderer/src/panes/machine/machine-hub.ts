@@ -93,6 +93,9 @@ export class MachineHub {
   }
 
   has(machineId: string): boolean { return this.entries.has(machineId); }
+  /** The live connection, for the pane bar's Send key and Clipboard rows — the two things that have
+   *  to reach `RFB` itself rather than going through the server's own channel. */
+  entry(machineId: string): MachineEntry | null { return this.entries.get(machineId) ?? null; }
   isConnected(machineId: string): boolean { return this.connected.has(machineId); }
 
   /** Fires once, when this machine's connection reports a screen. Never fires if it already has —
@@ -185,6 +188,11 @@ export function getMachineHub(): MachineHub {
 /** Test seam: substitute a fake-backed hub (pass null to reset). No test loads noVNC — it wants a
  *  real canvas, a real WebSocket and a real decoder, none of which says anything about attach. */
 export function setMachineHubForTests(hub: MachineHub | null): void { singleton = hub; }
+
+/** Has a hub been built yet? Asked by the pane bar's menu, which runs for EVERY pane and must not
+ *  construct one — the hub is built over the RPC client, and a renderer with no server (a test) has
+ *  none to give it. */
+export function machineHubInstalled(): boolean { return singleton !== null; }
 
 /**
  * noVNC's constructor, once it has been fetched.

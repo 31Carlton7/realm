@@ -1,7 +1,11 @@
 import type { Item } from "@realm/contracts";
+import { PLATFORM_CHORDS } from "@realm/contracts";
+import type { MenuItem } from "../../components/Menu";
 import { Icon } from "@realm/ui";
 import { useApp } from "../../state/store";
 import { rpc } from "../../rpc/client";
+import { parseChord } from "@realm/contracts";
+import { getMachineHub, machineHubInstalled } from "./machine-hub";
 import { MACHINE_WORDS, machineMeta } from "./MachinePane";
 
 /**
@@ -87,4 +91,83 @@ export function MachinePanelActions({ item }: { item: Item }) {
       <Icon name="plug" size={14} />
     </button>
   </>);
+}
+
+/**
+ * The machine pane's own rows in the ⋯ menu (Plan 25 W7).
+ *
+ * Three groups, and each exists because of something the platform or the protocol will not do:
+ *
+ *   - **Send key ▸.** ⌘Q, ⌘Tab and ⌘Space are menu accelerators and window-server chords, and a menu
+ *     accelerator fires in MAIN before the renderer sees a keydown — `hotkeys.ts` writes that down
+ *     for ⌘W. So no amount of grabbing the keyboard can deliver them, and the pane must not pretend
+ *     otherwise. Sending them deliberately is what every remote-desktop client does.
+ *   - **Clipboard ▸, two explicit actions and no automatic sync.** RFB's clipboard is latin-1
+ *     historically and extended only where both ends speak the pseudo-encoding, so it cannot pretend
+ *     to be transparent. And automatic Mac→guest sync would silently push whatever is on the user's
+ *     clipboard into a machine that may be running anything — send-then-⌘V is the two-step every
+ *     client uses, and it is a two-step on purpose.
+ *   - **Scale.** Fit is the default because a remote screen is a thing you want all of; Actual size
+ *     is the only mode where `image-rendering: pixelated` is honest, and the bar says which.
+ */
+export function useMachineMenuItems(item: Item): MenuItem[] {
+  /* A HOOK, and called unconditionally by `usePaneMenuItems` for every pane kind — see the note
+     there. Reading the store any other way from a plain function would either re-render every pane
+     bar on any state change, or read a snapshot that goes stale the moment the menu is open. */
+  const scale = useApp((s) => s.machineScale[item.refId]) ?? "fit";
+  const setScale = useApp((s) => s.setMachineScale);
+  /* The hub is reached LAZILY, inside the handlers, and never while building the menu. It is a
+     module singleton built over the RPC client, and constructing one during every pane bar's render
+     would build it in panes that have no machine in them — including in a renderer that has no
+     server to talk to at all, which is what a test is. */
+  const connected = machineHubInstalled() && getMachineHub().isConnected(item.refId);
+  const send = (chord: string) => {
+    const entry = getMachineHub().entry(item.refId);
+    if (!entry) return;
+    const parsed = parseChord(chord);
+    if (!parsed) return;
+    // Down in order, key, up in reverse — a guest that received them any other way sees a chord it
+    // was never sent. noVNC's `sendKey` takes a keysym and a `down` flag, which is the same shape.
+    for (const m of parsed.modifiers) entry.rfb.sendKey(m, null, true);
+    entry.rfb.sendKey(parsed.key, null, true);
+    entry.rfb.sendKey(parsed.key, null, false);
+    for (const m of [...parsed.modifiers].reverse()) entry.rfb.sendKey(m, null, false);
+  };
+  const paste = async () => {
+    const entry = getMachineHub().entry(item.refId);
+    if (!entry) return;
+    /* Through main rather than `navigator.clipboard`, which needs a user-gesture heuristic the
+       renderer cannot reliably satisfy from inside a menu selection. A menu click IS a gesture, but
+       whether Chromium counts one that has already closed a popover is not something to depend on. */
+    const text = await window.realm?.clipboard?.readText?.().catch(() => "") ?? "";
+    if (text) entry.rfb.clipboardPasteFrom(text);
+  };
+  return [
+    {
+      label: "Send key",
+      disabled: !connected,
+      // A submenu would be a second surface for six rows; the chords are named inline instead, which
+      // is also how they read in every other client's menu.
+      onSelect: () => { /* the parent row is a heading — the chords below are the actions */ },
+      keepOpen: true,
+    },
+    ...PLATFORM_CHORDS.map((c) => ({
+      label: `   ${c.label}`,
+      disabled: !connected,
+      onSelect: () => send(c.chord),
+    })),
+    { kind: "separator" as const },
+    /* Fit is the default because a remote screen is a thing you want all of. Actual size is the only
+       mode where `image-rendering: pixelated` is honest — everywhere else there is real resampling,
+       and claiming sharpness over it looks worse than the resampling it disowns. */
+    { label: "Scale to fit", checked: scale === "fit", onSelect: () => setScale(item.refId, "fit") },
+    { label: "Actual size", checked: scale === "actual", onSelect: () => setScale(item.refId, "actual") },
+    { kind: "separator" as const },
+    {
+      label: "Paste into this machine",
+      disabled: !connected,
+      title: "Sends your clipboard, then press ⌘V in the guest. RFB's clipboard is not transparent, so this is deliberate rather than automatic.",
+      onSelect: () => { void paste(); },
+    },
+  ];
 }

@@ -69,7 +69,9 @@ export function MachinePane({ item }: PaneProps) {
       {body === "downloading" && progress && <DownloadBody machineId={refId} progress={progress} />}
       {body === "off" && machine && <OffBody machine={machine} />}
       {body === "failed" && <FailedBody state={state} machineId={refId} onEdit={() => setMachine((m) => (m ? { ...m, endpoint: null } : m))} />}
-      {(body === "booting" || body === "running") && <Screen machineId={refId} state={state} />}
+      {(body === "booting" || body === "running") && (machine?.source === "mac"
+        ? <PolledScreen machineId={refId} bundleId={machine.endpoint?.host ?? ""} />
+        : <Screen machineId={refId} state={state} />)}
     </div>
   );
 }
@@ -100,6 +102,21 @@ function ConnectFlow({ machineId, machine, onSaved }: { machineId: string; machi
   const [caps, setCaps] = useState<Capabilities | null>(null);
   useEffect(() => { void rpc().call("machines.capabilities", {}).then(setCaps).catch(() => setCaps(null)); }, []);
   const [image, setImage] = useState<string>("");
+  /**
+   * Apps on this Mac, for the "This Mac's screen" route — and the hall-of-mirrors gate.
+   *
+   * Mirroring the ONLY display into a pane on that display is a hall of mirrors: the pane shows the
+   * pane showing the pane. So this route offers a single WINDOW of a named app, never the desktop,
+   * which is honest at any number of displays — and the list is `computerListApps`'s own, which
+   * already excludes Realm itself, System Settings, password prompts and terminals.
+   *
+   * Empty means computer use has not been granted, and the route is left out rather than shown
+   * empty: an empty picker is a control whose only outcome is a refusal.
+   */
+  const [apps, setApps] = useState<{ bundleId: string; name: string }[] | null>(null);
+  useEffect(() => {
+    void rpc().call("machines.apps", {}).then((r) => setApps(r.apps)).catch(() => setApps([]));
+  }, []);
   const [name, setName] = useState(machine?.name && machine.name !== "New machine" ? machine.name : "");
   const [address, setAddress] = useState("");
   const [password, setPassword] = useState("");
@@ -164,6 +181,25 @@ function ConnectFlow({ machineId, machine, onSaved }: { machineId: string; machi
    * already exist — and the pane's body becomes the download's own. The user can close it, switch
    * spaces and come back, because the download is the server's.
    */
+  const submitApp = async () => {
+    const app = apps?.find((a) => a.bundleId === address);
+    if (!app) { setNote("Choose an app."); return; }
+    setBusy(true);
+    setNote(null);
+    try {
+      // The bundle id goes in the endpoint's `host`, which is the same grant key
+      // `computer.allowedApps` uses — so machine control and computer use cannot disagree about
+      // what TextEdit is.
+      await rpc().call("machines.update", { machineId, name: name.trim() || app.name, endpoint: { transport: "tcp", host: app.bundleId, port: 1, path: "/" } });
+      onSaved();
+      await rpc().call("machines.start", { machineId });
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "That did not work.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const submitGuest = async (e: React.FormEvent) => {
     e.preventDefault();
     const entry = caps?.catalog.find((c) => c.id === image);
@@ -181,13 +217,43 @@ function ConnectFlow({ machineId, machine, onSaved }: { machineId: string; machi
     }
   };
 
+  if (route === "thisMac") {
+    return (
+      <div className="machine-body">
+        <form className="machine-connect" onSubmit={(e) => { e.preventDefault(); void submitApp(); }}>
+          <h2 className="machine-title">An app on this Mac</h2>
+          <div className="machine-routes" role="radiogroup" aria-label="What are you connecting to?">
+            {ROUTES.filter((r) => visible(r.id, caps, apps)).map((r) => (
+              <button key={r.id} type="button" role="radio" aria-checked={route === r.id}
+                data-on={route === r.id || undefined} onClick={() => { setRoute(r.id); setNote(null); }}>{r.label}</button>
+            ))}
+          </div>
+          {/* A window, never the desktop: mirroring the only display into a pane on that display is
+              a hall of mirrors, and a single window is honest at any number of displays. */}
+          <p className="machine-hint">Shows one app's windows, updated a few times a second. Realm, System Settings, password prompts and terminals are never listed and can never be driven.</p>
+          <div className="machine-guests">
+            {(apps ?? []).map((a) => (
+              <button key={a.bundleId} type="button" className="machine-guest" data-on={address === a.bundleId || undefined}
+                aria-pressed={address === a.bundleId} onClick={() => setAddress(a.bundleId)}>
+                <span className="machine-guest-name">{a.name}</span>
+                <span className="machine-guest-size">{a.bundleId}</span>
+              </button>
+            ))}
+          </div>
+          {note && <p className="machine-note" role="status">{note}</p>}
+          <button type="submit" className="machine-primary" disabled={busy || !address}>{busy ? "Opening…" : "Show it"}</button>
+        </form>
+      </div>
+    );
+  }
+
   if (route === "vm") {
     return (
       <div className="machine-body">
         <form className="machine-connect" onSubmit={submitGuest}>
           <h2 className="machine-title">A Linux VM on this Mac</h2>
           <div className="machine-routes" role="radiogroup" aria-label="What are you connecting to?">
-            {ROUTES.filter((r) => r.id !== "vm" || caps?.qemu.available).map((r) => (
+            {ROUTES.filter((r) => visible(r.id, caps, apps)).map((r) => (
               <button key={r.id} type="button" role="radio" aria-checked={route === r.id}
                 data-on={route === r.id || undefined} onClick={() => { setRoute(r.id); setNote(null); }}>{r.label}</button>
             ))}
@@ -231,7 +297,7 @@ function ConnectFlow({ machineId, machine, onSaved }: { machineId: string; machi
             row rather than being buried under VNC, because that is how someone thinks about the
             laptop on the other desk — while the transport underneath is the ordinary `vnc` source. */}
         <div className="machine-routes" role="radiogroup" aria-label="What are you connecting to?">
-          {ROUTES.filter((r) => r.id !== "vm" || caps?.qemu.available).map((r) => (
+          {ROUTES.filter((r) => visible(r.id, caps, apps)).map((r) => (
             <button key={r.id} type="button" role="radio" aria-checked={route === r.id}
               data-on={route === r.id || undefined} onClick={() => { setRoute(r.id); setNote(null); }}>
               {r.label}
@@ -289,16 +355,33 @@ function ConnectFlow({ machineId, machine, onSaved }: { machineId: string; machi
  * their tooling printed, a host and port — and every provider reduces to one of them. E2B gets its
  * own row only because a sandbox id is not an address and cannot be recognised as one.
  */
-type Route = "mac" | "e2b" | "sandbox" | "address" | "vm";
+type Route = "mac" | "e2b" | "sandbox" | "address" | "vm" | "thisMac";
 
 const ROUTES: readonly { id: Route; label: string }[] = [
   { id: "mac", label: "Another Mac" },
   { id: "e2b", label: "E2B Desktop" },
   { id: "sandbox", label: "A sandbox URL" },
   { id: "address", label: "Host and port" },
-  // Last, and only where QEMU exists at all — see `caps` above.
+  // Last, and each only where it is honest — see `visible`.
   { id: "vm", label: "A Linux VM here" },
+  { id: "thisMac", label: "An app on this Mac" },
 ];
+
+/**
+ * Which routes are offered at all.
+ *
+ * design.md: "Where the owner has said nothing, show nothing — not a disabled control, which invites
+ * a user to work out how to enable something nobody has claimed." So a route whose precondition is
+ * unmet is ABSENT rather than greyed:
+ *
+ *   - the local VM needs QEMU installed;
+ *   - this Mac's own screen needs computer use granted, which is what an empty app list means.
+ */
+function visible(id: Route, caps: Capabilities | null, apps: { bundleId: string }[] | null): boolean {
+  if (id === "vm") return caps?.qemu.available === true;
+  if (id === "thisMac") return (apps?.length ?? 0) > 0;
+  return true;
+}
 
 /** `machines.capabilities`, as the pane reads it. */
 type Capabilities = {
@@ -308,11 +391,11 @@ type Capabilities = {
 };
 
 const ROUTE_PROVIDER: Record<Route, SandboxProvider> = {
-  mac: "screen-sharing", e2b: "e2b", sandbox: "generic", address: "generic", vm: "generic",
+  mac: "screen-sharing", e2b: "e2b", sandbox: "generic", address: "generic", vm: "generic", thisMac: "generic",
 };
 
 const ROUTE_FIELD: Record<Route, string> = {
-  mac: "Address", e2b: "Sandbox ID", sandbox: "URL", address: "Host and port", vm: "Image",
+  mac: "Address", e2b: "Sandbox ID", sandbox: "URL", address: "Host and port", vm: "Image", thisMac: "App",
 };
 
 const ROUTE_PLACEHOLDER: Record<Route, string> = {
@@ -323,6 +406,7 @@ const ROUTE_PLACEHOLDER: Record<Route, string> = {
   sandbox: "https://…vercel.run  ·  wss://…  ·  xyz.modal.host:44421",
   address: "10.0.1.14:5900",
   vm: "",
+  thisMac: "",
 };
 
 /**
@@ -423,7 +507,9 @@ function Screen({ machineId, state }: { machineId: string; state: MachineState }
   const grabbed = useApp((s) => s.machineGrab[machineId] === true);
   const [box, setBox] = useState({ width: 0, height: 0 });
   const [dpr, setDpr] = useState(() => window.devicePixelRatio || 1);
-  const [mode] = useState<FitMode>("fit");
+  // From the store rather than local state: the ⋯ menu sets it, and a mode the pane owned would
+  // be one the menu could not reach.
+  const mode = useApp((s) => s.machineScale[machineId]) ?? ("fit" as FitMode);
   const [ready, setReady] = useState(() => (state.wsUrl ? getMachineHub().isConnected(machineId) : false));
 
   // The hub owns the connection; this only moves its host element in and out of the DOM. Detach does
@@ -509,6 +595,60 @@ function Screen({ machineId, state }: { machineId: string; state: MachineState }
     </div>
   );
 }
+
+/**
+ * This Mac's own screen, polled (Plan 25 W7).
+ *
+ * Deliberately NOT a stream. 30fps of base64 JPEG through the JSON-RPC socket would put megabytes a
+ * second alongside session events, and the real cost of a stream is not the capture code — it is an
+ * `SCStream` with an output delegate on its own queue, a `didStopWithError` path for display
+ * reconfiguration and mid-stream permission revocation, filter re-creation whenever the app's window
+ * set changes, and a long-lived helper process with a lifecycle in main. A poll at this rate is
+ * honest for "watch an agent drive TextEdit", and needs none of it.
+ *
+ * Paused while the pane is not visible: a hidden pane polling a screenshot every 700ms is battery
+ * spent on an image nobody is looking at.
+ */
+function PolledScreen({ machineId, bundleId }: { machineId: string; bundleId: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tick = async () => {
+      if (!live) return;
+      try {
+        const shot = await rpc().call("machines.capture", { machineId });
+        if (!live) return;
+        if (shot.data) { setSrc(`data:${shot.mimeType};base64,${shot.data}`); setError(null); }
+      } catch (e) {
+        if (live) setError(e instanceof Error ? e.message : "macOS would not hand over an image.");
+      }
+      // Scheduled AFTER the previous frame settles rather than on an interval: a capture slower than
+      // the period would otherwise queue up behind itself forever.
+      if (live) timer = setTimeout(() => void tick(), POLL_MS);
+    };
+    void tick();
+    return () => { live = false; if (timer) clearTimeout(timer); };
+  }, [machineId, bundleId]);
+
+  return (
+    <div className="machine-screen" data-scale="fit">
+      {src
+        ? <img className="machine-poll" src={src} alt={`The screen of ${bundleId}`} />
+        : (
+          <div className="machine-starting" role="status">
+            {!error && <span className="spinner" aria-hidden="true" />}
+            <span>{error ?? "Capturing…"}</span>
+          </div>
+        )}
+    </div>
+  );
+}
+
+/** 1.4 frames a second. Fast enough to watch a click land, slow enough that the JSON-RPC socket
+ *  carrying it is also carrying a session's events without either noticing. */
+const POLL_MS = 700;
 
 /** The pane bar's subtitle: the guest's live resolution in mono, and the scale as a percentage only
  *  when there is resampling to declare — a "100%" on every pane is a number nobody reads. */

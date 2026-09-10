@@ -108,6 +108,7 @@ interface Window {
       setPresenceTtl(ms: number): Promise<number>;
     };
     /** Browser pane (Plan 11 W1): drives the native WebContentsView main owns for a browser item. */
+    clipboard: { readText(): Promise<string> };
     browser: {
       create(id: string, url: string, allowlist: string[] | null): Promise<void>;
       destroy(id: string): Promise<void>;

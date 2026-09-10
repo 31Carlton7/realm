@@ -507,6 +507,14 @@ export const Methods = {
    *  `machineImage.progress` events instead. */
   "machines.images.download": { params: z.object({ machineId: IdSchema, catalogId: z.string().min(1).max(64) }), result: z.object({ ok: z.literal(true) }) },
   "machines.images.cancel": { params: z.object({ machineId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** One frame of a `mac` machine's app, for the pane's poll (Plan 25 W7). Base64 rather than a
+   *  URL because it is one image with no second request worth making, and because there is no
+   *  origin to serve it from that would not be a second listener. */
+  "machines.capture": { params: z.object({ machineId: IdSchema }), result: z.object({ data: z.string().nullable(), mimeType: z.string(), width: z.number(), height: z.number() }) },
+  /** Apps on this Mac that a `mac` machine could show. `computerListApps`'s own list, which already
+   *  excludes Realm, System Settings, password prompts and terminals — an empty answer means
+   *  computer use is not granted, and the route is left out rather than shown empty. */
+  "machines.apps": { params: z.object({}), result: z.object({ apps: z.array(z.object({ bundleId: z.string(), name: z.string() })) }) },
   "machines.images.remove": { params: z.object({ sha256: z.string().length(64), kind: z.enum(["qcow2", "iso"]) }), result: z.object({ ok: z.literal(true) }) },
   "machines.list": { params: z.object({ spaceId: IdSchema }), result: z.object({ machines: z.array(MachineSchema), states: z.array(MachineStateSchema) }) },
   "machines.get": { params: z.object({ machineId: IdSchema }), result: z.object({ machine: MachineSchema, state: MachineStateSchema }) },

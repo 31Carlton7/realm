@@ -539,6 +539,20 @@ export function registerMethods(d: Deps): void {
     return { ok: true as const };
   });
   reg("machines.images.cancel", (p) => { d.machines.cancelImage(p.machineId); return { ok: true as const }; });
+  reg("machines.apps", async () => {
+    try {
+      const r = (await d.browserBridge.call("computerListApps", {})) as { apps?: { bundleId: string; name: string }[]; accessibility?: boolean };
+      // An ungranted Mac answers `accessibility: false`, and the honest shape of that is an empty
+      // list: the route disappears rather than offering a picker whose every choice would refuse.
+      return { apps: r.accessibility === false ? [] : (r.apps ?? []).map((a) => ({ bundleId: a.bundleId, name: a.name })) };
+    } catch { return { apps: [] }; }
+  });
+  reg("machines.capture", async (p) => {
+    const driver = await d.machines.driverFor(p.machineId);
+    if (!driver) throw new RpcError("NOT_FOUND", "that machine has nothing to capture");
+    const frame = await driver.screenshot();
+    return { data: frame.data.toString("base64"), mimeType: "image/jpeg", width: frame.width, height: frame.height };
+  });
   reg("machines.images.remove", async (p) => { await d.machines.images().remove(p.sha256, p.kind); return { ok: true as const }; });
 
   // The document workspace (Plan 17 W1). Unlike the browser methods above, these carry file CONTENT:

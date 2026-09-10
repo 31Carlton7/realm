@@ -688,6 +688,10 @@ export type AppState = {
   /** An image being fetched for a machine (Plan 25 W5), keyed by machine id. Absent means there is
    *  none — which is every machine most of the time, and is why this is a map rather than a field. */
   machineImageProgress: Record<string, MachineImageProgress>;
+  /** How each machine's screen is sized (Plan 25 W7). Absent is `fit`, which is the default and the
+   *  answer for every machine nobody has changed it for. Renderer state: a scale is about the pane
+   *  in front of you, not about the machine. */
+  machineScale: Record<string, "fit" | "actual">;
   /** W2.4: the pre-snap layout while a sheet forced the browser leaf to a ≤50% split. Non-null
    *  exactly while a snap is active; the layout to restore when the sheet actually closes. */
   sheetSnap: { saved: Layout; spaceId: string | null } | null;
@@ -1102,6 +1106,7 @@ export type AppState = {
   applyMachineState(s: MachineState): void;
   setMachineGrab(machineId: string, on: boolean): void;
   applyMachineImageProgress(p: MachineImageProgress): void;
+  setMachineScale(machineId: string, mode: "fit" | "actual"): void;
   refreshSessions(): Promise<void>;
   /** Seed sessionSpace + statuses for every space (boot, reconnect, unknown-session broadcasts). */
   refreshAllSessions(): Promise<void>;
@@ -2098,7 +2103,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, submitKey: "enter", sidebarCollapsed: false, items: [], groups: null, layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
-      paletteOpen: false, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, machineState: {}, machineGrab: {}, machineImageProgress: {},
+      paletteOpen: false, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, machineState: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
       spacePageTab: {}, profilePageTab: {}, mcpPanelSpaceId: null,
       sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
@@ -2564,7 +2569,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           const { [it.refId]: _ms, ...machineState } = get().machineState;
           const { [it.refId]: _mg, ...machineGrab } = get().machineGrab;
           const { [it.refId]: _mp, ...machineImageProgress } = get().machineImageProgress;
-          set({ machineState, machineGrab, machineImageProgress });
+          const { [it.refId]: _ms2, ...machineScale } = get().machineScale;
+          set({ machineState, machineGrab, machineImageProgress, machineScale });
           getMachineHub().dispose(it.refId);
         }
         if (it?.kind === "session") {
@@ -2770,6 +2776,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           return;
         }
         set({ machineImageProgress: { ...get().machineImageProgress, [next.machineId]: next } });
+      },
+      setMachineScale(machineId, mode) {
+        if (mode === "fit") {
+          const { [machineId]: _s, ...rest } = get().machineScale;
+          set({ machineScale: rest });
+          return;
+        }
+        set({ machineScale: { ...get().machineScale, [machineId]: mode } });
       },
       setMachineGrab(machineId, on) {
         const cur = get().machineGrab;

@@ -154,6 +154,18 @@ contextBridge.exposeInMainWorld("realm", {
     /** Resolves the value main actually stored — clamped, so a stale renderer learns the truth. */
     setPresenceTtl: (ms: number): Promise<number> => ipcRenderer.invoke("credentials:set-presence-ttl", ms),
   },
+  /**
+   * The system clipboard, read only, for the machine pane's Paste row (Plan 25 W7).
+   *
+   * Through main rather than `navigator.clipboard.readText`, which is gated on a user-gesture
+   * heuristic the renderer cannot reliably satisfy from inside a menu selection — a menu click is a
+   * gesture, but whether Chromium still counts one whose popover has already closed is not a thing
+   * to depend on. There is deliberately no WRITE: nothing here needs to put anything on the user's
+   * clipboard, and a renderer that could would be one mistake away from doing it silently.
+   */
+  clipboard: {
+    readText: (): Promise<string> => ipcRenderer.invoke("clipboard:read-text"),
+  },
   /** Browser pane (Plan 11 W1): drives the native WebContentsView the main process owns for a
    *  browser item. `setBounds` is per-frame and fire-and-forget; the rest are invokes. */
   browser: {

@@ -380,6 +380,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const machines: MachineService = new MachineService({
     db, rpc, spaces, items, machines: machinesStore, proxy: machineProxy,
     machinesDir, images: machineImages, qemu: qemuManager,
+    // Late-bound like the proxy above it: `browserBridge` is built further down, and a `mac`
+    // machine's driver is only ever reached long after everything here has been constructed.
+    bridge: { call: (op, params) => browserBridge.call(op, params) },
   });
   // Guest shapes survive a restart through `settings`, keyed by machine id — Realm's own
   // configuration rather than a secret or an address, so it needs no column and no migration.

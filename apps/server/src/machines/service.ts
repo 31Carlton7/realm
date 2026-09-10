@@ -1,4 +1,5 @@
 import { newId, type GuestSpec, type Machine, type MachineSource, type MachineState, type VncEndpoint } from "@realm/contracts";
+import type { BrowserHostBridge } from "../browsers/host-bridge";
 import { join } from "node:path";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -9,6 +10,7 @@ import { NotFoundError, RpcError } from "../store/rows";
 import { machineSecretBox } from "./secret";
 import { RfbDriver } from "./rfb-driver";
 import { QmpDriver } from "./qmp-driver";
+import { BridgeDriver } from "./bridge-driver";
 import { QemuManager } from "./qemu-manager";
 import { accelFor, locateQemu, type QemuCapabilities } from "./qemu-locator";
 import { diskPath, portForDisplay, type QemuArch } from "./qemu-argv";
@@ -35,14 +37,25 @@ export type MachineServiceDeps = {
   machinesDir: string;
   images: ImageStore;
   qemu: QemuManager;
+  /** The browser-host bridge, for the `mac` source alone — its capture and its acts both go
+   *  through Electron main, where the Swift helper and the TCC grants belong to `Realm.app`. */
+  bridge?: Pick<BrowserHostBridge, "call">;
   /** Test seam over `locateQemu`, so a suite never depends on whether this Mac has QEMU. */
   locate?: () => Promise<QemuCapabilities>;
 };
 
 /** The sources this release cannot reach, and the sentence each gets. `qemu` and `vnc` are built. */
-const UNBUILT: Record<"mac" | "container", string> = {
-  mac: "Realm cannot show this Mac's own screen yet — connect another machine by address instead.",
-  container: "Realm cannot start a container yet — a container that serves a screen can be connected by address like any other.",
+const UNBUILT: Record<"container", string> = {
+  /**
+   * `container` stays unbuilt, and the honest reason is that there is almost nothing left to build.
+   *
+   * A container with a virtual display and a VNC server IS a `vnc` machine — the sandbox transports
+   * (Plan 25 W3) reach one at an address, over TLS, or through websockify, exactly like any other.
+   * What a `container` source would add is a LIFECYCLE: `docker run` and `docker stop` owned by
+   * Realm. Nothing about Docker's own surface has been verified here, and shipping a source whose
+   * whole content is an unverified shell-out would be worse than pointing at the route that works.
+   */
+  container: "Realm does not manage containers. A container that serves a screen connects by address like any other machine — start it yourself, publish its VNC port, and paste the address.",
 };
 
 /**
@@ -90,7 +103,10 @@ export class MachineService {
   create(p: { spaceId: string; name: string; source: MachineSource; endpoint: VncEndpoint | null; password?: string | null; guest?: GuestSpec | null }): { machineId: string; itemId: string; passwordStored: boolean } {
     const space = this.d.spaces.get(p.spaceId);
     if (!space) throw new NotFoundError("space", p.spaceId);
-    if (p.source === "mac" || p.source === "container") throw new RpcError("INVALID_ARGUMENT", UNBUILT[p.source]);
+    if (p.source === "container") throw new RpcError("INVALID_ARGUMENT", UNBUILT.container);
+    /* A `mac` machine's "address" is a BUNDLE ID — the same grant key `computer.allowedApps` uses,
+       so machine control and computer use cannot disagree about what TextEdit is. */
+    if (p.source === "mac" && !p.endpoint?.host) throw new RpcError("INVALID_ARGUMENT", "a machine that shows an app on this Mac needs its bundle id");
     /* A machine with NO endpoint yet is legal, and it is what the session pane's button makes: the
        connect flow is the pane's own body rather than a sheet, so the pane — and therefore the item,
        and therefore the row — has to exist before there is an address to put in it. `start` is where
@@ -185,7 +201,13 @@ export class MachineService {
   start(machineId: string): MachineState {
     const row = this.d.machines.get(machineId);
     if (!row) throw new NotFoundError("machine", machineId);
-    if (row.source === "mac" || row.source === "container") throw new RpcError("INVALID_ARGUMENT", UNBUILT[row.source]);
+    if (row.source === "container") throw new RpcError("INVALID_ARGUMENT", UNBUILT.container);
+    if (row.source === "mac") {
+      // Nothing to dial and nothing to relay: the pane polls a bridge op and the agent goes through
+      // the same executor computer use does. `running` the moment it is asked for, because the app
+      // either has windows or the first capture says so.
+      return this.set({ machineId, status: "running", wsUrl: null, width: null, height: null, error: null, detail: null });
+    }
     if (row.source === "qemu") {
       // Answered synchronously with `booting`; the boot itself continues behind the `machine.status`
       // events. An RPC that waited for a guest to come up would hold a socket for a minute.
@@ -218,6 +240,12 @@ export class MachineService {
     /* QMP for a guest Realm booted, RFB for everything else — and QMP is the better channel where it
        exists: a unix socket with filesystem permissions, and it works with NO VIEWER CONNECTED at
        all. The pane's socket may be closed and `screendump` still produces a frame. */
+    if (row.source === "mac") {
+      if (!this.d.bridge) return null;
+      const driver = new BridgeDriver(this.d.bridge, row.endpoint?.host ?? "");
+      this.drivers.set(machineId, driver);
+      return driver;
+    }
     if (row.source === "qemu") {
       const handle = this.d.qemu.handle(machineId);
       if (!handle) return null;

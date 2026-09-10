@@ -1,8 +1,9 @@
 import type { Item } from "@realm/contracts";
+import type { MenuItem } from "../components/Menu";
 import type { ComponentType, JSX } from "react";
 import { PlaceholderPane } from "./PlaceholderPane";
 import { SessionMeta, SessionPanelActions } from "./session/SessionPane";
-import { MachineMeta, MachinePanelActions } from "./machine/MachineBar";
+import { MachineMeta, MachinePanelActions, useMachineMenuItems } from "./machine/MachineBar";
 
 /** `focused`: the pane sits in the focused leaf (keyboard target — e.g. permission autofocus). */
 export type PaneProps = { item: Item; visible: boolean; focused?: boolean };
@@ -24,3 +25,22 @@ export const paneActions: Partial<Record<Item["kind"], (p: { item: Item }) => JS
   session: SessionPanelActions, // branch/diff + the session's own terminal drawer (Ara refresh §6)
   machine: MachinePanelActions, // one lit toggle: connected or not (Plan 25 W3)
 };
+
+/**
+ * Optional per-kind rows in the PanelBar's ⋯ menu, above the layout ones every pane shares.
+ *
+ * A hook rather than a table of functions, and the reason is React's rules rather than taste: these
+ * rows read live store state, and a table indexed by kind would call hooks CONDITIONALLY — no hooks
+ * for a session pane, two for a machine. That is stable only for as long as a bar's item kind never
+ * changes, which is true today and is not a thing to build a rule on.
+ *
+ * So every kind's hook is called for every pane, unconditionally and in a fixed order, and the kind
+ * decides only which result is USED. The cost is two map lookups on a bar that has no machine in it.
+ *
+ * `PanelBar` stays kind-agnostic, which is its whole point: a pane bar is the same bar everywhere,
+ * and a machine-shaped `if` in it would be the start of the opposite.
+ */
+export function usePaneMenuItems(item: Item): MenuItem[] {
+  const machine = useMachineMenuItems(item);
+  return item.kind === "machine" ? machine : [];
+}

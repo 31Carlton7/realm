@@ -1163,6 +1163,11 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* The one-device-pixel inset outline every screenshot in the app wears. It is what stops a pale
    guest desktop bleeding into the letterbox with no edge at all. */
 .machine-host canvas { display: block; width: 100%; height: 100%; box-shadow: var(--shadow-hairline); }
+/* A `mac` machine's polled frame. Same treatment as a canvas — the same one-device-pixel outline
+   every screenshot in the app wears — because it is the same thing: a picture of somebody's screen
+   on a ground it must not bleed into. `object-fit: contain` letterboxes it, since here the frame's
+   aspect is the app WINDOW's and changes whenever the user resizes it. */
+.machine-poll { display: block; max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: var(--shadow-hairline); }
 /* Only where one framebuffer pixel really is one device pixel. Everywhere else there is genuine
    resampling, and `pixelated` over a resampled image is a claim about sharpness that is not true. */
 .machine-screen[data-scale="actual"] .machine-host canvas { image-rendering: pixelated; }

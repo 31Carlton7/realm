@@ -1,4 +1,4 @@
-import { app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, shell, systemPreferences, Tray, type MenuItemConstructorOptions } from "electron";
+import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, shell, systemPreferences, Tray, type MenuItemConstructorOptions } from "electron";
 import { BrowserCredentialInputSchema, newId, type BrowserCredential, type MediaFile } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { copyFile, writeFile } from "node:fs/promises";
@@ -230,6 +230,12 @@ ipcMain.handle("browser:cancel-pick", (_e, id: string) => { agentHost?.cancelPic
 /** The renderer's theme accent, for the marks main draws INSIDE a driven page (Plan 25 W1). Not per
  *  browser id: it is one value per window, and this process has one agent host per window. */
 ipcMain.on("browser:set-accent", (_e, accent: string) => { if (typeof accent === "string") agentHost?.setAccent(accent); });
+
+/** The system clipboard, READ ONLY (Plan 25 W7). A machine pane sends it to a guest, which is a
+ *  deliberate two-step rather than automatic sync: RFB's clipboard is not transparent, and pushing
+ *  whatever is on somebody's clipboard into a machine that may be running anything is not a thing to
+ *  do without being asked. There is no write op, and adding one would need its own reason. */
+ipcMain.handle("clipboard:read-text", () => clipboard.readText());
 
 /**
  * The secret store, built on first use. Null only before realm-server has announced its home.

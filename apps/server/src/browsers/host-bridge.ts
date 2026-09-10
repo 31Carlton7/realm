@@ -40,6 +40,10 @@ export const COMPUTER_HOST_OPS = [
   /** Running apps, plus both TCC grants — the grant state rides along so an empty or failing list is
    *  never ambiguous between "nothing is running" and "nothing is permitted". */
   "computerListApps",
+  /** One JPEG of an app's windows (Plan 25 W7), for a `mac` machine's pane and driver. Deliberately
+   *  a one-shot rather than a stream: 30fps of base64 through the JSON-RPC socket would put megabytes
+   *  a second alongside session events, and a poll at 1–2fps is honest for "watch an agent work". */
+  "machineCaptureOnce",
   "computerSnapshot",
   "computerAct",
 ] as const;

@@ -74,12 +74,17 @@ describe("machines RPC", () => {
 
   it("refuses a source this release cannot reach, by name, instead of making a row that never starts", async () => {
     const { c, space } = await bring();
-    // `qemu` is built (Plan 25 W5); these two are not, and each says which and what to do instead.
-    for (const source of ["mac", "container"]) {
-      const r = await c.call("machines.create", { spaceId: space.id, name: "x", source, endpoint: null });
-      expect(r.error, source).toBeTruthy();
-      expect(String(r.error.message), source).toMatch(/by address/);
-    }
+    /* `qemu` and `mac` are built now (Plan 25 W5/W7). `container` is not, and its refusal is the
+       interesting one: there is almost nothing left to build, because a container that serves a
+       screen IS reachable by address through the sandbox transports. What a source would add is a
+       Docker lifecycle nobody has verified, and pointing at the route that works beats shipping it. */
+    const container = await c.call("machines.create", { spaceId: space.id, name: "x", source: "container", endpoint: null });
+    expect(container.error).toBeTruthy();
+    expect(String(container.error.message)).toContain("connects by address like any other");
+    // …and a `mac` machine without a bundle id is refused for a different reason, in its own words.
+    const mac = await c.call("machines.create", { spaceId: space.id, name: "x", source: "mac", endpoint: null });
+    expect(mac.error).toBeTruthy();
+    expect(String(mac.error.message)).toContain("bundle id");
     // …and nothing was left behind in the sidebar by a refusal.
     expect((await c.call("items.list", { spaceId: space.id })).result).toEqual([]);
     c.close();

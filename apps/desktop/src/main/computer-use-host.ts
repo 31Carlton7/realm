@@ -54,6 +54,24 @@ export class ComputerUseHost {
         });
         return { ...raw, text: renderElements(raw.elements) } satisfies ComputerSnapshotResult;
       }
+      /**
+       * One frame of an app's windows (Plan 25 W7).
+       *
+       * The existing snapshot path with the tree thrown away — `captureImage` plus two semaphores,
+       * one image, no state, and the helper exits after the op. That is what makes a poll affordable
+       * and what a real `SCStream` would not be: a stream needs a `minimumFrameInterval`, an output
+       * delegate on its own queue, a `didStopWithError` path for display reconfiguration and
+       * mid-stream permission revocation, filter re-creation whenever the app's window set changes,
+       * and a long-lived helper process with its own lifecycle here. None of that for a first ship.
+       */
+      case "machineCaptureOnce": {
+        this.requireHelper();
+        const raw = await this.d.request<{ screenshot?: string; bounds?: { w: number; h: number } }>("snapshot", {
+          ...(typeof params.bundleId === "string" ? { bundleId: params.bundleId } : {}),
+          screenshot: true,
+        });
+        return { data: raw.screenshot ?? null, mimeType: "image/jpeg", width: raw.bounds?.w ?? 0, height: raw.bounds?.h ?? 0 };
+      }
       case "computerAct": {
         this.requireHelper();
         const snapshotId = String(params.snapshotId ?? "");
