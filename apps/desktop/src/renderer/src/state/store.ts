@@ -1,3 +1,4 @@
+import { pickSpaceColor, CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip } from "@realm/contracts";
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
   allItems, closeItem as layoutClose, emptyLayout, equalizeSplit as layoutEqualize, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, modeWireValue, sessionModeOf,
@@ -5,7 +6,7 @@ import {
   activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, parseSpaceIcon, type ModelInfo,
+  DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   type AgentKind, type Attachment, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageSummary,
 } from "@realm/contracts";
@@ -41,6 +42,11 @@ export type UpdateMcpServerInput = {
   command?: string; args?: string[]; env?: Record<string, string>;
   url?: string; headers?: Record<string, string>;
 };
+/** The last path segment, as a project or a space is named after its folder. */
+export function folderName(path: string): string {
+  return path.replace(/\/+$/, "").split("/").pop() || path;
+}
+
 export type SessionOptions = { model?: string; effort?: string; permissionMode?: string; fastMode?: boolean };
 /** A pending attachment as the prompter holds it. `path`/`mime` are the wire fields; `name` labels the
  *  chip and `size` is what the MAX_ATTACHMENT_BYTES check reads — neither is transmitted. */
@@ -186,6 +192,7 @@ export type Api = {
   generateIconAsset(profileId: string, prompt: string): Promise<IconAsset>;
   /** Native single-image picker for an icon upload; null when cancelled. */
   pickIconImage(): Promise<PickedFile | null>;
+  compressIconImage(path: string): Promise<PickedFile | null>;
   uploadIconAsset(profileId: string, path: string): Promise<IconAsset>;
   deleteIconAsset(id: string): Promise<void>;
   listSessions(spaceId: string): Promise<Session[]>;
@@ -439,6 +446,7 @@ export const DESTINATION_PAGE_TITLES: Record<DestinationPageKind, string> = {
   // nothing to go stale against (Plan 14 W2).
   "profile-page": "Profile",
   "schedules-page": "Scheduled tasks",
+  "agents-page": "Agents",
 };
 
 /**
@@ -693,6 +701,9 @@ export type AppState = {
   /** Whether a toast main actually posted also plays a cue, and how loud (0…1). Held out beside
    *  `desktopNotifications`, and for the reason given there. */
   soundCues: boolean;
+  /** Where notifications are relayed beyond this Mac (`NOTIFICATIONS_IMESSAGE_KEY`,
+   *  `NOTIFICATIONS_SLACK_WEBHOOK_KEY`). Empty strings mean nowhere, which is the default. */
+  notificationRelay: { imessage: string; slackWebhook: string };
   soundVolume: number;
   agentProbe: AgentProbe[];
   /** Per-agent install/update situation. Empty until something asks; the engines list and the
@@ -762,6 +773,9 @@ export type AppState = {
    *  as long as its token survives in the text, so deleting a chip forgets what it named. The draft
    *  itself stays a plain string — a chip is paint over a token, not a node. */
   draftElements: Record<string, ElementChip[]>;
+  /** Per session: the link chips a draft holds (`@[ENG-123]` standing for a Linear URL), keyed the
+   *  way `draftElements` is and kept alive by the same rule. Expanded to markdown links at send. */
+  draftLinks: Record<string, LinkChip[]>;
   /** The skills library by space id (`skills.list`) — what the mention picker offers. Refreshed when a
    *  skills-capable session opens and on `skills.changed`. */
   spaceSkills: Record<string, Skill[]>;
@@ -952,6 +966,20 @@ export type AppState = {
   refreshEnvironments(): Promise<void>;
   linkProject(rootPath: string): Promise<void>;
   pickAndLinkProject(): Promise<void>;
+  /** The OS folder dialog, bare: the path or null when cancelled. Onboarding asks before a space
+   *  exists, so it cannot go through `pickAndLinkProject`, which links into the active one. */
+  pickFolder(): Promise<string | null>;
+  /** The on-disk path Electron pins to a dropped File, or "" for one that has none (a paste, a
+   *  drag out of a browser). The preload bridge's answer, exposed so drop targets need no bridge. */
+  pathForFile(file: File): string;
+  /**
+   * First run, in one move: the profile if none exists, the default agent, the first space, the
+   * folder it works in (when one was given), and a session open in it — so the screen after
+   * onboarding is a prompter pointed at the user's code. Lives here rather than in the sheet
+   * because it needs the ids each step returns, and the component would otherwise re-read them
+   * out of state between awaits.
+   */
+  completeOnboarding(input: { name: string; agentKind: AgentKind; folder: string | null }): Promise<void>;
   newTerminal(targetLeafId?: string | null): Promise<void>;
   /** New browser pane in the active space (opens into the target/focused leaf). */
   /** `beside` opens it in a split next to the focused pane instead of replacing it. */
@@ -1050,6 +1078,10 @@ export type AppState = {
   refreshSessions(): Promise<void>;
   /** Seed sessionSpace + statuses for every space (boot, reconnect, unknown-session broadcasts). */
   refreshAllSessions(): Promise<void>;
+  /** Every session in the profile, as rows — what the Agents page lists. Fetched on demand rather
+   *  than held in state: the store keeps rows for the spaces that are open, and a page that wants
+   *  all of them asks the server, which already has them in one query. */
+  listAllSessions(): Promise<Session[]>;
   /** Put a waiting_permission session's pane in front of the user — switching space if needed — which
    *  is what surfaces its card, since Transcript autofocuses the first pending permission of a focused
    *  pane. With no argument it chooses one (the active space first); a permission notification passes
@@ -1182,6 +1214,13 @@ export type AppState = {
    *  the chip went in under, so the browser pane can name what it just sent — or null when the draft
    *  is already carrying `MAX_ELEMENT_CHIPS`. */
   addElementChip(sessionId: string, element: BrowserPickedElement): string | null;
+  /** Register a pasted link as a chip and hand back the chip, or null for a URL Realm cannot name
+   *  (`describeLink`) — in which case the paste goes through as text. The composer inserts the
+   *  token at its caret; this only owns the sidecar, which is why it does not touch the draft. */
+  addLinkChip(sessionId: string, url: string): LinkChip | null;
+  /** Connect one of the marketplace's apps to a space: create its MCP server row (once) and start
+   *  OAuth, handing back the URL to open. */
+  connectApp(spaceId: string, connectorId: string): Promise<{ authUrl: string }>;
   /** Fetch a space's skills library into `spaceSkills` (session open, `skills.changed`). */
   refreshSkills(spaceId: string): Promise<void>;
   /** Fetch the scan sources into `spaceSkillSources`. Separate from `refreshSkills` because the panel
@@ -1219,6 +1258,10 @@ export type AppState = {
   generateIcon(profileId: string, prompt: string): Promise<IconAsset>;
   /** The icon picker's "Uploaded" tab: native single-image picker, then upload; null if cancelled. */
   uploadIconImage(profileId: string): Promise<IconAsset | null>;
+  /** A file DROPPED on the icon picker, rather than chosen through the OS dialog. Resolves the
+   *  path Electron pins to the File and uploads it the same way; rejects with a sentence for a
+   *  file that is not an image or that has no file on disk (a picture dragged out of a browser). */
+  uploadIconFile(profileId: string, file: File): Promise<IconAsset>;
   /** Remove a generated/uploaded icon from the library. Any space still pointing at it degrades to
    *  the folder glyph (`SpaceIcon`'s missing-asset fallback) — the caller is responsible for warning
    *  if a space in view uses it. */
@@ -1418,6 +1461,9 @@ export type AppState = {
   /** The Settings→App sound switch and its level (0…1). Each writes its key and holds the answer, so
    *  the next broadcast sounds under the new one without waiting for a settings refresh. */
   setSoundCues(enabled: boolean): Promise<void>;
+  /** Settings→App: the iMessage handle and Slack webhook the server relays to. Written through as
+   *  typed; the server reads them at send time, so there is nothing to restart. */
+  setNotificationRelay(patch: Partial<{ imessage: string; slackWebhook: string }>): Promise<void>;
   setSoundVolume(volume: number): Promise<void>;
   /** Select a feed row into the page's detail column (null = back to the bare list). Records the move
    *  on the trail of the pane showing `pageItemId`, so the arrows retrace it, and marks the row read —
@@ -2028,7 +2074,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       paletteOpen: false, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
       failover: null,
       spacePageTab: {}, profilePageTab: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -2037,7 +2083,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
-      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, soundCues: true, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, notificationsSelectedId: null, paneHistory: {},
+      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, notificationsSelectedId: null, paneHistory: {},
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       activeProfileId() { return get().activeSpace()?.profileId ?? null; },
@@ -2071,12 +2117,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // at boot at all because the first broadcast can arrive long before anyone opens Settings.
         // A failed read keeps the default-on answer: a preference nobody could read is not a
         // preference to switch the feature off.
-        const [desktop, sound, volume] = await Promise.all([
+        const [desktop, sound, volume, imessage, slackWebhook] = await Promise.all([
           api.getSetting(NOTIFICATIONS_DESKTOP_KEY).catch(() => null),
           api.getSetting(NOTIFICATIONS_SOUND_KEY).catch(() => null),
           api.getSetting(NOTIFICATIONS_SOUND_VOLUME_KEY).catch(() => null),
+          api.getSetting(NOTIFICATIONS_IMESSAGE_KEY).catch(() => null),
+          api.getSetting(NOTIFICATIONS_SLACK_WEBHOOK_KEY).catch(() => null),
         ]);
-        set({ desktopNotifications: desktop !== false, soundCues: sound !== false, soundVolume: cueVolume(volume) });
+        const str = (v: unknown) => (typeof v === "string" ? v : "");
+        set({ desktopNotifications: desktop !== false, soundCues: sound !== false, soundVolume: cueVolume(volume),
+          notificationRelay: { imessage: str(imessage), slackWebhook: str(slackWebhook) } });
         // The sidebar's unread pill needs the count before the page is ever opened. One row, not a
         // page — the count rides every list result. A badge, not a dependency: a failure here must
         // not take boot down with it.
@@ -2297,9 +2347,25 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async linkProject(rootPath) {
         const sid = get().activeSpaceId; if (!sid) return;
-        const name = rootPath.replace(/\/+$/, "").split("/").pop() || rootPath;
-        await api.createProject(sid, name, rootPath);
+        await api.createProject(sid, folderName(rootPath), rootPath);
         await get().refreshProjects();
+      },
+      pickFolder() { return api.pickFolder(); },
+      pathForFile(file) { return api.pathForFile(file); },
+      async completeOnboarding({ name, agentKind, folder }) {
+        // app.ts seeds a "Personal" profile on first boot; creating one here is belt-and-braces so
+        // the very first screen can never be a dead end.
+        const profileId = get().profiles[0]?.id ?? (await get().createProfile("Personal")).id;
+        await get().setDefaultAgent(agentKind);
+        await get().createSpace({ name, icon: "folder", profileId, color: pickSpaceColor(0) });
+        const sid = get().activeSpaceId;
+        if (!sid) return;
+        // The folder becomes the space's first project, and the session opens IN it — not in the
+        // empty space folder Realm allocates, which is where a first session used to land even when
+        // the user had a repo in mind.
+        const project = folder ? await api.createProject(sid, folderName(folder), folder) : null;
+        if (project) await get().refreshProjects();
+        await get().newSession({ agentKind, projectId: project?.id ?? null });
       },
       async pickAndLinkProject() {
         const path = await api.pickFolder();
@@ -2470,7 +2536,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           const { [it.refId]: _at, ...pendingAttachments } = get().pendingAttachments;
           const { [it.refId]: _dm, ...draftMentions } = get().draftMentions; // part of the draft, dropped with it
           const { [it.refId]: _de, ...draftElements } = get().draftElements; // likewise
-          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, planReturn, sessionSpace, terminalPanel, sessionTerminals });
+          const { [it.refId]: _dl, ...draftLinks } = get().draftLinks;
+          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftLinks, planReturn, sessionSpace, terminalPanel, sessionTerminals });
           if (termId || _tp) get().run(persistPanels); // the panel map just lost an entry
         }
       },
@@ -2662,6 +2729,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         for (const s of list) { sessions[s.id] = s; sessionStatus[s.id] = s.status; sessionSpace[s.id] = s.spaceId; }
         set({ sessions, sessionStatus, sessionSpace });
       },
+      listAllSessions() { return api.listAllSessions(); },
       async refreshAllSessions() {
         const all = await api.listAllSessions();
         // The list is the truth for existence and mapping; server-persisted statuses are fresh (they
@@ -2790,7 +2858,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // sidecar goes with it. Re-derived from the FINAL text so a chip deleted before send does not
         // still hand the agent the element it named.
         const elements = keepLiveChips(text, get().draftElements[id] ?? []);
-        await api.sendMessage(id, text, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements);
+        // The agent gets the link, not the chip: a markdown link its connection to that app can open.
+        const wire = expandLinkChips(text, get().draftLinks[id] ?? []);
+        await api.sendMessage(id, wire, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements);
         // Only AFTER the send lands, and only the ones that went: a rejected send that also emptied the
         // chip row would leave the user with no record of what they had attached, and a file dragged in
         // while the request was in flight was never part of this message.
@@ -3164,11 +3234,31 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const prev = get().draftMentions[sessionId] ?? [];
         const mentions = mentionIds(text, new Set([...mentionableIds(sessionId), ...prev]));
         const elements = keepLiveChips(text, get().draftElements[sessionId] ?? []);
+        const links = keepLiveLinks(text, get().draftLinks[sessionId] ?? []);
         set({
           drafts: { ...get().drafts, [sessionId]: text },
           draftMentions: { ...get().draftMentions, [sessionId]: mentions },
           draftElements: { ...get().draftElements, [sessionId]: elements },
+          draftLinks: { ...get().draftLinks, [sessionId]: links },
         });
+      },
+      addLinkChip(sessionId, url) {
+        const ref = describeLink(url);
+        if (!ref) return null;
+        const taken = [...(get().draftLinks[sessionId] ?? []), ...(get().draftElements[sessionId] ?? [])].map((c) => c.label);
+        const chip: LinkChip = { label: linkChipLabel(ref.label, taken), url: ref.url, service: ref.service };
+        set({ draftLinks: { ...get().draftLinks, [sessionId]: [...(get().draftLinks[sessionId] ?? []), chip] } });
+        return chip;
+      },
+      async connectApp(spaceId, connectorId) {
+        const c = CONNECTORS.find((x) => x.id === connectorId);
+        if (!c) throw new Error(`unknown connector ${connectorId}`);
+        // One row per app, however many times Connect is pressed: a second press on a row whose
+        // OAuth was abandoned restarts the flow on the SAME row rather than minting a twin.
+        const name = connectorServerName(c);
+        const existing = get().mcpServers.find((s) => s.name === name);
+        const server = existing ?? await get().addMcpServer({ spaceId, name, transport: c.transport, url: c.url });
+        return get().startMcpOauth(server.id);
       },
       addElementChip(sessionId, element) {
         const draft = get().drafts[sessionId] ?? "";
@@ -3270,7 +3360,20 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async uploadIconImage(profileId) {
         const picked = await api.pickIconImage();
         if (!picked) return null;
-        const asset = await api.uploadIconAsset(profileId, picked.path);
+        return get().uploadIconFile(profileId, { path: picked.path } as never);
+      },
+      async uploadIconFile(profileId, file) {
+        // `uploadIconImage` above hands a bare `{ path }` through here so the two share one upload
+        // path; a real File resolves through the preload bridge. The server checks the bytes (type,
+        // size, SVG safety) — this only refuses what could never reach it.
+        const path = "path" in file && typeof (file as { path?: unknown }).path === "string" && !(file instanceof File)
+          ? (file as { path: string }).path : api.pathForFile(file);
+        if (!path) throw new Error("That image has no file on disk. Drop one from the Finder, or upload it.");
+        // Downscale before the bytes are sent: `icon_assets.data_text` holds them as base64 forever,
+        // and a phone-sized photo is over the server's cap. Best-effort — a failure here uploads the
+        // original, which the server accepts or refuses exactly as it did before.
+        const compressed = await api.compressIconImage(path).catch(() => null);
+        const asset = await api.uploadIconAsset(profileId, compressed?.path ?? path);
         markIconAssetMutation(profileId);
         set({ iconAssets: { ...get().iconAssets, [profileId]: [asset, ...(get().iconAssets[profileId] ?? [])] } });
         return asset;
@@ -3830,6 +3933,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           n = get().notifications.find((x) => x.id === id);
         }
         if (n) await get().openNotificationTarget(n);
+      },
+      async setNotificationRelay(patch) {
+        const next = { ...get().notificationRelay, ...patch };
+        set({ notificationRelay: next });
+        if (patch.imessage !== undefined) await api.setSetting(NOTIFICATIONS_IMESSAGE_KEY, patch.imessage.trim());
+        if (patch.slackWebhook !== undefined) await api.setSetting(NOTIFICATIONS_SLACK_WEBHOOK_KEY, patch.slackWebhook.trim());
       },
       async setDesktopNotifications(enabled) {
         await api.setSetting(NOTIFICATIONS_DESKTOP_KEY, enabled);

@@ -36,6 +36,38 @@ const bodiesFor = (selector: string): string[] => {
   return hits;
 };
 
+/** Selector parts with any leading comment stripped — a rule's `selectors` chunk starts at the end of
+ *  the previous rule, so a comment above it rides along on the first part. */
+const partsOf = (r: { selectors: string[] }): string[] =>
+  r.selectors.map((s) => s.replace(/\/\*[\s\S]*?\*\//g, "").trim()).filter(Boolean);
+
+/* Ligatures render only where tracking is zero (Chromium suppresses them on any spaced run, and
+   `font-variant-ligatures` cannot override it — measured in the real window). So the reset is not
+   decoration: a mono surface missing from it silently loses `=>` and `!==`. THE mutant this kills is
+   the quiet one — someone adds a rule reading --font-mono and never touches this list. */
+it("gives up the app's tracking on every surface that uses the mono face, so its ligatures render", () => {
+  const monoSelectors = new Set(RULES.filter((r) => r.body.includes("var(--font-mono)")).flatMap(partsOf));
+  const reset = RULES.filter((r) => /^letter-spacing:\s*normal;?$/.test(r.body)).flatMap(partsOf);
+  expect(monoSelectors.size).toBeGreaterThan(20);
+  expect([...monoSelectors].filter((s) => !reset.includes(s))).toEqual([]);
+});
+
+/* The two system notices — the socket-down banner and the error bar — are the only surfaces in the
+   app that a state change alone puts on screen. They used to cut in fully formed. */
+it("brings the system notices in on the transcript's own entrance rung, from the edge each hangs off", () => {
+  for (const sel of [".conn-banner", ".error-bar"]) {
+    const body = bodiesFor(sel).join(" ");
+    expect(body, `${sel} enters with no animation`).toMatch(/animation:\s*rl-[a-z-]+ var\(--dur-enter\) var\(--ease-out-strong\)/);
+  }
+  // THE mutant: write the banner's entrance without its own centring transform. Every frame but the
+  // last then lacks `translateX(-50%)`, so a notice about a dropped socket slides in from the middle
+  // of the window and snaps into place — motion that says something false about where it came from.
+  const notice = css.slice(css.indexOf("@keyframes rl-notice-in"));
+  const frames = notice.slice(0, notice.indexOf("}", notice.indexOf("to {")));
+  for (const t of frames.match(/transform:[^;]+/g) ?? []) expect(t).toContain("translateX(-50%)");
+  expect((frames.match(/transform:/g) ?? []).length).toBe(2); // both ends carry one
+});
+
 it("keeps expanded images at full opacity when their expansion button is disabled", () => {
   expect(bodiesFor(".media-image:disabled").join(" ")).toMatch(/opacity:\s*1\s*;/);
 });
@@ -391,8 +423,15 @@ describe("Ara refresh §3/§4 geometry", () => {
        THE mutant: give one of the two its own number. They are the same chip — the test below says
        so about their hover — and two chips that lift identically but round differently is worse than
        either treatment on its own. */
-    const radius = "border-radius: calc(var(--r-chip) - 2px)";
-    for (const sel of [".ch-element", ".ch-mention"]) expect(bodiesFor(sel).join(" "), sel).toContain(radius);
+    /* Revised: a chip wears NO corner now, because it wears no fill and no ring — it is its icon
+       and its accent ink, inline with the draft. The two kinds are still one treatment: the same
+       single declaration. THE mutant: give one of them a fill back. */
+    for (const sel of [".ch-element", ".ch-mention"]) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toContain("color: var(--rl-accent)");
+      expect(body, sel).not.toContain("background");
+      expect(body, sel).not.toContain("box-shadow");
+    }
     // The code mark stays a code mark. §"Shape" gives 2px to ticks, rails and code marks.
     expect(bodiesFor(".ch-code").join(" ")).toContain("border-radius: 3px");
   });
@@ -407,12 +446,14 @@ describe("Ara refresh §3/§4 geometry", () => {
        / 3.05:1 light — the same pairing the mention chip and the composer's own chips already ship,
        and above the 2.9 floor `--rl-accent` is derived against).
        THE mutant: re-add a `[data-kind]` rule with a fill in it. */
+    /* Revised: the fill is gone on both faces. A chip in the log is an icon and a name in the
+       accent, inline with the prose; the pill read as a control dropped into a sentence. What is
+       held is the SAMENESS: one ink, no per-kind fill, on the composer and in the log alike. */
     const chip = bodiesFor(".msg-chip").join(" ");
     expect(chip).toContain("color: var(--rl-accent)");
-    expect(chip).toContain("background: color-mix(in srgb, var(--rl-accent) 14%, transparent)");
-    // The composer paints the same pair, so what you typed and what you sent are one object.
+    expect(chip).not.toContain("background");
     expect(bodiesFor(".ch-element").join(" ")).toContain("color: var(--rl-accent)");
-    expect(bodiesFor(".ch-element").join(" ")).toContain("var(--rl-accent) 14%");
+    expect(bodiesFor(".ch-element").join(" ")).not.toContain("background");
     const variants = RULES.flatMap((r) => r.selectors.map((sel) => ({ sel, body: r.body })))
       .filter(({ sel }) => /^\.msg-chip\[/.test(sel))
       .filter(({ body }) => /(?:^|[;\s])(?:background(?:-color)?|color):/.test(body))
@@ -435,20 +476,46 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(painted).toContain("--sq-radius-bottom: 0px");
   });
 
-  it("an untinted chip group is still a control — a hairline ring, drawn INWARD", () => {
+  it("an untinted segment is still a control — a hairline ring on an overlay, never an outline on the group", () => {
     /* Ghost chips rest transparent, so "Accept edits · Build" — the ordinary permission and mode,
        not an edge case — put two labels on the card with nothing under them. The ring is the only
        thing that says "control" there.
-       Inward, and an outline rather than a border, for two mechanical reasons: a border adds its
-       width to a group whose height comes from its children, and `.composer-opts` hides its own
-       overflow to measure the row, so anything drawn outward is clipped away. */
+       On the segment's `::after`, not the group: the group's inward outline was a half-pixel stroke
+       inside a half-pixel-offset radius over a clip anti-aliasing the same curve, and every corner
+       rendered as a thick dark arc (seen in the running app). The mutants: put the outline back on
+       the group; draw the ring as a `border` on the chip itself, which adds its width to the box
+       and knocks the group out of line with the "+" beside it. */
     const group = bodiesFor(".chip-group").join(" ");
-    expect(group).toContain("outline: var(--hairline-w) solid var(--rl-line)");
-    expect(group).toContain("outline-offset: calc(-1 * var(--hairline-w))");
+    expect(group).not.toContain("outline");
     expect(group).not.toContain("border:");
-    // With the group visible, two untinted segments read as ONE button without this.
-    expect(bodiesFor(".chip-group > .ghost-chip + .ghost-chip").join(" "))
-      .toContain("box-shadow: inset var(--hairline-w) 0 0 var(--rl-line)");
+    const ring = bodiesFor(".chip-group > .ghost-chip::after").join(" ");
+    expect(ring).toContain("border: var(--hairline-w) solid var(--rl-line)");
+    expect(ring).toContain("position: absolute");
+    expect(ring).toContain("pointer-events: none");
+    expect(bodiesFor(".chip-group > .ghost-chip").join(" ")).toContain("position: relative");
+    expect(bodiesFor(".chip-group > .ghost-chip").join(" ")).not.toContain("border:");
+  });
+
+  it("the ring rounds only the group's OUTER corners, and the seam carries one hairline, not two", () => {
+    /* Segments are square where they meet (their own `border-radius: 0`), so the overlay has to
+       name the group's radius on the outer side and nothing on the inner. The trailing segment
+       drops its left edge: two rings meeting at the seam would draw it at twice the weight of the
+       rest of the outline. */
+    expect(bodiesFor(".chip-group > .ghost-chip:not(:only-child):first-child::after").join(" ")).toContain("border-radius: var(--r-chip) 0 0 var(--r-chip)");
+    expect(bodiesFor(".chip-group > .ghost-chip:not(:only-child):last-child::after").join(" ")).toContain("border-radius: 0 var(--r-chip) var(--r-chip) 0");
+    expect(bodiesFor(".chip-group > .ghost-chip + .ghost-chip::after").join(" ")).toContain("border-left: 0");
+    // The old divider — an inset shadow on the trailing segment — would be a second seam line.
+    expect(css).not.toMatch(/\.chip-group > \.ghost-chip \+ \.ghost-chip\s*\{[^}]*box-shadow/);
+  });
+
+  it("a tinted segment wears no ring on its side — the fill is the control there", () => {
+    /* Full access (red), Ask (green) and Plan (orange) each fill their segment; a hairline over
+       the wash read as a second, disagreeing edge. The mutant: drop any one of the three selectors
+       and that state gets its ring back. */
+    const off = bodiesFor(".chip-group > .ghost-chip[data-warning]::after").join(" ");
+    expect(off).toContain("display: none");
+    expect(bodiesFor('.composer[data-mode="ask"] .chip-group > .ghost-chip[aria-label="Mode"]::after').join(" ")).toContain("display: none");
+    expect(bodiesFor('.composer[data-mode="plan"] .chip-group > .ghost-chip[aria-label="Mode"]::after').join(" ")).toContain("display: none");
   });
 
   it("Full access does not wear Plan's colour, because they sit in one control touching", () => {
@@ -501,8 +568,10 @@ describe("Ara refresh §3/§4 geometry", () => {
     // to be a grey inset box behind a hairline, which in a prompter that already renders inline
     // code that way read as code — and it is not code, it is something the user pointed at and is
     // about to send. They are told apart by what they say, not by two treatments to learn.
+    // With no fill to lift, the hover is an underline — the one affordance a metric-free run may
+    // wear — and it is the same underline for both.
     for (const sel of [".ch-element[data-hot]", ".ch-mention[data-hot]"]) {
-      expect(bodiesFor(sel).join(" "), sel).toContain("var(--rl-accent) 26%");
+      expect(bodiesFor(sel).join(" "), sel).toContain("text-decoration: underline");
     }
     // At rest this run wears no pill, and growing one under the pointer would read as an element
     // chip — a token that resolves to nothing dressing up as one that resolves to something.
@@ -607,6 +676,8 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       ["--rl-raised", "var(--surface)"],
       ["--rl-line", "var(--line)"],
       ["--rl-line-strong", "var(--line-strong)"],
+      ["--rl-divider", "var(--divider)"],
+      ["--rl-divider-hover", "var(--divider-hover)"],
       ["--rl-hairline", "var(--line)"],
       ["--rl-text-bright", "var(--ink)"],
       ["--rl-text-dim", "var(--ink-2)"],
@@ -798,7 +869,7 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(edge).toEqual([".app:not([data-sidebar-collapsed]) .main"]);
     // THE mutant: drop the :not(). Collapsed, nothing takes the sidebar's column, so the same line
     // becomes a stray rule down the window's own left edge.
-    expect(bodiesFor(".app:not([data-sidebar-collapsed]) .main").join(" ")).toContain("var(--rl-line-strong)");
+    expect(bodiesFor(".app:not([data-sidebar-collapsed]) .main").join(" ")).toContain("var(--rl-line)");
     // And no inset shadow creeps back onto .main to say the same thing twice, invisibly.
     expect(bodiesFor(".main").join(" ")).not.toContain("box-shadow: inset");
   });
@@ -1582,7 +1653,7 @@ describe("squircle surfaces", () => {
   const tokens = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
   const worklet = readFileSync(repoFile("apps/desktop/src/renderer/public/squircle-paint.js"), "utf8");
   const registrar = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/squircle.ts"), "utf8");
-  const SURFACES = [".composer", ".composer-drop-hint", ".composer-todos", ".composer-understrip", ".install-card", ".commit-card"];
+  const SURFACES = [".composer", ".composer-drop-hint", ".composer-todos", ".composer-overstrip", ".composer-understrip", ".install-card", ".commit-card"];
 
   it("every squircle surface keeps a circular-corner fallback AND the declarative form", () => {
     // `corner-shape` is a no-op on Chromium 138 (measured in squircle-live.mjs) and takes over at
@@ -1787,6 +1858,46 @@ describe("§6 do-NOT-animate list", () => {
     }
     // …and the hint never eats the drop it is describing.
     expect(bodiesFor(".composer-drop-hint").join(" ")).toContain("pointer-events: none");
+  });
+
+  it("the pane divider rests on its own token, a step above the app's ordinary hairline", () => {
+    /* Measured live (`pane-divider-live.mjs`): on --rl-line the whole separation between two panes
+       came to 6.6% of full range in dark and 5.2% in light, and panes read as one wash. This is the
+       one hairline with no change of surface beside it — `.main` and every `.panel` paint --rl-panel
+       — so unlike every other line in the app it is doing the whole job alone.
+
+       THE mutant: put `.resize-handle` back on --rl-line. It computes perfectly and the app looks
+       like one continuous surface, which is exactly how this shipped. This test is the cheap half;
+       the pixels are the real one. */
+    const rest = bodiesFor(".resize-handle").join(" ");
+    expect(rest).toContain("background: var(--rl-divider)");
+    expect(rest).not.toContain("var(--rl-line)");
+    // The divider is a control as well as a seam, so raising the resting line must not flatten the
+    // drag feedback into it — the second mutant is dropping this rule once the first is loud enough.
+    for (const sel of [".resize-handle:hover", ".resize-handle[data-resize-handle-active]"]) {
+      expect(bodiesFor(sel).join(" "), sel).toContain("background: var(--rl-divider-hover)");
+    }
+  });
+
+  it("the divider's two steps are ordered, and light is not a mirror of dark", () => {
+    const tokens = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
+    const stepOf = (block: string, name: string) =>
+      Number(new RegExp(`--${name}: var\\(--overlay-(?:lighten|darken)-(\\d+)\\)`).exec(block)?.[1] ?? NaN);
+    const dark = tokens.slice(tokens.indexOf("--line: var(--overlay-lighten-300)"));
+    const light = tokens.slice(tokens.indexOf("--line: var(--overlay-darken-200)"));
+
+    // Dragging is always a step above resting, in both faces.
+    expect(stepOf(dark, "divider-hover")).toBeGreaterThan(stepOf(dark, "divider"));
+    expect(stepOf(light, "divider-hover")).toBeGreaterThan(stepOf(light, "divider"));
+    // And the divider is always above the ordinary hairline it used to be.
+    expect(stepOf(dark, "divider")).toBeGreaterThan(stepOf(dark, "line"));
+    expect(stepOf(light, "divider")).toBeGreaterThan(stepOf(light, "line"));
+
+    /* Light takes a HEAVIER step than dark, which looks like an inconsistency and is not: black on a
+       near-white ground loses more of itself than white on a near-black one. Mirroring dark's step
+       measured 7.2% in light against dark's 10.7% — under the floor, which is how light shipped
+       fainter than dark without anyone writing a different number. */
+    expect(stepOf(light, "divider")).toBeGreaterThan(stepOf(light, "line-strong"));
   });
 
   it("resize handles carry no transition or animation — a drag must track the pointer exactly", () => {
@@ -2213,10 +2324,45 @@ describe("Plan 24 W1: inline UI in the transcript", () => {
     expect(bodiesFor(":root[data-squircle] .composer-understrip").join(" ")).toContain("--sq-radius-top: 0px");
   });
 
+  it("the over-strip is the to-do strip's geometry, and centres where the under-strip is a row", () => {
+    // Same tab, same inset, same overlap — the prompter has ONE tab height at each end, not three.
+    const over = bodiesFor(".composer-overstrip").join(" ");
+    const todos = bodiesFor(".composer-todos").join(" ");
+    const under = bodiesFor(".composer-understrip").join(" ");
+    const margin = (body: string) => /margin:\s*(-?\d+(?:px)?) (-?\d+(?:px)?) (-?\d+(?:px)?)\s*[;}]/.exec(body);
+    const o = margin(over), t = margin(todos), u = margin(under);
+    expect(o, ".composer-overstrip needs a three-value margin").not.toBeNull();
+    // Three values, so the two side insets cannot differ: a strip of the right width that is off the
+    // card's centre is the failure a four-value shorthand allows and this one does not.
+    expect(o![2], "the over-strip's side inset is the other two strips'").toBe(u![2]);
+    expect(o![1], "the over-strip adds no gap above itself").toBe(t![1]);
+    expect(o![3], "the over-strip slides down behind the card, like the plan above it").toBe(t![3]);
+    expect(over).toContain("border-radius: var(--r-squircle) var(--r-squircle) 0 0");
+    expect(bodiesFor(":root[data-squircle] .composer-overstrip").join(" ")).toContain("--sq-radius-bottom: 0px");
+    // The centring IS the design difference from the row below, so it is pinned rather than left to
+    // a default: one object on a strip sits on the card's centre line.
+    expect(over).toContain("justify-content: center");
+    expect(under).not.toContain("justify-content: center");
+  });
+
+  it("stacked above the plan, the over-strip gives up its top corners rather than reaching up for them", () => {
+    // Two tabs on one fill read as one band, and the corners belong to whichever is on top. The join
+    // is drawn from the strip that arrives underneath — a rule reaching back into `.composer-todos`
+    // would be the newcomer redesigning the planner to fit itself, which is what the `.composer-todos
+    // + .composer` check below forbids for the card.
+    expect(bodiesFor(".composer-todos + .composer-overstrip").join(" ")).toContain("border-radius: 0");
+    // Under the gate the corner is the painter's, so the squaring has to be too.
+    expect(bodiesFor(":root[data-squircle] .composer-todos + .composer-overstrip").join(" ")).toContain("--sq-radius-top: 0px");
+    const reaching = RULES.flatMap((r) => r.selectors).filter((sel) => /\.composer-overstrip\s*[+~]\s*\.composer-todos\b/.test(sel));
+    expect(reaching).toEqual([]);
+  });
+
   it("the prompter's own corners are untouched — the strip attaching above it changes nothing", () => {
     // The strip is the only thing that squares an edge here. A rule reaching for `.composer` to make
     // the join work would be the strip redesigning the card to fit itself.
-    const reaching = RULES.flatMap((r) => r.selectors).filter((sel) => /\.composer-todos\s*[+~]\s*\.composer\b/.test(sel));
+    // `(?![-\w])` is the class name ENDING, not `\b`: a word boundary sits happily before the hyphen
+    // in `.composer-overstrip`, which is a different element and a join this rule does not govern.
+    const reaching = RULES.flatMap((r) => r.selectors).filter((sel) => /\.composer-todos\s*[+~]\s*\.composer(?![-\w])/.test(sel));
     expect(reaching).toEqual([]);
     expect(bodiesFor(".composer").join(" ")).toContain("border-radius: var(--r-squircle)");
   });

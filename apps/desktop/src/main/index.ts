@@ -363,7 +363,16 @@ ipcMain.handle("pick-files", async (): Promise<PickedFile[]> => {
 ipcMain.handle("pick-icon-image", async (): Promise<PickedFile | null> => {
   const r = await dialog.showOpenDialog({ properties: ["openFile"], filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg"] }] });
   if (r.canceled || r.filePaths.length === 0) return null;
-  const picked = (await describeFiles(r.filePaths))[0] ?? null;
+  return (await describeFiles(r.filePaths))[0] ?? null;
+});
+
+/** Compression by PATH, so the store can run it on every icon upload rather than only the ones that
+ *  came through the dialog above. A drop onto the picker hands the renderer a `File` whose path never
+ *  passed through `pick-icon-image`, which is how a 1.3MB headshot reached `iconAssets.upload` and was
+ *  refused by the 512KB cap instead of being downscaled. Best-effort: on any failure the caller uploads
+ *  the original and the server's cap is still the boundary. */
+ipcMain.handle("compress-icon-image", async (_e, path: unknown): Promise<PickedFile | null> => {
+  const picked = typeof path === "string" ? (await describeFiles([path]))[0] ?? null : null;
   if (!picked || !realmHome) return picked;
   try { return await compressIconIfNeeded(realmHome, picked); } catch { return picked; }
 });
@@ -639,7 +648,11 @@ ipcMain.handle("notify:badge", (_e, count: number) => { desktopNotifier.badge(Nu
  *  is the one channel that needs neither a protocol handler nor a CSP hole.
  *  `fileThumbnail` owns both producers and the choice between them; see attachments.ts. */
 const THUMB_PX = 96;
-ipcMain.handle("attachment-thumbnail", (_e, path: string): Promise<string | null> => fileThumbnail(realmHome, path, THUMB_PX));
+/** The Library's card: a picture that fills a ~200px-wide preview on a 2× display. Named sizes
+ *  rather than a pixel count from the renderer, so a page cannot ask for a poster per tile. */
+const CARD_PX = 400;
+ipcMain.handle("attachment-thumbnail", (_e, path: string, size?: unknown): Promise<string | null> =>
+  fileThumbnail(realmHome, path, size === "card" ? CARD_PX : THUMB_PX));
 
 /** Opening an attachment the app cannot draw itself. A PDF, a CSV, a `.ts` — `realm-media://` will
  *  never serve one and no element could render it, so the honest answer is the app the user already

@@ -2,8 +2,9 @@ import { AGENT_META, AGENT_NOTES, DEFAULT_MODEL_LABEL, formatContext, formatPric
 import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
+import { ScrollFades, ScrollFadesX } from "../../components/ScrollFades";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
-import { filterRows, filterVendor, flatten, groupRows, modelDetail, modelIdOn, modelVendor, vendorMeta, vendorsOf, type ModelRow } from "./model-rows";
+import { filterRows, flatten, groupRows, modelDetail, modelIdOn, type ModelRow } from "./model-rows";
 
 /** How many favourites get a ⌘-digit shortcut. Nine because ⌘0 is not a tenth — it is a different
  *  key users read as "zero", and a tenth badge nobody can press is worse than no badge. */
@@ -118,12 +119,16 @@ export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite,
           and after the harness chip's retirement this chip is the only place a session says which CLI
           is running it. The title spells the whole triple out for anyone who needs it in words. */}
       <button ref={btn} type="button" className="ghost-chip model-chip" aria-label="Model"
-        title={`${label} through ${AGENT_META[kind].label}${effort ? ` · ${formatEffort(effort)} effort` : ""}`}
+        title={`${label} through ${AGENT_META[kind].label}${effort ? ` · ${formatEffort(effort)} effort` : ""}${fast?.on ? " · fast mode" : ""}`}
         aria-haspopup="dialog" aria-expanded={open}
         onClick={() => setOpen((v) => !v)}>
         <Icon name={AGENT_META[kind].icon} size={14} colored className="chip-brand" />
         <span className="chip-label">{label}</span>
         {effort && <span className="chip-effort">{formatEffort(effort)}</span>}
+        {/* The speed the session asked for, in the same grey as the effort: both are "how", not
+            "who". Shown only where the harness has said the model can run it — the switch's own
+            rule — so the chip never claims a speed nothing could be serving. */}
+        {fast?.on && <span className="chip-effort chip-fast">Fast</span>}
         <Icon name="chevronDown" size={12} className="chip-caret" />
       </button>
       {open && <ModelPopover rows={rows} info={info} anchorRef={btn} onClose={() => setOpen(false)} onPick={onPick}
@@ -150,48 +155,50 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
      chip's puts the whole surface in the room that is actually there. */
   const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef, placement: "up", align: "right", onClose, exit: true });
   const [query, setQuery] = useState("");
+  /** The highlighted PLACEMENT (`row.id`, never `row.key`): a model listed under two harnesses is
+   *  two things to point at, and the highlight has to know which. */
   const [activeKey, setActiveKey] = useState<string | null>(null);
   /** The harness the user has chosen for a given row, when they have overridden the resolved one.
-   *  Keyed by row so switching route on one model does not silently re-route the next one you look
-   *  at — a route is a property of the choice being made, not a mode the picker is in. */
+   *  Keyed by placement so switching route on one model does not silently re-route the next one you
+   *  look at — a route is a property of the choice being made, not a mode the picker is in. */
   const [routes, setRoutes] = useState<Record<string, AgentKind>>({});
 
-  /** The provider narrowing, or null for all of them. See `modelVendor` for why a provider here is
-   *  the model's VENDOR and not the harness that runs it. */
-  const [vendor, setVendor] = useState<string | null>(null);
   const strip = useRef<HTMLDivElement>(null);
-  // The chips come from the UNFILTERED rows, so the strip is a fixed set that neither the query nor
-  // a previous pick can reflow out from under the pointer.
-  const vendors = useMemo(() => vendorsOf(rows, info), [rows, info]);
+  const list = useRef<HTMLDivElement>(null);
   const queried = useMemo(() => filterRows(rows, query), [rows, query]);
-  const groups = useMemo(() => groupRows(filterVendor(queried, vendor, info), { query }), [queried, vendor, info, query]);
+  const groups = useMemo(() => groupRows(queried, { query }), [queried, query]);
   const shown = useMemo(() => flatten(groups), [groups]);
-  // What each chip would leave, counted against the TEXT query alone — a chip has to be able to say
-  // "nothing of mine survives what you typed" without that answer depending on which chip is lit.
-  const vendorCounts = useMemo(() => {
-    const n = new Map<string, number>();
-    for (const r of queried) { const v = modelVendor(r, info); if (v) n.set(v, (n.get(v) ?? 0) + 1); }
-    return n;
-  }, [queried, info]);
-  /** `null` is "All", and it leads the strip — the way back is always the first thing in it. */
-  const chips = useMemo((): (string | null)[] => [null, ...vendors], [vendors]);
-  const chooseVendor = (v: string | null) => { setVendor(v); setActiveKey(null); };
-  // Roving focus, the radio-group way: the strip is ONE tab stop, so the arrows have to carry focus
-  // to whichever chip they just lit or the next press would come from a button nobody is on.
+  /** The separators the strip can reach, each with the mark its heading wears. A search flattens the
+   *  list into one unlabelled group, and a strip of one button pointing at the only thing on screen
+   *  is chrome — so it goes with the headings it names. */
+  const jumps = useMemo(() => groups.filter((g) => g.label).map((g) => ({ label: g.label, kind: g.kind })), [groups]);
+  /** Which button is the strip's single tab stop. A toolbar is ONE stop with ←/→ walking inside it,
+   *  the same bargain the list makes: the popover opens for typing, and neither strip may put a
+   *  dozen stops between the search field and the models. */
+  const [jumpAt, setJumpAt] = useState(0);
+  // Every jump is to a heading that is on screen already — the strip scrolls the list, it does not
+  // change what is in it. `block: "start"` puts the heading at the top of `.mp-list`, which is where
+  // someone who asked for "Codex" is looking. Optional-called because jsdom has no scrolling.
+  const jumpTo = (label: string, i: number) => {
+    setJumpAt(i);
+    document.getElementById(`mp-group-${label}`)?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+  };
+  // Roving focus, the toolbar way: the arrows carry focus to whichever button they just moved to, or
+  // the next press would come from a button nobody is on.
   useLayoutEffect(() => {
     const el = strip.current;
-    // Only when the strip already had focus: a mouse pick must not pull it out of the search field.
+    // Only when the strip already had focus: a mouse jump must not pull it out of the search field.
     if (!el || !el.contains(document.activeElement)) return;
-    el.querySelector<HTMLElement>('[aria-checked="true"]')?.focus();
-  }, [vendor]);
+    el.querySelector<HTMLElement>('[tabindex="0"]')?.focus();
+  }, [jumpAt]);
   // Bound on the strip and not on the popover, which is what lets these share a keystroke with the
   // ←/→ that walks the highlighted model's routes: that handler is the search field's, and these keys
-  // mean "next provider" only while focus is in here.
-  const onVendorKey = (e: KeyboardEvent) => {
-    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+  // mean "next separator" only while focus is in here.
+  const onJumpKey = (e: KeyboardEvent) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight" || jumps.length === 0) return;
     e.preventDefault();
-    const at = chips.indexOf(vendor);
-    chooseVendor(chips[(at + (e.key === "ArrowRight" ? 1 : chips.length - 1)) % chips.length] ?? null);
+    const next = (jumpAt + (e.key === "ArrowRight" ? 1 : jumps.length - 1)) % jumps.length;
+    jumpTo(jumps[next]!.label, next);
   };
   // Numbered by POSITION IN THE LIST, not by when they were starred: a badge column that reads
   // 1,2,3 down the page is legible, and one that reads 3,1,2 because that was the starring order is
@@ -202,19 +209,19 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
   // highlight, and an index would leave the highlight on whatever slid into that slot — the user
   // stars one model and finds another one selected. A key the list no longer holds (search narrowed
   // it away, or nothing is highlighted yet) resolves to the first row, so Enter never dead-ends.
-  const cur = Math.max(0, shown.findIndex((r) => r.key === activeKey));
+  const cur = Math.max(0, shown.findIndex((r) => r.id === activeKey));
   const activeRow = shown[cur];
   // The route a pick would take: the user's override where they made one, the row's own resolution
   // otherwise. Never a harness the row cannot reach — an override left behind by a probe that has
   // since changed the row's routes falls back rather than transmitting an id that harness rejects.
-  const route = activeRow && routes[activeRow.key] && activeRow.harnesses.includes(routes[activeRow.key]!)
-    ? routes[activeRow.key]! : activeRow?.kind;
+  const route = activeRow && routes[activeRow.id] && activeRow.harnesses.includes(routes[activeRow.id]!)
+    ? routes[activeRow.id]! : activeRow?.kind;
 
   // With live catalogs the list runs to 40+ rows inside `.mp-list`'s max-height, so arrowing past the
   // fold must bring the highlight along. `nearest` keeps this a no-op for rows already visible, which
   // also makes the mouseEnter -> setActiveKey path scroll-free.
   useEffect(() => {
-    if (activeRow) document.getElementById(`mp-${activeRow.key}`)?.scrollIntoView?.({ block: "nearest" });
+    if (activeRow) document.getElementById(`mp-${activeRow.id}`)?.scrollIntoView?.({ block: "nearest" });
   }, [activeRow]);
 
   const pick = (row: ModelRow | undefined, harness?: AgentKind) => {
@@ -228,15 +235,15 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "ArrowDown") { e.preventDefault(); setActiveKey(shown[Math.min(shown.length - 1, cur + 1)]?.key ?? null); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); setActiveKey(shown[Math.max(0, cur - 1)]?.key ?? null); }
+    if (e.key === "ArrowDown") { e.preventDefault(); setActiveKey(shown[Math.min(shown.length - 1, cur + 1)]?.id ?? null); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActiveKey(shown[Math.max(0, cur - 1)]?.id ?? null); }
     // ←/→ walk the highlighted model's routes, so a keyboard user can reach "the same model, through
     // Cursor" without leaving the search field. A row with one route ignores them.
     else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && activeRow && activeRow.harnesses.length > 1) {
       e.preventDefault();
       const at = activeRow.harnesses.indexOf(route ?? activeRow.kind);
       const next = activeRow.harnesses[(at + (e.key === "ArrowRight" ? 1 : activeRow.harnesses.length - 1)) % activeRow.harnesses.length]!;
-      setRoutes({ ...routes, [activeRow.key]: next });
+      setRoutes({ ...routes, [activeRow.id]: next });
     }
     // ⌥↩ stars the highlighted row. The star is a <button> that focus never enters (rows are
     // options, not stops), so without this a keyboard user could reach every model and favourite
@@ -260,49 +267,54 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
             makes. The placeholder names the harness axis too, because searching "cursor" is how you
             answer "what could I run through Cursor" now that the icon rail is gone. */}
         <input autoFocus type="text" value={query} placeholder="Search models and harnesses…" aria-label="Search models"
-          role="combobox" aria-expanded aria-controls="mp-list" aria-activedescendant={activeRow ? `mp-${activeRow.key}` : undefined}
+          role="combobox" aria-expanded aria-controls="mp-list" aria-activedescendant={activeRow ? `mp-${activeRow.id}` : undefined}
           onChange={(e) => { setQuery(e.target.value); setActiveKey(null); }} onKeyDown={onKeyDown} />
       </div>
-      {/* Under the search rather than beside the list, because it narrows what the search searches:
-          the two compose, and reading them top to bottom is the order the question is asked in. */}
-      {vendors.length > 0 && (
-        <div ref={strip} className="mp-vendors" role="radiogroup" aria-label="Provider" onKeyDown={onVendorKey}>
-          {chips.map((v) => {
-            // The chip wears the FAMILY's name and mark ("Claude", not "Anthropic"): the rows under it
-            // say Claude, the group separators say Claude, and the maker's corporate name was the
-            // one word on the strip nothing in the list repeated.
-            const meta = v === null ? null : vendorMeta(v);
-            return (
-              <button key={v ?? "all"} type="button" role="radio" aria-checked={v === vendor} className="mp-vendor"
-                // Dimmed, never disabled: a provider the query has emptied is still worth being able to
-                // land on, and the list says so in words when you do.
-                data-empty={v !== null && (vendorCounts.get(v) ?? 0) === 0 ? "" : undefined}
-                tabIndex={v === vendor ? 0 : -1} onClick={() => chooseVendor(v)}>
-                {meta?.icon && <Icon name={meta.icon} size={12} colored className="mp-vendor-mark" />}
-                {meta ? meta.label : "All"}
+      {/* The list's own separators, hoisted into a strip: every label here is a heading a few pixels
+          below, and the button is the way to it. Navigation, not a second filter — the search field
+          above already decides WHAT is in the list, and a strip that also removed rows would be two
+          controls that look alike and do different things, inches apart. Nothing is ever hidden by
+          pressing one, so nothing has to be put back. */}
+      {jumps.length > 1 && (
+        // The strip runs off both ends at this width, so it dissolves the way every other scroller in
+        // the app does — the same primitive, turned on its side. A hard cut mid-word at the edge is
+        // the one thing that would say "there is more" by looking broken.
+        <div className="mp-jumps-wrap">
+          <div ref={strip} className="mp-jumps" role="toolbar" aria-label="Jump to harness" aria-orientation="horizontal" onKeyDown={onJumpKey}>
+            {jumps.map((j, i) => (
+              // The mark, then the name: the heading this button scrolls to wears it, and so does
+              // every row under that heading. Without it the strip was the one run of harness names
+              // in the picker with nothing to recognise at a glance.
+              <button key={j.label} type="button" className="mp-jump" aria-label={`Jump to ${j.label}`}
+                tabIndex={i === jumpAt ? 0 : -1} onClick={() => jumpTo(j.label, i)}>
+                {j.kind && <Icon name={AGENT_META[j.kind].icon} size={12} colored className="mp-jump-mark" />}
+                {j.label}
               </button>
-            );
-          })}
+            ))}
+          </div>
+          <ScrollFadesX scroller={strip} />
         </div>
       )}
       <div className="mp-body">
         {/* The list dissolves at both ends rather than stopping at a hard edge. The band is short and
             the list keeps a matching pad, so a row under it is still reachable — a fade that ate its
-            own last row would be a fade you have to scroll past to click. */}
+            own last row would be a fade you have to scroll past to click. Through `ScrollFades`
+            because the bands are opacity-gated on there being something under them: written as bare
+            spans, as they were, neither one ever painted. */}
         <div className="mp-list-wrap">
-        <span className="edge-fade" data-edge="top" aria-hidden="true" />
-        <div className="mp-list" id="mp-list" role="listbox" aria-label="Models">
+        <ScrollFades scroller={list} />
+        <div ref={list} className="mp-list" id="mp-list" role="listbox" aria-label="Models">
           {groups.map((g) => (
-            <div key={g.label} className="mp-group" role="group" aria-label={g.label || "Results"}>
+            <div key={g.label} id={`mp-group-${g.label}`} className="mp-group" role="group" aria-label={g.label || "Results"}>
               {g.label && <div className="mp-group-label">{g.label}</div>}
               {g.rows.map((r) => {
                 const price = info[r.key];
                 return (
-                  <div key={r.key} id={`mp-${r.key}`} role="option" tabIndex={-1}
+                  <div key={r.id} id={`mp-${r.id}`} role="option" tabIndex={-1}
                     className="mp-row" aria-selected={r.selected} aria-disabled={r.blockedReason ? true : undefined}
                     data-active={r === activeRow || undefined} data-blocked={r.blockedReason ? "" : undefined}
-                    onMouseEnter={() => setActiveKey(r.key)}
-                    onClick={() => pick(r, routes[r.key])}>
+                    onMouseEnter={() => setActiveKey(r.id)}
+                    onClick={() => pick(r, routes[r.id])}>
                     <Icon name={r.icon} size={16} colored className="mp-row-mark" />
                     <span className="mp-row-text">
                       <span className="mp-row-name">
@@ -334,22 +346,14 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
               })}
             </div>
           ))}
-          {shown.length === 0 && (
-            <div className="mp-empty">
-              {/* Both constraints get named. With a provider lit, an empty list is as likely to be the
-                  chip's doing as the query's, and "no models match" over a full catalog reads as a bug. */}
-              {query.trim() && vendor ? `No ${vendorMeta(vendor).label} models match “${query.trim()}”.`
-                : vendor ? `No ${vendorMeta(vendor).label} model can run this session.`
-                : `No models match “${query.trim()}”.`}
-              {vendor && <button type="button" className="mp-empty-all" onClick={() => chooseVendor(null)}>Show every provider</button>}
-            </div>
-          )}
+          {/* One constraint left to name: the strip only scrolls, so an empty list is the query's
+              doing and nothing else. */}
+          {shown.length === 0 && <div className="mp-empty">{`No models match “${query.trim()}”.`}</div>}
         </div>
-        <span className="edge-fade" aria-hidden="true" />
         </div>
         {activeRow && route && (
           <ModelDetail row={activeRow} route={route} info={info}
-            onRoute={(h) => setRoutes({ ...routes, [activeRow.key]: h })}
+            onRoute={(h) => setRoutes({ ...routes, [activeRow.id]: h })}
             onUse={() => pick(activeRow, route)} effortItems={effortItems} overflow={overflow} fast={fast} onClose={close} />
         )}
       </div>

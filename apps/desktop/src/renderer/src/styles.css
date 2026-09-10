@@ -21,6 +21,28 @@
   src: url("./assets/fonts/JetBrainsMono-Medium.woff2") format("woff2");
   font-weight: var(--fw-medium); font-style: normal; font-display: swap;
 }
+/* Ligatures. JetBrains Mono draws `=>` `!==` `>=` as single glyphs through `calt`, which is on by default
+   — but Chromium switches ALL ligatures off for any run with non-zero tracking, and `body` carries
+   tembo's -0.1px (tokens.css). Measured live: `font-variant-ligatures: common-ligatures contextual`
+   CANNOT override that; only zeroing the tracking brings the glyphs back. Tracking is a sans-serif
+   correction anyway — a monospace face is drawn on a fixed advance and wants none of it — so every
+   surface that reads --font-mono gives it up. styles.test.ts keeps this list in step with that set.
+   The UI face is untouched: the bundled Inter has no `liga` at all (its GSUB carries calt/dlig only),
+   so there is no standard ligature to win there, and buying calt would cost the app its tracking. */
+.activity-call, .activity-duration, .activity-time, .agent-hint-text code, .agents-row-mono, .cli-job-output,
+.cmd-cwd, .cmd-line, .code-body, .code-gutter, .code-preview, .composer-attach-note .attach-note-files,
+.diff-counts, .diff-hunk-head, .diff-line, .diff-status, .documents-picker-head, .documents-raw,
+.documents-rich-surface code, .documents-source, .env-path, .failover-pos, .fd-line, .fd-path, .fd-stat,
+.file-preview-path, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
+.mcp-tool-name, .md code, .md-code-lang, .media-name, .media-time, .memory-doc, .mention-row-id,
+.msg-error pre, .pane-empty-path, .permission-details pre, .permission-tool code, .req-target,
+.sched-cron-input, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
+.sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-picker-row-id,
+.summary-fact .summary-row-name, .summary-file-path, .term-exit, .term-out, .terminal-hint-path,
+.theme-import textarea, .tool-body pre, .tool-stat, .tool-summary, .tool-well, .wt-path, button.md-path, kbd {
+  letter-spacing: normal;
+}
+
 /* Bundled UI face (Plan 9 W1): Inter, © The Inter Project Authors — SIL Open Font License 1.1
    (OFL-Inter.txt beside the files; unmodified variable originals from rsms.me/inter — bundling and
    redistribution with software are permitted, attribution kept here). One variable file per style
@@ -59,6 +81,8 @@
   /* borders: BUI hairlines are solid and crisp, not alpha — hairline = line now */
   --rl-line: var(--line);                        /* BUI --line */
   --rl-line-strong: var(--line-strong);          /* BUI --line-strong */
+  --rl-divider: var(--divider);                  /* BUI --divider: the pane seam, at rest */
+  --rl-divider-hover: var(--divider-hover);      /* BUI --divider-hover: and under the pointer */
   --rl-hairline: var(--line);                    /* BUI --line (the old 75% alpha derivation is gone) */
   /* translucent interaction fills: kept alpha (BUI's opaque --hover only reads on its own
      ground; these land on every surface incl. the translucent sidebar). Light overrides below. */
@@ -226,7 +250,7 @@ kbd { font: 11px var(--font-mono); }
 
    Only while the sidebar is there. Collapsed, nothing takes the column's place, so this same line
    would be a stray rule down the window's own left edge. */
-.app:not([data-sidebar-collapsed]) .main { border-left: var(--hairline-w) solid var(--rl-line-strong); }
+.app:not([data-sidebar-collapsed]) .main { border-left: var(--hairline-w) solid var(--rl-line); }
 /* The traffic-light band, as a real row rather than .sb-top's old 40px of top padding: the toggle
    sits at its right edge, mirroring the lights at its left. Height + .sb-top's new padding sum to
    the 48px of head room the sidebar had before, so nothing below it moves. */
@@ -283,6 +307,7 @@ kbd { font: 11px var(--font-mono); }
    to sit above a squircle. The ratio is the thing that transfers. */
 .search {
   --search-h: 34px;
+  margin-top: 10px;
   display: flex; align-items: center; gap: 8px; width: 100%; height: var(--search-h); padding: 0 12px;
   border-radius: calc(var(--search-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
   background: var(--search-ground); box-shadow: var(--shadow-card); border: none; color: var(--rl-text-faint);
@@ -333,7 +358,7 @@ kbd { font: 11px var(--font-mono); }
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top-h), #000 calc(100% - var(--fade-h)), transparent); }
 
 .space-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 0 8px; }
-.space-header h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; font-weight: var(--fw-title); min-width: 0; letter-spacing: -0.01em; }
+.space-header h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 17px; font-weight: var(--fw-title); min-width: 0; letter-spacing: -0.01em; }
 /* The one identity pixel (§5): the space colour lives here and in the strip glyph, nowhere else. */
 .space-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--rl-space); flex: none; }
 .space-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -423,7 +448,7 @@ kbd { font: 11px var(--font-mono); }
 .rename { width: 100%; height: 28px; padding: 0 8px; border-radius: var(--r-chip); border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
 .space-empty { font-size: 12px; color: var(--rl-text-faint); padding: 4px 5px 8px; } /* A-L6 */
 /* Ara refresh §5: the row sits at the sidebar's top now, first row under the search field. */
-.new-item { flex: none; }
+.new-item { flex: none; margin: 6px 0 8px; }
 .new-row { color: var(--rl-text-dim); width: 100%; border-radius: var(--r-ctl); corner-shape: squircle; min-height: 32px; }
 .new-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 
@@ -594,6 +619,10 @@ kbd { font: 11px var(--font-mono); }
    a hairline over the top of that says the same thing twice — which is the app-wide divider rule
    styles.test.ts pins. */
 .summary-section + .summary-section { margin-top: 10px; }
+/* A context fact is a row that is read, not pressed: same grid as the rows around it, no hover. */
+.summary-fact { cursor: default; }
+.summary-fact:hover { background: none; }
+.summary-fact .summary-row-name { font-family: var(--font-mono); font-size: 12px; }
 .summary-head { display: flex; align-items: center; gap: 6px; margin: 0; padding: 4px 8px 5px;
   font-size: 11px; font-weight: var(--fw-medium); color: var(--rl-text-faint); }
 .summary-count { margin-left: auto; font-variant-numeric: tabular-nums; }
@@ -780,24 +809,21 @@ kbd { font: 11px var(--font-mono); }
    toolbar bolted to the top of the popover rather than as one of its rows — and the search field
    directly above it sits on the surface, so the two adjacent pieces of chrome disagreed. The
    hairline under the search is what separates them; a second cue was one too many. */
-.mp-vendors { display: flex; align-items: center; gap: 4px; padding: 7px 12px;
+/* The scroller's offset parent, so the two side bands hang off the strip rather than travelling
+   with it — the same arrangement `.mp-list-wrap` makes for the list below. */
+.mp-jumps-wrap { position: relative; flex: none; --fade-w: 24px; --fade-ground: var(--surface); }
+.mp-jumps { display: flex; align-items: center; gap: 4px; padding: 7px 12px;
   overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
-.mp-vendor { flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 0; border-radius: var(--r-chip); corner-shape: squircle;
+/* Nothing here is ever "on". A jump button is a door, not a state — it leaves the list exactly as it
+   found it — so it carries hover and focus and no lit treatment at all. The strip that filtered used
+   to wear the effort segment's raised fill to say "in force"; keeping that would promise a mode the
+   button no longer has. */
+.mp-jump { flex: none; display: inline-flex; align-items: center; padding: 3px 9px; border: 0; border-radius: var(--r-chip); corner-shape: squircle;
   background: transparent; font: inherit; font-size: 11.5px; font-weight: var(--fw-medium); color: var(--rl-text-dim); white-space: nowrap; cursor: pointer; }
-/* The maker's mark leads the family name, at the inline rung — the same mark the rows below wear at
-   16, so a chip and the models it narrows to are recognisably the same brand. */
-.mp-vendor-mark { flex: none; }
-.mp-vendor:hover { color: var(--rl-text-bright); background: var(--hover); }
-/* The lit chip wears the same raised-on-surface treatment as a chosen effort level, because it is
-   the same kind of answer: one of a set, currently in force. */
-.mp-vendor[aria-checked="true"] { color: var(--rl-text-bright); background: var(--surface); box-shadow: var(--rl-edge); }
-/* Nothing of this vendor's survives what has been typed. Still lit enough to read and still
-   clickable — the list answers in words, and dropping the chip would move the rest under the pointer. */
-.mp-vendor[data-empty] { opacity: .4; }
-/* The way back out of an empty provider, in the one place the user is looking when they need it. */
-.mp-empty-all { display: block; margin: 9px auto 0; padding: 4px 11px; border: 0; border-radius: var(--r-ctl); corner-shape: squircle;
-  background: var(--hover); color: var(--rl-text-bright); font: inherit; font-size: 11.5px; cursor: pointer; }
-.mp-empty-all:hover { background: var(--hover-2); }
+.mp-jump:hover { color: var(--rl-text-bright); background: var(--hover); }
+/* The harness's mark leads its name, at the inline rung — the same mark the rows under that heading
+   wear at 16, so a jump and the block it lands on are recognisably the same thing. */
+.mp-jump-mark { flex: none; margin-right: 5px; }
 /* The two columns share ONE height, set here rather than on either child: the detail pane grows with
    whatever the highlighted model has to say, and a list that capped itself independently would leave
    the divider hanging in mid-air below it. `stretch` then makes the shorter column fill. */
@@ -882,19 +908,24 @@ kbd { font: 11px var(--font-mono); }
 .mp-harness-limits svg { flex: none; margin-top: 2px; }
 .mp-detail-foot { flex: none; margin-top: 10px; padding-top: 10px; border-top: var(--hairline-w) solid var(--rl-hairline);
   display: flex; flex-direction: column; gap: 7px; }
-.mp-seg-group { display: flex; align-items: center; gap: 9px; }
-.mp-seg-label { flex: none; width: 62px; font-size: 11px; font-weight: var(--fw-title); letter-spacing: .05em; text-transform: uppercase; color: var(--rl-text-faint); }
-/* Speed carries a note under its switch, so its row wraps where the others never do. The note is
-   indented to the label's own gutter so it reads as belonging to the control above it. */
-.mp-fast { flex-wrap: wrap; }
-.mp-fast-note { flex-basis: 100%; margin: 2px 0 0 71px; font-size: 11px; line-height: 1.4; color: var(--rl-text-faint); }
+/* The label sits ABOVE its control, not beside it. Alongside, the label ate a 71px gutter out of a
+   ~250px pane and the segments spent what was left on five columns — "Ask each time" and "Accept
+   edits" both broke onto two lines, which reads as a layout bug rather than as a choice. Stacked,
+   every segment gets the pane's full width and `.mp-seg-opt` can refuse to wrap outright. */
+.mp-seg-group { display: flex; flex-direction: column; align-items: stretch; gap: 4px; }
+.mp-seg-label { font-size: 11px; font-weight: var(--fw-title); letter-spacing: .05em; text-transform: uppercase; color: var(--rl-text-faint); }
+/* Speed carries a note under its switch; stacked, it needs no gutter to line up with. */
+.mp-fast-note { margin: 2px 0 0; font-size: 11px; line-height: 1.4; color: var(--rl-text-faint); }
 .mp-fast-note[data-tone="warning"] { color: var(--rl-warning); }
 /* One row, always: the old effort strip wrapped its five levels onto a second line at this width,
    which read as a layout bug. Equal columns keep them on one. */
 .mp-seg { flex: 1; min-width: 0; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px;
   padding: 2px; border-radius: var(--r-ctl); corner-shape: squircle; background: var(--hover); }
+/* One line per option, always. The grid gives every option the same column, so the widest label sets
+   the width and a wrap here would be silent — the segment would just get taller and nothing would
+   say why. */
 .mp-seg-opt { padding: 3px 4px; border-radius: calc(var(--r-ctl) - 2px); corner-shape: squircle; border: 0; background: none; font: inherit;
-  font-size: 11px; color: var(--rl-text-dim); cursor: pointer; transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+  font-size: 11px; color: var(--rl-text-dim); white-space: nowrap; cursor: pointer; transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .mp-seg-opt:hover { color: var(--rl-text-bright); }
 .mp-seg-opt[aria-pressed="true"] { background: var(--surface); color: var(--rl-text-bright); box-shadow: var(--rl-edge); }
 .mp-use { align-self: flex-end; margin-top: 3px; padding: 6px 13px; border: 0; --btn-h: 30px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
@@ -905,6 +936,11 @@ kbd { font: 11px var(--font-mono); }
 .icon-picker-trigger { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: var(--r-ctl);
   border: var(--hairline-w) solid var(--rl-line); background: var(--rl-panel); color: var(--rl-text-dim); align-self: flex-start; }
 .icon-picker-trigger:hover { color: var(--rl-text-bright); }
+/* A drop target while a file is over it: the accent ring every other drop target in the app wears. */
+.icon-picker-trigger[data-dropping] { border-color: var(--rl-accent); color: var(--rl-accent); }
+.ip-drop-hint { position: absolute; inset: 0; z-index: 1; display: grid; place-items: center; pointer-events: none;
+  background: color-mix(in srgb, var(--surface) 82%, transparent); font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
+.ip-hint { margin: 0; font-size: 11.5px; color: var(--rl-text-faint); }
 .icon-picker { z-index: 100; width: 320px; display: flex; flex-direction: column; overflow: hidden;
   background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); animation: rl-menu-in var(--dur-pop) var(--ease-out-strong); }
 .ip-tabs { display: flex; border-bottom: var(--hairline-w) solid var(--rl-hairline); }
@@ -1051,10 +1087,24 @@ button.panel-title:hover { background: var(--rl-hover); }
 .pane-empty-title { margin: 0; font-size: 17px; font-weight: var(--fw-title); color: var(--rl-text-bright); overflow-wrap: anywhere; }
 .pane-empty-path { margin: 0; font: 11.5px var(--font-mono); color: var(--rl-text-faint); overflow-wrap: anywhere; max-width: 420px; }
 .pane-empty-line { margin: 6px 0 12px; font-size: 13px; color: var(--rl-text-dim); text-wrap: balance; }
-/* The divider IS the resize handle: a 1px line whose real hit area is the ::after overhang. */
-.resize-handle { flex: 0 0 1px; background: var(--rl-line); position: relative; }
+/* The divider IS the resize handle: a 1px line whose real hit area is the ::after overhang.
+
+   Its OWN token, not a heavier --line, for the same reason the sidebar seam is its own case (see
+   `.main`'s border-left): this hairline does its work ALONE. Everywhere else a hairline accompanies
+   a change of surface and the change carries most of the boundary — but `.main` and every `.panel`
+   both paint --rl-panel, so between two panes there is no change of surface at all. On --rl-line the
+   whole separation measured 6.6% of full range, and panes read as one continuous wash; the reliable
+   way to see a divider was to put the pointer on it, which is the hover state doing the resting
+   state's job. Measured with `pane-divider-live.mjs`, which is the real check — a stylesheet cannot
+   tell you what 8% white comes to over the ground it lands on.
+
+   Not thicker: 1px is right, and a 2px seam between every pair of panes is the gridded look §3 spent
+   a pass removing. The fix is the alpha, not the width. */
+.resize-handle { flex: 0 0 1px; background: var(--rl-divider); position: relative; }
 .resize-handle::after { content: ""; position: absolute; inset: -3px; }
-.resize-handle:hover, .resize-handle[data-resize-handle-active] { background: var(--rl-line-strong); } /* §3: line-strong's job now */
+/* Still a step under the pointer — the divider is a control, and losing that feedback to raise the
+   resting line would trade one problem for another. */
+.resize-handle:hover, .resize-handle[data-resize-handle-active] { background: var(--rl-divider-hover); }
 
 /* Only ever rendered while a drag is in progress (see PaneHost.tsx), so it's always meant to catch
    pointer events — no idle "none" state to switch out of. */
@@ -1141,6 +1191,21 @@ button.panel-title:hover { background: var(--rl-hover); }
   background: color-mix(in srgb, var(--rl-warning) 8%, var(--surface)); color: var(--rl-warning); font-size: 12px; box-shadow: var(--shadow-raised); -webkit-app-region: no-drag; }
 .conn-banner button { color: inherit; font-weight: var(--fw-title); padding: 2px 6px; border-radius: var(--r-chip); }
 .conn-banner button:hover { background: var(--rl-hover); }
+/* A system notice ARRIVES; it does not blink into being. Both of these are drawn by something the
+   user did not ask for — the socket dropping, a call failing — and a cut straight to a finished bar
+   at the top of the window reads as a repaint fault rather than as news. They enter on the
+   transcript's own rung (§6: --dur-enter, ease-out-strong), each from the edge it hangs off, so the
+   motion says where the thing came from. Nothing fades OUT: the banner leaves because the condition
+   cleared, and holding it on screen to animate that would be the app lying for 180ms.
+   `translateX(-50%)` is the banner's own centring and has to be carried through every frame — a
+   keyframe that drops it slides the banner from the window's middle, which is the mutant here. */
+.conn-banner { animation: rl-notice-in var(--dur-enter) var(--ease-out-strong); }
+@keyframes rl-notice-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(-6px); }
+  to { opacity: 1; transform: translateX(-50%); }
+}
+.error-bar { animation: rl-bar-in var(--dur-enter) var(--ease-out-strong); }
+@keyframes rl-bar-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 
 /* ── Sheets / palette (raised) ─────────────────────────────────────────── */
 .sheet-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: var(--scrim); }
@@ -1432,7 +1497,8 @@ button.panel-title:hover { background: var(--rl-hover); }
  * is one edit rather than eight, and so every fade in the app is provably the same strength.
  *
  * `--fade-h` sets the band's depth and `--fade-ground` the colour it washes to; a caller that sits
- * on a different surface sets the latter. `data-edge="top"` mirrors it.
+ * on a different surface sets the latter. `data-edge="top"` mirrors it, and `data-edge="start"/"end"`
+ * turn it on its side for a strip that scrolls horizontally (depth from `--fade-w` there).
  *
  * The names `.transcript-fade`, `.transcript-fade-top` and `.diff-fade` are kept as aliases: they
  * are load-bearing in the panes and in the live checks, and renaming them would be churn with no
@@ -1473,6 +1539,36 @@ button.panel-title:hover { background: var(--rl-hover); }
   mask-image: linear-gradient(to top, transparent 30%, #000 78%);
   -webkit-mask-image: linear-gradient(to top, transparent 30%, #000 78%);
 }
+/* The same band on its SIDE, for a strip that scrolls sideways. `--fade-w` rather than `--fade-h`
+   because the depth being set is a width now; everything else — the two layers, the near/far blurs,
+   the wash to the ground — is the vertical band's, read from the same tokens. A horizontal scroller
+   that dissolved by some other recipe would be a second material for one idea. */
+.edge-fade[data-edge="start"], .edge-fade[data-edge="end"] {
+  inset: 0 auto 0 0; width: var(--fade-w, 28px); height: auto;
+}
+.edge-fade[data-edge="end"] { inset: 0 0 0 auto; }
+.edge-fade[data-edge="start"]::before {
+  backdrop-filter: blur(var(--fade-blur-near)); -webkit-backdrop-filter: blur(var(--fade-blur-near));
+  mask-image: linear-gradient(to left, transparent 0, #000 60%);
+  -webkit-mask-image: linear-gradient(to left, transparent 0, #000 60%);
+}
+.edge-fade[data-edge="start"]::after {
+  backdrop-filter: blur(var(--fade-blur-far)); -webkit-backdrop-filter: blur(var(--fade-blur-far));
+  background: linear-gradient(to left, transparent 0, var(--fade-ground) var(--fade-wash));
+  mask-image: linear-gradient(to left, transparent 30%, #000 78%);
+  -webkit-mask-image: linear-gradient(to left, transparent 30%, #000 78%);
+}
+.edge-fade[data-edge="end"]::before {
+  backdrop-filter: blur(var(--fade-blur-near)); -webkit-backdrop-filter: blur(var(--fade-blur-near));
+  mask-image: linear-gradient(to right, transparent 0, #000 60%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 60%);
+}
+.edge-fade[data-edge="end"]::after {
+  backdrop-filter: blur(var(--fade-blur-far)); -webkit-backdrop-filter: blur(var(--fade-blur-far));
+  background: linear-gradient(to right, transparent 0, var(--fade-ground) var(--fade-wash));
+  mask-image: linear-gradient(to right, transparent 30%, #000 78%);
+  -webkit-mask-image: linear-gradient(to right, transparent 30%, #000 78%);
+}
 
 .session-pane[data-composer="hero"] .transcript-fade,
 .session-pane[data-composer="hero"] .transcript-fade-top { display: none; }
@@ -1497,9 +1593,13 @@ button.panel-title:hover { background: var(--rl-hover); }
    No ring: the tint and the accent ink already separate the chip from the prose around it, and
    surface contrast comes before a border. At 0.88em inside a sentence the extra hairline was
    reading as a rendered box around every skill name rather than as a highlight of one word. */
+/* A chip in the log is an icon and a name in the accent, INLINE with the prose — no fill, no box.
+   The pill it wore read as a control dropped into a sentence; a name coloured like a link and led by
+   the icon that says what kind of thing it is reads as part of the sentence, which it is. Weight
+   does the rest of the separating (the mirror cannot weight, so there the icon and colour carry it). */
 .msg-chip { display: inline-flex; align-items: center; vertical-align: baseline; line-height: 1;
-  padding: 2px 6px; border-radius: var(--r-ctl); corner-shape: squircle; font-size: 0.88em;
-  color: var(--rl-accent); background: color-mix(in srgb, var(--rl-accent) 14%, transparent); }
+  color: var(--rl-accent); font-weight: var(--fw-label); text-decoration: none; }
+a.msg-chip:hover { text-decoration: underline; text-underline-offset: 2px; }
 /* No `[data-kind]` variant. A picked element and a skill mention are the same chip in the composer —
    told apart by what they SAY — and they have to stay the same chip a moment later, in the log. The
    element chip had `--inset` under bright ink, which is one step off the bubble's own `raised` fill:
@@ -1609,7 +1709,10 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .md-code-lang { font: 11px var(--font-mono); color: var(--ink-3); }
 /* 18px in, matching the head, because a 36px corner eats the first character of a line set at 12. */
 .md-code pre { margin: 0; padding: 4px 18px 14px; border-radius: 0; background: none; font-size: 12.5px; line-height: 1.65; color: var(--syn-fg); }
-.md a { color: var(--rl-accent); text-decoration: underline; text-underline-offset: 2px; } /* Ara refresh §4: ink underline, no hue */
+/* A link is colour and weight, no underline: the accent already says "this goes somewhere", and an
+   underline under every link in a paragraph of prose is a paragraph of rules. Hover restores it. */
+.md a { color: var(--rl-accent); font-weight: var(--fw-label); text-decoration: none; }
+.md a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .md blockquote { margin: 0 0 8px; padding: 2px 10px; border-left: 3px solid var(--rl-line); color: var(--rl-text-dim); }
 /* A 1px low-alpha outline keeps an image's edge legible on any surface it lands on. Pure white in
    dark mode / pure black in light — a tinted neutral would pick up the ground and read as dirt. */
@@ -2068,7 +2171,13 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 @media (prefers-reduced-motion: reduce) {
   .composer-dock { transition: none; } /* the global kill also covers this; explicit for clarity */
 }
-.hero-greeting { position: absolute; bottom: calc(100% + 20px); left: 0; right: 0; text-align: center;
+/* Two lines' worth of box, always: the line wraps as soon as the pane is narrow (or the space and
+   the person both have long names), and a box that grew with it would move the greeting every time
+   a session opened in a thinner window. Fixed height, contents centred in it, so one line and two
+   sit in the same place and neither the card below nor the line above shifts. */
+.hero-greeting { position: absolute; bottom: calc(100% + 20px); left: 0; right: 0;
+  display: flex; align-items: center; justify-content: center;
+  line-height: 1.15; height: 2.3em; text-align: center;
   font-size: 30px; font-weight: var(--fw-title); letter-spacing: -0.02em; color: var(--rl-text-bright); text-wrap: balance; }
 .hero-greeting em { font-style: normal; }
 /* The greeting nods when its emphasised word is clicked (Composer.tsx sets the mark). Pivoting on
@@ -2245,7 +2354,8 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* The palette (§4). Links wear the transcript's own link treatment, so a URL looks the same being
    typed as it will once sent. A resolving @mention is filled, not just tinted — it is the one run
    here that is a THING (a skill that will be handed over) rather than formatting. */
-.ch-link { color: var(--rl-accent); text-decoration: underline; text-underline-offset: 2px; }
+/* Colour only: weight would change the glyph widths under the caret, which the mirror may not do. */
+.ch-link { color: var(--rl-accent); }
 /* Chip runs in the mirror. Everything a chip wants — padding, a border, a smaller face — is a metric
    change, and the caret under this layer is the textarea's. `box-shadow` with a spread and no offset
    is the whole trick: it paints a pill OUTSIDE the run's box without the run occupying a pixel more
@@ -2255,15 +2365,16 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    lands `--r-chip` out from the text while the fill under it is that radius less the spread. At 3px
    the outline came out at 5 on a 23px chip, which is the corner of an inline code mark; a chip the
    user pointed at in a browser pane should read as a control, not as a snippet. */
-.ch-mention { color: var(--rl-accent); background: color-mix(in srgb, var(--rl-accent) 14%, transparent); border-radius: calc(var(--r-chip) - 2px);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 14%, transparent); }
+/* No fill, no ring: a chip is its icon and its accent ink, inline with the draft (see `.msg-chip`).
+   The sigil the icon hangs off goes transparent so the token keeps its width and loses its brackets. */
+.ch-mention { color: var(--rl-accent); }
+.ch-mention .chip-sigil, .ch-element .chip-sigil { color: transparent; }
 /* A picked element wears the SAME chip as a skill mention. It used to be a grey inset box behind a
    hairline, which in a prompter that already renders inline code that way read as code rather than
    as a chip — and it is not code, it is a thing the user pointed at and is about to send. The two
    are told apart by what they SAY (@[button#submit] against @realm:skill), which is the difference
    that matters, rather than by two chip treatments a reader has to learn. */
-.ch-element { color: var(--rl-accent); background: color-mix(in srgb, var(--rl-accent) 14%, transparent); border-radius: calc(var(--r-chip) - 2px);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 14%, transparent); }
+.ch-element { color: var(--rl-accent); }
 /* Declared but no longer resolvable: the `@` goes as plain text. Same warning tone as the note the
    card already shows under it, so the two read as one statement about the same token. */
 .ch-mention-stale { color: var(--rl-warning); background: color-mix(in srgb, var(--rl-warning) 12%, transparent); border-radius: 3px; text-decoration: underline dotted; text-underline-offset: 2px; }
@@ -2271,9 +2382,41 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    is a target" — a border, padding, a cursor over a hit area — is either a metric this layer may not
    have or unreachable from a layer that takes no pointer events, so the affordance is a lift in the
    tint the chip already wears. `data-hot` is set by Composer.tsx from the textarea above. */
-.ch-mention[data-hot] { background: color-mix(in srgb, var(--rl-accent) 26%, transparent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 26%, transparent); }
-.ch-element[data-hot] { background: color-mix(in srgb, var(--rl-accent) 26%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 26%, transparent); }
+.ch-mention[data-hot], .ch-element[data-hot] { text-decoration: underline; text-underline-offset: 2px; }
+/* A link chip is the SAME chip (same fill, same ink — the rule above) wearing its app's mark over
+   the `@[` that opens the token. The delimiters keep their width and lose their ink, so the mirror
+   still measures exactly what the textarea holds (the one rule a painted chip may not break) while
+   the eye reads a mark and a name. The mark hangs off the sigil, an inline box the two hidden glyphs
+   already occupy (~17px at 15px type, room for a 14px mark) — so the chip run itself carries no
+   metric, which is what the test above holds it to. */
+.chip-sigil { position: relative; display: inline-block; }
+/* Its own ink: the sigil it hangs off is transparent, and a mark that inherited that would be too. */
+.chip-sigil > .chip-mark { position: absolute; left: 1px; top: 50%; translate: 0 -50%; pointer-events: none; color: var(--rl-accent); }
+/* The same chip in the log wears the same mark; the fill is `.msg-chip`'s, unchanged. */
+.msg-chip-mark { flex: none; margin-right: 4px; }
+
+/* ── The Connections marketplace: apps a space connects to in one click ──
+   Cards on the page ground, each a mark in a well, a name, a line, and one action. The well is the
+   card's one step of depth; the card itself sits on the page like the server rows under it, so the
+   two lists read as one page rather than a shop above a settings panel. */
+.market { display: flex; flex-direction: column; gap: 10px; margin-bottom: 22px; }
+.market-lede { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim); max-width: 60ch; }
+.market-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.market-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; min-height: 150px;
+  background: var(--rl-frame); border-radius: var(--r-panel); corner-shape: squircle; }
+/* The well is a near-white tile in BOTH themes: brand marks are drawn for white ground, and Slack's
+   aubergine or Sentry's violet on a dark surface is a mark you cannot see. A tile is the one place
+   a colour that is not Realm's belongs, and it is 40px. */
+.market-mark { display: grid; place-items: center; width: 40px; height: 40px; border-radius: calc(40px * var(--sq-ratio-ctl)); corner-shape: squircle;
+  background: oklch(0.985 0.002 250); color: oklch(0.25 0.01 260); box-shadow: 0 0 0 1px oklch(0 0 0 / 0.08); }
+.market-text { display: flex; flex-direction: column; gap: 3px; flex: 1; }
+.market-name { font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
+.market-blurb { font-size: 11.5px; line-height: 1.45; color: var(--rl-text-dim); }
+.market-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.market-state { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--rl-success); }
+.market-docs { font-size: 11.5px; color: var(--rl-text-faint); text-decoration: none; }
+.market-docs:hover { color: var(--rl-text-dim); text-decoration: underline; text-underline-offset: 2px; }
+.market-card[data-state="connected"] .market-mark { box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-success) 45%, transparent); }
 /* No pill of its own at rest and none on hover: a run that grew a ring only under the pointer would
    read as an element chip, and this one is going out as plain text. */
 .ch-mention-stale[data-hot] { background: color-mix(in srgb, var(--rl-warning) 24%, transparent); }
@@ -2345,28 +2488,48 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    declaration is inert in Chromium 138 like every other one in this file, and the day Electron
    ships 139 the CLIP becomes a real superellipse and the whole group upgrades at once.
 
-   A hairline ring, always. These are GHOST chips: they rest transparent, and a permission of
-   "Accept edits" beside a mode of "Build" — the ordinary case, not an edge one — put two labels on
-   the card with no shape at all under them. Tinted, the fill said "control" and the ring says
-   nothing new; untinted, the ring is the only thing that does. Drawn as an `outline` at a NEGATIVE
-   offset rather than a border, for two reasons: a border would add its width to a group whose
-   height is its children's, pushing it out of line with the "+" beside it, and an outline drawn
-   outward would be clipped by `.composer-opts`, which hides its own overflow to measure the row.
+   A hairline ring on each UNTINTED segment. These are GHOST chips: they rest transparent, and a
+   permission of "Accept edits" beside a mode of "Build" — the ordinary case, not an edge one — put
+   two labels on the card with no shape at all under them. Tinted, the fill says "control" and a ring
+   says nothing new, so Full access, Ask and Plan wear none on their side; untinted, the ring is the
+   only thing that does.
 
-   The divider follows from the ring rather than being a second decision. With the group visible,
-   two untinted segments read as ONE button; where a tint already changes colour at the seam the
-   hairline lands exactly on that change and costs nothing. So it is unconditional, like the ring. */
+   The ring belongs to the SEGMENT, drawn on an overlay (`::after`) rather than as an outline on the
+   group. The group's inward outline was the corner problem: a half-pixel stroke traced inside a
+   half-pixel-offset radius, over a clip anti-aliasing the same curve, and every corner came out a
+   thick dark arc. A border on an overlay with the group's own radius is one crisp stroke on one
+   curve, and it costs the group no height — an overlay adds nothing to the box, which keeps the
+   group level with the "+" beside it, and it cannot be clipped by `.composer-opts` the way an
+   outward outline was.
+
+   The divider follows from the ring rather than being a second decision: it is the leading
+   segment's own right edge. Two untinted segments therefore share one hairline at the seam (the
+   trailing ring drops its left edge, or the seam would be twice the weight of the rest), and where
+   a tint already changes colour at the seam the untinted neighbour's edge lands exactly on that
+   change. */
 .chip-group {
   display: inline-flex; align-items: center; min-width: 0;
   border-radius: var(--r-chip); corner-shape: squircle; overflow: hidden;
-  outline: var(--hairline-w) solid var(--rl-line); outline-offset: calc(-1 * var(--hairline-w));
 }
+.chip-group > .ghost-chip { position: relative; }
+.chip-group > .ghost-chip::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-chip);
+}
+/* The corners the ring rounds are the group's: outer ones only, so two segments meet square. */
+.chip-group > .ghost-chip:not(:only-child):first-child::after { border-radius: var(--r-chip) 0 0 var(--r-chip); }
+.chip-group > .ghost-chip:not(:only-child):last-child::after { border-radius: 0 var(--r-chip) var(--r-chip) 0; }
+.chip-group > .ghost-chip + .ghost-chip::after { border-left: 0; }
+/* No ring on a tinted side. The fill already draws the control there, and a hairline over a
+   red or orange wash reads as a second, disagreeing edge. Mode's tint is set by the composer's
+   `data-mode` (see the rules above), so the ring follows the same selectors. */
+.chip-group > .ghost-chip[data-warning]::after,
+.composer[data-mode="ask"] .chip-group > .ghost-chip[aria-label="Mode"]::after,
+.composer[data-mode="plan"] .chip-group > .ghost-chip[aria-label="Mode"]::after { display: none; }
 /* A lone segment takes the group's corner rather than its own. Its painted superellipse at 13.44px
    hugs the corner harder than a 10px circular clip does, so the two curves would cross and leave a
    corner that is neither — and the group is the shape on screen, so the group's number wins. */
 .chip-group > .ghost-chip:only-child { border-radius: var(--r-chip); }
-/* Inset, so it draws above each segment's fill — painted or not — and below its label. */
-.chip-group > .ghost-chip + .ghost-chip { box-shadow: inset var(--hairline-w) 0 0 var(--rl-line); }
 /* The focus ring comes INSIDE, because the group hides its overflow. §"focus is always visible"
    was being broken by the grouping itself: the global `:focus-visible` sits 1px outside the
    control, an ancestor's `overflow: hidden` clips a descendant's outline, and a focused segment was
@@ -2461,6 +2624,39 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    running off the end of the list must not carry the scroll into the log behind it. */
 .composer-todos .todo-list { margin-top: 8px; max-height: 248px; overflow-y: auto; overscroll-behavior: contain; }
 
+/* ── Over-strip: the branch group, on a tab of its own above the card ─────────────────
+   The to-do strip's geometry exactly — same frame fill, same 10px side inset, the same 10px of
+   overlap sliding it behind the card, the same radii — because it is the same kind of object: a
+   narrower tab attached to the prompter's top edge. 6px of strip shows above the chip and 16 − 10
+   below it, which is the under-strip's 6/6 around a 22px chip, so the prompter has one tab height
+   rather than a third size.
+
+   It CENTRES where the under-strip is a row, and that is the difference between them. The row below
+   has a yielding order to arbitrate (machine, workspace, meter) and reads left to right; this holds
+   one object, so there is nothing to order and it sits on the card's centre line.
+
+   Nothing in it is selectable, for the under-strip's reason: dragging across it to reach the diff
+   would leave the strip highlighted behind the pane that just opened, and the one string a reader
+   might want to copy — the branch name — is on the button's own tooltip. */
+.composer-overstrip { display: flex; align-items: center; justify-content: center; gap: 2px; min-width: 0;
+  margin: 0 10px -10px; padding: 6px 10px 16px; background: var(--rl-frame);
+  user-select: none; -webkit-user-select: none;
+  border-radius: var(--r-squircle) var(--r-squircle) 0 0; corner-shape: squircle; }
+.composer-overstrip .ghost-chip { height: 22px; font-size: 11px; gap: 5px; color: var(--rl-text-faint); max-width: 260px; }
+.composer-overstrip .ghost-chip:hover:not([data-static]) { color: var(--rl-text-dim); }
+/* Alone on the strip, so `--branch-reserved` is only what sits BESIDE the name — the two number
+   chips, the gaps, and the strip's own inset — and the rest of the pane is the branch's, up to the
+   240px cap the chip carries. Restated at the two narrow steps because this selector outranks the
+   bare `.composer-git` ones that drop those chips: a reserve that still counts a chip the pane has
+   already hidden is a name cut short for room nobody is using. */
+.composer-overstrip .composer-git { --branch-reserved: 200px; }
+@container (max-width: 520px) { .composer-overstrip .composer-git { --branch-reserved: 120px; } }
+@container (max-width: 460px) { .composer-overstrip .composer-git { --branch-reserved: 48px; } }
+/* Two tabs, one band. With a plan above it the strips are stacked on the same fill, so the corners
+   belong to whichever is on top and this one goes square — drawn from the strip that arrives
+   underneath, never by reaching up into the planner to make room for itself. */
+.composer-todos + .composer-overstrip { border-radius: 0; }
+
 /* ── Under-strip (§4 + Plan 12 W1): machine label + workspace selector, one size quieter than the
    control row (11px on faint vs 12px on dim), on a frame fill sliding out from beneath the card
    (z-index 1 on .composer keeps the card on top). Drawn unconditionally — where a session runs is
@@ -2486,25 +2682,18 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   border-radius: 0 0 var(--r-squircle) var(--r-squircle); corner-shape: squircle; }
 .composer-understrip .ghost-chip { height: 22px; font-size: 11px; gap: 5px; color: var(--rl-text-faint); max-width: 260px; }
 .composer-understrip .ghost-chip:hover:not([data-static]) { color: var(--rl-text-dim); }
-/* The branch group in its new home, and the ladder by which the strip gives way.
-   `--branch-reserved` is everything of fixed width the strip must fit before the branch name gets
-   any: the machine chip, the workspace chip, the meter at the end, and the strip's own padding. It
-   is far larger than the number the branch chip carries on the control row (232) and that is the
-   whole point — at 232 the branch took its 240px cap and the WORKSPACE chip absorbed the shortfall,
-   ellipsizing a four-letter space name down to "L.". A branch is the long string on this row, it is
-   the one with a tooltip, and it is the one that should yield. Read off the sweep in
-   apps/desktop/scripts/composer-bar-live.mjs, which fails on any chip the strip has clipped. */
-.composer-understrip .composer-git { --branch-reserved: 348px; }
-/* …and the two things the strip drops before the branch name reaches its floor. The machine label
-   goes first: Realm runs agents on this Mac and no other, so at a narrow width the laptop glyph
-   says everything the name does, and the name is on the tooltip. Then the glyph itself. */
+/* What the strip drops as it narrows. The machine label goes first: Realm runs agents on this Mac
+   and no other, so at a narrow width the laptop glyph says everything the name does, and the name
+   is on the tooltip. Then the glyph itself.
+   There is no `--branch-reserved` here any more — the branch group has the over-strip above the
+   card, and with it went the only string on this row whose length was user data. What is left is a
+   machine name, a space name and a meter, so the yielding order is these two steps and nothing has
+   to be reserved against a name that is no longer beside it. */
 @container (max-width: 520px) {
   .composer-understrip .strip-machine .chip-label { display: none; }
-  .composer-understrip .composer-git { --branch-reserved: 260px; }
 }
 @container (max-width: 420px) {
   .composer-understrip .strip-machine { display: none; }
-  .composer-understrip .composer-git { --branch-reserved: 212px; }
 }
 /* The strip's trailing cluster: the run label, then the context meter pinned to the end. One flex
    child rather than two `margin-left: auto` siblings, so "Thinking…" arriving mid-stream slides in
@@ -2610,6 +2799,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 :root[data-squircle] .composer,
 :root[data-squircle] .composer-drop-hint,
 :root[data-squircle] .composer-todos,
+:root[data-squircle] .composer-overstrip,
 :root[data-squircle] .composer-understrip,
 :root[data-squircle] .install-card,
 :root[data-squircle] .commit-card {
@@ -2804,6 +2994,11 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* The to-do strip's bottom edge is hidden beneath the card, so only its top corners are drawn — the
    under-strip's rule with the two radii swapped, and ringless for the same reason it is. */
 :root[data-squircle] .composer-todos { --sq-fill: var(--rl-frame); --sq-radius-bottom: 0px; }
+/* The over-strip is the same tab and takes the same rule; with a plan above it, it is the lower
+   half of one band and gives up its top corners too (the fallback's `border-radius: 0` is beside
+   the layout rule — under the gate the corner is the painter's, so the swap has to be as well). */
+:root[data-squircle] .composer-overstrip { --sq-fill: var(--rl-frame); --sq-radius-bottom: 0px; }
+:root[data-squircle] .composer-todos + .composer-overstrip { --sq-radius-top: 0px; }
 /* The under-strip's top edge is hidden beneath the card, so only its bottom corners are drawn. */
 :root[data-squircle] .composer-understrip {
   --sq-fill: var(--rl-frame); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
@@ -2817,8 +3012,33 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* ── First-run onboarding (W4): the whole pane, one centered sheet, nothing behind it ── */
 .onboarding-stage { flex: 1; display: grid; place-items: center; padding: 24px; overflow: auto; }
 /* Timing now comes from the shared `.sheet` rule (§6: 240ms) — W5 unified it, so this is geometry only. */
-.sheet.onboarding { width: min(420px, 100%); }
-.onboarding-lead { margin: 0 0 4px; font-size: 12.5px; line-height: 1.5; }
+.sheet.onboarding { width: min(440px, 100%); display: flex; flex-direction: column; }
+/* The form is the sheet's flex column: head, a body that scrolls, and a foot that never does. The
+   sheet used to scroll as one piece, which put the name field and the button under twelve rows of
+   agents — the decision below the fold of the screen that exists to make it. */
+.onboarding-form { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.onboarding-body { display: flex; flex-direction: column; gap: 14px; overflow: auto; min-height: 0; flex: 1; }
+.onboarding-lead { margin: 0; font-size: 12.5px; line-height: 1.5; }
+.onboarding-note { margin: 0; font-size: 11.5px; line-height: 1.45; color: var(--rl-text-faint); }
+/* Denser than the settings idiom the row comes from: eight found agents is an ordinary machine,
+   and at the settings pitch that is most of a window before the folder and the name. */
+.onboarding .cli-row { padding: 6px 10px; margin-top: 2px; }
+.onboarding-optional { margin-left: 4px; color: var(--rl-text-faint); }
+/* The fold: one quiet line for the agents the probe did not find. A text button, not a row, so it
+   cannot be mistaken for a thirteenth agent. */
+.onboarding-more { display: inline-flex; align-items: center; gap: 5px; margin-top: 6px; padding: 4px 6px; font-size: 11.5px;
+  color: var(--rl-text-dim); border-radius: var(--r-chip); corner-shape: squircle; }
+.onboarding-more:hover { color: var(--rl-text-bright); background: var(--rl-hover); }
+.onboarding-more svg { transition: rotate var(--dur-hover) ease; }
+.onboarding-more[aria-expanded="true"] svg { rotate: 180deg; }
+/* The folder step: a control and its hint on one line, the whole thing a drop target. Dashed only
+   while a drag is over it — a dashed box at rest is an empty state asking to be filled, and this one
+   is optional. */
+.onboarding-folder { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 4px 6px 4px 4px; border-radius: var(--r-ctl); corner-shape: squircle;
+  outline: var(--hairline-w) dashed transparent; outline-offset: -1px; }
+.onboarding-folder[data-dropping] { outline-color: var(--rl-accent); background: var(--accent-tint); }
+.onboarding-folder-path { flex: 1; min-width: 0; font-size: 12.5px; color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.onboarding-folder > .icon-btn { flex: none; }
 .cli-field { border: none; margin: 0; padding: 0; min-width: 0; }
 .cli-field legend { padding: 0; font-size: 12px; color: var(--rl-text-dim); }
 .cli-row { display: flex; align-items: center; gap: 8px; margin-top: 5px; padding: 8px 10px; border-radius: var(--r-ctl); corner-shape: squircle;
@@ -2877,7 +3097,7 @@ select { appearance: none; padding-right: 22px;
 :where(
   /* chrome and navigation. `.space-body` is NOT here — see the carve-out below. */
   .menu, .mention-picker, .skill-picker-list, .mp-list, .mp-detail-body, .ip-grid,
-  .palette-list, .spaces-list, .sheet, .onboarding-stage, .page-content, .summary-scroll, .ql-view,
+  .palette-list, .spaces-list, .sheet, .onboarding-stage, .onboarding-body, .page-content, .summary-scroll, .ql-view,
   /* the transcript and everything it draws inside itself */
   .transcript, .md pre, .msg-error pre, .tool-well, .tool-body pre, .permission-details pre,
   .code-block, .code-body, .fd-file, .fd-body, .term-out, .md-scroll, .math-display,
@@ -3039,7 +3259,7 @@ select { appearance: none; padding-right: 22px;
    are hundreds of elements per window against the handful of singleton surfaces it draws now. The
    radii above are what make the difference visible in the meantime. */
 .btn, .icon-btn, .ghost-chip, .composer-chip, .msg-action, .tool-copy,
-.item-row, .new-row, .dest-row, .seg-opt, .mp-seg-opt, .mp-vendor, .mp-use,
+.item-row, .new-row, .dest-row, .seg-opt, .mp-seg-opt, .mp-jump, .mp-use,
 .permission-option, .question-option, .question-skip, .palette-opt, .menu [role^="menuitem"],
 /* `.switch` is deliberately NOT here. A squircle is a corner treatment, and a pill has no corners —
    applying one to `border-radius: 999px` clamps the superellipse to half the box and turns the
@@ -3454,6 +3674,11 @@ select { appearance: none; padding-right: 22px;
 /* The control side takes what it needs; the label takes the rest. Left to the row's free space a
    slider or a select pair would resize every time the label beside it changed length. */
 .settings-row > .font-row, .settings-row > .slider-row { flex: none; }
+/* A text destination on a row: as wide as a URL needs, no wider than the row's control column. */
+.settings-row > .settings-text { flex: none; width: min(280px, 45%); height: 28px; padding: 0 9px; font: inherit; font-size: 12.5px;
+  border-radius: var(--r-ctl); corner-shape: squircle; border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); }
+.settings-row > .settings-text::placeholder { color: var(--rl-text-faint); }
+.settings-row > .settings-text:focus { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
 .settings-row > .settings-tabs { flex: none; margin: 0; }
 .settings-row-main { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
 .settings-row-name { font-size: 13.5px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
@@ -3648,8 +3873,14 @@ select { appearance: none; padding-right: 22px;
    fully reachable — an item you have to scroll past to click is worse than a hard edge. */
 .page-scroll { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex;
   --fade-h: 34px; --fade-top-h: 24px; }
-.page-scroll > .edge-fade { inset: auto 0 0 0; }
-.page-scroll > .edge-fade[data-edge="top"] { inset: 0 0 auto 0; }
+/* The bands reach the column's CLIP edge, not `.page-scroll`'s box. The column bleeds 4px past the
+   box on three sides (the focus-ring room above), so a band flush with the box left a 4px strip
+   at the top where cards scrolled past sharp and unwashed, right under the page title — seen in
+   the running Library as a sliver of grid bleeding through. `--page-bleed` is the one number both
+   the column and the bands read. */
+.page-scroll { --page-bleed: 4px; }
+.page-scroll > .edge-fade { inset: auto calc(-1 * var(--page-bleed)) 0; }
+.page-scroll > .edge-fade[data-edge="top"] { inset: calc(-1 * var(--page-bleed)) calc(-1 * var(--page-bleed)) auto; }
 /* Shown only when there is something under them (`ScrollFades`). An always-on band blurs the first
    line of a list nobody has scrolled, which reads as a rendering fault rather than as depth — the
    heading arrives smudged. The band says "there is more this way", so it appears when that is true. */
@@ -3664,7 +3895,7 @@ select { appearance: none; padding-right: 22px;
    with a z-index above the band's 1 sorts against the band in the same stacking context. */
 .page-filters, .skills-filter-row { position: relative; z-index: 2; }
 .page-content { flex: 1; min-width: 0; min-height: 0; max-width: 720px; overflow-y: auto;
-  box-sizing: content-box; padding: 4px 4px 34px; margin: -4px -4px 0;
+  box-sizing: content-box; padding: var(--page-bleed) var(--page-bleed) 34px; margin: calc(-1 * var(--page-bleed)) calc(-1 * var(--page-bleed)) 0;
   scroll-padding: 24px 0 34px; }
 /* The Tasks lens is the one tab that is a LIST BESIDE A PANEL rather than a single column of form,
    so it opts out of the 720px measure the other tabs are set in. Nothing else does. */
@@ -3744,6 +3975,39 @@ select { appearance: none; padding-right: 22px;
    it next runs) plus a cluster of verbs, and a grid would spend its widest column on a goal that
    wants to wrap. Rows separate by their own card, so no rule is drawn between them. */
 .schedules-page .page-head .sched-new { margin-left: auto; align-self: center; }
+/* ── The Agents page: every session, by what it needs from you ─────────────
+   A list of cards under state headings, not a table: each row is a title over two machine names,
+   and the heading is the fact the page exists for. The dot beside the heading is the same colour
+   the sidebar badges use for the same state, so the two surfaces teach one vocabulary. */
+.agents-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 20px; }
+.agents-group-label { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 12px; font-weight: var(--fw-title); color: var(--rl-text-dim); }
+.agents-group-count { font-weight: var(--fw-medium); color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.agents-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--rl-text-faint); }
+.agents-dot[data-status="waiting_permission"] { background: var(--rl-warning); }
+.agents-dot[data-status="running"] { background: var(--rl-accent); }
+.agents-dot[data-status="error"] { background: var(--rl-danger); }
+.agents-dot[data-status="idle"] { background: var(--rl-success); }
+.agents-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.agents-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; text-align: left; font: inherit; border: none;
+  border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-frame); color: var(--rl-text-bright); cursor: pointer;
+  transition: background var(--dur-hover) ease, scale var(--dur-press) var(--ease-out-strong); }
+.agents-row:hover { background: var(--rl-hover); }
+.agents-row:active { scale: 0.98; }
+/* A row waiting on you is the one the page exists to surface; it wears the warning tint. */
+.agents-row[data-status="waiting_permission"] { background: var(--orange-tint); }
+.agents-row-mark { flex: none; }
+.agents-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.agents-row-title { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agents-row-sub { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 11.5px; color: var(--rl-text-faint); }
+.agents-row-sub > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agents-row-mono { font-family: var(--font-mono); font-size: 11px; }
+.agents-row-when { flex: none; font-size: 11.5px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.agents-more { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; padding: 4px 6px; font-size: 11.5px;
+  color: var(--rl-text-dim); border-radius: var(--r-chip); corner-shape: squircle; }
+.agents-more:hover { color: var(--rl-text-bright); background: var(--rl-hover); }
+.agents-more svg { transition: rotate var(--dur-hover) ease; }
+.agents-more[aria-expanded="true"] svg { rotate: 180deg; }
+
 /* ── The Library's file browser ────────────────────────────────────────────
    A grid of tiles grouped by day, which is what a file browser over a timeline of work is: the
    question is almost always "the thing from this afternoon", and a flat list sorted by date answers
@@ -3755,13 +4019,15 @@ select { appearance: none; padding-right: 22px;
 .library-day-label { margin: 0; font-size: 11px; font-weight: var(--fw-title); color: var(--rl-text-faint); }
 .library-grid {
   list-style: none; margin: 0; padding: 0;
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;
 }
+/* A card, not a row: a preview field over a caption, the way a drive shows a file. The field is
+   the card's reason to be tall — a screenshot or a frame of video is recognisable at this size
+   where it was a 44px smudge beside a name — and a glyph, which says less, sits small in its well
+   at the field's centre so the card's shape does not change from file to file. */
 .library-tile {
-  --btn-h: 44px;
-  display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; gap: 2px 10px;
-  align-items: center;
-  width: 100%; padding: 9px 12px; text-align: left; font: inherit; border: none;
+  display: flex; flex-direction: column; align-items: stretch;
+  width: 100%; padding: 0; text-align: left; font: inherit; border: none; overflow: hidden;
   border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-frame); cursor: pointer;
   transition: background var(--dur-hover) ease, scale var(--dur-press) var(--ease-out-strong);
 }
@@ -3771,9 +4037,17 @@ select { appearance: none; padding-right: 22px;
    can Realm do with this", and it exists for every file. */
 .library-tile:hover { background: var(--rl-hover); }
 .library-tile:active { scale: 0.98; }
-.library-tile-mark { grid-row: 1 / span 2; display: grid; place-items: center; width: var(--btn-h); height: var(--btn-h);
+/* The preview field. A fixed aspect rather than a fixed height, so the grid's columns can widen
+   with the pane and every card in a row still shares one shape. One step below the card, which is
+   what separates the field from the caption without a rule. */
+.library-tile-art { position: relative; display: grid; place-items: center; width: 100%; aspect-ratio: 4 / 3;
+  background: var(--inset); overflow: hidden; }
+.library-tile:hover .library-tile-art { background: var(--hover-2); }
+/* The glyph's well, at the field's centre. */
+.library-tile-mark { --btn-h: 56px; display: grid; place-items: center; width: var(--btn-h); height: var(--btn-h);
   border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
-  background: var(--rl-hover); color: var(--rl-text-dim); }
+  background: var(--rl-frame); color: var(--rl-text-dim); }
+.library-tile:hover .library-tile-mark { background: var(--rl-hover); }
 /* One tint per broad type, at the same weight the engine pills use — enough to sort a screenful of
    tiles by eye, nowhere near enough to compete with the names. */
 .library-tile-mark[data-type="image"] { color: var(--rl-success); }
@@ -3785,9 +4059,13 @@ select { appearance: none; padding-right: 22px;
    the whole square, so the fill goes and the hairline comes on — the same one-device-pixel inset
    outline every other image in the app wears (`.attach-art`), which is what keeps a screenshot with a
    pale edge from bleeding into the card behind it. */
-.library-tile-mark[data-thumb] { background: none; box-shadow: var(--shadow-hairline); overflow: hidden; }
-.library-tile-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
-.library-tile-name { min-width: 0; font-size: 13px; color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.library-tile-art[data-thumb] { background: none; box-shadow: var(--shadow-hairline); }
+/* Anchored to the TOP: the field is squarer than most screenshots, and the top of a page is the
+   part that names it. A centred crop of a wide capture showed a band of nothing in particular. */
+.library-tile-thumb { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+/* The caption: name over provenance, on the card's own ground. */
+.library-tile-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 10px 12px 12px; }
+.library-tile-name { min-width: 0; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .library-tile-from { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 11.5px; color: var(--rl-text-faint); }
 .library-tile-kind { flex: none; }
 /* The one item on the row that is user data of unbounded length, so it takes all the slack and gives

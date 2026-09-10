@@ -11,19 +11,24 @@ import { useEffect, useRef, useState, type ReactNode, type RefObject } from "rea
  * `scrollTop` rather than an IntersectionObserver: the question is about the SCROLLER's position,
  * not about any particular child's visibility, and a list whose first row is taller than the
  * viewport would never trip an observer at all.
+ *
+ * `axis` picks which pair of ends is being asked about. A horizontal strip has exactly the same
+ * question to answer — "is there more of me off to the side" — and answering it with a second copy
+ * of this hook would be two implementations of one tolerance.
  */
-export function useScrollEdges(ref: RefObject<HTMLElement | null>): { top: boolean; bottom: boolean } {
-  const [edges, setEdges] = useState({ top: false, bottom: false });
+export function useScrollEdges(ref: RefObject<HTMLElement | null>, axis: "y" | "x" = "y"): { start: boolean; end: boolean } {
+  const [edges, setEdges] = useState({ start: false, end: false });
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     const measure = () => {
-      const slack = el.scrollHeight - el.clientHeight;
+      const slack = axis === "y" ? el.scrollHeight - el.clientHeight : el.scrollWidth - el.clientWidth;
+      const at = axis === "y" ? el.scrollTop : el.scrollLeft;
       setEdges({
-        top: el.scrollTop > 2,
+        start: at > 2,
         // 2px of tolerance at both ends: sub-pixel layout and elastic scrolling both land a pixel
         // short of the exact number, and a band that flickers on at rest is worse than none.
-        bottom: slack > 2 && el.scrollTop < slack - 2,
+        end: slack > 2 && at < slack - 2,
       });
     };
     measure();
@@ -34,7 +39,7 @@ export function useScrollEdges(ref: RefObject<HTMLElement | null>): { top: boole
     ro?.observe(el);
     for (const child of Array.from(el.children)) ro?.observe(child);
     return () => { el.removeEventListener("scroll", measure); ro?.disconnect(); };
-  }, [ref]);
+  }, [ref, axis]);
   return edges;
 }
 
@@ -45,11 +50,24 @@ export function useScrollEdges(ref: RefObject<HTMLElement | null>): { top: boole
  * inside the box it is fading would travel with the content and fade the middle of the list.
  */
 export function ScrollFades({ scroller }: { scroller: RefObject<HTMLElement | null> }) {
-  const { top, bottom } = useScrollEdges(scroller);
+  const { start, end } = useScrollEdges(scroller);
   return (
     <>
-      <span className="edge-fade" data-edge="top" data-on={top || undefined} aria-hidden="true" />
-      <span className="edge-fade" data-on={bottom || undefined} aria-hidden="true" />
+      <span className="edge-fade" data-edge="top" data-on={start || undefined} aria-hidden="true" />
+      <span className="edge-fade" data-on={end || undefined} aria-hidden="true" />
+    </>
+  );
+}
+
+/** The same two bands turned on their side, for a strip that scrolls sideways. Same primitive, same
+ *  tokens, same gating — a horizontal scroller that dissolved differently from every vertical one
+ *  would read as a different material. */
+export function ScrollFadesX({ scroller }: { scroller: RefObject<HTMLElement | null> }) {
+  const { start, end } = useScrollEdges(scroller, "x");
+  return (
+    <>
+      <span className="edge-fade" data-edge="start" data-on={start || undefined} aria-hidden="true" />
+      <span className="edge-fade" data-edge="end" data-on={end || undefined} aria-hidden="true" />
     </>
   );
 }

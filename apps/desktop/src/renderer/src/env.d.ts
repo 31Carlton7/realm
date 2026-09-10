@@ -13,7 +13,8 @@ interface Window {
     /** Native multi-select file picker; [] when cancelled. */
     pickFiles(): Promise<PickedFile[]>;
     /** Downscaled data: URL for an image attachment; null for anything not a readable image. */
-    attachmentThumbnail(path: string): Promise<string | null>;
+    /** `tile` (the default) is a 96px mark beside a name; `card` is the Library's preview. */
+    attachmentThumbnail(path: string, size?: "tile" | "card"): Promise<string | null>;
     /** Hand an attachment to the app the user reads that type in — the files Realm cannot draw.
      *  Optional for the same reason `media` is: without the bridge the tile stays a picture. */
     openAttachment?(path: string): Promise<void>;
@@ -22,6 +23,7 @@ interface Window {
     saveText?(input: { name: string; text: string }): Promise<string | null>;
     /** Single-image picker for the icon picker's "Uploaded" tab; null when cancelled. */
     pickIconImage(): Promise<PickedFile | null>;
+    compressIconImage(path: string): Promise<PickedFile | null>;
     /** Local media drawn inline in the transcript. Optional in the type on purpose: every call site
      *  degrades to "no media" without it, so a renderer that loads before the bridge (and jsdom,
      *  which has no bridge at all) shows prose rather than throwing. */

@@ -30,7 +30,7 @@ export function SpaceHeader({ space }: { space: Space }) {
   return (
     <div className="space-header">
       <h2><button type="button" className="space-title" title="Open space" onClick={openPage}>
-        <SpaceIcon icon={space.icon} size={16} /><span className="space-name">{space.name}</span>
+        <SpaceIcon icon={space.icon} size={18} /><span className="space-name">{space.name}</span>
       </button></h2>
       <div className="space-header-actions">
         {/* The pill NAMES the profile, so it opens the profile page (Plan 14 W2) — it used to be a

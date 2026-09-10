@@ -1,13 +1,17 @@
 import { AGENT_META, AGENT_MODELS, DEFAULT_MODEL_LABEL, MODEL_NOTES, SELECTABLE_AGENT_KINDS, canonicalModelKey, type AgentKind, type ModelInfo } from "@realm/contracts";
-import type { IconName } from "@realm/ui";
 import { agentAvailability, availabilityNote } from "../../state/agent-availability";
 import type { AgentProbe } from "../../state/store";
 
 /** One pickable line in the model picker: a MODEL, and the harness that would run it. */
 export type ModelRow = {
   /** `canonicalModelKey(label)`, so the same model reached through two harnesses is one row. Adapter
-   *  default rows key `default:<kind>` instead — see `modelRows`. Also the React key and DOM id. */
+   *  default rows key `default:<kind>` instead — see `modelRows`. What favourites and the catalog
+   *  are keyed by — a fact about the MODEL, shared by every placement of it. */
   key: string;
+  /** The placement's own identity: the React key, the DOM id, what the highlight follows. Equal to
+   *  `key` for the row `modelRows` builds; `groupRows` mints `<key>@<harness>` for the copies it
+   *  lists under the other harnesses that offer the model (see `placement`). */
+  id: string;
   /** The harness that would run this model if the row were picked — the session's own whenever it
    *  offers the model, so the common pick costs no agent switch. */
   kind: AgentKind;
@@ -26,6 +30,13 @@ export type ModelRow = {
   icon: string;
   /** "not installed" / "signed out", or null when the CLI is fine (or unprobed). */
   note: string | null;
+  /** The same answer for every harness that offers the model, so a placement under another harness
+   *  can wear that harness's note rather than the resolved one's. */
+  notes: Partial<Record<AgentKind, string | null>>;
+  /** Harnesses other than `kind` this session could actually be moved onto to run the model — every
+   *  other route while the agent may still switch, none once it may not. `groupRows` lists the model
+   *  under each of these too; a route the session cannot take is not offered as a place to click. */
+  alternates: AgentKind[];
   /** Why this row cannot be picked right now; `null` when it can. */
   blockedReason: string | null;
   /** The model this session is actually on — at most one row, and always one when rows exist. */
@@ -130,12 +141,14 @@ export function modelRows({ kind, model, agentProbe, canSwitchAgent, favorites =
         // name for the very same model.
         existing.harnesses.push(k);
         existing.ids[k] = e.id;
+        existing.notes[k] = noteOf.get(k) ?? null;
         if (looksLikeId(existing.label) && !looksLikeId(e.label)) existing.label = e.label;
         continue;
       }
       const row: ModelRow = {
-        key: e.key, kind: k, harnesses: [k], ids: { [k]: e.id }, modelId: e.id, label: e.label,
+        key: e.key, id: e.key, kind: k, harnesses: [k], ids: { [k]: e.id }, modelId: e.id, label: e.label,
         agentLabel: AGENT_META[k].label, icon: AGENT_META[k].icon, note: noteOf.get(k) ?? null,
+        notes: { [k]: noteOf.get(k) ?? null }, alternates: [],
         blockedReason: null, selected: false, favorite: favorite.has(e.key),
       };
       byKey.set(e.key, row);
@@ -159,9 +172,30 @@ export function modelRows({ kind, model, agentProbe, canSwitchAgent, favorites =
       // session's own harness AND running the pinned id" — no separate `harness === kind` guard,
       // which would be dead: resolveHarness returns `kind` in exactly the cases where the id is set.
       row.selected = row.ids[kind] === selectedId;
+      // Every other route is somewhere the session could go — while it still can. Once it has run,
+      // `sessions.setAgent` refuses, and a placement under a harness that would refuse is a row whose
+      // only outcome is a rejection.
+      row.alternates = canSwitchAgent ? row.harnesses.filter((h) => h !== harness) : [];
     }
   }
   return rows;
+}
+
+/**
+ * The row as it should appear under a harness OTHER than the one it resolved to: the same model,
+ * routed through that harness, wearing that harness's mark, name, note and wire id.
+ *
+ * A copy rather than a second `modelRows` row, because the model is still one model — favourites,
+ * the catalog and the ←/→ route walk all key on `key`, which the copy shares. Only `id`, the
+ * placement's own identity, differs. `selected` is never carried: the session runs its model on its
+ * own harness, so the tick belongs to the resolved row and to nothing else.
+ */
+function placement(row: ModelRow, harness: AgentKind): ModelRow {
+  return {
+    ...row, id: `${row.key}@${harness}`, kind: harness,
+    agentLabel: AGENT_META[harness].label, icon: AGENT_META[harness].icon,
+    note: row.notes[harness] ?? null, modelId: row.ids[harness] ?? null, selected: false,
+  };
 }
 
 /**
@@ -220,89 +254,33 @@ export function filterRows(rows: ModelRow[], query: string): ModelRow[] {
     r.harnesses.some((h) => AGENT_META[h].label.toLowerCase().includes(q)));
 }
 
-/**
- * Who MADE this model, as the catalog attributes it ("Anthropic"), or null where nothing does.
- *
- * The vendor and not the harness, deliberately, because the harness is already two of the things
- * this list does: `groupRows` blocks the rows by it, and `filterRows` matches its name, so typing
- * "cursor" already answers "what could I run through Cursor". The detail pane carries a horizontal
- * strip of harnesses of its own, and those buttons mean "run it through this one" — a second
- * horizontal strip of the same names meaning "show me only these" would be two controls that look
- * alike and do different things, inches apart.
- *
- * A vendor is the axis nothing here could express. One row reached through the Claude CLI and through
- * Cursor has two routes and exactly one maker, so "show me Anthropic's" is a question about the model
- * rather than about the way in — the one question the list could not be asked.
- *
- * Null is ordinary rather than a failure: every harness's Default row and Cursor's Composer are in no
- * catalog at all. They belong to no vendor, so choosing one hides them. There is deliberately no
- * "Other" bucket — a chip collecting the models Realm happens to have no maker for would sort by an
- * accident of the catalog and teach nobody anything.
- */
-export function modelVendor(row: ModelRow, info: Record<string, ModelInfo>): string | null {
-  return info[row.key]?.vendor || null;
-}
-
-/**
- * How a vendor is shown on the strip: as the model FAMILY it makes, beside its mark. The catalog says
- * "Anthropic"; every row under that chip says "Claude", and the chip should speak the rows' language
- * — the list's own group separators already do. Keyed on the catalog's spelling folded to letters,
- * because the catalog has renamed makers before ("xAI" → "SpaceXAI") and a chip that fell back to the
- * raw name on the day that happened would be the one chip on the strip with no mark. A maker this
- * table does not know keeps its own name and goes markless, which is honest: the picker is not the
- * place to guess at a trademark.
- */
-const VENDOR_META: Record<string, { label: string; icon: IconName }> = {
-  // "Codex", not "GPT": the chip names the family as REALM reaches it, and every OpenAI model in
-  // this list is one the Codex CLI runs. The list's own group separator a few pixels below says
-  // "CODEX" too, and a strip that disagreed with the headings under it would be teaching two names
-  // for one thing.
-  openai: { label: "Codex", icon: "openai" },
-  anthropic: { label: "Claude", icon: "claude" },
-  google: { label: "Gemini", icon: "gemini" },
-  xai: { label: "Grok", icon: "grok" },
-  spacexai: { label: "Grok", icon: "grok" },
-  moonshotai: { label: "Kimi", icon: "kimi" },
-  moonshot: { label: "Kimi", icon: "kimi" },
-  zai: { label: "GLM", icon: "zai" },
-  deepseek: { label: "DeepSeek", icon: "deepseek" },
-  qwen: { label: "Qwen", icon: "qwen" },
-  alibaba: { label: "Qwen", icon: "qwen" },
-};
-export function vendorMeta(vendor: string): { label: string; icon: IconName | null } {
-  return VENDOR_META[vendor.toLowerCase().replace(/[^a-z]/g, "")] ?? { label: vendor, icon: null };
-}
-
-/** Every vendor present in `rows`, in first-appearance order — which is `modelRows`' order, so the
- *  makers behind the session's own harness lead. Empty when the catalog never arrived (offline is a
- *  supported state), which is what makes the strip absent rather than a single useless chip. */
-export function vendorsOf(rows: ModelRow[], info: Record<string, ModelInfo>): string[] {
-  const seen: string[] = [];
-  for (const r of rows) {
-    const v = modelVendor(r, info);
-    if (v && !seen.includes(v)) seen.push(v);
-  }
-  return seen;
-}
-
-/** Narrow to one vendor. Composes with `filterRows` rather than replacing it — the two answer
- *  different questions, and someone who has picked Anthropic still wants to type "haiku". */
-export function filterVendor(rows: ModelRow[], vendor: string | null, info: Record<string, ModelInfo>): ModelRow[] {
-  if (vendor === null) return rows;
-  return rows.filter((r) => modelVendor(r, info) === vendor);
-}
-
 /** One labelled block of the picker's list. `label: ""` is a group with no heading — what a search
  *  produces, where a heading per harness would be three words of chrome per result. */
-export type RowGroup = { label: string; rows: ModelRow[] };
+export type RowGroup = {
+  label: string;
+  rows: ModelRow[];
+  /** The harness the heading names, where it names one. Absent on Favourites (a set, not a harness)
+   *  and on a search's single unlabelled group. Carried here rather than re-derived from the label
+   *  so the picker's jump strip and the heading it points at can never disagree about which mark
+   *  belongs to which name. */
+  kind?: AgentKind;
+};
 
 /**
  * The list's shape: favourites first, then one group per harness.
  *
- * Grouping by the harness a row RESOLVED to (rather than by vendor, or not at all) is what makes the
- * list teach: reading it top to bottom says "these are the models your Claude CLI runs, these are the
- * ones Codex runs". The session's own harness leads, because `modelRows` builds in that order and
- * first appearance is the order kept.
+ * Grouping by harness (rather than by vendor, or not at all) is what makes the list teach: reading
+ * it top to bottom says "these are the models your Claude CLI runs, these are the ones Codex runs".
+ * The session's own harness leads, because `modelRows` builds in that order and first appearance is
+ * the order kept.
+ *
+ * A model several harnesses offer is listed under EACH of them, not only under the one it resolved
+ * to. It used to be the latter, and the moment Cursor's catalog arrived every Claude model Cursor
+ * could also run resolved to Cursor in a Cursor session and vanished from the Claude group — the
+ * only way to run Fable through the Claude CLI was to pick "Fable through Cursor" and then change
+ * the route in the detail pane. The route decision still lives in that pane; the list simply stops
+ * pretending a harness cannot run a model because another one can too. Each copy is a `placement`,
+ * routed through the harness it sits under, so picking it does what the heading says.
  *
  * A search collapses all of it into one unlabelled group. Headings over a filtered list would say
  * where a result came from, which the row's own second line already says, and would push the third
@@ -312,13 +290,22 @@ export function groupRows(rows: ModelRow[], { query }: { query: string }): RowGr
   if (query.trim() !== "") return rows.length ? [{ label: "", rows }] : [];
   const favorites = rows.filter((r) => r.favorite);
   const groups: RowGroup[] = favorites.length ? [{ label: "Favourites", rows: favorites }] : [];
+  // Group order is settled first, by the harness each row RESOLVED to, so the session's own
+  // harness leads and a copy under some other harness never pulls that harness's heading up the
+  // list ahead of the rows that actually route through it. A harness that only ever appears as an
+  // alternate still earns a group — after the ones that lead somewhere.
   const byKind = new Map<AgentKind, ModelRow[]>();
-  for (const r of rows) {
-    if (r.favorite) continue; // one row, one place: a starred model is in Favourites, not twice
-    const held = byKind.get(r.kind);
-    if (held) held.push(r); else byKind.set(r.kind, [r]);
+  const unfavoured = rows.filter((r) => !r.favorite); // one row, one place: a starred model is in Favourites, not twice
+  for (const r of unfavoured) if (!byKind.has(r.kind)) byKind.set(r.kind, []);
+  for (const r of unfavoured) for (const h of r.alternates) if (!byKind.has(h)) byKind.set(h, []);
+  // Then every group is filled in ROW order — the vendor's own order for a curated list, the
+  // catalog's for a live one — whether the row leads there or is a copy. A copy appended after the
+  // group's own rows would put Fable under Haiku in the Claude list, which is nobody's order.
+  for (const r of unfavoured) {
+    byKind.get(r.kind)!.push(r);
+    for (const h of r.alternates) byKind.get(h)!.push(placement(r, h));
   }
-  for (const [kind, kindRows] of byKind) groups.push({ label: AGENT_META[kind].label, rows: kindRows });
+  for (const [kind, kindRows] of byKind) groups.push({ label: AGENT_META[kind].label, rows: kindRows, kind });
   return groups;
 }
 

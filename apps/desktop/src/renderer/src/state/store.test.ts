@@ -114,6 +114,29 @@ describe("app store", () => {
     expect(store.getState().spaces.map((s) => s.id)).toEqual(["s1", "s2"]);
   });
 
+  /* The regression: only the DIALOG path compressed, so a photo DROPPED on the picker went to the
+     server at full size and came back refused by its 512KB cap. Compression belongs on the one path
+     both entries share. */
+  it("compresses an icon before uploading it, whichever way the file arrived", async () => {
+    const api = fakeApi({ pickIconImage: { path: "/tmp/huge.png", mime: "image/png", name: "huge.png", size: 1_400_000 } });
+    api.compressIconImage = async (path) => { api.calls.push("compressIconImage"); return { path: `${path}.small`, mime: "image/png", name: "huge.png", size: 4_000 }; };
+    const store = createAppStore(api); await store.getState().boot();
+
+    await store.getState().uploadIconFile("p1", { path: "/tmp/dropped.png" } as never);
+    expect(api.calls).toContain("uploadIconAsset:p1:/tmp/dropped.png.small");
+
+    await store.getState().uploadIconImage("p1");
+    expect(api.calls).toContain("uploadIconAsset:p1:/tmp/huge.png.small");
+  });
+
+  it("uploads the original when compression fails — the server's cap stays the boundary", async () => {
+    const api = fakeApi();
+    api.compressIconImage = async () => { throw new Error("no decoder"); };
+    const store = createAppStore(api); await store.getState().boot();
+    await store.getState().uploadIconFile("p1", { path: "/tmp/dropped.png" } as never);
+    expect(api.calls).toContain("uploadIconAsset:p1:/tmp/dropped.png");
+  });
+
   it.each(["generated", "uploaded"] as const)("an in-flight icon refresh cannot erase a newly %s icon", async (kind) => {
     const api = fakeApi({ pickIconImage: { path: "/tmp/icon.png", mime: "image/png", name: "icon.png", size: 4 } });
     const store = createAppStore(api); await store.getState().boot();

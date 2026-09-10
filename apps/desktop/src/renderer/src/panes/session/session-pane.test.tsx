@@ -653,14 +653,16 @@ describe("composer context row (git chips)", () => {
     return { store, ...r };
   }
 
-  it("renders branch + diff + dirty chips from store gitInfo for the session's cwd, in the UNDER-strip", async () => {
+  it("renders branch + diff + dirty chips from store gitInfo for the session's cwd, in the OVER-strip", async () => {
     await mountWithGit(gi({ branch: "feat/x", additions: 12, deletions: 3, dirty: 4 }));
-    // The branch group lives beside the workspace chip now, not on the control row: the checkout and
-    // what it has changed are one question, and the control row is left holding only the things that
-    // change what the next send does. Asserted as "in the strip AND not on the row" so a group that
-    // ended up in both places fails rather than passing on the half that was looked for.
-    expect(document.querySelector(".composer-understrip .git-branch")).toHaveTextContent("feat/x");
+    // The branch group has a strip of its own above the card. It is neither on the control row (where
+    // it competed for width with everything that changes the next send) nor in the row of workspace
+    // chips under the prompter (where a number that moves every time the agent writes a file sat
+    // among labels that never move). All three places are asserted, so a group that ended up in two
+    // of them fails rather than passing on the one that was looked for.
+    expect(document.querySelector(".composer-overstrip .git-branch")).toHaveTextContent("feat/x");
     expect(document.querySelector(".composer-opts .composer-git")).toBeNull();
+    expect(document.querySelector(".composer-understrip .composer-git")).toBeNull();
     expect(document.querySelector(".git-diff .diff-add")).toHaveTextContent("+12");
     expect(document.querySelector(".git-diff .diff-del")).toHaveTextContent("−3");
     expect(document.querySelector(".git-dirty")).toHaveTextContent("4 changed");
@@ -676,6 +678,9 @@ describe("composer context row (git chips)", () => {
 
   it("renders no git chips at all when the cwd is not a repo (null)", async () => {
     await mountWithGit(null);
+    // Including the strip itself: an empty tab above the prompter is a claim on space with nothing
+    // to put in it, and it would still push the card down by its own height.
+    expect(document.querySelector(".composer-overstrip")).toBeNull();
     expect(document.querySelector(".git-branch")).toBeNull();
     expect(document.querySelector(".git-diff")).toBeNull();
     expect(document.querySelector(".git-dirty")).toBeNull();
@@ -685,9 +690,9 @@ describe("composer context row (git chips)", () => {
 
 describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
   it("left group runs '+' · permission · mode, in that DOM order and nothing else", async () => {
-    // The user's row: attach leads, the Ask/Build chips sit against it. The branch group moved down
-    // to the under-strip; the cwd, environment and effort chips are gone outright. An extra child
-    // here is a regression.
+    // The user's row: attach leads, the Ask/Build chips sit against it. The branch group moved off
+    // it, onto a strip of its own above the card; the cwd, environment and effort chips are gone
+    // outright. An extra child here is a regression.
     const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle", agentKind: "claude" })] });
     const store = createAppStore(api); await store.getState().boot();
     store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } },
@@ -707,7 +712,8 @@ describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
     expect(segments[1]).toBe(screen.getByRole("button", { name: "Mode" }));
     expect(segments).toHaveLength(2);
     for (const seg of segments) expect(seg).toHaveAttribute("aria-haspopup", "menu");
-    expect(document.querySelector(".composer-understrip .composer-git")).not.toBeNull();
+    // The branch group is off the row and above the card, on its own strip.
+    expect(document.querySelector(".composer-overstrip .composer-git")).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Effort" })).toBeNull();
     const actions = document.querySelector(".composer-actions")!;
     expect(actions.contains(screen.getByRole("button", { name: "Model" }))).toBe(true);
@@ -1182,29 +1188,33 @@ describe("prompter model picker", () => {
       // its ACP server is booted with one model and enumerates nothing, so its two are curated.
       "Composer", "Gemini", "Default", "Default", "Default", "Default", "Default", "Default",
       "DeepSeek V4 Pro", "DeepSeek V4 Flash",
-      // OpenHands is last in SELECTABLE_AGENT_KINDS and contributes one "Default" for a stronger
-      // version of the same reason: its model is never on the ACP wire at all.
-      "Default"]);
+      // OpenHands contributes one "Default" for a stronger version of the same reason: its model is
+      // never on the ACP wire at all. Hermes is last, and back to the ordinary reason — its catalog
+      // is the user's own authenticated providers, which no table here could name in advance.
+      "Default", "Default"]);
     const marks = screen.getAllByRole("option").map((n) => n.querySelector("[data-brand]")?.getAttribute("data-brand"));
+    // Hermes' row is the one with no `data-brand`: Nous Research publishes no vector mark, so it
+    // wears Realm's own caduceus from the Hugeicons set instead of a vendored brand path.
     expect(marks).toEqual(["openai", "claude", "claude", "claude", "claude", "claude", "cursor", "gemini",
-      "opencode", "githubCopilot", "goose", "qwen", "grok", "fx", "deepseek", "deepseek", "openhands"]);
+      "opencode", "githubCopilot", "goose", "qwen", "grok", "fx", "deepseek", "deepseek", "openhands", undefined]);
     expect(document.querySelector("[data-brand='qwen']")).toHaveAttribute("viewBox", "0 0 141.38 140");
     expect(document.querySelector("[data-brand='githubCopilot']")?.querySelectorAll("path")).toHaveLength(3);
   });
 
-  it("seven rows labelled Default are still told apart — the row carries its agent, not just its model", async () => {
+  it("eight rows labelled Default are still told apart — the row carries its agent, not just its model", async () => {
     // The named mutant: DEFAULT_MODEL_LABEL giving every ACP agent whose model Realm cannot name the
     // same string is only safe because the row's accessible name includes the agent. Drop
-    // `mp-row-provider` and the picker becomes seven identical options.
+    // `mp-row-provider` and the picker becomes eight identical options.
     await mountKindFresh("codex");
     openPicker();
     const defaults = screen.getAllByRole("option").filter((n) => n.querySelector(".mp-row-name")!.textContent === "Default");
-    expect(defaults).toHaveLength(7);
+    expect(defaults).toHaveLength(8);
     const names = defaults.map((n) => n.textContent);
-    expect(new Set(names).size).toBe(7);
+    expect(new Set(names).size).toBe(8);
     expect(names.join("|")).toContain("OpenCode");
     expect(names.join("|")).toContain("Qwen Code");
     expect(names.join("|")).toContain("OpenHands");
+    expect(names.join("|")).toContain("Hermes");
   });
 
   it("never hides a session's own kind, even one that is not offered fresh", async () => {
@@ -1214,7 +1224,7 @@ describe("prompter model picker", () => {
     openPicker();
     expect(rowNames()).toEqual(["Fake", "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5",
       "GPT-5.6", "Composer", "Gemini", "Default", "Default", "Default", "Default", "Default", "Default",
-      "DeepSeek V4 Pro", "DeepSeek V4 Flash", "Default"]);
+      "DeepSeek V4 Pro", "DeepSeek V4 Flash", "Default", "Default"]);
     expect(screen.getByRole("option", { name: /Fake agent/ })).toHaveAttribute("aria-selected", "true");
   });
 
@@ -1347,7 +1357,7 @@ describe("prompter model picker", () => {
         // Every other offered kind still contributes exactly its own rows: one agent's probe catalog
         // must not leak onto another's.
         "Gemini", "Default", "Default", "Default", "Default", "Default", "Default",
-        "DeepSeek V4 Pro", "DeepSeek V4 Flash", "Default"]);
+        "DeepSeek V4 Pro", "DeepSeek V4 Flash", "Default", "Default"]);
       expect(screen.getByRole("option", { name: /Composer/ })).toHaveAttribute("aria-selected", "true");
       expect(screen.getByRole("option", { name: /Auto/ })).toHaveAttribute("aria-selected", "false");
     });
@@ -1394,12 +1404,12 @@ describe("prompter model picker", () => {
     };
 
     it("opens on search over a list, and shows no Favourites group when nothing is starred", async () => {
-      // Search first, then the list: the popover opens for typing, and the groups are what the eye
-      // falls to when the user has nothing to type.
+      // Search, then the strip that names the list's separators, then the list: the popover opens for
+      // typing, and the groups are what the eye falls to when the user has nothing to type.
       await mountFresh();
       openPicker();
       const picker = screen.getByRole("dialog", { name: "Model picker" });
-      expect([...picker.children].map((n) => n.className)).toEqual(["mp-search", "mp-body"]);
+      expect([...picker.children].map((n) => n.className)).toEqual(["mp-search", "mp-jumps-wrap", "mp-body"]);
       expect([...document.querySelectorAll(".mp-group-label")].map((n) => n.textContent)).not.toContain("Favourites");
     });
 
@@ -1549,7 +1559,7 @@ describe("prompter model picker", () => {
       const { store } = await mountFresh({ model: "claude-fable-5-1" }, 0, proxyProbe);
       await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
       openPicker();
-      fireEvent.mouseEnter(screen.getByRole("option", { name: /Claude Fable 5\.1/ }));
+      fireEvent.mouseEnter(screen.getAllByRole("option", { name: /Claude Fable 5\.1/ })[0]!); // the session's own placement leads
       const pills = within(detail()).getAllByRole("button", { name: /^Run Claude Fable 5\.1 through/ });
       expect(pills.map((p) => p.textContent)).toEqual(["Claude", "Cursor"]);
       expect(pills[0]).toHaveAttribute("aria-pressed", "true"); // the session's own harness wins the tie
@@ -1561,13 +1571,35 @@ describe("prompter model picker", () => {
       const { api, store } = await mountFresh({ model: "claude-fable-5-1" }, 0, proxyProbe);
       await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
       openPicker();
-      fireEvent.mouseEnter(screen.getByRole("option", { name: /Claude Fable 5\.1/ }));
+      fireEvent.mouseEnter(screen.getAllByRole("option", { name: /Claude Fable 5\.1/ })[0]!); // the session's own placement leads
       fireEvent.click(within(detail()).getByRole("button", { name: "Run Claude Fable 5.1 through Cursor" }));
       fireEvent.click(within(screen.getByRole("dialog", { name: "Model picker" })).getByRole("button", { name: /model$/ }));
       await waitFor(() => expect(store.getState().sessions.se1?.agentKind).toBe("acp:cursor"));
       expect(store.getState().sessions.se1?.model).toBe("claude-fable-5.1"); // Cursor's id, not Claude's
       expect(api.calls.filter((c) => c.startsWith("setSessionAgent") || c.startsWith("setSessionOptions")))
         .toEqual(["setSessionAgent:se1=acp:cursor", "setSessionOptions:se1"]); // setAgent clears model, so order matters
+    });
+
+    it("lists a model under EVERY harness that offers it, and the copy routes through that harness", async () => {
+      // The bug this closes: once Cursor's catalog arrived, the Claude models it could also run
+      // resolved to the session's harness alone and disappeared from the other group — in a Cursor
+      // session the Claude list emptied, and the only way to Fable-through-Claude was to pick it
+      // under Cursor and change the route in the detail pane. Now the list says what each harness
+      // can run, and the route pane is where that choice is refined rather than where it is made.
+      const { store } = await mountFresh({ model: "claude-fable-5-1" }, 0, proxyProbe);
+      await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
+      openPicker();
+      const copies = screen.getAllByRole("option", { name: /Claude Fable 5\.1/ });
+      expect(copies).toHaveLength(2);
+      expect(copies[0]).toHaveTextContent("Claude");
+      expect(copies[1]).toHaveTextContent("Cursor");
+      // The tick is drawn once — the session runs Fable on its own harness, and the copy is a route.
+      expect(copies.filter((c) => c.getAttribute("aria-selected") === "true")).toHaveLength(1);
+      fireEvent.mouseEnter(copies[1]!);
+      expect(within(detail()).getByRole("button", { name: "Run Claude Fable 5.1 through Cursor" })).toHaveAttribute("aria-pressed", "true");
+      fireEvent.click(copies[1]!);
+      await waitFor(() => expect(store.getState().sessions.se1?.agentKind).toBe("acp:cursor"));
+      expect(store.getState().sessions.se1?.model).toBe("claude-fable-5.1");
     });
 
     it("←/→ walk the routes without leaving the search field", async () => {
@@ -1589,7 +1621,7 @@ describe("prompter model picker", () => {
       const { store } = await mountFresh({ model: "claude-fable-5-1" }, 0, proxyProbe);
       await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
       openPicker();
-      fireEvent.mouseEnter(screen.getByRole("option", { name: /Claude Fable 5\.1/ }));
+      fireEvent.mouseEnter(screen.getAllByRole("option", { name: /Claude Fable 5\.1/ })[0]!); // the session's own placement leads
       fireEvent.click(within(detail()).getByRole("button", { name: "Run Claude Fable 5.1 through Cursor" }));
       fireEvent.mouseEnter(screen.getByRole("option", { name: /Claude Sonnet 5/ }));
       expect(within(detail()).getByRole("button", { name: /Claude Sonnet 5 through Claude/ })).toHaveAttribute("aria-pressed", "true");
@@ -1605,7 +1637,7 @@ describe("prompter model picker", () => {
           priceIn: 10, priceOut: 50, context: 1_000_000, efforts: ["max", "low"], blurb: "Vendor prose." } } });
       });
       openPicker();
-      fireEvent.mouseEnter(screen.getByRole("option", { name: /Claude Fable 5\.1/ }));
+      fireEvent.mouseEnter(screen.getAllByRole("option", { name: /Claude Fable 5\.1/ })[0]!); // the session's own placement leads
       expect(detail()).toHaveTextContent("$10 / Mtok");
       expect(detail()).toHaveTextContent("$50 / Mtok");
       expect(detail()).toHaveTextContent("1M");

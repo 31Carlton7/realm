@@ -54,6 +54,7 @@ export const liveApi = (): Api => ({
   listIconAssets: (profileId) => rpc().call("iconAssets.list", { profileId }),
   generateIconAsset: (profileId, prompt) => rpc().call("iconAssets.generate", { profileId, prompt }),
   pickIconImage: () => window.realm.pickIconImage(),
+  compressIconImage: (path) => window.realm.compressIconImage(path),
   uploadIconAsset: (profileId, path) => rpc().call("iconAssets.upload", { profileId, path }),
   deleteIconAsset: async (id) => { await rpc().call("iconAssets.delete", { id }); },
   pathForFile: (file) => window.realm.pathForFile(file),

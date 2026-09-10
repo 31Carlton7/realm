@@ -21,7 +21,7 @@ contextBridge.exposeInMainWorld("realm", {
   /** A downscaled data: URL for an image attachment, or null for anything that is not a readable
    *  image. The renderer cannot read the file itself, and CSP forbids `file://` — this is the only
    *  way an attachment is ever seen rather than merely named. */
-  attachmentThumbnail: (path: string): Promise<string | null> => ipcRenderer.invoke("attachment-thumbnail", path),
+  attachmentThumbnail: (path: string, size?: "tile" | "card"): Promise<string | null> => ipcRenderer.invoke("attachment-thumbnail", path, size),
   /** Hand an attachment to the app the user reads that type in. For the files Realm cannot draw —
    *  a PDF, a spreadsheet, source — where the alternative is a tile that does nothing. Refused in
    *  main for an extension its mime table does not know; see `openablePath`. */
@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld("realm", {
   saveText: (input: { name: string; text: string }): Promise<string | null> => ipcRenderer.invoke("save-text", input),
   /** Single-image picker for the icon picker's "Uploaded" tab; null when cancelled. */
   pickIconImage: (): Promise<PickedFile | null> => ipcRenderer.invoke("pick-icon-image"),
+  compressIconImage: (path: string): Promise<PickedFile | null> => ipcRenderer.invoke("compress-icon-image", path),
   /** Local media the transcript draws inline. Only `stat` and `poster` cross IPC — the bytes are
    *  streamed over `realm-media://`, which is what lets a video seek instead of arriving whole. */
   media: {

@@ -647,6 +647,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       (data.iconAssets[profileId] ??= []).unshift(a); return a;
     },
     pickIconImage: async () => { calls.push("pickIconImage"); return data.pickIconImage; },
+    // Compression is best-effort and path-shaped; the fake reports the call and hands the path back
+    // unchanged, so a test asserting the uploaded path sees the one it supplied.
+    compressIconImage: async (path: string) => { calls.push("compressIconImage"); return { path, mime: "image/png", name: "icon.png", size: 1 }; },
     uploadIconAsset: async (profileId, path) => {
       calls.push(`uploadIconAsset:${profileId}:${path}`);
       const a = iconAsset(`ia${++n}`, profileId, { kind: "image", mime: "image/png", dataText: "data:image/png;base64,ZmFrZQ==", prompt: null });
