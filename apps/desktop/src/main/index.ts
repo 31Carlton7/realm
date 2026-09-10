@@ -781,6 +781,7 @@ app.whenReady().then(async () => {
         // asks for it the instant it registers. `exportOauthKey` is the ONE key that leaves main;
         // there is deliberately no sibling op for the credential key.
         if (op === "oauthKey") return Promise.resolve({ key: secrets()?.exportOauthKey() ?? null });
+        if (op === "machineKey") return Promise.resolve({ key: secrets()?.exportMachineKey() ?? null });
         // Computer-use ops share this socket but not the browser executor: they need no window and
         // no view, so they are answered before the window check below.
         if (op.startsWith("computer")) return computerHost.handleOp(op, params);

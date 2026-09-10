@@ -7,7 +7,7 @@ import { LayoutSchema } from "./layout";
 import { SpaceGroupsSchema } from "./groups";
 import { StoredSessionEventSchema } from "./session-events";
 import { LibraryEntrySchema, LibraryQuerySchema } from "./library";
-import { SkillSchema, SkillIdSchema, SkillSourceSchema } from "./skills";
+import { SkillSchema, SkillDetailSchema, SkillIdSchema, SkillSourceSchema } from "./skills";
 import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema } from "./mcp";
 import { MEMORY_DOC_MAX, MemorySourcesSchema, MemoryStateSchema } from "./memory";
 import { NotificationSchema } from "./notifications";
@@ -19,6 +19,7 @@ import { ImportResultSchema, ImportScanSchema } from "./import";
 import { GuideProgressSchema } from "./documents";
 import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageSummarySchema } from "./usage";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
+import { MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
 import { FailoverPolicySchema } from "./failover";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
 
@@ -444,6 +445,47 @@ export const Methods = {
    *  main and is driven over IPC, never through the server. These methods carry only what must survive
    *  a restart. `url` defaults to "" — a fresh pane opens on its empty state, not a page. */
   "browsers.create": { params: z.object({ spaceId: IdSchema, url: z.string().default("") }), result: z.object({ browserId: IdSchema, itemId: IdSchema, url: z.string() }) },
+
+  /* Machines (Plan 25 W3) — a screen somewhere else, shown and driven in a pane.
+
+     `create` takes a plaintext password and returns `passwordStored`, which is the honest shape for
+     the one case that can silently do less than asked: with no encryption key from the desktop app
+     the server refuses to store the password at all, and the form has to say so rather than let
+     someone believe it was saved. Nothing ever reads a password back out — there is no method here
+     that returns one, and `Machine` has no field for one.
+
+     `endpoint` hands back the loopback WebSocket the renderer's RFB client connects to, with its
+     one-time token already in the path. It is a METHOD as well as an event payload because a pane
+     that mounts onto an already-running machine has missed the event that carried it. */
+  "machines.create": {
+    params: z.object({
+      spaceId: IdSchema,
+      name: z.string().min(1).max(120),
+      source: MachineSourceSchema.default("vnc"),
+      endpoint: VncEndpointSchema.nullable().default(null),
+      password: z.string().max(512).nullable().default(null),
+    }),
+    result: z.object({ machineId: IdSchema, itemId: IdSchema, passwordStored: z.boolean() }),
+  },
+  "machines.list": { params: z.object({ spaceId: IdSchema }), result: z.object({ machines: z.array(MachineSchema), states: z.array(MachineStateSchema) }) },
+  "machines.get": { params: z.object({ machineId: IdSchema }), result: z.object({ machine: MachineSchema, state: MachineStateSchema }) },
+  "machines.update": {
+    params: z.object({
+      machineId: IdSchema,
+      name: z.string().min(1).max(120).optional(),
+      endpoint: VncEndpointSchema.optional(),
+      /** Absent leaves the stored password alone; null or "" clears it; a string replaces it. The
+       *  three-way distinction is what stops a rename quietly dropping somebody's password. */
+      password: z.string().max(512).nullable().optional(),
+    }),
+    result: z.object({ machine: MachineSchema, passwordStored: z.boolean() }),
+  },
+  "machines.start": { params: z.object({ machineId: IdSchema }), result: z.object({ state: MachineStateSchema }) },
+  "machines.stop": { params: z.object({ machineId: IdSchema }), result: z.object({ state: MachineStateSchema }) },
+  "machines.endpoint": { params: z.object({ machineId: IdSchema }), result: z.object({ state: MachineStateSchema }) },
+  /** Delete the machine itself — row, item and connection. Closing a PANE is a layout operation and
+   *  does not come through here; see `MachineService.closeFromLayout`. */
+  "machines.close": { params: z.object({ machineId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   "browsers.get":    { params: z.object({ browserId: IdSchema }), result: BrowserSchema },
   /** Last committed navigation state, written back by the renderer (debounced). A `title` also renames
    *  the browser's item — the pane header and sidebar track the page, as in any browser's tab strip. */
@@ -572,6 +614,21 @@ export const Methods = {
    * agent, but a skill that vanished because of a typo in its frontmatter has to be findable.
    */
   "skills.list": { params: z.object({ spaceId: IdSchema }), result: z.object({ root: z.string(), skills: z.array(SkillSchema) }) },
+  /**
+   * One skill, whole — the row, its `SKILL.md` document, its frontmatter and the files bundled beside
+   * it. What the Library's skill viewer reads.
+   *
+   * The row inside the answer comes from the same pass that answers `skills.list`, so the viewer and
+   * the list it was opened from cannot disagree about whether a skill is on or where it is defined.
+   * An invalid skill still answers: its raw file is how its author finds out what is wrong with it.
+   */
+  "skills.read": { params: z.object({ spaceId: IdSchema, id: SkillIdSchema }), result: SkillDetailSchema },
+  /** One file bundled beside a `SKILL.md`, by its path relative to the skill's own directory. Refused
+   *  for anything that resolves outside that directory, symlinks resolved on both sides. */
+  "skills.readFile": {
+    params: z.object({ spaceId: IdSchema, id: SkillIdSchema, rel: z.string().min(1) }),
+    result: z.object({ text: z.string(), truncated: z.boolean() }),
+  },
   /** Turn one skill on or off for one space. Unknown ids are accepted: a skill can be removed from
    *  disk and put back, and the preference should survive that. */
   "skills.setEnabled": { params: z.object({ spaceId: IdSchema, id: SkillIdSchema, enabled: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
@@ -1005,7 +1062,18 @@ export const Methods = {
    *  sessionId: null }` on the row — the Tasks lens's seam. Deliberately a boolean and not a
    *  DispatchedBy: the agent origins (`agent_run`/`browser_agent_run`/`review`) are recorded by the
    *  server-side tools that create those children, and a client must not be able to claim them. */
-  "sessions.create": { params: z.object({ spaceId: IdSchema, agentKind: AgentKindSchema, projectId: IdSchema.nullable().default(null), environmentId: IdSchema.nullable().default(null), model: z.string().nullable().default(null), effort: z.string().nullable().default(null), permissionMode: z.string().nullable().default(null), title: z.string().optional(), userDispatched: z.boolean().default(false) }), result: z.object({ session: SessionSchema, itemId: IdSchema }) },
+  /**
+   * `unlisted` creates the session with NO item row.
+   *
+   * An item is what puts a session in a space — the sidebar, the pinned grid, the command palette,
+   * the Library and the layout all read `items`, so a session without one is genuinely in none of
+   * them. That is what the quick chat is: a conversation that belongs to the app rather than to any
+   * one space's list of work. It is deleted through `sessions.delete`, which already tolerates a
+   * session with no item to take with it.
+   *
+   * `itemId` is null for exactly those, and for nothing else.
+   */
+  "sessions.create": { params: z.object({ spaceId: IdSchema, agentKind: AgentKindSchema, projectId: IdSchema.nullable().default(null), environmentId: IdSchema.nullable().default(null), model: z.string().nullable().default(null), effort: z.string().nullable().default(null), permissionMode: z.string().nullable().default(null), title: z.string().optional(), userDispatched: z.boolean().default(false), unlisted: z.boolean().default(false) }), result: z.object({ session: SessionSchema, itemId: IdSchema.nullable() }) },
   /** `mentions`: the skill ids the prompter recognised as `@`-mentions in `text` (Plan 8 W4). The
    *  server re-validates each against the live library before anything resolves — a raw `@name` never
    *  reaches an agent wire, and a stale id degrades to plain text (see `mentions.ts`). */
@@ -1192,6 +1260,17 @@ export const Events = {
    *  this browser (Plan 11 W4) — feeds the sidebar row and pane header's "agent is driving" dot.
    *  Every `true` is followed by a `false` on the same browserId, whatever the outcome. */
   "browser.driving": z.object({ spaceId: IdSchema, browserId: IdSchema, driving: z.boolean() }),
+  /** A machine's live state changed (Plan 25 W3) — the pane's body, the pane bar's power toggle and
+   *  the sidebar row's dot all read this one event.
+   *
+   *  It carries `wsUrl` so the renderer never has to `machines.get` after a start: a viewer that had
+   *  to make a round trip to learn where to connect would open its socket a trip late, and the one
+   *  thing a screen must not do is show a stale frame while a live connection is already available.
+   *
+   *  No secret rides it. A broadcast reaches every connected client, main included, and there is no
+   *  field here a password could occupy — the URL's token authorises a loopback socket whose far end
+   *  the server has ALREADY authenticated. */
+  "machine.status": MachineStateSchema,
 } as const;
 export type EventName = keyof typeof Events;
 export type EventPayload<E extends EventName> = z.infer<(typeof Events)[E]>;

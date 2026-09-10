@@ -18,6 +18,9 @@ import { GraphifyService } from "./graphify/service";
 import { DocumentsStore } from "./store/documents";
 import { DocumentService } from "./documents/service";
 import { DocumentPreviewServer } from "./documents/preview";
+import { MachineService } from "./machines/service";
+import { MachineWsProxy } from "./machines/ws-proxy";
+import { MachinesStore } from "./store/machines";
 import { createDocsAgentProvider } from "./documents/agent-tools";
 import { TextExtractor } from "./documents/text-extract";
 import { LectureService } from "./school/lectures";
@@ -350,6 +353,19 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const terminals = new TerminalService({ db, rpc, spaces, items, terminals: new TerminalsStore(db), environments });
   const browsersStore = new BrowsersStore(db);
   const browsers = new BrowserService({ db, rpc, spaces, items, browsers: browsersStore });
+
+  /* Machines (Plan 25 W3). The proxy and the service are mutually late-bound: the proxy asks the
+     service for an address at CONNECT time — never a cached one, so an edited machine cannot be
+     reconnected to at its old address — and the service is where the proxy's callbacks land. */
+  const machinesStore = new MachinesStore(db);
+  const machineProxy: MachineWsProxy = new MachineWsProxy({
+    targetFor: (id) => machines.targetFor(id),
+    onConnected: (id, size) => machines.onConnected(id, size),
+    onFailed: (id, error, detail) => machines.onFailed(id, error, detail),
+    onClosed: (id) => machines.onClosed(id),
+    log: (line) => console.log(line),
+  });
+  const machines: MachineService = new MachineService({ db, rpc, spaces, items, machines: machinesStore, proxy: machineProxy });
   // Plan 22: the preview listener guides and PDFs are framed from. Its root lookup is late-bound to
   // the service below (a workspace id → its checkout), which is the only thing it needs to know.
   const preview = new DocumentPreviewServer({ rootOf: (id) => documents.rootOfWorkspace(id) });
@@ -633,7 +649,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // is a session like any other (item, broadcast, adapter check), just dispatched by "fork".
   forks = new ForkService({ adapters: adapterRegistry, checkpoints: new CheckpointsStore(db), environments, envService, worktrees,
     sessionsStore, events: sessionEvents, settings, git: checkpointGit, rpc,
-    createSession: (input) => sessions.create(input) });
+    // A fork is a session like any other, so it takes the LISTED overload and gets an item.
+    createSession: (input) => sessions.create({ ...input, unlisted: false }) });
   // Failover. Its three effects all land back on the session service — put an event on the
   // transcript, replay the turn, tear the adapter down — which is why it is built here rather than
   // beside the stores it reads.
@@ -657,7 +674,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const [machine, user] = await Promise.all([machineName(), userFirstName()]);
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, browserPermissions: browserBroker, cli, cliInstaller,
+    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, machines, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, browserPermissions: browserBroker, cli, cliInstaller,
     iconAssets, iconGeneration,
   });
   sessions.markStaleOnBoot();
@@ -675,10 +692,14 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // yielding, resumable, and merely incomplete rather than wrong while it runs.
   void artifacts.runBackfill(() => false);
   terminals.restoreAll();
+  // Starts nothing, and clears every recorded ws port: a port held against last run's listener is a
+  // lie, and the UNIQUE index would refuse to reissue it to the machine it belonged to.
+  machines.restoreAll();
   // The gateway must be accepting connections before any session can start (its listener mints the URL
   // every `sessions.create` → send hands an adapter), and well before the RPC socket opens to clients.
   await mcpGateway.listen();
   await preview.listen();
+  await machineProxy.listen();
   const port = await rpc.listen(opts.port);
   return {
     port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, gateway: mcpGateway,
@@ -692,6 +713,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       // Gateway before hub: stop accepting new proxied calls before the upstream clients they'd need go
       // away, so a request racing shutdown fails cleanly (connection refused) rather than mid-call.
       documents.dispose();
+      // Awaited, and before `db.close()`: an un-awaited close leaves live sockets to somebody else's
+      // Mac open past the process, and the service writes a ws port back to the row as each drops.
+      await machines.closeAll();
       await preview.close();
       await mcpGateway.close();
       await mcpHub.close();

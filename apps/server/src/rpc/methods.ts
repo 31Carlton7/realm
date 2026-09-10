@@ -26,6 +26,8 @@ import type { McpCallLogStore } from "../store/mcp";
 import type { MemoryService } from "../memory/service";
 import type { TerminalService } from "../terminals/service";
 import type { BrowserService } from "../browsers/service";
+import type { MachineService } from "../machines/service";
+import { machineSecretBox } from "../machines/secret";
 import type { DocumentService } from "../documents/service";
 import type { BrowserHostBridge } from "../browsers/host-bridge";
 import type { SessionService } from "../sessions/service";
@@ -56,7 +58,7 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string; machineName: string; userName: string;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; machines: MachineService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService;
   delegation: DelegationEngine;
 };
@@ -118,7 +120,9 @@ export function registerMethods(d: Deps): void {
   reg("spaces.setLayout", (p) => { const r = d.spaces.setLayout(p.id, p.layout); rpc.broadcast("spaces.changed", {}); return r; });
   reg("spaces.setGroups", (p) => { const r = d.spaces.setGroups(p.id, p.groups); rpc.broadcast("spaces.changed", {}); return r; });
   reg("spaces.delete", async (p) => {
-    if (d.spaces.get(p.id)) { d.terminals.closeAllInSpace(p.id); await d.sessions.deleteAllInSpace(p.id); }
+    // Machines first: their rows go with the space by ON DELETE CASCADE, but a live socket to
+    // somebody else's Mac does not, and a leaked connection is worse than a leaked row.
+    if (d.spaces.get(p.id)) { d.machines.closeAllInSpace(p.id); d.terminals.closeAllInSpace(p.id); await d.sessions.deleteAllInSpace(p.id); }
     d.spaces.delete(p.id);
     rpc.broadcast("spaces.changed", {});
     return { ok: true as const };
@@ -159,6 +163,16 @@ export function registerMethods(d: Deps): void {
     d.skills.demote(p.spaceId, p.id);
     skillsScopeChanged();
     return { ok: true as const };
+  });
+  // Both read one skill's directory, and both go through the service's `list` so scope reach is
+  // decided in exactly one place. A space that does not exist is a NOT_FOUND here as it is above.
+  reg("skills.read", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    return d.skills.detail(p.spaceId, p.id);
+  });
+  reg("skills.readFile", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    return d.skills.readFile(p.spaceId, p.id, p.rel);
   });
   reg("skills.sources", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
@@ -442,6 +456,7 @@ export function registerMethods(d: Deps): void {
     const it = d.items.get(p.id);
     if (it?.kind === "terminal") { d.terminals.close(it.refId); return { ok: true as const }; } // closes pty + row + item, broadcasts
     if (it?.kind === "browser") { d.browsers.close(it.refId); return { ok: true as const }; } // deletes row + item, broadcasts
+    if (it?.kind === "machine") { d.machines.close(it.refId); return { ok: true as const }; } // disconnects + row + item, broadcasts
     if (it?.kind === "documents") { d.documents.close(it.refId); return { ok: true as const }; } // deletes row + item, broadcasts
     if (it?.kind === "session") { await d.sessions.delete(it.refId); return { ok: true as const }; } // disposes handle + row + item, broadcasts
     d.items.delete(p.id);
@@ -467,6 +482,21 @@ export function registerMethods(d: Deps): void {
   reg("browsers.update", (p) => { d.browsers.update(p.browserId, p); return { ok: true as const }; });
   reg("browsers.close", (p) => { d.browsers.close(p.browserId); return { ok: true as const }; });
   reg("browsers.downloadDir", (p) => ({ dir: spaceDownloadDir(d.projects, p.spaceId) }));
+
+  /* Machines (Plan 25 W3). `create` and `update` are the only two that take a password, and neither
+     hands one back: `passwordStored` is a boolean about what happened, because with no encryption
+     key the server refuses to store one and the form must not claim otherwise. */
+  reg("machines.create", (p) => d.machines.create(p));
+  reg("machines.list", (p) => ({ machines: d.machines.list(p.spaceId), states: d.machines.states(p.spaceId) }));
+  reg("machines.get", (p) => ({ machine: d.machines.get(p.machineId), state: d.machines.stateOf(p.machineId) }));
+  reg("machines.update", (p) => {
+    const { passwordStored } = d.machines.update(p.machineId, p);
+    return { machine: d.machines.get(p.machineId), passwordStored };
+  });
+  reg("machines.start", (p) => ({ state: d.machines.start(p.machineId) }));
+  reg("machines.stop", (p) => ({ state: d.machines.stop(p.machineId) }));
+  reg("machines.endpoint", (p) => ({ state: d.machines.stateOf(p.machineId) }));
+  reg("machines.close", (p) => { d.machines.close(p.machineId); return { ok: true as const }; });
 
   // The document workspace (Plan 17 W1). Unlike the browser methods above, these carry file CONTENT:
   // the server is the only process that reads and writes documents, which is what lets an agent edit
@@ -504,6 +534,13 @@ export function registerMethods(d: Deps): void {
     void d.browserBridge.call("oauthKey", {})
       .then((r) => { oauthSecretBox.setKey(typeof (r as { key?: unknown })?.key === "string" ? (r as { key: string }).key : null); })
       .catch(() => { /* no key: writes stay plaintext, exactly as before this existed */ });
+    // And the `machine` key beside it (Plan 25 W3), on the same terms and for the same reason: the
+    // server is what performs a machine's RFB handshake, so it is what has to be able to open the
+    // password. Its failure mode is NOT the same as oauth's — no key means machines refuse to store
+    // a password at all rather than writing one in the clear.
+    void d.browserBridge.call("machineKey", {})
+      .then((r) => { machineSecretBox.setKey(typeof (r as { key?: unknown })?.key === "string" ? (r as { key: string }).key : null); })
+      .catch(() => { /* no key: a machine that needs a password says so instead of storing one */ });
     return { ok: true as const };
   });
   reg("browserHost.result", (p) => { d.browserBridge.handleResult(p); return { ok: true as const }; });

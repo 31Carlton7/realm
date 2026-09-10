@@ -22,6 +22,8 @@ export const BROWSER_HOST_OPS = [
    * enumerated in one place.
    */
   "oauthKey",
+  /** The `machine` domain key (Plan 25 W3), for the RFB handshakes realm-server performs itself. */
+  "machineKey",
   /** Arm a one-shot download grant, click the ref, and await the file. The DIRECTORY is decided
    *  server-side (from the space's project) and travels with the op — main never picks a path, and
    *  the page never influences one. */
