@@ -29,9 +29,20 @@ export type RfbLike = {
   focus(): void;
   blur(): void;
   addEventListener(type: "connect" | "disconnect" | "credentialsrequired" | "desktopname", fn: (e: Event) => void): void;
-  /** noVNC's own knobs, the two this sets. `viewOnly` is what the pane's own read-only state uses;
-   *  `scaleViewport` stays FALSE because `fit.ts` owns the geometry — two things scaling one canvas
-   *  is how the click map and the picture drift apart. */
+  /**
+   * noVNC's own knobs, the two this sets.
+   *
+   * `scaleViewport` is TRUE, and it took reading noVNC's source to get right. Its `Display` maps a
+   * click as `clientToElement(...)` — CSS offsets inside the canvas's bounding rect — and then
+   * divides by its OWN `_scale`, which only `scaleViewport` ever sets. Leave it false while CSS-
+   * scaling the canvas from outside and the picture is correct while every click is wrong by exactly
+   * the scale factor: the failure with no visible symptom.
+   *
+   * So there is still exactly one scaler, and `fit.ts` still owns the geometry — it just drives
+   * noVNC's rather than competing with it. `autoscale` fits the canvas to its CONTAINER, and the
+   * container is sized to `fit.cssWidth × fit.cssHeight`, so the ratio noVNC derives IS the ratio
+   * `fitFramebuffer` computed. The two agree by construction rather than by being checked.
+   */
   viewOnly: boolean;
   scaleViewport: boolean;
   /** Send a chord the platform would otherwise eat (⌘Q, ⌘Tab). Keysyms, not key names. */
@@ -109,10 +120,10 @@ export class MachineHub {
     const host = this.doc.createElement("div");
     host.className = "machine-host";
     const rfb = this.factory(host, url);
-    // `fit.ts` owns the geometry. noVNC's own scaler would be a second thing sizing one canvas, and
-    // the click map is computed from ours — two scalers is how a pane starts clicking in the wrong
-    // place while the picture still looks right.
-    rfb.scaleViewport = false;
+    // Driven BY `fit.ts` rather than competing with it: the host element is sized to the fit's own
+    // CSS box, and noVNC scales the canvas to fill it — which is the same ratio, and which is also
+    // what keeps its click mapping in step with `toFramebuffer`. See the note on `RfbLike`.
+    rfb.scaleViewport = true;
 
     const onConnect = () => {
       this.connected.add(machineId);

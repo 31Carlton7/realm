@@ -72,6 +72,29 @@ describe("the machine pane is DOM, not a native view", () => {
   });
 });
 
+describe("one scaler, and it is driven by fit.ts", () => {
+  /**
+   * The mutant is `scaleViewport = false`, and it is tempting: `fit.ts` owns the geometry, so
+   * letting noVNC scale too reads like two things sizing one canvas.
+   *
+   * It is the opposite. noVNC's `Display` maps a click as CSS offsets inside the canvas's bounding
+   * rect and then divides by its own `_scale` — which only `scaleViewport` ever sets. CSS-scale the
+   * canvas from outside with that flag off and the PICTURE is correct while every CLICK is wrong by
+   * exactly the scale factor: no visible symptom, and the presses land somewhere else.
+   *
+   * With it on, noVNC fits the canvas to its container, and the container is sized to the fit's own
+   * CSS box — so the ratio it derives is the ratio `fitFramebuffer` computed, and its click map and
+   * `toFramebuffer` agree by construction.
+   */
+  it("hands noVNC the scaling rather than fighting it", async () => {
+    const hub = await import("./machine-hub");
+    const src = strip(await import("./machine-hub?raw").then((m) => (m as { default: string }).default));
+    expect(src).toContain("rfb.scaleViewport = true");
+    expect(src).not.toContain("scaleViewport = false");
+    expect(typeof hub.MachineHub).toBe("function");
+  });
+});
+
 describe("what a machine's state is called", () => {
   /* Plain sentence case, and Realm's words rather than the protocol's. "Powered on" and "halted" are
      QEMU's vocabulary for a thing the user thinks of as connected or not. */
