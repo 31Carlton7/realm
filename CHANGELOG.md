@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.2.0 — 2026-09-10
+
+**Dividers that stay put.** The line between two panes was disappearing and coming back when you
+nudged it. A browser pane is a native view that composites above the window's own drawing, and its
+bounds rounded each edge independently — so a pane whose left edge landed a fraction of a pixel
+short covered the divider beside it and could not be drawn over in return. Even splits were where it
+bit: halves round outward-safe, thirds and sixths do not. The view is now inset to the pixel grid and
+can never reach outside its own box.
+
+**Reorderable pane-group tabs.** Drag a tab along the strip to reorder it, or move it with ⌥←/⌥→.
+The drop indicator is a rule in the gap between tabs, distinct from dropping a pane *onto* a tab,
+which still moves that pane into the group.
+
+**First run, in two columns.** The agents on the left, the space on the right. Stacked, the one field
+anybody types sat below a dozen radios; side by side each half is scannable on its own. The space's
+icon and colour are on that form now — first run was already choosing them, it just never showed you.
+
+**Quieter surfaces.** The prompter's lift is cast from its curve rather than its box, so the shadow
+follows the corner instead of squaring it off. The space strip's fill dissolves into the material
+behind it, and the under-strip takes the card's ring and as much of its rounding as it can hold.
+
+**Fixed.** `pnpm app:icons` finds and clears the stale bundle registrations that were putting an old
+app icon on notification banners — every packaged build left in a worktree claims the same bundle
+identifier, and macOS can resolve a notification's icon to any of them.
+
 ## v1.1.0 — 2026-09-09
 
 **Agents.** A page that reads every session the way a manager would: grouped by what they need from
