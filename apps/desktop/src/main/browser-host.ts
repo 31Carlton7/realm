@@ -52,14 +52,32 @@ export function originAllowed(url: string, allowlist: readonly string[] | null):
  * Placeholder rect (renderer CSS px) → view bounds (DIPs relative to the window's content view).
  * CSS px * zoom = DIP, and the renderer's devicePixelRatio = displayScaleFactor * zoomFactor, so
  * DIP = css * dpr / scaleFactor — which also stays correct when the user has zoomed the app.
- * Rounded (setBounds takes integers) and clamped so a mid-layout negative rect can never throw.
+ *
+ * INSET to the pixel grid, never rounded to it. `setBounds` takes integers, and a WebContentsView
+ * composites ABOVE the window's DOM unconditionally (browser-pane.ts) — so a view whose edge rounds
+ * OUTWARD paints over whatever the renderer drew in the pixel next door, and cannot be drawn over in
+ * return. The pixel next door is `.resize-handle`: the pane divider is the 1px immediately outside
+ * this rect, and it is the whole boundary between two panes.
+ *
+ * Rounding each edge independently is what did it. A pane whose left edge sits at 1054.344 gave
+ * `Math.round(1054.344) = 1054`, a third of a pixel to the LEFT of the pane — over the divider —
+ * and rounding `width` separately let the right edge spill the same way. Even splits are where this
+ * bites: two panes put every edge on .0 or .5 and .5 rounds outward-safe, but three panes put them
+ * on thirds and six on sixths, so a fraction under .5 ate the line. Dragging the divider a hair
+ * moved the edge to a fraction that rounded the other way and it came back, which is what made this
+ * read as random.
+ *
+ * `ceil` the near edges and `floor` the far ones: the view is then always CONTAINED by its
+ * placeholder. The cost is up to one device pixel of pane ground showing at an edge instead of page
+ * content, which is invisible; the alternative is a structural divider that disappears.
+ *
+ * Clamped so a mid-layout negative or inverted rect can never throw.
  */
 export function toViewBounds(rect: ViewRect, dpr: number, scaleFactor: number): ViewRect {
   const k = scaleFactor > 0 && dpr > 0 ? dpr / scaleFactor : 1;
-  return {
-    x: Math.round(rect.x * k), y: Math.round(rect.y * k),
-    width: Math.max(0, Math.round(rect.width * k)), height: Math.max(0, Math.round(rect.height * k)),
-  };
+  const left = Math.ceil(rect.x * k), top = Math.ceil(rect.y * k);
+  const right = Math.floor((rect.x + rect.width) * k), bottom = Math.floor((rect.y + rect.height) * k);
+  return { x: left, y: top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
 }
 
 /** The thin Electron adapter each live view is driven through. */

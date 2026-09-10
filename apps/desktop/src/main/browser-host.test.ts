@@ -64,9 +64,12 @@ describe("toViewBounds", () => {
     expect(toViewBounds({ x: 10, y: 20, width: 300, height: 200 }, 2, 2)).toEqual({ x: 10, y: 20, width: 300, height: 200 });
     expect(toViewBounds({ x: 10, y: 20, width: 300, height: 200 }, 1, 1)).toEqual({ x: 10, y: 20, width: 300, height: 200 });
   });
-  it("scales by the zoom factor (dpr / scaleFactor) and rounds", () => {
-    // App zoomed to 150% on a 2x display: dpr = 3, scale = 2.
-    expect(toViewBounds({ x: 100, y: 50, width: 201, height: 99 }, 3, 2)).toEqual({ x: 150, y: 75, width: 302, height: 149 });
+  it("scales by the zoom factor (dpr / scaleFactor) and insets to the grid", () => {
+    // App zoomed to 150% on a 2x display: dpr = 3, scale = 2. The box is x 150 → 451.5, y 75 → 223.5.
+    // This used to answer width 302 — a right edge at 452, half a pixel PAST the placeholder and
+    // therefore over the divider beside it, which a WebContentsView paints on top of. 301 is the
+    // last whole pixel still inside the box.
+    expect(toViewBounds({ x: 100, y: 50, width: 201, height: 99 }, 3, 2)).toEqual({ x: 150, y: 75, width: 301, height: 148 });
   });
   it("clamps negative sizes and survives zero/garbage factors", () => {
     expect(toViewBounds({ x: 0, y: 0, width: -5, height: -1 }, 2, 2)).toEqual({ x: 0, y: 0, width: 0, height: 0 });
@@ -174,6 +177,46 @@ describe("BrowserPaneHost", () => {
     host.setBounds("b1", { x: 100, y: 50, width: 200, height: 100 }, 3, false); // zoomed 1.5x
     expect(views.get("b1")!.calls).toContain("bounds:150,75,300,150");
     expect(views.get("b1")!.calls.at(-1)).toBe("visible:false");
+  });
+
+  it("never lets the native view paint outside its placeholder — the divider lives in that pixel", () => {
+    /* A WebContentsView composites ABOVE the DOM unconditionally, so an edge that rounds OUTWARD
+       covers whatever the renderer drew next door and cannot be drawn over in return. Next door is
+       `.resize-handle`, the entire boundary between two panes.
+
+       THE mutant: `Math.round` per edge, which is what this was. 1054.344 rounded to 1054 — a third
+       of a pixel left of the pane, on top of the divider — and the reports were of dividers that
+       vanish and come back when you nudge them, because nudging moves the edge to a fraction that
+       rounds the other way. Three panes put edges on thirds and six on sixths, which is why even
+       splits were where it bit. */
+    const containment = (rect: { x: number; y: number; width: number; height: number }, dpr: number, scale: number) => {
+      const b = toViewBounds(rect, dpr, scale);
+      const k = dpr / scale;
+      return { spillsNear: b.x < rect.x * k - 1e-9 || b.y < rect.y * k - 1e-9,
+               spillsFar: b.x + b.width > (rect.x + rect.width) * k + 1e-9 || b.y + b.height > (rect.y + rect.height) * k + 1e-9 };
+    };
+    // The measured case, and a sweep of every fraction a split can produce (halves, thirds, sixths).
+    for (const frac of [0, 1 / 6, 1 / 3, 0.344, 0.5, 2 / 3, 5 / 6, 0.999]) {
+      for (const [dpr, scale] of [[1, 1], [2, 2], [3, 2], [2, 1]] as const) {
+        const rect = { x: 1054 + frac, y: 40 + frac, width: 385 + frac, height: 300 + frac };
+        const c = containment(rect, dpr, scale);
+        expect(c.spillsNear, `near edge, frac ${frac} @${dpr}/${scale}`).toBe(false);
+        expect(c.spillsFar, `far edge, frac ${frac} @${dpr}/${scale}`).toBe(false);
+      }
+    }
+  });
+
+  it("still fills the placeholder when it already sits on the pixel grid", () => {
+    // Insetting must not cost a pixel in the ordinary case, or every browser pane grows a hairline
+    // of pane ground down its edge. Whole numbers in, the same whole numbers out.
+    expect(toViewBounds({ x: 100, y: 50, width: 200, height: 100 }, 2, 2)).toEqual({ x: 100, y: 50, width: 200, height: 100 });
+    expect(toViewBounds({ x: 100, y: 50, width: 200, height: 100 }, 3, 2)).toEqual({ x: 150, y: 75, width: 300, height: 150 });
+  });
+
+  it("gives back an empty rect rather than a negative one when the layout is mid-flight", () => {
+    // A collapsed or inverted placeholder must not reach setBounds as a negative size.
+    expect(toViewBounds({ x: 10.7, y: 10.7, width: 0.2, height: 0.2 }, 1, 1)).toMatchObject({ width: 0, height: 0 });
+    expect(toViewBounds({ x: 0, y: 0, width: -5, height: -5 }, 1, 1)).toMatchObject({ width: 0, height: 0 });
   });
 
   it("navAction routes back/forward/reload/stop; unknown ids are ignored", () => {
