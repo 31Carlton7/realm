@@ -1,4 +1,4 @@
-import { createServer } from "node:net";
+import { connect, createServer } from "node:net";
 import type { Environment } from "@realm/contracts";
 import type { Db } from "../db/database";
 import { now } from "../store/rows";
@@ -27,6 +27,24 @@ export const probePort: PortProbe = (port) =>
     const s = createServer();
     s.once("error", () => resolve(false));
     s.listen({ port, host: "127.0.0.1", exclusive: true }, () => s.close(() => resolve(true)));
+  });
+
+/**
+ * The mirror image of `probePort`, and they must never be confused: this asks **"can I REACH it"**
+ * where that one asks "can I BIND it", and the answers are opposite for the same port. A free port
+ * binds and refuses a connection; a port with a server on it refuses a bind and accepts one.
+ *
+ * Used by the QEMU manager (Plan 25 W5) for the last of the four things `running` means: the
+ * renderer's entire job is to open the port the guest is serving VNC on, so "QEMU says it is up" is
+ * not the same claim as "the socket the pane will open actually accepts".
+ */
+export const probeConnect = (port: number, host = "127.0.0.1", timeoutMs = 500): Promise<boolean> =>
+  new Promise((resolve) => {
+    const s = connect({ port, host });
+    const done = (v: boolean) => { s.destroy(); resolve(v); };
+    s.setTimeout(timeoutMs, () => done(false));
+    s.once("connect", () => done(true));
+    s.once("error", () => done(false));
   });
 
 /**
