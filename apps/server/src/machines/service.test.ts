@@ -74,13 +74,31 @@ describe("machines RPC", () => {
 
   it("refuses a source this release cannot reach, by name, instead of making a row that never starts", async () => {
     const { c, space } = await bring();
-    for (const source of ["qemu", "mac", "container"]) {
+    // `qemu` is built (Plan 25 W5); these two are not, and each says which and what to do instead.
+    for (const source of ["mac", "container"]) {
       const r = await c.call("machines.create", { spaceId: space.id, name: "x", source, endpoint: null });
       expect(r.error, source).toBeTruthy();
-      expect(String(r.error.message), source).toMatch(/connect (a|another) machine by address/);
+      expect(String(r.error.message), source).toMatch(/by address/);
     }
     // …and nothing was left behind in the sidebar by a refusal.
     expect((await c.call("items.list", { spaceId: space.id })).result).toEqual([]);
+    c.close();
+  });
+
+  /* A guest is a real row now, and it is created with no image and no address — the connect flow's
+     "A Linux VM on this Mac" route fills those in. `start` is where the absence is refused. */
+  it("creates a qemu machine with a guest shape, and refuses to start one with nothing to boot", async () => {
+    const { c, space } = await bring();
+    const r = (await c.call("machines.create", {
+      spaceId: space.id, name: "Debian", source: "qemu", endpoint: null,
+      guest: { arch: "aarch64", memoryMb: 4096, cpus: 4, diskGb: 40, imageSha: null, imageKind: null, catalogId: "debian-13-arm64" },
+    })).result;
+    expect(r.machineId).toBeTruthy();
+    const { machine } = (await c.call("machines.get", { machineId: r.machineId })).result;
+    expect(machine).toMatchObject({ source: "qemu", endpoint: null });
+    // It reports `booting` synchronously and then fails behind an event, because a guest that has
+    // nothing to boot from is a fact the boot discovers rather than one `start` can answer with.
+    expect((await c.call("machines.start", { machineId: r.machineId })).result.state.status).toBe("booting");
     c.close();
   });
 

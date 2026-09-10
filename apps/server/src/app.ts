@@ -20,7 +20,11 @@ import { DocumentService } from "./documents/service";
 import { DocumentPreviewServer } from "./documents/preview";
 import { MachineService } from "./machines/service";
 import { MachineWsProxy } from "./machines/ws-proxy";
+import { join } from "node:path";
 import { MachinesStore } from "./store/machines";
+import { ImageStore } from "./machines/images";
+import { GuestSpecSchema, type GuestSpec } from "@realm/contracts";
+import { QemuManager } from "./machines/qemu-manager";
 import { createDocsAgentProvider } from "./documents/agent-tools";
 import { TextExtractor } from "./documents/text-extract";
 import { LectureService } from "./school/lectures";
@@ -367,7 +371,22 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     onClosed: (id) => machines.onClosed(id),
     log: (line) => console.log(line),
   });
-  const machines: MachineService = new MachineService({ db, rpc, spaces, items, machines: machinesStore, proxy: machineProxy });
+  /* Guests live under `<realmHome>/machines`, never in a space's project folder — the deliberate
+     opposite of `DOWNLOAD_DIRNAME`, because a download is the user's file and belongs where they see
+     it while a 20GB disk image is Realm's infrastructure and inside a git checkout is a hazard. */
+  const machinesDir = join(opts.home, "machines");
+  const machineImages = new ImageStore({ dir: join(machinesDir, "images") });
+  const qemuManager = new QemuManager({ log: (line) => console.log(line) });
+  const machines: MachineService = new MachineService({
+    db, rpc, spaces, items, machines: machinesStore, proxy: machineProxy,
+    machinesDir, images: machineImages, qemu: qemuManager,
+  });
+  // Guest shapes survive a restart through `settings`, keyed by machine id — Realm's own
+  // configuration rather than a secret or an address, so it needs no column and no migration.
+  machines.hydrateGuests(machinesStore.all()
+    .map((m) => [m.id, GuestSpecSchema.safeParse(settings.get(`machine.guest:${m.id}`))] as const)
+    .filter((e): e is [string, { success: true; data: GuestSpec }] => e[1].success)
+    .map(([id, parsed]) => [id, parsed.data] as [string, GuestSpec]));
   // Plan 22: the preview listener guides and PDFs are framed from. Its root lookup is late-bound to
   // the service below (a workspace id → its checkout), which is the only thing it needs to know.
   const preview = new DocumentPreviewServer({ rootOf: (id) => documents.rootOfWorkspace(id) });

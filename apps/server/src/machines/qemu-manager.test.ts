@@ -71,7 +71,14 @@ function harness(over: { reachable?: boolean; status?: string; readyTimeoutMs?: 
     memoryMb: 2048, cpus: 4, title: "Test guest", accel: "hvf",
   };
   const start = () => manager.start("m1", spec, (reason, disposed) => exits.push({ reason, disposed }));
-  return { dir, manager, spec, start, children, spawned, exits, probes };
+  /** `start` writes the secret and the nvram before it spawns, so a fixed delay races the setup. */
+  const child = async (): Promise<FakeChild> => {
+    const t0 = Date.now();
+    while (children.length === 0 && Date.now() - t0 < 3000) await new Promise((r) => setTimeout(r, 5));
+    if (!children[0]) throw new Error("nothing was spawned");
+    return children[0];
+  };
+  return { dir, manager, spec, start, child, children, spawned, exits, probes };
 }
 
 describe("bringing a guest up", () => {
@@ -108,8 +115,7 @@ describe("bringing a guest up", () => {
   it("carries QEMU's own last words into the failure", async () => {
     const h = harness({ reachable: false, readyTimeoutMs: 700 });
     const pending = h.start();
-    await new Promise((r) => setTimeout(r, 100));
-    h.children[0]!.stderr.write("qemu-system-aarch64: Failed to lock byte 100\n");
+    (await h.child()).stderr.write("qemu-system-aarch64: Failed to lock byte 100\n");
     await expect(pending).rejects.toThrow(/Failed to lock byte 100/);
   });
 
@@ -213,8 +219,7 @@ describe("taking a guest down", () => {
   it("reports a spawn failure as the command that could not run", async () => {
     const h = harness();
     const pending = h.start();
-    await new Promise((r) => setTimeout(r, 50));
-    h.children[0]!.emit("error", new Error("spawn qemu-system-aarch64 ENOENT"));
+    (await h.child()).emit("error", new Error("spawn qemu-system-aarch64 ENOENT"));
     await pending.catch(() => {});
     await new Promise((r) => setTimeout(r, 30));
     // A spawn failure is not a crash: the command never ran, and naming it is the useful thing.

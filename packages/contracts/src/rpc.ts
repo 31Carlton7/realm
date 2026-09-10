@@ -19,7 +19,7 @@ import { ImportResultSchema, ImportScanSchema } from "./import";
 import { GuideProgressSchema } from "./documents";
 import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageSummarySchema } from "./usage";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
-import { MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
+import { GuestSpecSchema, MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
 import { FailoverPolicySchema } from "./failover";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
 
@@ -464,9 +464,45 @@ export const Methods = {
       source: MachineSourceSchema.default("vnc"),
       endpoint: VncEndpointSchema.nullable().default(null),
       password: z.string().max(512).nullable().default(null),
+      /** Only for `qemu`: what hardware the guest gets and which image it boots. */
+      guest: GuestSpecSchema.nullable().default(null),
     }),
     result: z.object({ machineId: IdSchema, itemId: IdSchema, passwordStored: z.boolean() }),
   },
+  /**
+   * What this Mac can actually offer.
+   *
+   * The connect flow leaves the local-VM route out ENTIRELY when `qemu.unavailable` is set, rather
+   * than offering it disabled — design.md: "Where the owner has said nothing, show nothing, not a
+   * disabled control, which invites a user to work out how to enable something nobody has claimed."
+   */
+  "machines.capabilities": {
+    params: z.object({}),
+    result: z.object({
+      qemu: z.object({
+        available: z.boolean(),
+        /** Why not, in a sentence. Null when it is. */
+        unavailable: z.string().nullable(),
+        version: z.string().nullable(),
+        /** Hardware acceleration for a guest of this Mac's own architecture. */
+        hvf: z.boolean(),
+        arches: z.array(z.enum(["aarch64", "x86_64"])),
+      }),
+      catalog: z.array(z.object({
+        id: z.string(), name: z.string(), summary: z.string(),
+        arch: z.enum(["aarch64", "x86_64"]), bytes: z.number(), kind: z.enum(["disk", "iso"]),
+        memoryMb: z.number(), cpus: z.number(), diskGb: z.number(),
+        /** False where this release publishes no checksum for it — see `catalog-data.ts`. Such an
+         *  entry is offered as an import rather than a download, because a hash nobody verified
+         *  would look like a guarantee. */
+        verified: z.boolean(),
+      })),
+      /** Why Windows and macOS are absent, rather than entries that fail. */
+      absent: z.string(),
+    }),
+  },
+  "machines.images.list": { params: z.object({}), result: z.object({ images: z.array(z.object({ sha256: z.string(), kind: z.enum(["qcow2", "iso"]), bytes: z.number(), name: z.string() })) }) },
+  "machines.images.remove": { params: z.object({ sha256: z.string().length(64), kind: z.enum(["qcow2", "iso"]) }), result: z.object({ ok: z.literal(true) }) },
   "machines.list": { params: z.object({ spaceId: IdSchema }), result: z.object({ machines: z.array(MachineSchema), states: z.array(MachineStateSchema) }) },
   "machines.get": { params: z.object({ machineId: IdSchema }), result: z.object({ machine: MachineSchema, state: MachineStateSchema }) },
   "machines.update": {
@@ -1298,6 +1334,14 @@ export const Events = {
   /** An agent's act is in flight (`true`) or has settled (`false`) on this machine. Every `true` is
    *  followed by a `false` whatever the outcome, so a failed act cannot leave the dot lit. */
   "machine.driving": z.object({ spaceId: IdSchema, machineId: IdSchema, driving: z.boolean() }),
+  /** An image is being fetched (Plan 25 W5). A DETERMINATE fraction, because here one genuinely
+   *  exists — unlike a boot, where drawing an empty meter would be a claim. `error` is a word from
+   *  `IMAGE_ERRORS`, so every terminal state is something a person can act on rather than a spinner
+   *  that stopped. */
+  "machineImage.progress": z.object({
+    machineId: IdSchema, sha256: z.string(), received: z.number(), total: z.number().nullable(),
+    done: z.boolean(), error: z.string().nullable(), detail: z.string().nullable(),
+  }),
 } as const;
 export type EventName = keyof typeof Events;
 export type EventPayload<E extends EventName> = z.infer<(typeof Events)[E]>;

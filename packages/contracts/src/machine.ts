@@ -67,6 +67,26 @@ export const VncEndpointSchema = z.object({
 });
 export type VncEndpoint = z.infer<typeof VncEndpointSchema>;
 
+/**
+ * A guest Realm boots itself: what hardware it gets and which image it starts from (Plan 25 W5).
+ *
+ * Separate from `MachineSchema` because it applies to exactly one source. A row for a Mac at an
+ * address has no architecture and no disk, and putting four columns on every machine so that one
+ * kind can use them is four columns that mean nothing on most rows.
+ */
+export const GuestSpecSchema = z.object({
+  arch: z.enum(["aarch64", "x86_64"]).default("aarch64"),
+  memoryMb: z.number().int().min(256).max(131072).default(4096),
+  cpus: z.number().int().min(1).max(64).default(4),
+  diskGb: z.number().int().min(1).max(4096).default(40),
+  /** The image's content hash, or null for a guest with nothing to boot from yet. */
+  imageSha: z.string().max(64).nullable().default(null),
+  imageKind: z.enum(["qcow2", "iso"]).nullable().default(null),
+  /** The catalog entry this came from, so a re-download knows where to look. */
+  catalogId: z.string().max(64).nullable().default(null),
+});
+export type GuestSpec = z.infer<typeof GuestSpecSchema>;
+
 export const MachineSchema = z.object({
   id: IdSchema,
   spaceId: IdSchema,

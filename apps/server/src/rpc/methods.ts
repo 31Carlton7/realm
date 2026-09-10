@@ -28,6 +28,7 @@ import type { TerminalService } from "../terminals/service";
 import type { BrowserService } from "../browsers/service";
 import type { MachineService } from "../machines/service";
 import { machineSecretBox } from "../machines/secret";
+import { CATALOG_ABSENT_NOTE } from "../machines/catalog-data";
 import type { DocumentService } from "../documents/service";
 import type { BrowserHostBridge } from "../browsers/host-bridge";
 import type { SessionService } from "../sessions/service";
@@ -486,7 +487,13 @@ export function registerMethods(d: Deps): void {
   /* Machines (Plan 25 W3). `create` and `update` are the only two that take a password, and neither
      hands one back: `passwordStored` is a boolean about what happened, because with no encryption
      key the server refuses to store one and the form must not claim otherwise. */
-  reg("machines.create", (p) => d.machines.create(p));
+  reg("machines.create", (p) => {
+    const r = d.machines.create(p);
+    // The guest's shape is Realm's own configuration rather than a secret or an address, so it goes
+    // in `settings` keyed by machine id — no column, no migration, and it survives a restart.
+    if (p.guest) d.settings.set(`machine.guest:${r.machineId}`, p.guest);
+    return r;
+  });
   reg("machines.list", (p) => ({ machines: d.machines.list(p.spaceId), states: d.machines.states(p.spaceId) }));
   reg("machines.get", (p) => ({ machine: d.machines.get(p.machineId), state: d.machines.stateOf(p.machineId) }));
   reg("machines.update", (p) => {
@@ -497,6 +504,32 @@ export function registerMethods(d: Deps): void {
   reg("machines.stop", (p) => ({ state: d.machines.stop(p.machineId) }));
   reg("machines.endpoint", (p) => ({ state: d.machines.stateOf(p.machineId) }));
   reg("machines.close", (p) => { d.machines.close(p.machineId); return { ok: true as const }; });
+
+  /* What this Mac can offer. The connect flow leaves the local-VM route out ENTIRELY when qemu is
+     unavailable rather than offering it disabled — design.md, "where the owner has said nothing,
+     show nothing". */
+  reg("machines.capabilities", async () => {
+    const { qemu, catalog } = await d.machines.capabilities();
+    return {
+      qemu: {
+        available: qemu.unavailable === null,
+        unavailable: qemu.unavailable,
+        version: qemu.version,
+        hvf: qemu.hvf,
+        arches: Object.keys(qemu.binaries) as ("aarch64" | "x86_64")[],
+      },
+      catalog: catalog.map((e) => ({
+        id: e.id, name: e.name, summary: e.summary, arch: e.arch, bytes: e.bytes, kind: e.kind,
+        memoryMb: e.memoryMb, cpus: e.cpus, diskGb: e.diskGb,
+        // An entry with no published checksum is offered as an IMPORT, not a download: a hash
+        // nobody verified would look like a guarantee.
+        verified: e.sha256.length === 64,
+      })),
+      absent: CATALOG_ABSENT_NOTE,
+    };
+  });
+  reg("machines.images.list", async () => ({ images: await d.machines.images().list() }));
+  reg("machines.images.remove", async (p) => { await d.machines.images().remove(p.sha256, p.kind); return { ok: true as const }; });
 
   // The document workspace (Plan 17 W1). Unlike the browser methods above, these carry file CONTENT:
   // the server is the only process that reads and writes documents, which is what lets an agent edit
@@ -633,6 +666,7 @@ export function registerMethods(d: Deps): void {
   reg("sessions.create", (p) => d.sessions.create({ ...p, dispatchedBy: p.userDispatched ? { kind: "user-dispatch", sessionId: null } : null }));
   reg("sessions.send", async (p) => { await d.sessions.send(p.id, { text: p.text, attachments: p.attachments, mentions: p.mentions, elements: p.elements }, p.delivery); return { ok: true as const }; });
   reg("sessions.dequeue", async (p) => { d.sessions.dequeue(p.id, p.queuedId); return { ok: true as const }; });
+  reg("sessions.releaseQueued", async (p) => { await d.sessions.releaseQueued(p.id, p.queuedId); return { ok: true as const }; });
   reg("sessions.queued", async (p) => ({ queued: d.sessions.queuedPrompts(p.id) }));
   reg("sessions.interrupt", async (p) => { await d.sessions.interrupt(p.id); return { ok: true as const }; });
   reg("sessions.recordFeedback", (p) => { d.sessions.recordFeedback(p.id, p.messageId, p.rating); return { ok: true as const }; });
