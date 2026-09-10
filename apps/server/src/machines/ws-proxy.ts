@@ -59,6 +59,17 @@ export type WsProxyDeps = {
   log?(line: string): void;
 };
 
+/**
+ * What the renderer's RFB client sends back in answer to the replay, and therefore what the proxy
+ * has to swallow before it starts forwarding: a 12-byte version line, one byte choosing a security
+ * type, and one byte of ClientInit.
+ *
+ * Fixed rather than parsed because BOTH ENDS OF IT ARE OURS — `replayForClient` offers exactly one
+ * security type, so there is exactly one legal reply and its length is a constant. A parser here
+ * would be a second implementation of a conversation this file already wrote.
+ */
+export const CLIENT_HANDSHAKE_BYTES = 12 + 1 + 1;
+
 /** How long the far end has to complete a handshake before Realm gives up on it. A Mac that is
  *  asleep accepts the TCP connection and then says nothing, which is indistinguishable from a
  *  healthy server until a deadline says otherwise. */
@@ -167,6 +178,23 @@ export class MachineWsProxy {
     let buf = Buffer.alloc(0);
     let piping = false;
     let settled = false;
+    /**
+     * The client's OWN handshake, which it has not started yet and which must never be forwarded.
+     *
+     * The replay hands the renderer's RFB client a synthetic negotiation, and it answers exactly the
+     * way the protocol says: 12 bytes of version line, 1 byte choosing a security type, 1 byte of
+     * ClientInit. Those 14 bytes are a reply to US. Forwarded to the real machine — which finished
+     * its own handshake seconds ago and is now reading MESSAGES — they arrive as message type 0x52
+     * ("R" of "RFB"), and the far end stops answering for good.
+     *
+     * Which is not a hypothetical: it is what shipped until a live check ran a real noVNC against a
+     * real server. The pane showed a correctly-sized black canvas forever, the server logged not one
+     * FramebufferUpdateRequest, and every unit test passed — because a test client that never
+     * answers the replay never sends the bytes that break it.
+     */
+    let clientHandshakeLeft = CLIENT_HANDSHAKE_BYTES;
+    /** Anything the client says beyond its handshake in the same frame still belongs to the machine. */
+    let clientBuf = Buffer.alloc(0);
 
     const fail = (error: Parameters<NonNullable<WsProxyDeps["onFailed"]>>[1], detail: string): void => {
       if (settled) return;
@@ -244,9 +272,25 @@ export class MachineWsProxy {
       // Before the handshake finishes the client has been told nothing, so it has nothing to say —
       // and anything it does say would be injected into the middle of OUR negotiation. Dropped.
       if (!piping) return;
-      if (Buffer.isBuffer(data)) tcp.write(data);
-      else if (Array.isArray(data)) tcp.write(Buffer.concat(data));
-      else if (data instanceof ArrayBuffer) tcp.write(Buffer.from(data));
+      const chunk = Buffer.isBuffer(data) ? data
+        : Array.isArray(data) ? Buffer.concat(data)
+        : data instanceof ArrayBuffer ? Buffer.from(data) : null;
+      if (!chunk) return;
+      if (clientHandshakeLeft > 0) {
+        clientBuf = Buffer.concat([clientBuf, chunk]);
+        // Counted rather than parsed: the replay is ours, so its shape is fixed and known, and a
+        // parser here would be a second implementation of a handshake we wrote both ends of.
+        const drop = Math.min(clientHandshakeLeft, clientBuf.length);
+        clientHandshakeLeft -= drop;
+        clientBuf = clientBuf.subarray(drop);
+        if (clientHandshakeLeft > 0) return;
+        // Whatever came after it in the same frame is a real message — noVNC packs SetPixelFormat
+        // and SetEncodings in immediately, and dropping them would leave the screen never asked for.
+        if (clientBuf.length) tcp.write(clientBuf);
+        clientBuf = Buffer.alloc(0);
+        return;
+      }
+      tcp.write(chunk);
     });
 
     const drop = () => { clearTimeout(deadline); if (quiet) { clearTimeout(quiet); quiet = null; } this.live.delete(pair); tcp.close(); };

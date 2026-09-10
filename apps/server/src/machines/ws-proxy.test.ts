@@ -1,7 +1,7 @@
 import { createServer, type Server, type Socket } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
-import { MachineWsProxy, type MachineTarget } from "./ws-proxy";
+import { CLIENT_HANDSHAKE_BYTES, MachineWsProxy, type MachineTarget } from "./ws-proxy";
 import { RFB_VERSION, vncAuthResponse } from "./rfb-handshake";
 
 /**
@@ -222,6 +222,70 @@ describe("the machine relay", () => {
   /* Input only flows once the client has been told there is a screen. Before that it has been told
      nothing, so it has nothing to say — and anything it did say would be injected into the middle of
      Realm's own negotiation, arriving as the first byte of a challenge or a ClientInit. */
+  /**
+   * The bug a live check found and every test here missed, and the reason it missed it.
+   *
+   * The replay hands the client a synthetic negotiation, and a real RFB client ANSWERS it: 12 bytes
+   * of version line, one byte choosing a security type, one byte of ClientInit. Those 14 bytes are a
+   * reply to Realm. Forwarded to the machine — which finished its own handshake a moment earlier and
+   * is now reading messages — they arrive as message type 0x52, "R" of "RFB", and the far end stops
+   * answering for good.
+   *
+   * What shipped: a correctly-sized, permanently black canvas, not one FramebufferUpdateRequest in
+   * the server's log, and a green suite. Green because every test client here was a raw WebSocket
+   * that never answered the replay, so none of them ever sent the bytes that break it. This one
+   * answers.
+   */
+  it("swallows the client's OWN handshake instead of forwarding it into the machine's message stream", async () => {
+    const vnc = fakeVnc();
+    servers.push(vnc);
+    const port = await vnc.listen();
+    const { proxy } = await bring({ port });
+
+    const c = client(proxy.urlFor("m1"));
+    expect(await c.until(() => c.all().length >= 24)).toBe(true);
+    const beforeReply = vnc.seen.length;
+
+    // Exactly what a real client says back, and then a real message after it.
+    c.send(Buffer.from("RFB 003.008\n", "latin1"));
+    c.send(Buffer.from([1]));                       // security type: None, the only one offered
+    c.send(Buffer.from([1]));                       // ClientInit: shared
+    const request = Buffer.from([3, 0, 0, 0, 0, 0, 5, 160, 3, 132]);   // FramebufferUpdateRequest
+    c.send(request);
+    await c.until(() => vnc.seen.length > beforeReply, 2000);
+
+    const forwarded = Buffer.concat(vnc.seen.slice(beforeReply));
+    // Not one byte of the client's handshake reached the machine…
+    expect(forwarded.toString("latin1")).not.toContain("RFB 003.008");
+    // …and the real message behind it did, or the screen would never be asked for.
+    expect(forwarded.toString("hex")).toContain(request.toString("hex"));
+  });
+
+  it("keeps a real message that arrived in the SAME frame as the client's handshake", async () => {
+    // noVNC packs SetPixelFormat and SetEncodings in immediately behind ClientInit. Dropping the
+    // whole frame instead of just its handshake prefix leaves the screen never asked for — the same
+    // black canvas by a different route.
+    const vnc = fakeVnc();
+    servers.push(vnc);
+    const port = await vnc.listen();
+    const { proxy } = await bring({ port });
+    const c = client(proxy.urlFor("m1"));
+    expect(await c.until(() => c.all().length >= 24)).toBe(true);
+    const before = vnc.seen.length;
+
+    const request = Buffer.from([3, 0, 0, 0, 0, 0, 5, 160, 3, 132]);
+    c.send(Buffer.concat([Buffer.from("RFB 003.008\n", "latin1"), Buffer.from([1, 1]), request]));
+    await c.until(() => vnc.seen.length > before, 2000);
+    const forwarded = Buffer.concat(vnc.seen.slice(before));
+    expect(forwarded.toString("hex")).toBe(request.toString("hex"));
+  });
+
+  it("counts the client's handshake rather than parsing it, because both ends of it are ours", () => {
+    // `replayForClient` offers exactly one security type, so there is exactly one legal reply and
+    // its length is a constant: version + chosen type + ClientInit.
+    expect(CLIENT_HANDSHAKE_BYTES).toBe(14);
+  });
+
   it("drops anything the client sends before the handshake finishes", async () => {
     const vnc = fakeVnc({ security: [2], password: "pw" });
     servers.push(vnc);
