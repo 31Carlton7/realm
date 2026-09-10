@@ -546,4 +546,15 @@ export const migrations: string[] = [
   CREATE INDEX machines_space ON machines(space_id);
   CREATE UNIQUE INDEX machines_ws_port ON machines(ws_port) WHERE ws_port IS NOT NULL;
   `,
+  // v27 — headers for the outbound upgrade request (Plan 25 W3, cloud sandboxes).
+  //
+  // A separate column from `password_sealed` and not a field inside `endpoint_json`, for two
+  // different reasons. It is a SECRET — Namespace's `x-nsc-ingress-auth` is a bearer token — so it
+  // cannot sit in the plaintext endpoint blob beside the host. And it is not the RFB password:
+  // one authenticates to the PROXY in front of the machine and the other to the machine itself, and
+  // a sandbox behind an authenticating ingress needs both at once.
+  //
+  // Nullable with no default and no backfill: every existing row has no headers, which is what
+  // NULL means here and is also true.
+  `ALTER TABLE machines ADD COLUMN headers_sealed TEXT;`,
 ];

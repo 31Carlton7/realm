@@ -1,8 +1,9 @@
 import { createServer, type Server as HttpServer } from "node:http";
-import { connect, type Socket } from "node:net";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
+import type { MachineTransport } from "@realm/contracts";
 import { RpcError } from "../store/rows";
+import { dial, describeDialError, type ByteChannel } from "./dial";
 import { endpointTag, handshakeStep, replayForClient, type HandshakeState } from "./rfb-handshake";
 
 /**
@@ -31,10 +32,20 @@ import { endpointTag, handshakeStep, replayForClient, type HandshakeState } from
 /** Where a machine's pixels actually are, resolved at connect time rather than held here — a machine
  *  whose address or password was edited between panes must not reconnect to the old one. */
 export type MachineTarget = {
+  transport: MachineTransport;
   host: string;
   port: number;
+  /** WebSocket transports only — where websockify serves the upgrade. */
+  path: string;
   /** Plaintext, for the length of one handshake. Null where the server needs none. */
   password: string | null;
+  /** Sent on the upgrade request, WebSocket transports only. A sandbox behind an authenticating
+   *  proxy — Namespace's `x-nsc-ingress-auth` is the named case — needs one, and a browser cannot
+   *  set a header on a WebSocket at all. Unsealed here for the length of one dial. */
+  headers?: Record<string, string>;
+  /** Test seam, threaded through from the service so a local TLS server nothing signed can be
+   *  reached. Production never sets it. */
+  rejectUnauthorized?: boolean;
 };
 
 export type WsProxyDeps = {
@@ -63,7 +74,7 @@ export class MachineWsProxy {
   /** Minted per boot. Every URL handed out before a restart is dead after it, with nothing to
    *  persist and nothing to invalidate by hand. */
   readonly token = randomBytes(18).toString("base64url");
-  private readonly live = new Set<{ ws: WebSocket; tcp: Socket }>();
+  private readonly live = new Set<{ ws: WebSocket; tcp: ByteChannel }>();
 
   constructor(private readonly d: WsProxyDeps) {}
 
@@ -108,13 +119,13 @@ export class MachineWsProxy {
     for (const pair of [...this.live]) {
       if ((pair.ws as WebSocket & { machineId?: string }).machineId !== machineId) continue;
       this.live.delete(pair);
-      pair.tcp.destroy();
+      pair.tcp.close();
       pair.ws.close();
     }
   }
 
   async close(): Promise<void> {
-    for (const { ws, tcp } of [...this.live]) { tcp.destroy(); ws.terminate(); }
+    for (const { ws, tcp } of [...this.live]) { tcp.close(); ws.terminate(); }
     this.live.clear();
     this.wss?.close();
     await new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve()));
@@ -147,7 +158,7 @@ export class MachineWsProxy {
     if (!target) { ws.close(1011, "no such machine"); return; }
     (ws as WebSocket & { machineId?: string }).machineId = machineId;
 
-    const tcp = connect({ host: target.host, port: target.port });
+    const tcp: ByteChannel = dial(target);
     const pair = { ws, tcp };
     this.live.add(pair);
     const tag = endpointTag(target.host, target.port);
@@ -163,7 +174,7 @@ export class MachineWsProxy {
       this.d.log?.(`[machine ${machineId}] ${tag} ${error}: ${detail}`);
       this.d.onFailed?.(machineId, error, detail);
       this.live.delete(pair);
-      tcp.destroy();
+      tcp.close();
       // 1011 rather than a clean 1000: the renderer distinguishes "the server hung up" from "Realm
       // could not get there", and only the code tells them apart once the socket is gone.
       try { ws.close(1011, error); } catch { /* already gone */ }
@@ -180,25 +191,25 @@ export class MachineWsProxy {
        The wall deadline catches what an idle timeout structurally cannot: a server that dribbles a
        byte every few seconds and never finishes negotiating. */
     const deadline = setTimeout(() => fail("unreachable", `the machine did not finish an RFB handshake within ${HANDSHAKE_TIMEOUT_MS / 1000}s`), HANDSHAKE_TIMEOUT_MS);
-    tcp.setTimeout(CONNECT_TIMEOUT_MS, () => {
+    /* The silent-far-end deadline. Armed from the dial and cleared only once pixels flow, not once
+       the connection opens — a Mac that is asleep accepts the connection and then says nothing at
+       all, and clearing this at `open` (the obvious place) leaves the commonest real failure to the
+       ten-second wall deadline above. A connected screen with nothing moving on it is legitimately
+       silent, which is why it goes away rather than staying on. */
+    let quiet: NodeJS.Timeout | null = setTimeout(() => {
       if (!piping) fail("unreachable", `the machine accepted the connection and then said nothing for ${CONNECT_TIMEOUT_MS / 1000}s — it may be asleep`);
-    });
+    }, CONNECT_TIMEOUT_MS);
 
-    // Nagle off: RFB is request/response during the handshake and latency-sensitive after it, and
-    // 40ms of coalescing is visible as a laggy pointer.
-    tcp.on("connect", () => tcp.setNoDelay(true));
+    tcp.onError((e) => fail("unreachable", describeDialError(target, e)));
 
-    tcp.on("error", (e) => fail("unreachable", (e as NodeJS.ErrnoException).code === "ECONNREFUSED"
-      ? `nothing is listening on port ${target.port} at that address`
-      : e.message));
-
-    tcp.on("close", () => {
+    tcp.onClose(() => {
       clearTimeout(deadline);
+      if (quiet) { clearTimeout(quiet); quiet = null; }
       if (piping) { this.live.delete(pair); this.d.onClosed?.(machineId); try { ws.close(1000); } catch { /* gone */ } }
       else fail("disconnected", "the machine closed the connection during the handshake");
     });
 
-    tcp.on("data", (chunk: Buffer) => {
+    tcp.onData((chunk: Buffer) => {
       if (piping) { if (ws.readyState === ws.OPEN) ws.send(chunk); return; }
       buf = Buffer.concat([buf, chunk]);
       for (;;) {
@@ -218,9 +229,8 @@ export class MachineWsProxy {
           if (buf.length) ws.send(buf);
           buf = Buffer.alloc(0);
           piping = true;
-          // The idle timeout has done its job. A connected screen with nothing moving on it is
-          // silent by design, and tearing that down would disconnect every machine nobody is using.
-          tcp.setTimeout(0);
+          // The quiet deadline has done its job.
+          if (quiet) { clearTimeout(quiet); quiet = null; }
           this.d.onConnected?.(machineId, { width: step.width, height: step.height, name: step.name });
           return;
         }
@@ -239,7 +249,8 @@ export class MachineWsProxy {
       else if (data instanceof ArrayBuffer) tcp.write(Buffer.from(data));
     });
 
-    ws.on("close", () => { clearTimeout(deadline); this.live.delete(pair); tcp.destroy(); });
-    ws.on("error", () => { clearTimeout(deadline); this.live.delete(pair); tcp.destroy(); });
+    const drop = () => { clearTimeout(deadline); if (quiet) { clearTimeout(quiet); quiet = null; } this.live.delete(pair); tcp.close(); };
+    ws.on("close", drop);
+    ws.on("error", drop);
   }
 }

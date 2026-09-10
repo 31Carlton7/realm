@@ -6,7 +6,7 @@ import type { MachinesStore } from "../store/machines";
 import type { SpacesStore } from "../store/spaces";
 import { NotFoundError, RpcError } from "../store/rows";
 import { machineSecretBox } from "./secret";
-import type { MachineWsProxy } from "./ws-proxy";
+import type { MachineTarget, MachineWsProxy } from "./ws-proxy";
 
 /**
  * Owns a machine's pair — DB row + sidebar item — and its live state (Plan 25 W3).
@@ -94,7 +94,7 @@ export class MachineService {
     return this.d.machines.list(spaceId).map((m) => this.stateOf(m.id));
   }
 
-  update(machineId: string, patch: { name?: string; endpoint?: VncEndpoint; password?: string | null }): { passwordStored: boolean } {
+  update(machineId: string, patch: { name?: string; endpoint?: VncEndpoint; password?: string | null; headers?: Record<string, string> | null }): { passwordStored: boolean } {
     const row = this.d.machines.get(machineId);
     if (!row) throw new NotFoundError("machine", machineId);
     let sealed: string | null | undefined;
@@ -103,7 +103,15 @@ export class MachineService {
       if (patch.password === null || patch.password === "") sealed = null;
       else { sealed = machineSecretBox.seal(patch.password); passwordStored = sealed !== null; }
     }
-    this.d.machines.update(machineId, { name: patch.name, endpoint: patch.endpoint, sealedPassword: sealed });
+    // Headers are a secret on the same terms — an ingress bearer is a credential — so they seal or
+    // they are not stored, and `passwordStored` covers both because a form that saved one and
+    // dropped the other would be telling half the truth.
+    let sealedHeaders: string | null | undefined;
+    if (patch.headers !== undefined) {
+      if (patch.headers === null || Object.keys(patch.headers).length === 0) sealedHeaders = null;
+      else { sealedHeaders = machineSecretBox.seal(JSON.stringify(patch.headers)); passwordStored &&= sealedHeaders !== null; }
+    }
+    this.d.machines.update(machineId, { name: patch.name, endpoint: patch.endpoint, sealedPassword: sealed, sealedHeaders });
     if (patch.name !== undefined) {
       const item = this.d.items.findByRefId(machineId);
       if (item && item.title !== patch.name) {
@@ -114,7 +122,7 @@ export class MachineService {
     // An edit that moved the address or the password invalidates every live view of the OLD one.
     // Dropping them here rather than leaving them to notice is what stops a pane showing a machine
     // the row no longer describes.
-    if (patch.endpoint !== undefined || patch.password !== undefined) this.stop(machineId);
+    if (patch.endpoint !== undefined || patch.password !== undefined || patch.headers !== undefined) this.stop(machineId);
     return { passwordStored };
   }
 
@@ -235,14 +243,39 @@ export class MachineService {
    * Late-bound deliberately: a machine whose address or password was edited between one pane and the
    * next must not reconnect to the old one, and a cached target is exactly how that happens.
    */
-  targetFor(machineId: string): { host: string; port: number; password: string | null } | null {
+  targetFor(machineId: string): MachineTarget | null {
     const row = this.d.machines.get(machineId);
     if (!row || row.source !== "vnc" || !row.endpoint) return null;
     const stored = this.d.machines.sealedPassword(machineId);
     // A sealed password that will not open is NOT a reason to connect without one: the server would
     // refuse, and "auth_failed" with no explanation is worse than the truth. Handled as no password,
     // which produces exactly the "the server wants a password and none is saved" refusal.
-    return { host: row.endpoint.host, port: row.endpoint.port, password: stored ? machineSecretBox.open(stored) : null };
+    return {
+      transport: row.endpoint.transport,
+      host: row.endpoint.host,
+      port: row.endpoint.port,
+      path: row.endpoint.path,
+      password: stored ? machineSecretBox.open(stored) : null,
+      // The upgrade request's headers, for a sandbox behind an authenticating proxy. Sealed in the
+      // same keyring the password is, and unsealed for the length of one dial.
+      headers: this.headersFor(machineId),
+    };
+  }
+
+  /** Stored headers, or undefined. A blob that will not open is undefined rather than an empty
+   *  object: an authenticating proxy answers 401 either way, and the difference matters only in
+   *  that one of them is a lie about having tried. */
+  private headersFor(machineId: string): Record<string, string> | undefined {
+    const stored = this.d.machines.sealedHeaders(machineId);
+    if (!stored) return undefined;
+    const json = machineSecretBox.open(stored);
+    if (!json) return undefined;
+    try {
+      const v = JSON.parse(json) as Record<string, unknown>;
+      const out: Record<string, string> = {};
+      for (const [k, val] of Object.entries(v)) if (typeof val === "string") out[k] = val;
+      return Object.keys(out).length ? out : undefined;
+    } catch { return undefined; }
   }
 
   /* --------------------------- internals --------------------------- */

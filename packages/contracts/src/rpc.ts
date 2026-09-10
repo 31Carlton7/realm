@@ -477,6 +477,11 @@ export const Methods = {
       /** Absent leaves the stored password alone; null or "" clears it; a string replaces it. The
        *  three-way distinction is what stops a rename quietly dropping somebody's password. */
       password: z.string().max(512).nullable().optional(),
+      /** Headers for the outbound WebSocket upgrade, on the same three-way terms as `password`.
+       *  A sandbox behind an authenticating ingress needs one — Namespace's `x-nsc-ingress-auth` is
+       *  the documented case — and a browser cannot set a header on a WebSocket at all, which is why
+       *  this can exist here and could not exist in the renderer. Sealed like the password. */
+      headers: z.record(z.string().max(128), z.string().max(2048)).nullable().optional(),
     }),
     result: z.object({ machine: MachineSchema, passwordStored: z.boolean() }),
   },
@@ -1089,6 +1094,10 @@ export const Methods = {
    *  drains on its own as turns settle, so an index the prompter read a moment ago may already name a
    *  different message. Unknown ids are a no-op — the drain that removed it got there first. */
   "sessions.dequeue": { params: z.object({ id: IdSchema, queuedId: z.string().min(1) }), result: z.object({ ok: z.literal(true) }) },
+  /** Send one queued message now, ahead of the turn it was waiting for. By id, and server-side, because
+   *  the queue holds the mentions and element chips the message was composed with and `QueuedPrompt`
+   *  does not — a prompter that re-sent the text it was shown would drop them. */
+  "sessions.releaseQueued": { params: z.object({ id: IdSchema, queuedId: z.string().min(1) }), result: z.object({ ok: z.literal(true) }) },
   /** The queue as it stands, for a pane that has just mounted. Live changes arrive on `session.queue`;
    *  this is the initial read, the same split `sessions.events` and `session.event` already use. */
   "sessions.queued": { params: z.object({ id: IdSchema }), result: z.object({ queued: z.array(QueuedPromptSchema) }) },

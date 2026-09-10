@@ -36,12 +36,34 @@ export type MachineSource = z.infer<typeof MachineSourceSchema>;
 export const MachineStatusSchema = z.enum(["off", "booting", "running", "suspended", "failed"]);
 export type MachineStatus = z.infer<typeof MachineStatusSchema>;
 
+/**
+ * How Realm dials the far end. Four, because there are four genuinely different things to do with a
+ * socket, and every host worth reaching is one of them.
+ *
+ *   - `tcp`  — RFB straight onto a port. Another Mac with Screen Sharing on, a container with 5900
+ *              published, Modal's `unencrypted_ports`.
+ *   - `tls`  — the same, inside TLS. Modal's `tls_socket`, and anything behind a TLS TCP proxy.
+ *   - `ws` / `wss` — RFB inside a WebSocket, which is what `websockify` serves. This is the only
+ *              shape a sandbox behind an HTTP reverse proxy can take, and it is what E2B Desktop,
+ *              Vercel Sandbox and Namespace's HTTP ingress all reduce to.
+ *
+ * A browser could open the third of these itself and nothing else — which is the short version of
+ * why the relay is server-side rather than a convenience.
+ */
+export const MachineTransportSchema = z.enum(["tcp", "tls", "ws", "wss"]);
+export type MachineTransport = z.infer<typeof MachineTransportSchema>;
+
 /** Where a `vnc` machine lives. The password is NOT here and never travels: the server holds it and
  *  performs the RFB handshake itself, so the renderer is handed an already-authenticated socket. */
 export const VncEndpointSchema = z.object({
+  transport: MachineTransportSchema.default("tcp"),
   host: z.string().min(1).max(255),
-  /** RFB's own default. macOS Screen Sharing is 5900; a `:1` X display is 5901, and so on. */
+  /** RFB's own default. macOS Screen Sharing is 5900; a `:1` X display is 5901, and so on. For a
+   *  WebSocket this is the URL's port — 443 for `wss`, which is what every hosted sandbox uses. */
   port: z.number().int().min(1).max(65535).default(5900),
+  /** WebSocket only: where the far end serves the upgrade. `websockify`'s own default, which noVNC
+   *  and therefore every sandbox that embeds it also uses. Ignored by `tcp` and `tls`. */
+  path: z.string().max(512).default("/websockify"),
 });
 export type VncEndpoint = z.infer<typeof VncEndpointSchema>;
 

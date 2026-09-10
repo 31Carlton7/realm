@@ -5,6 +5,7 @@ import { useApp } from "../../state/store";
 import { rpc } from "../../rpc/client";
 import { getMachineHub, loadRfb } from "./machine-hub";
 import { fitFramebuffer, scaleLabel, type FitMode } from "./fit";
+import { E2B_STREAM_PORT, SANDBOX_NOTES, describeEndpoint, parseMachineAddress, type SandboxProvider } from "@realm/contracts";
 
 /**
  * A screen somewhere else (Plan 25 W3).
@@ -80,36 +81,52 @@ export function MachinePane({ item }: PaneProps) {
  * laptop on the other desk — while the transport underneath is the ordinary `vnc` source.
  */
 function ConnectFlow({ machineId, machine, onSaved }: { machineId: string; machine: Machine | null; onSaved: () => void }) {
-  const [route, setRoute] = useState<"mac" | "address">("mac");
+  const [route, setRoute] = useState<Route>("mac");
   const [name, setName] = useState(machine?.name && machine.name !== "New machine" ? machine.name : "");
-  const [host, setHost] = useState("");
-  const [port, setPort] = useState("5900");
+  const [address, setAddress] = useState("");
   const [password, setPassword] = useState("");
+  const [header, setHeader] = useState("");
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const hostRef = useRef<HTMLInputElement>(null);
+  const addressRef = useRef<HTMLInputElement>(null);
   // The pane opens with the flow already focused, which is exactly what "clicking it opens the pane
   // with the connection flow ready to go" asks for.
-  useEffect(() => { hostRef.current?.focus(); }, []);
+  useEffect(() => { addressRef.current?.focus(); }, [route]);
+
+  /**
+   * What Realm will actually dial, worked out on every keystroke and SHOWN.
+   *
+   * This is the whole of the sandbox support that a person sees. Four providers hand out four
+   * different shapes — an HTML page URL, a TLS host and port, an HTTPS origin, a plain address — and
+   * each needs a different transport underneath. Resolving that silently would be the app knowing
+   * something the user cannot check; resolving it out loud, with the transport named and editable,
+   * is the same work done honestly.
+   */
+  const parsed = useMemo(() => {
+    const raw = route === "e2b" ? (address.trim() ? `https://${E2B_STREAM_PORT}-${address.trim()}.e2b.app/vnc.html` : "") : address;
+    return raw.trim() ? parseMachineAddress(raw) : null;
+  }, [address, route]);
+  const endpoint = parsed && !("error" in parsed) ? parsed.endpoint : null;
+  const provider = parsed && !("error" in parsed) ? parsed.provider : ROUTE_PROVIDER[route];
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const p = Number(port);
-    if (!host.trim()) { setNote("Enter the machine's address."); return; }
-    if (!Number.isInteger(p) || p < 1 || p > 65535) { setNote("That port is not a number between 1 and 65535."); return; }
+    if (!parsed) { setNote("Enter the machine's address."); return; }
+    if ("error" in parsed) { setNote(parsed.error); return; }
     setBusy(true);
     setNote(null);
     try {
       const r = await rpc().call("machines.update", {
         machineId,
-        name: name.trim() || host.trim(),
-        endpoint: { host: host.trim(), port: p },
+        name: name.trim() || parsed.endpoint.host,
+        endpoint: parsed.endpoint,
         password: password || null,
+        headers: header.trim() ? { [HEADER_NAME[route] ?? "authorization"]: header.trim() } : null,
       });
       // The one case that can silently do less than asked: with no encryption key the server refuses
       // to store the password rather than writing a login into realm.db in the clear. Said out loud,
       // because a form that claimed to save it would be lying about where the password is.
-      if (password && !r.passwordStored) {
+      if ((password || header.trim()) && !r.passwordStored) {
         setNote("Connected without saving the password — macOS would not give Realm an encryption key, so it was not stored.");
       }
       onSaved();
@@ -125,43 +142,102 @@ function ConnectFlow({ machineId, machine, onSaved }: { machineId: string; machi
     <div className="machine-body">
       <form className="machine-connect" onSubmit={submit}>
         <h2 className="machine-title">Connect a machine</h2>
+        {/* In the order each is likely to work for the person reading it. "Another Mac" gets its own
+            row rather than being buried under VNC, because that is how someone thinks about the
+            laptop on the other desk — while the transport underneath is the ordinary `vnc` source. */}
         <div className="machine-routes" role="radiogroup" aria-label="What are you connecting to?">
-          <button type="button" role="radio" aria-checked={route === "mac"} data-on={route === "mac" || undefined} onClick={() => setRoute("mac")}>
-            Another Mac
-          </button>
-          <button type="button" role="radio" aria-checked={route === "address"} data-on={route === "address" || undefined} onClick={() => setRoute("address")}>
-            A VNC address
-          </button>
+          {ROUTES.map((r) => (
+            <button key={r.id} type="button" role="radio" aria-checked={route === r.id}
+              data-on={route === r.id || undefined} onClick={() => { setRoute(r.id); setNote(null); }}>
+              {r.label}
+            </button>
+          ))}
         </div>
-        <p className="machine-hint">
-          {route === "mac"
-            ? "Turn on Screen Sharing in System Settings ▸ General ▸ Sharing, and set a VNC password under Computer Settings."
-            : "Anything that serves RFB — a cloud sandbox, a container someone else started."}
-        </p>
+        <p className="machine-hint">{SANDBOX_NOTES[provider]}</p>
         <label className="machine-field">
-          <span>Address</span>
-          <input ref={hostRef} value={host} onChange={(e) => setHost(e.target.value)} placeholder={route === "mac" ? "studio.local" : "10.0.1.14"} spellCheck={false} autoCapitalize="off" />
+          <span>{ROUTE_FIELD[route]}</span>
+          <input ref={addressRef} value={address} onChange={(e) => setAddress(e.target.value)}
+            placeholder={ROUTE_PLACEHOLDER[route]} spellCheck={false} autoCapitalize="off" autoCorrect="off" />
         </label>
-        <label className="machine-field machine-field-port">
-          <span>Port</span>
-          <input value={port} onChange={(e) => setPort(e.target.value)} inputMode="numeric" spellCheck={false} />
-        </label>
+        {/* What was inferred, in the units it will be dialled in. A person who pasted a page URL and
+            sees `wss://…/websockify` learns what happened; one who sees nothing learns it from a
+            failure ten seconds later. */}
+        {endpoint && (
+          <p className="machine-resolved">
+            <span className="machine-resolved-target">{describeEndpoint(endpoint)}</span>
+            {parsed && !("error" in parsed) && parsed.inferred && <span className="machine-resolved-why">{parsed.inferred}</span>}
+          </p>
+        )}
+        {parsed && "error" in parsed && address.trim().length > 3 && <p className="machine-note" role="status">{parsed.error}</p>}
         <label className="machine-field">
           <span>Name</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={host.trim() || "Studio Mac"} />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={endpoint?.host ?? "Studio Mac"} />
         </label>
         <label className="machine-field">
           <span>Password <span className="machine-optional">optional</span></span>
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="off" />
         </label>
+        {/* Only where a provider's own ingress asks for one. A field that is dead on three routes out
+            of four is an inventory, and design.md is explicit that a first screen is a decision. */}
+        {HEADER_NAME[route] && (
+          <label className="machine-field">
+            <span>Ingress token <span className="machine-optional">optional</span></span>
+            <input type="password" value={header} onChange={(e) => setHeader(e.target.value)} autoComplete="off"
+              placeholder={`sent as ${HEADER_NAME[route]}`} />
+          </label>
+        )}
         {/* design.md: "Prefer 'the agent never receives the token' to 'secure by design'." */}
         <p className="machine-hint">Realm connects from this Mac and signs in here. The password never reaches the agent or the page.</p>
         {note && <p className="machine-note" role="status">{note}</p>}
-        <button type="submit" className="machine-primary" disabled={busy}>{busy ? "Connecting…" : "Connect"}</button>
+        <button type="submit" className="machine-primary" disabled={busy || !endpoint}>{busy ? "Connecting…" : "Connect"}</button>
       </form>
     </div>
   );
 }
+
+/**
+ * The routes, and why they are these four.
+ *
+ * Not one row per vendor: that is a list that goes stale the week somebody launches a fifth, and
+ * design.md is explicit that a capability offered on a guess is one whose only outcome is a refusal.
+ * These are the four SHAPES a person actually arrives with — a Mac on the desk, a sandbox id, a URL
+ * their tooling printed, a host and port — and every provider reduces to one of them. E2B gets its
+ * own row only because a sandbox id is not an address and cannot be recognised as one.
+ */
+type Route = "mac" | "e2b" | "sandbox" | "address";
+
+const ROUTES: readonly { id: Route; label: string }[] = [
+  { id: "mac", label: "Another Mac" },
+  { id: "e2b", label: "E2B Desktop" },
+  { id: "sandbox", label: "A sandbox URL" },
+  { id: "address", label: "Host and port" },
+];
+
+const ROUTE_PROVIDER: Record<Route, SandboxProvider> = {
+  mac: "screen-sharing", e2b: "e2b", sandbox: "generic", address: "generic",
+};
+
+const ROUTE_FIELD: Record<Route, string> = {
+  mac: "Address", e2b: "Sandbox ID", sandbox: "URL", address: "Host and port",
+};
+
+const ROUTE_PLACEHOLDER: Record<Route, string> = {
+  mac: "studio.local",
+  e2b: "i7bx2k9qp",
+  // Modal's own is a host and port rather than a URL, and it belongs on this row because it is what
+  // `sandbox.tunnels()` prints — the shape follows from the provider, not from the label.
+  sandbox: "https://…vercel.run  ·  wss://…  ·  xyz.modal.host:44421",
+  address: "10.0.1.14:5900",
+};
+
+/**
+ * The header a route's own ingress asks for, or nothing.
+ *
+ * Namespace's is the documented case — `x-nsc-ingress-auth` with a bearer — and it is also the
+ * reason this field can exist at all: a browser cannot set a header on a WebSocket, so a sandbox
+ * behind an authenticating proxy is reachable only because the relay dials from the server.
+ */
+const HEADER_NAME: Partial<Record<Route, string>> = { sandbox: "x-nsc-ingress-auth" };
 
 /* --------------------------------- the resting states --------------------------------- */
 

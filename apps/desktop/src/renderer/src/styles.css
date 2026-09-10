@@ -40,7 +40,7 @@
 .sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-picker-row-id,
 .summary-fact .summary-row-name, .summary-file-path, .term-exit, .term-out, .terminal-hint-path,
 .theme-import textarea, .tool-body pre, .tool-stat, .tool-summary, .tool-well, .wt-path, button.md-path, kbd,
-.machine-facts, .machine-detail, .machine-bar-size {
+.machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target {
   letter-spacing: normal;
 }
 
@@ -1180,7 +1180,9 @@ button.panel-title:hover { background: var(--rl-hover); }
   padding: 8px 10px; border-radius: var(--r-panel); background: var(--inset); overflow-wrap: anywhere; }
 .machine-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--rl-warning); }
 .machine-optional { color: var(--rl-text-faint); font-weight: var(--fw-medium); }
-.machine-routes { display: flex; gap: 4px; }
+/* Four routes wrap onto two rows at the pane's narrow end rather than shrinking to four unreadable
+   slivers — design.md's yielding order: these are peers, so they wrap instead of competing. */
+.machine-routes { display: flex; flex-wrap: wrap; gap: 4px; }
 .machine-routes button { flex: 1; height: 32px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
   background: transparent; color: var(--rl-text-bright); font-size: 13px; transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .machine-routes button[data-on] { background: color-mix(in srgb, var(--rl-accent) 18%, transparent); color: var(--rl-accent); border-color: transparent; }
@@ -1188,6 +1190,12 @@ button.panel-title:hover { background: var(--rl-hover); }
 .machine-field input { height: 32px; padding: 0 10px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
   background: var(--field); color: var(--rl-text-bright); outline: none; font-size: 13px; }
 .machine-field-port input { width: 120px; font-variant-numeric: tabular-nums; }
+/* What Realm resolved the paste to, in the units it will be dialled in. Mono, because it is machine
+   state — a host, a port, a scheme — and the whole point is that it can be read character by
+   character against what the provider printed. */
+.machine-resolved { margin: 0; display: flex; flex-direction: column; gap: 2px; }
+.machine-resolved-target { font: 12px var(--font-mono); color: var(--rl-accent); overflow-wrap: anywhere; }
+.machine-resolved-why { font-size: 11px; line-height: 1.5; color: var(--rl-text-faint); }
 .machine-actions { display: flex; gap: 8px; }
 .machine-primary { height: 34px; padding: 0 14px; border-radius: var(--r-ctl); border: none;
   background: var(--rl-accent); color: var(--rl-accent-contrast); font-size: 13px; font-weight: var(--fw-label);
