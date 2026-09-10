@@ -27,13 +27,21 @@
  * `readOauthState` can stay synchronous, while the `credential` key never leaves Electron main. If
  * a credential's ciphertext ever did reach the server, that asymmetry would be the only thing
  * standing between it and the model. This makes it two things.
+ *
+ * `machine` (Plan 25 W3) is a third case with a third reach. The server holds this key because the
+ * server is what authenticates — the RFB handshake happens in `MachineWsProxy`, so the renderer
+ * never sees a VNC password. It diverges from `oauth` in one deliberate way: with no key available,
+ * `oauth` degrades to plaintext, and `machine` REFUSES TO STORE THE PASSWORD AT ALL. An OAuth token
+ * is Realm's own and a plaintext row is a recoverable inconvenience; a VNC password is frequently
+ * the user's login, and writing one into `realm.db` in the clear is not a degradation anybody asked
+ * for.
  */
 import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from "node:crypto";
 
 /** Domain → the byte written into the header and mixed in as AAD. Codes are permanent: changing one
  *  makes every existing blob of that domain unopenable, which for credentials means silent data
  *  loss the user only discovers at a sign-in prompt. Add, never renumber. */
-export const SECRET_DOMAINS = { oauth: 1, credential: 2 } as const;
+export const SECRET_DOMAINS = { oauth: 1, credential: 2, machine: 3 } as const;
 export type SecretDomain = keyof typeof SECRET_DOMAINS;
 
 const VERSION = 1;

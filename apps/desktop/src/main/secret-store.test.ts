@@ -245,6 +245,49 @@ describe("SecretStore — the key handoff and the audit log", () => {
   it("with no encryption available there is no key to hand out — realm-server keeps its old plaintext posture", () => {
     const { store } = makeStore({ available: false });
     expect(store.exportOauthKey()).toBeNull();
+    expect(store.exportMachineKey()).toBeNull();
+  });
+
+  it("exports the machine key too, and it is a DIFFERENT key from oauth's", () => {
+    const { store } = makeStore();
+    const machine = store.exportMachineKey();
+    expect(Buffer.from(machine!, "base64")).toHaveLength(32);
+    // Separate domains with separate keys is what makes `secret-box`'s AAD binding worth anything:
+    // one key for both would let a machine's box open an oauth blob, which is the whole property the
+    // domain byte exists to deny.
+    expect(machine).not.toBe(store.exportOauthKey());
+    // …and the credential key is STILL not exported. Two keys leave this class; the third does not.
+    expect(Object.getOwnPropertyNames(SecretStore.prototype).filter((m) => m.startsWith("export")).sort())
+      .toEqual(["exportMachineKey", "exportOauthKey"]);
+  });
+
+  /* The upgrade that would otherwise have been silent data loss. `machine` is a domain added after
+     the keyring's shape was settled, so an existing keyring carries only two keys. Treating that as
+     a corrupt keyring — which requiring all three would do — runs the reset branch, and the reset
+     branch empties the credential list. Every enrolled sign-in gone on first launch after an update,
+     for a feature the user had not touched yet. */
+  it("adopts a keyring written before the machine domain existed, without dropping a credential", async () => {
+    const { store, disk, deps } = makeStore();
+    store.addCredential(input());
+    expect(store.listCredentials()).toHaveLength(1);
+
+    // Rewind the stored keyring to its two-key shape, exactly as an older build wrote it.
+    const file = JSON.parse(disk.file!) as { keyring: string };
+    const json = JSON.parse(deps.safeStorage.decryptString(Buffer.from(file.keyring, "base64"))) as Record<string, string>;
+    delete json.machine;
+    file.keyring = deps.safeStorage.encryptString(JSON.stringify(json)).toString("base64");
+    disk.file = JSON.stringify(file);
+
+    const upgraded = new SecretStore({ ...deps, readFile: () => disk.file, writeFile: (t) => { disk.file = t; } });
+    expect(upgraded.listCredentials(), "the enrolled sign-in survived the upgrade").toHaveLength(1);
+    // …and the pre-existing key still opens what it sealed, so nothing was re-keyed behind the user.
+    let seen: string | null = null;
+    await upgraded.withCredentialValue(upgraded.listCredentials()[0]!.id, async (v) => { seen = v; });
+    expect(seen).toBe(SECRET);
+    // The third key exists now, and is genuinely new rather than a copy of one already there.
+    const machine = upgraded.exportMachineKey();
+    expect(Buffer.from(machine!, "base64")).toHaveLength(32);
+    expect(machine).not.toBe(upgraded.exportOauthKey());
   });
 
   it("writes one audit line of exactly timestamp, origin, credentialId, outcome — and never the value", () => {

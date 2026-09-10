@@ -266,6 +266,23 @@ export class SecretStore {
     try { return this.key("oauth").toString("base64"); } catch { return null; }
   }
 
+  /**
+   * The `machine` key (Plan 25 W3), base64, for realm-server — the second and last key that leaves
+   * this process. There is still deliberately no `credentialKey()`.
+   *
+   * The server needs it because the server is what authenticates: a machine's RFB handshake happens
+   * in `MachineWsProxy`, so a VNC password must be openable there and must never reach the renderer.
+   *
+   * Null is a REAL answer here, and it means something different from what it means for oauth. With
+   * no key, oauth keeps writing plaintext; a machine refuses to store a password at all, and the
+   * connect form says so. A VNC password is frequently the user's login, and writing one into
+   * realm.db in the clear is not a degradation to choose on their behalf.
+   */
+  exportMachineKey(): string | null {
+    if (!this.available) return null;
+    try { return this.key("machine").toString("base64"); } catch { return null; }
+  }
+
   /* ------------------------------------ file ------------------------------------ */
 
   private key(domain: SecretDomain): Buffer {
@@ -310,13 +327,35 @@ export class SecretStore {
         const json = JSON.parse(this.d.safeStorage.decryptString(Buffer.from(file.keyring, "base64"))) as Record<string, string>;
         const oauth = Buffer.from(String(json.oauth ?? ""), "base64");
         const credential = Buffer.from(String(json.credential ?? ""), "base64");
-        if (oauth.length === SECRET_KEY_BYTES && credential.length === SECRET_KEY_BYTES) return { oauth, credential };
+        if (oauth.length === SECRET_KEY_BYTES && credential.length === SECRET_KEY_BYTES) {
+          /* `machine` (Plan 25 W3) was added after this keyring's shape was settled, so every
+             keyring written before it lacks the key — and a MISSING DOMAIN IS NOT A CORRUPT
+             KEYRING. Requiring all three here would send an existing install down the branch below,
+             which empties `file.credentials`: every enrolled sign-in destroyed, silently, on first
+             launch after an update, because a feature nobody had used yet wanted a third key.
+             Minted and folded in beside the other two instead — the existing keys are untouched, so
+             nothing sealed under them stops opening. */
+          let machine = Buffer.from(String(json.machine ?? ""), "base64");
+          if (machine.length !== SECRET_KEY_BYTES) {
+            machine = newSecretKey();
+            file.keyring = this.d.safeStorage
+              .encryptString(JSON.stringify({ ...json, machine: machine.toString("base64") }))
+              .toString("base64");
+            this.file = file;
+            this.save();
+          }
+          return { oauth, credential, machine };
+        }
       } catch { /* falls through to a fresh keyring */ }
       file.credentials = [];
     }
-    const keys = { oauth: newSecretKey(), credential: newSecretKey() };
+    const keys = { oauth: newSecretKey(), credential: newSecretKey(), machine: newSecretKey() };
     file.keyring = this.d.safeStorage
-      .encryptString(JSON.stringify({ oauth: keys.oauth.toString("base64"), credential: keys.credential.toString("base64") }))
+      .encryptString(JSON.stringify({
+        oauth: keys.oauth.toString("base64"),
+        credential: keys.credential.toString("base64"),
+        machine: keys.machine.toString("base64"),
+      }))
       .toString("base64");
     this.file = file;
     this.save();
