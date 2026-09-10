@@ -25,18 +25,32 @@ export function formatTokens(n: number): string {
 const formatCost = (usd: number) => (usd >= 0.01 ? `$${usd.toFixed(2)}` : `$${usd.toFixed(3)}`);
 
 /**
- * What fraction of the model's context window the last prompt filled, or null when that cannot be
- * stated.
+ * The window the fraction is figured against: the harness's own, and the model catalog's only when
+ * the harness stated none.
  *
- * Both halves have to be real. `contextTokens` is emitted only by an adapter that knows its turn's
- * prompt size, and `window` comes from the model catalog, which has no row for a great many models —
- * so the honest answer is frequently "no meter", and that is what null means. Clamped at 1 rather
- * than allowed past it: a prompt that overran the catalog's figure says the catalog is stale, not
- * that the reader has used 118% of something.
+ * They are not the same number and the harness's is the one that governs. Claude measures occupancy
+ * against the AUTOCOMPACT window — on a 1M-window model, usually the 200K compaction boundary — so a
+ * session compacting at 200K would read as a fifth full against the catalog's million, and the ring
+ * would sit quiet through every compaction it was drawn to warn about.
  */
-export function contextFraction(usage: Usage, window: number | null): number | null {
-  if (usage.contextTokens === undefined || window === null || window <= 0) return null;
-  return Math.min(1, Math.max(0, usage.contextTokens / window));
+export const contextWindowFor = (usage: Usage, catalog: number | null): number | null =>
+  usage.contextWindow ?? catalog;
+
+/**
+ * How full the context window is, or null when that cannot be stated.
+ *
+ * Both halves have to be real. `contextTokens` is emitted only by an adapter whose harness measures
+ * occupancy, and the catalog fallback has no row for a great many models — so the honest answer is
+ * frequently "no meter", and that is what null means.
+ *
+ * Clamped at 1 rather than allowed past it, because a ring cannot draw more than a circle. The
+ * overrun is real when it happens and is not swallowed: the panel prints the measured figure against
+ * the window, so a session over a compaction boundary reads `214k / 200k` under a full ring.
+ */
+export function contextFraction(usage: Usage, catalogWindow: number | null): number | null {
+  const limit = contextWindowFor(usage, catalogWindow);
+  if (usage.contextTokens === undefined || limit === null || limit <= 0) return null;
+  return Math.min(1, Math.max(0, usage.contextTokens / limit));
 }
 
 /**
@@ -55,13 +69,15 @@ export function contextFraction(usage: Usage, window: number | null): number | n
  */
 export function SessionUsage({ usage, contextWindow }: {
   usage: Usage;
-  /** The active model's context window in tokens, or null when the catalog has no row for it. */
+  /** The model catalog's context window for the active model, or null when it has no row. A
+   *  FALLBACK: the harness's own window wins wherever it stated one (`contextWindowFor`). */
   contextWindow: number | null;
 }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const fraction = contextFraction(usage, contextWindow);
-  if (fraction === null) return null;
+  const limit = contextWindowFor(usage, contextWindow);
+  if (fraction === null || limit === null) return null;
   const pct = Math.round(fraction * 100);
   const used = usage.contextTokens ?? 0;
   return (
@@ -69,7 +85,7 @@ export function SessionUsage({ usage, contextWindow }: {
       {/* A button, not a bare span: it is the panel's trigger for the keyboard as much as for the
           pointer, and `aria-describedby` only means something on a focusable element. */}
       <button type="button" className="session-usage-btn" data-tone={toneFor(fraction)}
-        aria-label={`Context: ${pct}% of ${formatTokens(contextWindow!)} used`}
+        aria-label={`Context: ${pct}% of ${formatTokens(limit)} used`}
         aria-expanded={open} aria-controls={panelId}
         onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
         onClick={() => setOpen((v) => !v)}>
@@ -85,7 +101,7 @@ export function SessionUsage({ usage, contextWindow }: {
       </button>
       {open && (
         <div id={panelId} className="session-usage-panel" role="presentation">
-          <UsageRow label="Context" value={`${formatTokens(used)} / ${formatTokens(contextWindow!)}`} />
+          <UsageRow label="Context" value={`${formatTokens(used)} / ${formatTokens(limit)}`} />
           {/* Cost only once there is spend to report. A `$0.000` under a Codex session would be a
               claim about money, and `costUsd: 0` there means "not reported", not "free". */}
           {usage.costUsd > 0 && <UsageRow label="Cost" value={formatCost(usage.costUsd)} />}

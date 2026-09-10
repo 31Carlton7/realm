@@ -48,6 +48,19 @@ export function createSdkMapper() {
       switch (msg.type) {
         case "system": {
           if (msg.subtype === "init") { out.push(sessionEvent("init", { providerSessionId: msg.session_id, model: msg.model, tools: msg.tools, cwd: msg.cwd })); break; }
+          // The harness dropped the conversation and kept a summary. Nothing else on the wire says
+          // it happened: the transcript keeps every message the model can no longer see, and the
+          // context meter simply falls between one turn and the next with no account of why.
+          if (msg.subtype === "compact_boundary") {
+            const m = (msg as { compact_metadata?: { trigger?: unknown; pre_tokens?: unknown; post_tokens?: unknown } }).compact_metadata;
+            const post = typeof m?.post_tokens === "number" ? m.post_tokens : undefined;
+            out.push(sessionEvent("compacted", {
+              trigger: m?.trigger === "manual" ? "manual" : "auto",
+              preTokens: typeof m?.pre_tokens === "number" ? m.pre_tokens : 0,
+              ...(post === undefined ? {} : { postTokens: post }),
+            }));
+            break;
+          }
           // The harness's task protocol — how a BACKGROUND sub-agent says it started and stopped.
           // Nothing else on the wire says it: its launching call returns immediately and then the
           // agent works for minutes in silence. See background-task.ts for the whole shape.
@@ -101,16 +114,14 @@ export function createSdkMapper() {
           break;
         }
         case "result": {
-          const r = msg as { subtype: string; is_error: boolean; num_turns: number; total_cost_usd: number; usage?: { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }; result?: string; errors?: string[]; fast_mode_state?: string; fast_mode_disabled_reason?: string };
-          // The turn's whole prompt, which is what "context used" means: fresh input plus everything
-          // served from (or written into) the prompt cache. The SDK documents `usage` as PER-TURN in
-          // streaming-input sessions — unlike `total_cost_usd` beside it, which is the running total —
-          // so this is the last prompt's size, not a sum, and it can fall as well as rise (a compaction
-          // is exactly that). Omitted when the result carried no usage at all: a zero would claim the
-          // model read nothing.
-          const cx = r.usage
-            ? r.usage.input_tokens + (r.usage.cache_read_input_tokens ?? 0) + (r.usage.cache_creation_input_tokens ?? 0)
-            : undefined;
+          const r = msg as { subtype: string; is_error: boolean; num_turns: number; total_cost_usd: number; usage?: { input_tokens: number; output_tokens: number }; result?: string; errors?: string[]; fast_mode_state?: string; fast_mode_disabled_reason?: string };
+          // No context figure here, deliberately. `input_tokens + cache_read + cache_creation` off
+          // this result reads like the size of the prompt just sent, and it is not: the SDK's
+          // per-turn `usage` sums every REQUEST the turn made, so a turn with thirty tool calls
+          // counts its cached prompt thirty times. It reached 1.19M against a 1M window on a session
+          // nowhere near full. The occupancy comes from `getContextUsage` instead — see
+          // `reportContextUsage` in claude-adapter.ts — which is the harness's own measurement of
+          // what is actually resident.
           // What fast mode DID, as against what the session asked for. Carried only when the result
           // said — the field is optional in the SDK's own type, and an absent state means "this build
           // does not report it", which is a different thing from `off`.
@@ -118,7 +129,6 @@ export function createSdkMapper() {
           const reason = fast !== undefined && fast !== "on" && typeof r.fast_mode_disabled_reason === "string"
             ? r.fast_mode_disabled_reason : undefined;
           out.push(sessionEvent("usage", { costUsd: r.total_cost_usd, inputTokens: r.usage?.input_tokens ?? 0, outputTokens: r.usage?.output_tokens ?? 0, numTurns: r.num_turns,
-            ...(cx === undefined ? {} : { contextTokens: cx }),
             ...(fast === undefined ? {} : { fastMode: fast }),
             ...(reason === undefined ? {} : { fastModeReason: reason }) }));
           if (r.subtype !== "success" || r.is_error) out.push(sessionEvent("error", { message: r.errors?.join("\n") || r.result || r.subtype }));

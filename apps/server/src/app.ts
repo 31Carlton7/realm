@@ -48,6 +48,7 @@ import { MemoryService } from "./memory/service";
 import { NotificationsStore } from "./store/notifications";
 import { ShipsStore } from "./store/ships";
 import { NotificationsService } from "./notifications/service";
+import { NotificationRelay, realTransport } from "./notifications/relay";
 import { RunsStore } from "./store/runs";
 import { RunService } from "./runs/service";
 import { ScheduleService } from "./schedules/service";
@@ -108,17 +109,24 @@ export function defaultAdapters(): AdapterRegistry {
       loginHint: "Gemini's free personal tier was discontinued — sign in with a Gemini API key, Vertex AI credentials, or a custom AI gateway.",
     }),
     // ── Plan 18: agents that speak ACP natively ────────────────────────────────────────────────
-    // Every `args` below was confirmed by a live `initialize` on 2026-09-01. None sets `modelCatalog`:
-    // opencode and Copilot report their catalogs through `configOptions` (which the probe now reads
-    // via acpSessionConfig, so a catalog arrives without the flag), and Grok puts its models in
-    // `initialize._meta.modelState` — a place `session/new` never carries, so a probe-time session
-    // spawn would cost a real round trip to learn nothing.
+    // Every `args` below was confirmed by a live `initialize` on 2026-09-01.
+    //
+    // `modelCatalog` is what OPENS the probe's throwaway session (`AcpAdapter.probe`); teaching
+    // `fetchAcpModels` to read `configOptions` did not, and the note that used to stand here said it
+    // did — so opencode and Copilot, whose catalogs that reader was written for, went on showing a
+    // single Default row. The flag is now set wherever the agent is known to answer with one:
+    // fx (a `model` option carrying 165 rows, measured 2026-09-09) and opencode and Copilot (a
+    // `model` category each, measured 2026-09-01 — see Plan 18 §2 and §4). Grok is still off
+    // because it puts its models in `initialize._meta.modelState`, a place `session/new` never
+    // carries, so the round trip would learn nothing; goose and qwen are off because that sweep
+    // recorded no model option for them, which is a reason to ask nothing rather than a finding.
     "acp:opencode": new AcpAdapter({
       kind: "acp:opencode",
       bin: agentBin("acp:opencode"),
       args: ["acp"],
       label: "OpenCode",
       loginHint: "Run `opencode auth login`.",
+      modelCatalog: true,
     }),
     "acp:copilot": new AcpAdapter({
       kind: "acp:copilot",
@@ -126,6 +134,7 @@ export function defaultAdapters(): AdapterRegistry {
       args: ["--acp"],
       label: "GitHub Copilot",
       loginHint: "Run `copilot login`.",
+      modelCatalog: true,
     }),
     "acp:goose": new AcpAdapter({
       kind: "acp:goose",
@@ -196,6 +205,37 @@ export function defaultAdapters(): AdapterRegistry {
       // signed-out fx fails on the boot branch with no `authMethods` to list. This hint is the only
       // thing that tells the user what to run.
       loginHint: "Run `fx login` to sign in with Vercel, `fx setup` for an AI Gateway API key, or set AI_GATEWAY_API_KEY.",
+      // Measured 2026-09-09 against fx 0.0.7: `session/new` answers a `configOptions` array whose
+      // `model` option carries 165 rows (`openai/gpt-5.2`, `zai/glm-5.3-flash`, …) beside a
+      // `provider` and a `mode` option. The blanket "none of Plan 18's agents sets this" above was
+      // true of the shapes measured on 2026-09-01 and is not true of fx now — without the flag the
+      // probe never opens the throwaway session, so `AGENT_MODELS["acp:fx"]` (empty, on purpose)
+      // was the whole catalog and the picker showed one dead Default row.
+      modelCatalog: true,
+    }),
+    // Hermes Agent (Nous Research), added 2026-09-09. Everything here is off the vendor's own docs
+    // rather than off a handshake — the CLI is not on this machine (see AgentKindSchema for why
+    // that is stated rather than quietly fixed by running its installer):
+    //   - `hermes acp` is the documented ACP entry point ("Any of the following starts Hermes in
+    //     ACP mode"), with `hermes-acp` and `python -m acp_adapter` as equivalents.
+    //   - It logs to stderr "so stdout remains reserved for ACP JSON-RPC traffic" — which is the
+    //     one property the stdio transport actually needs of a server.
+    //   - Servers passed on `session/new` "are still registered", so the gateway entry goes over.
+    //   - `modelCatalog` is on its word too: its ACP page describes a live model menu over the
+    //     wire ("The list comes from Hermes itself over ACP") and says model-discovery probes
+    //     leave no empty session behind, which is Realm's throwaway probe session described from
+    //     the other side. If that turns out to be wrong, `fetchAcpModels` answers null and the
+    //     picker falls back to the Default row — the cost of being wrong here is one round trip.
+    // The loginHint leads with the ACP extra because a Hermes that is installed but built without
+    // it has no `hermes acp` to spawn at all, which reads as "the agent is broken" rather than as
+    // "one more install step".
+    "acp:hermes": new AcpAdapter({
+      kind: "acp:hermes",
+      bin: agentBin("acp:hermes"),
+      args: ["acp"],
+      label: "Hermes",
+      modelCatalog: true,
+      loginHint: "Run `cd ~/.hermes/hermes-agent && uv pip install -e '.[acp]'` to add its ACP mode, then `hermes setup` (or `hermes model`) to pick a provider and sign in.",
     }),
   };
   // The offline-dev script: enough to reach the surfaces that only exist for one event type. A plan
@@ -253,7 +293,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** CLI manager knobs, injected for the same reason `titleGenerator` is omitted: a suite must never
    *  reach a package registry, and it must read a PATH the test built rather than the developer's own
    *  machine. Production callers pass neither and get the process environment and real fetch. */
-  cli?: { fetchImpl?: typeof fetch; env?: NodeJS.ProcessEnv };
+  cli?: { fetchImpl?: typeof fetch; env?: NodeJS.ProcessEnv; spawnImpl?: typeof import("node:child_process").spawn };
   /** Upgrades a session's heuristic first-line title to a short model-written summary in the
    *  background (`SessionService.upgradeTitle`). A real, billed LLM call per session — omitted here
    *  on purpose so tests and live-check scripts never make one; the real server process (`main.ts`)
@@ -285,7 +325,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // SessionService's event hook, the hub's onStatus callback, the two stale-ack refusal sites — hands
   // its events here rather than writing rows of its own, so the dedup rule and the category toggles
   // have exactly one home.
-  const notifications = new NotificationsService({ store: new NotificationsStore(db), settings, rpc });
+  // The relay reads its destinations from settings at send time; wired with the real transport
+  // here and nowhere else, so every test and live-check script sends nothing off the machine.
+  const notifications = new NotificationsService({ store: new NotificationsStore(db), settings, rpc,
+    relay: new NotificationRelay({ settings, transport: realTransport, log: (line) => console.error(line) }) });
   // `isEnvironmentBusy` is a late-bound closure rather than a constructor argument because the two
   // services genuinely need each other: SessionService checkpoints every turn, and CheckpointService
   // must refuse to restore under a live agent. One direction is the dependency; the other is this.
@@ -547,6 +590,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     onOutput: (e) => rpc.broadcast("cli.output", e),
     onDone: (e) => rpc.broadcast("cli.done", e),
     afterRun: () => cli.refresh(),
+    // The same injection the version check gets, and for the same reason one step further along: a
+    // suite must not reach a registry, and it must not RUN a package manager or a vendor updater on
+    // the developer's machine either. Production passes neither and gets the real spawn and env.
+    env: opts.cli?.env,
+    spawnImpl: opts.cli?.spawnImpl,
   });
   // Spend and activity for Settings → Usage, and the budget watcher behind it. Reads only; the one
   // thing it writes is the budget row, and the one thing it emits is a threshold notification.

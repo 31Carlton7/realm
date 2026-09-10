@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import {
-  AGENT_INSTALL_ROUTES, installCommand, newId, updateCommand,
-  type AgentKind, type CliJobEnd, type CliJobOutput, type CliJobStart, type InstallRoute,
+  AGENT_INSTALL_ROUTES, installCommand, newId, updateCommand, updatePlan,
+  type AgentKind, type CliJobEnd, type CliJobOutput, type CliJobStart, type InstallProvenance, type InstallRoute,
 } from "@realm/contracts";
 
 export type InstallAction = "install" | "update";
@@ -46,14 +46,39 @@ export function commandSpec(route: InstallRoute | null, action: InstallAction, l
     const python = route.python ? ["--python", route.python] : [];
     return { display, file: "uv", args: ["tool", "install", ...python, pkg] };
   }
-  // `self` reaches here too, and `display` already refused it: `installCommand` answers null for a
-  // self-updater, so the guard above returned before this line.
+  // A vendor's own updater is argv-shaped too, and gets no shell for the same reason npm does not:
+  // there is nothing here to interpret. Every command in the SELF_UPDATE table is a binary and a
+  // subcommand, compiled in — never user input — so splitting on whitespace is the whole parse.
+  // `install` cannot reach this branch: `installCommand` answers null for a self-updater (you
+  // cannot run `claude update` before there is a claude), so the guard above already returned.
+  if (route.method === "self") {
+    const [file, ...args] = route.command.split(/\s+/);
+    return file ? { display, file, args } : null;
+  }
   return { display, file: PIPELINE_SHELL, args: ["-c", route.command] };
 }
 
-/** The spec for `kind`, resolved through the route table. Null when that kind has no such action. */
+/** The spec for INSTALLING `kind`, resolved through the route table. Null when it has no route. */
 export function specFor(kind: AgentKind, action: InstallAction, latest: string | null): CommandSpec | null {
   return commandSpec(AGENT_INSTALL_ROUTES[kind], action, latest);
+}
+
+/**
+ * The spec for UPDATING `kind` on a machine where it was installed by `provenance`.
+ *
+ * Not `specFor(kind, "update", …)`, and the difference is the whole bug this exists to close: the
+ * install route is how a CLI GETS here, and for five kinds it is not how it updates. fx installs by
+ * vendor script and updates with `fx upgrade`; a script route has no update command at all, so the
+ * status row offered "Update" (correctly — `updatePlan` prefers the vendor's own updater) and the
+ * click came back "no update command for acp:fx". codex and claude failed the same way in the other
+ * direction: their npm route produced a command, so the button worked and ran `npm install -g`
+ * against a Homebrew or native install — the second copy on PATH that `updatePlan` exists to avoid.
+ *
+ * Resolving both sides through `updatePlan` is what makes the string the user read before clicking
+ * the string that runs.
+ */
+export function updateSpecFor(kind: AgentKind, provenance: InstallProvenance, latest: string | null): CommandSpec | null {
+  return commandSpec(updatePlan(AGENT_INSTALL_ROUTES[kind], provenance, kind), "update", latest);
 }
 
 /** A package manager on a cold cache is slow; a package manager waiting for something is forever.

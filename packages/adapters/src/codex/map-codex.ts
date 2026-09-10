@@ -75,6 +75,11 @@ export function createCodexMapper() {
   /** Delta text accumulated for `plan` items still awaiting item/completed — see flushOpenRuns. */
   const openPlan = new Map<string, string>();
   let numTurns = 0;
+  /** The thread's service tier as Codex last reported it — `undefined` until it has said anything,
+   *  which is the honest reading of "not stated" rather than "off". Codex writes the tier a
+   *  `turn/start` asked for back onto the thread and announces it before the turn begins, so this is
+   *  what the harness DID, not what the session asked for. */
+  let serviceTier: string | null | undefined;
 
   /**
    * Persists whatever a message or reasoning item streamed before it stopped.
@@ -207,8 +212,28 @@ export function createCodexMapper() {
         }
 
         case "thread/tokenUsage/updated": {
-          const total = obj(obj(p.tokenUsage).total);
-          return [sessionEvent("usage", { costUsd: 0, inputTokens: num(total.inputTokens), outputTokens: num(total.outputTokens), numTurns })];
+          const usage = obj(p.tokenUsage);
+          const total = obj(usage.total);
+          // What the window is CARRYING, as against what the thread has SPENT. `last` is the most
+          // recent request, so its prompt is every message, tool result and instruction the model
+          // still had in front of it — the one figure here that falls when Codex drops history.
+          // `total` beside it is thread-cumulative and passes the window on any long thread while
+          // saying nothing about how full it is. Codex's `inputTokens` already counts the cached
+          // part (the protocol capture's 120 includes its own 20 cached), so nothing is added to it.
+          const resident = num(obj(usage.last).inputTokens);
+          const window = num(usage.modelContextWindow);
+          return [sessionEvent("usage", { costUsd: 0, inputTokens: num(total.inputTokens), outputTokens: num(total.outputTokens), numTurns,
+            ...(resident > 0 && window > 0 ? { contextTokens: resident, contextWindow: window } : {}),
+            // The fifth fact off the same sample, the way Claude's result carries `fast_mode_state`:
+            // present only once Codex has named a tier at all. Codex has no reason codes — a tier it
+            // will not serve is refused at `turn/start`, which is already an error in the transcript.
+            ...(serviceTier === undefined ? {} : { fastMode: serviceTier === "priority" ? "on" as const : "off" as const }) })];
+        }
+
+        case "thread/settings/updated": {
+          const settings = obj(p.threadSettings);
+          if ("serviceTier" in settings) serviceTier = str(settings.serviceTier) || null;
+          return [];
         }
 
         case "error": {

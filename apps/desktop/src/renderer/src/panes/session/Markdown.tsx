@@ -1,4 +1,6 @@
 import DOMPurify from "dompurify";
+import { brandMarks, type BrandName } from "@realm/ui";
+import { LINK_SERVICE_META, describeLink, type LinkService } from "@realm/contracts";
 import { marked } from "marked";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
@@ -71,6 +73,36 @@ const CALLOUTS = new Set(["note", "tip", "important", "warning", "caution"]);
  */
 const citeKey = (url: string): string => url.replace(/\/+$/, "");
 
+/** The app's mark as an inline SVG string — the markdown renderer writes HTML, not React. */
+function markSvg(service: LinkService): string {
+  const m = brandMarks[LINK_SERVICE_META[service].icon as BrandName];
+  const paths = typeof m.d === "string" ? [m.d] : m.d;
+  const rule = "evenOdd" in m ? ' fill-rule="evenodd"' : "";
+  return `<svg class="msg-chip-mark" width="12" height="12" viewBox="${("viewBox" in m && m.viewBox) || "0 0 24 24"}" fill="currentColor" aria-hidden="true">${paths.map((d) => `<path d="${d}"${rule}/>`).join("")}</svg>`;
+}
+
+/**
+ * A link to an app the agent can reach is drawn as the same chip the user's own message draws: the
+ * app's mark and a name a person can read, never the URL. The anchor stays an anchor — clicking it
+ * still opens the thing — and the URL stays on the title. A link Realm cannot name is left as the
+ * agent wrote it.
+ */
+function markAppLinks(doc: Document): void {
+  for (const a of Array.from(doc.body.querySelectorAll<HTMLAnchorElement>("a[href]"))) {
+    const href = a.getAttribute("href") ?? "";
+    const ref = describeLink(href);
+    if (!ref) continue;
+    // The agent's own words for the link win when it wrote any that are not the URL itself.
+    const said = (a.textContent ?? "").trim();
+    const label = said && said !== href && !/^https?:\/\//.test(said) ? said : ref.label;
+    a.className = "msg-chip";
+    a.setAttribute("data-kind", "link");
+    a.setAttribute("data-service", ref.service);
+    a.setAttribute("title", href);
+    a.innerHTML = `${markSvg(ref.service)}${doc.createElement("span").appendChild(doc.createTextNode(label)).parentElement!.innerHTML}`;
+  }
+}
+
 function markCitations(doc: Document, cite: readonly string[]): void {
   const index = new Map(cite.map((url, i) => [citeKey(url), i + 1]));
   for (const a of Array.from(doc.body.querySelectorAll("a[href]"))) {
@@ -84,9 +116,10 @@ function markCitations(doc: Document, cite: readonly string[]): void {
 }
 
 function decorate(html: string, cite: readonly string[]): string {
-  if (cite.length === 0 && !html.includes("<table") && !html.includes("<pre") && !html.includes("<blockquote")) return html;
+  if (cite.length === 0 && !html.includes("<table") && !html.includes("<pre") && !html.includes("<blockquote") && !html.includes("<a ")) return html;
   const doc = new DOMParser().parseFromString(html, "text/html");
   markCitations(doc, cite);
+  markAppLinks(doc);
   for (const quote of Array.from(doc.body.querySelectorAll("blockquote"))) {
     const first = quote.firstElementChild;
     const m = /^\[!(\w+)\]\s*/.exec(first?.textContent ?? "");

@@ -222,11 +222,13 @@ describe("favourites", () => {
     expect(groups[0]!.rows.map((r) => r.label)).toEqual(["Claude Sonnet 5", "GPT-5.5"]);
   });
 
-  it("a starred model appears once — in Favourites, not also under its harness", () => {
-    const rows = withFavs([canonicalModelKey("GPT-5.5")]);
+  it("a starred model appears once — in Favourites, not also under any harness that offers it", () => {
+    // Fable is offered by both harnesses under test, so unstarred it would be listed twice; starred,
+    // Favourites is its one place and neither harness group repeats it.
+    const rows = withFavs([canonicalModelKey("Claude Fable 5.1")]);
     const groups = groupRows(rows, { query: "" });
-    expect(flatten(groups).filter((r) => r.label === "GPT-5.5")).toHaveLength(1);
-    expect(flatten(groups)).toHaveLength(rows.length);
+    expect(flatten(groups).filter((r) => r.label === "Claude Fable 5.1")).toHaveLength(1);
+    expect(groups[0]!.rows.map((r) => r.label)).toEqual(["Claude Fable 5.1"]);
   });
 
   it("shows no Favourites group when nothing is starred", () => {
@@ -248,9 +250,62 @@ describe("searching a harness after dedupe", () => {
     expect(cursorHits).not.toContain("Claude Sonnet 5"); // claude-only, and Cursor never offered it
   });
 
-  it("groups by the harness a row resolved to, session's own first, and drops headings while searching", () => {
+  it("groups by harness, session's own first, and drops headings while searching", () => {
     expect(groupRows(rows, { query: "" }).map((g) => g.label)[0]).toBe("Claude");
     expect(groupRows(filterRows(rows, "gpt"), { query: "gpt" }).map((g) => g.label)).toEqual([""]);
+  });
+});
+
+describe("a model two harnesses offer is listed under both of them", () => {
+  const group = (groups: ReturnType<typeof groupRows>, label: string) => groups.find((g) => g.label === label)!;
+
+  it("appears under each harness's heading, routed through THAT harness", () => {
+    /* The bug this closes: in a Cursor session, every Claude model Cursor could also run resolved to
+       Cursor and vanished from the Claude group — the only way to run Fable through the Claude CLI
+       was to pick it under Cursor and change the route in the detail pane. */
+    const rows = modelRows({ kind: "acp:cursor", model: null, canSwitchAgent: true,
+      agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)] });
+    const groups = groupRows(rows, { query: "" });
+    const underCursor = group(groups, "Cursor").rows.find((r) => r.label === "Claude Fable 5.1")!;
+    const underClaude = group(groups, "Claude").rows.find((r) => r.label === "Claude Fable 5.1")!;
+    expect(underCursor).toMatchObject({ kind: "acp:cursor", modelId: CURSOR_FABLE_ID, agentLabel: "Cursor" });
+    expect(underClaude).toMatchObject({ kind: "claude", modelId: "claude-fable-5-1", agentLabel: "Claude" });
+    // One model, two places to point at: the favourite/catalog key is shared, the DOM identity is not.
+    expect(underClaude.key).toBe(underCursor.key);
+    expect(underClaude.id).not.toBe(underCursor.id);
+  });
+
+  it("keeps the vendor's own order inside a group, copies included", () => {
+    // Fable is a copy in the Claude group of a Cursor session; it still leads the list the way the
+    // curated Claude list has it, rather than trailing the rows that resolved there.
+    const rows = modelRows({ kind: "acp:cursor", model: null, canSwitchAgent: true,
+      agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)] });
+    const claude = group(groupRows(rows, { query: "" }), "Claude").rows.map((r) => r.label);
+    expect(claude.indexOf("Claude Fable 5.1")).toBeLessThan(claude.indexOf("Claude Sonnet 5"));
+  });
+
+  it("the session's own harness still leads, and the tick is drawn exactly once", () => {
+    const rows = modelRows({ kind: "claude", model: "claude-fable-5-1", canSwitchAgent: true,
+      agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)] });
+    const groups = groupRows(rows, { query: "" });
+    expect(groups[0]!.label).toBe("Claude");
+    expect(flatten(groups).filter((r) => r.selected).map((r) => [r.label, r.kind])).toEqual([["Claude Fable 5.1", "claude"]]);
+  });
+
+  it("offers no copy under a harness the session can no longer move to", () => {
+    /* The mutant: list alternates regardless of `canSwitchAgent`. After the first message the agent
+       is fixed, and a Fable row under Cursor would be a click whose only outcome is a refusal. */
+    const rows = modelRows({ kind: "claude", model: null, canSwitchAgent: false,
+      agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)] });
+    const groups = groupRows(rows, { query: "" });
+    expect(group(groups, "Cursor")?.rows.map((r) => r.label) ?? []).not.toContain("Claude Fable 5.1");
+    expect(group(groups, "Claude").rows.map((r) => r.label)).toContain("Claude Fable 5.1");
+  });
+
+  it("a search still shows one row per model, with the route walk to reach the rest", () => {
+    const rows = modelRows({ kind: "acp:cursor", model: null, canSwitchAgent: true,
+      agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)] });
+    expect(flatten(groupRows(filterRows(rows, "fable"), { query: "fable" })).filter((r) => r.label === "Claude Fable 5.1")).toHaveLength(1);
   });
 });
 

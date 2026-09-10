@@ -234,6 +234,73 @@ describe("CodexAdapter", () => {
     await handle.dispose();
   });
 
+  describe("fast mode", () => {
+    const turnParams = async (handle: AgentHandle, evs: SessionEvent[]) => {
+      const before = texts(evs).length;
+      await handle.send({ text: "TURN_PARAMS", attachments: [] });
+      await waitFor(() => expect(texts(evs)).toHaveLength(before + 1));
+      return JSON.parse(texts(evs)[before]!) as Record<string, unknown>;
+    };
+
+    it("rides on turn/start as the `priority` service tier, from the first turn of a session started with it on", async () => {
+      // Verified live on 0.153.4: the catalog's Fast tier has id `priority`, and `turn/start` takes it
+      // as `serviceTier`. Asked for on the FIRST turn too — a session switched on before it started
+      // must not run its first prompt slow.
+      const { handle, evs } = await booted({ fastMode: true });
+      expect(await turnParams(handle, evs)).toMatchObject({ serviceTier: "priority" });
+      await handle.dispose();
+    });
+
+    it("never names a tier for a session that has not asked for one", async () => {
+      // A user's own `~/.codex/config.toml` may pick a tier; a `null` here would silently reset it.
+      const { handle, evs } = await booted();
+      expect(await turnParams(handle, evs)).not.toHaveProperty("serviceTier");
+      await handle.dispose();
+    });
+
+    it("moves mid-session, and switching OFF clears the tier it set rather than leaving it sticky", async () => {
+      // Codex writes the tier onto the thread, so a turn that merely omitted it would still run fast.
+      const { handle, evs } = await booted();
+      await handle.setOptions({ fastMode: true });
+      expect(await turnParams(handle, evs)).toMatchObject({ serviceTier: "priority" });
+      await handle.setOptions({ fastMode: false });
+      expect(await turnParams(handle, evs)).toMatchObject({ serviceTier: null });
+      await handle.dispose();
+    });
+
+    it("reports what the thread is on, off Codex's own echo, with the usage sample", async () => {
+      const { handle, evs } = await booted({ fastMode: true });
+      await handle.send({ text: "hi", attachments: [] });
+      await waitFor(() => expect(of(evs, "usage")).toHaveLength(1));
+      expect(of(evs, "usage")[0]!.payload).toMatchObject({ fastMode: "on" });
+      await handle.dispose();
+    });
+
+    it("restates init with whether the catalog lists Fast for THIS model", async () => {
+      // Not a table: the same discipline as the Claude adapter's `supportedModels()` question.
+      for (const [model, expected] of [["gpt-5.6-sol", true], ["gpt-5.6-terra", false]] as const) {
+        const { handle, evs } = await booted({ model });
+        await waitFor(() => expect(of(evs, "init").some((e) => e.payload.supportsFastMode !== undefined)).toBe(true));
+        const inits = of(evs, "init");
+        const last = inits.at(-1)!;
+        expect(last.payload.supportsFastMode).toBe(expected);
+        // Restated WHOLE, not a partial: the persisted log must not hold an init with invented fields.
+        expect(last.payload.providerSessionId).toBe(inits[0]!.payload.providerSessionId);
+        expect(last.payload.cwd).toBe(inits[0]!.payload.cwd);
+        await handle.dispose();
+      }
+    });
+
+    it("says nothing for a model the catalog does not carry", async () => {
+      // The fake's default thread runs `gpt-5.2`, which its `model/list` never mentions.
+      const { handle, evs } = await booted();
+      await handle.send({ text: "hi", attachments: [] });
+      await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+      expect(of(evs, "init").filter((e) => e.payload.supportsFastMode !== undefined)).toEqual([]);
+      await handle.dispose();
+    });
+  });
+
   it("routes Realm panes to the native browser tools on every turn, including resumed threads", async () => {
     const { handle, evs } = await booted({ resume: "th_previous" });
     await handle.send({ text: "TURN_PARAMS", attachments: [] });

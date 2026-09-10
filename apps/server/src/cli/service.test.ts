@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { ProbeResult } from "@realm/adapters";
 import type { AgentKind } from "@realm/contracts";
 import { CliService } from "./service";
+import { updateSpecFor } from "./install";
 
 
 /** A PATH directory holding the named binaries, each a symlink into the layout its package manager
@@ -126,6 +127,40 @@ describe("CliService.status", () => {
     expect(codex.action).toBe("update");
     expect(codex.command).toBe("codex update");
     expect(codex.refusal).toBe(null);
+  });
+
+  it("offers no command the run path cannot build — the two halves of `cli.run`, joined", async () => {
+    /* The reported failure: "no update command for acp:fx". `status` resolves what to offer through
+       `updatePlan`, and `cli.run` used to resolve what to SPAWN through the install route — so fx,
+       installed by vendor script and updated by `fx upgrade`, got a button that answered with an
+       error, and codex got one that ran the wrong command. Both halves now go through the same
+       plan, and this is the assertion that keeps them there: for every row the status offers an
+       update on, the spec exists and its display is the string the row showed.
+
+       Four provenances against three kinds, because the disagreement was provenance-shaped: fx and
+       cursor-agent land in ~/.local/bin (`unknown`), codex may be any of them, and gemini is the
+       kind with no updater of its own that the provenance rule still governs. */
+    const env = machine([
+      { bin: "fx", under: "unknown" }, { bin: "cursor-agent", under: "unknown" },
+      { bin: "codex", under: "brew" }, { bin: "gemini", under: "npm" },
+    ]);
+    const { impl } = fakeFetch({ [CODEX_LATEST]: { version: "0.153.4" }, [GEMINI_LATEST]: { version: "0.9.1" } });
+    const svc = new CliService({
+      probe: probes([
+        { kind: "acp:fx", version: "0.0.7" }, { kind: "acp:cursor", version: "2026.07.25-e42b078" },
+        { kind: "codex", version: "codex-cli 0.146.0" }, { kind: "acp:gemini", version: "0.8.0" },
+      ]),
+      fetchImpl: impl, env,
+    });
+    const rows = await svc.status();
+    const offered = rows.filter((r) => r.action === "update");
+    // The kinds above are installed and every one of them has somewhere to go, so an empty list here
+    // would make the loop below vacuous rather than passing.
+    expect(offered.map((r) => r.kind).sort()).toEqual(["acp:cursor", "acp:fx", "acp:gemini", "codex"]);
+    for (const r of offered) {
+      expect(updateSpecFor(r.kind, r.provenance, r.latest)?.display, `${r.kind} (${r.provenance})`).toBe(r.command);
+    }
+    expect(row(rows, "acp:fx").command).toBe("fx upgrade");
   });
 
   it("still offers the vendor updater when nothing newer is KNOWN — which is not the same as up to date", async () => {

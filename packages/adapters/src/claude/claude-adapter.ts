@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { query as sdkQuery, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type Query } from "@anthropic-ai/claude-agent-sdk";
-import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, newId, sessionEvent, type SessionEvent } from "@realm/contracts";
+import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, newId, sessionEvent, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { createSdkMapper } from "./map-sdk-message";
 import { probeClaude } from "./probe";
@@ -227,6 +227,37 @@ export class ClaudeAdapter implements AgentAdapter {
       } catch { /* the CLI declined; the capability stays unstated */ }
     };
 
+    /**
+     * Ask the CLI how full the window actually is, and restate the turn's usage with the answer.
+     *
+     * `getContextUsage` is the only thing on this wire that measures OCCUPANCY — what the model is
+     * carrying right now. The result's own `usage` counts tokens READ across every request the turn
+     * made, which climbs past the window on any long turn and can never fall (map-sdk-message.ts
+     * says the rest). `detail: "summary"` answers from the last response's usage and local estimates
+     * and makes none of the per-category token-count calls `full` does, so this is one control
+     * request and no model call.
+     *
+     * The whole `usage` event is restated rather than a partial one sent, the same way
+     * `reportFastModeSupport` restates `init`: the four numbers are already known here, and an event
+     * carrying the context alone would have to invent zeroes for them.
+     *
+     * Fails quietly in both directions. A CLI that declines, or a build with no such control request,
+     * leaves the meter reading the last measurement that did land — which is still the last true
+     * thing anyone knew about this window, since occupancy does not reset between turns.
+     */
+    const reportContextUsage = async (usage: SessionEventPayload<"usage">) => {
+      try {
+        const cu = await q?.getContextUsage({ detail: "summary" });
+        if (!cu || disposed) return;
+        // `rawMaxTokens` is the window the CLI's own percentage is figured against — the model's
+        // limit, or the smaller compaction window it is really being held to. `maxTokens` is that
+        // less the compaction reserve, which would report a session as full while it still had room.
+        const window = cu.rawMaxTokens > 0 ? cu.rawMaxTokens : cu.maxTokens;
+        if (!(cu.totalTokens > 0) || !(window > 0)) return;
+        events.push(sessionEvent("usage", { ...usage, contextTokens: cu.totalTokens, contextWindow: window }));
+      } catch { /* the CLI declined; the last measurement stands */ }
+    };
+
     /** Set by `interrupt`, read and cleared by the result it produces. Declared ahead of `pump` so
      *  the loop's closure can never read it in its temporal dead zone. */
     let interrupted = false;
@@ -254,7 +285,15 @@ export class ClaudeAdapter implements AgentAdapter {
           if (msg.type === "result") {
             // A cancelled turn still reports its usage — the tokens were spent — but its error is
             // the cancellation, and that is what the settle below says instead.
-            for (const e of mapper.map(msg)) { if (interrupted && e.type === "error") continue; events.push(e); }
+            let usage: SessionEventPayload<"usage"> | null = null;
+            for (const e of mapper.map(msg)) {
+              if (interrupted && e.type === "error") continue;
+              if (e.type === "usage") usage = e.payload;
+              events.push(e);
+            }
+            // Off the message loop: the meter is worth a beat of lateness and nothing else on this
+            // wire is worth holding up for it. The restated event lands whenever the CLI answers.
+            if (usage) void reportContextUsage(usage);
             running = false; sawResult = true;
             events.push(sessionEvent("status", { status: "idle", ...(interrupted ? { interrupted: true } : {}) }));
             // Cleared on the SAME result that read it, so the latch cannot outlive the turn it was

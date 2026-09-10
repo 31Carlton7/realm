@@ -71,9 +71,12 @@ export type AgentModel = { id: string; label: string };
 export const AGENT_MODELS = {
   claude: [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-fable-5", label: "Claude Fable 5" }, { id: "claude-opus-5", label: "Claude Opus 5" }, { id: "claude-sonnet-5", label: "Claude Sonnet 5" }, { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" }],
   codex: [], "acp:gemini": [], "acp:cursor": [],
-  // Plan 18's ACP agents: empty for the same reason as Cursor's — the catalog is enumerated live by
-  // the probe (through `configOptions` now, see acpSessionConfig), so a hardcoded list would only ever
-  // be a stale copy that shadows the truth. opencode alone reported 50 models on 2026-09-01.
+  // Plan 18's ACP agents: empty for the same reason as Cursor's — where a catalog exists it is
+  // enumerated live by the probe (through `configOptions` now, see acpSessionConfig), so a hardcoded
+  // list would only ever be a stale copy that shadows the truth. opencode alone reported 50 models
+  // on 2026-09-01, and fx 165 on 2026-09-09. Which of them Realm actually ASKS is the `modelCatalog`
+  // flag on each adapter spec in app.ts; the ones it does not ask show the Default row alone, which
+  // is what an un-enumerable harness honestly has to offer.
   "acp:opencode": [], "acp:copilot": [], "acp:goose": [], "acp:qwen": [], "acp:grok": [], "acp:fx": [],
   // DeepSeek's ACP server is configured with ONE provider+model pair at boot and exposes no model
   // list on the wire (its README's protocol table has no config option and no `models`), so a probe
@@ -85,6 +88,11 @@ export const AGENT_MODELS = {
   // advertises neither a `models` field nor a config option to change one. There is nothing on the
   // wire to enumerate and nothing Realm could transmit if there were.
   "acp:openhands": [],
+  // Empty and PROBE-FILLED, like the ACP kinds above rather than like OpenHands: Hermes' own ACP
+  // page documents a live model menu over the wire ("The list comes from Hermes itself over ACP"),
+  // with `provider:model` ids, and says model-discovery probes deliberately leave no empty session
+  // rows behind — which is Realm's throwaway probe session described from the other side.
+  "acp:hermes": [],
   fake: [{ id: "fake", label: "Fake" }],
 } as const satisfies Record<import("./entities").AgentKind, readonly AgentModel[]>;
 export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -99,7 +107,7 @@ export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 export const SELECTABLE_AGENT_KINDS = [
   "claude", "codex", "acp:cursor", "acp:gemini",
   "acp:opencode", "acp:copilot", "acp:goose", "acp:qwen", "acp:grok", "acp:fx", "acp:deepseek",
-  "acp:openhands",
+  "acp:openhands", "acp:hermes",
 ] as const satisfies ReadonlyArray<import("./entities").AgentKind>;
 /** Frontier default model label per kind — what the prompter's model chip shows while `session.model`
  *  is null (the adapter's own default). Display-only: never transmitted as a model id. */
@@ -117,6 +125,9 @@ export const DEFAULT_MODEL_LABEL = {
   // "Default" for the strongest form of the reason above: the model is not merely unknown before the
   // handshake, it is never on the wire at all — it lives in OpenHands' own settings file.
   "acp:openhands": "Default",
+  // "Default" for the ordinary reason: the model is whichever provider the user authenticated with
+  // `hermes model`, which is a local config value and not a constant Realm could name.
+  "acp:hermes": "Default",
   fake: "Fake",
 } as const satisfies Record<import("./entities").AgentKind, string>;
 /**
@@ -142,7 +153,7 @@ export const AGENT_SUPPORTS_PERMISSION_MODES = {
   // OWN POLICY (the README's `session/request_permission` line offers one-shot allow/reject that
   // "clients may answer automatically"), so there is no mode to set even in principle.
   "acp:deepseek": false,
-  "acp:openhands": false,
+  "acp:openhands": false, "acp:hermes": false,
   fake: true,
 } as const satisfies Record<import("./entities").AgentKind, boolean>;
 
@@ -177,6 +188,10 @@ export const AGENT_CONVERSATION_REWIND = {
   // different thing from truncating one — ACP still has no verb for that, so the answer is the same
   // false as every other kind's.
   "acp:openhands": false,
+  // Hermes persists, lists, loads, resumes and FORKS its ACP sessions (its own docs) — more session
+  // machinery than any other kind here, and still not a rewind: ACP has no verb for truncating a
+  // conversation, so the answer is the same false.
+  "acp:hermes": false,
   fake: false,
 } as const satisfies Record<import("./entities").AgentKind, boolean>;
 
@@ -303,7 +318,7 @@ export const AGENT_MIDTURN_DELIVERY = {
   "acp:cursor": "interrupt", "acp:gemini": "interrupt", "acp:opencode": "interrupt",
   "acp:copilot": "interrupt", "acp:goose": "interrupt", "acp:qwen": "interrupt",
   "acp:grok": "interrupt", "acp:fx": "interrupt", "acp:deepseek": "interrupt",
-  "acp:openhands": "interrupt",
+  "acp:openhands": "interrupt", "acp:hermes": "interrupt",
   // The scripted adapter models the interrupt kinds (its `interrupt` breaks the step loop while the
   // turn still emits its trailing usage + idle), which is what the behaviour suite needs.
   fake: "interrupt",
@@ -325,6 +340,10 @@ export const AGENT_SUPPORTS_PLAN_MODE = {
   // its own settings file, so what it advertises in `modes.availableModes` was not measurable here.
   // `acpPlanMode` raises this per session if it names a well-known id.
   "acp:openhands": false,
+  // The same floor. Hermes has an approvals setting of its own (`approvals.mode`) and a documented
+  // third permission tier over ACP ("Allow for session"), neither of which is a MODE id — so what
+  // it advertises in `modes`/`configOptions` is what decides this, per session, at handshake.
+  "acp:hermes": false,
   fake: true,
 } as const satisfies Record<import("./entities").AgentKind, boolean>;
 
@@ -354,7 +373,7 @@ export const AGENT_SUPPORTS_ASK_MODE = {
   // dsh-acp advertises no modes and no config options, so the handshake has nothing to raise this
   // with — the one ACP kind where `false` is the final answer rather than a floor.
   "acp:deepseek": false,
-  "acp:openhands": false,
+  "acp:openhands": false, "acp:hermes": false,
   fake: true,
 } as const satisfies Record<import("./entities").AgentKind, boolean>;
 
@@ -482,6 +501,30 @@ export function parseAcpConfigOptions(raw: unknown): AcpConfigOption[] {
 }
 
 /**
+ * The ONE option Realm will read for an axis, out of however many share its category.
+ *
+ * The spec's tie-break is array order: "When multiple options share the same category, Clients
+ * SHOULD use the array ordering to resolve ties, preferring earlier options in the list for
+ * prominent placement". That rule is written for a client that renders every option and is only
+ * deciding which gets the good spot. Realm renders exactly one model axis, so "first wins" is not a
+ * placement decision here, it is which list becomes THE catalog — and measured against fx 0.0.7 on
+ * 2026-09-09, first wins picks the wrong one: fx answers with `provider` (Vercel AI Gateway / Codex
+ * subscription / Grok subscription) and then `model` (165 rows), both under `category: "model"`, so
+ * the picker offered three subscriptions as though they were models and hid every model behind them.
+ *
+ * So: the option whose id IS the axis wins, and array order decides only when none is named that
+ * way — which keeps the spec's rule everywhere it was actually deciding something. opencode and
+ * Copilot both name theirs `model`, so nothing about them changes.
+ *
+ * The axis Realm does not read is not lost, only unoffered: fx's provider is a real switch its own
+ * `session/set_config_option` accepts, and a second axis in the picker is a feature, not a fix.
+ */
+function pickConfigOption(cfg: readonly AcpConfigOption[], axis: "mode" | "model"): AcpConfigOption | undefined {
+  const inCategory = cfg.filter((o) => o.category === axis);
+  return inCategory.find((o) => o.id === axis) ?? inCategory[0];
+}
+
+/**
  * Normalizes a `session/new` answer into the one shape the adapter uses, preferring `configOptions`
  * over `modes`/`models` per the spec.
  *
@@ -493,8 +536,8 @@ export function parseAcpConfigOptions(raw: unknown): AcpConfigOption[] {
 export function acpSessionConfig(session: unknown): AcpSessionConfig {
   const s = asObj(session);
   const cfg = parseAcpConfigOptions(s.configOptions);
-  const modeOpt = cfg.find((o) => o.category === "mode");
-  const modelOpt = cfg.find((o) => o.category === "model");
+  const modeOpt = pickConfigOption(cfg, "mode");
+  const modelOpt = pickConfigOption(cfg, "model");
 
   const legacyModes = asObj(s.modes);
   const legacyModeRows = (Array.isArray(legacyModes.availableModes) ? legacyModes.availableModes : [])
@@ -540,6 +583,9 @@ export const AGENT_META = {
   "acp:fx": { label: "fx", icon: "fx" },
   "acp:deepseek": { label: "DeepSeek", icon: "deepseek" },
   "acp:openhands": { label: "OpenHands", icon: "openhands" },
+  // The one agent NOT named by a vendored brand mark: Nous Research publishes no vector for Hermes
+  // (its favicon is the Unicode ⚕ as text), so this points at Realm's own caduceus — see Icon.tsx.
+  "acp:hermes": { label: "Hermes", icon: "caduceus" },
   fake: { label: "Fake agent", icon: "bot" },
 } as const satisfies Record<import("./entities").AgentKind, { label: string; icon: string }>;
 
@@ -630,6 +676,15 @@ export const AGENT_NOTES = {
     // with a warning rather than quietly: its ACP server is "automation-only".
     limits: "Answers arrive whole — no live typing, no tool cards, no MCP, and sessions cannot be resumed.",
   },
+  "acp:hermes": {
+    good: "Brings its own memory, skills and scheduler — the agent that keeps learning between sessions, on whichever provider you point it at.",
+    billing: "Bills through whichever provider you authenticated with `hermes model` — Nous Portal, OpenRouter, OpenAI, or your own endpoint.",
+    // The ACP extra leads because it is the one thing a user will otherwise meet as "installed, and
+    // does nothing": `hermes acp` exists only after `uv pip install -e '.[acp]'` in the install
+    // checkout, and the vendor documents that on its ACP page rather than its install page. The
+    // rest is the ACP floor every kind here shares.
+    limits: "Its ACP mode is a separate install step — run `cd ~/.hermes/hermes-agent && uv pip install -e '.[acp]'` after installing, or there is no `hermes acp` for Realm to spawn. Realm cannot inject skills or set permission modes over ACP.",
+  },
   fake: {
     good: "The scripted offline adapter used to develop Realm itself.",
     billing: "Free — it never calls a model.",
@@ -681,6 +736,10 @@ export const AGENT_CLI_COMMANDS = {
   // `openhands login` covers the Cloud route only. One command per slot, so this names the one that
   // reaches both.
   "acp:openhands": { install: "uv tool install --python 3.12 openhands", login: "openhands" },
+  // Both verbatim from the vendor: the installer one-liner off the README's "Quick Install", and
+  // `hermes model` — the command its ACP page names for configuring provider credentials — rather
+  // than `hermes auth`, which manages credential POOLS for an account that already has one.
+  "acp:hermes": { install: "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash", login: "hermes model" },
   fake: { install: null, login: null },
 } as const satisfies Record<import("./entities").AgentKind, { install: string | null; login: string | null }>;
 
@@ -708,5 +767,9 @@ export const AGENT_LOGIN_HINTS = {
   // and reports the MissingAgentSpec as an auth failure). Naming Cloud alone would send a user with
   // their own API key down a route they do not need.
   "acp:openhands": "Run `openhands` once and pick a model with `/settings` — its ACP server refuses to start a session until those settings exist. `openhands login` signs in to OpenHands Cloud instead, and LLM_API_KEY on its own is not enough.",
+  // Two steps, in the order they bite: the ACP extra (without it there is no `hermes acp` to spawn
+  // at all) and then a provider. `hermes setup` is the wizard that covers credentials and model in
+  // one pass, which is why it leads over `hermes model`.
+  "acp:hermes": "Run `cd ~/.hermes/hermes-agent && uv pip install -e '.[acp]'` to add its ACP mode, then `hermes setup` (or `hermes model`) to pick a provider and sign in.",
   fake: "Scripted offline agent used for development.",
 } as const satisfies Record<import("./entities").AgentKind, string>;

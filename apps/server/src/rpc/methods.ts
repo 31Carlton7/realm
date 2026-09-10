@@ -13,7 +13,7 @@ import type { ItemsStore } from "../store/items";
 import type { SettingsStore } from "../store/settings";
 import type { ModelCatalogService } from "../models/catalog";
 import type { CliService } from "../cli/service";
-import { specFor, type CliInstaller } from "../cli/install";
+import { specFor, updateSpecFor, type CliInstaller } from "../cli/install";
 import type { SkillsService } from "../skills/service";
 import type { McpService } from "../mcp/service";
 import type { ComputerAppAllowlist } from "../computer/allowlist";
@@ -553,8 +553,19 @@ export function registerMethods(d: Deps): void {
   reg("cli.run", async (p) => {
     const row = (await d.cli.status()).find((r) => r.kind === p.kind);
     if (!row || row.action !== p.action) throw new RpcError("CLI_ACTION_UNAVAILABLE", `Realm is not offering to ${p.action} ${p.kind} right now`);
-    const spec = specFor(p.kind, p.action, row.latest);
+    // An update is resolved through the row's PROVENANCE, exactly as `cli.status` resolved the
+    // command it showed — the install route answers a different question and, for the five CLIs
+    // with an updater of their own, a different command (see `updateSpecFor`).
+    const spec = p.action === "update"
+      ? updateSpecFor(p.kind, row.provenance, row.latest)
+      : specFor(p.kind, p.action, row.latest);
     if (!spec) throw new RpcError("CLI_ACTION_UNAVAILABLE", `no ${p.action} command for ${p.kind}`);
+    // The row is what the user read. If the spec disagrees with it, the two derivations have drifted
+    // and the honest answer is to run nothing — a button that says one thing and runs another is the
+    // one failure this whole path is arranged to prevent.
+    if (row.command && spec.display !== row.command) {
+      throw new RpcError("CLI_ACTION_UNAVAILABLE", `Realm offered \`${row.command}\` for ${p.kind} and resolved \`${spec.display}\``);
+    }
     if (d.cliInstaller.running(p.kind)) throw new RpcError("CLI_ALREADY_RUNNING", `${p.kind} is already installing`);
     return d.cliInstaller.start(p.kind, p.action, spec);
   });

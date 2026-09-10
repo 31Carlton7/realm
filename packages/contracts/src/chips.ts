@@ -2,6 +2,7 @@ import { z } from "zod";
 import { normalizeOrigin, PICK_DEVICE_ID_MAX, PICK_HTML_MAX, PICK_NAME_MAX, PICK_SELECTOR_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement } from "./browser-agent";
 import { fenceUntrusted } from "./fence";
 import { scanMentions } from "./mentions";
+import { describeLink, type LinkService } from "./links";
 
 /**
  * Chips: the runs of a draft that NAME something rather than say something.
@@ -28,10 +29,53 @@ import { scanMentions } from "./mentions";
  * send. It is the same trust the composer already extends to a paste. The markup behind the chip,
  * which the user does NOT read, is fenced by `elementContext`.
  */
-export type ChipKind = "mention" | "element";
+export type ChipKind = "mention" | "element" | "link";
 
-/** One chip found in a draft. `start`/`end` bound the whole token, `@` and brackets included. */
-export type Chip = { kind: ChipKind; label: string; start: number; end: number };
+/** One chip found in a draft. `start`/`end` bound the whole token, `@` and brackets included.
+ *  A link chip in SENT text carries the service and URL it stands for. */
+export type Chip = { kind: ChipKind; label: string; start: number; end: number; service?: LinkService; url?: string };
+
+/** A link chip in the DRAFT: the token's label, and the URL it stands for. Sidecar to the text like
+ *  `ElementChip`, and kept alive by the same rule — the entry lives while its `@[label]` does. */
+export type LinkChip = { label: string; url: string; service: LinkService };
+
+/** What a link chip becomes on the wire: a markdown link, which every agent reads and which the
+ *  transcript draws back as the chip. The agent gets the URL; its connection to that app does the rest. */
+export const linkChipMarkdown = (c: LinkChip): string => `[${c.label}](${c.url})`;
+
+/** Replace every link-chip token in a draft with its markdown, leaving element chips alone. */
+export function expandLinkChips(text: string, links: readonly LinkChip[]): string {
+  if (links.length === 0) return text;
+  const byLabel = new Map(links.map((l) => [l.label, l]));
+  return text.replace(ELEMENT_CHIP_RE, (whole, label: string) => { const l = byLabel.get(label); return l ? linkChipMarkdown(l) : whole; });
+}
+
+const MD_LINK_RE = /\[([^\][\n]{1,80})\]\((https?:\/\/[^\s)]+)\)/g;
+const BARE_URL_RE = /https?:\/\/[^\s<>()[\]"'`]+/g;
+const URL_TRAIL = /[.,;:!?'"]+$/;
+
+/**
+ * Links to a known app in SENT text, as chips: markdown links (what a pasted chip became) and bare
+ * URLs alike, because a URL typed into a sentence is the same thing as one pasted alone and should
+ * not read differently once sent. Only links `describeLink` can name — an arbitrary `[text](url)`
+ * or a URL to anywhere else is prose the user wrote and stays prose.
+ */
+export function scanLinkChips(text: string): Chip[] {
+  const out: Chip[] = [];
+  for (const m of text.matchAll(MD_LINK_RE)) {
+    const ref = describeLink(m[2]!);
+    if (!ref) continue;
+    out.push({ kind: "link", label: m[1]!, start: m.index, end: m.index + m[0].length, service: ref.service, url: m[2]! });
+  }
+  for (const m of text.matchAll(BARE_URL_RE)) {
+    const raw = m[0].replace(URL_TRAIL, "");
+    if (out.some((c) => m.index >= c.start && m.index < c.end)) continue; // the href of a markdown link above
+    const ref = describeLink(raw);
+    if (!ref) continue;
+    out.push({ kind: "link", label: ref.label, start: m.index, end: m.index + raw.length, service: ref.service, url: raw });
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
 
 /** A picked element and the label its chip goes by, kept together because the label is the only
  *  thing linking the sidecar entry to the token in the draft text. */
@@ -118,10 +162,27 @@ export function scanElementChips(text: string): Chip[] {
  */
 export function scanChips(text: string, ids: Iterable<string>): Chip[] {
   const elements = scanElementChips(text);
+  const links = scanLinkChips(text);
+  const inside = (pos: number) => elements.some((e) => pos >= e.start && pos < e.end) || links.some((l) => pos >= l.start && pos < l.end);
   const mentions: Chip[] = scanMentions(text, ids)
-    .filter((t) => !elements.some((e) => t.start >= e.start && t.start < e.end))
+    .filter((t) => !inside(t.start))
     .map((t) => ({ kind: "mention", label: t.id, start: t.start, end: t.end }));
-  return [...mentions, ...elements].sort((a, b) => a.start - b.start);
+  return [...mentions, ...elements, ...links].sort((a, b) => a.start - b.start);
+}
+
+/** The link entries a draft still refers to — `keepLiveChips`'s rule, for links. */
+export function keepLiveLinks(text: string, links: readonly LinkChip[]): LinkChip[] {
+  const present = new Set(scanElementChips(text).map((c) => c.label));
+  return links.filter((l) => present.has(l.label));
+}
+
+/** A label for a link chip that no other chip in the draft already wears. */
+export function linkChipLabel(base: string, taken: Iterable<string>): string {
+  const used = new Set(taken);
+  const first = chipLabel(base);
+  if (!used.has(first)) return first;
+  for (let n = 2; n < 100; n += 1) { const cand = chipLabel(`${first.slice(0, CHIP_LABEL_MAX - 4)} ${n}`); if (!used.has(cand)) return cand; }
+  return first;
 }
 
 /** A chip label for a picked element, unique among `taken` so two identical buttons in one draft do

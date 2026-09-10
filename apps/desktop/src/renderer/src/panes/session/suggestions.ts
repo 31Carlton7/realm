@@ -63,5 +63,12 @@ export const SUGGESTIONS: Record<AgentKind, { title: string; description: string
     { title: "Build a feature", description: "Plan first, then write the code", prompt: "Help me plan a new feature." },
     { title: "Fix a bug", description: "Find and fix the most likely bug", prompt: "Find a bug and fix it." },
   ],
+  "acp:hermes": [
+    { title: "Explore this project", description: "Structure, entry points, how it all fits", prompt: "Give me a tour of this project." },
+    // The one starter here that is about THIS harness rather than about code: writing a skill from
+    // what it just did is Hermes' own headline loop, and a starter is where a harness's difference
+    // is worth naming.
+    { title: "Turn this into a skill", description: "Save what it just worked out, for next time", prompt: "Turn what you just worked out into a skill I can reuse." },
+  ],
   fake: [{ title: "Say hello", description: "A quick round trip through the fake agent", prompt: "Hello!" }],
 };

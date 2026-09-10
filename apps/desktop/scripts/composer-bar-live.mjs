@@ -117,12 +117,15 @@ window.__live = window.__live ?? {
     const bar = document.querySelector(".composer-bar");
     const opts = document.querySelector(".composer-opts");
     const strip = document.querySelector(".composer-understrip");
+    const over = document.querySelector(".composer-overstrip");
     const acts = document.querySelector(".composer-actions");
     if (!bar || !opts) return null;
     const optsBox = __live.box(opts);
     const stripBox = strip ? __live.box(strip) : optsBox;
+    const overBox = over ? __live.box(over) : optsBox;
     /* The argument is the group whose overflow would do the amputating: the control row for the
-       chips on it, the under-strip for the branch group, which now lives there. */
+       chips on it, the OVER-strip for the branch group, which now has a tab of its own above the
+       card. */
     const chip = (within) => (n) => {
       const label = n.querySelector(".chip-label");
       return {
@@ -141,17 +144,18 @@ window.__live = window.__live ?? {
       bar: __live.box(bar).w,
       opts: { ...optsBox, need: Math.round(opts.scrollWidth), have: Math.round(opts.clientWidth), collapsed: opts.hasAttribute("data-collapsed") },
       strip: strip ? { ...stripBox, h: Math.round(strip.getBoundingClientRect().height) } : null,
+      over: over ? { ...overBox, h: Math.round(over.getBoundingClientRect().height) } : null,
       acts: acts ? __live.box(acts) : null,
       // The control row's chips, plus the branch group's own children from the strip below it:
       // shrinking that BUTTON below its content's minimum spills the branch chip out through its
       // group's clip, which reads identically to the button being sliced and is invisible if only
       // the outer box is measured.
-      items: [...[...opts.children].map(chip(optsBox)), ...[...(git?.children ?? [])].map(chip(stripBox))],
+      items: [...[...opts.children].map(chip(optsBox)), ...[...(git?.children ?? [])].map(chip(overBox))],
       // The two controls that must survive every width: you can always send, and you can always
       // see which model you are sending to.
       send: !!document.querySelector(".composer-send") && __live.box(document.querySelector(".composer-send")).r <= __live.box(bar).r + 1,
       model: document.querySelector(".model-chip") ? __live.box(document.querySelector(".model-chip")) : null,
-      git: git ? { ...__live.box(git), text: git.textContent.trim(), inStrip: !!git.closest(".composer-understrip") } : null,
+      git: git ? { ...__live.box(git), text: git.textContent.trim(), inStrip: !!git.closest(".composer-overstrip") } : null,
       gitTitle: git?.title ?? null,
       // The context meter pins to the strip's far end; measured so a branch name growing into it is
       // a failing assertion rather than something a screenshot has to be squinted at.
@@ -286,14 +290,24 @@ async function main() {
   const branchless = room.filter((s) => !s.git);
   check("the branch chip is present at every width it is offered at", branchless.length === 0, branchless.map((s) => s.width));
 
-  // It moved off the control row and onto the under-strip: the checkout and what it has changed are
-  // one question, and the row above is left holding only what changes the next send.
+  // It rides a strip of its own above the card. Not the control row, which holds only what changes
+  // the next send, and not the row of workspace chips below, where a count that moves on every file
+  // the agent writes sat among labels that never move.
   const offStrip = room.filter((s) => s.git && !s.git.inStrip);
-  check("the branch group rides the under-strip, not the control row", offStrip.length === 0, offStrip.map((s) => s.width));
+  check("the branch group rides the over-strip, above the card", offStrip.length === 0, offStrip.map((s) => s.width));
 
-  const overrun = room.filter((s) => s.git && s.usage && s.git.r > s.usage.l - 1);
-  check("the branch name never grows into the context meter at the strip's end",
-    overrun.length === 0, overrun.map((s) => ({ width: s.width, git: s.git.r, usage: s.usage.l })));
+  // Centred, at every width — the one thing about this strip a stylesheet cannot be asked about,
+  // since `justify-content` centres the flex line and what has to be centred is the drawn group.
+  // 2px of slack for the odd-pixel case, and no more: 3 would pass a group that is visibly off.
+  const offCentre = room.filter((s) => s.git && s.over && Math.abs((s.git.l + s.git.r) - (s.over.l + s.over.r)) > 4);
+  check("the branch group sits on the strip's centre line at every width", offCentre.length === 0,
+    offCentre.map((s) => ({ width: s.width, git: [s.git.l, s.git.r], strip: [s.over.l, s.over.r] })));
+
+  // The strip is a tab attached to the card, so it takes the card's own inset. A strip that reaches
+  // wider than the prompter is a band across the pane, which is a different object entirely.
+  const wide = room.filter((s) => s.over && s.over.w > s.bar);
+  check("the over-strip stays narrower than the card it is attached to", wide.length === 0,
+    wide.map((s) => ({ width: s.width, over: s.over.w, bar: s.bar })));
 
   const truncated = room.filter((s) => s.git && s.items.some((i) => i.cls.includes("git-branch") && i.ellipsis));
   check("a branch too long for the pane is ellipsized rather than dropped or clipped",

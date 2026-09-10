@@ -110,6 +110,9 @@ export const AGENT_MEMORY_CHANNEL = {
   "acp:fx": "none",
   "acp:deepseek": "none",
   "acp:openhands": "none",
+  // Hermes carries a great deal of durable context of its own — memory, skills, a user model — and
+  // none of it is Realm's, which is exactly what this table means by `none`.
+  "acp:hermes": "none",
   fake: "none",
 } as const satisfies Record<AgentKind, MemoryChannel>;
 

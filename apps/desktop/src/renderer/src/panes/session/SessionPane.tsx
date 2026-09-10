@@ -1,7 +1,10 @@
 import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelGroupHandle } from "react-resizable-panels";
-import { AGENT_SKILL_SUPPORT, PLAN_PERMISSION_MODE, sessionModeOf, type Item, type Skill } from "@realm/contracts";
+import { AGENT_SKILL_SUPPORT, PLAN_PERMISSION_MODE, sessionModeOf, type Item, type LinkChip, type Skill } from "@realm/contracts";
+
+/** Stable empty array for `useSyncExternalStore`: a fresh `[]` per render reads as a change forever. */
+const NO_LINKS: LinkChip[] = [];
 import { TERMINAL_PANEL_WIDTH, useApp, type PickedAttachment } from "../../state/store";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import { TerminalView } from "../TerminalPane";
@@ -195,6 +198,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // suggestion chip in the empty state can fill the draft without sending it.
   const draft = useApp((s) => s.drafts[id] ?? "");
   const setDraft = useApp((s) => s.setDraft);
+  const addLinkChip = useApp((s) => s.addLinkChip);
+  const draftLinks = useApp((s) => s.draftLinks[id] ?? NO_LINKS);
   // Attachments are part of the draft and are held the same way, for the same reason.
   const attachments = useApp((s) => s.pendingAttachments[id] ?? NO_ATTACHMENTS);
   // The @-mention picker's source (W4): the space's library, narrowed to what THIS session's agent can
@@ -412,7 +417,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             submitKey={submitKey}
             hero={hero} spaceName={space?.name ?? "this space"}
             promptHint={hint} usage={transcript.usage} slashCommands={slashCommands}
-            supportsFastMode={transcript.init?.supportsFastMode} />}
+            supportsFastMode={transcript.init?.supportsFastMode}
+            links={draftLinks} onLinkPaste={(url) => addLinkChip(id, url)} />}
       {/* Last child and BELOW the prompter's dock, so the glow passes under the card exactly as the
           transcript does — an affordance that blurred across the prompter would be the fade band's
           old bug wearing a different colour. Decorative: the drop is announced by what it does. */}

@@ -103,6 +103,11 @@ function sectionFor(b: Block): string | null {
     case "handoff": return `> **Handover:** ${b.note}`;
     // The elapsed-time line is a fact about watching the session happen, not about what it produced.
     case "run": return null;
+    // Exported for the same reason as the handover: a reader of this file otherwise cannot tell
+    // which of the messages above it the agent still had when it answered below.
+    case "compacted": return b.postTokens === undefined
+      ? "> **Context compacted.**"
+      : `> **Context compacted:** ${b.preTokens} tokens summarised to ${b.postTokens}.`;
     // Likewise: a retry that was still pending when the export ran is a fact about the moment of
     // export, not about the session.
     case "retrying": return null;

@@ -30,6 +30,10 @@ type FakeOpts = {
   models?: { value: string; supportsFastMode?: boolean }[];
   /** record every `applyFlagSettings` merge (the mid-session fast-mode path). */
   flagSettings?: Record<string, unknown>[];
+  /** what `getContextUsage()` answers; omitted means the control request is declined (a CLI may). */
+  contextUsage?: { totalTokens: number; maxTokens: number; rawMaxTokens: number };
+  /** record the options `getContextUsage` was called with — `detail` is the expensive knob. */
+  contextUsageCalls?: unknown[];
 };
 function fakeQuery(opts: FakeOpts, calls: string[] = []) {
   return ({ prompt, options }: { prompt: AsyncIterable<unknown>; options: Record<string, unknown> }) => {
@@ -67,6 +71,11 @@ function fakeQuery(opts: FakeOpts, calls: string[] = []) {
         return opts.models;
       },
       applyFlagSettings: async (settings: Record<string, unknown>) => { opts.flagSettings?.push(settings); },
+      getContextUsage: async (o?: unknown) => {
+        opts.contextUsageCalls?.push(o);
+        if (!opts.contextUsage) throw new Error("control request declined");
+        return opts.contextUsage;
+      },
     });
   };
 }
@@ -275,6 +284,64 @@ describe("ClaudeAdapter", () => {
     expect(seen[0]!.type === "error" && seen[0]!.payload.message).toMatch(/attachment/i);
     await h.dispose(); await c;
   });
+  describe("context usage", () => {
+    /** Wait for the restated `usage` event — the one carrying a measurement. */
+    const measured = (seen: SessionEvent[]) =>
+      new Promise<void>((res) => { const t = setInterval(() => { if (seen.some((e) => e.type === "usage" && e.payload.contextTokens !== undefined)) { clearInterval(t); res(); } }, 5); });
+
+    it("measures occupancy with getContextUsage instead of adding up the result's usage", async () => {
+      // The bug this replaces: `input + cache_read + cache_creation` off the result sums every
+      // REQUEST of the turn, so a tool-heavy turn counted its cached prompt over and over and the
+      // meter read 1.19M against a 1M window — pinned at 100%, unable to fall, on a session that had
+      // never come close to full.
+      const contextUsageCalls: unknown[] = [];
+      const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, contextUsageCalls, contextUsage: { totalTokens: 42_000, maxTokens: 190_000, rawMaxTokens: 200_000 } }) as never });
+      const h = a.start({ cwd: "/tmp", mcpServers: [] });
+      const seen: SessionEvent[] = []; const c = collectUntil(h.events, () => false, (e) => seen.push(e));
+      await h.send({ text: "hi", attachments: [] });
+      await measured(seen);
+      await h.dispose(); await c;
+      const usages = seen.filter((e) => e.type === "usage");
+      // The FIRST usage event states no context at all: the result cannot answer the question.
+      expect(usages[0]!.type === "usage" && "contextTokens" in usages[0]!.payload).toBe(false);
+      const last = usages.at(-1)!;
+      expect(last.type === "usage" && last.payload.contextTokens).toBe(42_000);
+      // `rawMaxTokens`, not `maxTokens`: the latter is the window less the compaction reserve, which
+      // would report a session as full while it still had room to run.
+      expect(last.type === "usage" && last.payload.contextWindow).toBe(200_000);
+      // Restated WHOLE, like init's second event — the four numbers ride along rather than being
+      // zeroed to satisfy the schema.
+      expect(last.type === "usage" && last.payload.costUsd).toBe(usages[0]!.type === "usage" ? usages[0]!.payload.costUsd : null);
+      expect(last.type === "usage" && last.payload.numTurns).toBe(usages[0]!.type === "usage" ? usages[0]!.payload.numTurns : null);
+      // `summary` answers from the last response; `full` would make a token-count API call per
+      // category on every single turn, which is a real cost for a 14px ring.
+      expect(contextUsageCalls).toEqual([{ detail: "summary" }]);
+    });
+
+    it("leaves the last measurement standing when the CLI declines the question", async () => {
+      // Absent, never zero: a 0% ring would be a claim about the window rather than an admission
+      // that this build cannot answer.
+      const a = new ClaudeAdapter({ query: fakeQuery({ hang: true }) as never });
+      const h = a.start({ cwd: "/tmp", mcpServers: [] });
+      const seen: SessionEvent[] = []; const c = collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle");
+      await h.send({ text: "hi", attachments: [] });
+      await c; await h.dispose();
+      for (const e of seen.filter((x) => x.type === "usage")) expect(e.type === "usage" && "contextTokens" in e.payload).toBe(false);
+    });
+
+    it("says nothing rather than dividing by a window of zero", async () => {
+      // A build that answers the control request with nothing useful is the same as one that
+      // declines it. `0` here would draw a ring against nothing.
+      const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, contextUsage: { totalTokens: 42_000, maxTokens: 0, rawMaxTokens: 0 } }) as never });
+      const h = a.start({ cwd: "/tmp", mcpServers: [] });
+      const seen: SessionEvent[] = []; const c = collectUntil(h.events, () => false, (e) => seen.push(e));
+      await h.send({ text: "hi", attachments: [] });
+      await new Promise((r) => setTimeout(r, 50));
+      await h.dispose(); await c;
+      for (const e of seen.filter((x) => x.type === "usage")) expect(e.type === "usage" && "contextTokens" in e.payload).toBe(false);
+    });
+  });
+
   describe("fast mode", () => {
     // The fixture's init message names this model; the adapter joins it against `supportedModels()`.
     const MODEL = "claude-opus-5";

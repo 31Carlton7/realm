@@ -125,8 +125,32 @@ describe("the Library's file browser", () => {
       file({ id: "theme.css", ext: "css", path: "/tmp/theme.css" }),
     ] });
     await screen.findByText("shot.png");
-    await waitFor(() => expect(realm.attachmentThumbnail).toHaveBeenCalledWith("/tmp/shot.png"));
+    // At CARD size: the picture fills a ~200px field on a 2× display, and the 96px tile mark the
+    // composer's chips use would be a smear there.
+    await waitFor(() => expect(realm.attachmentThumbnail).toHaveBeenCalledWith("/tmp/shot.png", "card"));
     expect(realm.attachmentThumbnail.mock.calls.map((c) => c[0])).not.toContain("/tmp/theme.css");
+  });
+
+  it("lays each file out as a card — a preview field over the caption — whether or not it has a picture", async () => {
+    /* The Drive-style shape: the field comes first in source order (it is what the eye lands on),
+       the picture fills it, and a file with no picture gets its glyph in a well at the field's
+       centre rather than a different, shorter card. The mutant: render the glyph directly in the
+       field, or put the caption first. */
+    bridge();
+    await mount({ artifacts: [
+      file({ id: "shot.png", ext: "png", path: "/tmp/shot.png" }),
+      file({ id: "notes.md", ext: "md", path: "/tmp/notes.md" }),
+    ] });
+    await screen.findByText("notes.md");
+    const cards = [...document.querySelectorAll(".library-tile")];
+    expect(cards).toHaveLength(2);
+    for (const card of cards) {
+      expect(card.children[0]).toHaveClass("library-tile-art");
+      expect(card.children[1]).toHaveClass("library-tile-text");
+      expect(card.querySelector(".library-tile-text .library-tile-name")).not.toBeNull();
+    }
+    await waitFor(() => expect(cards[0]!.querySelector(".library-tile-art[data-thumb] img.library-tile-thumb")).not.toBeNull());
+    expect(cards[1]!.querySelector(".library-tile-art:not([data-thumb]) .library-tile-mark")).not.toBeNull();
   });
 });
 

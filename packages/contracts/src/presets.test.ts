@@ -372,6 +372,39 @@ describe("acpSessionConfig — configOptions wins, with the write channel carrie
     }
   });
 
+  it("picks the option the axis is NAMED for when several share its category — fx's provider vs its models", () => {
+    /* Measured against fx 0.0.7 on 2026-09-09: it answers `provider` (three subscriptions) and then
+       `model` (165 rows), both under `category: "model"`, in that order. The spec's tie-break is
+       array order, which is written for a client rendering all of them and choosing placement;
+       Realm renders one model axis, so first-wins offered "Vercel AI Gateway" as a model and hid
+       every model behind it. The named option wins instead.
+
+       The write channel is the half that would fail silently: with `provider` chosen, pinning a
+       model sends `set_config_option {configId: "provider", value: "openai/gpt-5.2"}` — a well
+       formed call that sets the wrong thing. */
+    const fx = { sessionId: "s", configOptions: [
+      { id: "provider", name: "Provider", category: "model", type: "select", currentValue: "gateway",
+        options: [{ value: "gateway", name: "Vercel AI Gateway" }, { value: "codex", name: "Codex subscription" }] },
+      { id: "model", name: "Model", category: "model", type: "select", currentValue: "zai/glm-5.3-flash",
+        options: [{ value: "openai/gpt-5.2" }, { value: "zai/glm-5.3-flash" }] },
+    ] };
+    const cfg = acpSessionConfig(fx);
+    expect(cfg.models.map((m) => m.id)).toEqual(["openai/gpt-5.2", "zai/glm-5.3-flash"]);
+    expect(cfg.currentModelId).toBe("zai/glm-5.3-flash");
+    expect(cfg.modelConfigId).toBe("model");
+  });
+
+  it("still resolves several same-category options by array order when none is named for the axis", () => {
+    // The spec's rule, kept everywhere it was actually deciding something: with no `id: "model"` to
+    // prefer, the earlier option wins, as "Clients SHOULD use the array ordering to resolve ties".
+    const cfg = acpSessionConfig({ configOptions: [
+      { id: "llm", category: "model", currentValue: "a", options: [{ value: "a" }] },
+      { id: "fallback", category: "model", currentValue: "b", options: [{ value: "b" }] },
+    ] });
+    expect(cfg.modelConfigId).toBe("llm");
+    expect(cfg.models.map((m) => m.id)).toEqual(["a"]);
+  });
+
   it("skips a config option whose category is neither mode nor model", () => {
     const cfg = acpSessionConfig({ configOptions: [{ id: "verbosity", category: "output", options: [{ value: "terse" }] }] });
     expect(cfg.modes).toEqual([]);

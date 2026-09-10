@@ -127,6 +127,28 @@ Rules:
   the story told about it. Chrome above content may take a seam; chrome above more chrome may
   not, and two stacked seams in the same 60px is the failure this rule exists to catch.
 - Hairlines separate structure. Shadows indicate elevation. Resting objects do not cast shadows.
+- A hairline with NO change of surface beside it needs its own weight, and its own token. The
+  ordinary line is sized for the ordinary case, where a surface step carries most of the boundary
+  and the line only sharpens it. Where both sides are the same ground the line is the whole
+  boundary: the pane divider on `--line` measured 6.6% of full range in dark and 5.2% in light, and
+  panes read as one wash — reported as dividers that "disappear". Two tells that this is what you
+  are looking at: the surfaces either side resolve to the same token, and the reliable way to see
+  the line is to put the pointer on it, which is the hover state doing the resting state's job.
+- Do not assume the light face mirrors the dark one. Black on a near-white ground loses more of
+  itself than white on a near-black ground, so the same step down the alpha ladder lands weaker in
+  light — the divider needed a heavier step there to reach the same reading. A per-mode value that
+  looks inconsistent in the token file may be the only consistent thing on screen.
+- Contrast claims about a hairline are pixel measurements, not stylesheet readings. What `8% white`
+  comes to depends on the ground it lands on, and no amount of reading the CSS will tell you. Take
+  the mean luminance either side of the line and the line itself, in both faces, with the line
+  removed as the mutant. `pane-divider-live.mjs` and `sidebar-edge-live.mjs` are the pattern.
+- A ring is one stroke on one curve. A hairline traced INSIDE a clip that rounds the same corner —
+  an inward outline on an `overflow: hidden` group — is two anti-aliased edges half a pixel apart,
+  and every corner of the permission chip group rendered as a thick dark arc. Draw the ring on an
+  overlay that carries the corner itself, and give it to the segment rather than the group, because
+  the ring is also a per-segment decision: a segment that is FILLED (Full access, Ask, Plan) wears
+  no ring on its side. The fill already says "control" there, and a hairline over a tint reads as a
+  second, disagreeing edge.
 - Floating menus, palettes, sheets, composers, and overlays use the established layered shadow
   stacks. Never invent a single heavy drop shadow.
 - The blue accent is a condiment: focus, selection, progress, links, and primary actions. It is not a
@@ -255,6 +277,12 @@ string staying that way.
   treatment. Transition the property the painter reads, and register that property with a type, or
   it computes to a token stream and token streams do not interpolate.
 - Disabled controls keep their label legible and explain the unavailable action when useful.
+- A first-run screen is a decision, not an inventory. The onboarding sheet opened on twelve equal
+  rows of agents with the one required field and its button below the fold; the inventory had
+  buried the decision it was there to inform. Preselect what can be preselected, default what can
+  be defaulted (the space's name from the folder's), fold what was merely detected behind one line,
+  and keep the primary action outside the scroller so it is live from the first frame. Ask the
+  question the user actually arrived with — where the code is — before the ones the product needs.
 - A row is a label and its control. A sentence under it has to say something neither of them says:
   what else the switch does, why the control you expected is absent, what a click will execute on
   your machine. A description that restates the row's own state chip — "macOS reports the grant"
@@ -266,10 +294,30 @@ string staying that way.
   reasons it is not are worth telling apart, because one may resolve itself and another never
   will. Say nothing in the ordinary cases: a note that appears every time is a note nobody
   reads by the third session.
+- A list of things reached through several routes lists each thing under EVERY route that offers it.
+  The model picker groups by harness; once Cursor's catalog arrived, a Claude model both could run
+  resolved to the session's harness alone and vanished from the other heading, so a Cursor session
+  showed an empty Claude group and the only way to Fable-through-Claude was to pick it under Cursor
+  and change the route afterwards. Deduplicating the OBJECT (one favourite, one catalog entry, one
+  tick) is right; deduplicating its PLACEMENTS is what emptied the group. Refine the route in the
+  detail pane; do not make the list hide it.
 - Offer a capability only where its OWNER has said it exists. A table in the app goes stale,
   and a control offered on a guess is one whose only outcome is a refusal. Where the owner has
   said nothing, show nothing — not a disabled control, which invites a user to work out how to
   enable something nobody has claimed.
+- A link is shown as what it points AT. A pasted Slack permalink is ninety characters of nothing
+  a person reads; its meaning is "this thread", and the chip says that: the app's mark, then a
+  name (a thread's timestamp, an issue key, a page title). Only where Realm can name the link — a
+  wrong name on a chip is worse than the URL, which at least says what it is. The agent is sent
+  the link itself, as a markdown link, because its connection to that app is what opens it. The
+  chip is the SAME chip as a mention or a picked element: an icon and a name in the accent, inline
+  with the prose — no fill, no box. The pill read as a control dropped into a sentence. The icon
+  is what says which kind of thing it is (a skill's spark, a picked element's target, an app's
+  mark), drawn over the token's opening sigil so the painted run keeps every character's width.
+  Links in prose are colour and weight, no underline; hover restores it.
+- The apps a space connects to are a front door, not a second system: a card per vendor's own
+  remote server, one action (Connect), and from then on an ordinary server in the list below with
+  the same tools policy and activity. A card names what the connection is FOR in the prompter.
 - An object reached from two lists opens ONE way. The same file was a rich viewer from the file
   browser and a bare "hand it to the OS" modal from the session summary, and the difference was
   invisible until someone reached the same thing twice. Share the surface, not just the predicate:
@@ -309,6 +357,12 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - Splits expose relationships. Avoid a split when one side has no ongoing value.
 - Pane focus, selection, zoom, navigation history, and group state must remain visibly distinct.
 - Empty panes should offer the shortest honest path to useful work.
+- Several agents need one page that answers "what should I look at": every session across every
+  space by what it needs from you — blocked on a permission first, then working, failed, finished.
+  The per-space badges say the same thing per space; the page says it once, with enough on each
+  row (space, folder, model, how long ago it moved) to choose without opening. A relay beyond the
+  Mac (a text, a Slack line) carries only those moments a person has to come back for, and one
+  open condition is sent once.
 - The sidebar answers where the user is and what else is available. Keep primary destinations,
   spaces, open items, and contextual actions visually separate.
 - Closing a pane should never imply deleting its session, terminal, or document unless deletion is
@@ -324,6 +378,14 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - Provider, model, mode, workspace, and connector context belong near the composer because they
   change what the next send means.
 - Keep raw logs and exhaustive tool detail available without making them compete with the result.
+- A closing line names the WORK, not the residue. "This session produced 1 file · 4 attached" is
+  true and tells a reader coming back nothing; the ask, the files that changed, whether anything
+  ran or failed, and then what came out is the shape of an answer. Derive it from the transcript
+  — a fold is free and cannot lie — and say nothing at all for a session that only talked.
+- The context an agent works with belongs in one place: folder, branch, model, permission, the
+  memory files that actually reach it, the connections it can call. Each is already a chip or a
+  pane somewhere; standing them together is what "show me this agent's context" asks for. Draw
+  only facts the app holds — a "Branch —" for a folder nobody has asked git about is a claim.
 - A note under the composer is for an outcome the user could not otherwise learn, such as a file
   the agent will silently drop. Do not narrate a handoff the agent completes itself; that belongs
   on the chip's tooltip.
@@ -343,6 +405,12 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   year-wide graph that starts at its oldest column hides it behind a scroll they may not attempt.
 - A sequential scale steps one hue's opacity. Walking a hue across the steps reads as categories,
   which is the opposite of what a single quantity means.
+- A file browser's card is a picture over a caption, in that order. The preview field takes the top
+  of the card and the name and provenance sit under it, the way a drive lays out files, because a
+  screenshot is recognisable at that size and was a smudge beside a name. A file with no picture
+  keeps the SAME card: its glyph sits small in a well at the field's centre, so the grid's shape
+  does not change from file to file. A field that wide needs a picture minted for it — the 96px
+  mark the composer's chips use is a smear there — so the size is named, not assumed.
 - A picture of a file earns its place where the picture IS the file. A screenshot, a mockup and a
   frame of video say more than any glyph; a page of source rendered into a 44px square says less
   than the four letters of its extension. The line is also a cost line, and that is not a detail to

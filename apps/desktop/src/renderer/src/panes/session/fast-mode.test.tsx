@@ -117,6 +117,25 @@ describe("the prompter's Speed control", () => {
   });
 });
 
+describe("the model chip", () => {
+  it("says Fast beside the effort once the session asks for it and the harness can serve it", async () => {
+    await mount([ev(init({ supportsFastMode: true }))], { fastMode: true, effort: "high" });
+    const chip = screen.getByRole("button", { name: "Model" });
+    expect(chip.querySelector(".chip-fast")).toHaveTextContent("Fast");
+    expect(chip).toHaveTextContent(/High\s*Fast/);
+    expect(chip.getAttribute("title")).toContain("fast mode");
+  });
+
+  it("does not claim a speed where nothing has said the model can run it", async () => {
+    // The switch's own rule, applied to the label: `fastMode` on the row alone is a request, and a
+    // chip that wore it for an engine that never answered would be claiming a speed it is not at.
+    await mount([ev(init())], { fastMode: true, effort: "high" });
+    expect(screen.getByRole("button", { name: "Model" }).querySelector(".chip-fast")).toBeNull();
+    await mount([ev(init({ supportsFastMode: true }))], { fastMode: false, effort: "high" });
+    expect(screen.getAllByRole("button", { name: "Model" }).at(-1)!.querySelector(".chip-fast")).toBeNull();
+  });
+});
+
 describe("the init event", () => {
   it("a restated handshake replaces the one before it, carrying the capability forward", async () => {
     // The Claude adapter emits init twice: once from the CLI's message, once when it has learned

@@ -3,7 +3,7 @@ import { Readable } from "node:stream";
 import type { ChildProcess, spawn as nodeSpawn } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import { AGENT_INSTALL_ROUTES, AgentKindSchema, type AgentKind, type CliJobEnd, type CliJobOutput } from "@realm/contracts";
-import { CliInstaller, commandSpec, specFor } from "./install";
+import { CliInstaller, commandSpec, specFor, updateSpecFor } from "./install";
 
 /**
  * A child process that never was. Every install test runs against this — a real package manager must
@@ -109,6 +109,45 @@ describe("commandSpec", () => {
 
   it("refuses an update with no version to pin to", () => {
     expect(commandSpec(AGENT_INSTALL_ROUTES.codex, "update", null)).toBe(null);
+  });
+});
+
+describe("updateSpecFor", () => {
+  it("runs a vendor's own updater, for a CLI whose install route has no update command at all", () => {
+    // The reported bug, exactly: fx installs by vendor script, so its route answers null to
+    // `updateCommand` and `specFor(kind, "update", …)` had nothing to build — while `cli.status`,
+    // resolving through `updatePlan`, had already offered the button. "no update command for
+    // acp:fx" was the two halves disagreeing.
+    expect(updateSpecFor("acp:fx", "unknown", null)).toEqual({ display: "fx upgrade", file: "fx", args: ["upgrade"] });
+    expect(updateSpecFor("acp:cursor", "unknown", null)?.file).toBe("cursor-agent");
+  });
+
+  it("prefers the vendor's updater over the install route's package manager", () => {
+    // The same bug in its quieter form: codex has BOTH an npm route and `codex update`, so the
+    // button worked and ran the wrong command — `npm install -g` over a Homebrew or native install
+    // is the second copy on PATH that `updatePlan` exists to prevent.
+    for (const provenance of ["npm", "brew", "unknown"] as const) {
+      expect(updateSpecFor("codex", provenance, "0.153.4")).toEqual({ display: "codex update", file: "codex", args: ["update"] });
+    }
+  });
+
+  it("falls back to the provenance rule for a CLI with no updater of its own", () => {
+    expect(updateSpecFor("acp:gemini", "npm", "0.9.1")?.display).toBe("npm install -g @google/gemini-cli@0.9.1");
+    // Homebrew publishes no gemini formula, so brew provenance has nothing to upgrade with, and an
+    // unattributable install is the refusal the rule is there for.
+    expect(updateSpecFor("acp:gemini", "brew", "0.9.1")).toBe(null);
+    expect(updateSpecFor("acp:gemini", "unknown", "0.9.1")).toBe(null);
+  });
+
+  it("never routes a self-updater through a shell", () => {
+    // Nothing in the table needs one, and a shell is how a command becomes something other than
+    // what it reads as. The whole argv, so a combined `-lc` cannot slip past a membership check.
+    for (const kind of AgentKindSchema.options) {
+      const spec = updateSpecFor(kind, "unknown", "9.9.9");
+      if (!spec) continue;
+      expect(spec.file).not.toBe("/bin/bash");
+      expect([spec.file, ...spec.args].join(" ")).toBe(spec.display);
+    }
   });
 });
 

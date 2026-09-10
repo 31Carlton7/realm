@@ -4,7 +4,7 @@ import { brandMarks, isBrandName } from "./brand-icons";
 describe("brand marks", () => {
   it("covers every provider the prompter can name", () => {
     expect(Object.keys(brandMarks).sort()).toEqual([
-      "claude", "cursor", "deepseek", "fx", "gemini", "githubCopilot", "goose", "grok", "kimi", "openai", "opencode", "openhands", "qwen", "zai",
+      "claude", "cursor", "deepseek", "figma", "fx", "gemini", "github", "githubCopilot", "goose", "grok", "jira", "kimi", "linear", "meta", "notion", "openai", "opencode", "openhands", "qwen", "sentry", "slack", "zai",
     ]);
   });
 
@@ -34,7 +34,8 @@ describe("brand marks", () => {
     expect(brandMarks.claude.color).toBe("#D97757");
     expect(brandMarks.gemini.color).toBe("#4796E3");
     expect(brandMarks.deepseek.color).toBe("#5786FE");
-    expect(Object.entries(brandMarks).filter(([, m]) => "color" in m).map(([n]) => n).sort()).toEqual(["claude", "deepseek", "gemini"]);
+    expect(brandMarks.meta.color).toBe("#0467DF");
+    expect(Object.entries(brandMarks).filter(([, m]) => "color" in m).map(([n]) => n).sort()).toEqual(["claude", "deepseek", "figma", "gemini", "jira", "linear", "meta", "sentry", "slack"]);
   });
 
   it("isBrandName accepts the marks and rejects Hugeicons names", () => {

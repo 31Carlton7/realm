@@ -59,15 +59,28 @@ export async function probeCodex(
  * models are skipped because that is what the flag means ("hidden from the default picker list");
  * only an explicit `hidden: true` hides — an absent flag is not treated as hiding.
  */
-export function parseCodexModelPage(page: unknown): { models: { id: string; label: string }[]; nextCursor: string | null } {
+/** One catalog row, plus the one capability Realm reads off it. */
+export type CodexModel = { id: string; label: string; /** Whether the row lists the `priority` service tier — what Codex calls Fast. */ fast: boolean };
+
+/** The service tier Codex's own picker labels "Fast" (`{ id: "priority", name: "Fast", description:
+ *  "1.5x speed, increased usage" }`, live 0.153.4). It is the value `turn/start` takes as
+ *  `serviceTier`, and its presence on a `model/list` row is the only statement the CLI makes about
+ *  whether a model can run it. */
+export const CODEX_FAST_TIER = "priority";
+
+function hasFastTier(tiers: unknown): boolean {
+  return Array.isArray(tiers) && tiers.some((t) => (t as { id?: unknown } | null)?.id === CODEX_FAST_TIER);
+}
+
+export function parseCodexModelPage(page: unknown): { models: CodexModel[]; nextCursor: string | null } {
   const data = (page as { data?: unknown } | null)?.data;
   const rows = Array.isArray(data) ? data : [];
-  const models: { id: string; label: string }[] = [];
+  const models: CodexModel[] = [];
   for (const row of rows) {
-    const m = row as { id?: unknown; displayName?: unknown; hidden?: unknown } | null;
+    const m = row as { id?: unknown; displayName?: unknown; hidden?: unknown; serviceTiers?: unknown } | null;
     if (!m || typeof m.id !== "string" || m.id.trim() === "" || m.hidden === true) continue;
     const label = typeof m.displayName === "string" && m.displayName.trim() !== "" ? m.displayName.trim() : m.id;
-    models.push({ id: m.id, label });
+    models.push({ id: m.id, label, fast: hasFastTier(m.serviceTiers) });
   }
   const cursor = (page as { nextCursor?: unknown } | null)?.nextCursor;
   return { models, nextCursor: typeof cursor === "string" && cursor !== "" ? cursor : null };

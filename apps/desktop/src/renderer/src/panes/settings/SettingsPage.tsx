@@ -584,6 +584,8 @@ function AppTab() {
   const soundVolume = useApp((s) => s.soundVolume);
   const setSoundCues = useApp((s) => s.setSoundCues);
   const setSoundVolume = useApp((s) => s.setSoundVolume);
+  const relay = useApp((s) => s.notificationRelay);
+  const setNotificationRelay = useApp((s) => s.setNotificationRelay);
   const setDefaultPermissionMode = useApp((s) => s.setDefaultPermissionMode);
   const run = useApp((s) => s.run);
   useEffect(() => { void run(() => refreshSettingsPrefs()); }, [run, refreshSettingsPrefs]);
@@ -830,6 +832,24 @@ function AppTab() {
               onChange={(e) => run(() => setSoundVolume(Number(e.target.value) / 100))} />
             <span className="slider-value">{Math.round(soundVolume * 100)}%</span>
           </div>
+        </li>
+        {/* Beyond the machine. Independent of the desktop switch: the point is the moments you are
+            NOT at this Mac. Only a permission waiting, a finished session or a blocked run leave —
+            never MCP or probe chatter — and a repeat of one open condition is sent once. */}
+        <li className="settings-row" title="Sent through Messages on this Mac (the `mac` CLI). A phone number or Apple ID email, exactly as Messages knows it.">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Text me when an agent needs me</span>
+            <span className="settings-row-desc">An iMessage when a session is waiting on a permission, finishes, or fails.</span>
+          </div>
+          <input className="settings-text" type="text" aria-label="iMessage handle" placeholder="+1 555 123 4567 or you@icloud.com"
+            value={relay.imessage} spellCheck={false}
+            onChange={(e) => run(() => setNotificationRelay({ imessage: e.target.value }))} />
+        </li>
+        <li className="settings-row" title="A Slack incoming-webhook URL. The same three moments, posted as one line.">
+          <div className="settings-row-main"><span className="settings-row-name">Post to Slack</span></div>
+          <input className="settings-text" type="url" aria-label="Slack webhook URL" placeholder="https://hooks.slack.com/services/…"
+            value={relay.slackWebhook} spellCheck={false}
+            onChange={(e) => run(() => setNotificationRelay({ slackWebhook: e.target.value }))} />
         </li>
       </ul>
       {/* The one thing the three rows above do not say: none of it happens while you are looking at

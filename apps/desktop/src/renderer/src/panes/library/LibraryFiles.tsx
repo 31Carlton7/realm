@@ -205,19 +205,22 @@ export function LibraryFiles({ spaceId }: { spaceId: string }) {
  */
 function FileCard({ entry, onOpen }: { entry: LibraryEntry; onOpen: () => void }) {
   const type = artifactTypeOf(entry.ext);
-  const thumb = useThumbnail(THUMBNAIL_TYPES.has(type) ? entry.path : null);
+  const thumb = useThumbnail(THUMBNAIL_TYPES.has(type) ? entry.path : null, "card");
   const fromLabel = `${entry.kind === "upload" ? "Uploaded to " : "Made in "}${entry.sessionTitle}`;
   return (
     <button type="button" className="library-tile" title={entry.path} onClick={onOpen}>
-      {/* `data-thumb` swaps the mark from a tinted well holding a glyph to a frame holding a picture:
-          the picture is the subject and needs the whole mark, where a glyph needs the well around it
-          to read as a mark at all. */}
-      <span className="library-tile-mark" data-type={type} data-thumb={thumb ? "" : undefined}>
-        {/* alt="" on purpose — the name is right beside it, and a screen reader must not read the
+      {/* The card is a PICTURE over a caption, the way a drive lays out files: the preview field
+          takes the top of the card, and the name and provenance sit under it. A picture fills the
+          field edge to edge; a glyph sits in a tinted well at its centre, because a glyph needs the
+          well around it to read as a mark at all and a picture is the subject. `data-thumb` is what
+          the stylesheet keys the two treatments on. */}
+      <span className="library-tile-art" data-type={type} data-thumb={thumb ? "" : undefined}>
+        {/* alt="" on purpose — the name is right under it, and a screen reader must not read the
             file twice. */}
         {thumb ? <img className="library-tile-thumb" src={thumb} alt="" draggable={false} />
-          : <Icon name={TYPE_ICON[type]} size={18} />}
+          : <span className="library-tile-mark" data-type={type}><Icon name={TYPE_ICON[type]} size={20} /></span>}
       </span>
+      <span className="library-tile-text">
       <span className="library-tile-name">{entry.name}</span>
       {/* Where it came from, which is the question a file browser over many sessions is really
           answering. The kind rides here too — "made" and "uploaded" are the same file to the
@@ -234,6 +237,7 @@ function FileCard({ entry, onOpen }: { entry: LibraryEntry; onOpen: () => void }
         <Icon name={entry.kind === "upload" ? "attach" : "artifact"} size={12} className="library-tile-kind" aria-hidden="true" />
         <span className="library-tile-session" aria-hidden="true">{entry.sessionTitle}</span>
         <span className="visually-hidden">{fromLabel}</span>
+      </span>
       </span>
     </button>
   );

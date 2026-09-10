@@ -1,3 +1,6 @@
+import { EventEmitter } from "node:events";
+import { writeFileSync } from "node:fs";
+import type { spawn } from "node:child_process";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { afterEach, describe, expect, it } from "vitest";
@@ -81,6 +84,48 @@ describe("cli.status / cli.run routes", () => {
     const res = await c.call("cli.run", { kind: "fake", action: "install" });
     expect(res.ok).toBe(false);
     expect(res.error.code).toBe("CLI_ACTION_UNAVAILABLE");
+    c.close();
+  });
+
+  it("runs the command the row offered, for a CLI whose install route is not how it updates", async () => {
+    /* The reported bug, end to end: "no update command for acp:fx". fx installs by vendor script
+       into ~/.local/bin — a provenance Realm cannot attribute — and updates with `fx upgrade`, so
+       `cli.status` offered the button (through `updatePlan`) while `cli.run` resolved the SCRIPT
+       route, found no update command in it, and refused.
+
+       The spawn is faked: this suite must not run a vendor updater on the developer's machine, and
+       `fx` is genuinely installed on some of them. What is asserted is the argv Realm chose. */
+    const home = tempDir("realm-home-");
+    const bins = tempDir("realm-fxbin-");
+    writeFileSync(join(bins, "fx"), "#!/bin/sh\n", { mode: 0o755 });
+    const spawned: { file: string; args: string[] }[] = [];
+    const spawnImpl = ((file: string, args: string[]) => {
+      spawned.push({ file, args });
+      const child = Object.assign(new EventEmitter(), { stdout: null, stderr: null, kill: () => {} });
+      queueMicrotask(() => child.emit("close", 0, null));
+      return child;
+    }) as unknown as typeof spawn;
+    app = await createApp({
+      home, port: 0,
+      // Available, and no newer version known — which is fx's permanent state: a script route has no
+      // registry to watch. That is the branch the vendor updater is offered from.
+      adapters: { "acp:fx": { kind: "acp:fx", probe: async () => ({ kind: "acp:fx", available: true, version: "0.0.7", loggedIn: null, reason: null, models: null }), start: () => { throw new Error("not started by this test"); } } as never },
+      cli: {
+        env: { PATH: bins },
+        fetchImpl: (async () => { throw new Error("a route test must not reach a registry"); }) as unknown as typeof fetch,
+        spawnImpl,
+      },
+    });
+    const c = await client(app.port);
+    const { rows } = (await c.call("cli.status", {})).result;
+    const fx = rows.find((r: { kind: string }) => r.kind === "acp:fx");
+    expect(fx).toMatchObject({ installed: true, provenance: "unknown", action: "update", command: "fx upgrade" });
+    const res = await c.call("cli.run", { kind: "acp:fx", action: "update" });
+    expect(res.ok, JSON.stringify(res.error)).toBe(true);
+    // Both halves: the job reports the string the row promised, and the argv is that string — not a
+    // shell, and not the `curl … | bash` the install route would have produced.
+    expect(res.result.command).toBe("fx upgrade");
+    expect(spawned).toEqual([{ file: "fx", args: ["upgrade"] }]);
     c.close();
   });
 

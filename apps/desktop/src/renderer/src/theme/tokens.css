@@ -353,6 +353,13 @@ a {
   /* Dark is Realm's primary mode, so the border ramp lightens. */
   --line: var(--overlay-lighten-300);
   --line-strong: var(--overlay-lighten-400);
+  /* The pane divider, which is its own role rather than a heavier --line. Everywhere else a hairline
+   * accompanies a change of surface and the change carries most of the boundary; between two panes
+   * there is none — `.main` and every `.panel` paint the same ground — so this line does the whole
+   * job alone, and it is a drag control besides. Measured on --rl-panel, --line came to 6.6% of full
+   * range and panes read as one wash (`pane-divider-live.mjs`). */
+  --divider: var(--overlay-lighten-400);
+  --divider-hover: var(--overlay-lighten-500);
   --line-soft: var(--overlay-lighten-200);
 
   /* ── The motion ladder ───────────────────────────────────────────────────
@@ -502,6 +509,10 @@ a {
 :root[data-mode="light"] {
   --line: var(--overlay-darken-200);
   --line-strong: var(--overlay-darken-300);
+  /* A step above the dark face's, not its mirror: black-on-near-white loses more of itself than
+   * white-on-near-black. At darken-300 the light divider measured 7.2% against dark's 10.7%. */
+  --divider: var(--overlay-darken-400);
+  --divider-hover: var(--overlay-darken-500);
   --line-soft: var(--overlay-darken-100);
 
   --scrim: oklch(0 0 0 / 0.32);
@@ -630,8 +641,14 @@ a {
    * in on the setting. Composed off `--ground-alpha` rather than given a number of its own so the
    * two cannot drift: turn translucency off and this goes solid with everything else, and there is
    * no second control to remember. It composites over the sidebar, not over the bare material, so
-   * at any setting it is still a step lighter than the column it sits on. */
-  --search-ground: color-mix(in srgb, var(--surface) var(--ground-alpha), transparent);
+   * at any setting it is still a step lighter than the column it sits on.
+   *
+   * Thinned further than the ground — `--search-alpha` of it — because a field at the ground's own
+   * opacity read as a solid tile on the column even with translucency on. It is a well the eye
+   * rests in, not a card; the ring and the placeholder carry it, and the fill only has to say
+   * "here". Still a fraction of `--ground-alpha`, so translucency off still takes it solid. */
+  --search-alpha: 0.55;
+  --search-ground: color-mix(in srgb, var(--surface) calc(var(--ground-alpha) * var(--search-alpha)), transparent);
 }
 
 @media (prefers-reduced-transparency: reduce) {

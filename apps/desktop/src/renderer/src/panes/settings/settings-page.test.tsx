@@ -454,6 +454,15 @@ describe("App tab", () => {
     expect(screen.getByText(/stops new rows from being written/)).toBeInTheDocument();
   });
 
+  it("a handle typed into the relay fields is written through, so the server texts it on the next notification", async () => {
+    const { api } = await openApp();
+    const handle = screen.getByRole("textbox", { name: "iMessage handle" });
+    fireEvent.change(handle, { target: { value: " +15551234567 " } });
+    await waitFor(() => expect(api.data.settings["notifications.relay.imessage"]).toBe("+15551234567"));
+    fireEvent.change(screen.getByRole("textbox", { name: "Slack webhook URL" }), { target: { value: "https://hooks.slack.com/services/T/B/x" } });
+    await waitFor(() => expect(api.data.settings["notifications.relay.slackWebhook"]).toBe("https://hooks.slack.com/services/T/B/x"));
+  });
+
   it("the desktop switch is default-on, renders WITHOUT waiting on the page's own prefs load, and says the two things it does", async () => {
     // Deliberately not `findBy`: this row reads a value boot already has, so it is on screen from
     // the first paint — unlike the category switches, which wait on refreshSettingsPrefs.

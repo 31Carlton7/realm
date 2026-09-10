@@ -76,17 +76,30 @@ const P = {
    */
   retrying: z.object({ reason: z.enum(["provider_down", "transient"]), attempt: z.number().int(), waitMs: z.number().int() }),
   /**
-   * `contextTokens` is the size of the prompt the agent last SENT — everything the model read on that
-   * turn, cache hits included. It is deliberately not derivable from the other three: `inputTokens`
-   * on a `cumulative` series is the session's running total and grows without bound, so dividing it
-   * by a context window would report 400% on a long session that never came close to filling one.
+   * `contextTokens` is how much of the window the conversation OCCUPIES, and `contextWindow` is what
+   * that was measured against. Both are the harness's own measurement — Claude's `getContextUsage`,
+   * Codex's `tokenUsage.last` against `modelContextWindow` — never arithmetic on the other numbers
+   * here.
+   *
+   * That arithmetic was tried, and it is wrong twice over. `inputTokens` on a `cumulative` series is
+   * the session's running total and grows without bound. And the per-turn `usage` on Claude's result,
+   * which reads like exactly the right thing, sums every REQUEST the turn made: a turn with thirty
+   * tool calls re-reads its whole prompt from cache thirty times, so `input + cache_read +
+   * cache_creation` reached 1.19M against a 1M window — a meter that could only climb, pinned at
+   * 100%, on a session that had never come close to filling anything.
+   *
+   * The window rides along rather than being looked up in the model catalog because the two are not
+   * the same number: Claude measures against the AUTOCOMPACT window, which on a 1M-window model is
+   * often the 200K compaction boundary. A fraction whose halves come from different sources is a
+   * fraction of nothing.
    *
    * Optional, and absent is a real answer rather than zero: only an adapter that can state the figure
-   * emits it (today `claude`, off the SDK result's per-turn `usage`), and every persisted row written
-   * before this field existed parses without it. A reader with no value draws no context meter.
+   * emits it, every persisted row written before these fields existed parses without them, and a
+   * reader with no value draws no context meter.
    */
   usage: z.object({ costUsd: z.number(), inputTokens: z.number(), outputTokens: z.number(), numTurns: z.number(),
     contextTokens: z.number().optional(),
+    contextWindow: z.number().optional(),
     /**
      * What fast mode ACTUALLY did on this turn, as the harness reported it — not what the session
      * asked for. `cooldown` is its own state rather than a flavour of `off`: it means the request
@@ -95,12 +108,28 @@ const P = {
      *
      * On the `usage` event because that event is Realm's name for "the four numbers off the result",
      * and this is a fifth fact off the same result — the same reason `contextTokens` is here.
-     * Absent from every engine that has no such concept, which is all of them but `claude`.
+     * Absent from every engine that has no such concept. `claude` reports it off the result;
+     * `codex` reports the service tier the thread is actually on (`priority` is its Fast), which it
+     * announces before every turn — the other engines say nothing, and the switch is not offered.
      */
     fastMode: z.enum(["off", "cooldown", "on"]).optional(),
     /** Why it could not serve, verbatim from the harness (`free`, `model_not_allowed`, …). Present
      *  only alongside a `fastMode` that is not `on`, and only when the harness said. */
     fastModeReason: z.string().optional() }),
+  /**
+   * The harness replaced the conversation so far with a summary of it, because it stopped fitting.
+   *
+   * A seam, like `handoff`, and for the same reason: everything above the line is out of the model's
+   * context and everything below it is working from a précis. The transcript still holds every one of
+   * those messages, so without this event a reader scrolling back has no way to tell which of them the
+   * agent can still see — and the meter above would have nothing to explain its own drop.
+   *
+   * `postTokens` is absent on builds that do not report it. The PAIR is what makes the line worth
+   * reading, so a half-stated one is dropped rather than shown alone. `trigger` is carried and not
+   * rendered: a manual compaction is one the user asked for and already knows about, and the line
+   * says the same true thing either way.
+   */
+  compacted: z.object({ trigger: z.enum(["manual", "auto"]), preTokens: z.number(), postTokens: z.number().optional() }),
   /** A plan the agent proposed. Both shapes are carried because the three protocols send genuinely
    *  different artifacts and neither derives from the other:
    *
@@ -179,6 +208,7 @@ export const SessionEventSchema = z.discriminatedUnion("type", [
   variant("handoff"),
   variant("retrying"),
   variant("usage"),
+  variant("compacted"),
   variant("init"),
   variant("plan"),
   variant("feedback"),
@@ -193,7 +223,7 @@ export function sessionEvent<T extends SessionEventType>(type: T, payload: Sessi
 }
 
 /** Event types the server persists; the rest (assistant_delta) are ephemeral. */
-export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff"];
+export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff", "compacted"];
 
 export const StoredSessionEventSchema = z.object({ seq: z.number().int(), sessionId: z.string(), event: SessionEventSchema });
 export type StoredSessionEvent = { seq: number; sessionId: string; event: SessionEvent };

@@ -34,6 +34,15 @@ export type Block =
    * happening now instead of three saying what already did.
    */
   | { kind: "retrying"; attempt: number; waitMs: number; ts: number }
+  /**
+   * The harness summarised the conversation above and dropped it. A seam for the same reason
+   * `handoff` is one: the messages are all still here, and this line is the only thing that says the
+   * agent below it can no longer see them.
+   *
+   * `postTokens` is absent where the harness did not report it, and the pair is then not drawn — half
+   * of a before-and-after is a number with nothing to compare it to.
+   */
+  | { kind: "compacted"; preTokens: number; postTokens?: number; ts: number }
   /** A plan the agent proposed. `text` is prose, `steps` a checklist, and at least one is present —
    *  which of them depends on the protocol, not on the agent's mood (see the `plan` event). A revised
    *  plan REPLACES this block rather than appending a second one, so `ts` stays the moment the plan
@@ -54,10 +63,15 @@ export type Block =
 export type Rating = "up" | "down";
 export type PendingPermission = { requestId: string; toolName: string; input: Record<string, unknown>; title: string };
 export type Usage = { costUsd: number; inputTokens: number; outputTokens: number; numTurns: number;
-  /** The last prompt's size in tokens, when the agent stated one — see the `usage` event's own note.
-   *  Undefined for every engine that cannot say, which is most of them; the prompter draws no context
-   *  meter there rather than a full or an empty one. */
+  /** How much of the window the conversation occupies, as the harness measured it — see the `usage`
+   *  event's own note for why this is never derived from the numbers beside it. Undefined for every
+   *  engine that cannot say, which is most of them; the prompter draws no context meter there rather
+   *  than a full or an empty one. */
   contextTokens?: number;
+  /** The window `contextTokens` was measured against, when the harness stated it. Preferred over the
+   *  model catalog's figure, which is a different number: Claude measures against the autocompact
+   *  window, often the 200K boundary on a 1M-window model. */
+  contextWindow?: number;
   /** What fast mode actually DID on the last turn, as the harness reported it — never what the
    *  session asked for. Undefined where the engine does not report it at all. */
   fastMode?: "off" | "cooldown" | "on";
@@ -213,7 +227,26 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
       const { [e.payload.messageId]: _prev, ...rest } = t.feedback;
       return { ...t, feedback: e.payload.rating ? { ...rest, [e.payload.messageId]: e.payload.rating } : rest };
     }
-    case "usage": return { ...t, usage: e.payload };
+    // The four numbers are replaced wholesale; the context measurement is CARRIED when the new event
+    // does not state one. Not staleness — occupancy does not reset between turns, so the last
+    // measurement is still the last true thing known about this window, and the adapter restates the
+    // event a beat later with the answer (claude-adapter.ts `reportContextUsage`). Blanking the ring
+    // in that gap would flicker it off and on again after every single turn.
+    case "usage": {
+      const carry = e.payload.contextTokens === undefined && t.usage.contextTokens !== undefined
+        ? { contextTokens: t.usage.contextTokens, ...(t.usage.contextWindow === undefined ? {} : { contextWindow: t.usage.contextWindow }) }
+        : {};
+      return { ...t, usage: { ...e.payload, ...carry } };
+    }
+    // The seam, and the meter's answer for why it just fell. `postTokens` is what the window holds
+    // now, so the ring stops reading the pre-compaction figure the moment the boundary lands rather
+    // than at the end of the next turn — which on a long turn is minutes of a meter known to be wrong.
+    case "compacted": {
+      const post = e.payload.postTokens;
+      return { ...t,
+        blocks: [...dropPending(blocks), { kind: "compacted", preTokens: e.payload.preTokens, ...(post === undefined ? {} : { postTokens: post }), ts: e.ts }],
+        usage: post === undefined ? t.usage : { ...t.usage, contextTokens: post } };
+    }
     // Replaced, not merged. A resume sends a fresh handshake under a new `providerSessionId`, and the
     // Claude adapter restates the whole record when it learns whether the model can run fast mode —
     // in both cases the newer event is the more complete description of the same session.

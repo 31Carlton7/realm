@@ -3,7 +3,7 @@ import { AsyncQueue } from "../event-queue";
 import { JsonRpcCallError, type JsonRpcId } from "../jsonrpc/stdio";
 import { CodexConnection, type ThreadListener } from "./connection";
 import { createCodexMapper } from "./map-codex";
-import { parseCodexModelPage, probeCodex } from "./probe";
+import { CODEX_FAST_TIER, parseCodexModelPage, probeCodex, type CodexModel } from "./probe";
 import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
 import { obj, str, type Bag } from "../bag";
 
@@ -202,7 +202,8 @@ export class CodexAdapter implements AgentAdapter {
       this.extraRootsSupported = true;
     }
     const models = p.available ? await this.listModels() : null;
-    return { kind: this.kind, ...p, models };
+    // The picker's row is a name and an id; the tier is read again, by the session, off the same list.
+    return { kind: this.kind, ...p, models: models === null ? null : models.map(({ id, label }) => ({ id, label })) };
   }
 
   /**
@@ -213,7 +214,7 @@ export class CodexAdapter implements AgentAdapter {
    * `skills/extraRoots/set`), a dead spawn, a timeout — because the picker has a static fallback and a
    * failed enumeration must never fail the probe that carries availability.
    */
-  private async listModels(): Promise<{ id: string; label: string }[] | null> {
+  private async listModels(): Promise<CodexModel[] | null> {
     if (!this.modelListSupported) return null;
     let owned: CodexConnection | null = null;
     try {
@@ -226,7 +227,7 @@ export class CodexAdapter implements AgentAdapter {
         cwd: process.cwd(),
         initializeTimeoutMs: this.bootTimeoutMs,
       }));
-      const models: { id: string; label: string }[] = [];
+      const models: CodexModel[] = [];
       let cursor: string | null = null;
       for (let page = 0; page < MODEL_LIST_MAX_PAGES; page += 1) {
         const res = await conn.request("model/list", cursor === null ? {} : { cursor }, MODEL_LIST_TIMEOUT_MS);
@@ -378,6 +379,38 @@ export class CodexAdapter implements AgentAdapter {
       await releaseOnce();
     };
 
+    /** Whether the next turn asks for Codex's Fast tier. Held here rather than only on the session
+     *  row because it moves mid-session: `setOptions` flips it and the very next `turn/start` carries
+     *  it, which is more than Codex offers for `model` or the approval policy. */
+    let fastMode = opts.fastMode === true;
+    /** Whether a turn of THIS thread has ever asked for the tier. `serviceTier` is sticky on the
+     *  thread once set, so switching off has to say `null` — but only then: a session that never
+     *  touched it must not reset a tier the user's own Codex config may have chosen. */
+    let tierAsked = false;
+    const serviceTierParam = (): { serviceTier?: string | null } => {
+      if (fastMode) { tierAsked = true; return { serviceTier: CODEX_FAST_TIER }; }
+      return tierAsked ? { serviceTier: null } : {};
+    };
+
+    /**
+     * Ask the catalog whether the model this thread landed on lists the Fast tier, and say so once.
+     *
+     * The same shape as the Claude adapter's: the `init` event is restated whole with `supportsFastMode`
+     * added, because the first init is pushed from the `thread/start` response and this answer needs a
+     * `model/list` round trip that has not happened yet. Everything here fails quietly — a build
+     * without `model/list`, a model the catalog does not carry — and "not stated" is what the prompter
+     * reads as "offer no switch". A build that has no such tier at all says nothing, never "no".
+     */
+    const reportFastModeSupport = async (init: { providerSessionId: string; model: string; tools: string[]; cwd: string; instructionSources?: string[] }) => {
+      try {
+        const rows = await this.listModels();
+        if (!rows || disposed) return;
+        const hit = rows.find((r) => r.id === init.model);
+        if (!hit) return;
+        events.push(sessionEvent("init", { ...init, supportsFastMode: hit.fast }));
+      } catch { /* the catalog declined; the capability stays unstated */ }
+    };
+
     const listener: ThreadListener = {
       onNotification: (method, params) => {
         const p = obj(params);
@@ -466,12 +499,15 @@ export class CodexAdapter implements AgentAdapter {
         // Both before attach(): attach flushes the thread's buffer synchronously, and notifications that beat
         // the thread/start response would otherwise be mapped into the stream ahead of init. Nothing is lost by
         // waiting — the connection buffers by threadId until someone attaches.
-        events.push(sessionEvent("init", {
+        const init = {
           providerSessionId: id, model: str(res.model) || str(opts.model), tools: [], cwd: str(res.cwd) || opts.cwd,
           ...(instructionSources ? { instructionSources } : {}),
-        }));
+        };
+        events.push(sessionEvent("init", init));
         events.push(sessionEvent("status", { status: "idle" }));
         c.attach(id, listener);
+        // Not awaited: the answer arrives whenever the catalog does, and a first send must not wait on it.
+        void reportFastModeSupport(init);
         // After the thread exists, per the protocol's own ordering, and awaited inside boot so that the
         // first send() — which awaits boot — cannot start a turn before Codex knows about the skills.
         if (opts.skills) { ownedRoot = opts.skills.root; await this.addExtraRoot(c, opts.skills.root, opts.onLog); }
@@ -529,6 +565,10 @@ export class CodexAdapter implements AgentAdapter {
             threadId,
             input,
             additionalContext: realmAdditionalContext,
+            // Fast mode is a per-turn parameter Codex writes back onto the thread (it echoes as
+            // `thread/settings/updated.threadSettings.serviceTier`, which is what the mapper reports).
+            // Verified live on 0.153.4: `"priority"` is the tier the catalog names Fast; `null` clears it.
+            ...serviceTierParam(),
           }));
           activeTurnId = str(obj(started.turn).id) || null;
         } catch (e) {
@@ -550,6 +590,8 @@ export class CodexAdapter implements AgentAdapter {
        * effect the next time this session starts a thread.
        */
       setOptions: async (o) => {
+        // Unlike the two below, this one takes effect on the next turn: the tier rides on `turn/start`.
+        if (o.fastMode !== undefined) fastMode = o.fastMode;
         const parts = [o.model === undefined ? null : `model=${o.model}`, o.permissionMode === undefined ? null : `permissionMode=${o.permissionMode}`].filter(Boolean);
         if (parts.length === 0) return;
         opts.onLog?.(`[codex] ${parts.join(" ")} recorded; codex fixes these at thread start, so it applies the next time this session starts`);

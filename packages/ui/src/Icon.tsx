@@ -23,6 +23,8 @@ import {
   ThumbsUpIcon, ThumbsDownIcon,
   // The session's summary panel (SessionSummary.tsx).
   InformationCircleIcon,
+  // Hermes Agent's own mark, in this set's hand — see `caduceus` below.
+  CaduceusIcon,
 } from "@hugeicons-pro/core-stroke-standard";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
 
@@ -35,6 +37,13 @@ export const icons = {
   check: Tick01Icon, trash: Delete02Icon, edit: PencilEdit02Icon, sun: Sun03Icon, moon: Moon02Icon,
   send: SentIcon, stop: StopIcon, sparkles: SparklesIcon, chevronDown: ArrowDown01Icon, arrowDown: ArrowDown02Icon, arrowUp: ArrowUp02Icon,
   checkCircle: CheckmarkCircle02Icon, errorCircle: CancelCircleIcon, alert: Alert02Icon, bot: BotIcon, tool: Wrench01Icon, code: CodeIcon, idea: IdeaIcon,
+  /* Hermes Agent's glyph (AGENT_META), and the one agent here whose mark is NOT vendored into
+     brand-icons.ts. Nous Research publishes no vector for it: the docs site's favicon is the
+     Unicode ⚕ set as text and the README titles it with ☤, so there is no path data to lift and
+     drawing one would be inventing a mark rather than reproducing one. The staff is what the
+     vendor is pointing at, so this set's own caduceus says the same thing in the app's hand — a
+     familiar symbol over a new illustration, and honest about which it is. */
+  caduceus: CaduceusIcon,
   copy: Copy01Icon, plan: Task01Icon, attach: Attachment01Icon, image: Image01Icon, reload: RefreshIcon,
   thumbsUp: ThumbsUpIcon, thumbsDown: ThumbsDownIcon, info: InformationCircleIcon,
   branch: GitBranchIcon, diff: GitCompareIcon, commit: GitCommitIcon, pullRequest: GitPullRequestIcon,

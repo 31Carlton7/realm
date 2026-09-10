@@ -325,6 +325,11 @@ function handleRequest(id, method, params) {
       if (text.includes("REFUSE")) { fail(id, -32600, "the model refused this turn"); return; }
       const turnId = `tu_${nextTurnN++}`;
       ok(id, { turn: { id: turnId, status: "inProgress", items: [] } });
+      // Live 0.153.4 writes the turn's `serviceTier` onto the thread and announces the whole settings
+      // record before `turn/started`, on EVERY turn. The fake announces it only for a turn that named
+      // a tier, so the connection tests' frame counts stay what they were; the mapper reads its
+      // fast-mode truth from here either way.
+      if ("serviceTier" in params) notify("thread/settings/updated", { threadId: params.threadId, threadSettings: { model: "gpt-5.2", serviceTier: params.serviceTier ?? null } });
       // GHOST is the only turn the server will not accept a steer for, so the adapter's stale-turn fallback
       // has something to trip over.
       if (!text.includes("GHOST")) activeTurns.set(params.threadId, turnId);
@@ -387,9 +392,12 @@ function handleRequest(id, method, params) {
         ok(id, { data: [{ id: "gpt-5.6-sol", displayName: "GPT-5.6-Sol", hidden: false }], nextCursor: "page2" });
         return;
       }
+      // `serviceTiers` is the live 0.153.4 shape: the `priority` tier is what Codex's own picker calls
+      // Fast, and its presence is the CLI's only statement that a model can run it. Terra lists none,
+      // so a session on it is told "no" rather than left guessing.
       ok(id, { data: [
-        { id: "gpt-5.6-sol", displayName: "GPT-5.6-Sol", hidden: false, isDefault: true },
-        { id: "gpt-5.6-terra", displayName: "GPT-5.6-Terra", hidden: false, isDefault: false },
+        { id: "gpt-5.6-sol", displayName: "GPT-5.6-Sol", hidden: false, isDefault: true, serviceTiers: [{ id: "priority", name: "Fast", description: "1.5x speed, increased usage" }] },
+        { id: "gpt-5.6-terra", displayName: "GPT-5.6-Terra", hidden: false, isDefault: false, serviceTiers: [] },
         { id: "gpt-secret", displayName: "Hidden preview", hidden: true, isDefault: false },
       ], nextCursor: null });
       return;

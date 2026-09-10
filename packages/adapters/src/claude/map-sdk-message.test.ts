@@ -87,26 +87,71 @@ describe("map-sdk-message", () => {
     expect(m.map(asst([{ type: "text", text: "same" }], null, "m1") as never).map((e) => e.type)).toEqual(["assistant_text"]);
   });
 
-  describe("contextTokens — the size of the prompt this turn actually sent", () => {
+  describe("compact_boundary — the seam nothing else on the wire reports", () => {
+    const boundary = (compact_metadata: unknown) => createSdkMapper().map({
+      type: "system", subtype: "compact_boundary", session_id: "s", uuid: "u", compact_metadata,
+    } as never);
+
+    it("reports the drop with both numbers, so the line has something to compare", () => {
+      const out = boundary({ trigger: "auto", pre_tokens: 186_000, post_tokens: 34_000 });
+      expect(out.map((e) => e.type)).toEqual(["compacted"]);
+      const e = out[0]!;
+      expect(e.type === "compacted" && e.payload).toEqual({ trigger: "auto", preTokens: 186_000, postTokens: 34_000 });
+    });
+
+    it("keeps a manual compaction distinct from an automatic one", () => {
+      // Carried and not rendered today, but the record is the record: a compaction the user asked
+      // for and one the harness forced are different events in the session's history.
+      const e = boundary({ trigger: "manual", pre_tokens: 100, post_tokens: 10 })[0]!;
+      expect(e.type === "compacted" && e.payload.trigger).toBe("manual");
+    });
+
+    it("treats an unrecognised trigger as automatic, which is the one the user did not ask for", () => {
+      // Fail toward the reading that owes the user an explanation. A future trigger coerced to
+      // `manual` would claim they asked for something they did not.
+      const e = boundary({ pre_tokens: 100 })[0]!;
+      expect(e.type === "compacted" && e.payload.trigger).toBe("auto");
+    });
+
+    it("omits the after-figure a build did not report rather than inventing a zero", () => {
+      // The mutant: `post_tokens ?? 0`, which would draw "186k → 0" and claim the window was emptied.
+      const e = boundary({ trigger: "auto", pre_tokens: 186_000 })[0]!;
+      expect(e.type === "compacted" && "postTokens" in e.payload).toBe(false);
+      expect(e.type === "compacted" && e.payload.preTokens).toBe(186_000);
+    });
+
+    it("does not mistake a compaction for a background task, or a background task for a compaction", () => {
+      // Both arrive as `system` messages with a subtype, and the compaction branch sits ahead of the
+      // task one — an over-broad match there would swallow every task notification in the session.
+      const out = createSdkMapper().map({
+        type: "system", subtype: "compact_boundary", session_id: "s", uuid: "u",
+        compact_metadata: { trigger: "auto", pre_tokens: 1, post_tokens: 1 },
+      } as never);
+      expect(out.every((e) => e.type !== "background_task")).toBe(true);
+    });
+  });
+
+  describe("the result states no context, because it cannot", () => {
     const result = (usage: unknown) => createSdkMapper().map({
       type: "result", subtype: "success", session_id: "s", uuid: "u", is_error: false, num_turns: 3,
       total_cost_usd: 1.5, usage, modelUsage: {}, permission_denials: [], result: "ok",
     } as never).find((e) => e.type === "usage");
 
-    it("counts the cache alongside the fresh input — a cached prompt is still a prompt the model read", () => {
-      // The mutant: emitting `input_tokens` alone. With prompt caching that is the SMALL half by an
-      // order of magnitude, so a 190k-token conversation would report as 4k of context used and the
-      // meter would sit near empty right up to the moment the window overflowed.
-      const e = result({ input_tokens: 4_000, output_tokens: 900, cache_read_input_tokens: 180_000, cache_creation_input_tokens: 6_000 });
-      expect(e?.type === "usage" && e.payload.contextTokens).toBe(190_000);
-      // …and the other three numbers are untouched by it.
+    it("never derives one from the result's own usage, however much it looks like the right sum", () => {
+      // The mutant is what this code USED to do: `input + cache_read + cache_creation`, which reads
+      // exactly like the size of the prompt just sent. It is not. The SDK's per-turn `usage` sums
+      // every REQUEST the turn made, so a turn with thirty tool calls counts its cached prompt
+      // thirty times — 1.19M against a 1M window, a meter that could only climb and was pinned at
+      // 100% on a session nowhere near full. Occupancy comes from `getContextUsage`; see
+      // claude-adapter.ts.
+      const e = result({ input_tokens: 4_000, output_tokens: 900, cache_read_input_tokens: 1_180_000, cache_creation_input_tokens: 6_000 });
+      expect(e?.type === "usage" && "contextTokens" in e.payload).toBe(false);
+      expect(e?.type === "usage" && "contextWindow" in e.payload).toBe(false);
+      // …and the numbers the result CAN state are untouched.
       expect(e?.type === "usage" && e.payload.inputTokens).toBe(4_000);
+      expect(e?.type === "usage" && e.payload.outputTokens).toBe(900);
       expect(e?.type === "usage" && e.payload.costUsd).toBe(1.5);
-    });
-
-    it("tolerates a result whose usage names no cache fields at all", () => {
-      const e = result({ input_tokens: 4_000, output_tokens: 900 });
-      expect(e?.type === "usage" && e.payload.contextTokens).toBe(4_000);
+      expect(e?.type === "usage" && e.payload.numTurns).toBe(3);
     });
 
     it("reports what fast mode DID, and why it could not, rather than what was asked for", () => {
@@ -142,9 +187,9 @@ describe("map-sdk-message", () => {
       }
     });
 
-    it("says nothing rather than zero when the result carried no usage — a zero would claim the model read nothing", () => {
+    it("still reports the turn when the result carried no usage at all", () => {
       const e = result(undefined);
-      expect(e?.type === "usage" && e.payload.contextTokens).toBeUndefined();
+      expect(e?.type === "usage" && e.payload.inputTokens).toBe(0);
       expect(e?.type === "usage" && "contextTokens" in e.payload).toBe(false);
     });
   });

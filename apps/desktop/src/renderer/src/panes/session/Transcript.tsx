@@ -1,6 +1,6 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { chipRuns, mediaCandidatesIn, type SessionMode, type SessionStatus } from "@realm/contracts";
+import { LINK_SERVICE_META, chipRuns, mediaCandidatesIn, type SessionMode, type SessionStatus } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
 import type { PermissionDecision } from "../../state/store";
 import { Markdown } from "./Markdown";
@@ -14,6 +14,7 @@ import { ToolCard, ToolGroup } from "./ToolCard";
 import { finishedAt, finishedOn, formatDuration, groupTranscript, withEnter } from "./tool-group";
 import { blockKey, lastUserMessage, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
 import { runLabelFor } from "./run-label";
+import { formatTokens } from "./SessionUsage";
 import { useEnterTracker } from "./transcript-enter";
 import { TranscriptSummary } from "./TranscriptSummary";
 import { MediaStrip } from "./media/MediaView";
@@ -55,7 +56,11 @@ function UserText({ text, mentionIds }: { text: string; mentionIds: readonly str
         // A mention shows the characters the user typed, `@` included: the sigil is part of what they
         // wrote and part of what the agent was told. An element chip shows its label alone, because
         // `@[` and `]` are delimiters rather than content — the full token stays on the title.
-        ? <span key={i} className="msg-chip" data-kind={r.chip.kind} title={r.text}>
+        ? <span key={i} className="msg-chip" data-kind={r.chip.kind} data-service={r.chip.service} title={r.chip.kind === "link" ? r.chip.url : r.text}>
+            {/* Every chip is an icon and a name: a skill's spark, a picked element's target, a link's
+                app mark — the same picture the composer drew before send. The sigils are delimiters,
+                not content, and stay on the title; a link's URL does too. */}
+            <Icon name={r.chip.kind === "link" && r.chip.service ? LINK_SERVICE_META[r.chip.service].icon : r.chip.kind === "element" ? "target" : "sparkles"} size={12} className="msg-chip-mark" />
             {r.chip.kind === "mention" ? r.text : r.chip.label}
           </span>
         : r.text))}
@@ -301,6 +306,14 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             // transcript that will be replaced rather than joined by what comes next.
             case "retrying": return <div key={key} className="msg-run muted" data-enter={enter || undefined}>
               {b.attempt === 1 ? "Retrying…" : `Retrying (attempt ${b.attempt})…`}
+            </div>;
+            // The other seam, wearing the handover's shape because it reports the same kind of thing:
+            // the transcript above this line is no longer what the agent below it is reading. Sharing
+            // the class rather than copying it — two rules across the same column, half a pixel
+            // apart in weight, would be a distinction that means nothing.
+            case "compacted": return <div key={key} className="msg-handoff" role="note" data-enter={enter || undefined}>
+              <span>Context compacted</span>
+              {b.postTokens !== undefined && <span className="msg-handoff-tries">{formatTokens(b.preTokens)} → {formatTokens(b.postTokens)}</span>}
             </div>;
           }
         })}

@@ -4,7 +4,8 @@ import { createAppStore, StoreContext } from "../../state/store";
 import { fakeApi, item } from "../../state/store.test-fakes";
 import { reduceAll } from "./transcript-model";
 import { sessionEvent } from "@realm/contracts";
-import { SessionSummaryButton, SUMMARY_PIN_MIN_PANE } from "./SessionSummary";
+import { SessionSummaryButton, SUMMARY_PIN_MIN_PANE, contextRows } from "./SessionSummary";
+import { session as fakeSession } from "../../state/store.test-fakes";
 
 afterEach(() => cleanup());
 
@@ -253,5 +254,57 @@ describe("pinned beside the transcript, or floating over it", () => {
     fireEvent.mouseDown(screen.getByRole("button", { name: "Summary of A session" }));
     expect(screen.getByRole("dialog", { name: "Session summary" })).toBeInTheDocument();
     restore();
+  });
+});
+
+describe("the session's context", () => {
+  const base = () => fakeSession("se1", "s1", { cwd: "/Users/me/code/realm", model: "claude-opus-5", effort: "high", permissionMode: "acceptEdits", agentKind: "claude" });
+  const memory = { agent: "claude" as const, channel: "systemPrompt" as const, basis: "modeled" as const, note: "n", realmMemoryInjected: true,
+    sources: [
+      { path: "/Users/me/code/realm/CLAUDE.md", origin: "project" as const, exists: true, via: "cli" as const },
+      { path: "/Users/me/.claude/CLAUDE.md", origin: "user" as const, exists: false, via: "cli" as const },
+      { path: "/Users/me/code/realm/AGENTS.md", origin: "project" as const, exists: true, via: "none" as const },
+    ] };
+
+  it("states where the agent runs, what it runs as, what memory reaches it and what it can call", () => {
+    /* Every row is a fact the store already holds for another surface; the mutant is inventing
+       one — a "Branch —" for a folder nobody asked git about, a memory file that does not exist. */
+    const rows = contextRows({
+      session: base(),
+      env: { id: "e1", spaceId: "s1", path: "/Users/me/code/realm", branch: null, kind: "worktree", portBlockStart: null } as never,
+      git: { branch: "feat/context", additions: 1, deletions: 0, dirty: 2, ahead: 0, behind: 0 },
+      memory,
+      servers: [{ name: "linear", status: "connected", tools: [{ name: "a" }, { name: "b" }] } as never, { name: "slack", status: "error", tools: [] } as never],
+    });
+    expect(rows.map((r) => [r.label, r.value])).toEqual([
+      ["worktree", "realm"],
+      ["branch · 2 changed", "feat/context"],
+      ["Claude", "claude-opus-5 · high"],
+      ["permission", "Accept edits"],
+      ["memory", "Realm memory, CLAUDE.md"],
+      ["connection", "linear"],
+    ]);
+  });
+
+  it("draws no branch and no connections when nothing has said there are any", () => {
+    const rows = contextRows({ session: base(), env: null, git: null, memory: null, servers: [] });
+    expect(rows.map((r) => r.label)).toEqual(["folder", "Claude", "permission"]);
+  });
+
+  it("names Plan and Ask as the mode rather than the parked permission behind them", () => {
+    const rows = contextRows({ session: fakeSession("se1", "s1", { permissionMode: "plan" }), env: null, git: null, memory: null, servers: [] });
+    expect(rows.find((r) => r.label === "permission")?.value).toBe("Plan");
+  });
+
+  it("appears in the panel, and asks for the session's memory sources once it is open", async () => {
+    const { api, store } = await mount([
+      (sessionEvent("tool_call", { toolUseId: "t1", name: "Write", input: { file_path: "/a/made.ts" }, parentToolUseId: null })),
+      (sessionEvent("tool_result", { toolUseId: "t1", content: "ok", isError: false })),
+    ]);
+    store.setState({ sessions: { ...store.getState().sessions, se1: base() }, gitInfo: { "/Users/me/code/realm": { branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 } } });
+    openPanel();
+    expect(sectionNames()).toContain("Context");
+    expect(within(document.querySelector(".summary-fact")!.parentElement!).getByText("main")).toBeInTheDocument();
+    await waitFor(() => expect(api.calls.some((c) => c.startsWith("memorySources:se1"))).toBe(true));
   });
 });

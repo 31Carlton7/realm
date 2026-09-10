@@ -70,6 +70,11 @@ export const AGENT_INSTALL_ROUTES = {
   // `--python 3.12` is not a preference: openhands 1.16.0 declares `requires-python == 3.12.*`, so
   // on a machine whose default interpreter is anything else uv resolves nothing without it.
   "acp:openhands": { method: "uv", pkg: "openhands", python: "3.12" },
+  // The vendor's own one-liner, verbatim from the README's "Quick Install" (2026-09-09). A script
+  // route rather than a uv or pip one even though Hermes is Python: the installer lays down uv, a
+  // pinned Python, Node, ripgrep and ffmpeg beside the package, and `uv tool install hermes` would
+  // be a different and unsupported install of a subset. Realm's rule is the vendor's route.
+  "acp:hermes": { method: "script", host: "hermes-agent.nousresearch.com", command: "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash" },
   fake: null,
 } as const satisfies Record<AgentKind, InstallRoute | null>;
 
@@ -260,6 +265,12 @@ const SELF_UPDATE: Partial<Record<AgentKind, string>> = {
   "acp:cursor": "cursor-agent update",
   "acp:opencode": "opencode upgrade",
   "acp:fx": "fx upgrade",
+  // The one entry here NOT read off an installed binary: Hermes is not on this machine (see
+  // AgentKindSchema), and `hermes update` is from its README's own command list — "Update to the
+  // latest version". Named rather than left out because the alternative is worse than for the
+  // others: its install route is a script, so with no self-updater the row would offer nothing at
+  // all, and a `curl | bash` re-run is exactly what `updateCommand` refuses to call an update.
+  "acp:hermes": "hermes update",
 };
 
 /** Does this kind's CLI update itself? The one question the "is there anything newer" machinery does

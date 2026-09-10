@@ -235,6 +235,63 @@ describe("feedback", () => {
   });
 });
 
+describe("what the window is carrying", () => {
+  const usage = (over: Record<string, unknown> = {}) =>
+    sessionEvent("usage", { costUsd: 1, inputTokens: 10, outputTokens: 2, numTurns: 1, ...over });
+
+  it("keeps the last measurement when the next turn's usage states none", () => {
+    // The adapter pushes the result's four numbers straight away and restates them a beat later with
+    // the measurement (claude-adapter.ts `reportContextUsage`). Replacing wholesale would blank the
+    // ring in that gap — a meter flickering off and on after every single turn. Occupancy does not
+    // reset between turns, so the last measurement is still the last true thing known about it.
+    let t = emptyTranscript();
+    t = reduceTranscript(t, usage({ contextTokens: 40_000, contextWindow: 200_000 }));
+    t = reduceTranscript(t, usage({ costUsd: 2, numTurns: 2 }));
+    expect(t.usage).toMatchObject({ costUsd: 2, numTurns: 2, contextTokens: 40_000, contextWindow: 200_000 });
+  });
+
+  it("takes a new measurement over the old one, downward included", () => {
+    // The mutant: keeping the higher of the two, or carrying unconditionally. A window that has been
+    // trimmed must be allowed to report as trimmed.
+    let t = emptyTranscript();
+    t = reduceTranscript(t, usage({ contextTokens: 190_000, contextWindow: 200_000 }));
+    t = reduceTranscript(t, usage({ contextTokens: 31_000, contextWindow: 200_000 }));
+    expect(t.usage.contextTokens).toBe(31_000);
+  });
+
+  it("carries nothing at all when nothing was ever measured", () => {
+    let t = emptyTranscript();
+    t = reduceTranscript(t, usage());
+    expect(t.usage).not.toHaveProperty("contextTokens");
+    expect(t.usage).not.toHaveProperty("contextWindow");
+  });
+});
+
+describe("a conversation the harness summarised and dropped", () => {
+  it("banks the seam and drops the meter to what the window now holds", () => {
+    // Without the seam the transcript still shows every message the agent can no longer see, and the
+    // meter would keep reporting the pre-compaction figure until the NEXT turn measured again —
+    // which on a long turn is minutes of a number known to be wrong.
+    let t = emptyTranscript();
+    t = reduceTranscript(t, sessionEvent("usage", { costUsd: 1, inputTokens: 1, outputTokens: 1, numTurns: 4, contextTokens: 186_000, contextWindow: 200_000 }));
+    t = reduceTranscript(t, sessionEvent("compacted", { trigger: "auto", preTokens: 186_000, postTokens: 34_000 }, 500));
+    expect(t.blocks.at(-1)).toEqual({ kind: "compacted", preTokens: 186_000, postTokens: 34_000, ts: 500 });
+    expect(t.usage.contextTokens).toBe(34_000);
+    // The window did not change — only what is in it.
+    expect(t.usage.contextWindow).toBe(200_000);
+  });
+
+  it("leaves the meter alone when the harness did not say what is left", () => {
+    // The mutant: `postTokens ?? 0`, which would empty the ring on a build that simply does not
+    // report the after-figure.
+    let t = emptyTranscript();
+    t = reduceTranscript(t, sessionEvent("usage", { costUsd: 1, inputTokens: 1, outputTokens: 1, numTurns: 4, contextTokens: 186_000 }));
+    t = reduceTranscript(t, sessionEvent("compacted", { trigger: "auto", preTokens: 186_000 }, 500));
+    expect(t.usage.contextTokens).toBe(186_000);
+    expect(t.blocks.at(-1)).not.toHaveProperty("postTokens");
+  });
+});
+
 describe("a session that changed agents mid-turn", () => {
   const retrying = (attempt: number) => sessionEvent("retrying", { reason: "transient", attempt, waitMs: 1000 });
 

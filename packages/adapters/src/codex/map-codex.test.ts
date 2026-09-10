@@ -4,6 +4,34 @@ import type { SessionEvent } from "@realm/contracts";
 
 const types = (evs: SessionEvent[]) => evs.map((e) => e.type);
 
+describe("fast mode, as Codex reports it", () => {
+  const usage = { tokenUsage: { total: { inputTokens: 10, outputTokens: 2 } } };
+
+  it("says nothing until Codex has named a tier at all", () => {
+    // Not "off": an engine that has said nothing has not refused, and the prompter offers no switch
+    // on an unstated capability either way.
+    const m = createCodexMapper();
+    expect(m.map("thread/tokenUsage/updated", usage)[0]!.payload).not.toHaveProperty("fastMode");
+  });
+
+  it("reports the tier the THREAD is on, which Codex announces before each turn", () => {
+    // Live 0.153.4: `turn/start{serviceTier}` is written onto the thread and echoed as
+    // `thread/settings/updated` ahead of `turn/started`. That echo, not the request, is the truth.
+    const m = createCodexMapper();
+    m.map("thread/settings/updated", { threadSettings: { model: "gpt-6-astra", serviceTier: "priority" } });
+    expect(m.map("thread/tokenUsage/updated", usage)[0]!.payload).toMatchObject({ fastMode: "on" });
+    m.map("thread/settings/updated", { threadSettings: { model: "gpt-6-astra", serviceTier: null } });
+    expect(m.map("thread/tokenUsage/updated", usage)[0]!.payload).toMatchObject({ fastMode: "off" });
+  });
+
+  it("a settings record that says nothing about the tier leaves the last answer standing", () => {
+    const m = createCodexMapper();
+    m.map("thread/settings/updated", { threadSettings: { serviceTier: "priority" } });
+    m.map("thread/settings/updated", { threadSettings: { model: "gpt-6-astra" } });
+    expect(m.map("thread/tokenUsage/updated", usage)[0]!.payload).toMatchObject({ fastMode: "on" });
+  });
+});
+
 describe("createCodexMapper", () => {
   it("drops the userMessage echo so the transcript isn't duplicated", () => {
     const m = createCodexMapper();
@@ -156,13 +184,28 @@ describe("createCodexMapper", () => {
     expect(out[0]).toMatchObject({ payload: { message: "model exploded" } });
   });
 
-  it("uses tokenUsage.total, not last, and counts turns", () => {
+  it("spends from tokenUsage.total and measures the window from tokenUsage.last", () => {
+    // The two are different questions off one sample. `total` is thread-cumulative — what the thread
+    // has SPENT, which passes the window on any long thread — and `last` is the prompt of the most
+    // recent request, which is what the window is CARRYING. Dividing `total` by the window is the
+    // bug the Claude side had: a fraction that can only climb.
     const m = createCodexMapper();
     m.map("turn/started", { turn: { id: "t1" } });
     const out = m.map("thread/tokenUsage/updated", {
-      tokenUsage: { total: { totalTokens: 154, inputTokens: 120, outputTokens: 34 }, last: { inputTokens: 1, outputTokens: 1 }, modelContextWindow: 258400 },
+      tokenUsage: { total: { totalTokens: 154, inputTokens: 120, outputTokens: 34 }, last: { inputTokens: 96_000, outputTokens: 1 }, modelContextWindow: 258_400 },
     });
-    expect(out[0]).toMatchObject({ type: "usage", payload: { costUsd: 0, inputTokens: 120, outputTokens: 34, numTurns: 1 } });
+    expect(out[0]).toMatchObject({ type: "usage", payload: { costUsd: 0, inputTokens: 120, outputTokens: 34, numTurns: 1, contextTokens: 96_000, contextWindow: 258_400 } });
+  });
+
+  it("draws no meter when the build reports no window, or no last request", () => {
+    // Absent is a real answer. A `contextTokens` against a window of 0, or a 0 against a real
+    // window, would each draw a ring that claims something nobody measured.
+    const m = createCodexMapper();
+    const noWindow = m.map("thread/tokenUsage/updated", { tokenUsage: { total: { inputTokens: 1, outputTokens: 1 }, last: { inputTokens: 96_000 } } });
+    expect(noWindow[0]!.payload).not.toHaveProperty("contextTokens");
+    expect(noWindow[0]!.payload).not.toHaveProperty("contextWindow");
+    const noLast = m.map("thread/tokenUsage/updated", { tokenUsage: { total: { inputTokens: 1, outputTokens: 1 }, modelContextWindow: 258_400 } });
+    expect(noLast[0]!.payload).not.toHaveProperty("contextTokens");
   });
 
   it("maps thread status changes", () => {

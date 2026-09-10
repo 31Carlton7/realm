@@ -1,30 +1,35 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { canonicalModelKey, type AgentKind, type ModelInfo } from "@realm/contracts";
 import { ModelPicker } from "./ModelPicker";
-import { filterVendor, modelRows, modelVendor, vendorMeta, vendorsOf } from "./model-rows";
+import { modelRows } from "./model-rows";
 import type { AgentProbe } from "../../state/store";
 
 const probe = (kind: AgentProbe["kind"], models: AgentProbe["models"]): AgentProbe =>
   ({ kind, available: true, version: "1", loggedIn: true, reason: null, models });
 
-/** Claude's curated list plus a Codex catalog, so the rows carry two makers rather than one. */
+/** Claude's curated list plus a Codex catalog. Every selectable harness earns a separator (a row can
+ *  be routed through it even where it leads nowhere), so the strip under test is a dozen buttons long
+ *  — which is exactly the length that made a filter strip here unreadable. */
 const rows = modelRows({
   kind: "claude", model: null, canSwitchAgent: true,
   agentProbe: [probe("codex", [{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol" }, { id: "gpt-5.6-terra", label: "GPT-5.6-Terra" }])],
 });
 
-const entry = (label: string, vendor: string): [string, ModelInfo] => {
+const entry = (label: string): [string, ModelInfo] => {
   const key = canonicalModelKey(label);
-  return [key, { key, label, vendor, priceIn: null, priceOut: null, context: null, efforts: [], blurb: null }];
+  return [key, { key, label, vendor: "Anthropic", priceIn: null, priceOut: null, context: null, efforts: [], blurb: null }];
 };
-/** A partial catalog on purpose: the rows it says nothing about are the Default rows and anything
- *  else no public catalog carries, which is the normal state rather than a broken one. */
-const info = Object.fromEntries([
-  entry("Claude Fable 5.1", "Anthropic"),
-  entry("Claude Opus 5", "Anthropic"),
-  entry("GPT-5.6-Sol", "OpenAI"),
-]);
+const info = Object.fromEntries([entry("Claude Fable 5.1"), entry("Claude Opus 5")]);
+
+/** jsdom has no scrolling at all, so `scrollIntoView` does not exist on Element. Stubbing it is also
+ *  the assertion: the strip's whole job is to call it on the right heading. */
+let scrolled: { id: string; opts: unknown }[];
+beforeEach(() => {
+  scrolled = [];
+  Element.prototype.scrollIntoView = function (this: Element, opts?: unknown) { scrolled.push({ id: this.id, opts }); };
+});
+afterEach(() => { vi.restoreAllMocks(); });
 
 function mount(catalog: Record<string, ModelInfo> = info) {
   const picked: [AgentKind, string | null][] = [];
@@ -36,145 +41,113 @@ function mount(catalog: Record<string, ModelInfo> = info) {
   return { picked, ...r };
 }
 
-const stripChips = () => within(screen.getByRole("radiogroup", { name: "Provider" }))
-  .getAllByRole("radio").map((b) => b.textContent);
-const chip = (name: string) => within(screen.getByRole("radiogroup", { name: "Provider" })).getByRole("radio", { name });
-const lit = () => within(screen.getByRole("radiogroup", { name: "Provider" }))
-  .getAllByRole("radio").find((b) => b.getAttribute("aria-checked") === "true")?.textContent;
+const bar = () => screen.getByRole("toolbar", { name: "Jump to harness" });
+const jumps = () => within(bar()).getAllByRole("button").map((b) => b.textContent);
+const jump = (name: string) => within(bar()).getByRole("button", { name: `Jump to ${name}` });
 const listed = () => within(screen.getByRole("listbox", { name: "Models" })).getAllByRole("option").map((o) => o.textContent ?? "");
 const search = () => screen.getByRole("combobox", { name: "Search models" });
+/** Only the group headings — never a scroll the highlight asked for. */
+const groupScrolls = () => scrolled.filter((s) => s.id.startsWith("mp-group-")).map((s) => s.id);
 
-describe("provider is the model's vendor, not the harness that runs it", () => {
-  it("reads the maker off the catalog, and says nothing for rows no catalog covers", () => {
-    const fable = rows.find((r) => r.label === "Claude Fable 5.1")!;
-    expect(modelVendor(fable, info)).toBe("Anthropic");
-    // Every harness's Default row is in no catalog at all — that is ordinary, and it is why there is
-    // no "Other" chip collecting them.
-    const fallback = rows.find((r) => r.key.startsWith("default:"))!;
-    expect(modelVendor(fallback, info)).toBeNull();
-  });
-
-  it("lists each vendor once, in the order the rows introduce them", () => {
-    expect(vendorsOf(rows, info)).toEqual(["Anthropic", "OpenAI"]);
-    expect(vendorsOf(rows, {})).toEqual([]); // no catalog, no axis to filter on
-  });
-
-  it("narrows to one maker across every harness that offers it", () => {
-    const anthropic = filterVendor(rows, "Anthropic", info);
-    expect(anthropic.map((r) => r.label)).toEqual(["Claude Fable 5.1", "Claude Opus 5"]);
-    expect(filterVendor(rows, null, info)).toBe(rows);
-  });
-});
-
-describe("a chip says the family, not the company", () => {
-  it("maps the catalog's maker to the name the rows already use, with its mark", () => {
-    expect(vendorMeta("Anthropic")).toEqual({ label: "Claude", icon: "claude" });
-    expect(vendorMeta("OpenAI")).toEqual({ label: "Codex", icon: "openai" });
-    expect(vendorMeta("Google")).toEqual({ label: "Gemini", icon: "gemini" });
-    expect(vendorMeta("MoonshotAI")).toEqual({ label: "Kimi", icon: "kimi" });
-    expect(vendorMeta("Z.ai")).toEqual({ label: "GLM", icon: "zai" });
-  });
-
-  it("survives the catalog renaming a maker — xAI and SpaceXAI are both Grok", () => {
-    expect(vendorMeta("xAI")).toEqual({ label: "Grok", icon: "grok" });
-    expect(vendorMeta("SpaceXAI")).toEqual({ label: "Grok", icon: "grok" });
-  });
-
-  it("keeps an unknown maker's own name and invents no mark for it", () => {
-    expect(vendorMeta("Mistral")).toEqual({ label: "Mistral", icon: null });
-  });
-});
-
-describe("the provider strip", () => {
-  it("leads with the way back and offers every vendor the rows carry", () => {
+describe("the jump strip names the list's own separators", () => {
+  it("offers one button per harness heading, in the order the list draws them", () => {
     mount();
-    expect(stripChips()).toEqual(["All", "Claude", "Codex"]);
-    expect(lit()).toBe("All");
+    // The session's own harness leads, then the ones its rows can be routed through — the same
+    // sequence `groupRows` draws the headings in, which is the whole point of the strip.
+    const headings = within(screen.getByRole("listbox", { name: "Models" }))
+      .getAllByRole("group").map((g) => g.getAttribute("aria-label"));
+    expect(jumps()).toEqual(headings);
+    expect(jumps().slice(0, 2)).toEqual(["Claude", "Codex"]);
   });
 
-  it("every named chip wears its maker's mark; All wears none", () => {
+  it("wears each harness's own mark, the one the heading and its rows already carry", () => {
     mount();
-    expect(chip("Claude").querySelector("[data-brand='claude']")).not.toBeNull();
-    expect(chip("Codex").querySelector("[data-brand='openai']")).not.toBeNull();
-    expect(chip("All").querySelector("[data-brand]")).toBeNull();
+    // THE mutant: drop the icon and leave the words. The strip becomes the one run of harness names
+    // in the picker with nothing to recognise at a glance, which is what it was before.
+    expect(jump("Claude").querySelector("[data-brand='claude']")).not.toBeNull();
+    expect(jump("Codex").querySelector("[data-brand='openai']")).not.toBeNull();
+    expect(jump("Cursor").querySelector("[data-brand='cursor']")).not.toBeNull();
   });
 
-  it("is absent when no catalog arrived — an axis with one value is not a control", () => {
-    mount({});
-    expect(screen.queryByRole("radiogroup", { name: "Provider" })).toBeNull();
+  it("dissolves at both ends with the app's own fade, turned on its side", () => {
+    mount();
+    const bands = [...bar().parentElement!.querySelectorAll(".edge-fade")].map((b) => b.getAttribute("data-edge"));
+    // Gated bands, not bare spans: `.edge-fade` is opacity-0 until `data-on` says there is something
+    // under it, so a hand-written pair (as the model list carried) paints nothing at all, ever.
+    expect(bands).toEqual(["start", "end"]);
+  });
+
+  it("scrolls the named heading to the top of the list", () => {
+    mount();
+    fireEvent.click(jump("Codex"));
+    expect(groupScrolls()).toEqual(["mp-group-Codex"]);
+    expect(scrolled.at(-1)!.opts).toMatchObject({ block: "start" });
+  });
+
+  it("moves nothing out of the list — a jump is navigation, not a filter", () => {
+    // THE mutant this kills: reinstate the old behaviour and have a press narrow `groups`. The
+    // Codex rows would vanish the moment you asked to be taken to them.
+    mount();
+    const before = listed();
+    fireEvent.click(jump("Claude"));
+    expect(listed()).toEqual(before);
+    expect(listed().join(" ")).toContain("GPT-5.6-Sol");
+  });
+
+  it("carries no lit state, because a door is not a mode", () => {
+    mount();
+    fireEvent.click(jump("Codex"));
+    for (const b of within(bar()).getAllByRole("button")) {
+      expect(b.getAttribute("aria-pressed")).toBeNull();
+      expect(b.getAttribute("aria-checked")).toBeNull();
+    }
+  });
+
+  it("goes away while searching: a search flattens the list, leaving no separator to point at", () => {
+    mount();
+    fireEvent.change(search(), { target: { value: "claude" } });
+    expect(screen.queryByRole("toolbar", { name: "Jump to harness" })).toBeNull();
     expect(listed().length).toBeGreaterThan(0); // …and the picker still works
   });
 
-  it("narrows the list, and the lit chip says which narrowing is in force", () => {
-    mount();
-    const before = listed();
-    fireEvent.click(chip("Claude"));
-    expect(lit()).toBe("Claude");
-    expect(listed().join(" ")).toContain("Claude Fable 5.1");
-    expect(listed().join(" ")).not.toContain("GPT-5.6-Sol");
-    fireEvent.click(chip("All"));
-    expect(listed()).toEqual(before);
-  });
-
-  it("composes with the text query instead of replacing it", () => {
-    mount();
-    fireEvent.click(chip("Claude"));
-    fireEvent.change(search(), { target: { value: "opus" } });
-    // The named mutant: have the chip REPLACE the query (or the query clear the chip) and one of
-    // these two lines goes — either GPT rows come back, or every Claude model does.
-    expect(listed().join(" ")).toContain("Claude Opus 5");
-    expect(listed().join(" ")).not.toContain("Claude Fable 5.1");
-    expect(listed().join(" ")).not.toContain("Codex");
-  });
-
-  it("a provider the query has emptied is dimmed, still reachable, and says how to get back", () => {
-    mount();
-    fireEvent.change(search(), { target: { value: "gpt" } });
-    expect(chip("Claude")).toHaveAttribute("data-empty");
-    expect(chip("Codex")).not.toHaveAttribute("data-empty");
-    fireEvent.click(chip("Claude"));
-    expect(screen.getByRole("listbox", { name: "Models" })).toHaveTextContent(/No Claude models match/);
-    fireEvent.click(screen.getByRole("button", { name: "Show every provider" }));
-    expect(lit()).toBe("All");
-    expect(listed().join(" ")).toContain("Codex");
-  });
-
-  it("still picks a model after a provider has narrowed the list", () => {
+  it("still picks a model after a jump", () => {
     const { picked } = mount();
-    fireEvent.click(chip("Codex"));
+    fireEvent.click(jump("Codex"));
     fireEvent.click(within(screen.getByRole("listbox", { name: "Models" })).getByText("GPT-5.6-Sol"));
     expect(picked).toEqual([["codex", "gpt-5.6-sol"]]);
   });
 });
 
 describe("the strip's arrows and the search field's arrows are different keys", () => {
-  it("←/→ in the SEARCH field never move the provider — that pair walks the highlighted model's routes", () => {
+  it("←/→ in the SEARCH field never move the strip — that pair walks the highlighted model's routes", () => {
     // The named mutant: bind the strip's ←/→ at the popover level instead of on the strip. The
-    // route-walk and the provider filter then fire on the same keystroke, and a keyboard user
-    // re-routing a model silently re-filters the list underneath it.
+    // route-walk and the jump then fire on the same keystroke, and a keyboard user re-routing a
+    // model is yanked down the list underneath it.
     mount();
     fireEvent.keyDown(search(), { key: "ArrowRight" });
     fireEvent.keyDown(search(), { key: "ArrowRight" });
-    expect(lit()).toBe("All");
+    expect(groupScrolls()).toEqual([]);
   });
 
-  it("←/→ inside the strip walk the providers, and wrap", () => {
+  it("←/→ inside the strip walk the separators, and wrap", () => {
     mount();
-    const group = screen.getByRole("radiogroup", { name: "Provider" });
-    fireEvent.keyDown(group, { key: "ArrowRight" });
-    expect(lit()).toBe("Claude");
-    fireEvent.keyDown(group, { key: "ArrowRight" });
-    expect(lit()).toBe("Codex");
-    fireEvent.keyDown(group, { key: "ArrowRight" });
-    expect(lit()).toBe("All");
-    fireEvent.keyDown(group, { key: "ArrowLeft" });
-    expect(lit()).toBe("Codex");
+    fireEvent.keyDown(bar(), { key: "ArrowRight" });
+    fireEvent.keyDown(bar(), { key: "ArrowRight" });
+    fireEvent.keyDown(bar(), { key: "ArrowLeft" });
+    const [first, second] = jumps();
+    expect(groupScrolls()).toEqual([`mp-group-${second}`, `mp-group-${jumps()[2]}`, `mp-group-${second}`]);
+    // …and Left from the first wraps to the last rather than dead-ending.
+    fireEvent.keyDown(bar(), { key: "ArrowLeft" });
+    expect(groupScrolls().at(-1)).toBe(`mp-group-${first}`);
+    fireEvent.keyDown(bar(), { key: "ArrowLeft" });
+    expect(groupScrolls().at(-1)).toBe(`mp-group-${jumps().at(-1)}`);
   });
 
-  it("the strip is one tab stop: only the chip in force is reachable by Tab", () => {
+  it("the strip is one tab stop: only the button last moved to is reachable by Tab", () => {
     mount();
-    const tabbable = within(screen.getByRole("radiogroup", { name: "Provider" }))
-      .getAllByRole("radio").filter((b) => b.getAttribute("tabindex") === "0");
-    expect(tabbable.map((b) => b.textContent)).toEqual(["All"]);
+    const tabbable = () => within(bar()).getAllByRole("button").filter((b) => b.getAttribute("tabindex") === "0");
+    expect(tabbable().map((b) => b.textContent)).toEqual(["Claude"]);
+    fireEvent.click(jump("Codex"));
+    expect(tabbable().map((b) => b.textContent)).toEqual(["Codex"]);
   });
 });

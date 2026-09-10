@@ -6,6 +6,21 @@ import { useApp } from "../state/store";
 import { SpaceIcon } from "./SpaceIcon";
 import { Spinner } from "./Spinner";
 import { useAnchoredPopover } from "./use-anchored-popover";
+import { useFileDrop } from "./use-file-drop";
+
+/** The image types the server accepts as an icon (icons/service.ts's `ALLOWED_UPLOAD_MIMES`), by the
+ *  MIME Chromium puts on a dropped File. Anything else is refused here with a sentence rather than
+ *  sent to fail. */
+const ICON_IMAGE_MIMES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"]);
+
+/** The one image in a drop, or the reason there is none. A drop of several files takes the first
+ *  image — an icon is one picture, and uploading a folder's worth to pick one is not what a drop
+ *  onto a single control means. */
+export function droppedIcon(files: File[]): { file: File } | { error: string } {
+  const image = files.find((f) => ICON_IMAGE_MIMES.has(f.type));
+  if (image) return { file: image };
+  return { error: files.length === 1 ? `${files[0]!.name} is not an image Realm can use as an icon.` : "None of those is an image Realm can use as an icon." };
+}
 
 /* The emoji tab carries a 387KB dataset it walks at module scope, so it is a chunk of its own and
    arrives when the tab is first opened — not during startup, on behalf of a tab nobody asked for. */
@@ -31,13 +46,29 @@ const TABS: { id: Tab; label: string }[] = [
 export function IconPicker({ icon, profileId, onPick }: { icon: string; profileId: string; onPick: (icon: string) => void }) {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const [dropError, setDropError] = useState<string | null>(null);
+  const uploadIconFile = useApp((s) => s.uploadIconFile);
+  /* An image dropped straight onto the trigger becomes the icon in one move — the picker's
+     Uploaded tab is the same upload with a dialog in front of it, and a file already in hand needs
+     no dialog. The error lands beside the button, where the drop happened. */
+  const drop = useFileDrop((files) => {
+    const picked = droppedIcon(files);
+    if ("error" in picked) { setDropError(picked.error); return; }
+    setDropError(null);
+    uploadIconFile(profileId, picked.file).then(
+      (asset) => onPick(`asset:${asset.id}`),
+      (e: unknown) => setDropError(e instanceof Error ? e.message : "Upload failed."),
+    );
+  }, true);
   return (
     <>
       <button ref={btn} type="button" className="icon-picker-trigger" aria-haspopup="dialog" aria-expanded={open}
+        data-dropping={drop.dropping || undefined} {...drop.handlers}
         onClick={() => setOpen((v) => !v)}>
         <SpaceIcon icon={icon} size={20} />
-        <span>Change icon…</span>
+        <span>{drop.dropping ? "Drop to use as icon" : "Change icon…"}</span>
       </button>
+      {dropError && <p className="ip-error" role="alert">{dropError}</p>}
       {open && <IconPickerPopover icon={icon} profileId={profileId} anchorRef={btn} onClose={() => setOpen(false)}
         onPick={(v) => { onPick(v); setOpen(false); }} />}
     </>
@@ -56,11 +87,26 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const assets = useApp((s) => s.iconAssets[profileId] ?? NO_ASSETS);
   const refreshIconAssets = useApp((s) => s.refreshIconAssets);
   const generateIcon = useApp((s) => s.generateIcon);
   const uploadIconImage = useApp((s) => s.uploadIconImage);
+  const uploadIconFile = useApp((s) => s.uploadIconFile);
+  /* The whole popover takes a drop, whichever tab is up: a picture dragged in is an upload however
+     the picker happened to be left, and switching to the Uploaded tab first is a step nobody should
+     have to know about. The tab switches itself so the result lands where the eye is. */
+  const drop = useFileDrop((files) => {
+    const picked = droppedIcon(files);
+    setTab("uploaded");
+    if ("error" in picked) { setUploadError(picked.error); return; }
+    setUploadError(null); setUploading(true);
+    uploadIconFile(profileId, picked.file).then(
+      (asset) => { setUploading(false); onPick(`asset:${asset.id}`); },
+      (e: unknown) => { setUploading(false); setUploadError(e instanceof Error ? e.message : "Upload failed."); },
+    );
+  }, true);
   const run = useApp((s) => s.run);
   useEffect(() => { run(() => refreshIconAssets(profileId)); }, [profileId, refreshIconAssets, run]);
 
@@ -79,10 +125,10 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
   };
   const doUpload = () => {
     if (uploading) return;
-    setUploading(true);
+    setUploading(true); setUploadError(null);
     uploadIconImage(profileId).then(
       (asset) => { setUploading(false); if (asset) onPick(`asset:${asset.id}`); },
-      () => { setUploading(false); },
+      (e: unknown) => { setUploading(false); setUploadError(e instanceof Error ? e.message : "Upload failed."); },
     );
   };
 
@@ -90,7 +136,8 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
     <div ref={ref} className="icon-picker" role="dialog" aria-label="Choose an icon"
       style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999,
         visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "top left" }}
-      data-closing={closing || undefined} inert={closing}>
+      data-closing={closing || undefined} inert={closing} data-dropping={drop.dropping || undefined} {...drop.handlers}>
+      {drop.dropping && <div className="ip-drop-hint" aria-hidden="true">Drop to upload</div>}
       <div className="ip-tabs" role="tablist" aria-label="Icon source">
         {TABS.map((t) => (
           <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} className="ip-tab"
@@ -146,6 +193,8 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
           <button type="button" className="btn" aria-busy={uploading} disabled={uploading} onClick={doUpload}>
             <Icon name="attach" size={14} /> {uploading ? "Uploading…" : "Upload image…"}
           </button>
+          <p className="ip-hint">Or drop an image anywhere on this panel.</p>
+          {uploadError && <p className="ip-error" role="alert">{uploadError}</p>}
           <div className="ip-grid">
             {uploaded.map((a) => (
               <button key={a.id} type="button" role="radio" aria-checked={icon === `asset:${a.id}`} aria-label="Uploaded icon"

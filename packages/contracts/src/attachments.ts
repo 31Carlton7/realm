@@ -127,6 +127,12 @@ const DISPOSITIONS = {
   // advertises `promptCapabilities {image: true, embeddedContext: true}` (measured 2026-09-08), so
   // the adapter inlines images at runtime rather than sending the `resource_link` this row names.
   "acp:openhands": { image: "link", other: "link" },
+  // The ACP floor again, and here it is a floor Hermes probably clears: the vendor's ACP page lists
+  // `vision` in the toolset it runs with. That is a claim about its TOOLS, not about
+  // `promptCapabilities` on the wire, and the adapter reads the wire — so an image is sent as the
+  // link every ACP kind gets until a handshake says otherwise, at which point it inlines like
+  // OpenHands does with no change here.
+  "acp:hermes": { image: "link", other: "link" },
   // fake-adapter.ts never looks at `attachments`.
   fake: { image: "ignored", other: "ignored" },
 } as const satisfies Record<AgentKind, { image: AttachmentDisposition; other: AttachmentDisposition }>;

@@ -76,6 +76,17 @@ export const NOTIFICATIONS_DISABLED_KEY = "notifications.disabledCategories";
  * suppressed never reach here at all, so this is a narrowing of that set, never a widening.
  */
 export const NOTIFICATIONS_DESKTOP_KEY = "notifications.desktop";
+/**
+ * Where a notification is RELAYED beyond this Mac, for the moments an agent needs a person who is
+ * not at the keyboard: an iMessage handle (phone number or Apple ID email, sent through the `mac`
+ * CLI's Messages bridge) and a Slack incoming-webhook URL. Either empty means "don't". Only the
+ * categories a person has to come back for are relayed — a permission waiting, a session that
+ * finished or failed — never MCP health or probe chatter.
+ */
+export const NOTIFICATIONS_IMESSAGE_KEY = "notifications.relay.imessage";
+export const NOTIFICATIONS_SLACK_WEBHOOK_KEY = "notifications.relay.slackWebhook";
+/** The categories that leave the machine. A relay is an interruption; these are the ones worth it. */
+export const RELAYED_CATEGORIES: readonly NotificationCategory[] = ["permission", "session_done", "run_blocked"];
 
 /**
  * Settings keys for the audible half of a desktop notification: whether a posted toast also plays a

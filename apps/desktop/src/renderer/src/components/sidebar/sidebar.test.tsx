@@ -693,7 +693,11 @@ describe("sidebar destinations (Plan 12 W4)", () => {
     // Scheduled tasks is an app-level destination for the same reason Settings is: it is somewhere
     // you GO to see what is armed, and the runs it creates outlive whichever session set them up.
     expect(within(nav).getByRole("button", { name: "Scheduled tasks" })).toBeInTheDocument();
-    expect(within(nav).getAllByRole("button")).toHaveLength(5);
+    // Agents leads the nav: the page that answers "what should I look at", which the rest is
+    // navigated from. Its pill counts sessions blocked on a permission, across every space.
+    expect(within(nav).getByRole("button", { name: "Agents" })).toBeInTheDocument();
+    expect(within(nav).getAllByRole("button")).toHaveLength(6);
+    expect(within(nav).queryByLabelText(/waiting on you/)).toBeNull();
     // No unread pill at zero — a permanent 0 would be the dead chrome this nav bans.
     expect(within(nav).queryByLabelText(/unread/)).toBeNull();
     // Placement: the nav follows the sb-top block (search + New session) and precedes the swiper.

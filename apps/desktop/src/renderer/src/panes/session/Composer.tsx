@@ -1,3 +1,4 @@
+import { LINK_SERVICE_META, elementChipToken, scanElementChips, type LinkChip } from "@realm/contracts";
 import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, formatAttachmentSize, type AcpSessionMode, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
@@ -261,7 +262,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, supportsFastMode }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, supportsFastMode, links, onLinkPaste }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** Open the diff pane for the session's checkout (W3) — what the branch/diff chips do. */
   onOpenDiff: () => void;
@@ -353,6 +354,11 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
    *  answer). Undefined is "not stated", and the picker offers no switch — never a disabled one,
    *  because there is nothing the user could do about a capability nobody has claimed. */
   supportsFastMode?: boolean;
+  /** The draft's link chips (store `draftLinks`): what a `@[label]` token in the text stands for,
+   *  so the mirror can wear the app's mark on it. */
+  links?: readonly LinkChip[];
+  /** A pasted URL Realm can name becomes a chip through this; null means "paste it as text". */
+  onLinkPaste?: (url: string) => LinkChip | null;
 }) {
   const ta = useRef<HTMLTextAreaElement>(null);
   const running = status === "running" || status === "waiting_permission";
@@ -392,9 +398,22 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
    *  fall through untouched, or ⌘V would stop working in the one box people paste into most. */
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = Array.from(e.clipboardData?.files ?? []);
-    if (files.length === 0) return;
+    if (files.length > 0) { e.preventDefault(); onAttachFiles(files); return; }
+    /* One URL to an app the agent can reach — a Slack thread, a Linear issue, a Notion page — lands
+       as a chip wearing that app's mark and a name a person can read, and the agent is sent the
+       link. Only a paste that is exactly a URL: a sentence with a link in it is prose, and prose
+       stays as typed. A URL Realm cannot name is pasted as text, which is what it was. */
+    const text = (e.clipboardData?.getData("text/plain") ?? "").trim();
+    if (!onLinkPaste || !/^https?:\/\/\S+$/.test(text)) return;
+    const chip = onLinkPaste(text);
+    if (!chip) return;
     e.preventDefault();
-    onAttachFiles(files);
+    const el = e.currentTarget;
+    const start = el.selectionStart ?? draft.length, end = el.selectionEnd ?? start;
+    const before = draft.slice(0, start), after = draft.slice(end);
+    const lead = before === "" || /\s$/.test(before) ? "" : " ";
+    const tail = after === "" || /^\s/.test(after) ? " " : " ";
+    onDraftChange(`${before}${lead}${elementChipToken(chip.label)}${tail}${after}`);
   };
 
   /** The hint replaces the placeholder, so it lives and dies with the placeholder: an empty draft
@@ -420,6 +439,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     if (el && m) { m.scrollTop = el.scrollTop; m.scrollLeft = el.scrollLeft; }
   };
   const liveMentionIds = useMemo(() => mentionSkills.map((s) => s.id), [mentionSkills]);
+  /** Which `@[label]` tokens are LINK chips, by label — the mirror wears the app's mark on those. */
+  const linkByLabel = useMemo(() => new Map((links ?? []).map((l) => [l.label, l])), [links]);
+  const linkOf = (tokenText: string): LinkChip | null => { const c = scanElementChips(tokenText)[0]; return c ? linkByLabel.get(c.label) ?? null : null; };
   // Coloured as a mention only if `scanMentions` resolves it — the same call the server re-runs on the
   // sent text. Stale ids get the warning tone the note below the card already explains.
   const segments = useMemo(() => highlightSegments(draft, liveMentionIds, staleMentions), [draft, liveMentionIds, staleMentions]);
@@ -831,6 +853,21 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
           left behind mid-transition. In flow, so it grows UPWARD into the transcript rather than
           pushing the prompter's own controls off their bottom edge. */}
       <TodoStrip todos={todos} />
+      {/* Over-strip: the branch and what the checkout has changed, on a tab of their own above the
+          card. It was a chip among the workspace chips under the prompter, and a diff is not that
+          kind of fact — the row below reports where the session runs and never changes, while this
+          moves every time the agent writes a file. Reading it meant finding it in a line of quiet
+          labels. Centred, because it is one object on its own strip rather than an item in a row
+          with a yielding order, and drawn only when there is a checkout to describe: an empty tab
+          is a claim on space with nothing to put in it.
+          Between the to-do strip and the card, so the two tabs stack into one frame band rather
+          than fighting over the same edge (the join is `.composer-todos + .composer-overstrip` in
+          styles.css) and the plan keeps its own top corners. */}
+      {gitInfo && (
+        <div className="composer-overstrip">
+          <GitChip gitInfo={gitInfo} onOpenDiff={onOpenDiff} />
+        </div>
+      )}
       {/* The whole card is the drop target — aiming at a 44px textarea with a file in hand is a chore.
           §6 forbids animating during a drag, so the state change is a static ring, not a transition. */}
       {/* The card wears the MODE. Ask and Plan both mean "the agent will not change anything", and
@@ -852,11 +889,27 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             aria-hidden on the mirror: it is a duplicate of text the textarea already exposes. */}
         <div className="composer-editor">
           <div ref={hl} className="composer-highlight" aria-hidden="true">
-            {segments.map((s, i) => (s.kind
-              ? <span key={i} className={`ch-${s.kind}`}
+            {segments.map((s, i) => {
+              if (!s.kind) return s.text;
+              const link = s.kind === "element" ? linkOf(s.text) : null;
+              /* Every chip wears an icon over the sigil that opens its token — a skill mention's
+                 `@`, a picked element's `@[`, a link's `@[` with the app's own mark — and the
+                 delimiters go transparent. The token keeps every character, so the mirror stays the
+                 width of the textarea's text under it (the rule draft-format.ts states), and the
+                 eye sees an icon, a name and nothing else: no fill, no box. */
+              const icon = link ? LINK_SERVICE_META[link.service].icon : s.kind === "element" ? "target" : s.kind === "mention" ? "sparkles" : null;
+              const open = s.kind === "mention" ? 1 : 2; // `@` or `@[`
+              return (
+                <span key={i} className={`ch-${s.kind}`} data-service={link?.service}
                   data-chip={isChipKind(s.kind) ? segStarts[i] : undefined}
-                  data-hot={(isChipKind(s.kind) && segStarts[i] === hotChip) || undefined}>{s.text}</span>
-              : s.text))}
+                  data-hot={(isChipKind(s.kind) && segStarts[i] === hotChip) || undefined}
+                  title={link ? `${LINK_SERVICE_META[link.service].label} · ${link.url}` : undefined}>
+                  {icon
+                    ? <><span className="chip-sigil">{s.text.slice(0, open)}<Icon name={icon} size={s.kind === "mention" ? 12 : 14} className="chip-mark" /></span>{s.kind === "mention" ? s.text.slice(open) : s.text.slice(open, -1)}{s.kind !== "mention" && <span className="chip-sigil">]</span>}</>
+                    : s.text}
+                </span>
+              );
+            })}
             {/* A draft ending in a newline: the block would drop that last empty line, and the mirror
                 would sit one line short of the textarea from there down. */}
             {draft.endsWith("\n") && "\n"}
@@ -986,12 +1039,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
         )}
         <ChipMenu ariaLabel="Workspace" icon={envIcon} label={envLabel} items={envItems}
           title={canSwitchAgent ? `Workspace: ${envLabel}` : `Workspace: ${envLabel} — a session's checkout can only change before its first message`} />
-        {/* The branch group moved down here off the control row. Where the session runs and what it
-            has changed are the same question — a checkout and its dirty files — so they belong on the
-            same line, and the control row above is left holding only things that change what the NEXT
-            send does. It buys that row back the width the branch name was renting, which is why
-            `--branch-reserved` is restated for this context below. */}
-        <GitChip gitInfo={gitInfo} onOpenDiff={onOpenDiff} />
+        {/* The branch group is NOT here any more — it has the over-strip above the card (see there
+            for why). What is left is standing context: the machine, the workspace, and the meter.
+            None of it is user data of unbounded length now, so nothing on this row has to yield. */}
         <div className="understrip-end">
           {status === "running" && <div className="composer-thinking"><span>Thinking…</span></div>}
           <SessionUsage usage={usage} contextWindow={contextWindow} />

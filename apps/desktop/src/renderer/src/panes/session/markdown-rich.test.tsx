@@ -115,3 +115,23 @@ describe("task lists", () => {
     expect(out).toContain("checked");
   });
 });
+
+describe("links to apps the agent can reach", () => {
+  it("are drawn as chips — the app's mark and a name — with the URL on the title, still an anchor", () => {
+    /* The user's message shows a pasted Slack link as a chip; the assistant's answer citing the same
+       thread must not show it as ninety characters of URL. The mutant: leave the anchor as written. */
+    const out = html("See https://github.com/acme/realm/pull/42 and [the thread](https://acme.slack.com/archives/C01/p1712345678123456).");
+    expect(out).toContain('class="msg-chip" data-kind="link" data-service="github"');
+    expect(out).toContain('title="https://github.com/acme/realm/pull/42"');
+    expect(out).toContain(">acme/realm#42</a>");
+    expect(out).toContain('data-service="slack"');
+    expect(out).toContain(">the thread</a>"); // the agent's own words for it win
+    expect(out).toContain('<svg class="msg-chip-mark"');
+  });
+
+  it("leaves a link to anywhere else as the agent wrote it", () => {
+    const out = html("Read https://example.com/docs first.");
+    expect(out).not.toContain("msg-chip");
+    expect(out).toContain('href="https://example.com/docs"');
+  });
+});

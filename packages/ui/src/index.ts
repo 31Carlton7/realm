@@ -1,4 +1,7 @@
 export { Icon, icons, type IconName } from "./Icon";
+/* The marks by name, for the one renderer that writes HTML rather than React: assistant markdown,
+   which draws a link to a known app as a chip and needs the path data as a string. */
+export { brandMarks, type BrandName } from "./brand-icons";
 export { applyTheme, clampGroundAlpha, DEFAULT_GROUND_ALPHA, GROUND_ALPHA_RANGE, type Mode } from "./theme";
 /* Only what is consumed OUTSIDE this package. The colour maths and the derivation internals
    (hexToOklch, contrast, luminance, CONTRAST_FLOOR, THEME_VARS, themeVars, resolveMode, the HSL

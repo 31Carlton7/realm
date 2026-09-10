@@ -54,7 +54,7 @@ export type Project = z.infer<typeof ProjectSchema>;
  *  `documents` (Plan 17 W1) takes the `diff` route for the same reason: a document workspace is a view
  *  of a CHECKOUT, so several sessions sharing an environment share its documents. Its `refId` is a
  *  `document_workspaces` row id, and that row carries the environment. */
-export const ItemKindSchema = z.enum(["session", "terminal", "browser", "simulator", "artifact", "context", "diff", "documents", "space-page", "library-page", "connections-page", "notifications-page", "settings-page", "profile-page", "schedules-page"]);
+export const ItemKindSchema = z.enum(["session", "terminal", "browser", "simulator", "artifact", "context", "diff", "documents", "space-page", "library-page", "connections-page", "notifications-page", "settings-page", "profile-page", "schedules-page", "agents-page"]);
 export type ItemKind = z.infer<typeof ItemKindSchema>;
 
 /**
@@ -80,6 +80,9 @@ export const PAGE_REF_IDS = {
   // Scheduled tasks. Space-scoped like the rest: a schedule names the space its runs are created in,
   // so the page's vantage is the space its item lives in.
   "schedules-page": "00000000000000000000000006",
+  /** Every agent across every space, by what it needs from you. The page a manager of several
+   *  sessions keeps open: what is waiting on a permission, what is working, what has finished. */
+  "agents-page": "00000000000000000000000007",
 } as const;
 export type DestinationPageKind = keyof typeof PAGE_REF_IDS;
 
@@ -243,6 +246,16 @@ export const AgentKindSchema = z.enum([
   // publishes works today, and the successor the vendor points at — Agent Canvas — is an ACP
   // CLIENT, a peer of Realm rather than an agent Realm could host.
   "acp:openhands",
+  // Hermes Agent (Nous Research), added 2026-09-09 — and the first kind here registered from the
+  // vendor's DOCUMENTATION rather than from a live handshake, because the CLI is not on this
+  // machine and its ACP mode is a separate install step (`uv pip install -e '.[acp]'` inside the
+  // install checkout) that Realm has no business performing on someone's behalf. Every entry it
+  // gets below cites the doc it came from and nothing is inferred; what that buys is that the day a
+  // user runs the installer, the harness works with no code change, and until then the probe says
+  // "not installed" and the picker says how to fix it. What it costs is that the wire behaviour is
+  // unverified — so if a table here is wrong, it is wrong in the direction of a capability Realm
+  // offers and the agent refuses, which is why `AGENT_NOTES` says the ACP extra out loud.
+  "acp:hermes",
   "fake",
 ]);
 export type AgentKind = z.infer<typeof AgentKindSchema>;

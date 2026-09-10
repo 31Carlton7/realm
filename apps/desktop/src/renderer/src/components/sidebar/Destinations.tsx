@@ -16,8 +16,17 @@ export function Destinations() {
   // The server's count, verbatim (`notifications.list`/`notifications.changed`) — never a client-side
   // tally of rows, which would be a second derivation site that could disagree with the page's header.
   const unread = useApp((s) => s.notificationsUnread);
+  // How many agents are waiting on a permission, across every space — the one number a manager of
+  // several sessions wants without opening anything. Derived from the same status map the space
+  // strip's badges read, so the two cannot disagree.
+  const needsYou = useApp((s) => Object.values(s.sessionStatus).filter((st) => st === "waiting_permission").length);
   return (
     <nav className="sb-destinations" aria-label="Destinations">
+      {/* First, because it is the page that answers "what should I look at" — the question the rest
+          of the nav is navigated FROM. The pill counts agents blocked on you, and only then. */}
+      <DestRow kind="agents-page" label="Agents" icon="bot">
+        {needsYou > 0 && <span className="status-pill dest-count" data-tone="warning" aria-label={`${needsYou} waiting on you`}>{needsYou}</span>}
+      </DestRow>
       <DestRow kind="library-page" label="Library" />
       <DestRow kind="connections-page" label="Connections" />
       {/* W5: the feed row. The pill appears only when something is actually unread — a permanent

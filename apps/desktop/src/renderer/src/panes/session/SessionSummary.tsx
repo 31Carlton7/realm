@@ -1,7 +1,7 @@
 import { Icon, type IconName } from "@realm/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { documentKindFor, type Item } from "@realm/contracts";
+import { AGENT_META, DEFAULT_MODEL_LABEL, PERMISSION_MODES, SESSION_MODES, documentKindFor, sessionModeOf, type Environment, type GitInfo, type Item, type McpServer, type MemorySources, type Session } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { ScrollFades } from "../../components/ScrollFades";
 import { FilePreview } from "../../components/FilePreview";
@@ -243,6 +243,12 @@ function SummaryPanel({ summary, sessionId, environmentId, anchorRef, onClose, o
           <span className="summary-spend-turns">{usage.numTurns === 1 ? "1 turn" : `${usage.numTurns} turns`}</span>
         </div>
       )}
+      {/* What the agent is WORKING WITH, before what it made: the folder and branch it runs in, the
+          model and permission it runs under, the memory files that actually reach it, and the
+          connections it can call. Every one of these is a fact the app already holds somewhere —
+          a chip, a settings page, a memory pane — and this is the one place they stand together,
+          which is what "show me this agent's context" asks for. */}
+      <ContextSection sessionId={sessionId} />
       <Section title="Outputs" count={summary.outputs.length} icon="artifact">
         {summary.outputs.map((o) => <OutputRow key={rowKey(o)} output={o} onLightbox={onLightbox} onFile={openFile} />)}
       </Section>
@@ -276,6 +282,77 @@ const rowKey = (o: Output) => (o.kind === "file" ? `file:${o.path}` : `url:${o.u
 export function planTitle(p: PlanEntry): string {
   const line = p.text.split("\n").map((l) => l.replace(/^#+\s*/, "").trim()).find(Boolean);
   return line ?? p.steps[0]?.text ?? "Plan";
+}
+
+/** One fact of the session's context: a value with the label beside it, on the section's row grid. */
+function Fact({ icon, label, value, title }: { icon: IconName; label: string; value: string; title?: string }) {
+  return (
+    <div className="summary-row summary-fact" title={title ?? value}>
+      <Icon name={icon} size={12} className="summary-row-glyph" />
+      <span className="summary-row-name">{value}</span>
+      <span className="summary-row-meta">{label}</span>
+    </div>
+  );
+}
+
+/**
+ * The session's context, as rows: where it runs, what it runs as, what it reads, what it can reach.
+ *
+ * Each row is derived from state the store already keeps for other reasons — the session row, the
+ * environment, `gitInfo` for the cwd, the memory pane's per-session sources, the connections list —
+ * and asks for exactly one refresh (the memory sources, which are fetched per session on demand).
+ * A fact the store does not have is a row that is not drawn: "Branch —" would be a claim about a
+ * folder nobody has asked git about.
+ */
+export function ContextSection({ sessionId }: { sessionId: string }) {
+  const session = useApp((s) => s.sessions[sessionId] ?? null);
+  const env = useApp((s) => (session ? s.environments[session.environmentId] ?? null : null));
+  const git = useApp((s) => (session ? s.gitInfo[session.cwd] ?? null : null));
+  const memory = useApp((s) => s.sessionMemorySources[sessionId] ?? null);
+  const servers = useApp((s) => s.mcpServers);
+  const refreshMemorySources = useApp((s) => s.refreshMemorySources);
+  const run = useApp((s) => s.run);
+  useEffect(() => { if (session) run(() => refreshMemorySources(sessionId)); }, [session?.id, sessionId, refreshMemorySources, run]);
+  if (!session) return null;
+  const rows = contextRows({ session, env, git, memory, servers });
+  return (
+    <Section title="Context" count={rows.length} icon="folder">
+      {rows.map((r) => <Fact key={r.label} {...r} />)}
+    </Section>
+  );
+}
+
+/** The rows, as data, so the test can hold the rule for each without a DOM. */
+export function contextRows({ session, env, git, memory, servers }: {
+  session: Session; env: Environment | null; git: GitInfo | null; memory: MemorySources | null; servers: McpServer[];
+}): { icon: IconName; label: string; value: string; title?: string }[] {
+  const out: { icon: IconName; label: string; value: string; title?: string }[] = [];
+  const folder = session.cwd.replace(/\/+$/, "").split("/").pop() || session.cwd;
+  out.push({ icon: "folder", label: env?.kind === "worktree" ? "worktree" : "folder", value: folder, title: session.cwd });
+  const branch = git?.branch || env?.branch || null;
+  if (branch) out.push({ icon: "branch", label: git && git.dirty > 0 ? `branch · ${git.dirty} changed` : "branch", value: branch });
+  const model = session.model ?? DEFAULT_MODEL_LABEL[session.agentKind];
+  const effort = session.effort ? ` · ${session.effort}` : "";
+  out.push({ icon: AGENT_META[session.agentKind].icon, label: AGENT_META[session.agentKind].label, value: `${model}${effort}` });
+  const mode = sessionModeOf(session.permissionMode);
+  const permission = mode === "build"
+    ? (PERMISSION_MODES.find((m) => m.id === session.permissionMode)?.label ?? session.permissionMode)
+    : (SESSION_MODES.find((m) => m.id === mode)?.label ?? mode);
+  out.push({ icon: "tool", label: "permission", value: permission });
+  if (memory) {
+    const reaching = memory.sources.filter((m) => m.exists && m.via !== "none");
+    const names = reaching.map((m) => m.path.split("/").pop() || m.path);
+    const value = reaching.length === 0
+      ? (memory.realmMemoryInjected ? "Realm memory" : "none")
+      : `${memory.realmMemoryInjected ? "Realm memory, " : ""}${names.slice(0, 3).join(", ")}${names.length > 3 ? `, +${names.length - 3}` : ""}`;
+    out.push({ icon: "documents", label: "memory", value, title: reaching.map((m) => m.path).join("\n") || memory.note });
+  }
+  const connected = servers.filter((sv) => sv.status === "connected");
+  if (connected.length > 0) {
+    out.push({ icon: "connections-page", label: connected.length === 1 ? "connection" : "connections", value: connected.map((sv) => sv.name).join(", "),
+      title: connected.map((sv) => `${sv.name} · ${sv.tools.length} tools`).join("\n") });
+  }
+  return out;
 }
 
 function Section({ title, count, icon, children }: { title: string; count: number; icon: IconName; children: React.ReactNode }) {

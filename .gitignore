@@ -14,3 +14,4 @@ apps/desktop/release/
 
 # Playwright CLI scratch — console logs, page snapshots and screenshots from live checks.
 .playwright-cli/
+.vercel

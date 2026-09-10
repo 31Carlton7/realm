@@ -3,6 +3,7 @@ import type { ProbeResult } from "@realm/adapters";
 import type { RpcServer } from "../rpc/server";
 import type { SettingsStore } from "../store/settings";
 import type { NotificationsStore } from "../store/notifications";
+import type { NotificationRelay } from "./relay";
 
 /** Where `probeResults` remembers each CLI's last-known availability, so "previously available" is a
  *  durable fact (survives restart) rather than one process's memory. */
@@ -43,7 +44,7 @@ const SETTLE_WORD: Record<string, string> = { idle: "Finished a turn", ended: "E
  * genuinely new information to a user who saw the old one.
  */
 export class NotificationsService {
-  constructor(private d: { store: NotificationsStore; settings: SettingsStore; rpc: RpcServer }) {}
+  constructor(private d: { store: NotificationsStore; settings: SettingsStore; rpc: RpcServer; relay?: NotificationRelay }) {}
 
   list(p: { cursor: string | null; limit: number }): { notifications: Notification[]; nextCursor: string | null; unread: number } {
     const { notifications, nextCursor } = this.d.store.list(p);
@@ -79,6 +80,10 @@ export class NotificationsService {
         : this.d.store.create(input);
     }
     this.d.rpc.broadcast("notifications.changed", { notification: surfaced, unread: this.d.store.unreadCount() });
+    // Beyond the machine, and only for what SURFACED: an absorbed repeat of a still-open condition
+    // is one story, and a phone that buzzed for every re-ask of one permission would be muted by
+    // lunchtime. The category gate lives in the relay, beside the destinations it reads.
+    if (surfaced) this.d.relay?.send({ category: input.category, title: input.title, body: input.body });
   }
 
   /** Stamp a key's open row resolved (if any) and say how it ended. */

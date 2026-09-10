@@ -32,8 +32,9 @@ async function mount(submitKey: "enter" | "cmdEnter" = "enter") {
 
 const box = () => screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement;
 const mirror = () => document.querySelector(".composer-highlight")!;
-/** The mirror's painted runs, as [class, text] — its plain text is untagged and not listed. */
-const painted = () => Array.from(mirror().querySelectorAll("span")).map((el) => [el.className, el.textContent]);
+/** The mirror's painted runs, as [class, text] — its plain text is untagged and not listed. Direct
+ *  children only: a chip run holds a sigil wrapper for its icon, which is paint inside the run, not a run. */
+const painted = () => Array.from(mirror().querySelectorAll(":scope > span")).map((el) => [el.className, el.textContent]);
 const type = (value: string) => fireEvent.change(box(), { target: { value } });
 /** Type, then put the caret where a user's would be: at the end, unless `at` says otherwise. */
 const typeAt = (value: string, at = value.length) => {
@@ -397,5 +398,44 @@ describe("the chip under the pointer", () => {
     expect(hot()).toEqual(["@[bb]"]);
     typeAt("hello@[a] @[bb]"); // `@[a]` now begins where `@[bb]` did
     expect(hot()).toEqual([]);
+  });
+});
+
+describe("a pasted link", () => {
+  const paste = (text: string) => fireEvent.paste(box(), { clipboardData: { files: [], getData: () => text } });
+
+  it("to an app the agent can reach becomes a chip wearing the app's mark, and is sent as the link", async () => {
+    /* Codex does this for pasted links; a URL in a prompt is a thing the agent should be able to
+       open, and a chip is what it looks like when it can. The mutant: paste the URL as text. */
+    const { api, store } = await mount();
+    paste("https://linear.app/acme/issue/ENG-123/fix-the-login-flow");
+    await waitFor(() => expect(store.getState().drafts.se1).toBe("@[ENG-123] "));
+    const chip = mirror().querySelector(".ch-element[data-service='linear']")!;
+    expect(chip).not.toBeNull();
+    expect(chip.querySelector("[data-brand='linear']")).not.toBeNull();
+    expect(chip.textContent).toBe("@[ENG-123]"); // every character kept: the mirror measures the textarea's text
+    fireEvent.change(box(), { target: { value: "@[ENG-123] please fix" } });
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await waitFor(() => expect(api.calls.some((c) => c.startsWith("sendMessage:se1="))).toBe(true));
+    expect(api.calls.find((c) => c.startsWith("sendMessage:se1="))).toBe("sendMessage:se1=[ENG-123](https://linear.app/acme/issue/ENG-123/fix-the-login-flow) please fix");
+  });
+
+  it("to anywhere else stays a paste", async () => {
+    const { store } = await mount();
+    paste("https://example.com/a/page");
+    // No preventDefault, so jsdom's paste does nothing to the value; the draft is untouched and no chip exists.
+    await new Promise((r) => setTimeout(r, 5));
+    expect(store.getState().drafts.se1 ?? "").toBe("");
+    expect(store.getState().draftLinks.se1 ?? []).toEqual([]);
+  });
+
+  it("forgets the link the moment its chip is edited away, so a stale URL is never sent", async () => {
+    const { api, store } = await mount();
+    paste("https://acme.slack.com/archives/C01/p1712345678123456");
+    await waitFor(() => expect(store.getState().draftLinks.se1).toHaveLength(1));
+    fireEvent.change(box(), { target: { value: "never mind" } });
+    expect(store.getState().draftLinks.se1).toEqual([]);
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await waitFor(() => expect(api.calls).toContain("sendMessage:se1=never mind"));
   });
 });

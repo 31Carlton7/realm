@@ -144,6 +144,10 @@ export const AGENT_SKILL_SUPPORT = {
   // keeps `~/.openhands/skills` — but its ACP `session/new` exposes no way in, which is the claim
   // this table makes.
   "acp:openhands": "unsupported",
+  // Hermes is the strongest version of the note above: skills are its headline feature (it writes
+  // its own, from `~/.hermes/skills/`, and the ACP toolset keeps them) and there is still nothing on
+  // `session/new` for Realm to hand a skills root to.
+  "acp:hermes": "unsupported",
   // fake-adapter.ts never looks at `skills`.
   fake: "unsupported",
 } as const satisfies Record<AgentKind, SkillSupport>;

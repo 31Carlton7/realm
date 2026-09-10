@@ -20,8 +20,9 @@ import { useEffect, useState } from "react";
 const cache = new Map<string, string | null>();
 const inflight = new Map<string, Promise<string | null>>();
 
-/** Which producer to ask. `tile` is a mark beside a name; `preview` is meant to be read. */
-export type ThumbnailSize = "tile" | "preview";
+/** Which producer to ask. `tile` is a mark beside a name; `card` fills the Library's preview area;
+ *  `preview` is meant to be read. */
+export type ThumbnailSize = "tile" | "card" | "preview";
 
 /** Test seam and cache reset. Nothing in the app calls this; the suite does, between cases that
  *  would otherwise see each other's answers. */
@@ -38,6 +39,7 @@ function load(path: string, size: ThumbnailSize): Promise<string | null> {
   // loads before it) a missing picture must degrade to the file glyph, never take the caller down.
   const ask = size === "preview"
     ? window.realm?.files?.preview?.(path)
+    : size === "card" ? window.realm?.attachmentThumbnail?.(path, "card")
     : window.realm?.attachmentThumbnail?.(path);
   const p = (ask ?? Promise.resolve(null))
     .catch(() => null)

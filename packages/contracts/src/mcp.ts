@@ -165,6 +165,12 @@ export const AGENT_HAS_MCP: Record<AgentKind, boolean> = {
   // Measured 2026-09-08: OpenHands' `initialize` advertises `mcpCapabilities {http: true, sse: true}`,
   // so `acpMcpServers` hands over the gateway's `http` entry with nothing filtered out.
   "acp:openhands": true,
+  // The vendor's ACP page states it directly: "MCP servers supplied by the ACP session through
+  // `session/new` are still registered", in the note explaining that a host owning MCP itself can
+  // set HERMES_ACP_SKIP_CONFIGURED_MCP=1 to skip its GLOBAL ones. Realm is exactly that host, and
+  // does not set the variable: skipping the user's own configured servers is their decision, not
+  // Realm's, and the gateway entry goes over either way.
+  "acp:hermes": true,
   fake: false,
 };
 

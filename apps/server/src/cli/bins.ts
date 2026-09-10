@@ -26,6 +26,10 @@ const AGENT_BINS = {
   // broken in 1.16.0 (`ModuleNotFoundError: No module named 'openhands_cli.acp'`, measured), while
   // the `acp` SUBCOMMAND of the main binary is the one the vendor documents and the one that works.
   "acp:openhands": { env: "REALM_OPENHANDS_BIN", bin: "openhands" },
+  // `hermes`, not the `hermes-acp` launcher its ACP extra also installs: the vendor documents the
+  // two as equivalent entry points and names `hermes` with args `["acp"]` as the fallback any host
+  // should configure, so the main binary is what Realm spawns and what its provenance lookup finds.
+  "acp:hermes": { env: "REALM_HERMES_BIN", bin: "hermes" },
   fake: null,
 } as const satisfies Record<AgentKind, { env: string; bin: string } | null>;
 

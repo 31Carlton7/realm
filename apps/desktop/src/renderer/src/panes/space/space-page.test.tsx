@@ -36,6 +36,51 @@ describe("SpacePage · General", () => {
     await waitFor(() => expect(store.getState().activeSpace()?.profileId).toBe("p2"));
   });
 
+  describe("an image dropped on the icon control", () => {
+    /** A Finder drag: Chromium sets the `Files` type, and Electron pins the real path on the File. */
+    const finderDrop = (files: (File & { path?: string })[]) => ({
+      dataTransfer: { types: ["Files"], files, dropEffect: "none" },
+    });
+    const png = (name: string, path: string) => Object.assign(new File(["x"], name, { type: "image/png" }), { path });
+
+    it("uploads it and makes it the space's icon in one move", async () => {
+      const { store, api } = await mount();
+      const trigger = screen.getByRole("button", { name: "Change icon…" });
+      fireEvent.dragEnter(trigger, finderDrop([png("logo.png", "/tmp/logo.png")]));
+      expect(trigger).toHaveTextContent("Drop to use as icon");
+      fireEvent.drop(trigger, finderDrop([png("logo.png", "/tmp/logo.png")]));
+      await waitFor(() => expect(store.getState().activeSpace()?.icon).toMatch(/^asset:/));
+      expect(api.calls).toContain("uploadIconAsset:p1:/tmp/logo.png");
+      // No dialog: the file was already in hand.
+      expect(api.calls).not.toContain("pickIconImage");
+    });
+
+    it("refuses a file that is not an image, in words, without uploading it", async () => {
+      const { api } = await mount();
+      const trigger = screen.getByRole("button", { name: "Change icon…" });
+      fireEvent.drop(trigger, finderDrop([Object.assign(new File(["x"], "notes.txt", { type: "text/plain" }), { path: "/tmp/notes.txt" })]));
+      expect(await screen.findByRole("alert")).toHaveTextContent("notes.txt is not an image");
+      expect(api.calls.some((c) => c.startsWith("uploadIconAsset"))).toBe(false);
+    });
+
+    it("takes a drop on the open picker too, whichever tab is showing", async () => {
+      const { store, api } = await mount();
+      fireEvent.click(screen.getByRole("button", { name: "Change icon…" }));
+      const dialog = screen.getByRole("dialog", { name: "Choose an icon" });
+      fireEvent.drop(dialog, finderDrop([png("mark.png", "/tmp/mark.png")]));
+      await waitFor(() => expect(store.getState().activeSpace()?.icon).toMatch(/^asset:/));
+      expect(api.calls).toContain("uploadIconAsset:p1:/tmp/mark.png");
+    });
+
+    it("says so when the picture has no file behind it — a drag out of a browser", async () => {
+      const { api } = await mount();
+      const trigger = screen.getByRole("button", { name: "Change icon…" });
+      fireEvent.drop(trigger, finderDrop([new File(["x"], "web.png", { type: "image/png" })]));
+      expect(await screen.findByRole("alert")).toHaveTextContent(/no file on disk/);
+      expect(api.calls.some((c) => c.startsWith("uploadIconAsset"))).toBe(false);
+    });
+  });
+
   it("delete requires confirmation, then removes the space; the page says the space is gone", async () => {
     const { store, api } = await mount();
     fireEvent.click(screen.getByRole("button", { name: /Delete space/ }));

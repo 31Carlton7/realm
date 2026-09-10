@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { SessionUsage, contextFraction, formatTokens } from "./SessionUsage";
+import { SessionUsage, contextFraction, contextWindowFor, formatTokens } from "./SessionUsage";
 import type { Usage } from "./transcript-model";
 
 afterEach(() => cleanup());
@@ -22,8 +22,24 @@ describe("contextFraction", () => {
     expect(contextFraction(usage({ contextTokens: 40_000 }), 0)).toBeNull();     // a zero window is not a window
   });
 
-  it("clamps a prompt that overran the catalog's figure rather than reporting past full", () => {
+  it("clamps a measurement that overran its window rather than reporting past full", () => {
+    // A ring cannot draw more than a circle. The overrun is real — a session can sit past a
+    // compaction-policy window — and the panel below still prints the measured pair.
     expect(contextFraction(usage({ contextTokens: 240_000 }), 180_000)).toBe(1);
+  });
+
+  it("measures against the harness's own window, not the catalog's, when it stated one", () => {
+    // The mutant: preferring the catalog. Claude measures occupancy against the AUTOCOMPACT window,
+    // which on a 1M-window model is usually the 200K compaction boundary — so a session about to
+    // compact would read as 8% full and the ring would stay quiet through the very event it exists
+    // to warn about.
+    expect(contextWindowFor(usage({ contextWindow: 200_000 }), 1_000_000)).toBe(200_000);
+    expect(contextFraction(usage({ contextTokens: 160_000, contextWindow: 200_000 }), 1_000_000)).toBeCloseTo(0.8);
+  });
+
+  it("falls back to the catalog only where the harness stated no window", () => {
+    expect(contextWindowFor(usage({ contextTokens: 1 }), 180_000)).toBe(180_000);
+    expect(contextWindowFor(usage({ contextTokens: 1 }), null)).toBeNull();
   });
 });
 
@@ -77,6 +93,24 @@ describe("the under-strip's context meter", () => {
     const rows = [...document.querySelectorAll(".session-usage-row")]
       .map((r) => [r.querySelector(".session-usage-label")!.textContent, r.querySelector(".session-usage-value")!.textContent]);
     expect(rows).toEqual([["Context", "45k / 180k"], ["Cost", "$1.23"], ["Output", "8.1k"], ["Turns", "12"]]);
+  });
+
+  it("draws the ring for a harness that states a window the catalog has never heard of", () => {
+    // The catalog has no row for a great many models, and used to be the ONLY source of the window —
+    // so a session whose harness measures its own occupancy got no meter at all.
+    render(<SessionUsage usage={usage({ contextTokens: 50_000, contextWindow: 200_000 })} contextWindow={null} />);
+    expect(screen.getByRole("button", { name: "Context: 25% of 200k used" })).toBeInTheDocument();
+  });
+
+  it("prints the real pair under a full ring when the session is past its window", () => {
+    // The clamp is the ring's, not the truth's. A reader who opens the panel on a pinned meter is
+    // owed the measured figure, not the window echoed back at them.
+    render(<SessionUsage usage={usage({ contextTokens: 214_000, contextWindow: 200_000, numTurns: 22 })} contextWindow={1_000_000} />);
+    fireEvent.mouseEnter(document.querySelector(".session-usage")!);
+    const row = [...document.querySelectorAll(".session-usage-row")]
+      .find((r) => r.querySelector(".session-usage-label")!.textContent === "Context")!;
+    expect(row.querySelector(".session-usage-value")!.textContent).toBe("214k / 200k");
+    expect(document.querySelector(".session-usage-btn")!.getAttribute("data-tone")).toBe("danger");
   });
 
   it("says nothing about cost for an engine that reports none — a $0.000 would be a claim", () => {

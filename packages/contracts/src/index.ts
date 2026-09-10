@@ -33,3 +33,5 @@ export * from "./runs";
 export * from "./schedules";
 export * from "./failover";
 export * from "./school";
+export * from "./links";
+export * from "./connectors";

@@ -85,17 +85,30 @@ describe("parseCodexModelPage", () => {
   const live = { data: [{ id: "gpt-5.6-sol", model: "gpt-5.6-sol", displayName: "GPT-5.6-Sol", hidden: false, isDefault: true }], nextCursor: null };
 
   it("maps id and displayName from the live response shape", () => {
-    expect(parseCodexModelPage(live)).toEqual({ models: [{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol" }], nextCursor: null });
+    expect(parseCodexModelPage(live)).toEqual({ models: [{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol", fast: false }], nextCursor: null });
+  });
+
+  it("reads Fast off the `priority` service tier, and nothing else", () => {
+    // Shape captured live from 0.153.4. The tier's NAME is "Fast"; its id is what `turn/start` takes.
+    // The mutant: any non-empty `serviceTiers` counts — a future tier that is not Fast would then
+    // offer a switch whose only outcome is a refusal.
+    const page = { data: [
+      { id: "gpt-6-astra", displayName: "GPT-6-Astra", serviceTiers: [{ id: "priority", name: "Fast", description: "2x speed, increased usage" }] },
+      { id: "gpt-5.6-terra", displayName: "GPT-5.6-Terra", serviceTiers: [] },
+      { id: "gpt-other", displayName: "Other", serviceTiers: [{ id: "flex", name: "Flex" }] },
+      { id: "gpt-old", displayName: "Old" },
+    ] };
+    expect(parseCodexModelPage(page).models.map((m) => [m.id, m.fast])).toEqual([["gpt-6-astra", true], ["gpt-5.6-terra", false], ["gpt-other", false], ["gpt-old", false]]);
   });
 
   it("skips malformed rows rather than inventing models from them", () => {
     const page = { data: [null, 42, "gpt", { displayName: "No id" }, { id: "", displayName: "Blank id" }, { id: "  ", displayName: "Whitespace id" }, { id: "ok-model", displayName: "OK" }, { id: 7, displayName: "Numeric id" }] };
-    expect(parseCodexModelPage(page).models).toEqual([{ id: "ok-model", label: "OK" }]);
+    expect(parseCodexModelPage(page).models).toEqual([{ id: "ok-model", label: "OK", fast: false }]);
   });
 
   it("drops only an explicit hidden:true, and falls back to the id when displayName is unusable", () => {
     const page = { data: [{ id: "shown" }, { id: "shown-2", displayName: "  " }, { id: "secret", displayName: "Secret", hidden: true }, { id: "odd", displayName: "Odd", hidden: "yes" }] };
-    expect(parseCodexModelPage(page).models).toEqual([{ id: "shown", label: "shown" }, { id: "shown-2", label: "shown-2" }, { id: "odd", label: "Odd" }]);
+    expect(parseCodexModelPage(page).models).toEqual([{ id: "shown", label: "shown", fast: false }, { id: "shown-2", label: "shown-2", fast: false }, { id: "odd", label: "Odd", fast: false }]);
   });
 
   it("yields nothing (never a throw) for a page that is not a page at all", () => {
