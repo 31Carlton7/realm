@@ -6,7 +6,7 @@
  * reaches it over the browserHost bridge.
  */
 import { normalizeOrigin, PICK_HTML_MAX, PICK_NAME_MAX, PICK_SELECTOR_MAX, PICK_TEXT_MAX, type BrowserAction, type BrowserActResult, type BrowserPickedElement, type BrowserRefusal, type BrowserSnapshotResult } from "@realm/contracts";
-import { AGENT_CURSOR, AGENT_MOTION } from "./agent-cursor";
+import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_MOTION, CURSOR_FORM_FOR_CSS, type CursorForm, type CursorFormName } from "./agent-cursor";
 
 export type CdpSend = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
@@ -733,14 +733,21 @@ function markStylesheet(): string {
   const { pressScale } = AGENT_CURSOR;
   const { pressMs, fastMs, swapMs, enterMs, easeOutStrong, framePulseMs } = AGENT_MOTION;
   const cursor = `[${HIGHLIGHT_ATTR}="${MARK_CURSOR}"]`;
+  const glyph = `[${HIGHLIGHT_ATTR}="${MARK_CURSOR}"] svg`;
   const glow = `[${HIGHLIGHT_ATTR}="${MARK_FRAME}"] > u`;
   return [
     // The mark SWAPS position. Only `translate` and `opacity` are named — there is no path, no
     // intermediate point drawn, no trail and no afterimage, because the page received one
     // instantaneous arrival and a drawn traversal would depict a journey that never happened.
     `${cursor}{transition:translate ${swapMs}ms ${easeOutStrong},opacity ${enterMs}ms ${easeOutStrong}}`,
+    // The press scales about the HOTSPOT (`transform-origin` is set inline, per form): a pointer
+    // that contracts toward its own middle walks its tip off the pixel the input went to, which is
+    // the one thing the mark exists to be right about.
     `${cursor}[data-press]{animation:rl-agent-press ${pressMs}ms ${easeOutStrong} both}`,
     `@keyframes rl-agent-press{50%{scale:${pressScale}}}`,
+    // A white pointer has to survive a white page. `overflow:visible` so the accent outline, which
+    // is drawn outside the fill, is never clipped by the glyph's own box.
+    `${glyph}{overflow:visible;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,.32))}`,
     `${cursor} i{transition:opacity ${fastMs}ms linear}`,
     `${glow}{animation:rl-agent-pulse ${framePulseMs}ms ease-in-out infinite}`,
     `@keyframes rl-agent-pulse{0%,100%{opacity:1}50%{opacity:.3}}`,
@@ -758,18 +765,58 @@ function markStylesheet(): string {
   ].join("");
 }
 
-/** The two ticks beside the mark on a scroll, on the side matching the delta's SIGN. A sign of 0 —
- *  a wheel event with no delta at all — draws none, because there is no side to draw them on. */
-function tickCss(press: CursorPress, accent: string): string | null {
+/**
+ * The two ticks beside the mark on a scroll, on the side matching the delta's SIGN — one entry per
+ * form, because the mark is a directional glyph now and each one occupies its box differently.
+ *
+ * Anchored to the HOTSPOT's row or column and pushed clear of the glyph's own box, so a downward
+ * tick beside an arrow sits below the arrow rather than on top of its tail. Precomputed per form
+ * here rather than worked out inside the page, so the arithmetic is something a test can read.
+ *
+ * A sign of 0 — a wheel event with no delta at all — draws none, because there is no side to put
+ * them on and the magnitude is not depicted either way.
+ */
+export function tickStylesFor(press: CursorPress, accent: string): Record<string, string> | null {
   if (press.kind !== "scroll" || press.sign === 0) return null;
   const line = `1px solid ${accent}`;
   const common = "position:absolute;pointer-events:none;";
-  if (press.axis === "y") {
-    const edge = press.sign < 0 ? "bottom:calc(100% + 3px)" : "top:calc(100% + 3px)";
-    return `${common}left:50%;margin-left:-3px;width:6px;height:3px;border-top:${line};border-bottom:${line};${edge}`;
+  const gap = 5;
+  const out: Record<string, string> = {};
+  for (const [name, form] of Object.entries(AGENT_CURSOR_FORMS)) {
+    const [w, h] = form.box;
+    const [hx, hy] = form.hot;
+    if (press.axis === "y") {
+      const top = press.sign < 0 ? -gap - 3 : h + gap;
+      out[name] = `${common}left:${hx - 3}px;top:${top}px;width:6px;height:3px;border-top:${line};border-bottom:${line}`;
+    } else {
+      const left = press.sign < 0 ? -gap - 3 : w + gap;
+      out[name] = `${common}top:${hy - 3}px;left:${left}px;width:3px;height:6px;border-left:${line};border-right:${line}`;
+    }
   }
-  const edge = press.sign < 0 ? "right:calc(100% + 3px)" : "left:calc(100% + 3px)";
-  return `${common}top:50%;margin-top:-3px;width:3px;height:6px;border-left:${line};border-right:${line};${edge}`;
+  return out;
+}
+
+/**
+ * One form's node, ready for the page to build: the element styles that place it by its hotspot, and
+ * the SVG the glyph is drawn from.
+ *
+ * `paint-order: stroke fill` is what makes the outline sit OUTSIDE the white rather than eating half
+ * of it, and it is what tells a reader at a glance whose pointer this is: theirs is white with a
+ * black edge, this one is white with an edge in their own accent.
+ */
+function formNode(name: CursorFormName): { css: string; svg: { box: readonly [number, number]; paths: readonly { d: string; evenOdd?: true }[]; stroke: number } } {
+  // Widened deliberately: the table is `as const` so each entry keeps its own literal shape, and
+  // only the barred circle declares a `stroke`. Read through the interface and the optional is back.
+  const form: CursorForm = AGENT_CURSOR_FORMS[name];
+  const [w, h] = form.box;
+  const [hx, hy] = form.hot;
+  return {
+    // `left:0;top:0` with a negative margin, so `translate` stays the act's own point and the swap
+    // transition interpolates that point directly rather than some offset derived from it.
+    css: `position:fixed;left:0;top:0;width:${w}px;height:${h}px;margin:${-hy}px 0 0 ${-hx}px;`
+      + `transform-origin:${hx}px ${hy}px;pointer-events:none;z-index:2147483647;opacity:0;`,
+    svg: { box: form.box, paths: form.paths, stroke: (form.stroke ?? AGENT_CURSOR.stroke) * 2 },
+  };
 }
 
 /**
@@ -834,20 +881,10 @@ export async function markAct(send: CdpSend, action: BrowserAction, accent = DEF
 /** The page-side half, written as a string because it runs in the PAGE, whose globals are not ours.
  *  Every value it needs is `JSON.stringify`d in, so nothing here has to quote anything by hand. */
 function markScript(o: { accent: string; ring: string; point: { x: number; y: number } | null; press: CursorPress | null }): string {
-  const { size, stroke, core } = AGENT_CURSOR;
-  const half = size / 2;
-  // A lit point, not an arrow. design.md warns against human-like agent presence, and a second
-  // pointer beside the user's real one would be both that and ambiguous about which is which. So:
-  // a white disc with an accent ring, the accent falling inward from the ring to transparent, and
-  // the exact point the input went to as an accent core at its centre. `background-color` and
-  // `background-image` rather than the `background` shorthand, which would reset the white.
-  const markCss = `position:fixed;left:0;top:0;width:${size}px;height:${size}px;margin:${-half}px 0 0 ${-half}px;`
-    + `box-sizing:border-box;border-radius:50%;border:${stroke}px solid ${o.accent};background-color:#fff;`
-    + `background-image:radial-gradient(circle,transparent 25%,color-mix(in srgb, ${o.accent} 40%, transparent) 100%);`
-    + `box-shadow:0 0 10px color-mix(in srgb, ${o.accent} 45%, transparent);`
-    + "pointer-events:none;z-index:2147483647;opacity:0;";
-  const coreCss = `position:absolute;left:50%;top:50%;width:${core}px;height:${core}px;`
-    + `margin:${-core / 2}px 0 0 ${-core / 2}px;border-radius:50%;background:${o.accent};pointer-events:none;`;
+  const forms = Object.fromEntries(
+    (Object.keys(AGENT_CURSOR_FORMS) as CursorFormName[]).map((name) => [name, formNode(name)]),
+  );
+  const ticks = tickStylesFor(o.press ?? { kind: "click", count: 1 }, o.accent);
   const frameCss = "position:fixed;inset:0;pointer-events:none;z-index:2147483646;opacity:1;"
     + `box-shadow:inset 0 0 0 2px ${o.accent};`;
   const glowCss = `position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 48px -12px ${o.accent};`;
@@ -870,22 +907,83 @@ function markScript(o: { accent: string; ring: string; point: { x: number; y: nu
     }
     var pt = ${j(o.point)};
     if (pt) {
-      var mark = sel(${j(MARK_CURSOR)}), fresh = !mark;
-      if (fresh) {
-        mark = make(${j(MARK_CURSOR)}, ${j(markCss)});
-        mark.appendChild(make(${j(MARK_CURSOR)} + "-core", ${j(coreCss)}, "b"));
+      var FORMS = ${j(forms)}, TICKS = ${j(ticks)}, MAP = ${j(CURSOR_FORM_FOR_CSS)};
+      /* WHICH pointer to draw, asked of the page rather than guessed from the element.
+         The page's computed \`cursor\` at this point is its own statement about what a real pointer
+         here would look like — a hand over something it means to be clicked, an I-beam over a field,
+         a barred circle over a control it has disabled. Drawing that is reporting; drawing an arrow
+         over all of them and calling it a cursor would be decoration.
+         The mark itself is \`pointer-events:none\`, so elementFromPoint never finds Realm's own
+         furniture and the answer is always about the page. */
+      var form = "default";
+      try {
+        var under = D.elementFromPoint(pt.x, pt.y);
+        if (under) {
+          /* \`url(a.png) 4 12, pointer\` is a legal computed value; the keyword is the last fallback
+             in the list, which is also the one Chromium lands on for any image it cannot fetch. */
+          var css = (getComputedStyle(under).cursor || "auto").split(",").pop().trim().split(/\\s+/).pop();
+          if (css === "auto") {
+            /* \`auto\` means the browser decides, and only the page knows what it decided. Resolved
+               the way Chromium renders it: an I-beam over something a caret can go in, an arrow
+               everywhere else. */
+            var tag = under.tagName;
+            css = (tag === "TEXTAREA" || under.isContentEditable
+              || (tag === "INPUT" && !/^(button|submit|reset|checkbox|radio|range|color|file|image)$/i.test(under.type || "text")))
+              ? "text" : "default";
+          }
+          form = MAP[css] || "default";
+        }
+      } catch (e) { /* a cross-origin or detached point: the arrow is the honest fallback */ }
+
+      var mark = sel(${j(MARK_CURSOR)});
+      /* Rebuilt whenever the FORM changes — the box, the hotspot and the transform origin all move
+         with it, so morphing one glyph into another would leave the tip off the point. Position and
+         the swap transition survive the rebuild because they are re-applied below either way. */
+      var fresh = !mark || mark.getAttribute("data-form") !== form;
+      if (mark && fresh) { var was = mark.style.translate; mark.remove(); mark = null; }
+      if (!mark) {
+        var spec = FORMS[form];
+        mark = make(${j(MARK_CURSOR)}, spec.css);
+        mark.setAttribute("data-form", form);
+        var NS = "http://www.w3.org/2000/svg";
+        var svg = D.createElementNS(NS, "svg");
+        svg.setAttribute(A, ${j(MARK_CURSOR)} + "-glyph");
+        svg.setAttribute("viewBox", "0 0 " + spec.svg.box[0] + " " + spec.svg.box[1]);
+        svg.setAttribute("width", String(spec.svg.box[0]));
+        svg.setAttribute("height", String(spec.svg.box[1]));
+        svg.setAttribute("fill", "#fff");
+        svg.setAttribute("stroke", ${j(o.accent)});
+        svg.setAttribute("stroke-width", String(spec.svg.stroke));
+        svg.setAttribute("stroke-linejoin", "round");
+        /* The outline is drawn UNDER the fill, so it sits outside the white instead of eating half
+           of it — the difference between a pointer with an accent edge and a pointer that has gone
+           thin. Built node by node rather than through innerHTML, which is a Trusted Types sink and
+           throws outright on the pages that enforce it. */
+        svg.setAttribute("paint-order", "stroke fill");
+        for (var pi = 0; pi < spec.svg.paths.length; pi++) {
+          var pth = D.createElementNS(NS, "path");
+          pth.setAttribute("d", spec.svg.paths[pi].d);
+          if (spec.svg.paths[pi].evenOdd) pth.setAttribute("fill-rule", "evenodd");
+          svg.appendChild(pth);
+        }
+        mark.appendChild(svg);
         R.appendChild(mark);
       }
       var tick = mark.querySelector("i");
       if (tick) tick.remove();
-      var tickCss = ${j(tickCss(o.press ?? { kind: "click", count: 1 }, o.accent))};
-      if (tickCss) mark.appendChild(make(${j(MARK_CURSOR)} + "-tick", tickCss, "i"));
+      if (TICKS) mark.appendChild(make(${j(MARK_CURSOR)} + "-tick", TICKS[form], "i"));
       /* A fresh mark is positioned with the transition OFF and one forced reflow, then faded in at
          the point. Transitioning from the (0,0) it was created at would fabricate a sweep in from the
-         corner of the page — motion depicting a journey nothing made. */
-      if (fresh) { mark.style.transition = "none"; }
-      mark.style.translate = pt.x + "px " + pt.y + "px";
-      if (fresh) { void mark.offsetWidth; mark.style.transition = ""; }
+         corner of the page — motion depicting a journey nothing made. A form swap carries the last
+         position across for the same reason: the pointer changed shape, it did not go anywhere. */
+      var here = pt.x + "px " + pt.y + "px";
+      if (fresh) {
+        mark.style.transition = "none";
+        mark.style.translate = was || here;
+        void mark.offsetWidth;
+        mark.style.transition = "";
+      }
+      mark.style.translate = here;
       mark.style.opacity = "1";
       /* Removed and re-added around a reflow so a second click in the same burst replays the press
          rather than sitting on a finished animation. */

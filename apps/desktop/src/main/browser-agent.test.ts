@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserAction } from "@realm/contracts";
 import { buildSnapshot, performAct, performFillCredential, SNAPSHOT_STYLES, isOpaqueColor, cursorTargetFor, DEFAULT_AGENT_ACCENT, HIGHLIGHT_ATTR, highlightTargetRef, markAct, MARK_CURSOR, MARK_FRAME, MARK_RING, viewportCentre, type CdpSend } from "./browser-agent";
-import { AGENT_CURSOR, AGENT_MOTION } from "./agent-cursor";
+import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_MOTION, CURSOR_FORM_FOR_CSS } from "./agent-cursor";
+import { tickStylesFor } from "./browser-agent";
 
 /**
  * The executor mutants, killed against fake CDP payloads:
@@ -610,38 +611,96 @@ describe("the marks an act leaves in the page (W4; the cursor and the frame, Pla
     const { send, calls } = fakeSend({ quads: QUAD });
     await markAct(send, click({ clickCount: 3 }));
     const expr = exprOf(calls);
-    expect(expr).toContain(`width:${AGENT_CURSOR.size}px;height:${AGENT_CURSOR.size}px`);
-    expect(expr).toContain(`border:${AGENT_CURSOR.stroke}px solid`);
-    expect(expr).toContain(`width:${AGENT_CURSOR.core}px;height:${AGENT_CURSOR.core}px`);
+    expect(expr).toContain(`"stroke":${AGENT_CURSOR.stroke * 2}`);
+    // The barred circle is the one form whose ink is a band rather than a body; the shared outline
+    // on both of its edges leaves no white between them, so it declares a narrower one.
+    expect(expr).toContain(`"stroke":${AGENT_CURSOR_FORMS["not-allowed"].stroke! * 2}`);
     expect(expr).toContain(`scale:${AGENT_CURSOR.pressScale}`);
     expect(expr).toContain(`}, ${AGENT_CURSOR.idleMs});`);      // the dwell watchdog's deadline
     expect(expr).toContain('animationIterationCount = String(3)'); // one contraction per click
+  });
+
+  /* Every form travels, and each carries the box, hotspot and transform-origin that go with it. The
+     mutant is shipping one glyph and relabelling it — a page that computes `not-allowed` would then
+     get an arrow, and the reader would never learn the control was disabled. */
+  it("carries all four pointers into the page, each placed by its own hotspot", async () => {
+    const { send, calls } = fakeSend({ quads: QUAD });
+    await markAct(send, click());
+    const expr = exprOf(calls);
+    for (const [name, form] of Object.entries(AGENT_CURSOR_FORMS)) {
+      const [w, h] = form.box;
+      const [hx, hy] = form.hot;
+      expect(expr, name).toContain(form.paths[0]!.d);
+      expect(expr, name).toContain(`width:${w}px;height:${h}px;margin:${-hy}px 0 0 ${-hx}px`);
+      // The press pivots on the hotspot: a pointer that contracts toward its middle walks its own
+      // tip off the pixel the input went to.
+      expect(expr, name).toContain(`transform-origin:${hx}px ${hy}px`);
+    }
+    // The mapping rides along, so the page picks a form rather than main guessing one.
+    expect(expr).toContain(JSON.stringify(CURSOR_FORM_FOR_CSS));
+  });
+
+  /* The form is the PAGE'S answer, read out of its own computed `cursor` at the point. The mutant is
+     deciding it in main from the element's tag — which would call every `<div role=button>` an
+     arrow and every styled `<a>` a hand, and would be a guess dressed as a report. */
+  it("asks the page which pointer it would show, and resolves `auto` the way Chromium renders it", async () => {
+    const { send, calls } = fakeSend({ quads: QUAD });
+    await markAct(send, click());
+    const expr = exprOf(calls);
+    expect(expr).toContain("D.elementFromPoint(pt.x, pt.y)");
+    expect(expr).toContain("getComputedStyle(under).cursor");
+    expect(expr).toContain('css === "auto"');
+    expect(expr).toContain("isContentEditable");
+    // Realm's own furniture is pointer-events:none, so the hit test always lands on the page.
+    expect(expr).toContain("pointer-events:none");
+  });
+
+  it("the scroll ticks clear each glyph's own box, on the delta's side of its hotspot", () => {
+    const down = tickStylesFor({ kind: "scroll", axis: "y", sign: 1 }, "#000")!;
+    const up = tickStylesFor({ kind: "scroll", axis: "y", sign: -1 }, "#000")!;
+    for (const [name, form] of Object.entries(AGENT_CURSOR_FORMS)) {
+      // Below the glyph for a downward scroll, above the hotspot for an upward one — and the arrow's
+      // box is 20 tall while the hand's is 24, so one offset for all of them would put the hand's
+      // ticks inside its own palm.
+      expect(down[name], name).toContain(`top:${form.box[1] + 5}px`);
+      expect(up[name], name).toContain("top:-8px");
+      expect(down[name], name).toContain(`left:${form.hot[0] - 3}px`);
+    }
+    expect(tickStylesFor({ kind: "scroll", axis: "y", sign: 0 }, "#000")).toBeNull();
+    expect(tickStylesFor({ kind: "click", count: 1 }, "#000")).toBeNull();
   });
 
   it("places the FIRST mark with the transition off and a forced reflow — no sweep in from (0,0)", async () => {
     const { send, calls } = fakeSend({ quads: QUAD });
     await markAct(send, click());
     const expr = exprOf(calls);
-    const fresh = expr.indexOf('if (fresh) { mark.style.transition = "none"; }');
-    const place = expr.indexOf("mark.style.translate =");
-    const reflow = expr.indexOf("void mark.offsetWidth");
-    expect(fresh).toBeGreaterThan(-1);
-    expect(fresh).toBeLessThan(place);
-    expect(place).toBeLessThan(reflow);
+    const at = (needle: string) => {
+      const i = expr.indexOf(needle);
+      expect(i, `missing: ${needle}`).toBeGreaterThan(-1);
+      return i;
+    };
+    // Off, seed, reflow, on — in that order. Any other and the mark's first appearance is a slide in
+    // from the corner of the page, motion depicting a journey nothing made.
+    const off = at('mark.style.transition = "none"');
+    const seed = at("mark.style.translate = was || here");
+    const reflow = expr.indexOf("void mark.offsetWidth", seed);
+    const on = expr.indexOf('mark.style.transition = ""', reflow);
+    expect(off).toBeLessThan(seed);
+    expect(seed).toBeLessThan(reflow);
+    expect(reflow).toBeLessThan(on);
+    expect(on).toBeLessThan(at("mark.style.translate = here"));
   });
 
-  /* The removal an act performs before drawing its own ring narrows to RINGS. Widened to the whole
-     attribute — which is what it was before the values existed — every act would delete the cursor
-     it was in the middle of placing, and `buildSnapshot`'s pre-capture sweep would blink it away
-     mid-`browser_batch`. Neither shows up as an error anywhere; both just make the mark flicker. */
-  it("clears only the previous RING before drawing, never the cursor or the frame", async () => {
+  /* A form swap is a change of SHAPE, not of place. The glyph has to be rebuilt — box, hotspot and
+     transform-origin all move with the form — but it is seeded at the position the old one held, so
+     a pointer that goes from arrow to hand does not also fly in from the corner. */
+  it("rebuilds the glyph when the form changes and carries its last position across", async () => {
     const { send, calls } = fakeSend({ quads: QUAD });
     await markAct(send, click());
     const expr = exprOf(calls);
-    const removal = expr.slice(expr.indexOf("document.querySelectorAll"), expr.indexOf("var ringCss"));
-    expect(removal).toContain(`[${HIGHLIGHT_ATTR}=\\"${MARK_RING}\\"]`);
-    expect(removal).not.toContain(MARK_CURSOR);
-    expect(removal).not.toContain(MARK_FRAME);
+    expect(expr).toContain('mark.getAttribute("data-form") !== form');
+    expect(expr).toContain("var was = mark.style.translate");
+    expect(expr).toContain('mark.setAttribute("data-form", form)');
   });
 
   it("the dwell watchdog is reset on every placement and takes BOTH drive marks with it", async () => {
