@@ -23,6 +23,7 @@ import {
   ThumbsUpIcon, ThumbsDownIcon,
   // The session's summary panel (SessionSummary.tsx).
   InformationCircleIcon,
+  ComputerIcon,
   // Hermes Agent's own mark, in this set's hand — see `caduceus` below.
   CaduceusIcon,
 } from "@hugeicons-pro/core-stroke-standard";
@@ -83,6 +84,13 @@ export const icons = {
   "settings-page": Settings01Icon,
   "profile-page": UserIcon,
   "schedules-page": Clock01Icon,
+  /* Missing for as long as the Agents page has existed: `Icon` falls back to `icons.folder` for a
+     name it does not hold, silently, so the page wore a folder in the sidebar and in its own pane
+     bar. `icon-kinds.test.ts` is what stops the next one lasting that long. */
+  "agents-page": BotIcon,
+  /* A monitor on a stand, and deliberately not `laptop`, which is taken and means THIS Mac — the one
+     Realm is running on, in the computer-use surfaces. A machine is a screen somewhere else. */
+  machine: ComputerIcon,
 } as const;
 /** Hugeicons names plus the vendored provider marks — one namespace, so callers (and `AGENT_META`)
  *  never have to know which pack a glyph came from. */

@@ -4,7 +4,10 @@ import { SpaceGroupsSchema } from "./groups";
 import { IdSchema } from "./ids";
 export { IdSchema } from "./ids";
 
-const Timestamps = { createdAt: z.number().int(), updatedAt: z.number().int() };
+/** Every persisted row carries these two. Exported so a schema that lives in its own file — a
+ *  machine's, whose source, status and actions are far more than an entity's worth of contract —
+ *  still ages with the rest rather than inlining its own pair. */
+export const Timestamps = { createdAt: z.number().int(), updatedAt: z.number().int() };
 export const HexColorSchema = z.string().regex(/^#[0-9a-f]{6}$/i, "expected #rrggbb");
 
 export const ProfileSchema = z.object({
@@ -53,8 +56,12 @@ export type Project = z.infer<typeof ProjectSchema>;
  *  the space's own page (General/Memory/Skills/Connections/Sessions/History), one per space.
  *  `documents` (Plan 17 W1) takes the `diff` route for the same reason: a document workspace is a view
  *  of a CHECKOUT, so several sessions sharing an environment share its documents. Its `refId` is a
- *  `document_workspaces` row id, and that row carries the environment. */
-export const ItemKindSchema = z.enum(["session", "terminal", "browser", "simulator", "artifact", "context", "diff", "documents", "space-page", "library-page", "connections-page", "notifications-page", "settings-page", "profile-page", "schedules-page", "agents-page"]);
+ *  `document_workspaces` row id, and that row carries the environment.
+ *  `machine` (Plan 25 W3) sits beside `browser` because it is its sibling: a live remote surface with
+ *  a durable row behind it, whose `refId` is a `machines` row id. Deliberately NOT the reserved
+ *  `simulator`, which `Icon.tsx` maps to a phone and which `device-ax.ts` speaks about specifically.
+ *  A machine is not a phone. */
+export const ItemKindSchema = z.enum(["session", "terminal", "browser", "machine", "simulator", "artifact", "context", "diff", "documents", "space-page", "library-page", "connections-page", "notifications-page", "settings-page", "profile-page", "schedules-page", "agents-page"]);
 export type ItemKind = z.infer<typeof ItemKindSchema>;
 
 /**

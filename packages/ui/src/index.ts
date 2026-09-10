@@ -1,4 +1,4 @@
-export { Icon, icons, type IconName } from "./Icon";
+export { Icon, icons, isIconName, type IconName } from "./Icon";
 /* The marks by name, for the one renderer that writes HTML rather than React: assistant markdown,
    which draws a link to a known app as a chip and needs the path data as a string. */
 export { brandMarks, type BrandName } from "./brand-icons";

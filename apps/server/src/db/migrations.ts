@@ -515,4 +515,35 @@ export const migrations: string[] = [
   INSERT OR IGNORE INTO settings (key, value_json)
     VALUES ('artifacts.backfill', json_object('done', 0, 'target', COALESCE((SELECT MAX(seq) FROM session_events), 0)));
   `,
+  // v26 — machines (Plan 25 W3): a screen somewhere else, shown and driven in a pane.
+  //
+  // Modelled on `browsers` down to the index, because it is that table's sibling: a live surface with
+  // a durable row, one per space, whose id is an item's `ref_id`.
+  //
+  // NO STATUS COLUMN, and that is a decision rather than an omission. Status is a fact about a
+  // process or a socket, and neither survives a restart — a column would have to be rewritten to
+  // 'off' at every boot, and would be a lie for the entire window in which a machine was killed
+  // while the server was down. `terminals` has none for the same reason.
+  //
+  // `ws_port` is PER-RUN, cleared on stop and by `restoreAll`, under a UNIQUE index that SQLite's
+  // treatment of NULLs makes partial for free (distinct NULLs do not collide). So any number of
+  // stopped machines coexist, and the no-overlap invariant lives in the schema rather than in the
+  // allocator's care. Deliberately the opposite of `environments.port_block_start`, which is
+  // permanent because a dev server left running should keep the port it was reached at.
+  //
+  // `endpoint_json` rather than host/port columns: `qemu` and `mac` have no address at all, and two
+  // columns that are NULL for half the sources are two columns that mean nothing on half the rows.
+  //
+  // `password_sealed` holds the sealed box, never a plaintext, and `machineSecretBox` is what opens
+  // it. A row whose key is gone is a row whose machine needs the password typed again — which is
+  // recoverable, and is why this is a column rather than a reason to refuse to store the row.
+  `
+  CREATE TABLE machines (
+    id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    name TEXT NOT NULL, source TEXT NOT NULL, endpoint_json TEXT,
+    password_sealed TEXT, ws_port INTEGER,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE INDEX machines_space ON machines(space_id);
+  CREATE UNIQUE INDEX machines_ws_port ON machines(ws_port) WHERE ws_port IS NOT NULL;
+  `,
 ];
