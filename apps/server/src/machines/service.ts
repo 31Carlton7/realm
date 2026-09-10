@@ -47,7 +47,10 @@ export class MachineService {
     const space = this.d.spaces.get(p.spaceId);
     if (!space) throw new NotFoundError("space", p.spaceId);
     if (p.source !== "vnc") throw new RpcError("INVALID_ARGUMENT", UNBUILT[p.source]);
-    if (!p.endpoint) throw new RpcError("INVALID_ARGUMENT", "a machine reached by address needs one");
+    /* A machine with NO endpoint yet is legal, and it is what the session pane's button makes: the
+       connect flow is the pane's own body rather than a sheet, so the pane — and therefore the item,
+       and therefore the row — has to exist before there is an address to put in it. `start` is where
+       the absence is refused, with a reason, which is the honest place for it. */
 
     // Sealed BEFORE the transaction opens, because it is the one step that can decide not to store
     // anything: with no key from the desktop app there is no ciphertext, and this refuses rather

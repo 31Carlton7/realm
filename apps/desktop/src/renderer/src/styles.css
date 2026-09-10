@@ -39,7 +39,8 @@
 .sched-cron-input, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
 .sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-picker-row-id,
 .summary-fact .summary-row-name, .summary-file-path, .term-exit, .term-out, .terminal-hint-path,
-.theme-import textarea, .tool-body pre, .tool-stat, .tool-summary, .tool-well, .wt-path, button.md-path, kbd {
+.theme-import textarea, .tool-body pre, .tool-stat, .tool-summary, .tool-well, .wt-path, button.md-path, kbd,
+.machine-facts, .machine-detail, .machine-bar-size {
   letter-spacing: normal;
 }
 
@@ -1146,6 +1147,56 @@ button.panel-title:hover { background: var(--rl-hover); }
 .terminal-hint[data-hidden] { opacity: 0; }
 .terminal-hint-path { font: 12px var(--font-mono); color: var(--rl-terminal-ink); }
 .terminal-hint-keys { font-size: 11px; color: var(--rl-terminal-ink-dim); }
+/* ── Machine pane (Plan 25 W3) ─────────────────────────────────────────────
+   A screen somewhere else, drawn into a DOM canvas rather than a native view. Everything a browser
+   pane cannot have — menus, sheets, the palette opening OVER the surface — this one has for free,
+   which is why there is no `.machine-chrome` to match `.browser-chrome`: PanelBar is its only bar. */
+.machine-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* No hairline between the bar and the screen, and the same argument `.browser-chrome` makes: below
+   this sits an arbitrary desktop, which is light far more often than not, and a line drawn along an
+   edge that is already the strongest tonal step in the window is decoration. */
+.machine-screen { position: relative; flex: 1; min-width: 0; min-height: 0; display: grid; place-items: center;
+  /* Not `--canvas`. A guest desktop is arbitrary and must not fight a near-white surround in light
+     mode — the ruling `.terminal-pane` already writes down for its own interior. */
+  background: var(--rl-terminal-bg); overflow: hidden; }
+.machine-host { display: block; width: var(--machine-w); height: var(--machine-h); }
+/* The one-device-pixel inset outline every screenshot in the app wears. It is what stops a pale
+   guest desktop bleeding into the letterbox with no edge at all. */
+.machine-host canvas { display: block; width: 100%; height: 100%; box-shadow: var(--shadow-hairline); }
+/* Only where one framebuffer pixel really is one device pixel. Everywhere else there is genuine
+   resampling, and `pixelated` over a resampled image is a claim about sharpness that is not true. */
+.machine-screen[data-scale="actual"] .machine-host canvas { image-rendering: pixelated; }
+.machine-starting { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 8px;
+  color: var(--rl-terminal-ink-dim); font-size: 13px; pointer-events: none; }
+
+.machine-body { flex: 1; min-height: 0; overflow-y: auto; display: grid; place-items: center; padding: 24px; }
+.machine-rest, .machine-connect { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 380px; }
+.machine-title { margin: 0; font-size: 18px; font-weight: var(--fw-title); letter-spacing: -0.01em; color: var(--rl-text-bright); }
+/* Mono, because it is machine state: an address and a port. */
+.machine-facts { margin: 0; font: 12px var(--font-mono); color: var(--rl-text-dim); }
+.machine-hint { margin: 0; font-size: 12px; line-height: 1.5; color: var(--rl-text-faint); }
+.machine-reason { margin: 0; font-size: 13px; line-height: 1.5; color: var(--rl-text-bright); }
+.machine-detail { margin: 0; font: 12px var(--font-mono); line-height: 1.5; color: var(--rl-text-dim);
+  padding: 8px 10px; border-radius: var(--r-panel); background: var(--inset); overflow-wrap: anywhere; }
+.machine-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--rl-warning); }
+.machine-optional { color: var(--rl-text-faint); font-weight: var(--fw-medium); }
+.machine-routes { display: flex; gap: 4px; }
+.machine-routes button { flex: 1; height: 32px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
+  background: transparent; color: var(--rl-text-bright); font-size: 13px; transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+.machine-routes button[data-on] { background: color-mix(in srgb, var(--rl-accent) 18%, transparent); color: var(--rl-accent); border-color: transparent; }
+.machine-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--rl-text-dim); }
+.machine-field input { height: 32px; padding: 0 10px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
+  background: var(--field); color: var(--rl-text-bright); outline: none; font-size: 13px; }
+.machine-field-port input { width: 120px; font-variant-numeric: tabular-nums; }
+.machine-actions { display: flex; gap: 8px; }
+.machine-primary { height: 34px; padding: 0 14px; border-radius: var(--r-ctl); border: none;
+  background: var(--rl-accent); color: var(--rl-accent-contrast); font-size: 13px; font-weight: var(--fw-label);
+  transition: opacity var(--dur-hover) ease, scale var(--dur-press) var(--ease-out-strong); }
+.machine-primary:active { scale: 0.96; }
+.machine-primary:disabled { opacity: 0.6; }
+.machine-bar-meta { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--rl-text-dim); }
+.machine-bar-size { font: 11px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
+
 /* ── Browser pane (Plan 11 W1) ─────────────────────────────────────────────
    Chrome sits ABOVE the native WebContentsView; the view's bounds start below it. Every control is
    an inline toolbar button — no dropdowns, no menus (W2's no-overlay invariant starts here). */
@@ -1414,6 +1465,19 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* W4: an agent act is in flight on a browser. Accent, not success — this is "Realm is acting here,
    watch", a pointer to activity, not a session verdict. */
 .status-dot[data-status="driving"] { background: var(--rl-accent); }
+/* Machines (Plan 25 W3). Three values, and only three, because the rest of the vocabulary already
+   means what a machine needs: `running` is running and `failed` is an error.
+   `machine-off` is DECLARED rather than defaulted, so a typo in a status cannot silently render as
+   "not connected" — which is the one state a reader would never question.
+   `machine-suspended` is the app's one RING rather than a disc, and it earns the exception: off and
+   suspended are the only pair in the whole set with no hue available to separate them, so the
+   difference has to be a shape. design.md, "readable without color alone". */
+.status-dot[data-status="machine-off"] { background: var(--rl-text-faint); }
+.status-dot[data-status="machine-suspended"] { background: transparent; box-shadow: inset 0 0 0 1.5px var(--rl-text-dim); }
+/* MCP server status (W6) shares the same dot — "connected"/"circuit_open" are this domain's own words
+   for "running"/"waiting on the user", so they get the same success/danger treatment. Connected is
+   RESTING, though — the server is up, nothing is in flight — so it stays a plain dot. */
+
 /* MCP server status (W6) shares the same dot — "connected"/"circuit_open" are this domain's own words
    for "running"/"waiting on the user", so they get the same success/danger treatment. Connected is
    RESTING, though — the server is up, nothing is in flight — so it stays a plain dot. */
@@ -1433,7 +1497,8 @@ button.panel-title:hover { background: var(--rl-hover); }
    not an act in progress, and the alarm idiom for that is a blink. */
 .status-dot[data-status="running"]::after,
 .status-dot[data-status="waiting_permission"]::after,
-.status-dot[data-status="driving"]::after {
+.status-dot[data-status="driving"]::after,
+.status-dot[data-status="machine-booting"]::after {
   content: ""; position: absolute; inset: -3px; border-radius: 50%;
   border: 1px solid color-mix(in srgb, var(--ring) 60%, transparent);
   animation: rl-ping var(--ring-rate) var(--ease-out-strong) infinite;
@@ -1445,6 +1510,12 @@ button.panel-title:hover { background: var(--rl-hover); }
 .status-dot[data-status="running"]::after { --ring: var(--rl-success); --ring-rate: 1.8s; }
 .status-dot[data-status="waiting_permission"]::after { --ring: var(--rl-warning); --ring-rate: 0.9s; }
 .status-dot[data-status="driving"]::after { --ring: var(--rl-accent); --ring-rate: 0.9s; }
+/* Joins the in-flight ping family rather than borrowing `driving`, whose comment above says it means
+   an agent act is in flight — a different fact about a different actor. Accent, at the fast rate:
+   reaching a machine is something a person is waiting on. */
+.status-dot[data-status="machine-booting"] { background: var(--rl-accent); }
+.status-dot[data-status="machine-booting"]::after { --ring: var(--rl-accent); --ring-rate: 0.9s; }
+
 /* Ends at scale(1) rather than growing past the authored box: the halo the reduced-motion reader
    sees is the same 13px circle the ping resolves to, so the two forms are the same shape. */
 @keyframes rl-ping { from { transform: scale(.45); opacity: .85; } 70%, to { transform: scale(1); opacity: 0; } }
@@ -1454,7 +1525,8 @@ button.panel-title:hover { background: var(--rl-hover); }
 @media (prefers-reduced-motion: reduce) {
   .status-dot[data-status="running"]::after,
   .status-dot[data-status="waiting_permission"]::after,
-  .status-dot[data-status="driving"]::after { animation: none; }
+  .status-dot[data-status="driving"]::after,
+  .status-dot[data-status="machine-booting"]::after { animation: none; }
 }
 /* The one loading spinner — the G5 "Idling" orb (components/Spinner.tsx builds the dots and their
    nine poses). Nothing here rotates: each dot walks its own pre-projected pose table, so the whole
@@ -3167,7 +3239,9 @@ select { appearance: none; padding-right: 22px;
   /* documents */
   .documents-tabs, .documents-picker, .documents-rich-scroll, .documents-rich-surface, .documents-rich .tiptap, .documents-raw,
   /* the prompter — only the pinned strip's copy of the list is bounded enough to scroll */
-  .composer-todos .todo-list
+  .composer-todos .todo-list,
+  /* a machine's resting bodies — the connect form, and the failure's own detail well */
+  .machine-body
 ) { scrollbar-width: thin; }
 /* The sidebar's list is the one scroller that cannot take the standard properties, and it is worth
    the fork because two separate things go wrong without it.

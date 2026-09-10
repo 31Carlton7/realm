@@ -197,3 +197,26 @@ interface ComputerAccessStatus {
 }
 /** Mirrors BrowserViewState in the preload — the main→renderer browser state channel's payload. */
 interface BrowserViewState { id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean }
+
+/**
+ * noVNC ships no types (Plan 25 W3). Declared here rather than pulled from DefinitelyTyped, which
+ * carries a full surface for a library this app touches through exactly one constructor and the
+ * handful of members `RfbLike` names — and a full surface would let a call site reach for something
+ * the hub's seam has no way to fake.
+ *
+ * The package's exports map is a single string (`"exports": "./core/rfb.js"`), so this bare
+ * specifier is the only one that resolves.
+ */
+declare module "@novnc/novnc" {
+  export default class RFB {
+    constructor(target: HTMLElement, url: string, options?: Record<string, unknown>);
+    disconnect(): void;
+    focus(): void;
+    blur(): void;
+    addEventListener(type: string, fn: (e: Event) => void): void;
+    viewOnly: boolean;
+    scaleViewport: boolean;
+    sendKey(keysym: number, code: string | null, down?: boolean): void;
+    clipboardPasteFrom(text: string): void;
+  }
+}

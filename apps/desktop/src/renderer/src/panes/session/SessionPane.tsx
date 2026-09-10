@@ -59,8 +59,32 @@ export function SessionPanelActions({ item }: { item: Item }) {
     <SessionTerminalToggle item={item} />
     <SessionDocumentsButton item={item} />
     <SessionBrowserButton item={item} />
+    <SessionMachineButton item={item} />
   </>);
 }
+
+/**
+ * Opens a machine pane beside the session, with the connect flow ready (Plan 25 W3).
+ *
+ * Takes no precondition and is always offered, on the same reasoning `SessionBrowserButton` gives
+ * one line up: a machine is a PLACE YOU GO rather than a view of this session's checkout, so gating
+ * it on an environment would be gating it on something it has nothing to do with.
+ *
+ * There is deliberately no simulator button beside it. `simulator` is a reserved item kind with no
+ * registered pane — a simulator today is a browser pane pointed at `serve-sim` — so this cluster
+ * gains one button, not two.
+ */
+function SessionMachineButton({ item }: { item: Item }) {
+  const newMachine = useApp((s) => s.newMachine);
+  const run = useApp((s) => s.run);
+  return (
+    <button className="icon-btn" aria-label={`Connect a machine beside ${item.title}`} title="Machine"
+      onClick={() => run(() => newMachine(null, true))}>
+      <Icon name="machine" size={14} />
+    </button>
+  );
+}
+
 
 /** Opens a browser pane beside the session. Unlike documents and the terminal this is not rooted at
  *  the environment — a browser is a place you go, not a view of a checkout — so it takes no

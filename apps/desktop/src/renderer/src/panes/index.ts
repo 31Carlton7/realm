@@ -26,3 +26,5 @@ import { SchedulesPage } from "./schedules/SchedulesPage";
 registerPane("schedules-page", SchedulesPage);
 import { AgentsPage } from "./agents/AgentsPage";
 registerPane("agents-page", AgentsPage);
+import { MachinePane } from "./machine/MachinePane";
+registerPane("machine", MachinePane);

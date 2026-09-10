@@ -8,10 +8,11 @@ import {
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
-  type AgentKind, type Attachment, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageSummary,
+  type AgentKind, type Attachment, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineState, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
+import { getMachineHub } from "../panes/machine/machine-hub";
 import { CUE_BY_CATEGORY, cueVolume, type CueName } from "./cues";
 import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_SELECTION, clampContrast, clampGroundAlpha,
   isOverridden, parseFontPref, type FontPref,
@@ -139,6 +140,9 @@ export type Api = {
   createTerminal(spaceId: string): Promise<{ terminalId: string; itemId: string }>;
   /** `browsers.create` — row + item; the native view is the pane's own business (Plan 11 W1). */
   createBrowser(spaceId: string): Promise<{ browserId: string; itemId: string; url: string }>;
+  /** `machines.create` — row + item, with no address yet (Plan 25 W3). The connect flow is the
+   *  pane's own body rather than a sheet, so the pane has to exist before there is an address. */
+  createMachine(spaceId: string, name: string): Promise<{ machineId: string; itemId: string }>;
   /** Plan 17 W1. `environmentId` omitted roots the workspace at the space's primary checkout. */
   createDocuments(spaceId: string, environmentId?: string): Promise<{ documentsId: string; itemId: string }>;
   getDocuments(documentsId: string): Promise<DocumentWorkspace>;
@@ -674,6 +678,9 @@ export type AppState = {
   /** W4: browserIds an agent act/batch step is CURRENTLY in flight on — the "agent is driving" dot
    *  on the sidebar row and pane chrome. Every set is cleared by the matching settle broadcast. */
   browserDriving: Record<string, boolean>;
+  /** Live machine state by machineId (Plan 25 W3), from `machine.status`. Absent means `off`, which
+   *  is the only thing that is true about a machine nobody has connected to. */
+  machineState: Record<string, MachineState>;
   /** W2.4: the pre-snap layout while a sheet forced the browser leaf to a ≤50% split. Non-null
    *  exactly while a snap is active; the layout to restore when the sheet actually closes. */
   sheetSnap: { saved: Layout; spaceId: string | null } | null;
@@ -990,6 +997,8 @@ export type AppState = {
   /** New browser pane in the active space (opens into the target/focused leaf). */
   /** `beside` opens it in a split next to the focused pane instead of replacing it. */
   newBrowser(targetLeafId?: string | null, beside?: boolean): Promise<void>;
+  /** Opens a machine pane BESIDE the caller, with the connect flow ready — see `newBrowser`. */
+  newMachine(targetLeafId?: string | null, beside?: boolean): Promise<void>;
   updateItem(input: UpdateItemInput): Promise<void>;
   /** Shelve (or restore) a row. Archiving closes the pane first — a hidden row whose pane is still on
    *  screen is the one state the sidebar could not explain — so this is `updateItem` plus that close,
@@ -1083,6 +1092,7 @@ export type AppState = {
   /** W4 broadcasts: one settled action for the ticker's ring buffer / the driving flag flip. */
   applyBrowserAction(p: { browserId: string; text: string; ok: boolean; ts: number }): void;
   applyBrowserDriving(p: { browserId: string; driving: boolean }): void;
+  applyMachineState(s: MachineState): void;
   refreshSessions(): Promise<void>;
   /** Seed sessionSpace + statuses for every space (boot, reconnect, unknown-session broadcasts). */
   refreshAllSessions(): Promise<void>;
@@ -2079,7 +2089,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, submitKey: "enter", sidebarCollapsed: false, items: [], groups: null, layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
-      paletteOpen: false, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {},
+      paletteOpen: false, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, machineState: {},
       failover: null,
       spacePageTab: {}, profilePageTab: {}, mcpPanelSpaceId: null,
       sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
@@ -2395,6 +2405,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const { itemId } = await api.createBrowser(sid);
         await adoptItem(sid, itemId, targetLeafId, beside);
       },
+      /** Beside, never instead — a machine opened from a session's bar is a place to look at
+       *  something WHILE the session works, exactly like the browser button next to it. */
+      async newMachine(targetLeafId = null, beside = false) {
+        const sid = get().activeSpaceId; if (!sid) return;
+        const { itemId } = await api.createMachine(sid, "New machine");
+        await adoptItem(sid, itemId, targetLeafId, beside);
+      },
       async updateItem(input) {
         const sid = get().activeSpaceId;
         const it = await api.updateItem(input);
@@ -2531,6 +2548,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           const { [it.refId]: _ba, ...browserActions } = get().browserActions;
           const { [it.refId]: _bd, ...browserDriving } = get().browserDriving;
           set({ browserActions, browserDriving });
+        }
+        if (it?.kind === "machine") {
+          // Same reason the browser's ticker is pruned: a reused id must not inherit the last
+          // machine's dot, which would show a deleted machine as `running` in the sidebar.
+          const { [it.refId]: _ms, ...machineState } = get().machineState;
+          set({ machineState });
+          getMachineHub().dispose(it.refId);
         }
         if (it?.kind === "session") {
           dropTranscript(it.refId); loading.delete(it.refId);
@@ -2722,6 +2746,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const cur = get().browserActions[browserId] ?? [];
         const next = [...cur, { text, ok, ts }].slice(-BROWSER_ACTIONS_MAX);
         set({ browserActions: { ...get().browserActions, [browserId]: next } });
+      },
+      /** The no-churn guard `applyBrowserDriving` makes, for the same reason: a relay that reports the
+       *  same size twice must not repaint every sidebar row that carries a dot. */
+      applyMachineState(next) {
+        const cur = get().machineState[next.machineId];
+        if (cur && cur.status === next.status && cur.wsUrl === next.wsUrl && cur.width === next.width
+          && cur.height === next.height && cur.error === next.error) return;
+        set({ machineState: { ...get().machineState, [next.machineId]: next } });
       },
       applyBrowserDriving({ browserId, driving }) {
         const cur = get().browserDriving;

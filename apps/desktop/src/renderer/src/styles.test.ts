@@ -828,6 +828,10 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // actually has, set inline because the mark is a picture of a tree that changes per item.
       // Both carry a fallback of 1, so a glyph that never receives them is still a single cell.
       "--glyph-cols", "--glyph-rows",
+      // The machine screen's letterboxed size (panes/machine/MachinePane.tsx): computed by `fit.ts`
+      // from the guest's framebuffer, the pane's measured box and the display's scale factor, and
+      // set inline because none of those three is a thing a stylesheet can know.
+      "--machine-w", "--machine-h",
       // The session pane's measured height (SessionSummary.tsx): the cap the summary panel clamps
       // its content-driven height against. Set inline because only the DOM can measure a pane, and
       // used with a 100vh fallback, so a panel that never receives it is capped at the window rather
@@ -2574,5 +2578,71 @@ describe("the decorative wash", () => {
     expect(tokensCss).toContain("--grain-wash-l: 0.98");
     expect(wash).toContain("var(--grain-hue, 0)");
     expect(wash).toContain("var(--grain-x, 50%)");
+  });
+});
+
+/**
+ * The machine pane's surfaces (Plan 25 W3).
+ *
+ * Every rule here exists because the surface underneath is ARBITRARY — a stranger's desktop, which
+ * may be any colour and is white far more often than not. That is a different problem from every
+ * other pane in the app, and the answers are easy to undo by someone tidying up.
+ */
+describe("the machine pane's screen", () => {
+  it("letterboxes on the terminal's ground, not the canvas token", () => {
+    // A guest desktop must not fight a near-white surround in light mode — the ruling
+    // `.terminal-pane` already writes down for its own interior. `--canvas` is the working plane's
+    // colour and would put a pale border around a pale screen in exactly the mode it shows most.
+    const body = bodiesFor(".machine-screen").join(" ");
+    expect(body).toContain("background: var(--rl-terminal-bg)");
+    expect(body).not.toContain("var(--canvas)");
+  });
+
+  it("gives the canvas the one-device-pixel outline every screenshot in the app wears", () => {
+    // Without it a pale guest desktop bleeds into the letterbox with no edge at all, and the pane
+    // reads as one washed-out surface rather than as a screen inside a frame.
+    expect(bodiesFor(".machine-host canvas").join(" ")).toContain("box-shadow: var(--shadow-hairline)");
+  });
+
+  it("claims sharpness only where one framebuffer pixel really is one device pixel", () => {
+    // `image-rendering: pixelated` over a resampled image is a statement about the picture that is
+    // not true — and it looks WORSE than the resampling it is trying to disown.
+    const pixelated = RULES.filter((r) => /image-rendering:\s*pixelated/.test(r.body)).flatMap(partsOf);
+    expect(pixelated).toEqual(['.machine-screen[data-scale="actual"] .machine-host canvas']);
+  });
+
+  it("draws no seam between the pane bar and the screen", () => {
+    // `.browser-chrome`'s argument, and the same one: below the bar sits an arbitrary desktop, and a
+    // hairline along an edge that is already the strongest tonal step in the window is decoration.
+    const body = bodiesFor(".machine-screen").join(" ");
+    expect(body).not.toMatch(/border-top:(?!\s*none)/);
+    expect(bodiesFor(".machine-pane").join(" ")).not.toMatch(/border|box-shadow/);
+  });
+
+  it("keeps the signature curve off it — a screen is not a panel the eye rests in", () => {
+    // design.md gives the squircle to "a panel the eye rests in", and a remote desktop is content
+    // rather than a surface. A rounded corner over a guest's own square window is also a corner that
+    // eats pixels the guest drew.
+    const machineRules = RULES.filter((r) => partsOf(r).some((s) => s.includes(".machine-")));
+    expect(machineRules.filter((r) => /corner-shape/.test(r.body)).flatMap(partsOf)).toEqual([]);
+  });
+
+  it("gives `suspended` a shape rather than a fifth hue", () => {
+    // off and suspended are the only pair in the whole dot vocabulary with no hue available to
+    // separate them, so the difference has to be a form. design.md: readable without colour alone.
+    const suspended = bodiesFor('.status-dot[data-status="machine-suspended"]').join(" ");
+    expect(suspended).toContain("background: transparent");
+    expect(suspended).toMatch(/box-shadow:\s*inset/);
+    expect(bodiesFor('.status-dot[data-status="machine-off"]').join(" ")).toContain("background: var(--rl-text-faint)");
+  });
+
+  it("puts `booting` in the in-flight ping family rather than giving it a second animation", () => {
+    // The halo has to survive reduced motion, which the global `*` rule cannot reach on a
+    // pseudo-element — so a value added to the family without being added to BOTH lists is the one
+    // animation on the page that ignores the preference.
+    const ping = RULES.filter((r) => /animation:\s*rl-ping/.test(r.body)).flatMap(partsOf);
+    expect(ping).toContain('.status-dot[data-status="machine-booting"]::after');
+    const reduced = RULES.filter((r) => /animation:\s*none/.test(r.body)).flatMap(partsOf);
+    expect(reduced).toContain('.status-dot[data-status="machine-booting"]::after');
   });
 });

@@ -25,6 +25,7 @@ export const liveApi = (): Api => ({
   setGroups: (id, groups) => rpc().call("spaces.setGroups", { id, groups }),
   createTerminal: (spaceId) => rpc().call("terminals.create", { spaceId }),
   createBrowser: (spaceId) => rpc().call("browsers.create", { spaceId }),
+  createMachine: (spaceId, name) => rpc().call("machines.create", { spaceId, name }),
   createDocuments: (spaceId, environmentId) => rpc().call("documents.create", environmentId ? { spaceId, environmentId } : { spaceId }),
   getDocuments: (documentsId) => rpc().call("documents.get", { documentsId }),
   setDocumentTabs: (documentsId, openPaths, activePath) => rpc().call("documents.setTabs", { documentsId, openPaths, activePath }),

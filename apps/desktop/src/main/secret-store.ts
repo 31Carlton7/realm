@@ -335,7 +335,7 @@ export class SecretStore {
              launch after an update, because a feature nobody had used yet wanted a third key.
              Minted and folded in beside the other two instead — the existing keys are untouched, so
              nothing sealed under them stops opening. */
-          let machine = Buffer.from(String(json.machine ?? ""), "base64");
+          let machine: Buffer = Buffer.from(String(json.machine ?? ""), "base64");
           if (machine.length !== SECRET_KEY_BYTES) {
             machine = newSecretKey();
             file.keyring = this.d.safeStorage

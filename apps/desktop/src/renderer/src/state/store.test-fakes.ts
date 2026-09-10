@@ -617,6 +617,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       await wait("createBrowser");
       return { browserId: it.refId, itemId: it.id, url: "" };
     },
+    createMachine: async (sid, name) => {
+      calls.push(`createMachine:${sid}`);
+      const it = item(`i${++n}`, sid, { kind: "machine", title: name }); (data.items[sid] ??= []).push(it);
+      await wait("createMachine");
+      return { machineId: it.refId, itemId: it.id };
+    },
     updateItem: async (input) => {
       for (const list of Object.values(data.items)) {
         const i = list.findIndex((x) => x.id === input.id);
