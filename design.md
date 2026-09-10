@@ -138,10 +138,20 @@ Rules:
   itself than white on a near-black ground, so the same step down the alpha ladder lands weaker in
   light — the divider needed a heavier step there to reach the same reading. A per-mode value that
   looks inconsistent in the token file may be the only consistent thing on screen.
+- A native view is not on the same plane as the interface. A `WebContentsView` composites ABOVE the
+  window's DOM unconditionally, so anything the renderer draws beside one — a divider, a ring, a
+  focus outline — loses to it and cannot win back. Give such a view bounds INSET to the pixel grid,
+  never rounded to it: an edge rounded outward covers the pixel next door, and the pixel next door
+  is usually the only boundary the layout has. Losing a hairline of page content at the edge is
+  invisible; losing a divider is not.
 - Contrast claims about a hairline are pixel measurements, not stylesheet readings. What `8% white`
   comes to depends on the ground it lands on, and no amount of reading the CSS will tell you. Take
   the mean luminance either side of the line and the line itself, in both faces, with the line
   removed as the mutant. `pane-divider-live.mjs` and `sidebar-edge-live.mjs` are the pattern.
+  Know what the capture cannot see: a CDP screenshot renders the DOM only, so a native view over the
+  surface under test is simply absent from it and every reading comes back clean. When a native view
+  is in play the evidence is a real screen capture or an argument about the geometry, not a
+  `Page.captureScreenshot`.
 - A ring is one stroke on one curve. A hairline traced INSIDE a clip that rounds the same corner —
   an inward outline on an `overflow: hidden` group — is two anti-aliased edges half a pixel apart,
   and every corner of the permission chip group rendered as a thick dark arc. Draw the ring on an
@@ -315,6 +325,11 @@ string staying that way.
   is what says which kind of thing it is (a skill's spark, a picked element's target, an app's
   mark), drawn over the token's opening sigil so the painted run keeps every character's width.
   Links in prose are colour and weight, no underline; hover restores it.
+- A vendor that issues no client on the fly gets the user's own app, asked for BEFORE the sign-in
+  and with the one fact nobody guesses right (the redirect URL) printed in the steps. A Connect that
+  fails afterwards with "no client registered" is a door that opens onto a wall. Where the vendor
+  also refuses a loopback redirect, the callback goes through the site's HTTPS relay — a closed
+  bounce to this Mac, never a redirector — so the vendor sees one stable URL.
 - The apps a space connects to are a front door, not a second system: a card per vendor's own
   remote server, one action (Connect), and from then on an ordinary server in the list below with
   the same tools policy and activity. A card names what the connection is FOR in the prompter.
@@ -365,8 +380,17 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   open condition is sent once.
 - The sidebar answers where the user is and what else is available. Keep primary destinations,
   spaces, open items, and contextual actions visually separate.
-- Closing a pane should never imply deleting its session, terminal, or document unless deletion is
-  explicitly chosen.
+- Closing a pane should never imply deleting the object behind it. That rule is about objects that
+  outlive their pane — a session's transcript, a diff's checkout — and the × in a pane bar is right
+  exactly where one exists. It has no work to do where there is nothing underneath: a destination
+  page's `refId` is a sentinel, and a terminal, browser or documents pane is a thing opened at a
+  moment and finished with. A × on those closes into a drift of rows in the space that nobody asked
+  to keep, and the user reads it as the pane refusing to go away. Give those bars the trash instead,
+  and leave the layout-only close on ⌘W and in the ⋯ menu, named so it says which of the two it is.
+- A confirm step is owed by the OBJECT, not by the destructive-looking button. A pty, a live web
+  view and a document workspace are each something a stray click would cost you, so those arm first;
+  a page has nothing under it, and a second click that guards nothing is chrome charged for a
+  reassurance it cannot give.
 
 ## Agent sessions
 

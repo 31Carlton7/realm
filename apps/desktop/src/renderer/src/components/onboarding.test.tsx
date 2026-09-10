@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { AGENT_META, SELECTABLE_AGENT_KINDS, allItems } from "@realm/contracts";
+import { AGENT_META, SELECTABLE_AGENT_KINDS, SPACE_COLORS, allItems } from "@realm/contracts";
 import { Main } from "../App";
 import { Onboarding } from "./Onboarding";
 import { StoreContext, SETTING_LAST_AGENT, createAppStore } from "../state/store";
@@ -104,6 +104,45 @@ describe("first-run onboarding (W4)", () => {
     await waitFor(() => expect(store.getState().spaces).toHaveLength(1));
     expect(api.data.settings[SETTING_LAST_AGENT]).toBe("claude");
     expect(store.getState().spaces[0]!.profileId).toBe(store.getState().profiles[0]!.id);
+  });
+
+  it("puts the agent and the space in two labelled groups, agents first in the source", async () => {
+    /* Reading order is left to right, and a grid that folds puts the columns back in SOURCE order —
+       so the agent inventory has to come first in the DOM for the stacked case to read as the same
+       screen. The mutant is ordering them the other way to make the focused field come first, which
+       looks right at one width and inverts the screen at the other. */
+    await mountFresh();
+    const groups = screen.getAllByRole("group");
+    expect(groups.map((g) => g.querySelector("legend")?.textContent)).toEqual(["Agent", "Space"]);
+  });
+
+  it("carries the space's icon and colour, which the first screen used to decide silently", async () => {
+    // `completeOnboarding` wrote a folder glyph and the first palette colour straight into
+    // `createSpace`. The identity was always being chosen; it just was not being shown or asked.
+    const { store } = await mountFresh();
+    await waitFor(() => expect(screen.getByText("2.0.1")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("radio", { name: `Color ${SPACE_COLORS[3]}` }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Space name" }), { target: { value: "Versed" } });
+    fireEvent.click(start());
+    await waitFor(() => expect(store.getState().spaces).toHaveLength(1));
+    expect(store.getState().spaces[0]!.color).toBe(SPACE_COLORS[3]);
+  });
+
+  it("defaults the identity rather than leaving it blank, so Start works untouched", async () => {
+    const { store } = await mountFresh();
+    fireEvent.click(start());
+    await waitFor(() => expect(store.getState().spaces).toHaveLength(1));
+    expect(store.getState().spaces[0]!.color).toBe(SPACE_COLORS[0]);
+    expect(store.getState().spaces[0]!.icon).toBe("folder");
+  });
+
+  it("marks exactly one colour as chosen", async () => {
+    // A radiogroup where nothing is checked, or two things are, is a control that cannot say what it
+    // will do — and this one has a default, so "nothing checked" would be a lie about the outcome.
+    await mountFresh();
+    const checked = screen.getAllByRole("radio", { name: /^Color / }).filter((b) => b.getAttribute("aria-checked") === "true");
+    expect(checked).toHaveLength(1);
+    expect(checked[0]).toHaveAttribute("aria-label", `Color ${SPACE_COLORS[0]}`);
   });
 
   it("finishing onboarding lands in a session, not the empty-state placeholder", async () => {

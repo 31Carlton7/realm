@@ -427,15 +427,14 @@ kbd { font: 11px var(--font-mono); }
    stacked inside the same column got the same mark — and this glyph exists precisely for the reader
    who cannot otherwise tell two panes apart. A plain two-way split still draws two cells and looks
    exactly as it did; the second axis only appears when there is one. */
-.item-glyph {
-  width: 12px; height: 12px; flex: none; display: grid; gap: 1px;
-  grid-template-columns: repeat(var(--glyph-cols, 1), 1fr);
-  grid-template-rows: repeat(var(--glyph-rows, 1), 1fr);
-}
-.item-glyph span { background: var(--rl-line-strong); border-radius: 1px; }
-/* Glyph bars are neutral; the focused pane's row lifts them to ink (accent = ink now, V-C1 kept). */
-.item-glyph span[data-on] { background: var(--rl-text-dim); }
-.item[data-active] .item-glyph span[data-on] { background: var(--rl-text-bright); } /* W3: BUI active icons are ink, not accent */
+/* An SVG mini-map of the actual split tree (ItemList.paneMapOf), not a CSS grid: the rects sit at
+   whatever fractions the layout's own `sizes` put them at, which is what lets any arrangement be
+   drawn exactly rather than sorted into the nearest grid. */
+.item-glyph { width: 12px; height: 12px; flex: none; overflow: visible; }
+.item-glyph rect { fill: var(--rl-line-strong); }
+/* Panes are neutral; the row's own pane lifts to ink (accent = ink now, V-C1 kept). */
+.item-glyph rect[data-on] { fill: var(--rl-text-dim); }
+.item[data-active] .item-glyph rect[data-on] { fill: var(--rl-text-bright); } /* W3: BUI active icons are ink, not accent */
 .item-close, .item-shelf { opacity: 0; display: grid; place-items: center; width: 22px; height: 22px; margin-right: 3px; border-radius: var(--r-chip); color: var(--rl-text-dim); }
 .item:hover .item-close, .item:hover .item-shelf { opacity: 1; }
 .item-close:hover, .item-shelf:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
@@ -601,7 +600,8 @@ kbd { font: 11px var(--font-mono); }
 /* What the session was about — the last thing asked, and the first line of the answer. The ask is
    quoted rather than styled as a heading: it is the user's own words, and the panel is reporting
    them back rather than titling a section with them. */
-.summary-recap { display: flex; flex-direction: column; gap: 4px; padding: 4px 8px 10px; }
+.summary-recap { display: flex; flex-direction: column; gap: 4px; padding: 4px 8px 10px;
+  animation: rl-msg-in var(--dur-enter) var(--ease-out-strong); }
 .summary-recap-asked {
   margin: 0; padding-left: 8px; border-left: var(--hairline-w) solid var(--rl-line-strong);
   font-size: 12px; line-height: 1.45; color: var(--rl-text-faint);
@@ -988,6 +988,24 @@ kbd { font: 11px var(--font-mono); }
 .group-tab[data-active] { background: var(--rl-active); color: var(--rl-text-bright); }
 /* Drop target while a sidebar row is dragged over the tab (moves that pane into the group). */
 .group-tab[data-drop] { outline: 1.5px solid var(--rl-accent); outline-offset: -1.5px; }
+/* Reordering the strip itself. The two gestures share these tabs, so they must not share a mark:
+   dropping a PANE onto a tab targets the tab (an outline around it), dropping a TAB targets the gap
+   between two (a rule in the gap). One says "into this", the other "here". */
+.group-tab, .group-tab-end { position: relative; }
+.group-tab[data-insert]::after, .group-tab-end[data-insert]::after {
+  content: ""; position: absolute; top: 3px; bottom: 3px; width: 2px; border-radius: 1px;
+  background: var(--rl-accent); pointer-events: none;
+}
+/* In the 2px gap between tabs, not inside either of them — the gap is what is being named. */
+.group-tab[data-insert="before"]::after, .group-tab-end[data-insert="before"]::after { left: -2px; }
+.group-tab[data-insert="after"]::after { right: -2px; }
+/* The tab in flight stays legible but plainly lifted out of the row. */
+.group-tab[data-dragging] { opacity: .4; }
+/* The run past the last tab: a drop target with no appearance of its own, so "the end" is reachable
+   without landing on the right half of a short tab. Zero width at rest — it must cost the strip
+   nothing when nobody is dragging — and it opens into a landing strip only for the gesture. */
+.group-tab-end { flex: none; width: 0; align-self: stretch; }
+.group-tabs[data-reordering] .group-tab-end { width: 28px; }
 .group-tab-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
 .group-tab-renaming { padding: 2px 4px; }
 .group-tab-renaming .rename { width: 120px; }
@@ -1314,7 +1332,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .palette-opt.disabled { opacity: .45; cursor: default; }
 .palette-sec { padding: 8px 10px 3px; font-size: 11px; font-weight: var(--fw-title); letter-spacing: .06em; text-transform: uppercase; color: var(--rl-text-faint); }
 .palette-sec:not(:first-child) { margin-top: 4px; }
-.palette-hint .item-glyph { display: inline-grid; vertical-align: middle; }
+.palette-hint .item-glyph { vertical-align: middle; }
 .palette-hint kbd { padding: 1px 5px; border: var(--hairline-w) solid var(--rl-line-strong); border-radius: var(--r-chip); }
 .palette-icon { display: grid; place-items: center; width: 20px; color: var(--rl-text-dim); }
 .palette-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1773,8 +1791,14 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    is the one line in the transcript that is Realm talking about the session rather than anything
    that happened in it — a register the reader should be able to tell apart without reading the
    words, and one that matters more now it is on screen by default rather than after five minutes. */
+/* The closing line arrives when a turn settles, and the recap when the panel opens — both were hard
+   cuts. They fade in on the transcript's own rung (§6), the same entrance every block above them
+   uses, because that is what they are: one more thing the session produced. The component keys the
+   element on its own text, so a summary that CHANGES (a new turn, or the written one landing after
+   the derived one) fades the new words in rather than swapping them under the reader. */
 .msg-transcript-summary { margin: 6px 0 0; font-size: 11.5px; font-style: italic; line-height: 1.5;
-  color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+  color: var(--rl-text-faint); font-variant-numeric: tabular-nums;
+  animation: rl-msg-in var(--dur-enter) var(--ease-out-strong); }
 .new-msgs-pill { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; font-size: 12px;
   background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: var(--rl-shadow); }
 
@@ -2383,6 +2407,14 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    have or unreachable from a layer that takes no pointer events, so the affordance is a lift in the
    tint the chip already wears. `data-hot` is set by Composer.tsx from the textarea above. */
 .ch-mention[data-hot], .ch-element[data-hot] { text-decoration: underline; text-underline-offset: 2px; }
+/* …except a LINK chip, which must not underline. It is the one chip that already looks like a link
+   — an app's mark and accent ink — so an underline on top is the web's "this is a hyperlink", and
+   that is a promise this run does not keep: the pointer is over a mirror that takes no clicks, and
+   the gesture the highlight announces is one that takes the CHIP, not one that opens the URL. The
+   affordance becomes the tint lift `.ch-mention-stale[data-hot]` already uses — neither background
+   nor radius is a metric, so the mirror stays character-for-character over the textarea, which is
+   the one rule this layer may not break. */
+.ch-element[data-service][data-hot] { text-decoration: none; background: color-mix(in srgb, var(--rl-accent) 16%, transparent); border-radius: 3px; }
 /* A link chip is the SAME chip (same fill, same ink — the rule above) wearing its app's mark over
    the `@[` that opens the token. The delimiters keep their width and lose their ink, so the mirror
    still measures exactly what the textarea holds (the one rule a painted chip may not break) while
@@ -2416,6 +2448,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .market-state { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--rl-success); }
 .market-docs { font-size: 11.5px; color: var(--rl-text-faint); text-decoration: none; }
 .market-docs:hover { color: var(--rl-text-dim); text-decoration: underline; text-underline-offset: 2px; }
+.market-steps { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim); }
 .market-card[data-state="connected"] .market-mark { box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-success) 45%, transparent); }
 /* No pill of its own at rest and none on hover: a run that grew a ring only under the pointer would
    read as an element chip, and this one is going out as plain text. */
@@ -3012,13 +3045,38 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* ── First-run onboarding (W4): the whole pane, one centered sheet, nothing behind it ── */
 .onboarding-stage { flex: 1; display: grid; place-items: center; padding: 24px; overflow: auto; }
 /* Timing now comes from the shared `.sheet` rule (§6: 240ms) — W5 unified it, so this is geometry only. */
-.sheet.onboarding { width: min(440px, 100%); display: flex; flex-direction: column; }
+/* Wide enough for two columns of real content: an agent row needs its icon, its name and a status
+   pill without ellipsizing, and the space column has to hold a path. Narrower than this and the grid
+   below folds back to one column, which is the honest outcome rather than two cramped ones. */
+.sheet.onboarding { width: min(720px, 100%); display: flex; flex-direction: column; }
 /* The form is the sheet's flex column: head, a body that scrolls, and a foot that never does. The
    sheet used to scroll as one piece, which put the name field and the button under twelve rows of
    agents — the decision below the fold of the screen that exists to make it. */
 .onboarding-form { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 .onboarding-body { display: flex; flex-direction: column; gap: 14px; overflow: auto; min-height: 0; flex: 1; }
 .onboarding-lead { margin: 0; font-size: 12.5px; line-height: 1.5; }
+/* The two halves of first run: the agent inventory, and the space being made. `auto-fit` rather than
+   a breakpoint — the sheet is centred in a window the user can make any width, and the columns fold
+   into one the moment there is not room for two without a media query having to guess where that is.
+   `align-items: start` because the columns are not the same height and never will be: the agent list
+   grows with what is installed, and a short form stretched to match it is empty surface claiming room
+   it had nothing to put in.
+
+   No rule between them. The gap is the separation — a hairline here would be the decoration the
+   divider rules exist to catch, and these are two groups in one sheet, not two surfaces.
+
+   `minmax(min(248px, 100%), …)`, not `minmax(248px, …)`: a bare minimum is a FLOOR, so a track keeps
+   its 248px after there is only 191px to put it in and the columns hang out of the sheet. Measured
+   at a 520px window, where the sidebar leaves the stage barely wider than one column. The `min()`
+   lets the track give up its minimum when the container is smaller than it. */
+.onboarding-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(248px, 100%), 1fr)); gap: 16px 22px; align-items: start; }
+/* Each column is its own flow. `min-width: 0` on both because a grid child defaults to min-content
+   and a folder path would otherwise push the column wider than its track. */
+.onboarding-col { display: flex; flex-direction: column; min-width: 0; }
+.onboarding-space { gap: 12px; }
+/* The legends are the columns' headings and read as peers, so they take the same weight rather than
+   the quieter field-label tone `.cli-field legend` gives a lone group. */
+.onboarding-cols legend { margin-bottom: 2px; font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
 .onboarding-note { margin: 0; font-size: 11.5px; line-height: 1.45; color: var(--rl-text-faint); }
 /* Denser than the settings idiom the row comes from: eight found agents is an ordinary machine,
    and at the settings pitch that is most of a window before the folder and the name. */
@@ -4298,8 +4356,23 @@ select { appearance: none; padding-right: 22px;
 .notif-body { font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim); overflow-wrap: anywhere; }
 .notif-inline-card { margin-top: 4px; }
 .notif-sheet { display: flex; flex-direction: column; gap: 10px; }
-.notif-sheet-when { margin: 0; font-size: 11.5px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+/* When, then WHERE. The time and the place are one line of provenance, at the same faint rung — a
+   feed that collects rows from every space under every profile has to say which one this is, and it
+   is context rather than content, so it sits with the timestamp and not with the title. */
+.notif-sheet-when { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin: 0; font-size: 11.5px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.notif-sheet-where { display: inline-flex; align-items: center; gap: 4px; color: var(--rl-text-dim); }
+/* The profile qualifies the space, so it is drawn as a chip hanging off it rather than as a third
+   equal fact — two spaces called "Work" is the case this exists for. */
+.notif-sheet-profile { padding: 1px 6px; border-radius: var(--r-chip); corner-shape: squircle; background: var(--inset); color: var(--rl-text-faint); }
 .notif-sheet-read { align-self: center; font-size: 11.5px; color: var(--rl-text-faint); }
+/* The reply, which is a field and a button and deliberately not a composer: no chip row, no attach
+   button, nothing that would imply the prompter's whole vocabulary works here. */
+.notif-reply { display: flex; align-items: flex-end; gap: 8px; margin-top: 12px; }
+.notif-reply-input { flex: 1; min-width: 0; resize: none; padding: 8px 10px; border-radius: var(--r-ctl); corner-shape: squircle;
+  border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); font: inherit; font-size: 13px; line-height: 1.5; outline: none; }
+.notif-reply-input:focus { border-color: var(--rl-line-strong); }
+.notif-reply-input::placeholder { color: var(--rl-text-faint); }
+.notif-reply-send { flex: none; }
 
 .notif-jump { align-self: flex-start; height: auto; padding: 0; margin-top: 1px; font-size: 11.5px; color: var(--rl-text-dim); background: none; border: none; box-shadow: none; }
 .notif-jump:hover:not(:disabled) { color: var(--rl-accent); background: none; text-decoration: underline; }

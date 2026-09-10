@@ -1,9 +1,9 @@
-import { pickSpaceColor, CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip } from "@realm/contracts";
+import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip } from "@realm/contracts";
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
   allItems, closeItem as layoutClose, emptyLayout, equalizeSplit as layoutEqualize, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, modeWireValue, sessionModeOf,
   lectureWrapUpPrompt, localDateStamp, sessionEvent,
-  activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
+  activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveGroup as groupsMove, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, parseSpaceIcon, type ModelInfo,
@@ -191,6 +191,7 @@ export type Api = {
    *  response that failed the server's structural check. */
   generateIconAsset(profileId: string, prompt: string): Promise<IconAsset>;
   /** Native single-image picker for an icon upload; null when cancelled. */
+  describePaths(paths: string[]): Promise<PickedAttachment[]>;
   pickIconImage(): Promise<PickedFile | null>;
   compressIconImage(path: string): Promise<PickedFile | null>;
   uploadIconAsset(profileId: string, path: string): Promise<IconAsset>;
@@ -381,6 +382,8 @@ export type Api = {
   setMcpAllowedTools(spaceId: string, id: string, tools: string[] | null): Promise<void>;
   /** `mcp.oauth.start` — the renderer opens the returned URL itself (`window.open`). */
   startMcpOauth(id: string): Promise<{ authUrl: string }>;
+  /** A client the user registered with the vendor, for servers that issue none dynamically. */
+  setMcpOauthClient(id: string, client: { clientId: string; clientSecret?: string; relay: boolean }): Promise<void>;
   disconnectMcpOauth(id: string): Promise<void>;
   /** `mcp.retry` — closes a tripped circuit breaker and drops the stale client. */
   retryMcpServer(id: string): Promise<void>;
@@ -979,7 +982,10 @@ export type AppState = {
    * because it needs the ids each step returns, and the component would otherwise re-read them
    * out of state between awaits.
    */
-  completeOnboarding(input: { name: string; agentKind: AgentKind; folder: string | null }): Promise<void>;
+  /** `icon` and `color` are the space's own identity, chosen on the first screen rather than
+   *  assigned. Both are required by the caller because both have a real default there — a form that
+   *  cannot say what it picked would be a form that picked nothing. */
+  completeOnboarding(input: { name: string; agentKind: AgentKind; folder: string | null; icon: string; color: string }): Promise<void>;
   newTerminal(targetLeafId?: string | null): Promise<void>;
   /** New browser pane in the active space (opens into the target/focused leaf). */
   /** `beside` opens it in a split next to the focused pane instead of replacing it. */
@@ -1052,6 +1058,8 @@ export type AppState = {
   stepPaneGroup(delta: number): Promise<void>;
   /** Move an item into `groupId` (opening it there), out of whatever group held it before. */
   moveItemToPaneGroup(itemId: string, groupId: string): Promise<void>;
+  /** Move a group to a new index in the strip — the tab drag. `to` is the index it ends AT. */
+  movePaneGroup(groupId: string, to: number): Promise<void>;
   /** Focus a pane: `leafId` fills the whole pane host while the rest of the group stays exactly as it
    *  is — nothing is closed, moved, or removed from the group, and `unfocusPane` puts it all back. */
   focusPaneFull(leafId: string): Promise<void>;
@@ -1220,7 +1228,7 @@ export type AppState = {
   addLinkChip(sessionId: string, url: string): LinkChip | null;
   /** Connect one of the marketplace's apps to a space: create its MCP server row (once) and start
    *  OAuth, handing back the URL to open. */
-  connectApp(spaceId: string, connectorId: string): Promise<{ authUrl: string }>;
+  connectApp(spaceId: string, connectorId: string, client?: { clientId: string; clientSecret?: string }): Promise<{ authUrl: string }>;
   /** Fetch a space's skills library into `spaceSkills` (session open, `skills.changed`). */
   refreshSkills(spaceId: string): Promise<void>;
   /** Fetch the scan sources into `spaceSkillSources`. Separate from `refreshSkills` because the panel
@@ -2352,12 +2360,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       pickFolder() { return api.pickFolder(); },
       pathForFile(file) { return api.pathForFile(file); },
-      async completeOnboarding({ name, agentKind, folder }) {
+      async completeOnboarding({ name, agentKind, folder, icon, color }) {
         // app.ts seeds a "Personal" profile on first boot; creating one here is belt-and-braces so
         // the very first screen can never be a dead end.
         const profileId = get().profiles[0]?.id ?? (await get().createProfile("Personal")).id;
         await get().setDefaultAgent(agentKind);
-        await get().createSpace({ name, icon: "folder", profileId, color: pickSpaceColor(0) });
+        await get().createSpace({ name, icon, profileId, color });
         const sid = get().activeSpaceId;
         if (!sid) return;
         // The folder becomes the space's first project, and the session opens IN it — not in the
@@ -2640,6 +2648,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async moveItemToPaneGroup(itemId, groupId) {
         const gs = get().groups; if (!gs) return;
         await commitGroups(groupsMoveItem(gs, itemId, groupId));
+      },
+      async movePaneGroup(groupId, to) {
+        const gs = get().groups; if (!gs) return;
+        await commitGroups(groupsMove(gs, groupId, to));
       },
       /** Focus/unfocus never touch the layout — see groups.ts. They still persist: a focused pane that
        *  came back split after a restart would read as the app forgetting, not as a transient view. */
@@ -3250,7 +3262,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ draftLinks: { ...get().draftLinks, [sessionId]: [...(get().draftLinks[sessionId] ?? []), chip] } });
         return chip;
       },
-      async connectApp(spaceId, connectorId) {
+      async connectApp(spaceId, connectorId, client) {
         const c = CONNECTORS.find((x) => x.id === connectorId);
         if (!c) throw new Error(`unknown connector ${connectorId}`);
         // One row per app, however many times Connect is pressed: a second press on a row whose
@@ -3258,6 +3270,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const name = connectorServerName(c);
         const existing = get().mcpServers.find((s) => s.name === name);
         const server = existing ?? await get().addMcpServer({ spaceId, name, transport: c.transport, url: c.url });
+        // A vendor that issues no client on the fly gets the one the user registered, and the
+        // callback through the site's HTTPS relay — the two are one decision (see `Connector.oauth`).
+        if (client) await api.setMcpOauthClient(server.id, { ...client, relay: c.oauth === "app" });
         return get().startMcpOauth(server.id);
       },
       addElementChip(sessionId, element) {
@@ -3385,11 +3400,22 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async attachFiles(sessionId, files) {
         const picked: PickedAttachment[] = [];
+        // Paths first, in ONE round trip. The renderer knows a dropped item's name and Chromium's
+        // idea of its type, and neither can tell a folder from an extensionless file — only a `stat`
+        // can, which is why the answer is asked of main rather than guessed here. A failure falls
+        // back to the guess: an attachment described a little wrongly beats a drop that does nothing.
+        const paths = new Map<File, string>();
+        for (const f of files) { const p = api.pathForFile(f); if (p) paths.set(f, p); }
+        const described = new Map<string, PickedAttachment>();
+        if (paths.size > 0) {
+          try { for (const d of await api.describePaths([...paths.values()])) described.set(d.path, d); }
+          catch { /* fall through to the name-derived guess below */ }
+        }
         for (const f of files) {
-          const path = api.pathForFile(f);
+          const path = paths.get(f);
           // A dropped file is already on disk. A pasted one is not — and every adapter's contract is a
           // path, so it has to be written out before it can be attached at all.
-          if (path) picked.push({ path, mime: f.type || mimeForPath(f.name || path), name: f.name || basenameOf(path), size: f.size });
+          if (path) picked.push(described.get(path) ?? { path, mime: f.type || mimeForPath(f.name || path), name: f.name || basenameOf(path), size: f.size });
           else picked.push(await api.saveTempAttachment(f.name || "pasted", f.type, new Uint8Array(await f.arrayBuffer())));
         }
         addAttachments(sessionId, picked);

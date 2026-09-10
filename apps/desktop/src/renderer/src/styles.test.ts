@@ -578,6 +578,22 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(bodiesFor(".ch-mention-stale[data-hot]").join(" ")).not.toContain("box-shadow");
   });
 
+  it("a hovered LINK chip lifts without underlining — it is not a hyperlink", () => {
+    /* The one chip that already looks like a link: an app's mark and accent ink. An underline on top
+       is the web's "this is a hyperlink", and that is a promise the run does not keep — the pointer
+       is over a mirror that takes no clicks, and the gesture the highlight announces takes the CHIP
+       rather than opening the URL. THE mutant is the rule being dropped, which puts the underline
+       straight back via `.ch-element[data-hot]`. */
+    const body = bodiesFor(".ch-element[data-service][data-hot]").join(" ");
+    expect(body).toContain("text-decoration: none");
+    // …and it still says "target" some other way, or the affordance is simply gone.
+    expect(body).toMatch(/background:/);
+    // The override has to outrank the underline it is overriding: same layer, more specific.
+    const generic = RULES.findIndex((r) => r.selectors.includes(".ch-element[data-hot]"));
+    const link = RULES.findIndex((r) => r.selectors.includes(".ch-element[data-service][data-hot]"));
+    expect(link, "the link rule must come after the one it overrides").toBeGreaterThan(generic);
+  });
+
   it("the highlight mirror matches the textarea's text metrics exactly", () => {
     const mirror = bodiesFor(".composer-highlight").join(" ");
     const input = bodiesFor(".composer-input").join(" ");
