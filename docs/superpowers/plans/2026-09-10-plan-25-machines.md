@@ -3,9 +3,12 @@
 > Numbered 25: 24 (inline UI) is the highest on this branch. Renumber on landing if it collides with
 > another session's in-flight plan.
 
-> **Status (2026-09-10): scoped, not built.** The order of work is at the bottom; nothing below has
-> shipped yet. The QEMU facts in "Verified on this Mac" were checked directly and should not be
-> re-derived.
+> **Status (2026-09-10): W1–W7 built.** Every spike below was RUN, and the results are recorded in
+> "Spikes, resolved" near the bottom rather than left as questions. Two things changed under
+> measurement and the plan text above them has been left as written, with the correction beside it:
+> `machine-pane-live.mjs` found that the relay forwarded the client's own handshake into the
+> machine's message stream (a correctly-sized black canvas, green suite), and noVNC's own
+> `scaleViewport` turned out to be required rather than forbidden.
 
 ## Context
 
@@ -763,6 +766,41 @@ assumption.
   in this checkout, so re-check the version and size at the moment W3 adds the dependency.
 - **Renderer CSP already permits `connect-src ws://127.0.0.1:*`** — no CSP change is needed for either
   the proxy or QEMU's own WebSocket.
+
+## Spikes, resolved
+
+Run on QEMU 10.2.0, 2026-09-10. Recorded so nobody re-derives them.
+
+1. **QEMU's own WebSocket VNC — not needed.** The relay was built first, as planned, and it turned
+   the question into an optimisation nobody has to answer. Realm reaches every guest over its own
+   loopback TCP.
+2. **UEFI vars: resolved, and better than hoped.** A 64 MiB zero-filled pflash on unit 1 boots
+   `edk2-aarch64-code.fd` with no stderr, and the firmware **writes to it** — so boot entries
+   persist with no `edk2-aarch64-vars.fd` to copy. It is created with `wx` so a reboot never wipes
+   the boot order the firmware just saved.
+3. **`share=ignore` + `password-secret=`: accepted together.** The full argv parses and the listener
+   comes up. Also measured, and now a test: `-vnc :72` binds `*:5972` — every interface — while
+   `-vnc 127.0.0.1:71` binds loopback only.
+4. **`screendump` works, and the resolution is a lie.** Against `virtio-gpu-pci` with `-display
+   none` it produced a **640×480** PNG despite `xres=1280,yres=800`, because nothing had initialised
+   the display. So `QmpDriver` reads dimensions out of the image and never from the spec.
+5. **`input-send-event` refuses a paused VM** — "VM not running". That is exactly the suspended
+   case, so it is turned into "this machine is suspended, resume it first" rather than relayed.
+6. **RAM cap: not needed yet.** `hvf` + `-cpu host` was not pushed past free memory; the catalog's
+   defaults are 1–4 GB and a server-side cap is still unwritten. Named as open.
+7. **A second `WebSocketServer` in the bundle: fine.** `pnpm build` produces a working ESM bundle
+   with both listeners; `ws` was already externalised for `rpc/server.ts`.
+8. **RFB decode cost: not measured.** The pane is smooth against a 1440×900 test pattern in the live
+   check, but no timing was taken. WebCodecs remains unneeded and unproven.
+
+Three further things measured that the plan did not ask about, each now a test:
+
+- **`des-ecb` does not exist in this suite's Node.** OpenSSL 3 moved single DES to the legacy
+  provider; Electron's BoringSSL still has it. `des-ede3` with the key three times is single DES and
+  is in the default provider everywhere.
+- **`BrowserWindow.capturePage` composites no child `WebContentsView`** — a window entirely covered
+  by a bright green page captures as pure white. The view's own capture is the evidence.
+- **`ws` takes subprotocols as its second ARGUMENT.** An `options.protocol` is silently nothing.
 
 ## Risks and stated assumptions
 
