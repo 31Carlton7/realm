@@ -126,6 +126,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
   const openItem = useApp((s) => s.openItem);
   const newTerminal = useApp((s) => s.newTerminal);
   const newBrowser = useApp((s) => s.newBrowser);
+  const newMachine = useApp((s) => s.newMachine);
   const openDocuments = useApp((s) => s.openDocuments);
   const newSession = useApp((s) => s.newSession);
   const newSessionInstant = useApp((s) => s.newSessionInstant);
@@ -249,6 +250,10 @@ function PaletteBody({ closing }: { closing: boolean }) {
       ...(activeSpaceId ? [act("new-group", "New pane group", "group", () => run(() => newPaneGroup()))] : []),
       act("new-terminal", "New terminal", "terminal", () => run(() => newTerminal()), <kbd>⌘T</kbd>),
       act("new-browser", "New browser", "browser", () => run(() => newBrowser())),
+      /* "Connect", not "New machine": what this makes is a pane with a connect flow in it, and a
+         machine only exists once there is somewhere to reach. It lands where you are looking, like
+         the browser above it — the session pane's own button is the one that opens beside. */
+      act("new-machine", "Connect a machine", "machine", () => run(() => newMachine())),
       // "Documents", not "New documents": one workspace per environment (the server dedupes), so this
       // is an open-or-focus, and calling it "New" would promise a second pane it will never create.
       act("open-documents", "Documents", "documents", () => run(() => openDocuments())),
@@ -322,7 +327,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
 
     return [...open, ...activeRest, ...others, ...actions, ...themes, ...palettes];
   }, [spaces, activeSpaceId, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref, themeNames, mode, drafts, dispatchDraft,
-      selectSpace, openItem, newTerminal, newBrowser, openDocuments, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeFromLayout, requestRename,
+      selectSpace, openItem, newTerminal, newBrowser, newMachine, openDocuments, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeFromLayout, requestRename,
       interruptSession, jumpToPermission, applyPreset, setThemePref, setThemeName, openSheet, openSpacePage, openDestinationPage, destinationPageElsewhere, openProfilePage, openActivity, setSpacesOpen, run,
       groups, zoomedLeaf, activatePaneGroup, newPaneGroup, toggleFocusPane]);
 

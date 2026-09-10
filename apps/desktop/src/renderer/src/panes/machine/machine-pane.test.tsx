@@ -72,6 +72,66 @@ describe("the machine pane is DOM, not a native view", () => {
   });
 });
 
+describe("the keyboard", () => {
+  const HOTKEYS = strip(Object.values(import.meta.glob("../../hotkeys.ts", { query: "?raw", import: "default", eager: true }) as Record<string, string>)[0]!);
+
+  /**
+   * Two properties of `hotkeys.ts` that make a machine pane work with no edit to it at all — and
+   * both are one line from breaking, which is why they are asserted here rather than trusted.
+   */
+  it("lets Escape reach the guest, because the global binding acts only on a session", () => {
+    // Esc is a key a guest needs — it is how you leave a dialog in any OS. The global binding is
+    // "interrupt the running session", and widening its guard past `kind === "session"` would make
+    // pressing Esc in a machine pane interrupt whatever session happened to be focused.
+    expect(HOTKEYS).toContain('e.key === "Escape"');
+    expect(HOTKEYS).toContain('it?.kind === "session"');
+  });
+
+  it("treats a focused canvas as not editable, so the grab is what decides — not a tag name", () => {
+    // `isEditableTarget` exempts INPUT, TEXTAREA, contenteditable and `.xterm`. A canvas is none of
+    // them, so Realm's bindings fire over a machine pane by default and the grab toggle is the ONE
+    // thing that changes it. Adding "canvas" to that list would make the toggle a no-op that still
+    // lights up.
+    expect(HOTKEYS).toContain('t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable');
+    expect(HOTKEYS).not.toContain('"CANVAS"');
+    expect(HOTKEYS).not.toContain(".machine-screen");
+  });
+
+  /**
+   * The grab has to win, and capture is the only thing that guarantees it.
+   *
+   * `hotkeys.ts` listens on `window` in the BUBBLE phase. Capture on the same target always runs
+   * first, so `stopPropagation` in capture means the global handler never runs at all. A bubble-
+   * phase listener — on the pane or on `window` — would be a coin toss decided by registration
+   * order, and the losing side of that toss is a lit toggle that changes nothing.
+   *
+   * Two mutants: dropping the `true`, and hotkeys moving to capture itself (which would put them
+   * back in a race). Both are asserted, because only one of them lives in this file.
+   */
+  it("swallows in the capture phase, which is the only thing that beats a bubble listener", () => {
+    const pane = SOURCES["./MachinePane.tsx"]!;
+    expect(pane).toContain('window.addEventListener("keydown", swallow, true)');
+    expect(pane).toContain("e.stopPropagation()");
+    expect(HOTKEYS).toContain('window.addEventListener("keydown", onKey)');
+    expect(HOTKEYS, "hotkeys moved to capture — the grab is now a race").not.toMatch(/addEventListener\("keydown",\s*onKey,\s*true\)/);
+    /* Never preventDefault IN THE SWALLOW: the key still has to reach the canvas for noVNC to send
+       it on. Scoped to the handler rather than the file, because the connect form's submit legitimately
+       prevents its own default and a file-wide assertion would be testing the wrong function. */
+    const swallow = pane.slice(pane.indexOf("const swallow ="), pane.indexOf("window.addEventListener"));
+    expect(swallow).toContain("stopPropagation");
+    expect(swallow).not.toContain("preventDefault");
+  });
+
+  /* ⌘Q can never reach a guest and the pane must not pretend otherwise. A menu accelerator fires in
+     MAIN before the renderer sees a keydown — `hotkeys.ts` writes that down for ⌘W — so this is a
+     structural guarantee rather than a handler, and the mutant is deleting `{ role: "appMenu" }`
+     from `installMenu`, which would hand ⌘Q to the page instead of quitting. */
+  it("cannot capture what the platform ate first, and the app menu is what guarantees it", () => {
+    const main = strip(Object.values(import.meta.glob("../../../../main/index.ts", { query: "?raw", import: "default", eager: true }) as Record<string, string>)[0]!);
+    expect(main).toContain('{ role: "appMenu" }');
+  });
+});
+
 describe("one scaler, and it is driven by fit.ts", () => {
   /**
    * The mutant is `scaleViewport = false`, and it is tempting: `fit.ts` owns the geometry, so

@@ -681,6 +681,10 @@ export type AppState = {
   /** Live machine state by machineId (Plan 25 W3), from `machine.status`. Absent means `off`, which
    *  is the only thing that is true about a machine nobody has connected to. */
   machineState: Record<string, MachineState>;
+  /** Which machines are currently swallowing Realm's own shortcuts (Plan 25 W3). Absent is off,
+   *  which is the default and the answer for every machine nobody has turned it on for. Renderer
+   *  state, never persisted: a grab is about the keyboard in front of you right now. */
+  machineGrab: Record<string, boolean>;
   /** W2.4: the pre-snap layout while a sheet forced the browser leaf to a ≤50% split. Non-null
    *  exactly while a snap is active; the layout to restore when the sheet actually closes. */
   sheetSnap: { saved: Layout; spaceId: string | null } | null;
@@ -1093,6 +1097,7 @@ export type AppState = {
   applyBrowserAction(p: { browserId: string; text: string; ok: boolean; ts: number }): void;
   applyBrowserDriving(p: { browserId: string; driving: boolean }): void;
   applyMachineState(s: MachineState): void;
+  setMachineGrab(machineId: string, on: boolean): void;
   refreshSessions(): Promise<void>;
   /** Seed sessionSpace + statuses for every space (boot, reconnect, unknown-session broadcasts). */
   refreshAllSessions(): Promise<void>;
@@ -2089,7 +2094,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, submitKey: "enter", sidebarCollapsed: false, items: [], groups: null, layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
-      paletteOpen: false, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, machineState: {},
+      paletteOpen: false, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, machineState: {}, machineGrab: {},
       failover: null,
       spacePageTab: {}, profilePageTab: {}, mcpPanelSpaceId: null,
       sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
@@ -2553,7 +2558,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           // Same reason the browser's ticker is pruned: a reused id must not inherit the last
           // machine's dot, which would show a deleted machine as `running` in the sidebar.
           const { [it.refId]: _ms, ...machineState } = get().machineState;
-          set({ machineState });
+          const { [it.refId]: _mg, ...machineGrab } = get().machineGrab;
+          set({ machineState, machineGrab });
           getMachineHub().dispose(it.refId);
         }
         if (it?.kind === "session") {
@@ -2749,6 +2755,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       /** The no-churn guard `applyBrowserDriving` makes, for the same reason: a relay that reports the
        *  same size twice must not repaint every sidebar row that carries a dot. */
+      setMachineGrab(machineId, on) {
+        const cur = get().machineGrab;
+        if ((cur[machineId] === true) === on) return;
+        if (on) { set({ machineGrab: { ...cur, [machineId]: true } }); return; }
+        const { [machineId]: _g, ...rest } = cur;
+        set({ machineGrab: rest });
+      },
       applyMachineState(next) {
         const cur = get().machineState[next.machineId];
         if (cur && cur.status === next.status && cur.wsUrl === next.wsUrl && cur.width === next.width

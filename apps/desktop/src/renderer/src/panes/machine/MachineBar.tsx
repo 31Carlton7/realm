@@ -53,21 +53,38 @@ export function dotFor(status: string): string {
 }
 
 /**
- * One inline stateful toggle: connected, or not.
+ * Two inline stateful toggles: the connection, and the keyboard.
  *
- * `data-on` like `focusToggle`, because it changes what the pane IS and has to be readable without
- * opening a menu. It carries `aria-pressed` and NOT a state in its name — design.md is explicit that
- * a toggle takes one or the other, never both.
+ * `data-on` like `focusToggle`, because each changes what the pane IS and has to be readable without
+ * opening a menu — the grab especially, since it changes what EVERY key does and a person who
+ * cannot see that it is on has no way to work out why ⌘T stopped opening a terminal. Both carry
+ * `aria-pressed` and NOT a state in the name: design.md is explicit that a toggle takes one or the
+ * other, never both.
+ *
+ * Grab is default OFF, and that is a decision about whose muscle memory wins. Realm's global hotkeys
+ * run on `window` and `preventDefault`, so ⌘T opens a Realm terminal rather than reaching the guest
+ * — and a Realm user's muscle memory is Realm's until they say otherwise.
  */
 export function MachinePanelActions({ item }: { item: Item }) {
   const state = useApp((s) => s.machineState[item.refId]);
+  const grabbed = useApp((s) => s.machineGrab[item.refId] === true);
+  const setGrab = useApp((s) => s.setMachineGrab);
   const status = state?.status ?? "off";
   const on = status === "running" || status === "booting";
   const toggle = () => { void rpc().call(on ? "machines.stop" : "machines.start", { machineId: item.refId }).catch(() => {}); };
-  return (
+  return (<>
+    {/* Only while there is a screen to send keys to. A grab toggle on a pane showing a connect form
+        would change what every key does for no reason anybody could see. */}
+    {status === "running" && (
+      <button className="icon-btn" aria-label={`Send keystrokes to ${item.title}`} aria-pressed={grabbed}
+        data-on={grabbed || undefined} title={grabbed ? "Realm's shortcuts are off" : "Grab keyboard"}
+        onClick={() => setGrab(item.refId, !grabbed)}>
+        <Icon name="key" size={14} />
+      </button>
+    )}
     <button className="icon-btn" aria-label={`Connection to ${item.title}`} aria-pressed={on} data-on={on || undefined}
       title={on ? "Disconnect" : "Connect"} onClick={toggle}>
       <Icon name="plug" size={14} />
     </button>
-  );
+  </>);
 }

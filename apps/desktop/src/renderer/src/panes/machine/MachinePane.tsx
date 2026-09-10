@@ -287,6 +287,7 @@ function FailedBody({ state, machineId, onEdit }: { state: MachineState; machine
  */
 function Screen({ machineId, state }: { machineId: string; state: MachineState }) {
   const holder = useRef<HTMLDivElement>(null);
+  const grabbed = useApp((s) => s.machineGrab[machineId] === true);
   const [box, setBox] = useState({ width: 0, height: 0 });
   const [dpr, setDpr] = useState(() => window.devicePixelRatio || 1);
   const [mode] = useState<FitMode>("fit");
@@ -331,11 +332,40 @@ function Screen({ machineId, state }: { machineId: string; state: MachineState }
     return () => mq.removeEventListener("change", fn);
   }, [dpr]);
 
+  /**
+   * Grab keyboard: stop Realm's own bindings before they see the key.
+   *
+   * On `window` and in the CAPTURE phase. `hotkeys.ts` listens on `window` too, but in the BUBBLE
+   * phase — and capture on the same target always runs first, so `stopPropagation` here means the
+   * global handler never runs at all. A bubble-phase listener, on the pane or on `window`, would be
+   * a coin toss decided by registration order: the toggle would light up and ⌘T would still open a
+   * Realm terminal.
+   *
+   * Nothing is `preventDefault`ed: the key still has to reach the canvas, and noVNC's own handler is
+   * what sends it to the guest.
+   *
+   * What this CANNOT take is what the platform ate first. ⌘Q, ⌘Tab and ⌘Space are menu accelerators
+   * and window-server chords, and a menu accelerator fires in the main process before the renderer
+   * sees a keydown at all — `hotkeys.ts` writes that down for ⌘W. So the grab is honest about being
+   * a grab of REALM's shortcuts, not of the Mac's, and the chords the platform keeps belong to a
+   * Send key ▸ menu instead.
+   */
+  useEffect(() => {
+    if (!grabbed) return;
+    const swallow = (e: KeyboardEvent) => { if (holder.current?.contains(e.target as Node)) e.stopPropagation(); };
+    window.addEventListener("keydown", swallow, true);
+    window.addEventListener("keyup", swallow, true);
+    return () => {
+      window.removeEventListener("keydown", swallow, true);
+      window.removeEventListener("keyup", swallow, true);
+    };
+  }, [grabbed]);
+
   const fb = { width: state.width ?? 0, height: state.height ?? 0 };
   const fit = useMemo(() => fitFramebuffer(fb, box, dpr, mode), [fb.width, fb.height, box.width, box.height, dpr, mode]);
 
   return (
-    <div className="machine-screen" data-scale={mode} ref={holder}
+    <div className="machine-screen" data-scale={mode} data-grabbed={grabbed || undefined} ref={holder}
       style={{ ["--machine-w" as string]: `${fit.cssWidth}px`, ["--machine-h" as string]: `${fit.cssHeight}px` }}>
       {!ready && (
         <div className="machine-starting" role="status">

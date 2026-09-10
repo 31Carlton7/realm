@@ -1,9 +1,9 @@
 import { createServer as createTcpServer, type Server as NetServer } from "node:net";
 import { createServer as createTlsServer, type Server as TlsServer } from "node:tls";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import { WebSocketServer } from "ws";
 import { afterEach, describe, expect, it } from "vitest";
@@ -53,10 +53,13 @@ const collect = (t: DialTarget) => {
  *
  * Returns null where `openssl` is not on the PATH, and the TLS test skips rather than fails: this is
  * a test about Realm's dialling, and a machine without openssl has said nothing about that.
+ *
+ * Through `tempDir` rather than `mkdtemp`, which the suite has its own test about: a bare one left
+ * 974 directories and 93 GB behind across a full run, and the resulting ENOSPC reported itself as
+ * ordinary test failures somewhere else entirely.
  */
-function selfSigned(): { key: string; cert: string; dir: string } | null {
-  let dir: string;
-  try { dir = mkdtempSync(join(tmpdir(), "realm-dial-tls-")); } catch { return null; }
+function selfSigned(): { key: string; cert: string } | null {
+  const dir = tempDir("realm-dial-tls-");
   try {
     execFileSync("openssl", [
       "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
@@ -64,9 +67,8 @@ function selfSigned(): { key: string; cert: string; dir: string } | null {
       "-addext", "subjectAltName=IP:127.0.0.1",
       "-keyout", join(dir, "key.pem"), "-out", join(dir, "cert.pem"),
     ], { stdio: "ignore" });
-    return { key: readFileSync(join(dir, "key.pem"), "utf8"), cert: readFileSync(join(dir, "cert.pem"), "utf8"), dir };
+    return { key: readFileSync(join(dir, "key.pem"), "utf8"), cert: readFileSync(join(dir, "cert.pem"), "utf8") };
   } catch {
-    rmSync(dir, { recursive: true, force: true });
     return null;
   }
 }
@@ -101,7 +103,6 @@ describe("dialling a machine", () => {
   it("carries bytes both ways over TLS, and opens only once the handshake has finished", async () => {
     const tls = selfSigned();
     if (!tls) { expect(true, "openssl is not on the PATH — TLS dialling is untested on this machine").toBe(true); return; }
-    closers.push(() => rmSync(tls.dir, { recursive: true, force: true }));
     const server: TlsServer = createTlsServer({ key: tls.key, cert: tls.cert }, (sock) => {
       sock.on("data", (d) => sock.write(Buffer.concat([Buffer.from("echo:"), d])));
       sock.write(Buffer.from("RFB 003.008\n"));
@@ -124,7 +125,6 @@ describe("dialling a machine", () => {
   it("fails visibly when a TLS endpoint is dialled as plain TCP", async () => {
     const tls = selfSigned();
     if (!tls) { expect(true).toBe(true); return; }
-    closers.push(() => rmSync(tls.dir, { recursive: true, force: true }));
     const server: TlsServer = createTlsServer({ key: tls.key, cert: tls.cert }, (sock) => sock.write(Buffer.from("RFB 003.008\n")));
     const port = await listen(server);
     const c = collect({ transport: "tcp", host: "127.0.0.1", port, path: "/" });
