@@ -5,6 +5,13 @@
  * This is deliberately separate from electron-updater: local builds are unsigned and do not have
  * a public update feed, so Squirrel cannot safely install them. `pnpm app:update` builds first, then
  * runs this script to perform a guarded, rollback-capable swap.
+ *
+ * What it leaves behind: the build it copied FROM, still sitting in `apps/desktop/release/`, still
+ * claiming `co.charmtechnologies.realm`. macOS registers it, and once several bundles claim one
+ * identifier a lookup by that identifier can resolve to any of them — which is how notification
+ * banners end up wearing an app icon several versions old. Nothing here is wrong to do; it just
+ * accumulates. `pnpm app:icons` lists what is registered and can drop everything but the installed
+ * app. See scripts/icon-registrations.mjs.
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
