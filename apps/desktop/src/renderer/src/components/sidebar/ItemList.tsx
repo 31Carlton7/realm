@@ -4,6 +4,8 @@ import { emptyLayout, itemIdOfLeaf, type Item, type Layout } from "@realm/contra
 import { useApp } from "../../state/store";
 import { RenameInput } from "../RenameInput";
 import { useItemContextMenu } from "./ItemContextMenu";
+import { dotFor } from "../../panes/machine/MachineBar";
+import { MACHINE_WORDS } from "../../panes/machine/MachinePane";
 
 const STATUS_LABEL = { idle: "idle", running: "running", waiting_permission: "needs permission", error: "error", ended: "ended" } as const;
 
@@ -107,6 +109,7 @@ export function ItemList({ items, variant, layout: groupLayout }: {
   const focusedLeafId = useApp((s) => s.focusedLeafId);
   const sessionStatus = useApp((s) => s.sessionStatus);
   const browserDriving = useApp((s) => s.browserDriving);
+  const machineState = useApp((s) => s.machineState);
   const openItem = useApp((s) => s.openItem);
   const closeFromLayout = useApp((s) => s.closeFromLayout);
   const archiveItem = useApp((s) => s.archiveItem);
@@ -138,7 +141,8 @@ export function ItemList({ items, variant, layout: groupLayout }: {
               {/* The status is part of the accessible name (A-L4): the dot alone is invisible to a reader. */}
               <button className="item-row"
                 aria-label={it.kind === "session" && sessionStatus[it.refId] ? `${it.title} — ${STATUS_LABEL[sessionStatus[it.refId]!]}`
-                  : it.kind === "browser" && browserDriving[it.refId] ? `${it.title} — agent is driving` : it.title}
+                  : it.kind === "browser" && browserDriving[it.refId] ? `${it.title} — agent is driving`
+                  : it.kind === "machine" ? `${it.title} — ${MACHINE_WORDS[machineState[it.refId]?.status ?? "off"]}` : it.title}
                 onClick={() => activate(it)}>
                 <Icon name={it.kind} size={16} /><span className="item-title">{it.title}</span>
                 {it.kind === "session" && sessionStatus[it.refId] && (
@@ -148,6 +152,14 @@ export function ItemList({ items, variant, layout: groupLayout }: {
                     the same status-dot idiom sessions use, a new `driving` state on the same rail. */}
                 {it.kind === "browser" && browserDriving[it.refId] && (
                   <span className="status-dot item-status" data-status="driving" title="Agent is driving" />
+                )}
+                {/* Plan 25 W3: a machine row wears its state ALWAYS, not only while a pane is open.
+                    That is the whole answer to the one honest risk in letting the pane's × be a
+                    layout-only close — a machine you are still connected to is invisible compute
+                    otherwise, and `browserDriving` set the precedent that the row carries it. */}
+                {it.kind === "machine" && (
+                  <span className="status-dot item-status" data-status={dotFor(machineState[it.refId]?.status ?? "off")}
+                    title={MACHINE_WORDS[machineState[it.refId]?.status ?? "off"]} />
                 )}
                 {variant === "open" && <ItemGlyph layout={layout} itemId={it.id} />}
               </button>
