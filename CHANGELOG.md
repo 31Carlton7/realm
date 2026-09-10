@@ -1,5 +1,39 @@
 # Changelog
 
+## v1.1.0 — 2026-09-09
+
+**Agents.** A page that reads every session the way a manager would: grouped by what they need from
+you — Needs you, Working, Failed, then Ready and Ended folded away — rather than by the space they
+happen to live in.
+
+**Connectors.** The apps a space works in, connected in one click: each a vendor's own remote MCP
+server over OAuth, so there is nothing to install and no token to paste. Connecting one makes an
+ordinary server row, with the same tools policy and activity log as any other. Pasted links from
+those apps become chips that say what they point at — a Slack permalink reads as a thread instead of
+ninety characters of nothing.
+
+**Notifications reach your phone.** A relay beside the desktop notifications sends the three things
+worth interrupting for — a permission, a blocked run, a finished turn — to iMessage or a Slack
+webhook.
+
+**Ligatures.** JetBrains Mono draws `=>`, `!==` and `>=` as single glyphs everywhere Realm shows
+code. They had been off for a reason nothing said out loud: Chromium disables every ligature on text
+with letter-spacing, and the app's -0.1px tracking applied to code as well as prose. Monospace wants
+no tracking anyway.
+
+**The model picker.** The strip above the list used to filter by who made the model. It now names
+the list's own separators — Claude, Codex, Cursor, Grok, DeepSeek — with each harness's mark, and
+takes you to one. Nothing is hidden by pressing it, so nothing has to be put back. Effort and
+permission labels moved above their controls, which stops "Ask each time" from wrapping onto two
+lines, and the list's edges dissolve properly: the fades had never once painted.
+
+**Dropped icons are compressed.** A photo dropped on the space-icon picker was sent at full size and
+refused by the upload cap; only the file dialog had ever compressed. Both paths now do.
+
+**Smaller things.** A bigger space name in the sidebar with room around the search field and the
+new-session row, a subtler sidebar edge, an entrance for the connection banner and the error bar
+instead of a hard cut, and Hermes as an agent.
+
 ## v1.0.0 — 2026-09-09
 
 The 1.0. Realm stops being a place to run one agent and becomes a workspace: documents and files
