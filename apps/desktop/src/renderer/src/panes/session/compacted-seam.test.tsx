@@ -6,7 +6,7 @@ import type { Block, Transcript as TranscriptModel } from "./transcript-model";
 afterEach(cleanup);
 
 const model = (blocks: Block[]): TranscriptModel =>
-  ({ blocks, run: null, pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, feedback: {} });
+  ({ blocks, run: null, pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, feedback: {}, summary: null });
 
 const compacted = (over: Partial<Extract<Block, { kind: "compacted" }>> = {}): Block =>
   ({ kind: "compacted", preTokens: 186_000, postTokens: 34_000, ts: 500, ...over });

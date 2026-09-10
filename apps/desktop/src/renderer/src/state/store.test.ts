@@ -1572,6 +1572,31 @@ describe("app store", () => {
       expect(a.calls.filter((c) => c.startsWith("saveTempAttachment"))).toEqual(["saveTempAttachment:image.png"]);
     });
 
+    it("asks main what a dropped path IS, rather than guessing a mime off its name", async () => {
+      // A folder and an extensionless binary look identical to the renderer, so the drop that
+      // produced a folder-in-the-prompter-wearing-a-document-glyph could only be fixed on the side
+      // that can stat. THE mutant: guess from the name here and the folder comes back octet-stream.
+      const a = withSess();
+      a.describePaths = async (paths: string[]) => {
+        a.calls.push("describePaths");
+        return paths.map((path) => ({ path, mime: "inode/directory", name: "Notes", size: 0 }));
+      };
+      const store = createAppStore(a); await store.getState().boot();
+      await store.getState().attachFiles("se1", [dropped("/Users/me/Notes")]);
+      expect(store.getState().pendingAttachments.se1!.map((x) => x.mime)).toEqual(["inode/directory"]);
+      // One round trip for the whole drop, not one per file.
+      expect(a.calls.filter((c) => c === "describePaths")).toHaveLength(1);
+    });
+
+    it("still attaches the drop when main cannot describe it", async () => {
+      const a = withSess();
+      a.describePaths = async () => { throw new Error("bridge gone"); };
+      const store = createAppStore(a); await store.getState().boot();
+      await store.getState().attachFiles("se1", [dropped("/Users/me/shot.png")]);
+      // Degraded to the name-derived guess rather than dropping the file on the floor.
+      expect(store.getState().pendingAttachments.se1!.map((x) => x.path)).toEqual(["/Users/me/shot.png"]);
+    });
+
     it("refuses a file over MAX_ATTACHMENT_BYTES in the UI, naming the file and the limit", async () => {
       const a = withSess();
       a.data.pickFiles = [picked("/x/huge.png", { size: 21 * MB }), picked("/x/ok.png", { size: 3 })];

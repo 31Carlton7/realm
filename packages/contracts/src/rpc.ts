@@ -717,6 +717,10 @@ export const Methods = {
   /** Begin the OAuth dance for a remote server: the server prepares PKCE state and returns the
    *  authorization URL for the renderer to open in the system browser. */
   "mcp.oauth.start": { params: z.object({ id: IdSchema }), result: z.object({ authUrl: z.string() }) },
+  /** Hand a remote server a client the USER registered, for vendors that issue none dynamically. The
+   *  secret is sealed with the rest of the row's OAuth state. `relay` sends the callback through the
+   *  site's HTTPS relay instead of the loopback, for vendors that refuse an `http://` redirect. */
+  "mcp.oauth.setClient": { params: z.object({ id: IdSchema, clientId: z.string().min(1), clientSecret: z.string().optional(), relay: z.boolean().default(false) }), result: z.object({ ok: z.literal(true) }) },
   /** Forget this server's OAuth connection. The server row survives; `oauthStatus` returns to
    *  `unconfigured` and calls fail until it is reconnected. */
   "mcp.oauth.disconnect": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },

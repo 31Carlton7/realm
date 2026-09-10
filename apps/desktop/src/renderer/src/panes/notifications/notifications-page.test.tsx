@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { PAGE_REF_IDS, sessionEvent, type StoredSessionEvent } from "@realm/contracts";
 import { NotificationsPage, dayLabel } from "./NotificationsPage";
 import { Destinations } from "../../components/sidebar/Destinations";
@@ -135,6 +135,59 @@ describe("the Notifications page (Plan 12 W5)", () => {
     expect(screen.getByRole("button", { name: "Allow" })).toBeInTheDocument();
     // The jump fallback is ALWAYS present alongside the card.
     expect(screen.getByRole("button", { name: "Go to session" })).toBeInTheDocument();
+  });
+
+  it("names the space and profile the row came from", async () => {
+    // A feed collects rows from every space under every profile, so "finished a turn" alone is a
+    // sentence about no particular place. Read from the store rather than stamped on the row, so a
+    // renamed space reads by its name now instead of the one it had when the turn ended.
+    await mount({
+      sessions: [session("se1", "s1")],
+      notifications: [notification("n1", { category: "session_done", sessionId: "se1", spaceId: "s1", title: "a turn", body: "Finished a turn" })],
+    });
+    await select("a turn");
+    const sheet = screen.getByRole("article", { name: "a turn" });
+    expect(sheet).toHaveTextContent("Versed");   // the space
+    expect(sheet).toHaveTextContent("Work");     // the profile it belongs to
+  });
+
+  it("sends a quick reply to the row's own session without leaving the feed", async () => {
+    const { api } = await mount({
+      sessions: [session("se1", "s1"), session("se2", "s1")],
+      notifications: [notification("n1", { category: "session_done", sessionId: "se1", spaceId: "s1", title: "a turn", body: "Finished a turn" })],
+    });
+    await select("a turn");
+    const field = screen.getByRole("textbox", { name: "Reply to this session" });
+    fireEvent.change(field, { target: { value: "keep going" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    // THE mutant: send to "whatever session is open" rather than to the ROW's session.
+    await waitFor(() => expect(api.sent.map((m) => [m.id, m.text])).toEqual([["se1", "keep going"]]));
+    // …and no navigation happened: the point is to answer without going there.
+    expect(api.calls).not.toContain("openSession:se2");
+  });
+
+  it("offers no reply on a session that is still running", async () => {
+    // A field that queued text into a live turn would promise an ordering that belongs to the
+    // harness, not to a notification.
+    await mount({
+      sessions: [session("se1", "s1", { status: "running" })],
+      notifications: [notification("n1", { category: "session_done", sessionId: "se1", spaceId: "s1", title: "a turn" })],
+    });
+    await select("a turn");
+    expect(screen.queryByRole("textbox", { name: "Reply to this session" })).toBeNull();
+  });
+
+  it("keeps the words when the send fails", async () => {
+    const { api } = await mount({
+      sessions: [session("se1", "s1")],
+      notifications: [notification("n1", { category: "session_done", sessionId: "se1", spaceId: "s1", title: "a turn" })],
+    });
+    api.sendMessage = async () => { throw new Error("offline"); };
+    await select("a turn");
+    const field = screen.getByRole("textbox", { name: "Reply to this session" });
+    fireEvent.change(field, { target: { value: "keep going" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Reply to this session" })).toHaveValue("keep going"));
   });
 
   it("THE wrong-session mutant: the detail's card answers the SELECTED row's session and requestId", async () => {

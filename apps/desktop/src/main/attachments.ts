@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { nativeImage } from "electron";
-import { isImageMime, isOpenablePath, mimeForPath } from "@realm/contracts";
+import { DIRECTORY_MIME, isImageMime, isOpenablePath, mimeForPath } from "@realm/contracts";
 
 /** What the picker and the paste path hand the renderer. `size` is here so the prompter can refuse a
  *  file over MAX_ATTACHMENT_BYTES before it is ever attached; only `path` and `mime` go on the wire. */
@@ -232,6 +232,13 @@ export async function describeFiles(paths: readonly string[]): Promise<PickedFil
   for (const path of paths) {
     try {
       const s = await stat(path);
+      // A DIRECTORY is described rather than dropped. It reaches here only by being dragged in — the
+      // attach dialog is `openFile`, so it cannot return one — and dropping it silently was how a
+      // folder ended up in the prompter wearing a generic document glyph: the renderer was left to
+      // guess a mime from the name, and an extensionless folder guesses exactly like an
+      // extensionless binary. `size: 0` is the honest answer for a thing whose size is a question
+      // about its contents, and it keeps a folder clear of MAX_ATTACHMENT_BYTES.
+      if (s.isDirectory()) { out.push({ path, mime: DIRECTORY_MIME, name: basename(path), size: 0 }); continue; }
       if (!s.isFile()) continue;
       out.push({ path, mime: mimeForPath(path), name: basename(path), size: s.size });
     } catch { /* gone between the dialog and here */ }

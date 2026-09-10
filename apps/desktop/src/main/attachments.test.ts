@@ -123,9 +123,17 @@ describe("describeFiles", () => {
   it("drops what it cannot stat rather than inventing a size the cap would then trust", async () => {
     expect(await describeFiles([join(home, "gone.png")])).toEqual([]);
   });
-  it("drops directories", async () => {
+  it("describes a directory AS a directory, whatever its name looks like", async () => {
+    // Dropped folders used to be discarded here and re-guessed in the renderer from the name alone,
+    // which is how one arrived in the prompter wearing a generic document glyph. A folder called
+    // `adir.png` is the case that proves the answer has to come from a stat: by extension it is an
+    // image, and it is not.
     await mkdir(join(home, "adir.png"));
-    expect(await describeFiles([join(home, "adir.png")])).toEqual([]);
+    expect(await describeFiles([join(home, "adir.png")]))
+      .toEqual([{ path: join(home, "adir.png"), mime: "inode/directory", name: "adir.png", size: 0 }]);
+  });
+  it("still drops what is neither a file nor a directory", async () => {
+    expect(await describeFiles([join(home, "nope")])).toEqual([]);
   });
 });
 

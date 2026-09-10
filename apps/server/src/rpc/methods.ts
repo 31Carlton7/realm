@@ -319,6 +319,11 @@ export function registerMethods(d: Deps): void {
     rpc.broadcast("mcp.changed", {});
     return started;
   });
+  reg("mcp.oauth.setClient", (p) => {
+    d.oauth.setClient(p.id, { clientId: p.clientId, clientSecret: p.clientSecret, relay: p.relay });
+    rpc.broadcast("mcp.changed", {});
+    return { ok: true as const };
+  });
   reg("mcp.oauth.disconnect", (p) => {
     // `McpOauth.disconnect` clears the row's state and fires its status callback, which is what
     // invalidates the hub client still holding the revoked Bearer and broadcasts the new `oauthStatus`.

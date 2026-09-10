@@ -22,6 +22,7 @@ interface Window {
      *  the other late additions: jsdom has no bridge, and the caller says so rather than throwing. */
     saveText?(input: { name: string; text: string }): Promise<string | null>;
     /** Single-image picker for the icon picker's "Uploaded" tab; null when cancelled. */
+    describePaths(paths: string[]): Promise<PickedFile[]>;
     pickIconImage(): Promise<PickedFile | null>;
     compressIconImage(path: string): Promise<PickedFile | null>;
     /** Local media drawn inline in the transcript. Optional in the type on purpose: every call site

@@ -170,6 +170,19 @@ const P = {
    *
    *  This never leaves the machine. Nothing reads it but the transcript that drew it. */
   feedback: z.object({ messageId: z.string(), rating: z.enum(["up", "down"]).nullable() }),
+  /**
+   * A model-written account of the session so far, replacing the derived one the panes fall back to.
+   *
+   * An EVENT rather than a column on the session row, because everything a summary needs is already
+   * true of this rail: it is persisted, it replays in order when a transcript loads, and it
+   * broadcasts to every open pane without a second channel. That is also what makes it cached — a
+   * reopened session reads the last one off its own log instead of paying for another call.
+   *
+   * `throughSeq` is the event it was written from. It is what stops a settle from re-summarising a
+   * transcript nothing has been added to (a status flap, a reconnect), and it is how a pane knows a
+   * summary is stale rather than merely old.
+   */
+  summary: z.object({ text: z.string(), throughSeq: z.number().int() }),
   init: z.object({
     providerSessionId: z.string(), model: z.string(), tools: z.array(z.string()), cwd: z.string(),
     /** The instruction files the agent says it loaded — Codex `thread/start` `instructionSources`, W3's
@@ -212,6 +225,7 @@ export const SessionEventSchema = z.discriminatedUnion("type", [
   variant("init"),
   variant("plan"),
   variant("feedback"),
+  variant("summary"),
 ]);
 
 export type SessionEvent = z.infer<typeof SessionEventSchema>;
@@ -223,7 +237,7 @@ export function sessionEvent<T extends SessionEventType>(type: T, payload: Sessi
 }
 
 /** Event types the server persists; the rest (assistant_delta) are ephemeral. */
-export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff", "compacted"];
+export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff", "compacted", "summary"];
 
 export const StoredSessionEventSchema = z.object({ seq: z.number().int(), sessionId: z.string(), event: SessionEventSchema });
 export type StoredSessionEvent = { seq: number; sessionId: string; event: SessionEvent };

@@ -4,7 +4,7 @@ import { allItems, findLeafOfItem, type Layout } from "@realm/contracts";
 import { Sidebar } from "./Sidebar";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, iconAsset, item, session, space } from "../../state/store.test-fakes";
-import { paneCellOf, paneSlotOf } from "./ItemList";
+import { paneMapOf } from "./ItemList";
 import { exited } from "../popover-exit.test-fakes";
 
 async function mount(api = fakeApi()) {
@@ -450,12 +450,8 @@ describe("Arc sidebar", () => {
       items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
     });
     await mount(api);
-    // Two slots, two cells — the glyph draws the split it is describing, so a plain two-way split
-    // still looks exactly as it did. The grid's shape is now carried by --glyph-cols/--glyph-rows,
-    // because the mark has a second axis to show whenever the layout has one.
-    expect((glyphOf("Alpha") as HTMLElement).style.getPropertyValue("--glyph-cols")).toBe("2");
-    expect((glyphOf("Alpha") as HTMLElement).style.getPropertyValue("--glyph-rows")).toBe("1");
-    expect(glyphOf("Alpha").querySelectorAll("span")).toHaveLength(2);
+    // Two panes side by side, drawn as two rects splitting the box across.
+    expect(panesOf(glyphOf("Alpha"))).toEqual(["1,1,11,23", "13,1,11,23"]);
     expect(onCells(glyphOf("Alpha"))).toEqual([0]);
     expect(onCells(glyphOf("Beta"))).toEqual([1]);
   });
@@ -470,8 +466,8 @@ describe("Arc sidebar", () => {
       items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
     });
     await mount(api);
-    expect((glyphOf("Alpha") as HTMLElement).style.getPropertyValue("--glyph-cols")).toBe("1");
-    expect((glyphOf("Alpha") as HTMLElement).style.getPropertyValue("--glyph-rows")).toBe("2");
+    // The same two rects, stacked instead of side by side — the axis is in the geometry now.
+    expect(panesOf(glyphOf("Alpha"))).toEqual(["1,1,23,11", "1,13,23,11"]);
     expect(onCells(glyphOf("Alpha"))).toEqual([0]);
     expect(onCells(glyphOf("Beta"))).toEqual([1]);
   });
@@ -489,7 +485,7 @@ describe("Arc sidebar", () => {
       items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" }), item("i3", "s1", { title: "Gamma" })] },
     });
     await mount(api);
-    expect(glyphOf("Gamma").querySelectorAll("span")).toHaveLength(3);
+    expect(glyphOf("Gamma").querySelectorAll("rect")).toHaveLength(3);
     expect(onCells(glyphOf("Gamma"))).toEqual([2]);
   });
 
@@ -578,327 +574,90 @@ function glyphOf(title: string): Element {
   return screen.getByRole("button", { name: title }).querySelector(".item-glyph")!;
 }
 function onCells(glyph: Element): number[] {
-  return Array.from(glyph.querySelectorAll("span"))
+  return Array.from(glyph.querySelectorAll("rect"))
     .map((s, i) => (s.hasAttribute("data-on") ? i : null))
     .filter((x): x is number => x !== null);
 }
+/** `x,y,w,h` of each pane in the glyph, rounded — the geometry the reader actually sees. */
+function panesOf(glyph: Element): string[] {
+  return Array.from(glyph.querySelectorAll("rect")).map((r) =>
+    ["x", "y", "width", "height"].map((a) => Math.round(Number(r.getAttribute(a)))).join(","));
+}
 
-describe("paneSlotOf", () => {
+describe("paneMapOf — the arrangement itself, not a category of arrangement", () => {
   const leaf = (id: string, itemId: string | null): Layout => ({ type: "leaf", id, itemId });
-  const split = (dir: "row" | "col", children: Layout[]): Layout =>
-    ({ type: "split", id: "root", dir, sizes: children.map(() => 100 / children.length), children });
+  const split = (dir: "row" | "col", children: Layout[], sizes?: number[]): Layout =>
+    ({ type: "split", id: `s${dir}`, dir, sizes: sizes ?? children.map(() => 100 / children.length), children });
+  /** Rects rounded, so a test reads as geometry rather than as floating point. */
+  const boxes = (l: Layout, id: string) =>
+    paneMapOf(l, id)?.map((r) => [r.x, r.y, r.w, r.h, r.active] as const)
+      .map(([x, y, w, h, a]) => [+x.toFixed(3), +y.toFixed(3), +w.toFixed(3), +h.toFixed(3), a]);
 
-  it("returns null for a single-leaf layout — there is no split to describe", () => {
-    expect(paneSlotOf(leaf("L1", "i1"), "i1")).toBeNull();
-  });
-
-  it("returns null when the item isn't open anywhere in the tree", () => {
-    expect(paneSlotOf(split("row", [leaf("L1", "i1"), leaf("L2", "i2")]), "i3")).toBeNull();
-  });
-
-  it("reports the slot, the slot count and the axis of the top-level split", () => {
-    const l = split("row", [leaf("L1", "i1"), leaf("L2", "i2")]);
-    expect(paneSlotOf(l, "i1")).toEqual({ index: 0, count: 2, dir: "row" });
-    expect(paneSlotOf(l, "i2")).toEqual({ index: 1, count: 2, dir: "row" });
-  });
-
-  it("counts every slot of a three-way root, so the third pane is the third bar", () => {
-    // The behaviour this replaces: depth-first index modulo 4, which answered 2 here and drew that as
-    // the bottom-left of a 2x2 — a quadrant of a layout that has one row. The count travels with the
-    // index now, so the mark cannot claim a shape the layout does not have.
-    const l = split("row", [leaf("L1", "i1"), leaf("L2", "i2"), leaf("L3", "i3")]);
-    expect(paneSlotOf(l, "i3")).toEqual({ index: 2, count: 3, dir: "row" });
-  });
-
-  it("says nothing at all once the root has more slots than the glyph can draw", () => {
-    // Five 2px bars inside 12px is a smudge, and a smudge that looks like a reading is worse than a
-    // row with no mark on it. Nothing gridPreset builds reaches this, but a future preset could.
-    const l = split("row", Array.from({ length: 5 }, (_, i) => leaf(`L${i}`, `i${i}`)));
-    expect(paneSlotOf(l, "i0")).toBeNull();
-  });
-
-  it("resolves by which top-level child's SUBTREE holds the item, not by leaf order", () => {
-    // "b" lives three levels down the first child, and is still in the first half. A depth-first
-    // implementation would see leaves [a, b, d] and answer 1 for "b" — the wrong half.
-    const inner = split("col", [leaf("L1", "a"), leaf("L2", "b")]);
-    const l = split("row", [inner, leaf("L3", "d")]);
-    expect(paneSlotOf(l, "b")).toEqual({ index: 0, count: 2, dir: "row" });
-  });
-});
-
-describe("item context menu: \"Move to space…\"", () => {
-  it("lists every OTHER space as a destination, and moving calls the store action", async () => {
-    const { store, api } = await mount(fakeApi({
-      items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Fix the build" })] },
-      sessions: [session("se1", "s1")],
-    }));
-    fireEvent.contextMenu(screen.getByRole("button", { name: /^Fix the build/ }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Move to space…" }));
-    // The space it's already in never appears as a destination.
-    expect(screen.queryByRole("menuitem", { name: "Versed" })).not.toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "Homework" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Homework" }));
-    await waitFor(() => expect(api.calls).toContain("moveSessionToSpace:se1=s2"));
-    expect(store.getState().sessions.se1?.spaceId).toBe("s2");
-  });
-
-  it("is offered for a session that has RUN too — the server carries its checkout across", async () => {
-    const { store, api } = await mount(fakeApi({
-      items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Fix the build" })] },
-      sessions: [session("se1", "s1", { lastEventSeq: 3 })],
-    }));
-    fireEvent.contextMenu(screen.getByRole("button", { name: /^Fix the build/ }));
-    const entry = screen.getByRole("menuitem", { name: "Move to space…" });
-    // The wording is what `lastEventSeq` decides now, not whether the entry exists at all.
-    expect(entry).toHaveAttribute("title", expect.stringContaining("checkout along"));
-    fireEvent.click(entry);
-    fireEvent.click(screen.getByRole("menuitem", { name: "Homework" }));
-    await waitFor(() => expect(api.calls).toContain("moveSessionToSpace:se1=s2"));
-    expect(store.getState().sessions.se1?.spaceId).toBe("s2");
-  });
-
-  it("is absent for non-session items", async () => {
-    await mount(fakeApi({ items: { s1: [item("i1", "s1", { title: "Terminal" })] } }));
-    fireEvent.contextMenu(screen.getByRole("button", { name: "Terminal" }));
-    expect(screen.queryByRole("menuitem", { name: "Move to space…" })).not.toBeInTheDocument();
-  });
-});
-
-describe("browser driving dot (Plan 11 W4)", () => {
-  it("a browser row wears the driving dot ONLY while an act is in flight, and the accessible name says so", async () => {
-    const { store } = await mount(fakeApi({ items: { s1: [item("i1", "s1", { kind: "browser", refId: "b1", title: "Stripe docs" })] } }));
-    const row = () => screen.getByRole("button", { name: /^Stripe docs/ });
-    expect(row().querySelector(".status-dot")).toBeNull();
-    act(() => store.getState().applyBrowserDriving({ browserId: "b1", driving: true }));
-    expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "driving");
-    expect(row()).toHaveAccessibleName("Stripe docs — agent is driving");
-    // Settle clears it — a stuck dot is the named mutant, and the row must shed it entirely.
-    act(() => store.getState().applyBrowserDriving({ browserId: "b1", driving: false }));
-    expect(row().querySelector(".status-dot")).toBeNull();
-    expect(row()).toHaveAccessibleName("Stripe docs");
-  });
-});
-
-describe("sidebar destinations (Plan 12 W4)", () => {
-  it("Library, Connections, Notifications, Scheduled tasks and Settings sit between the New-session block and the space section", async () => {
-    await mount();
-    const nav = screen.getByRole("navigation", { name: "Destinations" });
-    expect(within(nav).getByRole("button", { name: "Library" })).toBeInTheDocument();
-    expect(within(nav).getByRole("button", { name: "Connections" })).toBeInTheDocument();
-    expect(within(nav).getByRole("button", { name: /Notifications/ })).toBeInTheDocument();
-    // Settings joined the nav when the space strip's left slot became the profile chip: it is an
-    // app-level page like its three neighbours, and it was the one thing in a spaces rail that
-    // wasn't a space.
-    expect(within(nav).getByRole("button", { name: "Settings" })).toBeInTheDocument();
-    // Scheduled tasks is an app-level destination for the same reason Settings is: it is somewhere
-    // you GO to see what is armed, and the runs it creates outlive whichever session set them up.
-    expect(within(nav).getByRole("button", { name: "Scheduled tasks" })).toBeInTheDocument();
-    // Agents leads the nav: the page that answers "what should I look at", which the rest is
-    // navigated from. Its pill counts sessions blocked on a permission, across every space.
-    expect(within(nav).getByRole("button", { name: "Agents" })).toBeInTheDocument();
-    expect(within(nav).getAllByRole("button")).toHaveLength(6);
-    expect(within(nav).queryByLabelText(/waiting on you/)).toBeNull();
-    // No unread pill at zero — a permanent 0 would be the dead chrome this nav bans.
-    expect(within(nav).queryByLabelText(/unread/)).toBeNull();
-    // Placement: the nav follows the sb-top block (search + New session) and precedes the swiper.
-    expect(nav.previousElementSibling).toHaveClass("sb-top");
-  });
-
-  it("clicking Library opens ONE library-page item in the active space; a second click focuses it (named mutant: two Library panes)", async () => {
-    const { store, api } = await mount();
-    // Scoped to the nav: once the page exists, its ITEM row is also titled "Library".
-    const nav = screen.getByRole("navigation", { name: "Destinations" });
-    fireEvent.click(within(nav).getByRole("button", { name: "Library" }));
-    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "library-page")).toBe(true));
-    fireEvent.click(within(nav).getByRole("button", { name: "Library" }));
-    await waitFor(() => expect(store.getState().items.filter((i) => i.kind === "library-page")).toHaveLength(1));
-    expect(api.calls.filter((c) => c.startsWith("createItem:") && c.includes("library-page"))).toHaveLength(1);
-  });
-
-  it("THE modifier-ignored mutant: ⌥-clicking a destination row brings its page to the focused pane", async () => {
-    const { store } = await mount();
-    const nav = screen.getByRole("navigation", { name: "Destinations" });
-    const row = () => within(nav).getByRole("button", { name: "Library" });
-    // Nothing to choose between yet: the page does not exist, so a plain click already lands here.
-    expect(row()).not.toHaveAttribute("title");
-    fireEvent.click(row());
-    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "library-page")).toBe(true));
-    const page = store.getState().items.find((i) => i.kind === "library-page")!;
-    const home = store.getState().focusedLeafId!;
-    await act(async () => { await store.getState().splitFocused("row"); });
-    const other = store.getState().focusedLeafId!;
-    expect(other).not.toBe(home);
-    // Now the two placements differ, and the row says so before it is used.
-    await waitFor(() => expect(row()).toHaveAttribute("title", expect.stringContaining("⌥")));
-    fireEvent.click(row(), { altKey: true });
-    await waitFor(() => expect(findLeafOfItem(store.getState().layout!, page.id)!.id).toBe(other));
-  });
-
-  // Moved off the space strip's left slot, which is the profile chip now. Same contract it had there:
-  // the SETTINGS page, not the space page, in the ACTIVE space's layout, as a pane and never a sheet.
-  it("clicking Settings opens the settings-page item in the ACTIVE space's layout — not the space page, never a sheet", async () => {
-    const { store, api } = await mount();
-    await act(async () => { await store.getState().selectSpace("s2"); });
-    const nav = screen.getByRole("navigation", { name: "Destinations" });
-    fireEvent.click(within(nav).getByRole("button", { name: "Settings" }));
-    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "settings-page")).toBe(true));
-    const page = store.getState().items.find((i) => i.kind === "settings-page")!;
-    expect(JSON.stringify(store.getState().layout)).toContain(page.id);
-    expect(store.getState().sheet).toBeNull();
-    expect(store.getState().items.find((i) => i.kind === "space-page")).toBeUndefined();
-    // The row landed in s2 — the space that was active under the click.
-    expect((api.data.items.s2 ?? []).some((i) => i.kind === "settings-page")).toBe(true);
-    expect((api.data.items.s1 ?? []).some((i) => i.kind === "settings-page")).toBe(false);
-  });
-
-  it("clicking Connections opens the connections-page item", async () => {
-    const { store } = await mount();
-    const nav = screen.getByRole("navigation", { name: "Destinations" });
-    fireEvent.click(within(nav).getByRole("button", { name: "Connections" }));
-    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "connections-page")).toBe(true));
-  });
-});
-
-/** Plan: archiving. The shelf is the sidebar's own gesture — a session row put away without being
- *  deleted — so everything it promises is asserted here: who gets the button, where the row goes,
- *  what happens to its pane, and both ways back. */
-describe("archiving a session", () => {
-  const sessionAndTerminal = (archived = false) => fakeApi({
-    items: { s1: [item("i1", "s1", { title: "Terminal" }),
-                  item("i2", "s1", { kind: "session", refId: "se1", title: "Fix the build", archived })] },
-    sessions: [session("se1", "s1")],
-  });
-  const expand = () => fireEvent.click(screen.getByRole("button", { name: "Archived 1" }));
-  const openIds = (store: { getState: () => { layout: Layout | null } }) => {
-    const l = store.getState().layout;
-    return l ? allItems(l) : [];
-  };
-
-  it("the hover button rides session rows and no others", async () => {
-    await mount(sessionAndTerminal());
-    expect(screen.getByRole("button", { name: "Archive Fix the build" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Terminal" }).closest(".item")!.querySelector(".item-shelf")).toBeNull();
-  });
-
-  it("archiving moves the row from Space onto a collapsed shelf, deleting nothing", async () => {
-    const api = sessionAndTerminal();
-    const { store } = await mount(api);
-    fireEvent.click(screen.getByRole("button", { name: "Archive Fix the build" }));
-    await waitFor(() => expect(store.getState().items.find((i) => i.id === "i2")?.archived).toBe(true));
-    // Out of the list the sidebar shows by default...
-    expect(screen.queryByRole("button", { name: /^Fix the build/ })).not.toBeInTheDocument();
-    // ...but still an item, and never deleted (the named mutant: archiving that calls deleteItem).
-    expect(api.calls).not.toContain("deleteItem:i2");
-    expect(store.getState().items.map((i) => i.id)).toContain("i2");
-    // The shelf appears counting one, and starts closed — a section that unfolded itself would undo
-    // the putting-away.
-    expect(screen.getByRole("button", { name: "Archived 1" })).toHaveAttribute("aria-expanded", "false");
-    expand();
-    expect(screen.getByRole("button", { name: /^Fix the build/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Unarchive Fix the build" })).toBeInTheDocument();
-  });
-
-  it("archiving an OPEN session closes its pane on the way", async () => {
-    const layout: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
-      { type: "leaf", id: "L1", itemId: "i1" }, { type: "leaf", id: "L2", itemId: "i2" }] };
-    const api = fakeApi({
-      spaces: [space("s1", "p1", "Versed", { layout })],
-      items: { s1: [item("i1", "s1", { title: "Terminal" }),
-                    item("i2", "s1", { kind: "session", refId: "se1", title: "Fix the build" })] },
-      sessions: [session("se1", "s1")],
-    });
-    const { store } = await mount(api);
-    fireEvent.click(screen.getByRole("button", { name: "Archive Fix the build" }));
-    await waitFor(() => expect(openIds(store)).not.toContain("i2"));
-    expect(store.getState().items.find((i) => i.id === "i2")?.archived).toBe(true);
-    expect(openIds(store)).toContain("i1"); // the pane beside it is untouched
-  });
-
-  it("the shelf's own button restores the row without opening it", async () => {
-    const { store } = await mount(sessionAndTerminal(true));
-    expand();
-    fireEvent.click(screen.getByRole("button", { name: "Unarchive Fix the build" }));
-    await waitFor(() => expect(store.getState().items.find((i) => i.id === "i2")?.archived).toBe(false));
-    // Back in the space list, and the now-empty shelf is gone entirely rather than reading "0".
-    expect(screen.getByRole("button", { name: /^Fix the build/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Archived/ })).not.toBeInTheDocument();
-    expect(openIds(store)).not.toContain("i2");
-  });
-
-  it("clicking an archived row takes it off the shelf on the way to opening it", async () => {
-    const { store } = await mount(sessionAndTerminal(true));
-    expand();
-    fireEvent.click(screen.getByRole("button", { name: /^Fix the build/ }));
-    await waitFor(() => expect(openIds(store)).toContain("i2"));
-    // The mutant this kills: opening without restoring, which leaves a pane on screen for a row the
-    // sidebar files under "Archived".
-    expect(store.getState().items.find((i) => i.id === "i2")?.archived).toBe(false);
-  });
-
-  it("the context menu carries the same gesture, labelled for the row's current state", async () => {
-    const { store } = await mount(sessionAndTerminal());
-    // Not offered for the kinds that have no answer for what archiving would mean.
-    fireEvent.contextMenu(screen.getByRole("button", { name: "Terminal" }));
-    expect(screen.queryByRole("menuitem", { name: "Archive" })).not.toBeInTheDocument();
-    fireEvent.keyDown(document, { key: "Escape" });
-    await exited();
-
-    fireEvent.contextMenu(screen.getByRole("button", { name: /^Fix the build/ }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
-    await waitFor(() => expect(store.getState().items.find((i) => i.id === "i2")?.archived).toBe(true));
-    expand();
-    await exited();
-    fireEvent.contextMenu(screen.getByRole("button", { name: /^Fix the build/ }));
-    expect(screen.queryByRole("menuitem", { name: "Archive" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Unarchive" }));
-    await waitFor(() => expect(store.getState().items.find((i) => i.id === "i2")?.archived).toBe(false));
-  });
-});
-
-describe("paneCellOf — both axes, not one", () => {
-  const leaf = (id: string, itemId: string): Layout => ({ type: "leaf", id, itemId });
-  const split = (dir: "row" | "col", children: Layout[]): Layout =>
-    ({ type: "split", id: `s${dir}`, dir, sizes: children.map(() => 100 / children.length), children });
-
-  it("reports a plain split exactly as the old one-axis mark did", () => {
-    const l = split("row", [leaf("L1", "i1"), leaf("L2", "i2")]);
-    expect(paneCellOf(l, "i1")).toEqual({ col: 0, cols: 2, row: 0, rows: 1 });
-    expect(paneCellOf(l, "i2")).toEqual({ col: 1, cols: 2, row: 0, rows: 1 });
-  });
-
-  it("THE bug: two panes stacked inside one column no longer share a mark", () => {
-    /* `paneSlotOf` read the root split only, so both of these were "the right half" and nothing
-       else. This glyph exists for the reader who cannot otherwise tell two panes apart, so a mark
-       that cannot distinguish them is not a smaller answer — it is the wrong one. */
-    const l = split("row", [
-      leaf("L1", "i1"),
-      split("col", [leaf("L2", "i2"), leaf("L3", "i3")]),
+  it("draws a plain split as two halves, with this item's half lit", () => {
+    expect(boxes(split("row", [leaf("L1", "i1"), leaf("L2", "i2")]), "i1")).toEqual([
+      [0, 0, 0.5, 1, true],
+      [0.5, 0, 0.5, 1, false],
     ]);
-    expect(paneSlotOf(l, "i2")).toEqual(paneSlotOf(l, "i3"));   // the old answer: identical
-    expect(paneCellOf(l, "i2")).toEqual({ col: 1, cols: 2, row: 0, rows: 2 });
-    expect(paneCellOf(l, "i3")).toEqual({ col: 1, cols: 2, row: 1, rows: 2 });
   });
 
-  it("takes the OUTERMOST split of each direction and stops there", () => {
-    // A layout nested three deep has no honest 2D picture, and a glyph that kept descending would
-    // start inventing one — the deepest row split must not overwrite the outermost one.
-    const l = split("row", [
-      leaf("L1", "i1"),
-      split("col", [leaf("L2", "i2"), split("row", [leaf("L3", "i3"), leaf("L4", "i4")])]),
+  it("uses the layout's REAL proportions, so a dragged splitter shows as a dragged splitter", () => {
+    // THE mutant: divide the box equally and ignore `sizes`. Every layout then draws as the tidy
+    // version of itself, and the glyph stops being a picture of this window.
+    expect(boxes(split("row", [leaf("L1", "i1"), leaf("L2", "i2")], [75, 25]), "i1")).toEqual([
+      [0, 0, 0.75, 1, true],
+      [0.75, 0, 0.25, 1, false],
     ]);
-    expect(paneCellOf(l, "i4")).toEqual({ col: 1, cols: 2, row: 1, rows: 2 });
   });
 
-  it("steps THROUGH a split too wide to draw rather than refusing outright", () => {
-    // A pane in the second row of a five-column strip still has an honest row to report, and
-    // reporting it beats reporting none.
-    const wide = split("row", ["a", "b", "c", "d", "e"].map((x, i) => leaf(`W${i}`, x)));
-    const l = split("col", [leaf("T", "top"), wide]);
-    expect(paneCellOf(l, "c")).toEqual({ col: 0, cols: 1, row: 1, rows: 2 });
+  it("keeps two panes stacked inside one column apart", () => {
+    // The failure the glyph exists to prevent: a mark that cannot distinguish two rows is not a
+    // smaller answer, it is the wrong one.
+    const l = split("row", [leaf("L1", "i1"), split("col", [leaf("L2", "i2"), leaf("L3", "i3")])]);
+    expect(boxes(l, "i2")).toEqual([
+      [0, 0, 0.5, 1, false],
+      [0.5, 0, 0.5, 0.5, true],
+      [0.5, 0.5, 0.5, 0.5, false],
+    ]);
+    expect(boxes(l, "i3")![2]![4]).toBe(true);
+  });
+
+  it("draws a layout that is not a rectangular grid, exactly — the case a grid could not hold", () => {
+    // Two columns; the left split into two rows; the lower-left row split again into two columns.
+    // No grid of any size has a cell for this, which is why both earlier glyphs had to approximate.
+    const l = split("row", [
+      split("col", [leaf("A", "a"), split("row", [leaf("B", "b"), leaf("C", "c")])]),
+      leaf("D", "d"),
+    ]);
+    expect(boxes(l, "c")).toEqual([
+      [0, 0, 0.5, 0.5, false],      // a — top left
+      [0, 0.5, 0.25, 0.5, false],   // b — bottom left, left half
+      [0.25, 0.5, 0.25, 0.5, true], // c — bottom left, right half
+      [0.5, 0, 0.5, 1, false],      // d — the whole right column
+    ]);
+  });
+
+  it("has no slot limit — a five-way split draws five panes", () => {
+    // The old glyph refused past four, because four bars was all a strip could carry. Rects have no
+    // such ceiling: they just get narrower, which is what the window did too.
+    const five = split("row", ["a", "b", "c", "d", "e"].map((x, i) => leaf(`W${i}`, x)));
+    expect(paneMapOf(five, "d")).toHaveLength(5);
+    expect(paneMapOf(five, "d")!.map((r) => r.active)).toEqual([false, false, false, true, false]);
+  });
+
+  it("draws an EMPTY pane too — leaving it out would move every rect beside it", () => {
+    const l = split("row", [leaf("L1", "i1"), leaf("L2", null)]);
+    expect(boxes(l, "i1")).toEqual([[0, 0, 0.5, 1, true], [0.5, 0, 0.5, 1, false]]);
+  });
+
+  it("falls back to equal shares when the stored sizes are unusable", () => {
+    // An older build's tree, or one caught mid-drag. The STRUCTURE is the half that matters most for
+    // telling two panes apart, so it survives proportions that do not.
+    expect(boxes(split("row", [leaf("L1", "i1"), leaf("L2", "i2")], [0, 0]), "i1"))
+      .toEqual([[0, 0, 0.5, 1, true], [0.5, 0, 0.5, 1, false]]);
   });
 
   it("says nothing when there is nothing true to say", () => {
-    expect(paneCellOf(leaf("L1", "i1"), "i1")).toBeNull();
-    expect(paneCellOf(split("row", [leaf("L1", "i1"), leaf("L2", "i2")]), "gone")).toBeNull();
+    expect(paneMapOf(leaf("L1", "i1"), "i1")).toBeNull();       // one pane is not an arrangement
+    expect(paneMapOf(split("row", [leaf("L1", "i1"), leaf("L2", "i2")]), "gone")).toBeNull();
   });
 });

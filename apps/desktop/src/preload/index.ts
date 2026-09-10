@@ -71,6 +71,10 @@ contextBridge.exposeInMainWorld("realm", {
     /** Copy it where the user points; the saved path, or null when they cancelled. */
     saveCopy: (path: string): Promise<string | null> => ipcRenderer.invoke("files:save-copy", path),
   },
+  /** Describe paths dropped from Finder. The renderer knows a dropped item's NAME and can guess a
+   *  mime from it, but it cannot `stat` — so it cannot tell a folder from an extensionless file, and
+   *  guessing is what made a dropped folder look like a document. */
+  describePaths: (paths: string[]): Promise<PickedFile[]> => ipcRenderer.invoke("describe-paths", paths),
   /** Write a pasted (pathless) file under Realm's home and describe it like a picked one. */
   saveTempAttachment: (name: string, mime: string, bytes: Uint8Array): Promise<PickedFile> => ipcRenderer.invoke("save-temp-attachment", name, mime, bytes),
   /** The real filesystem path behind a dropped File. Electron 32 removed `File.path`; `webUtils` is

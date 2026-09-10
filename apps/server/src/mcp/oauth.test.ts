@@ -9,6 +9,7 @@ import { McpHub } from "./hub";
 import { McpOauth, oauthSecretBox, readOauthState, type McpOauthState } from "./oauth";
 import { isSealed, newSecretKey } from "@realm/contracts/src/secret-box";
 import { oauthStatusOf } from "./service";
+import { OAUTH_RELAY_URL, relayTarget } from "@realm/contracts";
 import { makeStubAuthServer, type StubAuthServer } from "./fixtures/stub-auth-server";
 import { makeStubServer, type StubServer } from "./fixtures/stub-server";
 
@@ -134,6 +135,32 @@ describe("start — discovery, registration, PKCE", () => {
     const err = await rejection(() => h.oauth.start(h.row.id));
     expect(err.code).toBe("MCP_OAUTH_UNSUPPORTED");
     expect(err.message).toContain("dynamic client registration");
+  });
+
+  it("a client the user registered lets a server without dynamic registration connect", async () => {
+    /* Slack's shape: no registration endpoint, a confidential client from the vendor's own console.
+       The mutant: keep refusing whenever `registration_endpoint` is absent. */
+    const h = await setup({ dynamicRegistration: false, clients: [{ id: "app-1", secret: "s3cret", redirectUris: [REDIRECT_URI] }] });
+    h.oauth.setClient(h.row.id, { clientId: "app-1", clientSecret: "s3cret", relay: false });
+    await h.connect();
+    expect(oauthStatusOf(h.reload())).toBe("connected");
+    expect(h.state().client).toMatchObject({ client_id: "app-1" });
+    expect(h.as.registrations).toHaveLength(0); // nothing was minted on the fly
+  });
+
+  it("through the relay, the redirect is the site's HTTPS page and the gateway port rides in the state", async () => {
+    /* A vendor that refuses a loopback redirect sees one fixed URL; the relay reads the port back
+       out of `state` and bounces here. The token exchange must name the SAME redirect the
+       authorization named, or the vendor refuses the code. */
+    const h = await setup({ dynamicRegistration: false, clients: [{ id: "app-1", secret: "s3cret", redirectUris: [OAUTH_RELAY_URL] }] });
+    h.oauth.setClient(h.row.id, { clientId: "app-1", clientSecret: "s3cret", relay: true });
+    const { authUrl } = await h.oauth.start(h.row.id);
+    const u = new URL(authUrl);
+    expect(u.searchParams.get("redirect_uri")).toBe(OAUTH_RELAY_URL);
+    expect(u.searchParams.get("state")).toMatch(new RegExp(`^${GATEWAY_PORT}\\.`));
+    expect(relayTarget(u.searchParams.get("state"), "x", null)).toContain(`http://127.0.0.1:${GATEWAY_PORT}/oauth/callback`);
+    await h.oauth.handleCallback(h.as.authorize(authUrl));
+    expect(oauthStatusOf(h.reload())).toBe("connected");
   });
 
   it("refuses a stdio row — it authenticates through its own environment, not OAuth", async () => {

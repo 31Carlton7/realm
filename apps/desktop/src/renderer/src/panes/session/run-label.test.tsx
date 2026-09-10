@@ -47,7 +47,7 @@ describe("the word a run wears", () => {
 });
 
 const model = (blocks: Block[], run: TranscriptModel["run"] = null): TranscriptModel =>
-  ({ blocks, run, pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, feedback: {} });
+  ({ blocks, run, pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, feedback: {}, summary: null });
 
 describe("what the transcript says about the run", () => {
   it("shimmers this run's verb while it works, not a generic `Working…`", () => {

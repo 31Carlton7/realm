@@ -1,10 +1,34 @@
 import { Icon } from "@realm/ui";
 import { useRef, useState } from "react";
-import type { Item } from "@realm/contracts";
+import { PAGE_REF_IDS, type Item } from "@realm/contracts";
 import { paneActions, paneMeta } from "../panes/registry";
 import { useApp } from "../state/store";
 import { Menu } from "./Menu";
 import { RenameInput } from "./RenameInput";
+
+/**
+ * Pages, not objects: the sidebar's destination pages plus a space's own Overview. Their `refId` is
+ * a well-known sentinel rather than a row (PAGE_REF_IDS), so there is nothing behind the item to
+ * lose — deleting one and re-opening it from the sidebar produces the identical page.
+ */
+const PAGE_KINDS: ReadonlySet<Item["kind"]> = new Set<Item["kind"]>([
+  ...(Object.keys(PAGE_REF_IDS) as Item["kind"][]), "space-page",
+]);
+
+/**
+ * The kinds whose bar closes by DELETING rather than lifting the item out of the layout.
+ *
+ * A layout-only close leaves the row behind in the space, which is right for a session or a diff —
+ * a transcript and a checkout outlive any pane that showed them, and the rule that closing must
+ * never imply deletion is about exactly those. It is wrong for everything here: a destination page
+ * is a view with no object under it, and a terminal, browser or documents pane is a thing you
+ * opened at a moment and are done with. Closing those left a drift of rows nobody asked to keep,
+ * so the bar offers the delete outright — named, wearing a trash, and (where there IS something
+ * under it) two-step. The layout-only close stays reachable, on ⌘W and in the ⋯ menu.
+ */
+const DELETES_ON_CLOSE: ReadonlySet<Item["kind"]> = new Set<Item["kind"]>([
+  ...PAGE_KINDS, "terminal", "browser", "documents",
+]);
 
 /** Slim per-panel header: item icon + click-to-rename title, per-kind meta (right), ⋯ menu + close.
  *  Split/close/focus stay leaf-scoped callbacks (the host owns focus semantics); rename/delete are
@@ -39,6 +63,12 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
   const Actions = paneActions[item.kind];
   const isBrowser = item.kind === "browser";
   const closeMenu = () => { setMenuOpen(false); setConfirmingDelete(false); };
+  const deletesOnClose = DELETES_ON_CLOSE.has(item.kind);
+  /* The confirm is owed by the OBJECT, not by the button. A pty, a live web view and a document
+     workspace are each something a stray click would cost you, so those arm first; a page has
+     nothing under it, and a step that guards nothing is the dead chrome this bar bans. */
+  const confirmFirst = !PAGE_KINDS.has(item.kind);
+  const deleteNow = () => run(() => deleteItem(item.id));
   /**
    * Focus (fill the host) and Unfocus (back to the split) as ONE toggle, filled while it is on.
    *
@@ -87,22 +117,14 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
         {isBrowser ? (
           // W2.3 (no-overlay): a browser pane's header may never spawn a dropdown — the native view
           // paints over anything that opens below the bar. Everything the ⋯ menu carried is inline:
-          // rename is the title itself (click to rename), split and delete are toolbar buttons, and
-          // delete keeps its two-step confirm (U-H2) in place instead of inside a menu.
+          // rename is the title itself (click to rename), split is a pair of toolbar buttons, and
+          // delete is the bar's own trailing control, two-step (U-H2) there like everywhere else.
           <>
             {focusToggle}
             <button className="icon-btn" aria-label={`Split ${item.title} right`} title="Split right (⌘\)"
               onClick={() => onSplit("row")}><Icon name="splitRight" size={14} /></button>
             <button className="icon-btn" aria-label={`Split ${item.title} down`} title="Split down (⌘⇧\)"
               onClick={() => onSplit("col")}><Icon name="splitDown" size={14} /></button>
-            {confirmingDelete ? (
-              <button className="icon-btn danger panel-confirm" aria-label={`Really delete ${item.title}?`}
-                title="Click again to delete" onBlur={() => setConfirmingDelete(false)}
-                onClick={() => run(() => deleteItem(item.id))}>Really delete?</button>
-            ) : (
-              <button className="icon-btn danger" aria-label={`Delete ${item.title}`} title="Delete"
-                onClick={() => setConfirmingDelete(true)}><Icon name="trash" size={14} /></button>
-            )}
           </>
         ) : (
           <>
@@ -113,7 +135,19 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
           </button>
           </>
         )}
-        <button className="icon-btn" aria-label={`Close ${item.title}`} title="Close (⌘W)" onClick={onClose}><Icon name="close" size={14} /></button>
+        {/* The bar's last control: the × that lifts a pane out of the layout, or — for a page,
+            terminal, browser or documents pane — the trash that ends the thing itself. */}
+        {!deletesOnClose ? (
+          <button className="icon-btn" aria-label={`Close ${item.title}`} title="Close (⌘W)" onClick={onClose}><Icon name="close" size={14} /></button>
+        ) : confirmingDelete ? (
+          <button className="icon-btn danger panel-confirm" aria-label={`Really delete ${item.title}?`}
+            title="Click again to delete" onBlur={() => setConfirmingDelete(false)}
+            onClick={deleteNow}>Really delete?</button>
+        ) : (
+          <button className="icon-btn danger" aria-label={`Delete ${item.title}`}
+            title="Delete — removes it from the space, not just this pane"
+            onClick={() => (confirmFirst ? setConfirmingDelete(true) : deleteNow())}><Icon name="trash" size={14} /></button>
+        )}
       </span>
       {!isBrowser && menuOpen && (
         <Menu anchorRef={menuBtn} align="right" label={`Actions for ${item.title}`} onClose={closeMenu} items={[
@@ -124,11 +158,17 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
           ...(zoomed
             ? (onUnzoom ? [{ label: "Unfocus pane", kbd: "⌘⇧F", onSelect: onUnzoom }] : [])
             : (onZoom ? [{ label: "Focus pane", kbd: "⌘⇧F", onSelect: onZoom }] : [])),
-          { label: "Close", kbd: "⌘W", onSelect: onClose },
-          { kind: "separator" },
-          confirmingDelete
-            ? { label: <strong>Really delete?</strong>, danger: true, onSelect: () => run(() => deleteItem(item.id)) }
-            : { label: "Delete", danger: true, keepOpen: true, onSelect: () => setConfirmingDelete(true) },
+          // Where the bar's own control deletes, this is the only route left to the layout-only
+          // close — so it says which of the two it is, instead of leaving "Close" to mean either.
+          { label: deletesOnClose ? "Close pane (keep in space)" : "Close", kbd: "⌘W", onSelect: onClose },
+          // Delete lives in the bar for those kinds; repeating it here would be two controls for
+          // one action, and only one of them would ever wear the armed state.
+          ...(deletesOnClose ? [] : [
+            { kind: "separator" as const },
+            confirmingDelete
+              ? { label: <strong>Really delete?</strong>, danger: true, onSelect: () => run(() => deleteItem(item.id)) }
+              : { label: "Delete", danger: true, keepOpen: true, onSelect: () => setConfirmingDelete(true) },
+          ]),
         ]} />
       )}
     </div>

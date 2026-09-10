@@ -4,7 +4,7 @@
 // stray ELECTRON_RUN_AS_NODE=1 breaks any Electron-based tool a child might launch.
 delete process.env.ELECTRON_RUN_AS_NODE;
 
-import { generateSessionTitle } from "@realm/adapters";
+import { generateSessionSummary, generateSessionTitle } from "@realm/adapters";
 import { createApp } from "./app";
 import { realmHome } from "./paths";
 
@@ -13,7 +13,7 @@ const port = Number.isFinite(envPort) && envPort >= 0 ? envPort : 0;
 try {
   const home = realmHome();
   const app = await createApp({
-    home, port, titleGenerator: generateSessionTitle,
+    home, port, titleGenerator: generateSessionTitle, summaryGenerator: generateSessionSummary,
     // Plan 22: where Plynn's meeting exports are read from. Unset in production (the app's own
     // Application Support folder); live checks point it at a fixture so no real recording is read.
     plynnMeetingsDir: process.env.REALM_PLYNN_MEETINGS_DIR || undefined,

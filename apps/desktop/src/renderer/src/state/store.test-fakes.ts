@@ -2,7 +2,7 @@
 import { activeLayout, setActiveLayout, COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip } from "@realm/contracts";
 import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
-import { nextFireOf } from "@realm/contracts";
+import { basenameOf, mimeForPath, nextFireOf } from "@realm/contracts";
 import type { CliStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageSummary, UsageTotals } from "@realm/contracts";
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
@@ -646,6 +646,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const a = iconAsset(`ia${++n}`, profileId, { prompt });
       (data.iconAssets[profileId] ??= []).unshift(a); return a;
     },
+    // Mirrors main: a path with no extension is described as a FILE here, because the fake has no
+    // disk to stat. Tests that need a folder override this with a `DIRECTORY_MIME` row.
+    describePaths: async (paths: string[]) => {
+      calls.push("describePaths");
+      return paths.map((path) => ({ path, mime: mimeForPath(path), name: basenameOf(path), size: 1 }));
+    },
     pickIconImage: async () => { calls.push("pickIconImage"); return data.pickIconImage; },
     // Compression is best-effort and path-shaped; the fake reports the call and hands the path back
     // unchanged, so a test asserting the uploaded path sees the one it supplied.
@@ -1189,6 +1195,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       data.mcpServers[i] = { ...data.mcpServers[i]!, allowedTools: tools };
     },
     startMcpOauth: async (id) => { calls.push(`startMcpOauth:${id}`); return { authUrl: `https://oauth.example/authorize?server=${id}` }; },
+    setMcpOauthClient: async (id, client) => { calls.push(`setMcpOauthClient:${id}:${client.clientId}:${client.relay ? "relay" : "loopback"}`); },
     disconnectMcpOauth: async (id) => {
       calls.push(`disconnectMcpOauth:${id}`);
       const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);

@@ -78,6 +78,30 @@ describe("NotificationsService — session_done", () => {
     expect(broadcasts.at(-1)!.payload.notification?.id).toBe(n.id);
   });
 
+  it("replaces the placeholder body with the model's account when the summary lands", () => {
+    // "Finished a turn" is the one thing the reader already knows — the row is IN the finished-turns
+    // feed. The summary arrives a few seconds after the settle, and this is where it lands.
+    svc.handleSessionEvent(session({ status: "running" }), sessionEvent("status", { status: "idle" }));
+    expect(feed()[0]!.body).toBe("Finished a turn");
+    svc.handleSessionEvent(session(), sessionEvent("summary", { text: "You asked for the login redirect to be fixed; it was.", throughSeq: 12 }));
+    const rows = feed();
+    expect(rows).toHaveLength(1); // improved in place, never a second row for one turn
+    expect(rows[0]!.body).toBe("You asked for the login redirect to be fixed; it was.");
+  });
+
+  it("leaves a row the user has already read exactly as they read it", () => {
+    // Rewriting words under someone looking at them is a worse failure than an unimproved sentence.
+    svc.handleSessionEvent(session({ status: "running" }), sessionEvent("status", { status: "idle" }));
+    store.markRead([feed()[0]!.id]);
+    svc.handleSessionEvent(session(), sessionEvent("summary", { text: "a better sentence", throughSeq: 12 }));
+    expect(feed()[0]!.body).toBe("Finished a turn");
+  });
+
+  it("writes no row at all for a summary with no settle behind it", () => {
+    svc.handleSessionEvent(session(), sessionEvent("summary", { text: "orphaned", throughSeq: 1 }));
+    expect(feed()).toHaveLength(0);
+  });
+
   it("a second settle reuses the still-unread row (bumped), so three unfocused turns are one story", () => {
     svc.handleSessionEvent(session(), sessionEvent("status", { status: "idle" }));
     const first = feed()[0]!;

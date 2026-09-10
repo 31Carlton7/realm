@@ -84,6 +84,23 @@ describe("summaryText", () => {
 
 describe("the closing line", () => {
   const blocks = [wrote("/a/one.md", 1)];
+  it("shows the model's account when one has been written, and keeps the derived line when none has", () => {
+    // The whole point of the feature: the derived line names the residue ("You asked… 8 files"),
+    // the written one says what happened. Null is the ordinary case forever — no model on the
+    // machine, a call still in flight, a session that has not settled — so the fold has to survive.
+    const { unmount } = render(<TranscriptSummary blocks={blocks} status="idle" written="The redirect was wrong; it is fixed." />);
+    expect(screen.getByRole("note")).toHaveTextContent("The redirect was wrong; it is fixed.");
+    expect(screen.getByRole("note")).not.toHaveTextContent("You asked");
+    unmount();
+    render(<TranscriptSummary blocks={blocks} status="idle" written={null} />);
+    expect(screen.getByRole("note")).toHaveTextContent(/You asked|agent/);
+  });
+
+  it("falls back rather than showing an empty line when the model returned whitespace", () => {
+    render(<TranscriptSummary blocks={blocks} status="idle" written="   " />);
+    expect(screen.getByRole("note").textContent?.trim()).not.toBe("");
+  });
+
   const mount = (o: Partial<Parameters<typeof TranscriptSummary>[0]> = {}) =>
     render(<TranscriptSummary blocks={blocks} status="idle" {...o} />);
 

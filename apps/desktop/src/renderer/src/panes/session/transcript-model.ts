@@ -95,6 +95,11 @@ export type Transcript = {
   /** What the reader made of each answer, keyed by `messageId`. Only rated messages appear: absent
    *  is "not judged", which is a different state from either verdict and must stay tellable. */
   feedback: Record<string, Rating>;
+  /** The model-written account of this session, and the event it was written from. Null until one
+   *  has been produced (a session that has never settled, a machine with no Claude CLI to write it,
+   *  a summary still in flight) — and null is exactly when the panes fall back to the derived text,
+   *  so the surfaces never wait on a model to say something. */
+  summary: { text: string; throughSeq: number } | null;
 };
 
 /** Stable render identity for a block. Tool calls key on their own id so a card keeps its expanded
@@ -103,7 +108,7 @@ export type Transcript = {
 export const blockKey = (b: Block, i: number): string =>
   b.kind === "tool" ? `tool:${b.toolUseId}` : b.kind === "plan" ? `plan:${b.planId}` : `${b.kind}:${i}`;
 
-export const emptyTranscript = (): Transcript => ({ blocks: [], pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {} });
+export const emptyTranscript = (): Transcript => ({ blocks: [], pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {}, summary: null });
 
 export type UserBlock = Extract<Block, { kind: "user" }>;
 
@@ -223,6 +228,13 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
     // Append-only, so the last verdict for a message wins and a retraction is a `null` rating
     // rather than a row going away — the log records the reader changing their mind, not just
     // where they landed.
+    // Last one wins, and only forwards. Events replay in seq order on load, but a summary generated
+    // for an older transcript can still land LATE — the call takes seconds and a fast turn can settle
+    // under it — and overwriting a newer account with an older one would make the line go backwards
+    // in front of the reader.
+    case "summary":
+      return t.summary && t.summary.throughSeq > e.payload.throughSeq ? t
+        : { ...t, summary: { text: e.payload.text, throughSeq: e.payload.throughSeq } };
     case "feedback": {
       const { [e.payload.messageId]: _prev, ...rest } = t.feedback;
       return { ...t, feedback: e.payload.rating ? { ...rest, [e.payload.messageId]: e.payload.rating } : rest };
@@ -247,12 +259,30 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
         blocks: [...dropPending(blocks), { kind: "compacted", preTokens: e.payload.preTokens, ...(post === undefined ? {} : { postTokens: post }), ts: e.ts }],
         usage: post === undefined ? t.usage : { ...t.usage, contextTokens: post } };
     }
-    // Replaced, not merged. A resume sends a fresh handshake under a new `providerSessionId`, and the
-    // Claude adapter restates the whole record when it learns whether the model can run fast mode —
-    // in both cases the newer event is the more complete description of the same session.
-    case "init": return { ...t, init: { model: e.payload.model, tools: e.payload.tools, providerSessionId: e.payload.providerSessionId,
-      ...(e.payload.availableModes ? { availableModes: e.payload.availableModes } : {}),
-      ...(e.payload.supportsFastMode === undefined ? {} : { supportsFastMode: e.payload.supportsFastMode }) } };
+    // Replaced, not merged — with one exception, and the exception is the point.
+    //
+    // A resume sends a fresh handshake under a new `providerSessionId`, and the Claude adapter
+    // restates the whole record when it learns whether the model can run fast mode; in both cases
+    // the newer event is the more complete description of the same session.
+    //
+    // `supportsFastMode` is the exception because it is a fact about the MODEL, not about this
+    // handshake, and it is learned a `supportedModels()` round trip LATE — after the init that
+    // triggered it. Every later plain handshake (a resume, the next query's own init) would replace
+    // that hard-won answer with silence, and the prompter's Speed control would disappear mid-session
+    // for no reason the user could see: the "shows up occasionally" this fixes. So the answer
+    // survives a restatement of the SAME model, and only that — on a different model it describes
+    // something else and has to be earned again.
+    //
+    // `??` and not `||`: `false` is an answer ("this model cannot"), and the switch stays hidden on
+    // it just as it does on silence — but it must not be mistaken for "not stated" and re-inherited
+    // from the model before it.
+    case "init": {
+      const sameModel = t.init?.model === e.payload.model;
+      const fast = e.payload.supportsFastMode ?? (sameModel ? t.init?.supportsFastMode : undefined);
+      return { ...t, init: { model: e.payload.model, tools: e.payload.tools, providerSessionId: e.payload.providerSessionId,
+        ...(e.payload.availableModes ? { availableModes: e.payload.availableModes } : {}),
+        ...(fast === undefined ? {} : { supportsFastMode: fast }) } };
+    }
     case "status": {
       const run = t.run;
       switch (e.payload.status) {

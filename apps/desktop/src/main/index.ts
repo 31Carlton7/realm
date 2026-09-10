@@ -349,6 +349,11 @@ ipcMain.handle("save-text", async (_e, input: { name: string; text: string }): P
 /** The prompter's attach button. Multi-select, and it answers with mime and size alongside the path:
  *  `sessions.send` wants the mime, and the prompter needs the size to enforce MAX_ATTACHMENT_BYTES
  *  itself rather than letting the Claude adapter throw after the user pressed send. */
+/** Drag-and-drop's counterpart to `pick-files`: the renderer has the paths already and needs the
+ *  facts only a `stat` can supply — chiefly whether the thing is a folder. */
+ipcMain.handle("describe-paths", async (_e, paths: unknown): Promise<PickedFile[]> =>
+  Array.isArray(paths) ? describeFiles(paths.filter((p): p is string => typeof p === "string")) : []);
+
 ipcMain.handle("pick-files", async (): Promise<PickedFile[]> => {
   const r = await dialog.showOpenDialog({ properties: ["openFile", "multiSelections"] });
   return r.canceled ? [] : describeFiles(r.filePaths);

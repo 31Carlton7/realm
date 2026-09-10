@@ -15,6 +15,7 @@ import type {
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { OAUTH_RELAY_URL, relayState } from "@realm/contracts";
 import { NotFoundError, RpcError } from "../store/rows";
 import { credentialValues, redactValues } from "./redact";
 import type { McpServerRow, McpServersStore } from "../store/mcp";
@@ -77,6 +78,9 @@ export type McpOauthState = {
    * row until the next Connect overwrites it, not a growing set of live credentials.
    */
   pending?: { state: string; codeVerifier: string; redirectUri: string; startedAt: number };
+  /** The callback goes through the site's HTTPS relay (`OAUTH_RELAY_URL`), with the gateway port in
+   *  the state — for a vendor that refuses a loopback redirect. Set with the client, by `setClient`. */
+  relay?: boolean;
   /**
    * Set when a silent refresh failed. Read by `oauthStatusOf` (`service.ts`) to produce
    * `reconnect_needed`, and by `headers()` to fail fast instead of hammering a token endpoint that has
@@ -114,6 +118,7 @@ export function readOauthState(json: string): McpOauthState {
   const state: McpOauthState = {};
   const client = o.client;
   if (isObject(client) && typeof client.client_id === "string") state.client = client as unknown as OAuthClientInformationMixed;
+  if (o.relay === true) state.relay = true;
   const discovery = o.discovery;
   if (isObject(discovery) && typeof discovery.authorizationServerUrl === "string") {
     state.discovery = {
@@ -248,9 +253,11 @@ export class McpOauth {
     }
     const port = this.d.gatewayPort();
     if (port === null) throw new RpcError("MCP_OAUTH_UNAVAILABLE", "the MCP gateway is not listening yet — try again in a moment");
-    const redirectUri = `http://127.0.0.1:${port}/oauth/callback`;
-
     const prev = readOauthState(row.oauthJson);
+    // Through the relay the redirect is the site's fixed HTTPS page and the port travels in the
+    // state; the relay bounces to this loopback with code and state intact, and the callback below
+    // is none the wiser. The vendor sees one stable URL, which is what a hand-registered app needs.
+    const redirectUri = prev.relay ? OAUTH_RELAY_URL : `http://127.0.0.1:${port}/oauth/callback`;
     const redact = new Redactor();
     redact.add(prev.client?.client_secret, prev.tokens?.access_token, prev.tokens?.refresh_token);
     try {
@@ -265,7 +272,7 @@ export class McpOauth {
       let client = prev.client;
       if (!client) {
         if (!metadata?.registration_endpoint) {
-          throw new RpcError("MCP_OAUTH_UNSUPPORTED", `"${row.name}" does not offer dynamic client registration, and Realm has no client registered with it`);
+          throw new RpcError("MCP_OAUTH_UNSUPPORTED", `"${row.name}" does not offer dynamic client registration, and Realm has no client registered with it — paste the client id and secret of an app you registered with it`);
         }
         client = await registerClient(info.authorizationServerUrl, {
           metadata,
@@ -294,7 +301,8 @@ export class McpOauth {
       // flow carries this exact value. 32 random bytes, single-use, stored server-side — equivalent to
       // the plan's "signed serverId nonce" without a signing key to manage, and it cannot be forged
       // because a value that no row is holding matches nothing.
-      const state = randomBytes(32).toString("base64url");
+      const nonce = randomBytes(32).toString("base64url");
+      const state = prev.relay ? relayState(port, nonce) : nonce;
       const { authorizationUrl, codeVerifier } = await startAuthorization(info.authorizationServerUrl, {
         metadata, clientInformation: client, redirectUrl: redirectUri, scope, state, resource,
       });
@@ -486,6 +494,20 @@ export class McpOauth {
    *  for a missing row, and a refresh racing a `mcp.remove` must surface the OAuth problem the caller
    *  was actually asking about (or, for `handleCallback`, a clean failure page) rather than a confusing
    *  "not found" from a write nobody asked for. */
+  /**
+   * A client the USER registered with the authorization server, for vendors that issue none on the
+   * fly. Replaces any dynamic registration and any tokens — they belonged to the old client — and
+   * the next `start` uses it as-is. `relay` rides with it because the two are one decision: a vendor
+   * that makes you register an app is the vendor that wants an HTTPS redirect.
+   */
+  setClient(serverId: string, input: { clientId: string; clientSecret?: string; relay: boolean }): void {
+    const row = this.d.servers.get(serverId);
+    if (!row) throw new NotFoundError("mcp server", serverId);
+    const client: OAuthClientInformationMixed = { client_id: input.clientId, ...(input.clientSecret ? { client_secret: input.clientSecret } : {}) };
+    this.write(serverId, { client, relay: input.relay });
+    this.d.onStatus?.(serverId);
+  }
+
   private write(serverId: string, state: McpOauthState): void {
     try { this.d.servers.setOauth(serverId, oauthSecretBox.seal(JSON.stringify(state))); } catch { /* row deleted mid-flow; nothing to persist to */ }
   }

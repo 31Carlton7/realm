@@ -24,6 +24,8 @@ export type StubAuthServerOptions = {
   protectedResourceMetadata?: boolean;
   /** Omit `registration_endpoint`, so a first-time connection has no way to obtain a client. */
   dynamicRegistration?: boolean;
+  /** Clients that exist BEFORE any registration — what a vendor's own app console would have issued. */
+  clients?: { id: string; secret?: string; redirectUris: string[] }[];
   /** Seconds until an issued access token expires. `null` issues a token with no `expires_in` at all. */
   accessTokenTtlSec?: number | null;
   /** Issue a refresh token alongside the access token. */
@@ -66,7 +68,8 @@ export async function makeStubAuthServer(opts: StubAuthServerOptions = {}): Prom
   const scopes = opts.scopes ?? ["mcp:tools"];
   const responseTypes = opts.responseTypes ?? ["code"];
 
-  const clients = new Map<string, { redirectUris: string[]; secret?: string }>();
+  const clients = new Map<string, { redirectUris: string[]; secret?: string }>(
+    (opts.clients ?? []).map((c) => [c.id, { redirectUris: c.redirectUris, ...(c.secret ? { secret: c.secret } : {}) }]));
   const codes = new Map<string, { challenge: string; redirectUri: string; clientId: string }>();
   const refreshTokens = new Set<string>();
   const tokenRequests: { grant_type: string; params: Record<string, string> }[] = [];

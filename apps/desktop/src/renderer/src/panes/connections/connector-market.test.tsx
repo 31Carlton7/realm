@@ -48,6 +48,34 @@ describe("the connector marketplace", () => {
     expect(api.calls.filter((c) => c.startsWith("addMcpServer:"))).toHaveLength(1);
   });
 
+  it("a vendor that issues no client asks for the user's own app first, then signs in through the relay", async () => {
+    /* Slack: no dynamic registration, and no loopback redirect. The mutant: start OAuth straight
+       away, which the server refuses with "no client registered". */
+    const { api, opened } = await mount();
+    fireEvent.click(within(card("Slack")).getByRole("button", { name: "Connect" }));
+    const sheet = screen.getByRole("dialog", { name: "Connect Slack" });
+    expect(sheet).toHaveTextContent("https://realm.computer/oauth/callback"); // the one thing nobody guesses right
+    expect(opened).toHaveLength(0);
+    fireEvent.change(within(sheet).getByRole("textbox", { name: "Client ID" }), { target: { value: "123.456" } });
+    fireEvent.change(within(sheet).getByLabelText("Client secret"), { target: { value: "shh" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Continue to Slack" }));
+    await waitFor(() => expect(opened).toHaveLength(1));
+    expect(api.calls.some((c) => /^setMcpOauthClient:mcp\d+:123\.456:relay$/.test(c))).toBe(true);
+    expect(api.calls.indexOf(api.calls.find((c) => c.startsWith("setMcpOauthClient"))!)).toBeLessThan(api.calls.indexOf(api.calls.find((c) => c.startsWith("startMcpOauth"))!));
+  });
+
+  it("a row left behind by a Connect that failed for want of a client still asks for the app", async () => {
+    /* The mutant: gate the form on `state === "none"`. The user pressed Connect once, the server
+       refused ("no client registered"), and the row exists without a client — a second press must
+       open the form, not fail the same way again. */
+    const slack = CONNECTORS.find((c) => c.id === "slack")!;
+    const { opened } = await mount({ mcpServers: [mcpServer("m1", { name: connectorServerName(slack), transport: "http", url: slack.url, authKind: "none", scope: { kind: "space", spaceId: "s1" } })] });
+    await waitFor(() => expect(within(card("Slack")).getByRole("button", { name: "Finish signing in" })).toBeInTheDocument());
+    fireEvent.click(within(card("Slack")).getByRole("button", { name: "Finish signing in" }));
+    expect(screen.getByRole("dialog", { name: "Connect Slack" })).toBeInTheDocument();
+    expect(opened).toHaveLength(0);
+  });
+
   it("reads each card's state off the server row it registered", () => {
     const rows = [mcpServer("m1", { name: connectorServerName(linear), authKind: "oauth", oauthStatus: "connected" })];
     expect(connectorState(linear, rows)).toBe("connected");

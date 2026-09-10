@@ -27,7 +27,7 @@ describe("⌥-click opens the whole ledger", () => {
       { kind: "tool", toolUseId: id, name: "Bash", input: { command: id }, result: { content: id, isError: false }, ts: i * 2 },
       { kind: "assistant", messageId: `m${i}`, text: "and then", streaming: false, ts: i * 2 + 1 },
     ]) as Block[]),
-    pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {},
+    pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {}, summary: null,
   });
   const rows = () => screen.getAllByRole("button", { name: /tool call/ });
   const openStates = () => rows().map((r) => r.getAttribute("aria-expanded"));
@@ -446,7 +446,7 @@ describe("copy ✓ (§6 icon swap)", () => {
 
 describe("tool groups inside the transcript", () => {
   const model = (blocks: Block[]): TranscriptModel =>
-    ({ blocks, pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {} });
+    ({ blocks, pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {}, summary: null });
   const run = (n: number) => model(Array.from({ length: n }, (_, k) => tool(`t${k + 1}`, "Read", { file_path: `/f${k}.ts` })));
   const view = (n: number) => <Transcript transcript={run(n)} sessionStatus="idle" onDecide={() => {}} />;
 
@@ -477,7 +477,7 @@ describe("settled tool cards do not re-render behind a streaming answer", () => 
     const settled: Block[] = cards.flatMap((c, i) => [{ kind: "user", text: `q${i}`, ts: i } as Block, c]);
     const withStream = (text: string): TranscriptModel => ({
       blocks: [...settled, { kind: "assistant", messageId: "live", text, streaming: true, ts: 99 }],
-      pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {},
+      pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {}, summary: null,
     });
 
     const spy = vi.spyOn(summaryModule, "toolSummary");
@@ -520,7 +520,7 @@ describe("when a turn finished", () => {
   it("rides the settled run line beside the duration", () => {
     const blocks: Block[] = [{ kind: "run", ms: 125_000, startedAt: ts - 125_000, ts }];
     const t: TranscriptModel = { blocks, pendingPermissions: [],
-      usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {} };
+      usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {}, summary: null };
     render(<Transcript transcript={t} sessionStatus="idle" onDecide={() => {}} />);
     const line = document.querySelector(".msg-run")!;
     expect(line.textContent).toContain("2m");

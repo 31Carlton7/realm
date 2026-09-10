@@ -106,6 +106,10 @@ export class SessionService {
      *  so only `main.ts`'s real server process wires it — every test and live-check script goes
      *  through `createApp` without it and gets the heuristic title only, never a live network call. */
     titleGenerator?: (text: string) => Promise<string>;
+    /** Writes the model's account of a session when a turn settles (`SessionSummaryService`). Wired
+     *  and gated for exactly the same reasons as `titleGenerator` above: it is a billed call, so only
+     *  the real server process passes one, and it is `void`ed off the settle rather than awaited. */
+    summaries?: { onSettled(sessionId: string): Promise<void> };
   }) {}
 
   /** Cached probe (TTL + in-flight dedup): each `probeAll` spawns a child process per registered agent,
@@ -573,6 +577,25 @@ export class SessionService {
     } catch (e) { this.d.db.exec("ROLLBACK"); throw e; }
   }
 
+  /**
+   * Put an event Realm itself produced onto the session's rail.
+   *
+   * The summary service's only way in, and it goes through the SAME persist-then-broadcast the
+   * agent's own events take — so a generated summary is stored, replayed on load and fanned out to
+   * every open pane without a channel of its own. Silently drops when the session has been deleted
+   * underneath a call that was already in flight, which is the ordinary end of a long one.
+   */
+  publishServerEvent(id: string, ev: SessionEvent): void {
+    const row = this.d.sessions.get(id);
+    if (!row) return;
+    const stored = this.persist(id, ev);
+    // The same hook the agent's own events go through. A generated event that skipped it would be on
+    // the rail for the panes and invisible to everything that LISTENS to the rail — which is how the
+    // summary would have reached the transcript and never reached the notification about it.
+    this.d.notifications?.handleSessionEvent(row, ev);
+    this.d.rpc.broadcast("session.event", { ...stored, ephemeral: false });
+  }
+
   /** The first message names an untitled session (and its sidebar item) — and, when that session
    *  runs in a worktree Realm opened before it had a name, its BRANCH too (W3). */
   private maybeTitleFrom(id: string, text: string): void {
@@ -761,6 +784,11 @@ export class SessionService {
     if (ev.type === "status") {
       this.d.sessions.update({ id, status: ev.payload.status });
       this.d.rpc.broadcast("session.status", { sessionId: id, status: ev.payload.status });
+      // A SETTLE, not any status: the transition out of a live state is the moment the transcript
+      // stops moving, and it is the only one worth summarizing. Fired after the events of the turn
+      // are persisted below on their own passes — the summary reads the log, so it must not run
+      // until the log is the log. `void`, because a turn is never held up for a nicety.
+      if (ev.payload.status === "idle" && before.status !== "idle") void this.d.summaries?.onSettled(id);
     }
     if (PERSISTED_EVENT_TYPES.includes(ev.type)) {
       const stored = this.persist(id, ev);

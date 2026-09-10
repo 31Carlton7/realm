@@ -112,6 +112,27 @@ export class NotificationsService {
       this.resolveOpen("permission", ev.payload.requestId, word);
       return;
     }
+    /* The settled row, in the session's own words.
+     *
+     * A `session_done` row is written the instant a turn settles and says "Finished a turn", which is
+     * the one thing the reader already knew — the row is IN the finished-turns feed. The model's
+     * account of the session arrives a few seconds later (SessionSummaryService), and this is where
+     * it replaces that placeholder.
+     *
+     * Two seconds late rather than two seconds slow: the notification must not wait on a model, so it
+     * is written immediately and improved when there is something better to say. Exactly the bargain
+     * `upgradeTitle` makes for a session's name.
+     *
+     * UNREAD rows only. A row the user has already opened has done its job, and rewriting the words
+     * under someone who is looking at them is a worse failure than an unimproved sentence.
+     */
+    if (ev.type === "summary") {
+      const unread = this.d.store.findUnread("session_done", session.id);
+      if (!unread || unread.body === ev.payload.text) return;
+      this.d.store.absorb(unread.id, { title: unread.title, body: ev.payload.text });
+      this.d.rpc.broadcast("notifications.changed", { notification: null, unread: this.d.store.unreadCount() });
+      return;
+    }
     if (ev.type === "status" && SETTLED_FROM.has(session.status) && SETTLED_TO.has(ev.payload.status)) {
       // A crash under an unanswered card leaves no permission_response behind — close the row honestly
       // rather than leaving it "pending" for a session that can no longer answer.

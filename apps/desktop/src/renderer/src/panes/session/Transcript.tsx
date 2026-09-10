@@ -338,7 +338,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
         {/* Last in the column, so it reads as the closing line of the session rather than as another
             message in it. Draws nothing while a turn is live, and nothing on a session with nothing
             to count. */}
-        <TranscriptSummary blocks={transcript.blocks} status={sessionStatus} />
+        <TranscriptSummary blocks={transcript.blocks} status={sessionStatus} written={transcript.summary?.text ?? null} />
         </div>
       </div>
       {/* The transcript dissolves at BOTH edges instead of being clipped at either — siblings of the

@@ -37,6 +37,8 @@ import { AskService } from "./delegation/ask";
 import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
 import { SessionService } from "./sessions/service";
+import { SessionSummaryService } from "./sessions/summary";
+import type { ProbeResult } from "@realm/adapters";
 import { SkillsService } from "./skills/service";
 import { McpServersStore, McpCallLogStore } from "./store/mcp";
 import { McpService, oauthStatusOf } from "./mcp/service";
@@ -299,6 +301,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  on purpose so tests and live-check scripts never make one; the real server process (`main.ts`)
    *  passes `generateSessionTitle`. */
   titleGenerator?: (text: string) => Promise<string>;
+  /** Writes the model's account of a session when a turn settles. A real, billed LLM call per settled
+   *  turn — omitted here on purpose so tests and live-check scripts never make one; the real server
+   *  process (`main.ts`) passes `generateSessionSummary`. Without it the panes show the derived line,
+   *  which is exactly what they showed before this existed. */
+  summaryGenerator?: (input: { asked: string; transcript: string; facts: string }) => Promise<string>;
   /** Plan 22: where Plynn's meeting exports are read from. Tests point this at a fixture; production
    *  leaves it unset for `~/Library/Application Support/Plynn/Meetings`. */
   plynnMeetingsDir?: string;
@@ -488,7 +495,30 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // against the SAME registry the session service starts agents from — two registries would let a
   // chain accept an agent the sessions could not run.
   const adapterRegistry = opts.adapters ?? defaultAdapters();
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker, titleGenerator: opts.titleGenerator, documents,
+  /* The session summary writer (one cheap model for every harness, once per settled turn).
+     Built BEFORE the service it is handed to, and reaching back into it through closures: the
+     service needs the summarizer on construction, and the summarizer needs the service's probe and
+     its event rail. Both are only ever called long after this line, so the cycle is a reference and
+     not an order. */
+  // Annotated, not inferred: the two hold references to each other, and inference would have to
+  // resolve one through the other.
+  const summaries: SessionSummaryService | undefined = opts.summaryGenerator
+    ? new SessionSummaryService({
+        // 20k events is far past any real session and far short of a memory problem; a transcript
+        // longer than that is clipped from the END by the generator anyway.
+        listEvents: (id) => sessionEvents.listAfter(id, 0, 20_000),
+        lastSummary: (id) => sessionEvents.lastOfType(id, "summary"),
+        publish: (id, ev) => sessions.publishServerEvent(id, ev),
+        generate: opts.summaryGenerator,
+        // "Is the model installed on this machine" — asked of the same cached probe the prompter
+        // uses, so it costs nothing extra, and asked BEFORE the call so a machine with no Claude CLI
+        // never pays for a refusal. `loggedIn === false` is a real no; null is "the CLI did not say",
+        // which is not grounds for withholding the feature.
+        available: async (): Promise<boolean> => (await sessions.probe()).some((p: ProbeResult) => p.kind === "claude" && p.available && p.loggedIn !== false),
+        onError: (line) => console.error(line),
+      })
+    : undefined;
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker, titleGenerator: opts.titleGenerator, summaries, documents,
     // The session-event rail, fanned out: the notifications feed AND the durable-run supervisor read
     // the SAME event off the same hook, so a run settles off exactly the status transition the feed
     // reports rather than off a poll of its own (runs/service.ts).

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { sessionEvent, type MediaFile } from "@realm/contracts";
+import { Icon } from "@realm/ui";
 import { AttachmentTile } from "./AttachmentTile";
 import { Transcript } from "./Transcript";
 import { reduceAll } from "./transcript-model";
@@ -32,6 +33,57 @@ beforeEach(() => { resetMediaCache(); });
 afterEach(() => { vi.unstubAllGlobals(); });
 
 const lightbox = () => document.querySelector(".media-lightbox");
+
+/** The path data a given glyph actually draws. `Icon` gives non-brand marks no name in the DOM, so
+ *  the only honest way to assert WHICH glyph is on screen is to render the expected one and compare
+ *  what it draws — which also catches a rename of the icon that a name string would not. */
+function glyphPaths(node: Element | null): string {
+  return [...(node?.querySelectorAll("path") ?? [])].map((p) => p.getAttribute("d")).join("|");
+}
+function referenceGlyph(name: string): string {
+  const { container, unmount } = render(<Icon name={name} size={18} />);
+  const d = glyphPaths(container.querySelector("svg"));
+  unmount();
+  return d;
+}
+
+describe("a folder attached to a session", () => {
+  it("wears a folder glyph, not a document one", async () => {
+    // The report: dragging a folder in showed the same generic file glyph as any unrecognised
+    // document. Only a `stat` can tell the two apart, so the answer rides the mime from main.
+    stubBridge();
+    const folder = referenceGlyph("folder"), artifact = referenceGlyph("artifact");
+    expect(folder).not.toBe(artifact); // the test would prove nothing if these matched
+    const { container } = render(<AttachmentTile path="/x/Notes" mime="inode/directory" />);
+    expect(glyphPaths(container.querySelector(".attach-glyph"))).toBe(folder);
+  });
+
+  it("is a folder even when its name says it is a picture", async () => {
+    // THE mutant: read the glyph off the path's extension instead of the mime. `photos.png` is a
+    // real thing to call a folder, and it would be drawn as an image that cannot load.
+    stubBridge();
+    const { container } = render(<AttachmentTile path="/x/photos.png" mime="inode/directory" />);
+    expect(glyphPaths(container.querySelector(".attach-glyph"))).toBe(referenceGlyph("folder"));
+    expect(container.querySelector(".attach-ext")).toBeNull(); // and no "png" badge on a folder
+  });
+
+  it("does not offer to open one — on macOS an .app is a directory", async () => {
+    // A tile that opened folders would launch a dragged-in Calculator.app on a click. The mime
+    // table gate exists for exactly that, and a folder must not route around it.
+    stubBridge();
+    render(<AttachmentTile path="/x/Notes" mime="inode/directory" />);
+    expect(screen.queryByRole("button", { name: "Open Notes" })).toBeNull();
+  });
+
+  it("never asks main for a thumbnail of a directory", async () => {
+    const bridge = stubBridge();
+    render(<AttachmentTile path="/x/Notes" mime="inode/directory" />);
+    await waitFor(() => expect(document.querySelector(".attach-glyph")).not.toBeNull());
+    expect((globalThis as unknown as { realm: { attachmentThumbnail: ReturnType<typeof vi.fn> } }).realm.attachmentThumbnail)
+      .not.toHaveBeenCalled();
+    expect(bridge.stat).not.toHaveBeenCalled();
+  });
+});
 
 describe("opening an attachment from its tile", () => {
   it("hands a file the app cannot draw to the OS, and never to the lightbox", async () => {

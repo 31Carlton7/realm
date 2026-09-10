@@ -148,6 +148,34 @@ describe("the init event", () => {
     expect(t.init).toMatchObject({ providerSessionId: "p1", tools: ["Read", "Write"], supportsFastMode: true });
   });
 
+  it("keeps the capability across a later handshake that says nothing about the same model", async () => {
+    // THE bug this fixes: `supportedModels()` answers one round trip after the init that asked, so
+    // the enriched record is always followed by ordinary handshakes — a resume, the next query's own
+    // init. Replacing wholesale threw the answer away every time, and the Speed control blinked out
+    // of the picker mid-session. That is the "fast mode only shows up occasionally".
+    const { store } = await mount([
+      ev(init({ supportsFastMode: true })),
+      ev(init()),
+    ]);
+    expect(store.getState().transcripts.se1!.t.init).toMatchObject({ supportsFastMode: true });
+  });
+
+  it("drops it when the handshake lands on a DIFFERENT model — that answer was about the old one", async () => {
+    const { store } = await mount([
+      ev(init({ supportsFastMode: true })),
+      ev(init({ model: "some-other-model" })),
+    ]);
+    expect(store.getState().transcripts.se1!.t.init).not.toHaveProperty("supportsFastMode");
+  });
+
+  it("lets a later handshake say no — `false` is an answer, not silence", async () => {
+    const { store } = await mount([
+      ev(init({ supportsFastMode: true })),
+      ev(init({ supportsFastMode: false })),
+    ]);
+    expect(store.getState().transcripts.se1!.t.init).toMatchObject({ supportsFastMode: false });
+  });
+
   it("a handshake that says nothing about the capability leaves it unstated", async () => {
     const { store } = await mount([ev(init())]);
     expect(store.getState().transcripts.se1!.t.init).not.toHaveProperty("supportsFastMode");

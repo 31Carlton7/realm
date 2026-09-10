@@ -122,15 +122,25 @@ export function summaryText(blocks: readonly Block[]): string | null {
  *     it is not a summary of anything. It appears the moment the turn ends.
  *   - **Something to say.** See `summaryText`.
  */
-export function TranscriptSummary({ blocks, status }: {
+export function TranscriptSummary({ blocks, status, written = null }: {
   blocks: readonly Block[];
   status: SessionStatus;
+  /** The model's account of this session, when one has been written (`transcript.summary`). It wins
+   *  over the derived line because it answers the question the line only gestures at — a reader
+   *  coming back wants what happened, not what was counted. Null is the ordinary case and always
+   *  will be: a session that has not settled yet, a machine with no model to ask, a call still in
+   *  flight. The fold below is what shows then, exactly as it did before any of this existed. */
+  written?: string | null;
 }) {
   if (status === "running" || status === "waiting_permission") return null;
-  const what = summaryText(blocks);
+  const what = written?.trim() || summaryText(blocks);
   if (!what) return null;
   return (
-    <p className="msg-transcript-summary" role="note">
+    // Keyed on the text so the entrance REPLAYS when the summary changes. A CSS animation fires when
+    // an element is inserted, and this element outlives every turn — without the key the first
+    // summary would fade in and every later one would snap into place under the reader, which is
+    // the case that actually matters now that a written summary lands after the derived one.
+    <p key={what} className="msg-transcript-summary" role="note">
       {what}
     </p>
   );

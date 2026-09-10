@@ -1,6 +1,6 @@
 import { Icon } from "@realm/ui";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { basenameOf, isImageMime, isOpenablePath, isPlayablePath } from "@realm/contracts";
+import { basenameOf, isDirectoryMime, isImageMime, isOpenablePath, isPlayablePath } from "@realm/contracts";
 import { useThumbnail } from "../../components/use-thumbnail";
 import { MediaLightbox } from "./media/MediaView";
 import { useMediaFiles } from "./media/use-media";
@@ -51,16 +51,26 @@ export function AttachmentTile({ path, mime, name, detail, disposition, onRemove
   // The shared cache, not a private one: this same file is a tile in the composer, a tile in the
   // message it was sent with, and a tile in the Library, and three copies of the cache would send
   // main after the same picture three times.
-  const thumb = useThumbnail(path);
-  const ext = extOf(path);
+  // A folder is a folder before it is anything else. Asked of the MIME rather than the path because
+  // only main can tell (it stats; the renderer would be guessing from a name), and because a folder
+  // named `photos.png` must not be drawn as the picture it is not.
+  const directory = isDirectoryMime(mime);
+  // Nothing to preview, and nothing to badge: a folder's extension is either absent or a lie, and
+  // asking main for a thumbnail of a directory is a round trip whose only answer is null.
+  const thumb = useThumbnail(directory ? null : path);
+  const ext = directory ? "" : extOf(path);
   const opener = useRef<HTMLButtonElement>(null);
   const [lightbox, setLightbox] = useState(false);
   /* Only a path the scheme could serve is worth asking main about, which is the same cheap filter the
      transcript applies before it stats anything. A PDF never reaches IPC at all. */
-  const candidates = useMemo(() => (isPlayablePath(path) ? [path] : []), [path]);
+  const candidates = useMemo(() => (!directory && isPlayablePath(path) ? [path] : []), [path, directory]);
   const file = useMediaFiles(candidates)[0] ?? null;
   // Answered from the path, not from `mime`: the prop carries whatever the picker said, while main
   // gates on the extension. Asking the same question both sides ask keeps the affordance honest.
+  // Deliberately NOT extended to folders. `openAttachment` would hand a directory to the OS, and on
+  // macOS an `.app` is a directory — so a tile that opened folders would run a dragged-in
+  // `Calculator.app` on a click. The mime table is the gate precisely to stop that, and a folder
+  // tile that shows what it is without offering to launch it is the honest trade.
   const canOpen = isOpenablePath(path);
 
   /* Media opens here, everything else opens THERE. The branch is on `file` — main's own answer about
@@ -80,7 +90,7 @@ export function AttachmentTile({ path, mime, name, detail, disposition, onRemove
           // alt="" on purpose: the file is named once, by the visually-hidden span below. An alt
           // here would have a screen reader read it twice.
           ? <img className="attach-thumb" src={thumb} alt="" draggable={false} />
-          : <Icon name={isImageMime(mime) ? "image" : "artifact"} size={18} className="attach-glyph" />}
+          : <Icon name={directory ? "folder" : isImageMime(mime) ? "image" : "artifact"} size={18} className="attach-glyph" />}
         {ext && <span className="attach-ext">{ext}</span>}
       </span>
       {/* Dropping the visible name must not drop it from the accessibility tree: a tile whose only

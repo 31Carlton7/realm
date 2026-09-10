@@ -48,6 +48,25 @@ const MIME_BY_EXT: Record<string, string> = {
 export const DEFAULT_MIME = "application/octet-stream";
 
 /**
+ * What a DIRECTORY is, as an attachment.
+ *
+ * The long-standing convention (`inode/directory`), used here for a practical reason rather than a
+ * decorative one: an attachment is carried as `{ path, mime }` and nothing else — that is the shape
+ * the composer holds, the shape `user_message` persists, and the shape a re-opened transcript is
+ * rebuilt from. A separate `isDirectory` flag would have to be threaded through all three and would
+ * still be missing from every message already on disk. Riding the mime means the folder is a folder
+ * in the prompter, in the bubble it was sent with, and in that bubble a week later.
+ *
+ * A path alone cannot answer this — an extensionless folder and an extensionless binary look
+ * identical — so only the side that can `stat` ever sets it (`describeFiles`).
+ */
+export const DIRECTORY_MIME = "inode/directory";
+
+/** Whether this attachment is a folder rather than a file. Asked of the MIME, never of the path: a
+ *  folder can be named `photos.png`, and the picture it is not must not win over what it is. */
+export const isDirectoryMime = (mime: string): boolean => mime === DIRECTORY_MIME;
+
+/**
  * Whether Realm will hand this file to the OS to open.
  *
  * The mime table IS the gate, and that is the point rather than a shortcut: on macOS `open` RUNS an

@@ -183,6 +183,8 @@ function SummaryPanel({ summary, sessionId, environmentId, anchorRef, onClose, o
   const usage = useApp((s) => s.transcripts[sessionId]?.t.usage ?? EMPTY_USAGE);
   const blocks = useApp((s) => s.transcripts[sessionId]?.t.blocks ?? NO_BLOCKS);
   const recap = useMemo(() => recapOf(blocks), [blocks]);
+  /** The model's account, when one has been written for this session. */
+  const written = useApp((s) => s.transcripts[sessionId]?.t.summary?.text ?? null);
   // Escape closes it in either mode.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
@@ -227,9 +229,16 @@ function SummaryPanel({ summary, sessionId, environmentId, anchorRef, onClose, o
       <div className="summary-scroll" ref={scroller}>
       {/* What the session was ABOUT, first. The three lists below say what it produced, and none of
           them answers the question a panel called "Summary" is actually being asked — a filename
-          tells you nothing about why the file exists. Derived from the last exchange rather than
-          generated: it is the transcript rearranged, which is what everything else here is. */}
-      {recap && (
+          tells you nothing about why the file exists.
+          Written by a model when there is one to ask, and keyed on the text so a new account fades
+          in rather than replacing the old one under the reader. The pair below is the fallback, and
+          it is the transcript rearranged — the last thing asked and the first line of the answer —
+          which is honest but reads as thin, because it IS just the two ends of the log. */}
+      {written ? (
+        <div className="summary-recap" key={written}>
+          <p className="summary-recap-answered">{written}</p>
+        </div>
+      ) : recap && (
         <div className="summary-recap">
           {recap.asked && <p className="summary-recap-asked">{recap.asked}</p>}
           {recap.answered && <p className="summary-recap-answered">{recap.answered}</p>}

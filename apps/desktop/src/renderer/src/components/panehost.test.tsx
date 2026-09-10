@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, within, renderHook, act } from "@testing-library/react";
 import { sessionEvent, type Item, type Layout } from "@realm/contracts";
 import { PaneHost, zoneAt, type PaneHostProps } from "./PaneHost";
+import { PanelBar } from "./PanelBar";
 import { Main } from "../App";
 import { useGlobalHotkeys } from "../hotkeys";
 import { StoreContext, createAppStore, findEmptySiblingOf } from "../state/store";
@@ -133,30 +134,72 @@ describe("PaneHost", () => {
 
   it("close button calls onClose(itemId); the bar carries only ⋯ + close (no split icon button)", () => {
     const { props } = renderHost();
-    fireEvent.click(within(panel("L1")).getByRole("button", { name: "Close Tab A" }));
-    expect(props.onClose).toHaveBeenCalledExactlyOnceWith("A");
+    fireEvent.click(within(panel("L2")).getByRole("button", { name: "Close Tab B" }));
+    expect(props.onClose).toHaveBeenCalledExactlyOnceWith("B");
     expect(within(panel("L2")).queryByRole("button", { name: "Split right" })).toBeNull();
     expect(panel("L2").querySelectorAll(".panel-actions .icon-btn")).toHaveLength(2); // ⋯ menu + ×
   });
 
-  it("⋯ menu: Split right/down call onSplit with the pane's own leaf and direction; Close calls onClose", async () => {
-    const { props, unmount } = renderHost();
-    // A selected menu runs §6's exit before it tells the pane to unmount it, and a bare `click`
-    // carries no pointerdown to commit that early — so each round trip waits the exit out.
-    const openMenu = () => fireEvent.click(within(panel("L2")).getByRole("button", { name: "Pane menu for Tab B" }));
-    openMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: /Split right/ }));
-    expect(props.onSplit).toHaveBeenCalledExactlyOnceWith("L2", "row");
-    await exited();
-    openMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: /Split down/ }));
-    expect(props.onSplit).toHaveBeenLastCalledWith("L2", "col");
-    await exited();
-    openMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: /Close/ }));
-    expect(props.onClose).toHaveBeenCalledExactlyOnceWith("B");
-    await exited();
-    unmount();
+  /**
+   * A pane whose ONLY closing control lifts it out of the layout leaves its row behind in the
+   * space, which is what a page, terminal, browser or documents pane must not do — you closed it
+   * because you were done with it. Those bars end in the trash instead of the ×; a session or a
+   * diff, whose object outlives every pane that shows it, still ends in the ×.
+   */
+  describe("closing by delete", () => {
+    const kinds = [
+      ["settings-page", "Settings"], ["library-page", "Library"], ["connections-page", "Connections"],
+      ["notifications-page", "Notifications"], ["schedules-page", "Scheduled tasks"], ["agents-page", "Agents"],
+      ["profile-page", "Profile"], ["space-page", "Overview"], ["terminal", "Shell"], ["documents", "Files"],
+      ["browser", "Tab"],
+    ] as const;
+
+    /** The BAR alone — a terminal or documents body would go looking for a live RPC socket, and
+     *  none of these assertions is about what the pane renders under it. */
+    function renderBar(kind: Item["kind"], title: string, over: Partial<Parameters<typeof PanelBar>[0]> = {}) {
+      const only = item("P", "s1", { kind, title, refId: "P" });
+      const api = fakeApi({ items: { s1: [only] } });
+      const store = createAppStore(api);
+      const props = { item: only, leafId: "L1", onSplit: vi.fn(), onClose: vi.fn(), onZoom: vi.fn(), onUnzoom: vi.fn(), ...over };
+      const r = render(<StoreContext.Provider value={store}><PanelBar {...props} /></StoreContext.Provider>);
+      return { ...r, api, store, props };
+    }
+
+    it.each(kinds)("a %s pane's bar ends in a trash, never an ×", (kind, title) => {
+      renderBar(kind, title);
+      expect(screen.getByRole("button", { name: `Delete ${title}` })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: `Close ${title}` })).toBeNull();
+    });
+
+    it("a session pane keeps the × — its transcript outlives the pane", () => {
+      renderBar("session", "Chat");
+      expect(screen.getByRole("button", { name: "Close Chat" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Delete Chat" })).toBeNull();
+    });
+
+    it("a page deletes on ONE click: there is no row behind it for a confirm to protect", async () => {
+      const { api } = renderBar("settings-page", "Settings");
+      fireEvent.click(screen.getByRole("button", { name: "Delete Settings" }));
+      await waitFor(() => expect(api.calls).toContain("deleteItem:P"));
+    });
+
+    it("a terminal is two-step: the click would take a running pty with it", async () => {
+      const { api } = renderBar("terminal", "Shell");
+      fireEvent.click(screen.getByRole("button", { name: "Delete Shell" }));
+      expect(api.calls).not.toContain("deleteItem:P"); // armed, not deleted
+      fireEvent.click(screen.getByRole("button", { name: "Really delete Shell?" }));
+      await waitFor(() => expect(api.calls).toContain("deleteItem:P"));
+    });
+
+    it("the ⋯ menu keeps the layout-only close, names it, and no longer repeats Delete", async () => {
+      const { props, unmount } = renderBar("library-page", "Library");
+      fireEvent.click(screen.getByRole("button", { name: "Pane menu for Library" }));
+      expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
+      fireEvent.click(screen.getByRole("menuitem", { name: /Close pane \(keep in space\)/ }));
+      expect(props.onClose).toHaveBeenCalledOnce();
+      await exited();
+      unmount();
+    });
   });
 
   /** W2.3 (Plan 11): NOTHING may ever open "over" a browser pane from its own header — the native

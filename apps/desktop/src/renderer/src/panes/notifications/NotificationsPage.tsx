@@ -1,9 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Icon } from "@realm/ui";
 import type { Notification, NotificationCategory } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { PermissionCard } from "../session/PermissionCard";
 import { Sheet } from "../../components/Sheet";
+import { SpaceIcon } from "../../components/SpaceIcon";
 import type { PaneProps } from "../registry";
 
 const CATEGORY_ICON: Record<NotificationCategory, string> = {
@@ -158,16 +159,34 @@ function NotificationRow({ n, selected, onSelect }: { n: Notification; selected:
 function NotificationSheet({ n, onClose }: { n: Notification; onClose: () => void }) {
   const openNotificationTarget = useApp((s) => s.openNotificationTarget);
   const run = useApp((s) => s.run);
+  /* WHERE this happened. A feed collects rows from every space under every profile, so "Make
+     something bigger — finished a turn" is a sentence about no particular place: the one fact a
+     reader needs to decide whether it is theirs to act on is missing. Resolved from the row's
+     `spaceId` against the store rather than stamped onto the notification, because a space that has
+     since been renamed should read by its name NOW — a copy taken at write time would be the old
+     name forever, and the row outlives the turn that made it. */
+  const space = useApp((s) => s.spaces.find((sp) => sp.id === n.spaceId) ?? null);
+  const profile = useApp((s) => (space ? s.profiles.find((p) => p.id === space.profileId) ?? null : null));
   const pendingPermission = n.category === "permission" && n.actedAt === null;
   return (
     <Sheet title={CATEGORY_LABEL[n.category]} onClose={onClose} width={520}>
       {/* An `<article>` inside the dialog: the sheet is the container, the notification is the thing.
           It is also what names this row for a screen reader — the sheet's own title is the kind. */}
       <article className="notif-sheet" aria-label={n.title}>
-        <p className="notif-sheet-when">{dayLabel(n.createdAt)} · {timeOf(n.createdAt)}</p>
+        <p className="notif-sheet-when">
+          {dayLabel(n.createdAt)} · {timeOf(n.createdAt)}
+          {/* The space leads and the profile qualifies it, in that order and only when there is one:
+              two spaces called "Work" under different profiles is the case this exists for, and a
+              lone "Personal" beside every row would be noise on a machine with one profile. */}
+          {space && <> · <span className="notif-sheet-where"><SpaceIcon icon={space.icon} size={12} />{space.name}</span></>}
+          {profile && <span className="notif-sheet-profile">{profile.name}</span>}
+        </p>
         <h2 className="notif-detail-title">{n.title}</h2>
         {n.body && <p className="notif-detail-body">{n.body}</p>}
         {pendingPermission && <PendingPermissionInline n={n} />}
+        {/* Answer from here rather than from there. A settled turn most often wants one more
+            sentence, and making the reader open the pane to type it is the whole cost of the trip. */}
+        {n.sessionId && !pendingPermission && <QuickReply sessionId={n.sessionId} onSent={onClose} />}
         <div className="sheet-actions">
           {/* Read state, not a control. Opening a row marks it read, so a button here would be dead
               the moment it was drawn — which is the whole reason it is a label now. */}
@@ -181,6 +200,59 @@ function NotificationSheet({ n, onClose }: { n: Notification; onClose: () => voi
         </div>
       </article>
     </Sheet>
+  );
+}
+
+/**
+ * One more sentence to the session, sent from the feed.
+ *
+ * The trip this removes: a turn settles, the reader wants to say "keep going" or "now do the tests",
+ * and the only way to say it is to open the pane, find the prompter and type there — by which point
+ * they are in the session anyway and the notification did nothing but point.
+ *
+ * It is deliberately a plain field and not a second composer. No attachments, no mentions, no slash
+ * commands: everything that needs those needs the pane, and a half-composer that silently dropped an
+ * `@mention` would be worse than one that never offered it. `sendMessage` is the store's own action,
+ * so what is sent here travels the exact path the prompter's own send does.
+ *
+ * Offered only while the session is NOT running. A settled turn is what this feed is about, and a
+ * field that queued text into a live turn would be making a promise about ordering that belongs to
+ * the harness rather than to a notification.
+ */
+function QuickReply({ sessionId, onSent }: { sessionId: string; onSent: () => void }) {
+  const status = useApp((s) => s.sessionStatus[sessionId]);
+  const sendMessage = useApp((s) => s.sendMessage);
+  const run = useApp((s) => s.run);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const field = useRef<HTMLTextAreaElement>(null);
+  const running = status === "running" || status === "waiting_permission";
+  const send = () => {
+    const message = text.trim();
+    if (!message || busy || running) return;
+    setBusy(true);
+    // Cleared only after the send lands, and the sheet closes only then too: a failed send that had
+    // already emptied the field would lose the words the user cannot get back. `run` swallows the
+    // rejection into the app's error bar, so the `finally` is inside it rather than chained onto a
+    // void return.
+    run(async () => {
+      try { await sendMessage(sessionId, message); setText(""); onSent(); }
+      finally { setBusy(false); }
+    });
+  };
+  if (running) return null;
+  return (
+    <div className="notif-reply">
+      <textarea ref={field} className="notif-reply-input" rows={2} value={text} placeholder="Reply and keep going…"
+        aria-label="Reply to this session" disabled={busy}
+        onChange={(e) => setText(e.target.value)}
+        // ⏎ sends and ⇧⏎ breaks the line — the prompter's own bargain, because a field that took
+        // Enter as a newline here would be the one text box in the app that does.
+        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} />
+      <button type="button" className="btn btn-primary notif-reply-send" disabled={!text.trim() || busy} onClick={send}>
+        {busy ? "Sending…" : "Send"}
+      </button>
+    </div>
   );
 }
 
