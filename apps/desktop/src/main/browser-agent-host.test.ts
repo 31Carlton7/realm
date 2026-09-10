@@ -181,21 +181,60 @@ describe("createBridgeCore", () => {
   });
 });
 
-describe("act highlight wiring (W4)", () => {
-  it("a permitted click rings its target BEFORE the input dispatches — and the ring rides its own fresh quads", async () => {
+describe("act mark wiring (W4; the cursor and the frame, Plan 25 W2)", () => {
+  const markEvals = (calls: { method: string; params?: Record<string, unknown> }[]): string[] =>
+    calls.filter((c) => c.method === "Runtime.evaluate" && String(c.params?.expression).includes("data-realm-agent-highlight"))
+      .map((c) => String(c.params?.expression));
+
+  it("a permitted click is marked BEFORE the input dispatches — and the mark rides its own fresh quads", async () => {
     const { host, calls } = setup({ responses: { "DOM.getContentQuads": { quads: [[10, 20, 110, 20, 110, 50, 10, 50]] } } });
     const result = await host.handleOp("act", { browserId: "b1", action: { kind: "click", ref: 42, button: "left", clickCount: 1, modifiers: [] } });
     expect(result).toMatchObject({ ok: true });
-    const ringEval = calls.findIndex((c) => c.method === "Runtime.evaluate" && String(c.params?.expression).includes("data-realm-agent-highlight"));
+    const markEval = calls.findIndex((c) => c.method === "Runtime.evaluate" && String(c.params?.expression).includes("data-realm-agent-highlight"));
     const firstInput = calls.findIndex((c) => c.method === "Input.dispatchMouseEvent");
-    expect(ringEval).toBeGreaterThanOrEqual(0);
-    expect(firstInput).toBeGreaterThan(ringEval);
+    expect(markEval).toBeGreaterThanOrEqual(0);
+    expect(firstInput).toBeGreaterThan(markEval);
   });
 
-  it("a scroll has no target to ring — no highlight evaluate is injected", async () => {
+  /* A scroll had no mark at all before Plan 25: no ring, because there is no element to outline, and
+     no cursor, because there was none. It is the one act the cursor exists for. */
+  it("a scroll gets the cursor and the frame even though it has nothing to ring", async () => {
     const { host, calls } = setup();
     await host.handleOp("act", { browserId: "b1", action: { kind: "scroll", deltaX: 0, deltaY: 100 } });
-    expect(calls.some((c) => c.method === "Runtime.evaluate" && String(c.params?.expression).includes("data-realm-agent-highlight"))).toBe(false);
+    const [expr] = markEvals(calls);
+    expect(expr).toBeDefined();
+    expect(expr).toContain('var ringCss = "";');
+    // The fake reports no layout metrics, so this is `viewportCentre`'s 800x600 fallback — the same
+    // one `performAct` wheels at, which is the whole reason the two share it.
+    expect(expr).toContain('"x":400');
+    expect(expr).toContain('"y":300');
+  });
+
+  it("paints in the accent the renderer pushed, and in Realm's blue until one arrives", async () => {
+    const first = setup();
+    await first.host.handleOp("act", { browserId: "b1", action: { kind: "scroll", deltaX: 0, deltaY: 100 } });
+    expect(markEvals(first.calls)[0]).toContain("rgb(76, 141, 255)");
+
+    const themed = setup();
+    themed.host.setAccent("oklch(0.7 0.2 140)");
+    await themed.host.handleOp("act", { browserId: "b1", action: { kind: "scroll", deltaX: 0, deltaY: 100 } });
+    const expr = markEvals(themed.calls)[0]!;
+    expect(expr).toContain("oklch(0.7 0.2 140)");
+    expect(expr).not.toContain("rgb(76, 141, 255)");
+
+    // An empty push is not a colour, and must not blank the one the marks are drawn in.
+    themed.host.setAccent("");
+    await themed.host.handleOp("act", { browserId: "b1", action: { kind: "scroll", deltaX: 0, deltaY: 100 } });
+    expect(markEvals(themed.calls)[1]).toContain("oklch(0.7 0.2 140)");
+  });
+
+  it("a download is marked like the click it is", async () => {
+    const { host, calls } = setup({ downloads: true });
+    await host.handleOp("download", { browserId: "b1", ref: 42, dir: "/tmp/downloads" });
+    const [expr] = markEvals(calls);
+    expect(expr).toBeDefined();
+    expect(expr).toContain("ring");     // a download is a click that happens to produce a file
+    expect(expr).toContain('"x":20');   // …so it is marked at the click's own point
   });
 });
 
@@ -221,7 +260,7 @@ describe("BrowserAgentHost — fillCredential", () => {
     expect(calls.filter((c) => c.method === "Input.dispatchKeyEvent").length).toBe(SECRET.length * 2);
   });
 
-  it("draws NO action highlight, unlike act — the one op that does the least in the page", async () => {
+  it("draws NO mark at all, unlike act — no ring, no cursor, no frame, in the one op that does the least in the page", async () => {
     const { host, calls } = setup({ credentials: [cred] });
     await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
     expect(calls.some((c) => c.method === "Runtime.evaluate")).toBe(false);
@@ -376,6 +415,27 @@ describe("BrowserAgentHost — element picking", () => {
     expect(pickCalls(calls)).toEqual([
       "Runtime.addBinding", "picker.arm", "picker.stop", "Runtime.removeBinding",
     ]);
+  });
+
+  /* Two accent overlays chasing one pointer is the failure. The agent's cursor and the picker's box
+     are the same colour and follow the same hand, so arming the picker takes the agent's marks down
+     first — and the mutant is deleting that line, which leaves a user aiming at a page with a second
+     accent mark on it that answers to nobody. */
+  it("takes the agent's own cursor and frame down before arming the user's picker", async () => {
+    const { host, calls, emitEvent } = setup({ responses: PICKED });
+    const pending = host.pickElement("b1");
+    emitPick(emitEvent);
+    await pending;
+    const evals = calls.filter((c) => c.method === "Runtime.evaluate").map((c) => String(c.params?.expression ?? ""));
+    const removal = evals.findIndex((e) => e.includes("data-realm-agent-highlight") && !e.includes("__realmPicker"));
+    const arm = evals.findIndex((e) => e.includes("__realmPicker") && e.includes("addEventListener"));
+    expect(removal).toBeGreaterThanOrEqual(0);
+    expect(removal).toBeLessThan(arm);
+    // Rings are NOT swept here: one is already fading on its own 900ms timer, and taking it would
+    // erase the record of the act the user is standing over.
+    expect(evals[removal]).toContain("cursor");
+    expect(evals[removal]).toContain("frame");
+    expect(evals[removal]).not.toContain('="ring"');
   });
 
   it("cancelPick settles the armed pick empty and takes the overlay down", async () => {

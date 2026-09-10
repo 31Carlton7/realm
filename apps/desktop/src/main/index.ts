@@ -227,6 +227,10 @@ ipcMain.on("browser:set-bounds", (_e, id: string, rect: ViewRect, dpr: number, v
 ipcMain.handle("browser:pick-element", (_e, id: string, accent?: string) => agentHost?.pickElement(String(id), typeof accent === "string" ? accent : undefined) ?? null);
 ipcMain.handle("browser:cancel-pick", (_e, id: string) => { agentHost?.cancelPick(String(id)); });
 
+/** The renderer's theme accent, for the marks main draws INSIDE a driven page (Plan 25 W1). Not per
+ *  browser id: it is one value per window, and this process has one agent host per window. */
+ipcMain.on("browser:set-accent", (_e, accent: string) => { if (typeof accent === "string") agentHost?.setAccent(accent); });
+
 /**
  * The secret store, built on first use. Null only before realm-server has announced its home.
  *

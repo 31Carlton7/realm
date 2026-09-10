@@ -33,6 +33,7 @@ function fakeBridges(row: Partial<Browser> = {}) {
     onState: (cb) => { cbs.add(cb); return () => cbs.delete(cb); },
     pickElement: (id) => { calls.push(`pick:${id}`); return new Promise((resolve) => { pickResolve = resolve; }); },
     cancelPick: async (id) => { calls.push(`cancel-pick:${id}`); pickResolve?.(null); pickResolve = null; },
+    setAccent: (accent) => { calls.push(`set-accent:${accent}`); },
     blockedDownloads: async () => [],
     saveDownload: async (id, blockedId, dir) => { calls.push(`save:${id}:${blockedId}:${dir}`); return saveResult; },
     dismissDownload: async (id, blockedId) => { calls.push(`dismiss:${id}:${blockedId}`); },

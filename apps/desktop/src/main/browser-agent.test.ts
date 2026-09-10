@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserAction } from "@realm/contracts";
-import { buildSnapshot, performAct, performFillCredential, SNAPSHOT_STYLES, isOpaqueColor, HIGHLIGHT_ATTR, highlightTargetRef, showActionHighlight, type CdpSend } from "./browser-agent";
+import { buildSnapshot, performAct, performFillCredential, SNAPSHOT_STYLES, isOpaqueColor, cursorTargetFor, DEFAULT_AGENT_ACCENT, HIGHLIGHT_ATTR, highlightTargetRef, markAct, MARK_CURSOR, MARK_FRAME, MARK_RING, viewportCentre, type CdpSend } from "./browser-agent";
+import { AGENT_CURSOR, AGENT_MOTION } from "./agent-cursor";
 
 /**
  * The executor mutants, killed against fake CDP payloads:
@@ -454,39 +455,66 @@ describe("isOpaqueColor", () => {
   });
 });
 
-describe("action highlight (W4)", () => {
-  it("rings the target via Runtime.evaluate using AT-HIGHLIGHT-TIME quads, tagged and inert", async () => {
-    const { send, calls } = fakeSend({ quads: { 42: [[10, 20, 110, 20, 110, 50, 10, 50]] } });
-    await showActionHighlight(send, 42);
+describe("the marks an act leaves in the page (W4; the cursor and the frame, Plan 25 W2)", () => {
+  const QUAD = { 42: [[10, 20, 110, 20, 110, 50, 10, 50]] };
+  const click = (over: Partial<{ ref: number; clickCount: number }> = {}): BrowserAction =>
+    ({ kind: "click", ref: 42, button: "left", clickCount: 1, modifiers: [], ...over });
+  const exprOf = (calls: { method: string; params: Record<string, unknown> }[]): string => {
     const evals = calls.filter((c) => c.method === "Runtime.evaluate");
-    expect(evals).toHaveLength(1);
-    const expr = String(evals[0]!.params.expression);
-    expect(expr).toContain(HIGHLIGHT_ATTR);            // tagged: the snapshot filter keys off this
-    expect(expr).toContain("pointer-events:none");     // inert to the click about to land
-    expect(expr).toContain("background:transparent");  // see-through to the occlusion check
-    expect(expr).toContain("setTimeout");              // self-removes
-    expect(expr).toContain("left:7px");                // quad-derived geometry (10 - 3px pad)
-    // Quads were read fresh, not taken from any snapshot.
+    expect(evals).toHaveLength(1); // ring + cursor + frame ride ONE evaluate, over ONE geometry read
+    return String(evals[0]!.params.expression);
+  };
+
+  it("rings the target and places the cursor from AT-ACT-TIME quads, tagged and inert", async () => {
+    const { send, calls } = fakeSend({ quads: QUAD });
+    await markAct(send, click());
+    const expr = exprOf(calls);
+    expect(expr).toContain(`${HIGHLIGHT_ATTR}`);          // tagged: the snapshot filter keys off this
+    expect(expr).toContain(MARK_RING);
+    expect(expr).toContain(MARK_CURSOR);
+    expect(expr).toContain(MARK_FRAME);
+    expect(expr).toContain("pointer-events:none");        // inert to the click about to land
+    expect(expr).toContain("background:transparent");     // see-through to the occlusion check
+    expect(expr).toContain("left:7px");                   // quad-derived ring geometry (10 - 3px pad)
+    expect(expr).toContain('"x":60');                     // the quad's CENTRE is the cursor's point
+    expect(expr).toContain('"y":35');
+    // Quads were read fresh, under the same scrollIntoView the act itself is about to perform.
+    expect(calls.some((c) => c.method === "DOM.scrollIntoViewIfNeeded" && c.params.backendNodeId === 42)).toBe(true);
     expect(calls.some((c) => c.method === "DOM.getContentQuads" && c.params.backendNodeId === 42)).toBe(true);
+    // ONE read for both marks, so the ring's rect and the cursor's point can never diverge.
+    expect(calls.filter((c) => c.method === "DOM.getContentQuads")).toHaveLength(1);
   });
 
-  it("draws NO ring when the ref no longer resolves — the page navigated between permission and act", async () => {
+  it("the accent is the caller's, not a hard-coded blue (W1)", async () => {
+    const { send, calls } = fakeSend({ quads: QUAD });
+    await markAct(send, click(), "oklch(0.7 0.2 140)");
+    const expr = exprOf(calls);
+    expect(expr).toContain("oklch(0.7 0.2 140)");
+    expect(expr).not.toContain("#4c8dff");
+    expect(expr).not.toContain("76,141,255");
+    // …and with no accent pushed yet, Realm's own blue rather than nothing.
+    const plain = fakeSend({ quads: QUAD });
+    await markAct(plain.send, click());
+    expect(exprOf(plain.calls)).toContain(DEFAULT_AGENT_ACCENT);
+  });
+
+  it("draws NOTHING when the ref no longer resolves — the page navigated between permission and act", async () => {
     const throwing = fakeSend({ quads: { 42: "throw" } });
-    await showActionHighlight(throwing.send, 42);
+    await markAct(throwing.send, click());
     expect(throwing.calls.filter((c) => c.method === "Runtime.evaluate")).toEqual([]);
 
     const empty = fakeSend({ quads: {} });
-    await showActionHighlight(empty.send, 42);
+    await markAct(empty.send, click());
     expect(empty.calls.filter((c) => c.method === "Runtime.evaluate")).toEqual([]);
   });
 
-  it("a failed highlight NEVER throws (the named mutant: highlight failure failing the act)", async () => {
-    const base = fakeSend({ quads: { 42: [[10, 20, 110, 20, 110, 50, 10, 50]] } });
+  it("a failed mark NEVER throws (the named mutant: decoration failing the act it decorates)", async () => {
+    const base = fakeSend({ quads: QUAD });
     const send: CdpSend = (method, params) => {
       if (method === "Runtime.evaluate") throw new Error("CSP said no");
       return base.send(method, params);
     };
-    await expect(showActionHighlight(send, 42)).resolves.toBeUndefined();
+    await expect(markAct(send, click())).resolves.toBeUndefined();
   });
 
   it("highlightTargetRef points at click/type/keyed-key targets and at nothing for scroll", () => {
@@ -495,6 +523,134 @@ describe("action highlight (W4)", () => {
     expect(highlightTargetRef({ kind: "key", key: "Enter", ref: 9 })).toBe(9);
     expect(highlightTargetRef({ kind: "key", key: "Enter" })).toBe(null);
     expect(highlightTargetRef({ kind: "scroll", deltaX: 0, deltaY: 100 })).toBe(null);
+  });
+
+  /* The split IS the feature: the ring says "this element" and is the only honest mark for the two
+     acts that dispatch no mouse event at all; the cursor says "this point" and is the only mark for
+     the one act that has none today. Both mutants live here. */
+  it("cursorTargetFor gives type and key NO pointer, and gives scroll one", () => {
+    expect(cursorTargetFor({ kind: "type", ref: 8, text: "hi", method: "keys", submit: false })).toBe(null);
+    expect(cursorTargetFor({ kind: "key", key: "Enter", ref: 9 })).toBe(null);
+    expect(cursorTargetFor({ kind: "click", ref: 7, button: "left", clickCount: 2, modifiers: [] }))
+      .toEqual({ ref: 7, press: { kind: "click", count: 2 } });
+    expect(cursorTargetFor({ kind: "scroll", deltaX: 0, deltaY: 100 }))
+      .toEqual({ ref: null, press: { kind: "scroll", axis: "y", sign: 1 } });
+  });
+
+  it("the scroll ticks take the DELTA'S sign and its dominant axis", () => {
+    const press = (deltaX: number, deltaY: number) => cursorTargetFor({ kind: "scroll", deltaX, deltaY })!.press;
+    expect(press(0, -240)).toEqual({ kind: "scroll", axis: "y", sign: -1 });
+    expect(press(0, 240)).toEqual({ kind: "scroll", axis: "y", sign: 1 });
+    expect(press(-300, 10)).toEqual({ kind: "scroll", axis: "x", sign: -1 });
+    expect(press(300, 10)).toEqual({ kind: "scroll", axis: "x", sign: 1 });
+    // No delta is no side to draw a tick on, so none is drawn.
+    expect(press(0, 0)).toEqual({ kind: "scroll", axis: "y", sign: 0 });
+  });
+
+  it("a ref-less scroll marks the SAME viewport centre performAct wheels at", async () => {
+    // The fake reports a 1000x800 visual viewport, so both must land on (500, 400).
+    const marked = fakeSend({});
+    await markAct(marked.send, { kind: "scroll", deltaX: 0, deltaY: 200 });
+    const expr = exprOf(marked.calls);
+    expect(expr).toContain('"x":500');
+    expect(expr).toContain('"y":400');
+    expect(expr).toContain('var ringCss = "";'); // a scroll has no element to ring, and draws none
+    const acted = fakeSend({});
+    await performAct(acted.send, { kind: "scroll", deltaX: 0, deltaY: 200 });
+    const wheel = acted.calls.find((c) => c.method === "Input.dispatchMouseEvent")!;
+    expect(wheel.params.x).toBe(500);
+    expect(wheel.params.y).toBe(400);
+    expect(viewportCentre({ cssVisualViewport: { clientWidth: 1000, clientHeight: 800 } })).toEqual({ x: 500, y: 400 });
+  });
+
+  it("a type ring is drawn with no cursor beside it — no pointer at a field no mouse touched", async () => {
+    const { send, calls } = fakeSend({ quads: QUAD, describe: { 42: { nodeName: "INPUT", attributes: ["type", "text"] } } });
+    await markAct(send, { kind: "type", ref: 42, text: "hi", method: "keys", submit: false });
+    const expr = exprOf(calls);
+    expect(expr).toContain(MARK_RING);
+    expect(expr).toContain('var pt = null');   // no point: the mark is never placed
+    expect(expr).toContain(MARK_FRAME);        // but the screen IS being controlled, and says so
+  });
+
+  it("the injected marks obey the motion rules: no travel path, no idle loop, no `transition: all`", async () => {
+    const { send, calls } = fakeSend({ quads: QUAD });
+    await markAct(send, click());
+    const expr = exprOf(calls);
+    // The mark SWAPS position: `translate` and `opacity`, named, at --dur-swap. Nothing is drawn at
+    // any intermediate point — no keyframed position, no offset-path, no trail.
+    expect(expr).toContain(`transition:translate ${AGENT_MOTION.swapMs}ms ${AGENT_MOTION.easeOutStrong}`);
+    expect(expr).not.toContain("offset-path");
+    expect(expr).not.toMatch(/@keyframes rl-agent-press\{[^}]*translate/);
+    expect(expr).not.toContain("transition:all");
+    expect(expr).not.toContain("transition: all");
+    // The ONE infinite animation is the frame's glow — the in-flight ping's rule, not a second one.
+    expect([...expr.matchAll(/infinite/g)]).toHaveLength(1);
+    expect(expr).toContain(`rl-agent-pulse ${AGENT_MOTION.framePulseMs}ms`);
+    // The mark itself never breathes, blinks or drifts when nothing is happening.
+    expect(expr).not.toMatch(/\[data-realm-agent-highlight="cursor"\][^}]*infinite/);
+  });
+
+  it("reduced motion is the PAGE'S own media query: the mark jumps, the frame stays painted", async () => {
+    const { send, calls } = fakeSend({ quads: QUAD });
+    await markAct(send, click());
+    const expr = exprOf(calls);
+    const reduced = expr.slice(expr.indexOf("@media (prefers-reduced-motion:reduce)"));
+    expect(reduced.length).toBeGreaterThan(0);
+    // No `translate` in the reduced transition — the jump IS the event stream, so it is the more
+    // honest rendering — and the press becomes an opacity flash rather than a half-pixel scale.
+    expect(reduced).toContain(`transition:opacity ${AGENT_MOTION.enterMs}ms`);
+    expect(reduced).not.toMatch(/transition:translate/);
+    expect(reduced).toContain("rl-agent-press-flat");
+    // Only the motion goes. The frame's ring is inline and untouched here, so it stays painted.
+    expect(reduced).toContain("animation:none");
+    expect(expr).toContain("box-shadow:inset 0 0 0 2px");
+  });
+
+  it("carries AGENT_CURSOR's numbers rather than its own — the parity the machine pane reuses", async () => {
+    const { send, calls } = fakeSend({ quads: QUAD });
+    await markAct(send, click({ clickCount: 3 }));
+    const expr = exprOf(calls);
+    expect(expr).toContain(`width:${AGENT_CURSOR.size}px;height:${AGENT_CURSOR.size}px`);
+    expect(expr).toContain(`border:${AGENT_CURSOR.stroke}px solid`);
+    expect(expr).toContain(`width:${AGENT_CURSOR.core}px;height:${AGENT_CURSOR.core}px`);
+    expect(expr).toContain(`scale:${AGENT_CURSOR.pressScale}`);
+    expect(expr).toContain(`}, ${AGENT_CURSOR.idleMs});`);      // the dwell watchdog's deadline
+    expect(expr).toContain('animationIterationCount = String(3)'); // one contraction per click
+  });
+
+  it("places the FIRST mark with the transition off and a forced reflow — no sweep in from (0,0)", async () => {
+    const { send, calls } = fakeSend({ quads: QUAD });
+    await markAct(send, click());
+    const expr = exprOf(calls);
+    const fresh = expr.indexOf('if (fresh) { mark.style.transition = "none"; }');
+    const place = expr.indexOf("mark.style.translate =");
+    const reflow = expr.indexOf("void mark.offsetWidth");
+    expect(fresh).toBeGreaterThan(-1);
+    expect(fresh).toBeLessThan(place);
+    expect(place).toBeLessThan(reflow);
+  });
+
+  /* The removal an act performs before drawing its own ring narrows to RINGS. Widened to the whole
+     attribute — which is what it was before the values existed — every act would delete the cursor
+     it was in the middle of placing, and `buildSnapshot`'s pre-capture sweep would blink it away
+     mid-`browser_batch`. Neither shows up as an error anywhere; both just make the mark flicker. */
+  it("clears only the previous RING before drawing, never the cursor or the frame", async () => {
+    const { send, calls } = fakeSend({ quads: QUAD });
+    await markAct(send, click());
+    const expr = exprOf(calls);
+    const removal = expr.slice(expr.indexOf("document.querySelectorAll"), expr.indexOf("var ringCss"));
+    expect(removal).toContain(`[${HIGHLIGHT_ATTR}=\\"${MARK_RING}\\"]`);
+    expect(removal).not.toContain(MARK_CURSOR);
+    expect(removal).not.toContain(MARK_FRAME);
+  });
+
+  it("the dwell watchdog is reset on every placement and takes BOTH drive marks with it", async () => {
+    const { send, calls } = fakeSend({ quads: QUAD });
+    await markAct(send, click());
+    const expr = exprOf(calls);
+    expect(expr).toContain("clearTimeout(window.__realmAgentIdle)");   // reset, not a second timer
+    expect(expr).toContain(`"${MARK_CURSOR}\\"],[`);                    // cursor…
+    expect(expr).toContain(`"${MARK_FRAME}\\"]`);                       // …and frame, together
   });
 
   it("the ring is INVISIBLE to snapshots — tagged node never listed, even clickable (mutant: agent chases its own ring)", async () => {

@@ -9,9 +9,11 @@ import { RemoveWorktreeSheet } from "./components/RemoveWorktreeSheet";
 import { CheckpointsSheet } from "./components/CheckpointsSheet";
 import { ActivitySheet } from "./components/ActivitySheet";
 import { CommandPalette, usePaletteHotkey } from "./components/CommandPalette";
+import { QuickChat } from "./components/QuickChat";
 import { SpaceOverview, useSpacesHotkey } from "./components/sidebar/SpaceOverview";
 import { PaneHost } from "./components/PaneHost";
 import { getTerminalHub } from "./panes/terminal-hub";
+import { getBrowserBridges } from "./panes/browser/browser-client";
 import { GroupBar } from "./components/GroupBar";
 import { Onboarding } from "./components/Onboarding";
 import { StoreContext, createAppStore, useApp } from "./state/store";
@@ -71,6 +73,18 @@ function ThemeBridge() {
   // face. A plain effect, not a layout one: it has to run AFTER useApplyTheme has written
   // --font-mono, because the hub reads the computed value off :root.
   useEffect(() => { getTerminalHub().refreshFont(); }, [fonts]);
+  // Same shape, same reason (Plan 25 W1): main draws the agent's action ring, cursor and
+  // controlled-screen frame INSIDE the page, where none of Realm's CSS reaches, so the accent has to
+  // be pushed to it. Read off the live document rather than derived from the store, because the
+  // value that matters is the one the page will actually be painted beside — the same resolved
+  // colour every other surface in the window is using, and the same read the picker already makes.
+  // Every input `useApplyTheme` takes is a dependency: any one of them can move the accent.
+  useEffect(() => {
+    const accent = getComputedStyle(document.documentElement).getPropertyValue("--rl-accent").trim();
+    // Empty under jsdom, which loads no stylesheet — so a test renders this component and pushes
+    // nothing, rather than pushing a colour that is not one.
+    if (accent) getBrowserBridges().host.setAccent(accent);
+  }, [color, pref, themes, overrides, contrast, fonts, groundAlpha]);
   return null;
 }
 
@@ -315,6 +329,9 @@ export function App() {
       <AppShell />
       <ConnectionBanner />
       <SheetHost />
+      {/* Over everything and outside the layout: it takes no pane, so it belongs to the window
+          rather than to any one space's arrangement of it. */}
+      <QuickChat />
       <CommandPalette />
       <SpaceOverview />
     </StoreContext.Provider>

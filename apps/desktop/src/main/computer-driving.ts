@@ -36,8 +36,12 @@ export type ComputerDrivingDeps = {
  * between each would flash the menu bar rather than inform it. Worse, every appearance and
  * disappearance shifts the position of every item to its left, so the flicker would move other
  * applications' icons under the user's cursor. The linger coalesces a burst into one showing.
+ *
+ * Exported because the browser's in-page cursor answers the same question with the same number
+ * (`AGENT_CURSOR.idleMs`) and `agent-cursor.test.ts` holds the two equal. Two answers to "how long
+ * after the last act does an agent stop counting as driving" is how they drift.
  */
-const LINGER_MS = 1500;
+export const LINGER_MS = 1500;
 
 /** Menu bar width is shared with every other item, so a long application name is clipped rather
  *  than allowed to push the rest off the screen. */

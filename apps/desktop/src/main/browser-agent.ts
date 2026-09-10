@@ -6,6 +6,7 @@
  * reaches it over the browserHost bridge.
  */
 import { normalizeOrigin, PICK_HTML_MAX, PICK_NAME_MAX, PICK_SELECTOR_MAX, PICK_TEXT_MAX, type BrowserAction, type BrowserActResult, type BrowserPickedElement, type BrowserRefusal, type BrowserSnapshotResult } from "@realm/contracts";
+import { AGENT_CURSOR, AGENT_MOTION } from "./agent-cursor";
 
 export type CdpSend = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
@@ -91,10 +92,13 @@ const clip = (t: string, n: number): string => (t.length > n ? `${t.slice(0, n -
  * plus the fingerprint index the next snapshot diffs against.
  */
 export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | null): Promise<BrowserSnapshotResult & { index: SnapshotIndex }> {
-  // Any lingering W4 action highlight is removed BEFORE the capture (belt to the filter's braces):
-  // the ring is the watcher's, and an agent that sees it — even as a phantom layout box — is an
-  // agent chasing its own tail. Best-effort: a page that refuses the evaluate still snapshots.
-  await send("Runtime.evaluate", { expression: REMOVE_HIGHLIGHTS_JS }).catch(() => {});
+  // Any lingering action RING is removed BEFORE the capture (belt to the filter's braces): the ring
+  // is the watcher's, and an agent that sees it — even as a phantom layout box — is an agent chasing
+  // its own tail. Rings only, deliberately: the cursor and the frame last the whole drive, and a
+  // sweep that took them would blink them on every snapshot of a `browser_batch`. They are invisible
+  // to the capture anyway, by the attribute filter below. Best-effort: a page that refuses the
+  // evaluate still snapshots.
+  await send("Runtime.evaluate", { expression: REMOVE_RINGS_JS }).catch(() => {});
   const [snapRaw, axRaw, metricsRaw] = await Promise.all([
     send("DOMSnapshot.captureSnapshot", { computedStyles: [...SNAPSHOT_STYLES], includePaintOrder: true }),
     send("Accessibility.getFullAXTree").catch(() => ({ nodes: [] })),
@@ -217,8 +221,10 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
     const attrs: Record<string, string> = {};
     const flat = attrsRaw[ni] ?? [];
     for (let k = 0; k + 1 < flat.length; k += 2) attrs[s(strings, flat[k]).toLowerCase()] = s(strings, flat[k + 1]);
-    // W4's action highlight is Realm's own furniture, never page content: a snapshot that lists it
-    // hands the agent a `[new]` element that is its OWN last click's ring — and it chases it.
+    // Every mark Realm draws in the page — ring, cursor, frame, stylesheet — is Realm's own
+    // furniture, never page content: a snapshot that lists one hands the agent a `[new]` element
+    // that is its OWN last click, and it chases it. Presence, not a value: a filter written as
+    // `[attr=""]` would start listing the cursor the moment the attribute took a value.
     if (attrs[HIGHLIGHT_ATTR] !== undefined) return;
 
     const backendNodeId = backendIds[ni] ?? -1;
@@ -417,8 +423,7 @@ export async function performAct(send: CdpSend, action: BrowserAction): Promise<
       case "scroll": {
         let point = action.ref !== undefined ? await resolvePoint(send, action.ref) : null;
         if (!point) {
-          const metrics = (await send("Page.getLayoutMetrics")) as LayoutMetrics;
-          point = { x: (metrics.cssVisualViewport?.clientWidth ?? 800) / 2, y: (metrics.cssVisualViewport?.clientHeight ?? 600) / 2 };
+          point = viewportCentre((await send("Page.getLayoutMetrics")) as LayoutMetrics);
         }
         await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: point.x, y: point.y, deltaX: action.deltaX ?? 0, deltaY: action.deltaY ?? 0 });
         return { ok: true, detail: `scrolled by (${action.deltaX ?? 0}, ${action.deltaY ?? 0})` };
@@ -606,21 +611,48 @@ export async function readPageText(send: CdpSend): Promise<string> {
   return text.length > PAGE_TEXT_MAX ? `${text.slice(0, PAGE_TEXT_MAX)}\n…(truncated at ${PAGE_TEXT_MAX} chars)` : text;
 }
 
-/* ------------------------------------ action highlight (W4) ------------------------------------ */
+/* --------------------------- the marks an act leaves in the page --------------------------- */
 
-/** The attribute that marks W4's in-page action highlight as Realm furniture. Everything that touches
- *  the ring keys off this one name: the injector sets it, `buildSnapshot` filters it out of the
- *  element list AND removes lingering rings before capturing, and the ring's own timeout removes it. */
+/**
+ * The attribute that marks everything Realm draws INSIDE an agent-driven page as Realm's furniture,
+ * never page content. Everything that touches a mark keys off this one name: the injector sets it,
+ * `buildSnapshot` filters it out of the element list, and the sweeps below remove by it.
+ *
+ * It carries a VALUE (Plan 25 W2), and the value is load-bearing. The ring and the cursor have
+ * different lifetimes — the ring is one act's 900ms flash, the cursor and the frame last the whole
+ * drive — so a sweep that removed "every mark" would delete the cursor every time a ring was drawn,
+ * and `buildSnapshot`'s pre-capture sweep would blink it mid-`browser_batch`. The snapshot FILTER
+ * stays presence-based (`attrs[HIGHLIGHT_ATTR] !== undefined`), which covers every value for free;
+ * only the removals narrow.
+ */
 export const HIGHLIGHT_ATTR = "data-realm-agent-highlight";
+
+/** The attribute's values. `css` is the injected stylesheet, tagged so the snapshot filter excludes
+ *  it for free and so neither sweep takes it — it is shared by every mark and outlives all of them. */
+export const MARK_RING = "ring";
+export const MARK_CURSOR = "cursor";
+export const MARK_FRAME = "frame";
+const MARK_CSS = "css";
 
 /** How long the ring stays before fading itself out. Long enough for the eye to land where the click
  *  did, short enough that it is gone before the page's own reaction finishes drawing. */
 const HIGHLIGHT_TTL_MS = 900;
 
-export const REMOVE_HIGHLIGHTS_JS = `(() => { try { for (const n of document.querySelectorAll("[${HIGHLIGHT_ATTR}]")) n.remove(); } catch (e) {} })()`;
+const removeJs = (...values: string[]): string =>
+  `(() => { try { for (const n of document.querySelectorAll(${JSON.stringify(values.map((v) => `[${HIGHLIGHT_ATTR}="${v}"]`).join(","))})) n.remove(); } catch (e) {} })()`;
 
-/** The element ref a highlight should ring for this action, or null when there is nothing to point
- *  at (a bare key press, a page scroll). */
+/** Rings only — this is what `buildSnapshot` sweeps before every capture, and what one act's ring
+ *  clears before drawing the next. Widening it to the whole attribute is the named mutant: it would
+ *  delete the cursor the very act that placed it. */
+export const REMOVE_RINGS_JS = removeJs(MARK_RING);
+
+/** The drive's own marks: the cursor and the controlled-screen frame. Used by `armElementPick`,
+ *  because two accent overlays chasing one pointer is the failure the picker would otherwise have. */
+export const REMOVE_AGENT_MARKS_JS = removeJs(MARK_CURSOR, MARK_FRAME);
+
+/** The element ref the RING should trace for this action, or null when there is nothing to outline.
+ *  The ring says "this element": it is quad-shaped, it outlives the act, and it is the only honest
+ *  mark for `type` and `key`, which dispatch no mouse event at all. */
 export function highlightTargetRef(action: BrowserAction): number | null {
   switch (action.kind) {
     case "click": case "type": return action.ref;
@@ -629,46 +661,258 @@ export function highlightTargetRef(action: BrowserAction): number | null {
   }
 }
 
+/** How the mark answers the act at the moment it lands. `count` repeats the contraction once per
+ *  click; `sign` is the DELTA'S sign and nothing else — magnitude is not depicted, because the page
+ *  is not told how far it scrolled either. */
+export type CursorPress =
+  | { kind: "click"; count: number }
+  | { kind: "scroll"; axis: "x" | "y"; sign: -1 | 0 | 1 };
+
+/** Where the cursor goes. `ref: null` means "the viewport centre `performAct` computes", which is
+ *  the only fallback there is — see `viewportCentre`. */
+export type CursorTarget = { ref: number | null; press: CursorPress };
+
 /**
- * W4's in-page action highlight: a brief ring around the element a permitted act is about to touch —
- * injected INTO the page via `Runtime.evaluate` (DOM injection rides the debugger, so CSP that blocks
- * page scripts does not block it), which is what keeps the no-overlay invariant untouched: nothing of
- * Realm's ever paints over the view.
+ * The point the CURSOR marks for this action, or null when a pointer there would be a lie.
+ *
+ * `type` and `key` dispatch no mouse event whatsoever, so a pointer at that field is the one outright
+ * false thing this feature could draw — they get the ring and nothing else. `scroll` is the inverse:
+ * it has no ring today and a wheel event really is dispatched at a point, so it is the one act whose
+ * ONLY honest mark is the cursor.
+ *
+ * A `download` reaches this through the ordinary click it performs (`browser-agent-host.ts`), which
+ * is why there is no case for it here. `fillCredential` deliberately reaches nothing at all.
+ */
+export function cursorTargetFor(action: BrowserAction): CursorTarget | null {
+  switch (action.kind) {
+    case "click":
+      return { ref: action.ref, press: { kind: "click", count: action.clickCount ?? 1 } };
+    case "type": case "key":
+      return null;
+    case "scroll": {
+      const dx = action.deltaX ?? 0;
+      const dy = action.deltaY ?? 0;
+      // The dominant axis, so a sideways scroll is not drawn as a vertical one. Ties go to y, which
+      // is what a wheel means when nothing distinguishes the two.
+      const axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+      const sign = Math.sign(axis === "x" ? dx : dy) as -1 | 0 | 1;
+      return { ref: action.ref ?? null, press: { kind: "scroll", axis, sign } };
+    }
+  }
+}
+
+/** The centre of the visual viewport, in the exact form `performAct`'s scroll fallback uses. Shared
+ *  rather than repeated: a mark at a point the wheel event did not go to is the whole failure. */
+export function viewportCentre(metrics: LayoutMetrics): { x: number; y: number } {
+  return {
+    x: (metrics.cssVisualViewport?.clientWidth ?? 800) / 2,
+    y: (metrics.cssVisualViewport?.clientHeight ?? 600) / 2,
+  };
+}
+
+/** The accent used when the renderer has not told main the theme's — Realm's default blue. Shared by
+ *  the ring, the cursor, the frame and the picker, so all four are one colour or none of them are. */
+export const DEFAULT_AGENT_ACCENT = "rgb(76, 141, 255)";
+
+/** The picker's own name for it, kept because that is what its parameter has always been called. */
+export const DEFAULT_PICK_ACCENT = DEFAULT_AGENT_ACCENT;
+
+/**
+ * The injected stylesheet: every transition, animation and reduced-motion rule the marks use.
+ *
+ * A stylesheet rather than inline `style.transition` strings, and a CSS media query rather than a
+ * `matchMedia` read in JS, for one reason each. The sheet is where a keyframe can live at all, and
+ * the pulse needs one. And a media query is re-evaluated by the page the moment the preference
+ * changes, where a boolean sampled at injection time would keep a user who turned motion off
+ * mid-drive in full motion — and could be inverted by a single edit with nothing to catch it.
+ *
+ * Geometry and colour stay INLINE on each node, where they beat any rule the page itself might
+ * carry; only motion is declared here, which no page has a reason to target.
+ */
+function markStylesheet(): string {
+  const { pressScale } = AGENT_CURSOR;
+  const { pressMs, fastMs, swapMs, enterMs, easeOutStrong, framePulseMs } = AGENT_MOTION;
+  const cursor = `[${HIGHLIGHT_ATTR}="${MARK_CURSOR}"]`;
+  const glow = `[${HIGHLIGHT_ATTR}="${MARK_FRAME}"] > u`;
+  return [
+    // The mark SWAPS position. Only `translate` and `opacity` are named — there is no path, no
+    // intermediate point drawn, no trail and no afterimage, because the page received one
+    // instantaneous arrival and a drawn traversal would depict a journey that never happened.
+    `${cursor}{transition:translate ${swapMs}ms ${easeOutStrong},opacity ${enterMs}ms ${easeOutStrong}}`,
+    `${cursor}[data-press]{animation:rl-agent-press ${pressMs}ms ${easeOutStrong} both}`,
+    `@keyframes rl-agent-press{50%{scale:${pressScale}}}`,
+    `${cursor} i{transition:opacity ${fastMs}ms linear}`,
+    `${glow}{animation:rl-agent-pulse ${framePulseMs}ms ease-in-out infinite}`,
+    `@keyframes rl-agent-pulse{0%,100%{opacity:1}50%{opacity:.3}}`,
+    // Under the preference the mark JUMPS to the point — which is literally the event stream, so it
+    // is the MORE honest rendering — and the press becomes an opacity flash rather than a
+    // contraction nobody would see without motion. The frame's ring stays painted and only its glow
+    // stops moving: the rule `styles.css` already writes down for the in-flight ping, that what
+    // carries the state has to survive when the motion carrying it is taken away.
+    `@media (prefers-reduced-motion:reduce){`,
+    `${cursor}{transition:opacity ${enterMs}ms ${easeOutStrong}}`,
+    `${cursor}[data-press]{animation-name:rl-agent-press-flat}`,
+    `@keyframes rl-agent-press-flat{50%{opacity:.35}}`,
+    `${glow}{animation:none}`,
+    `}`,
+  ].join("");
+}
+
+/** The two ticks beside the mark on a scroll, on the side matching the delta's SIGN. A sign of 0 —
+ *  a wheel event with no delta at all — draws none, because there is no side to draw them on. */
+function tickCss(press: CursorPress, accent: string): string | null {
+  if (press.kind !== "scroll" || press.sign === 0) return null;
+  const line = `1px solid ${accent}`;
+  const common = "position:absolute;pointer-events:none;";
+  if (press.axis === "y") {
+    const edge = press.sign < 0 ? "bottom:calc(100% + 3px)" : "top:calc(100% + 3px)";
+    return `${common}left:50%;margin-left:-3px;width:6px;height:3px;border-top:${line};border-bottom:${line};${edge}`;
+  }
+  const edge = press.sign < 0 ? "right:calc(100% + 3px)" : "left:calc(100% + 3px)";
+  return `${common}top:50%;margin-top:-3px;width:3px;height:6px;border-left:${line};border-right:${line};${edge}`;
+}
+
+/**
+ * Draw everything one permitted act leaves in the page — the ring, the cursor and the
+ * controlled-screen frame — in ONE `Runtime.evaluate` over ONE geometry read.
+ *
+ * Injected into the page over CDP rather than drawn by the renderer, because a `WebContentsView`
+ * composites above all DOM unconditionally: nothing Realm paints beside one can reach it. DOM
+ * injection rides the debugger, so a CSP that blocks page scripts does not block this.
  *
  * The constraints, each load-bearing:
- *   - geometry comes from `DOM.getContentQuads` on the ref NOW — the same at-act-time re-resolution
- *     the act itself performs. A page that navigated between permission and execution has no quads
- *     for the ref, so the ring is silently skipped (and the act will fail honestly on its own);
- *   - the node carries `HIGHLIGHT_ATTR` and `pointer-events:none` with a transparent background —
+ *   - geometry comes from `DOM.getContentQuads` on the ref NOW, after the same `scrollIntoViewIfNeeded`
+ *     the act itself is about to perform — so the ring's rect and the cursor's point are resolved
+ *     under the act's own precondition and cannot diverge from where the input lands. Nothing here
+ *     accepts a rect from a snapshot;
+ *   - a page that navigated between permission and execution has no quads for the ref, so the ring is
+ *     silently skipped and the act fails honestly on its own;
+ *   - every node carries `HIGHLIGHT_ATTR` and `pointer-events:none` over a transparent background —
  *     invisible to snapshots (filtered by the attribute), inert to the click about to land, and
- *     see-through to the occlusion check (its background never "covers" anything);
- *   - it removes itself (fade + remove after `HIGHLIGHT_TTL_MS`), any predecessor is removed first,
- *     and `buildSnapshot` sweeps stragglers before every capture;
- *   - EVERY failure path is swallowed: a failed highlight must never fail — or even delay-fail — the
- *     act it decorates.
+ *     see-through to the occlusion check (a transparent background never "covers" anything);
+ *   - the caller does NOT await the settle. The mark is placed before the dispatch and the press
+ *     flash is what marks the moment, so there is no added latency per act;
+ *   - EVERY failure path is swallowed. A failed mark must never fail — or even delay-fail — the act
+ *     it decorates.
  */
-export async function showActionHighlight(send: CdpSend, backendNodeId: number): Promise<void> {
+export async function markAct(send: CdpSend, action: BrowserAction, accent = DEFAULT_AGENT_ACCENT): Promise<void> {
   try {
-    const { quads } = (await send("DOM.getContentQuads", { backendNodeId })) as { quads?: number[][] };
-    const quad = quads?.[0];
-    if (!quad || quad.length < 8) return; // no live geometry — likely navigated away; no ring
-    const xs = [quad[0]!, quad[2]!, quad[4]!, quad[6]!];
-    const ys = [quad[1]!, quad[3]!, quad[5]!, quad[7]!];
-    const x = Math.min(...xs), y = Math.min(...ys);
-    const w = Math.max(...xs) - x, h = Math.max(...ys) - y;
-    if (!Number.isFinite(x + y + w + h)) return;
-    const expression = `(() => { try {
-      ${REMOVE_HIGHLIGHTS_JS};
-      const ring = document.createElement("div");
-      ring.setAttribute("${HIGHLIGHT_ATTR}", "");
-      ring.style.cssText = "position:fixed;left:${x - 3}px;top:${y - 3}px;width:${w + 6}px;height:${h + 6}px;" +
-        "border:2px solid #4c8dff;border-radius:6px;box-shadow:0 0 0 3px rgba(76,141,255,0.28);" +
-        "background:transparent;pointer-events:none;z-index:2147483647;transition:opacity 220ms ease;";
-      (document.body || document.documentElement).appendChild(ring);
-      setTimeout(() => { try { ring.style.opacity = "0"; setTimeout(() => { try { ring.remove(); } catch (e) {} }, 260); } catch (e) {} }, ${HIGHLIGHT_TTL_MS});
-    } catch (e) {} })()`;
-    await send("Runtime.evaluate", { expression });
-  } catch { /* the ring is decoration; the act must proceed untouched */ }
+    const ringRef = highlightTargetRef(action);
+    const cursor = cursorTargetFor(action);
+    // At most one quads read: the ring and the cursor address the same ref whenever both exist.
+    const geomRef = ringRef ?? cursor?.ref ?? null;
+    let quad: number[] | null = null;
+    if (geomRef !== null) {
+      await send("DOM.scrollIntoViewIfNeeded", { backendNodeId: geomRef }).catch(() => {});
+      const { quads } = (await send("DOM.getContentQuads", { backendNodeId: geomRef })) as { quads?: number[][] };
+      const first = quads?.[0];
+      quad = first && first.length >= 8 ? first : null;
+      if (!quad) return; // no live geometry — likely navigated away; draw nothing
+    }
+    let ring = "";
+    let point: { x: number; y: number } | null = null;
+    if (quad) {
+      const xs = [quad[0]!, quad[2]!, quad[4]!, quad[6]!];
+      const ys = [quad[1]!, quad[3]!, quad[5]!, quad[7]!];
+      const left = Math.min(...xs), top = Math.min(...ys);
+      const w = Math.max(...xs) - left, h = Math.max(...ys) - top;
+      if (!Number.isFinite(left + top + w + h)) return;
+      if (ringRef !== null) {
+        ring = `position:fixed;left:${left - 3}px;top:${top - 3}px;width:${w + 6}px;height:${h + 6}px;`
+          + `border:2px solid ${accent};border-radius:6px;box-shadow:0 0 0 3px color-mix(in srgb, ${accent} 28%, transparent);`
+          + "background:transparent;pointer-events:none;z-index:2147483647;transition:opacity 220ms ease;";
+      }
+      if (cursor) point = { x: xs.reduce((a, b) => a + b, 0) / 4, y: ys.reduce((a, b) => a + b, 0) / 4 };
+    }
+    if (cursor && cursor.ref === null) {
+      point = viewportCentre((await send("Page.getLayoutMetrics")) as LayoutMetrics);
+    }
+    await send("Runtime.evaluate", { expression: markScript({ accent, ring, point, press: cursor?.press ?? null }) });
+  } catch { /* the marks are decoration; the act must proceed untouched */ }
+}
+
+/** The page-side half, written as a string because it runs in the PAGE, whose globals are not ours.
+ *  Every value it needs is `JSON.stringify`d in, so nothing here has to quote anything by hand. */
+function markScript(o: { accent: string; ring: string; point: { x: number; y: number } | null; press: CursorPress | null }): string {
+  const { size, stroke, core } = AGENT_CURSOR;
+  const half = size / 2;
+  // A lit point, not an arrow. design.md warns against human-like agent presence, and a second
+  // pointer beside the user's real one would be both that and ambiguous about which is which. So:
+  // a white disc with an accent ring, the accent falling inward from the ring to transparent, and
+  // the exact point the input went to as an accent core at its centre. `background-color` and
+  // `background-image` rather than the `background` shorthand, which would reset the white.
+  const markCss = `position:fixed;left:0;top:0;width:${size}px;height:${size}px;margin:${-half}px 0 0 ${-half}px;`
+    + `box-sizing:border-box;border-radius:50%;border:${stroke}px solid ${o.accent};background-color:#fff;`
+    + `background-image:radial-gradient(circle,transparent 25%,color-mix(in srgb, ${o.accent} 40%, transparent) 100%);`
+    + `box-shadow:0 0 10px color-mix(in srgb, ${o.accent} 45%, transparent);`
+    + "pointer-events:none;z-index:2147483647;opacity:0;";
+  const coreCss = `position:absolute;left:50%;top:50%;width:${core}px;height:${core}px;`
+    + `margin:${-core / 2}px 0 0 ${-core / 2}px;border-radius:50%;background:${o.accent};pointer-events:none;`;
+  const frameCss = "position:fixed;inset:0;pointer-events:none;z-index:2147483646;opacity:1;"
+    + `box-shadow:inset 0 0 0 2px ${o.accent};`;
+  const glowCss = `position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 48px -12px ${o.accent};`;
+  const labelCss = "position:absolute;left:50%;bottom:12px;translate:-50% 0;padding:4px 10px;border-radius:8px;"
+    + `background:${o.accent};color:#fff;font:500 12px/1.4 ui-sans-serif,system-ui,sans-serif;white-space:nowrap;`
+    + "box-shadow:0 2px 10px rgba(0,0,0,0.25);pointer-events:none;";
+  const j = JSON.stringify;
+  return `(() => { try {
+    var A = ${j(HIGHLIGHT_ATTR)}, D = document, R = D.body || D.documentElement;
+    if (!R) return;
+    var sel = function (v) { return D.querySelector("[" + A + "=\\"" + v + "\\"]"); };
+    var make = function (v, css, tag) { var n = D.createElement(tag || "div"); n.setAttribute(A, v); n.style.cssText = css; return n; };
+    if (!sel(${j(MARK_CSS)})) { var st = make(${j(MARK_CSS)}, "", "style"); st.textContent = ${j(markStylesheet())}; (D.head || R).appendChild(st); }
+    ${REMOVE_RINGS_JS};
+    var ringCss = ${j(o.ring)};
+    if (ringCss) {
+      var ring = make(${j(MARK_RING)}, ringCss);
+      R.appendChild(ring);
+      setTimeout(function () { try { ring.style.opacity = "0"; setTimeout(function () { try { ring.remove(); } catch (e) {} }, 260); } catch (e) {} }, ${HIGHLIGHT_TTL_MS});
+    }
+    var pt = ${j(o.point)};
+    if (pt) {
+      var mark = sel(${j(MARK_CURSOR)}), fresh = !mark;
+      if (fresh) {
+        mark = make(${j(MARK_CURSOR)}, ${j(markCss)});
+        mark.appendChild(make(${j(MARK_CURSOR)} + "-core", ${j(coreCss)}, "b"));
+        R.appendChild(mark);
+      }
+      var tick = mark.querySelector("i");
+      if (tick) tick.remove();
+      var tickCss = ${j(tickCss(o.press ?? { kind: "click", count: 1 }, o.accent))};
+      if (tickCss) mark.appendChild(make(${j(MARK_CURSOR)} + "-tick", tickCss, "i"));
+      /* A fresh mark is positioned with the transition OFF and one forced reflow, then faded in at
+         the point. Transitioning from the (0,0) it was created at would fabricate a sweep in from the
+         corner of the page — motion depicting a journey nothing made. */
+      if (fresh) { mark.style.transition = "none"; }
+      mark.style.translate = pt.x + "px " + pt.y + "px";
+      if (fresh) { void mark.offsetWidth; mark.style.transition = ""; }
+      mark.style.opacity = "1";
+      /* Removed and re-added around a reflow so a second click in the same burst replays the press
+         rather than sitting on a finished animation. */
+      mark.removeAttribute("data-press");
+      void mark.offsetWidth;
+      mark.style.animationIterationCount = String(${o.press?.kind === "click" ? Math.max(1, o.press.count) : 1});
+      mark.setAttribute("data-press", ${j(o.press?.kind ?? "click")});
+    }
+    if (!sel(${j(MARK_FRAME)})) {
+      var frame = make(${j(MARK_FRAME)}, ${j(frameCss)});
+      frame.appendChild(make(${j(MARK_FRAME)} + "-glow", ${j(glowCss)}, "u"));
+      var label = make(${j(MARK_FRAME)} + "-label", ${j(labelCss)});
+      label.textContent = "An agent is controlling this page";
+      frame.appendChild(label);
+      R.appendChild(frame);
+    }
+    /* The dwell watchdog, owned by the PAGE and reset on every placement: a dead bridge, a crashed
+       host or a lost driving:false must not be able to leave a pointer stuck on someone's page. */
+    if (window.__realmAgentIdle) clearTimeout(window.__realmAgentIdle);
+    window.__realmAgentIdle = setTimeout(function () {
+      try {
+        var gone = D.querySelectorAll("[" + A + "=\\"${MARK_CURSOR}\\"],[" + A + "=\\"${MARK_FRAME}\\"]");
+        for (var i = 0; i < gone.length; i++) { gone[i].style.transition = "opacity ${AGENT_MOTION.fastMs}ms linear"; gone[i].style.opacity = "0"; }
+        setTimeout(function () { try { for (var k = 0; k < gone.length; k++) gone[k].remove(); } catch (e) {} }, ${AGENT_MOTION.fastMs});
+      } catch (e) {}
+    }, ${AGENT_CURSOR.idleMs});
+  } catch (e) {} })()`;
 }
 
 /* ------------------------------------ describe ------------------------------------ */
@@ -856,11 +1100,11 @@ function pickerScript(accent: string): string {
 export async function armElementPick(send: CdpSend, accent?: string): Promise<void> {
   await send("Runtime.enable").catch(() => {});
   await send("Runtime.addBinding", { name: PICK_BINDING });
+  // Two accent overlays chasing one pointer is the failure this removal exists to prevent: the
+  // agent's cursor and the picker's box are the same colour and follow the same hand.
+  await send("Runtime.evaluate", { expression: REMOVE_AGENT_MARKS_JS }).catch(() => {});
   await send("Runtime.evaluate", { expression: pickerScript(accent ?? DEFAULT_PICK_ACCENT), returnByValue: true });
 }
-
-/** The accent used when the renderer has not told us the theme's — Realm's default blue. */
-export const DEFAULT_PICK_ACCENT = "rgb(76, 141, 255)";
 
 /**
  * Turn the stamped attribute into the `backendNodeId` everything downstream speaks in, and clear it.

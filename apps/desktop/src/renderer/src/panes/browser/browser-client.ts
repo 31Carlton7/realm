@@ -62,6 +62,9 @@ export type BrowserHostBridge = {
   /** `accent` is the theme colour the page-side overlay is drawn in. */
   pickElement(id: string, accent?: string): Promise<BrowserPickedElement | null>;
   cancelPick(id: string): Promise<void>;
+  /** The theme accent main paints the agent's in-page marks in. Fire-and-forget; pushed on every
+   *  theme apply, because the page it is drawn into carries none of Realm's CSS. */
+  setAccent(accent: string): void;
   blockedDownloads(id: string): Promise<BlockedDownload[]>;
   saveDownload(id: string, blockedId: string, dir: string): Promise<BrowserDownloadResult>;
   dismissDownload(id: string, blockedId: string): Promise<void>;

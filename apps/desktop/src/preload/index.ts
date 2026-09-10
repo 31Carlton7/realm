@@ -177,6 +177,11 @@ contextBridge.exposeInMainWorld("realm", {
     pickElement: (id: string, accent?: string): Promise<BrowserPickedElement | null> =>
       ipcRenderer.invoke("browser:pick-element", id, accent),
     cancelPick: (id: string): Promise<void> => ipcRenderer.invoke("browser:cancel-pick", id),
+    /** The theme accent main paints the agent's marks — the action ring, the cursor, the
+     *  controlled-screen frame — in. A page carries none of Realm's CSS, so main cannot read it and
+     *  the renderer has to push it. `send`, not `invoke`, like `setBounds`: nothing waits on a
+     *  colour, and a window that never sends one keeps Realm's default blue. */
+    setAccent: (accent: string): void => ipcRenderer.send("browser:set-accent", accent),
     /**
      * Plan 23 W4 — downloads the pane blocked, and the user's own consent to fetch one.
      *

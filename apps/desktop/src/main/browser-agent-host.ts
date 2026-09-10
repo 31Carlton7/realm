@@ -6,7 +6,7 @@
  * previous snapshot's fingerprint index that `*[new]` markers diff against.
  */
 import { DOWNLOAD_GRANT_TTL_MS, normalizeOrigin, type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserDescribeResult, type BrowserDownloadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
-import { PICK_BINDING, armElementPick, buildSnapshot, describeElement, describePick, disarmElementPick, highlightTargetRef, performAct, performFillCredential, readPageText, resolvePickedNode, showActionHighlight, type CdpSend, type SnapshotIndex } from "./browser-agent";
+import { DEFAULT_AGENT_ACCENT, PICK_BINDING, armElementPick, buildSnapshot, describeElement, describePick, disarmElementPick, markAct, performAct, performFillCredential, readPageText, resolvePickedNode, type CdpSend, type SnapshotIndex } from "./browser-agent";
 import type { CredentialAuditEntry } from "./secret-store";
 import { axElementAt, readAxSnapshot } from "./device-ax";
 
@@ -130,7 +130,26 @@ type Attached = {
 export class BrowserAgentHost {
   private readonly attached = new Map<string, Attached>();
 
+  /**
+   * The theme accent every mark this host draws inside a page is painted in — the action ring, the
+   * agent cursor, the controlled-screen frame and the picker's overlay.
+   *
+   * Held here, once, rather than per browser id: the accent is a property of the WINDOW (it is
+   * whatever `--rl-accent` computes to on that document's `:root`) and this host is already one per
+   * window, so a per-view cache would be N copies of one value with N chances to drift. Pushed from
+   * the renderer on every theme apply (`ThemeBridge`), because a page carries none of Realm's CSS
+   * and cannot be asked. The default stands in until the first push, and for a window that never
+   * sends one.
+   */
+  private accent = DEFAULT_AGENT_ACCENT;
+
   constructor(private readonly d: BrowserAgentHostDeps) {}
+
+  /** The renderer's theme changed. Fire-and-forget from the renderer's side: nothing waits on the
+   *  colour, and an act that lands a frame ahead of it is drawn in the previous accent, not wrongly. */
+  setAccent(accent: string): void {
+    if (accent) this.accent = accent;
+  }
 
   /** A download was blocked on this browser's view (main cancels ALL downloads on the browser
    *  partition — the W3 hard block). Lands in the console buffer so `browser_read console` shows it. */
@@ -170,7 +189,7 @@ export class BrowserAgentHost {
     entry.pick?.(null);
     const ref = await new Promise<number | null>((resolve) => {
       entry.pick = resolve;
-      void armElementPick(entry.binding.send, accent).catch(() => this.settlePick(entry, null));
+      void armElementPick(entry.binding.send, accent ?? this.accent).catch(() => this.settlePick(entry, null));
     });
     // A later `pickElement` has taken the view over — it owns inspect mode now, and disarming from
     // here would switch off the picker the user has just re-armed.
@@ -285,11 +304,11 @@ export class BrowserAgentHost {
         const entry = this.ensure(browserId);
         // The action was schema-validated server-side; this cast is the two processes' contract.
         const action = params.action as BrowserAction;
-        // W4: ring the target inside the page before acting. Only acts already PERMITTED reach this
-        // op (the gate is server-side), so the ring never marks something that was refused; and
-        // `showActionHighlight` swallows every failure — a page where it cannot draw acts anyway.
-        const ref = highlightTargetRef(action);
-        if (ref !== null) await showActionHighlight(entry.binding.send, ref);
+        // Mark the act inside the page before performing it — the ring, the cursor and the
+        // controlled-screen frame, in one evaluate. Only acts already PERMITTED reach this op (the
+        // gate is server-side), so a mark never points at something that was refused; and `markAct`
+        // swallows every failure — a page where it cannot draw acts anyway.
+        await markAct(entry.binding.send, action, this.accent);
         return performAct(entry.binding.send, action);
       }
       /**
@@ -319,9 +338,10 @@ export class BrowserAgentHost {
           return { ok: false, refused: "no_credential", error: "no saved sign-in is enrolled under that id — the user adds them in Realm's Settings, under Sign-ins" } satisfies BrowserActResult;
         }
         const entry = this.ensure(browserId);
-        // No `showActionHighlight` here, unlike `act`. The ring is drawn by evaluating script in the
-        // page, and this is the one op where the page is about to receive a real secret — the moment
-        // to do the least in it, not the most. The permission card already told the user which pane.
+        // No `markAct` here, unlike `act`. Every mark is drawn by evaluating script in the page, and
+        // this is the one op where the page is about to receive a real secret — the moment to do the
+        // least in it, not the most. No ring, no cursor, no frame. The permission card already told
+        // the user which pane.
         let result: BrowserActResult;
         try {
           result = await performFillCredential(entry.binding.send, ref, {
@@ -367,8 +387,9 @@ export class BrowserAgentHost {
           // The click goes through the ordinary act path — same ref resolution, same act-time quads,
           // same highlight. A download is a click that happens to produce a file.
           async () => {
-            await showActionHighlight(entry.binding.send, ref);
-            const result = await performAct(entry.binding.send, { kind: "click", ref, button: "left", clickCount: 1, modifiers: [] });
+            const click: BrowserAction = { kind: "click", ref, button: "left", clickCount: 1, modifiers: [] };
+            await markAct(entry.binding.send, click, this.accent);
+            const result = await performAct(entry.binding.send, click);
             return result.ok ? { ok: true } : { ok: false, error: result.error };
           },
         );
