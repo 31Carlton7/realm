@@ -502,6 +502,11 @@ export const Methods = {
     }),
   },
   "machines.images.list": { params: z.object({}), result: z.object({ images: z.array(z.object({ sha256: z.string(), kind: z.enum(["qcow2", "iso"]), bytes: z.number(), name: z.string() })) }) },
+  /** Start fetching a catalog entry's image for a machine. Answers as soon as the download STARTS —
+   *  a call that waited for two gigabytes would hold a socket for minutes, and the pane follows the
+   *  `machineImage.progress` events instead. */
+  "machines.images.download": { params: z.object({ machineId: IdSchema, catalogId: z.string().min(1).max(64) }), result: z.object({ ok: z.literal(true) }) },
+  "machines.images.cancel": { params: z.object({ machineId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   "machines.images.remove": { params: z.object({ sha256: z.string().length(64), kind: z.enum(["qcow2", "iso"]) }), result: z.object({ ok: z.literal(true) }) },
   "machines.list": { params: z.object({ spaceId: IdSchema }), result: z.object({ machines: z.array(MachineSchema), states: z.array(MachineStateSchema) }) },
   "machines.get": { params: z.object({ machineId: IdSchema }), result: z.object({ machine: MachineSchema, state: MachineStateSchema }) },

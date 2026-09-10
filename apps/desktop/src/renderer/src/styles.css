@@ -1196,6 +1196,21 @@ button.panel-title:hover { background: var(--rl-hover); }
 .machine-resolved { margin: 0; display: flex; flex-direction: column; gap: 2px; }
 .machine-resolved-target { font: 12px var(--font-mono); color: var(--rl-accent); overflow-wrap: anywhere; }
 .machine-resolved-why { font-size: 11px; line-height: 1.5; color: var(--rl-text-faint); }
+/* The one determinate meter in the pane, and the only place a fraction is real. `booting` draws
+   nothing at all rather than an empty bar, which design.md calls a claim in itself. */
+.machine-meter { height: 4px; border-radius: 2px; background: var(--inset); overflow: hidden; }
+.machine-meter-fill { height: 100%; background: var(--rl-accent); transition: width var(--dur-fast) linear; }
+/* A list of images is a list of CARDS, not of rows: each carries three lines, and rows separated by
+   nothing but a line break read as one block of prose. */
+.machine-guests { display: flex; flex-direction: column; gap: 6px; }
+.machine-guest { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; text-align: left;
+  border-radius: var(--r-panel); border: var(--hairline-w) solid var(--rl-line); background: transparent;
+  transition: background-color var(--dur-hover) ease, border-color var(--dur-hover) ease; }
+.machine-guest:hover { background: var(--rl-hover); }
+.machine-guest[data-on] { border-color: var(--rl-accent); background: color-mix(in srgb, var(--rl-accent) 10%, transparent); }
+.machine-guest-name { font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
+.machine-guest-facts { font-size: 12px; line-height: 1.5; color: var(--rl-text-dim); }
+.machine-guest-size { font: 11px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
 .machine-actions { display: flex; gap: 8px; }
 .machine-primary { height: 34px; padding: 0 14px; border-radius: var(--r-ctl); border: none;
   background: var(--rl-accent); color: var(--rl-accent-contrast); font-size: 13px; font-weight: var(--fw-label);

@@ -51,16 +51,25 @@ describe("the machine pane is DOM, not a native view", () => {
   });
 
   /**
-   * There is no measurable fraction in reaching a machine, so nothing draws one.
+   * A determinate meter appears where a fraction is REAL, and nowhere else.
    *
    * design.md: "where a figure genuinely cannot be stated, draw nothing at all rather than an empty
-   * meter, which is itself a claim." A remote Mac that is asleep and a guest still in its firmware
-   * are indistinguishable from here, and a bar creeping across would be inventing progress.
+   * meter, which is itself a claim." A download has a real fraction. Reaching a machine does not —
+   * a remote Mac that is asleep and a guest still in its firmware are indistinguishable from here,
+   * and a bar creeping across either would be inventing progress.
+   *
+   * The mutant is one shared "loading" body for both, which is the obvious simplification.
    */
-  it("shows a spinner while connecting, never a progress bar", () => {
+  it("meters a download and never a boot", () => {
     const pane = SOURCES["./MachinePane.tsx"]!;
-    expect(pane).toContain('className="spinner"');
-    expect(pane).not.toMatch(/<progress|role="progressbar"|aria-valuenow/);
+    // The download body has the only meter in the file…
+    const download = pane.slice(pane.indexOf("function DownloadBody"), pane.indexOf("function human"));
+    expect(download).toContain('role="progressbar"');
+    expect(download).toContain("aria-valuenow");
+    // …and the connecting body has the app's one spinner and no meter at all.
+    const screen = pane.slice(pane.indexOf("function Screen"));
+    expect(screen).toContain('className="spinner"');
+    expect(screen).not.toMatch(/progressbar|aria-valuenow|<progress/);
   });
 
   /** The password goes one way. Nothing here reads one back, because there is no method that

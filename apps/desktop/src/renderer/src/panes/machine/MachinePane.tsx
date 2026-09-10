@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Machine, MachineState } from "@realm/contracts";
+import type { Machine, MachineImageProgress, MachineState } from "@realm/contracts";
 import type { PaneProps } from "../registry";
 import { useApp } from "../../state/store";
 import { rpc } from "../../rpc/client";
@@ -23,11 +23,16 @@ import { E2B_STREAM_PORT, SANDBOX_NOTES, describeEndpoint, parseMachineAddress, 
 
 /** The pane's body is chosen by what is actually true, in this order. `unconfigured` is not a
  *  machine state — it is a row with no address yet, which is what the session bar's button makes. */
-type Body = "unconfigured" | "off" | "booting" | "running" | "failed";
+type Body = "unconfigured" | "downloading" | "off" | "booting" | "running" | "failed";
 
-function bodyFor(machine: Machine | null, state: MachineState): Body {
+function bodyFor(machine: Machine | null, state: MachineState, downloading: boolean): Body {
   if (!machine) return "unconfigured";
-  if (!machine.endpoint) return "unconfigured";
+  // Ahead of everything: a machine fetching its own image has a body of its own, and it is the one
+  // state here with a real fraction to draw.
+  if (downloading) return "downloading";
+  // A `qemu` guest has no address of its own until it boots, so the endpoint test is only about the
+  // sources that are reached BY one.
+  if (machine.source === "vnc" && !machine.endpoint) return "unconfigured";
   if (state.status === "failed") return "failed";
   if (state.status === "running") return "running";
   if (state.status === "booting") return "booting";
@@ -56,10 +61,12 @@ export function MachinePane({ item }: PaneProps) {
   }, [refId]);
   useEffect(() => { void reload(); }, [reload]);
 
-  const body = bodyFor(machine, state);
+  const progress = useApp((s) => s.machineImageProgress[refId]);
+  const body = bodyFor(machine, state, !!progress && !progress.done);
   return (
     <div className="machine-pane">
       {body === "unconfigured" && <ConnectFlow machineId={refId} machine={machine} onSaved={reload} />}
+      {body === "downloading" && progress && <DownloadBody machineId={refId} progress={progress} />}
       {body === "off" && machine && <OffBody machine={machine} />}
       {body === "failed" && <FailedBody state={state} machineId={refId} onEdit={() => setMachine((m) => (m ? { ...m, endpoint: null } : m))} />}
       {(body === "booting" || body === "running") && <Screen machineId={refId} state={state} />}
@@ -82,6 +89,17 @@ export function MachinePane({ item }: PaneProps) {
  */
 function ConnectFlow({ machineId, machine, onSaved }: { machineId: string; machine: Machine | null; onSaved: () => void }) {
   const [route, setRoute] = useState<Route>("mac");
+  /**
+   * What this Mac can offer.
+   *
+   * The local-VM route is ABSENT when QEMU is not installed, not disabled — design.md: "Where the
+   * owner has said nothing, show nothing, not a disabled control, which invites a user to work out
+   * how to enable something nobody has claimed." Asked once per pane; the answer does not change
+   * while Realm is running.
+   */
+  const [caps, setCaps] = useState<Capabilities | null>(null);
+  useEffect(() => { void rpc().call("machines.capabilities", {}).then(setCaps).catch(() => setCaps(null)); }, []);
+  const [image, setImage] = useState<string>("");
   const [name, setName] = useState(machine?.name && machine.name !== "New machine" ? machine.name : "");
   const [address, setAddress] = useState("");
   const [password, setPassword] = useState("");
@@ -111,6 +129,7 @@ function ConnectFlow({ machineId, machine, onSaved }: { machineId: string; machi
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (route === "vm") return submitGuest(e);
     if (!parsed) { setNote("Enter the machine's address."); return; }
     if ("error" in parsed) { setNote(parsed.error); return; }
     setBusy(true);
@@ -138,6 +157,72 @@ function ConnectFlow({ machineId, machine, onSaved }: { machineId: string; machi
     }
   };
 
+  /**
+   * A guest on this Mac: pick an image, and the row keeps its shape while the bytes arrive.
+   *
+   * Pressing this with the image not yet on disk creates nothing new — the machine and the pane
+   * already exist — and the pane's body becomes the download's own. The user can close it, switch
+   * spaces and come back, because the download is the server's.
+   */
+  const submitGuest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const entry = caps?.catalog.find((c) => c.id === image);
+    if (!entry) { setNote("Choose what to install."); return; }
+    setBusy(true);
+    setNote(null);
+    try {
+      await rpc().call("machines.update", { machineId, name: name.trim() || entry.name });
+      onSaved();
+      await rpc().call("machines.images.download", { machineId, catalogId: entry.id });
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "That did not work.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (route === "vm") {
+    return (
+      <div className="machine-body">
+        <form className="machine-connect" onSubmit={submitGuest}>
+          <h2 className="machine-title">A Linux VM on this Mac</h2>
+          <div className="machine-routes" role="radiogroup" aria-label="What are you connecting to?">
+            {ROUTES.filter((r) => r.id !== "vm" || caps?.qemu.available).map((r) => (
+              <button key={r.id} type="button" role="radio" aria-checked={route === r.id}
+                data-on={route === r.id || undefined} onClick={() => { setRoute(r.id); setNote(null); }}>{r.label}</button>
+            ))}
+          </div>
+          {/* One line of exact fact, in the app's own words rather than QEMU's. */}
+          <p className="machine-hint">
+            {caps?.qemu.hvf
+              ? "Runs with hardware acceleration."
+              : "Runs without hardware acceleration on this Mac, so expect it to be slow."}
+            {caps?.qemu.version ? ` QEMU ${caps.qemu.version}.` : ""}
+          </p>
+          <div className="machine-guests">
+            {(caps?.catalog ?? []).map((c) => (
+              <button key={c.id} type="button" className="machine-guest" data-on={image === c.id || undefined}
+                aria-pressed={image === c.id} onClick={() => setImage(c.id)}>
+                <span className="machine-guest-name">{c.name}</span>
+                <span className="machine-guest-facts">{c.summary}</span>
+                {/* What it will cost, before it starts. And whether Realm can check what arrives:
+                    an entry with no published checksum says so rather than implying one. */}
+                <span className="machine-guest-size">{human(c.bytes)} · {c.memoryMb / 1024} GB · {c.diskGb} GB disk{c.verified ? "" : " · unverified download"}</span>
+              </button>
+            ))}
+          </div>
+          <label className="machine-field">
+            <span>Name</span>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder={caps?.catalog.find((c) => c.id === image)?.name ?? "Debian"} />
+          </label>
+          {caps?.absent && <p className="machine-hint">{caps.absent}</p>}
+          {note && <p className="machine-note" role="status">{note}</p>}
+          <button type="submit" className="machine-primary" disabled={busy || !image}>{busy ? "Starting…" : "Download and install"}</button>
+        </form>
+      </div>
+    );
+  }
+
   return (
     <div className="machine-body">
       <form className="machine-connect" onSubmit={submit}>
@@ -146,7 +231,7 @@ function ConnectFlow({ machineId, machine, onSaved }: { machineId: string; machi
             row rather than being buried under VNC, because that is how someone thinks about the
             laptop on the other desk — while the transport underneath is the ordinary `vnc` source. */}
         <div className="machine-routes" role="radiogroup" aria-label="What are you connecting to?">
-          {ROUTES.map((r) => (
+          {ROUTES.filter((r) => r.id !== "vm" || caps?.qemu.available).map((r) => (
             <button key={r.id} type="button" role="radio" aria-checked={route === r.id}
               data-on={route === r.id || undefined} onClick={() => { setRoute(r.id); setNote(null); }}>
               {r.label}
@@ -204,21 +289,30 @@ function ConnectFlow({ machineId, machine, onSaved }: { machineId: string; machi
  * their tooling printed, a host and port — and every provider reduces to one of them. E2B gets its
  * own row only because a sandbox id is not an address and cannot be recognised as one.
  */
-type Route = "mac" | "e2b" | "sandbox" | "address";
+type Route = "mac" | "e2b" | "sandbox" | "address" | "vm";
 
 const ROUTES: readonly { id: Route; label: string }[] = [
   { id: "mac", label: "Another Mac" },
   { id: "e2b", label: "E2B Desktop" },
   { id: "sandbox", label: "A sandbox URL" },
   { id: "address", label: "Host and port" },
+  // Last, and only where QEMU exists at all — see `caps` above.
+  { id: "vm", label: "A Linux VM here" },
 ];
 
+/** `machines.capabilities`, as the pane reads it. */
+type Capabilities = {
+  qemu: { available: boolean; unavailable: string | null; version: string | null; hvf: boolean; arches: string[] };
+  catalog: { id: string; name: string; summary: string; arch: string; bytes: number; kind: string; memoryMb: number; cpus: number; diskGb: number; verified: boolean }[];
+  absent: string;
+};
+
 const ROUTE_PROVIDER: Record<Route, SandboxProvider> = {
-  mac: "screen-sharing", e2b: "e2b", sandbox: "generic", address: "generic",
+  mac: "screen-sharing", e2b: "e2b", sandbox: "generic", address: "generic", vm: "generic",
 };
 
 const ROUTE_FIELD: Record<Route, string> = {
-  mac: "Address", e2b: "Sandbox ID", sandbox: "URL", address: "Host and port",
+  mac: "Address", e2b: "Sandbox ID", sandbox: "URL", address: "Host and port", vm: "Image",
 };
 
 const ROUTE_PLACEHOLDER: Record<Route, string> = {
@@ -228,6 +322,7 @@ const ROUTE_PLACEHOLDER: Record<Route, string> = {
   // `sandbox.tunnels()` prints — the shape follows from the provider, not from the label.
   sandbox: "https://…vercel.run  ·  wss://…  ·  xyz.modal.host:44421",
   address: "10.0.1.14:5900",
+  vm: "",
 };
 
 /**
@@ -238,6 +333,44 @@ const ROUTE_PLACEHOLDER: Record<Route, string> = {
  * behind an authenticating proxy is reachable only because the relay dials from the server.
  */
 const HEADER_NAME: Partial<Record<Route, string>> = { sandbox: "x-nsc-ingress-auth" };
+
+/**
+ * A machine fetching its own image.
+ *
+ * A DETERMINATE bar, because here the fraction is real — unlike `booting`, where there is no
+ * measurable one and design.md is explicit that "where a figure genuinely cannot be stated, draw
+ * nothing at all rather than an empty meter, which is itself a claim".
+ *
+ * The download is the SERVER's and this is a view of it: closing the pane, switching spaces and
+ * coming back all leave it running. That is the same "a pane is a window onto a process that
+ * outlives it" property the terminal hub has, and it is what makes the pane bar's × a layout close.
+ */
+function DownloadBody({ machineId, progress }: { machineId: string; progress: MachineImageProgress }) {
+  const pct = progress.total ? Math.min(100, Math.round((progress.received / progress.total) * 100)) : null;
+  const cancel = () => { void rpc().call("machines.images.cancel", { machineId }).catch(() => {}); };
+  return (
+    <div className="machine-body">
+      <div className="machine-rest">
+        <h2 className="machine-title">Downloading</h2>
+        {/* Tabular mono, because the left-hand number changes every frame and a proportional face
+            makes the whole line jitter. */}
+        <p className="machine-facts">{human(progress.received)}{progress.total ? ` of ${human(progress.total)}` : ""}</p>
+        <div className="machine-meter" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct ?? undefined}>
+          <div className="machine-meter-fill" style={{ width: `${pct ?? 0}%` }} />
+        </div>
+        <div className="machine-actions"><button onClick={cancel}>Cancel</button></div>
+      </div>
+    </div>
+  );
+}
+
+/** Bytes as a person reads them. Mirrors the server's own `human`, which the renderer cannot import
+ *  — one is in `apps/server`, and a shared helper for six lines would be a package edge. */
+function human(bytes: number): string {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+  if (bytes >= 1024 ** 2) return `${Math.round(bytes / 1024 ** 2)} MB`;
+  return `${Math.round(bytes / 1024)} KB`;
+}
 
 /* --------------------------------- the resting states --------------------------------- */
 

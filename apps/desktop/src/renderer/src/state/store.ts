@@ -8,7 +8,7 @@ import {
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
-  type AgentKind, type Attachment, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineState, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageSummary,
+  type AgentKind, type Attachment, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -685,6 +685,9 @@ export type AppState = {
    *  which is the default and the answer for every machine nobody has turned it on for. Renderer
    *  state, never persisted: a grab is about the keyboard in front of you right now. */
   machineGrab: Record<string, boolean>;
+  /** An image being fetched for a machine (Plan 25 W5), keyed by machine id. Absent means there is
+   *  none — which is every machine most of the time, and is why this is a map rather than a field. */
+  machineImageProgress: Record<string, MachineImageProgress>;
   /** W2.4: the pre-snap layout while a sheet forced the browser leaf to a ≤50% split. Non-null
    *  exactly while a snap is active; the layout to restore when the sheet actually closes. */
   sheetSnap: { saved: Layout; spaceId: string | null } | null;
@@ -1098,6 +1101,7 @@ export type AppState = {
   applyBrowserDriving(p: { browserId: string; driving: boolean }): void;
   applyMachineState(s: MachineState): void;
   setMachineGrab(machineId: string, on: boolean): void;
+  applyMachineImageProgress(p: MachineImageProgress): void;
   refreshSessions(): Promise<void>;
   /** Seed sessionSpace + statuses for every space (boot, reconnect, unknown-session broadcasts). */
   refreshAllSessions(): Promise<void>;
@@ -2094,7 +2098,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, submitKey: "enter", sidebarCollapsed: false, items: [], groups: null, layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
-      paletteOpen: false, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, machineState: {}, machineGrab: {},
+      paletteOpen: false, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, machineState: {}, machineGrab: {}, machineImageProgress: {},
       failover: null,
       spacePageTab: {}, profilePageTab: {}, mcpPanelSpaceId: null,
       sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
@@ -2559,7 +2563,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           // machine's dot, which would show a deleted machine as `running` in the sidebar.
           const { [it.refId]: _ms, ...machineState } = get().machineState;
           const { [it.refId]: _mg, ...machineGrab } = get().machineGrab;
-          set({ machineState, machineGrab });
+          const { [it.refId]: _mp, ...machineImageProgress } = get().machineImageProgress;
+          set({ machineState, machineGrab, machineImageProgress });
           getMachineHub().dispose(it.refId);
         }
         if (it?.kind === "session") {
@@ -2755,6 +2760,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       /** The no-churn guard `applyBrowserDriving` makes, for the same reason: a relay that reports the
        *  same size twice must not repaint every sidebar row that carries a dot. */
+      applyMachineImageProgress(next) {
+        // A finished download leaves the map rather than sitting at 100%: the pane's body is chosen
+        // by what is true NOW, and a completed entry would keep it on the download screen while the
+        // guest booted behind it.
+        if (next.done && !next.error) {
+          const { [next.machineId]: _p, ...rest } = get().machineImageProgress;
+          set({ machineImageProgress: rest });
+          return;
+        }
+        set({ machineImageProgress: { ...get().machineImageProgress, [next.machineId]: next } });
+      },
       setMachineGrab(machineId, on) {
         const cur = get().machineGrab;
         if ((cur[machineId] === true) === on) return;

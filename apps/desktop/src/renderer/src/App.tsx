@@ -264,6 +264,7 @@ export function App() {
     // Machines (Plan 25 W3), on the same terms and for the same reason: the sidebar's dot and the
     // pane's body read one map, and a switch back to a space should find it already truthful.
     const offMach = rpc().on("machine.status", (p) => store.getState().applyMachineState(p));
+    const offMimg = rpc().on("machineImage.progress", (p) => store.getState().applyMachineImageProgress(p));
     const offE = rpc().on("session.event", (ev) => store.getState().applySessionEvent(ev));
     const offT = rpc().on("session.status", ({ sessionId, status }) => store.getState().applySessionStatus(sessionId, status));
     // The feed (Plan 12 W5): every change carries the server's unread count for the sidebar pill, and
@@ -320,7 +321,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offV(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offMem(); offB(); offDO(); offSA(); offBA(); offBD(); offMach(); offE(); offT(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offMC(); offCO(); offCD(); offC();
+      offS(); offI(); offV(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offMem(); offB(); offDO(); offSA(); offBA(); offBD(); offMach(); offMimg(); offE(); offT(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

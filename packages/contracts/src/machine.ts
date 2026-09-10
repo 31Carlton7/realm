@@ -162,3 +162,9 @@ export const VmActionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("scroll"), x: z.number().int().min(0), y: z.number().int().min(0), deltaY: z.number().int() }),
 ]);
 export type VmAction = z.infer<typeof VmActionSchema>;
+
+/** What `machineImage.progress` carries, named so the renderer's store can hold it. */
+export type MachineImageProgress = {
+  machineId: string; sha256: string; received: number; total: number | null;
+  done: boolean; error: string | null; detail: string | null;
+};

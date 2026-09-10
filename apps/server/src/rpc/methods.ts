@@ -529,6 +529,16 @@ export function registerMethods(d: Deps): void {
     };
   });
   reg("machines.images.list", async () => ({ images: await d.machines.images().list() }));
+  reg("machines.images.download", async (p) => {
+    const { catalog } = await d.machines.capabilities();
+    const entry = catalog.find((e) => e.id === p.catalogId);
+    if (!entry) throw new RpcError("NOT_FOUND", `no catalog image "${p.catalogId}"`);
+    // Fire-and-follow: the answer is that it started, and the pane reads the progress events. An RPC
+    // that awaited two gigabytes would hold a socket for minutes and time out on any slow link.
+    void d.machines.fetchImage(p.machineId, { id: entry.id, url: entry.url, sha256: entry.sha256, bytes: entry.bytes, kind: entry.kind, name: entry.name });
+    return { ok: true as const };
+  });
+  reg("machines.images.cancel", (p) => { d.machines.cancelImage(p.machineId); return { ok: true as const }; });
   reg("machines.images.remove", async (p) => { await d.machines.images().remove(p.sha256, p.kind); return { ok: true as const }; });
 
   // The document workspace (Plan 17 W1). Unlike the browser methods above, these carry file CONTENT:
