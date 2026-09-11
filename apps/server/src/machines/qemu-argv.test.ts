@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { NVRAM_BYTES, accelNote, buildQemuArgv, firmwareCode, portForDisplay, qemuBinary, type QemuSpec } from "./qemu-argv";
+import { NVRAM_BYTES, UNIX_PATH_MAX, accelNote, buildQemuArgv, firmwareCode, portForDisplay, qemuBinary, qmpSocketPath, type QemuSpec } from "./qemu-argv";
 
 const spec = (over: Partial<QemuSpec> = {}): QemuSpec => ({
   arch: "aarch64", dir: "/home/machines/m1", shareDir: "/opt/homebrew/share/qemu",
-  display: 7, memoryMb: 4096, cpus: 4, title: "Debian 13", accel: "hvf", ...over,
+  display: 7, memoryMb: 4096, cpus: 4, title: "Debian 13", accel: "hvf", qmpPath: "/tmp/realm-qmp/ab12cd34ef.sock", ...over,
 });
 const argv = (over: Partial<QemuSpec> = {}) => buildQemuArgv(spec(over));
 /** The value that followed a flag, so a test asserts on the pair rather than on a substring. */
@@ -50,7 +50,7 @@ describe("the five flags that will be missed and then needed", () => {
      total-control channel — start, stop, screendump, input, disk — with no token in front of it. */
   it("puts QMP on a unix socket rather than a port", () => {
     const qmp = after(argv(), "-qmp")[0]!;
-    expect(qmp).toBe("unix:/home/machines/m1/qmp.sock,server=on,wait=off");
+    expect(qmp).toBe("unix:/tmp/realm-qmp/ab12cd34ef.sock,server=on,wait=off");
     expect(qmp).not.toContain("tcp:");
   });
 });
@@ -150,10 +150,32 @@ describe("the rest of the machine", () => {
     expect(after(argv({ title: "Debian 13" }), "-name")[0]).toBe("Debian 13");
   });
 
+  /**
+   * **A unix socket path may not exceed 104 bytes on macOS** — `sun_path` in `sockaddr_un` — and
+   * QEMU refuses to start with "UNIX socket path is too long" when it does.
+   *
+   * `<realmHome>/machines/<26-char ULID>/qmp.sock` fits under a short home and does not under a
+   * long one: a deeper REALM_HOME, a synced folder, or simply a longer user name. Found by a demo,
+   * whose scratch home pushed it over — and it would have been a bug report from whoever had the
+   * longest path, with an error message pointing at QEMU.
+   */
+  it("keeps the control socket's path under the platform's limit, whatever the home is", () => {
+    const deep = `/Users/somebody-with-a-long-name/Library/Mobile Documents/com~apple~CloudDocs/Realm/machines/01M26WHN6J2NPFKQ5RT9EAZCPS`;
+    const qmp = after(buildQemuArgv(spec({ dir: deep, qmpPath: qmpSocketPath("01M26WHN6J2NPFKQ5RT9EAZCPS") })), "-qmp")[0]!;
+    const path = qmp.replace(/^unix:/, "").split(",")[0]!;
+    expect(Buffer.byteLength(path), path).toBeLessThan(UNIX_PATH_MAX);
+    // …and it is NOT under the machine's own directory, which is the whole point.
+    expect(path.startsWith(deep)).toBe(false);
+    // Deterministic, so a restart finds the same socket rather than leaving one behind per boot.
+    expect(qmpSocketPath("m1")).toBe(qmpSocketPath("m1"));
+    expect(qmpSocketPath("m1")).not.toBe(qmpSocketPath("m2"));
+  });
+
   it("keeps every file inside the machine's own directory", () => {
     // A path that escaped would be a machine writing over another machine's disk.
     for (const a of argv()) {
       if (a.includes("/home/machines/")) expect(a, a).toContain("/home/machines/m1/");
     }
+    // The control socket is the one deliberate exception, and it has its own test above.
   });
 });

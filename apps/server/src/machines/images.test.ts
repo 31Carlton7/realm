@@ -95,6 +95,44 @@ describe("downloading an image", () => {
     expect(readFileSync(path).equals(BODY)).toBe(true);
   });
 
+  /**
+   * The bug a demo found: an entry with no published checksum was named `<sha256>.<kind>` with an
+   * EMPTY sha — a file called `.iso`. Hidden, meaningless, and shared by every unverified image, so
+   * the second one fetched would silently be served the first one's bytes.
+   *
+   * The store's one invariant is that a file's name IS its content. An unverified entry keeps it by
+   * being named after what ARRIVED, which says nothing about verification that is not true.
+   */
+  it("content-addresses an unverified image by what arrived, not by an empty hash", async () => {
+    const { dir, make } = store();
+    const path = await make({ fetch: fakeFetch().fn }).download({ sha256: "", kind: "iso", url: "https://example.com/a.iso", name: "Alpine" });
+    expect(path).toBe(join(dir, `${SHA}.iso`));
+    expect(existsSync(join(dir, ".iso")), "a hidden file named `.iso`").toBe(false);
+    // …and the sidecar says it was not checked against anything, which is the honest record.
+    expect(JSON.parse(readFileSync(join(dir, `${SHA}.json`), "utf8")).verified).toBe(false);
+  });
+
+  it("keeps two unverified images apart", async () => {
+    const { dir, make } = store();
+    const other = Buffer.from("a completely different image");
+    await make({ fetch: fakeFetch().fn }).download({ sha256: "", kind: "iso", url: "https://example.com/a.iso", name: "A" });
+    await make({ fetch: fakeFetch({ body: other }).fn }).download({ sha256: "", kind: "iso", url: "https://example.com/b.iso", name: "B" });
+    // Under the old naming these were one file, and the second machine would have booted the first
+    // machine's image with nothing anywhere saying so.
+    expect(existsSync(join(dir, `${SHA}.iso`))).toBe(true);
+    expect(existsSync(join(dir, `${sha(other)}.iso`))).toBe(true);
+    expect(readFileSync(join(dir, `${sha(other)}.iso`)).equals(other)).toBe(true);
+  });
+
+  it("gives each unverified download its own part file, so two do not append to one", async () => {
+    const { dir, make } = store();
+    const s1 = make({ fetch: fakeFetch().fn });
+    await s1.download({ sha256: "", kind: "iso", url: "https://example.com/a.iso", name: "A" });
+    // The part file is keyed on the URL rather than on the (absent) hash — two unverified downloads
+    // sharing `.iso.part` would interleave into one corrupt file.
+    expect(readFileSync(join(dir, `${SHA}.iso`)).equals(BODY)).toBe(true);
+  });
+
   it("skips the work entirely when the image is already there", async () => {
     const { dir, make } = store();
     writeFileSync(join(dir, `${SHA}.qcow2`), BODY);

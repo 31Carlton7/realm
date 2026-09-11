@@ -40,7 +40,7 @@
 .sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-picker-row-id,
 .summary-fact .summary-row-name, .summary-file-path, .term-exit, .term-out, .terminal-hint-path,
 .theme-import textarea, .tool-body pre, .tool-stat, .tool-summary, .tool-well, .wt-path, button.md-path, kbd,
-.machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target {
+.machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size {
   letter-spacing: normal;
 }
 
@@ -1185,12 +1185,36 @@ button.panel-title:hover { background: var(--rl-hover); }
   padding: 8px 10px; border-radius: var(--r-panel); background: var(--inset); overflow-wrap: anywhere; }
 .machine-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--rl-warning); }
 .machine-optional { color: var(--rl-text-faint); font-weight: var(--fw-medium); }
-/* Four routes wrap onto two rows at the pane's narrow end rather than shrinking to four unreadable
-   slivers — design.md's yielding order: these are peers, so they wrap instead of competing. */
-.machine-routes { display: flex; flex-wrap: wrap; gap: 4px; }
-.machine-routes button { flex: 1; height: 32px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
-  background: transparent; color: var(--rl-text-bright); font-size: 13px; transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
-.machine-routes button[data-on] { background: color-mix(in srgb, var(--rl-accent) 18%, transparent); color: var(--rl-accent); border-color: transparent; }
+/* ── What kind of machine is on the other end ─────────────────────────────
+   A grid of CARDS, not a row of pills. These were 32px pills sized by `flex: 1`, and the labels are
+   three and four words long — so "A Linux VM here" wrapped inside a fixed-height box and spilled out
+   through its own border. The fix is not a taller pill: each of these carries a mark, a name and a
+   line about what it is, and design.md is explicit that rows carrying more than one line each are a
+   list of cards.
+
+   Equal columns, so the cards are peers rather than sized by the length of their own words, and
+   content-height, so nothing can overflow whatever those words grow into. Two columns in the 380px
+   form, one in a pane too narrow for two. */
+.machine-routes { display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: 6px; }
+.machine-route { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0;
+  /* `--r-panel` and no `corner-shape`: the image cards directly below wear exactly this, and one
+     screen gets one card shape. (The pane bans the signature curve outright — see styles.test.ts.) */
+  padding: 10px 12px 11px; text-align: left; border-radius: var(--r-panel);
+  border: var(--hairline-w) solid var(--rl-line); background: transparent;
+  transition: background-color var(--dur-hover) ease, border-color var(--dur-hover) ease; }
+.machine-route:hover { background: var(--rl-hover); }
+/* The same selected treatment the image cards below it wear — one screen, one way of saying "this
+   one", or a reader learns two. */
+.machine-route[data-on] { border-color: var(--rl-accent); background: color-mix(in srgb, var(--rl-accent) 10%, transparent); }
+/* The marks, top-left and above the name. A fixed row height so a card with one mark and a card with
+   three start their titles on the same line — otherwise the grid's rows shift against each other. */
+.machine-route-marks { display: flex; align-items: center; gap: 6px; height: 18px; margin-bottom: 4px; }
+/* "…and others", after the vendors it could name. Quieter than a mark, because it is not one — it
+   says the list is open, which is a different claim from "this vendor is supported". */
+.machine-route-more { color: var(--rl-text-faint); }
+.machine-route-label { font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-bright); overflow-wrap: anywhere; }
+.machine-route-what { font-size: 11.5px; line-height: 1.45; color: var(--rl-text-faint); text-wrap: pretty; }
+.machine-route[data-on] .machine-route-what { color: var(--rl-text-dim); }
 .machine-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--rl-text-dim); }
 .machine-field input { height: 32px; padding: 0 10px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
   background: var(--field); color: var(--rl-text-bright); outline: none; font-size: 13px; }

@@ -1,5 +1,6 @@
 import { newId, type GuestSpec, type Machine, type MachineSource, type MachineState, type VncEndpoint } from "@realm/contracts";
 import type { BrowserHostBridge } from "../browsers/host-bridge";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -13,7 +14,7 @@ import { QmpDriver } from "./qmp-driver";
 import { BridgeDriver } from "./bridge-driver";
 import { QemuManager } from "./qemu-manager";
 import { accelFor, locateQemu, type QemuCapabilities } from "./qemu-locator";
-import { diskPath, portForDisplay, type QemuArch } from "./qemu-argv";
+import { portForDisplay, secretPath, type QemuArch } from "./qemu-argv";
 import type { ImageStore } from "./images";
 import { CATALOG } from "./catalog-data";
 import type { MachineDriver } from "./driver";
@@ -158,7 +159,7 @@ export class MachineService {
     return this.d.machines.list(spaceId).map((m) => this.stateOf(m.id));
   }
 
-  update(machineId: string, patch: { name?: string; endpoint?: VncEndpoint; password?: string | null; headers?: Record<string, string> | null }): { passwordStored: boolean } {
+  update(machineId: string, patch: { name?: string; source?: MachineSource; guest?: GuestSpec; endpoint?: VncEndpoint; password?: string | null; headers?: Record<string, string> | null }): { passwordStored: boolean } {
     const row = this.d.machines.get(machineId);
     if (!row) throw new NotFoundError("machine", machineId);
     let sealed: string | null | undefined;
@@ -175,7 +176,9 @@ export class MachineService {
       if (patch.headers === null || Object.keys(patch.headers).length === 0) sealedHeaders = null;
       else { sealedHeaders = machineSecretBox.seal(JSON.stringify(patch.headers)); passwordStored &&= sealedHeaders !== null; }
     }
-    this.d.machines.update(machineId, { name: patch.name, endpoint: patch.endpoint, sealedPassword: sealed, sealedHeaders });
+    if (patch.source === "container") throw new RpcError("INVALID_ARGUMENT", UNBUILT.container);
+    if (patch.guest) this.setGuest(machineId, patch.guest);
+    this.d.machines.update(machineId, { name: patch.name, source: patch.source, endpoint: patch.endpoint, sealedPassword: sealed, sealedHeaders });
     if (patch.name !== undefined) {
       const item = this.d.items.findByRefId(machineId);
       if (item && item.title !== patch.name) {
@@ -211,7 +214,11 @@ export class MachineService {
     if (row.source === "qemu") {
       // Answered synchronously with `booting`; the boot itself continues behind the `machine.status`
       // events. An RPC that waited for a guest to come up would hold a socket for a minute.
-      void this.startQemu(machineId, row).catch((e) => this.fail(machineId, "unreachable", e instanceof Error ? e.message : String(e)));
+      const boot = this.beginBoot(machineId);
+      void this.startQemu(machineId, row, boot).catch((e) => {
+        if (this.superseded(machineId, boot)) return;
+        this.fail(machineId, "unreachable", e instanceof Error ? e.message : String(e));
+      });
       return this.set({ machineId, status: "booting", wsUrl: null, width: null, height: null, error: null, detail: null });
     }
     if (!row.endpoint) return this.fail(machineId, "unreachable", "this machine has no address saved");
@@ -271,6 +278,7 @@ export class MachineService {
   /** Drop the connection and go back to `off`. Idempotent: stopping a stopped machine is what a
    *  double-press of the power toggle is, and it is not an error. */
   stop(machineId: string): MachineState {
+    this.beginBoot(machineId); // any boot still walking is now nobody's
     this.dropDriver(machineId);
     // The guest itself, where there is one. `graceful` so a Linux guest flushes its filesystem —
     // the difference between a clean shutdown and a disk image that fscks on next boot.
@@ -368,6 +376,7 @@ export class MachineService {
   /** Quit. Every bridge down before the process goes, so nothing is left half-open on a far end. */
   async closeAll(): Promise<void> {
     for (const id of [...this.drivers.keys()]) this.dropDriver(id);
+    for (const id of [...this.boots.keys()]) this.beginBoot(id);
     this.state.clear();
     /* Awaited, and before the database closes. Un-awaited it orphans QEMU, which then holds the
        qcow2's own lock — and the next start fails with a message about a locked image that reads
@@ -424,13 +433,17 @@ export class MachineService {
     this.downloads.set(machineId, controller);
     try {
       emit(0, entry.bytes, false, null, null);
-      await this.d.images.download({
+      const path = await this.d.images.download({
         sha256: entry.sha256, kind, url: entry.url, name: entry.name, expectedBytes: entry.bytes,
         signal: controller.signal,
         onProgress: (p) => emit(p.received, p.total, false, null, null),
       });
+      /* The hash the STORE settled on, not the one the catalog published. For a verified entry they
+         are the same; for an unverified one the catalog has none, and the file is named by what
+         actually arrived — so reading it back is the only way the guest points at a real file. */
+      const settled = /([0-9a-f]{64})\.[a-z0-9]+$/.exec(path)?.[1] ?? entry.sha256;
       const guest = this.guestOf(machineId);
-      if (guest) this.setGuest(machineId, { ...guest, imageSha: entry.sha256, imageKind: kind, catalogId: entry.id });
+      if (guest) this.setGuest(machineId, { ...guest, imageSha: settled, imageKind: kind, catalogId: entry.id });
       emit(entry.bytes, entry.bytes, true, null, null);
       // Straight on to booting, which is what "the download advances to `booting` on its own" means.
       this.start(machineId);
@@ -456,10 +469,11 @@ export class MachineService {
    * display, waiting for four conditions — happens here, outside the transaction `create` runs in
    * and outside the synchronous path the RPC answers on.
    */
-  private async startQemu(machineId: string, row: Machine): Promise<MachineState> {
+  private async startQemu(machineId: string, row: Machine, boot: number): Promise<MachineState> {
     const guest = this.guestOf(machineId);
     if (!guest) return this.fail(machineId, "source_unavailable", "this machine has no guest configuration saved");
     const { qemu } = await this.capabilities();
+    if (this.superseded(machineId, boot)) return this.stateOf(machineId);
     if (qemu.unavailable) return this.fail(machineId, "source_unavailable", qemu.unavailable);
     const binary = qemu.binaries[guest.arch];
     if (!binary || !qemu.shareDir) {
@@ -468,15 +482,17 @@ export class MachineService {
     const imagePath = guest.imageSha ? this.d.images.pathFor(guest.imageSha, guest.imageKind ?? "iso") : null;
     const dir = join(this.d.machinesDir, machineId);
     const display = await this.allocateDisplay();
+    if (this.superseded(machineId, boot)) return this.stateOf(machineId);
     if (display === null) return this.fail(machineId, "unreachable", "every screen port Realm allocates from is in use.");
     this.set({ machineId, status: "booting", wsUrl: null, width: null, height: null, error: null, detail: null });
     try {
       await this.d.qemu.start(machineId, {
         arch: guest.arch, dir, shareDir: qemu.shareDir, display,
-        memoryMb: guest.memoryMb, cpus: guest.cpus, title: row.name,
+        memoryMb: guest.memoryMb, cpus: guest.cpus, diskGb: guest.diskGb, title: row.name,
         isoPath: guest.imageKind === "iso" ? imagePath : null,
         accel: accelFor(qemu, guest.arch),
       }, (reason, disposed) => {
+        if (this.superseded(machineId, boot)) return;
         /* A crash KEEPS the row, which is the one place this departs from `TerminalService.onExit`.
            A dead pty has no state worth keeping; a dead VM still owns a disk image and a
            configuration the user chose, and "start it again" is the whole recovery. */
@@ -484,8 +500,10 @@ export class MachineService {
         else this.fail(machineId, "disconnected", reason);
       });
     } catch (e) {
+      if (this.superseded(machineId, boot)) return this.stateOf(machineId);
       return this.fail(machineId, "unreachable", e instanceof Error ? e.message : String(e));
     }
+    if (this.superseded(machineId, boot)) return this.stateOf(machineId);
     // The endpoint is loopback, on the port the guest is now serving. Written to the row so a
     // restart's cleanup and the proxy both find it the same way a `vnc` machine's is found.
     this.d.machines.update(machineId, { endpoint: { transport: "tcp", host: "127.0.0.1", port: portForDisplay(display), path: "/websockify" } });
@@ -510,7 +528,27 @@ export class MachineService {
 
   targetFor(machineId: string): MachineTarget | null {
     const row = this.d.machines.get(machineId);
-    if (!row || row.source !== "vnc" || !row.endpoint) return null;
+    if (!row || !row.endpoint) return null;
+    /**
+     * A guest Realm booted authenticates with the per-boot secret QEMU itself reads.
+     *
+     * Its VNC is loopback-bound with `share=ignore`, and it still takes a password — a fresh 32-byte
+     * one written at 0600 for the length of one run. Nothing sealed it, because nothing needs to
+     * remember it: the file IS the secret, and it is gone with the boot.
+     *
+     * The first version read the sealed column here for every source, which for a guest is empty —
+     * so the relay offered no password to a server that required one, the handshake refused, and the
+     * pane sat on "Connecting…" while QEMU ran perfectly. Found by a demo.
+     */
+    if (row.source === "qemu") {
+      // Unreadable is `null` rather than a throw: this resolver is called from the proxy's upgrade
+      // handler, where an exception is a socket destroyed with no reason anyone can see. A null
+      // password produces the handshake's own "the server wants a password and none is saved".
+      let secret: string | null = null;
+      try { secret = readFileSync(secretPath(join(this.d.machinesDir, machineId)), "utf8").trim() || null; } catch { secret = null; }
+      return { transport: "tcp", host: row.endpoint.host, port: row.endpoint.port, path: row.endpoint.path, password: secret };
+    }
+    if (row.source !== "vnc") return null;
     const stored = this.d.machines.sealedPassword(machineId);
     // A sealed password that will not open is NOT a reason to connect without one: the server would
     // refuse, and "auth_failed" with no explanation is worse than the truth. Handled as no password,
@@ -554,6 +592,35 @@ export class MachineService {
       && prev.height === next.height && prev.error === next.error && prev.detail === next.detail) return next;
     this.d.rpc.broadcast("machine.status", next);
     return next;
+  }
+
+  /**
+   * Which boot of a machine is the one anyone is still waiting for.
+   *
+   * Starting a guest is a walk with four awaits in it — capabilities, a display probe, the spawn,
+   * the readiness wait — and the user can press Stop during any of them. Every one of those resume
+   * points then writes state for a boot nobody wants any more: the row goes `failed` seconds after
+   * the pane went `off`, or, if Realm is quitting, a write lands on a closed database and the whole
+   * thing surfaces as an unhandled `ERR_INVALID_STATE` from nowhere.
+   *
+   * So each start takes a number, and `stop`, `closeAll` and removal all bump it. A walk checks its
+   * own number at every point it comes back from an await, and a walk that has been superseded
+   * returns without touching anything. This is the same shape as an abort token, kept as a counter
+   * because it also has to invalidate a boot that no longer has anyone holding a handle to it.
+   *
+   * Found by the suite reporting one unhandled error beside 5893 passing tests.
+   */
+  private boots = new Map<string, number>();
+
+  private beginBoot(machineId: string): number {
+    const boot = (this.boots.get(machineId) ?? 0) + 1;
+    this.boots.set(machineId, boot);
+    return boot;
+  }
+
+  /** True once someone has stopped, restarted, removed or quit out from under this boot. */
+  private superseded(machineId: string, boot: number): boolean {
+    return this.boots.get(machineId) !== boot;
   }
 
   private fail(machineId: string, error: string, detail: string): MachineState {

@@ -88,10 +88,21 @@ export class ImageStore {
   }): Promise<string> {
     const { sha256, kind, url } = opts;
     await mkdir(this.d.dir, { recursive: true });
+    /**
+     * An entry with NO published checksum is still content-addressed — by the hash of what arrives.
+     *
+     * The first version named the file `<sha256>.<kind>` unconditionally, which for an unverified
+     * entry is a file called `.iso`: hidden, meaningless, and shared by every unverified image, so
+     * the second one to be fetched would silently be served the first one's bytes. Naming it by what
+     * arrived keeps the store's one invariant — a file's name IS its content — while saying nothing
+     * about verification that is not true.
+     */
+    const unverified = sha256.length !== 64;
+    const scratchName = unverified ? `pending-${createHash("sha256").update(url).digest("hex").slice(0, 32)}` : sha256;
     const final = this.path(sha256, kind);
-    if (await this.has(sha256, kind)) return final;
+    if (!unverified && await this.has(sha256, kind)) return final;
 
-    const part = this.partial(sha256, kind);
+    const part = this.partial(scratchName, kind);
     let from = await stat(part).then((s) => s.size).catch(() => 0);
 
     // Checked BEFORE anything is written: a disk that fills mid-download leaves a part file, a
@@ -176,9 +187,11 @@ export class ImageStore {
 
     // Renamed only after verifying. The reverse — rename then verify — leaves a bad image under a
     // name that `has()` reports as present, and every later start uses it without asking again.
-    await rename(part, final);
-    await writeFile(this.sidecar(sha256), JSON.stringify({ name: opts.name, url, kind, bytes: received }, null, 2));
-    return final;
+    const name = unverified ? streamed : sha256;
+    const dest = this.path(name, kind);
+    await rename(part, dest);
+    await writeFile(this.sidecar(name), JSON.stringify({ name: opts.name, url, kind, bytes: received, verified: !unverified }, null, 2));
+    return dest;
   }
 
   /**

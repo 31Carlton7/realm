@@ -1,8 +1,8 @@
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdir, writeFile, rm, stat } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
-import { buildQemuArgv, logPath, nvramPath, portForDisplay, qemuBinary, secretPath, qmpPath, NVRAM_BYTES, type QemuSpec } from "./qemu-argv";
+import { buildQemuArgv, diskPath, logPath, nvramPath, portForDisplay, qemuBinary, secretPath, qmpSocketPath, QMP_DIR, UNIX_PATH_MAX, NVRAM_BYTES, type QemuSpec } from "./qemu-argv";
 import { QmpClient } from "./qmp";
 
 /**
@@ -15,6 +15,8 @@ import { QmpClient } from "./qmp";
  */
 export type QemuManagerDeps = {
   spawn?: (cmd: string, args: string[]) => ChildProcess;
+  /** Creates the guest's disk if it has none. Injected so a test never shells out to `qemu-img`. */
+  createDisk?: (path: string, gb: number) => Promise<void>;
   /** "can I REACH it" — the mirror of `probePort`'s "can I bind it". */
   probeConnect?: (port: number) => Promise<boolean>;
   /** How long a guest has to become reachable before Realm gives up and kills it. */
@@ -61,9 +63,17 @@ export class QemuManager {
    * VNC port is not accepting is a pane that sits on "Starting…" with nothing to say. The renderer's
    * entire job is to open that socket, so nothing short of opening it is the same claim.
    */
-  async start(machineId: string, spec: QemuSpec, onExit: (reason: string, disposed: boolean) => void): Promise<QemuHandle> {
+  async start(machineId: string, spec: Omit<QemuSpec, "qmpPath">, onExit: (reason: string, disposed: boolean) => void): Promise<QemuHandle> {
     if (this.running.has(machineId)) throw new Error("that machine is already running");
     await mkdir(spec.dir, { recursive: true });
+    /* 0700, because a unix socket's access control is its PATH's: a QMP socket anyone on this Mac
+       could connect to is an unauthenticated total-control channel — start, stop, screendump,
+       synthetic input, disk. */
+    await mkdir(QMP_DIR, { recursive: true, mode: 0o700 });
+    const socket = qmpSocketPath(machineId);
+    if (Buffer.byteLength(socket) >= UNIX_PATH_MAX) {
+      throw new Error(`the control socket's path would be ${Buffer.byteLength(socket)} bytes and the system limit is ${UNIX_PATH_MAX}`);
+    }
     // A fresh 32-byte secret per boot, at 0600. Per boot rather than stored: it exists for the
     // length of one run, nothing else ever needs it again, and a file that outlived the process
     // would be a password on disk with no owner.
@@ -71,10 +81,21 @@ export class QemuManager {
     // The writable UEFI variable store. Created here rather than shipped because Homebrew ships no
     // `edk2-aarch64-vars.fd` — a 64MiB zero-filled pflash boots and gets written, which was measured.
     await writeFile(nvramPath(spec.dir), Buffer.alloc(NVRAM_BYTES), { flag: "wx" }).catch(() => { /* already there, and it holds the boot order */ });
+    /**
+     * The guest's own disk, created once.
+     *
+     * qcow2 is SPARSE: a 40GB disk is a few hundred kilobytes until something is written to it, so
+     * the size is a ceiling rather than an allocation and a machine that is never installed costs
+     * nothing. Created here rather than at `create` because `create` runs inside a transaction and
+     * this shells out — and because a machine the user never starts should not reserve a filename.
+     */
+    if (spec.diskGb && !(await stat(diskPath(spec.dir)).then(() => true).catch(() => false))) {
+      await (this.d.createDisk ?? defaultCreateDisk)(diskPath(spec.dir), spec.diskGb);
+    }
     // A stale socket makes QEMU refuse to bind, with a message about the file rather than the port.
-    await rm(qmpPath(spec.dir), { force: true });
+    await rm(socket, { force: true });
 
-    const argv = buildQemuArgv(spec);
+    const argv = buildQemuArgv({ ...spec, qmpPath: socket });
     const bin = qemuBinary(spec.arch);
     const spawnFn = this.d.spawn ?? ((c: string, a: string[]) => nodeSpawn(c, a, { stdio: ["ignore", "ignore", "pipe"] }));
     const child = spawnFn(bin, argv);
@@ -94,7 +115,7 @@ export class QemuManager {
     });
 
     const port = portForDisplay(spec.display);
-    const qmp = new QmpClient(qmpPath(spec.dir));
+    const qmp = new QmpClient(socket);
     const handle: QemuHandle = {
       machineId, port, qmp,
       stop: async (graceful: boolean) => { await this.stop(machineId, graceful); },
@@ -207,6 +228,13 @@ export class QemuManager {
   stderrTail(machineId: string): string[] {
     return [...(this.running.get(machineId)?.tail ?? [])];
   }
+}
+
+/** `qemu-img create`, which is the only thing that writes a valid qcow2 header. */
+async function defaultCreateDisk(path: string, gb: number): Promise<void> {
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  await promisify(execFile)("qemu-img", ["create", "-f", "qcow2", path, `${gb}G`], { timeout: 30_000 });
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

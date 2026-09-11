@@ -1,3 +1,4 @@
+import { Icon, type IconName } from "@realm/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Machine, MachineImageProgress, MachineState } from "@realm/contracts";
 import type { PaneProps } from "../registry";
@@ -190,7 +191,7 @@ function ConnectFlow({ machineId, machine, onSaved }: { machineId: string; machi
       // The bundle id goes in the endpoint's `host`, which is the same grant key
       // `computer.allowedApps` uses — so machine control and computer use cannot disagree about
       // what TextEdit is.
-      await rpc().call("machines.update", { machineId, name: name.trim() || app.name, endpoint: { transport: "tcp", host: app.bundleId, port: 1, path: "/" } });
+      await rpc().call("machines.update", { machineId, name: name.trim() || app.name, source: "mac", endpoint: { transport: "tcp", host: app.bundleId, port: 1, path: "/" } });
       onSaved();
       await rpc().call("machines.start", { machineId });
     } catch (err) {
@@ -207,7 +208,15 @@ function ConnectFlow({ machineId, machine, onSaved }: { machineId: string; machi
     setBusy(true);
     setNote(null);
     try {
-      await rpc().call("machines.update", { machineId, name: name.trim() || entry.name });
+      /* The machine was created EMPTY by the button that opened this pane, so this is where it
+         becomes a guest: the source and the shape together, before anything is fetched. Sending only
+         the name left a `vnc` row with no address, which then failed to connect to nothing. */
+      await rpc().call("machines.update", {
+        machineId,
+        name: name.trim() || entry.name,
+        source: "qemu",
+        guest: { arch: entry.arch as "aarch64" | "x86_64", memoryMb: entry.memoryMb, cpus: entry.cpus, diskGb: entry.diskGb, imageSha: null, imageKind: null, catalogId: entry.id },
+      });
       onSaved();
       await rpc().call("machines.images.download", { machineId, catalogId: entry.id });
     } catch (err) {
@@ -222,12 +231,7 @@ function ConnectFlow({ machineId, machine, onSaved }: { machineId: string; machi
       <div className="machine-body">
         <form className="machine-connect" onSubmit={(e) => { e.preventDefault(); void submitApp(); }}>
           <h2 className="machine-title">An app on this Mac</h2>
-          <div className="machine-routes" role="radiogroup" aria-label="What are you connecting to?">
-            {ROUTES.filter((r) => visible(r.id, caps, apps)).map((r) => (
-              <button key={r.id} type="button" role="radio" aria-checked={route === r.id}
-                data-on={route === r.id || undefined} onClick={() => { setRoute(r.id); setNote(null); }}>{r.label}</button>
-            ))}
-          </div>
+          <RoutePicker route={route} caps={caps} apps={apps} onPick={(r) => { setRoute(r); setNote(null); }} />
           {/* A window, never the desktop: mirroring the only display into a pane on that display is
               a hall of mirrors, and a single window is honest at any number of displays. */}
           <p className="machine-hint">Shows one app's windows, updated a few times a second. Realm, System Settings, password prompts and terminals are never listed and can never be driven.</p>
@@ -252,12 +256,7 @@ function ConnectFlow({ machineId, machine, onSaved }: { machineId: string; machi
       <div className="machine-body">
         <form className="machine-connect" onSubmit={submitGuest}>
           <h2 className="machine-title">A Linux VM on this Mac</h2>
-          <div className="machine-routes" role="radiogroup" aria-label="What are you connecting to?">
-            {ROUTES.filter((r) => visible(r.id, caps, apps)).map((r) => (
-              <button key={r.id} type="button" role="radio" aria-checked={route === r.id}
-                data-on={route === r.id || undefined} onClick={() => { setRoute(r.id); setNote(null); }}>{r.label}</button>
-            ))}
-          </div>
+          <RoutePicker route={route} caps={caps} apps={apps} onPick={(r) => { setRoute(r); setNote(null); }} />
           {/* One line of exact fact, in the app's own words rather than QEMU's. */}
           <p className="machine-hint">
             {caps?.qemu.hvf
@@ -296,14 +295,7 @@ function ConnectFlow({ machineId, machine, onSaved }: { machineId: string; machi
         {/* In the order each is likely to work for the person reading it. "Another Mac" gets its own
             row rather than being buried under VNC, because that is how someone thinks about the
             laptop on the other desk — while the transport underneath is the ordinary `vnc` source. */}
-        <div className="machine-routes" role="radiogroup" aria-label="What are you connecting to?">
-          {ROUTES.filter((r) => visible(r.id, caps, apps)).map((r) => (
-            <button key={r.id} type="button" role="radio" aria-checked={route === r.id}
-              data-on={route === r.id || undefined} onClick={() => { setRoute(r.id); setNote(null); }}>
-              {r.label}
-            </button>
-          ))}
-        </div>
+        <RoutePicker route={route} caps={caps} apps={apps} onPick={(r) => { setRoute(r); setNote(null); }} />
         <p className="machine-hint">{SANDBOX_NOTES[provider]}</p>
         <label className="machine-field">
           <span>{ROUTE_FIELD[route]}</span>
@@ -347,6 +339,47 @@ function ConnectFlow({ machineId, machine, onSaved }: { machineId: string; machi
 }
 
 /**
+ * The row of cards at the top: what kind of machine is on the other end.
+ *
+ * A CARD each, not a pill each. The labels are three and four words long and the pills gave them a
+ * fixed 32px box, so "A Linux VM here" wrapped to two lines and spilled out of its own border —
+ * which is the bug, but the fix is not a taller pill. Each of these carries a mark, a name and a
+ * line, and design.md is explicit: rows carrying more than one line each are a list of cards.
+ *
+ * Content-height, so nothing can overflow whatever the labels grow into; a grid of equal columns, so
+ * the cards are peers rather than sized by the length of their own words.
+ */
+function RoutePicker({ route, caps, apps, onPick }: {
+  route: Route;
+  caps: Capabilities | null;
+  apps: { bundleId: string }[] | null;
+  onPick: (r: Route) => void;
+}) {
+  return (
+    <div className="machine-routes" role="radiogroup" aria-label="What are you connecting to?">
+      {ROUTES.filter((r) => visible(r, caps, apps)).map((r) => {
+        const meta = ROUTE_META[r];
+        return (
+          <button key={r} type="button" role="radio" aria-checked={route === r} className="machine-route"
+            data-on={route === r || undefined} onClick={() => onPick(r)}>
+            {/* Top-left, and as many as the route really has: the sandbox card is three vendors wide
+                because "is my thing in here?" is answered by seeing one of them, not by reading. */}
+            <span className="machine-route-marks" aria-hidden="true">
+              {meta.marks.map((m) => (
+                <Icon key={m} name={m} size={16} colored
+                  className={m === "more" ? "machine-route-more" : undefined} />
+              ))}
+            </span>
+            <span className="machine-route-label">{meta.label}</span>
+            <span className="machine-route-what">{meta.what}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
  * The routes, and why they are these four.
  *
  * Not one row per vendor: that is a list that goes stale the week somebody launches a fifth, and
@@ -357,15 +390,34 @@ function ConnectFlow({ machineId, machine, onSaved }: { machineId: string; machi
  */
 type Route = "mac" | "e2b" | "sandbox" | "address" | "vm" | "thisMac";
 
-const ROUTES: readonly { id: Route; label: string }[] = [
-  { id: "mac", label: "Another Mac" },
-  { id: "e2b", label: "E2B Desktop" },
-  { id: "sandbox", label: "A sandbox URL" },
-  { id: "address", label: "Host and port" },
-  // Last, and each only where it is honest — see `visible`.
-  { id: "vm", label: "A Linux VM here" },
-  { id: "thisMac", label: "An app on this Mac" },
-];
+const ROUTES: readonly Route[] = ["mac", "e2b", "sandbox", "address", "vm", "thisMac"];
+
+/**
+ * What each route IS, as a card: the vendors on the other end, a name, and one line saying what you
+ * would be connecting to.
+ *
+ * The marks are nominative — they answer "is my thing in here?", which is the only question this row
+ * is asked, and a person scanning for Vercel finds it faster as a triangle than as the fourth word
+ * of a sentence. Two routes carry none: neither E2B nor Namespace publishes a mark in the sources
+ * `brandMarks` vendors from, and a logo drawn from memory is a wrong logo. They are named in words
+ * instead — E2B in its own title, Namespace in the sandbox card's line.
+ *
+ * The `what` line is not the same sentence as `SANDBOX_NOTES` below the row. This one answers "which
+ * of these am I?"; that one answers "what must I have done first?" — and it is shown only for the
+ * route actually chosen, which is why it cannot do this job.
+ */
+const ROUTE_META: Record<Route, { marks: IconName[]; label: string; what: string }> = {
+  mac: { marks: ["apple"], label: "Another Mac", what: "A Mac on your network, over Screen Sharing." },
+  e2b: { marks: ["e2b"], label: "E2B Desktop", what: "A sandbox desktop, by its sandbox ID." },
+  /* Three vendors and then a `more` — the row's job is "is my thing in here?", and for this card the
+     honest answer is "these, and anything else that prints a URL". Naming three and stopping would
+     read as a closed list; the glyph is what says the list is open, and the line under it says so in
+     words for anyone who does not read it that way. */
+  sandbox: { marks: ["vercel", "modal", "namespace", "more"], label: "A sandbox URL", what: "Vercel, Modal, Namespace — or any VM that prints one." },
+  address: { marks: ["plug"], label: "Host and port", what: "A VNC server you can already reach." },
+  vm: { marks: ["debian", "ubuntu", "alpine"], label: "A Linux VM here", what: "Downloaded and run on this Mac." },
+  thisMac: { marks: ["laptop"], label: "An app on this Mac", what: "One app's window, shared from here." },
+};
 
 /**
  * Which routes are offered at all.

@@ -32,13 +32,27 @@ export class QmpClient {
   connect(): Promise<void> {
     if (this.closed) return Promise.reject(new Error("this QMP client is closed"));
     if (this.ready) return this.ready;
-    this.ready = new Promise<void>((resolve, reject) => {
+    const pending = new Promise<void>((resolve, reject) => {
       const s = connect(this.path);
       this.sock = s;
       let greeted = false;
-      const timer = setTimeout(() => reject(new Error(`QEMU did not greet on ${this.path} within ${this.timeoutMs / 1000}s`)), this.timeoutMs);
-      s.on("error", (e) => { clearTimeout(timer); this.failAll(e); reject(e); });
-      s.on("close", () => { clearTimeout(timer); this.failAll(new Error("QEMU closed its control socket")); });
+      /**
+       * Every failure path CLEARS the memo, and that is the whole of this comment's reason for
+       * existing: `connect()` returns `this.ready` when it has one, so a rejected promise left in
+       * there is returned to every later caller forever. The manager's readiness walk retries in a
+       * loop — and QEMU always takes a moment to create its socket, so the first attempt always
+       * fails. Without this, a guest that was seconds from ready could never be connected to, and
+       * the symptom is a boot that times out while QEMU sits there perfectly healthy.
+       */
+      const failed = (e: Error) => {
+        clearTimeout(timer);
+        if (this.ready === pending) this.ready = null;
+        this.failAll(e);
+        reject(e);
+      };
+      const timer = setTimeout(() => failed(new Error(`QEMU did not greet on ${this.path} within ${this.timeoutMs / 1000}s`)), this.timeoutMs);
+      s.on("error", (e) => failed(e));
+      s.on("close", () => failed(new Error("QEMU closed its control socket")));
       s.on("data", (d) => {
         this.buf += d.toString("utf8");
         for (;;) {
@@ -68,7 +82,8 @@ export class QmpClient {
         }
       });
     });
-    return this.ready;
+    this.ready = pending;
+    return pending;
   }
 
   /** One command. Rejects on QEMU's own error rather than resolving with it, so a caller cannot

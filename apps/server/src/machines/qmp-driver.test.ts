@@ -74,6 +74,28 @@ describe("QMP", () => {
     expect(h.fake.commands[1]!.execute).toBe("screendump");
   });
 
+  /**
+   * A failed connect must not poison the client.
+   *
+   * `connect()` memoises, and a rejected promise left in the memo is handed to every later caller
+   * forever. The manager's readiness walk retries in a loop — and QEMU ALWAYS takes a moment to
+   * create its socket, so the first attempt always fails. Found by a demo: a guest that was seconds
+   * from ready could never be connected to, while QEMU sat there perfectly healthy.
+   */
+  it("retries after a failed connect instead of returning the same rejection forever", async () => {
+    const dir = tempDir("realm-qmp-");
+    mkdirSync(dir, { recursive: true });
+    const client = new QmpClient(join(dir, "qmp.sock"), 500);
+    clients.push(client);
+    // Nothing is listening yet, exactly as it is for the first second of a guest's life.
+    await expect(client.connect()).rejects.toThrow();
+    // …and now QEMU makes its socket.
+    const fake = fakeQmp({ dir });
+    await fake.listen();
+    await expect(client.connect()).resolves.toBeUndefined();
+    expect(fake.commands[0]!.execute).toBe("qmp_capabilities");
+  });
+
   it("gives up on a socket that never greets, rather than hanging a tool call", async () => {
     const dir = tempDir("realm-qmp-");
     mkdirSync(dir, { recursive: true });

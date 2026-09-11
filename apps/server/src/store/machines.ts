@@ -87,7 +87,7 @@ export class MachinesStore {
     return r?.headers_sealed ?? null;
   }
 
-  update(id: string, patch: { name?: string; endpoint?: VncEndpoint | null; sealedPassword?: string | null; sealedHeaders?: string | null }): Machine | null {
+  update(id: string, patch: { name?: string; source?: MachineSource; endpoint?: VncEndpoint | null; sealedPassword?: string | null; sealedHeaders?: string | null }): Machine | null {
     const cur = this.get(id);
     if (!cur) return null;
     // `sealedPassword` is three-valued on the way in and the distinction matters: absent leaves the
@@ -96,8 +96,8 @@ export class MachinesStore {
     const sealed = patch.sealedPassword === undefined ? this.sealedPassword(id) : patch.sealedPassword;
     const headers = patch.sealedHeaders === undefined ? this.sealedHeaders(id) : patch.sealedHeaders;
     const endpoint = patch.endpoint === undefined ? cur.endpoint : patch.endpoint;
-    this.db.prepare("UPDATE machines SET name = ?, endpoint_json = ?, password_sealed = ?, headers_sealed = ?, updated_at = ? WHERE id = ?")
-      .run(patch.name ?? cur.name, endpoint ? JSON.stringify(endpoint) : null, sealed, headers, now(), id);
+    this.db.prepare("UPDATE machines SET name = ?, source = ?, endpoint_json = ?, password_sealed = ?, headers_sealed = ?, updated_at = ? WHERE id = ?")
+      .run(patch.name ?? cur.name, patch.source ?? cur.source, endpoint ? JSON.stringify(endpoint) : null, sealed, headers, now(), id);
     return this.get(id);
   }
 

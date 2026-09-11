@@ -65,9 +65,23 @@ export const CATALOG: readonly CatalogEntry[] = [
     name: "Alpine 3.21",
     summary: "A very small Linux — boots in seconds, good for a throwaway shell.",
     arch: "aarch64",
-    url: "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/aarch64/alpine-virt-3.21.0-aarch64.iso",
+    /**
+     * The `standard` flavour, NOT `virt` — and the difference is the whole pane.
+     *
+     * MEASURED, twice, side by side under this exact argv: `alpine-virt` reaches a login prompt on
+     * the SERIAL console and never touches the display, so `virtio-gpu-pci` keeps its firmware mode
+     * and QEMU reports 640x480 reading "Display output is not active." forever. `alpine-standard`
+     * builds in the virtio-gpu DRM driver and boots with `console=tty0`, so at ~110s the guest has
+     * set 1280x800 and drawn "Welcome to Alpine Linux 3.21 ... localhost login:".
+     *
+     * The name is a trap: `virt` sounds like the one meant for a VM, and it is — for a VM you reach
+     * over a serial port. Realm's whole proposition here is a screen you can watch, so a flavour
+     * with no framebuffer is not a smaller option, it is a blank pane. Found by a demo, where the
+     * connection was perfect and the picture was empty. See `catalog.test.ts`.
+     */
+    url: "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/aarch64/alpine-standard-3.21.0-aarch64.iso",
     sha256: "",
-    bytes: 60 * 1024 * 1024,
+    bytes: 250 * 1024 * 1024,
     kind: "iso",
     memoryMb: 1024, cpus: 2, diskGb: 8,
   },

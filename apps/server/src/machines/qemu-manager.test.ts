@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import { QemuManager, STDERR_TAIL_LINES } from "./qemu-manager";
-import { NVRAM_BYTES, secretPath, type QemuSpec } from "./qemu-argv";
+import { NVRAM_BYTES, qmpSocketPath, secretPath, type QemuSpec } from "./qemu-argv";
 
 /** A QEMU that never was. Everything the manager does to a child is done to this. */
 class FakeChild extends EventEmitter {
@@ -60,13 +60,13 @@ function harness(over: { reachable?: boolean; status?: string; readyTimeoutMs?: 
       const c = new FakeChild();
       children.push(c);
       // QEMU makes its control socket shortly after starting; the fake does the same.
-      void qmpSocketAt(join(dir, "qmp.sock"), over.status ?? "running");
+      void qmpSocketAt(qmpSocketPath("m1"), over.status ?? "running");
       return c as never;
     },
     probeConnect: async (p) => { probes.push(p); return over.reachable ?? true; },
     readyTimeoutMs: over.readyTimeoutMs ?? 4000,
   });
-  const spec: QemuSpec = {
+  const spec: Omit<QemuSpec, "qmpPath"> = {
     arch: "aarch64", dir, shareDir: "/opt/homebrew/share/qemu", display: 71,
     memoryMb: 2048, cpus: 4, title: "Test guest", accel: "hvf",
   };
@@ -241,6 +241,7 @@ describe("the command line it actually runs", () => {
     // The security flag, all the way through the manager rather than only in the builder's tests.
     expect(joined).toContain("-vnc 127.0.0.1:71,password-secret=vncpw,share=ignore");
     expect(joined).toContain("virtio-tablet-pci");
-    expect(joined).toContain(`unix:${join(h.dir, "qmp.sock")}`);
+    // Not in the machine's own directory — see the socket-path test in qemu-argv.test.ts.
+    expect(joined).toContain(`unix:${qmpSocketPath("m1")}`);
   });
 });

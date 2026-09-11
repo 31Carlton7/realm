@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
@@ -23,8 +25,14 @@ export type QemuSpec = {
   display: number;
   memoryMb: number;
   cpus: number;
+  /** The disk's ceiling in GB. qcow2 is sparse, so this is not an allocation — a guest that is
+   *  never installed costs a few hundred kilobytes whatever this says. */
+  diskGb?: number;
   /** Shown in QEMU's own window title and in `ps`. The machine's name, so a process list is legible. */
   title: string;
+  /** Where QMP listens. Passed in rather than derived from `dir`, because it deliberately is NOT in
+   *  `dir` — see `qmpSocketPath`. Keeping it a parameter is also what keeps this function pure. */
+  qmpPath: string;
   /** An installer to boot from, if this guest has not been installed yet. */
   isoPath?: string | null;
   /** Hardware acceleration, when the host can give it. `qemu-locator.ts` decides. */
@@ -63,7 +71,30 @@ export const LOAD_BEARING = {
 export const diskPath = (dir: string): string => join(dir, "disk.qcow2");
 export const nvramPath = (dir: string): string => join(dir, "nvram.fd");
 export const secretPath = (dir: string): string => join(dir, "vnc.secret");
-export const qmpPath = (dir: string): string => join(dir, "qmp.sock");
+/**
+ * Where a guest's QMP socket lives, and why it is not beside its disk.
+ *
+ * **A unix socket path may not exceed 104 bytes on macOS** — `sun_path` in `sockaddr_un` — and QEMU
+ * refuses to start with "UNIX socket path is too long" when it does. A machine directory is
+ * `<realmHome>/machines/<26-char ULID>/`, which fits under a short home and does not under a long
+ * one: a deeper `REALM_HOME`, a synced folder, or simply a longer user name. Found by a demo, where
+ * the scratch home pushed it over.
+ *
+ * So the socket goes in the per-user temp directory under a 10-character digest of the machine id —
+ * deterministic, so a restart finds the same name, and short enough that the whole path is well
+ * under the limit whatever the home is. The DISK, the nvram and the log stay in the machine's own
+ * directory, where they belong and where no such limit applies.
+ *
+ * The directory is created at 0700 by the manager: a unix socket's access control is its path's, and
+ * a QMP socket anyone could connect to is an unauthenticated total-control channel.
+ */
+export const QMP_DIR = join(tmpdir(), "realm-qmp");
+export const qmpSocketPath = (machineId: string): string =>
+  join(QMP_DIR, `${createHash("sha256").update(machineId).digest("hex").slice(0, 10)}.sock`);
+
+/** The platform's own limit, so the manager can refuse with a sentence rather than letting QEMU
+ *  fail with one nobody expects. */
+export const UNIX_PATH_MAX = 104;
 export const logPath = (dir: string): string => join(dir, "qemu.log");
 
 /** The firmware for an architecture. MEASURED: Homebrew ships `edk2-aarch64-code.fd` and
@@ -138,7 +169,7 @@ export function buildQemuArgv(spec: QemuSpec): string[] {
   push("-display", "none");
   // A unix socket has filesystem permissions; a QMP port on loopback is an unauthenticated
   // total-control channel with no token in front of it.
-  push("-qmp", `unix:${qmpPath(spec.dir)},server=on,wait=off`);
+  push("-qmp", `unix:${spec.qmpPath},server=on,wait=off`);
   push("-name", spec.title);
   push("-rtc", "base=utc");
 

@@ -230,3 +230,44 @@ describe("machines RPC", () => {
     c.close();
   });
 });
+
+describe("a boot that nobody is waiting for any more", () => {
+  /**
+   * Stop during a boot must win, permanently.
+   *
+   * Starting a guest is a walk with four awaits in it, and each resume point used to write state
+   * unconditionally. Press Stop while it is walking and the pane went `off` and then, a second or
+   * two later, flipped itself to `failed` — for a boot the user had already cancelled. At quit the
+   * same write landed on a closed database and came out as an unhandled `ERR_INVALID_STATE` with no
+   * test failing, which is how it survived: 5893 green tests and one error nobody had to explain.
+   *
+   * This holds whether or not QEMU is installed. With it, the walk gets as far as spawning and the
+   * guest's exit reports back; without it, `capabilities()` reports unavailable at the first resume
+   * point. Both are paths that used to call `fail` and both must now find themselves superseded.
+   *
+   * The mutant: delete any one `superseded` check in `startQemu`. The status goes `failed`.
+   */
+  it("stays off after stop, however the walk ends", async () => {
+    const { c, space } = await bring();
+    const r = (await c.call("machines.create", { spaceId: space.id, name: "Cancelled", endpoint: null })).result;
+    await c.call("machines.update", {
+      machineId: r.machineId,
+      source: "qemu",
+      guest: { arch: "aarch64", memoryMb: 512, cpus: 1, diskGb: 1, imageSha: "0".repeat(64), imageKind: "iso" },
+    });
+
+    const started = (await c.call("machines.start", { machineId: r.machineId })).result.state;
+    expect(started.status).toBe("booting");
+    const stopped = (await c.call("machines.stop", { machineId: r.machineId })).result.state;
+    expect(stopped.status).toBe("off");
+
+    // Long enough for every await in the walk to have come back and had its say.
+    await new Promise((res) => setTimeout(res, 2500));
+    const after = (await c.call("machines.get", { machineId: r.machineId })).result.state;
+    expect(after.status).toBe("off");
+    expect(after.error).toBe(null);
+    // And nothing announced a failure to the clients either.
+    expect(c.events.filter((e) => e.params?.machineId === r.machineId && e.params?.status === "failed")).toEqual([]);
+    c.close();
+  }, 30_000);
+});
