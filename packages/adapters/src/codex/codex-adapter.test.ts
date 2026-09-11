@@ -1126,3 +1126,55 @@ describe("CodexAdapter model catalog", () => {
     expect(adapter.processCount).toBe(0);
   });
 });
+
+describe("a resume Codex refuses", () => {
+  it("starts a fresh thread instead of leaving the session permanently unstartable", async () => {
+    const adapter = newAdapter();
+    const handle = adapter.start(startOpts({ resume: "th_gone" }));
+    const { evs, done } = drain(handle);
+    await handle.dispose();
+    await done;
+    // MUTANT: let the rejection through and the session is dead forever — Realm hands back the same
+    // providerSessionId on every send, so every attempt fails identically with nothing said.
+    expect(of(evs, "error")).toHaveLength(0);
+    const init = of(evs, "init")[0]!.payload;
+    expect(init.resumeRequested).toBe(true);
+    expect(init.resumeOutcome).toBe("declined");
+    // The NEW thread's id, never the one Codex has just said it does not have.
+    expect(init.providerSessionId).not.toBe("th_gone");
+    expect(init.providerSessionId).toBeTruthy();
+  });
+
+  it("reports a resume that worked as continued", async () => {
+    const adapter = newAdapter();
+    const handle = adapter.start(startOpts({ resume: "th_old" }));
+    const { evs, done } = drain(handle);
+    await handle.dispose();
+    await done;
+    const init = of(evs, "init")[0]!.payload;
+    expect(init.resumeRequested).toBe(true);
+    expect(init.resumeOutcome).toBe("continued");
+    expect(init.providerSessionId).toBe("th_old");
+  });
+
+  it("says nothing about resuming on a session's first boot", async () => {
+    const adapter = newAdapter();
+    const handle = adapter.start(startOpts());
+    const { evs, done } = drain(handle);
+    await handle.dispose();
+    await done;
+    const init = of(evs, "init")[0]!.payload;
+    expect(init.resumeRequested).toBeUndefined();
+    expect(init.resumeOutcome).toBeUndefined();
+  });
+
+  it("a resume that TIMES OUT is not a refusal — no second boot budget is spent on the same silence", async () => {
+    const adapter = newAdapter({ bootTimeoutMs: 200 });
+    const handle = adapter.start(startOpts({ resume: "th_old", env: { FAKE_CODEX_MUTE_THREAD_START: "1" } }));
+    const { evs, done } = drain(handle);
+    await done;
+    // MUTANT: fall back on any rejection and this becomes "thread/start", after waiting 400ms rather
+    // than 200 — a wedged app-server answered by asking it a second question.
+    expect(of(evs, "error")[0]!.payload.message).toMatch(/thread\/resume within 200ms/);
+  });
+});

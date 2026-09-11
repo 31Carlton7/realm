@@ -39,7 +39,13 @@ function exitPlanText(name: string, input: Record<string, unknown>): string | nu
  *  unrecognised string is safer left unstated than coerced into `off`. */
 const FAST_STATES = new Set(["off", "cooldown", "on"]);
 
-export function createSdkMapper() {
+/**
+ * `resumed` says this session asked the SDK to continue an earlier conversation, so the `init` event
+ * can report what came of it. The claim is deliberately narrow — the SDK forks to a NEW session id on
+ * resume rather than continuing the old one, so "the request was accepted" is the strongest thing
+ * that is true, and it is what `resumeOutcome: "continued"` means here.
+ */
+export function createSdkMapper(opts: { resumed?: boolean } = {}) {
   const streamMsgIds = new Map<string | null, string>(); // parent_tool_use_id -> current streaming message id
   const emittedText = new Set<string>();
   return {
@@ -47,7 +53,13 @@ export function createSdkMapper() {
       const out: SessionEvent[] = [];
       switch (msg.type) {
         case "system": {
-          if (msg.subtype === "init") { out.push(sessionEvent("init", { providerSessionId: msg.session_id, model: msg.model, tools: msg.tools, cwd: msg.cwd })); break; }
+          if (msg.subtype === "init") {
+            out.push(sessionEvent("init", {
+              providerSessionId: msg.session_id, model: msg.model, tools: msg.tools, cwd: msg.cwd,
+              ...(opts.resumed ? { resumeRequested: true, resumeOutcome: "continued" as const } : {}),
+            }));
+            break;
+          }
           // The harness dropped the conversation and kept a summary. Nothing else on the wire says
           // it happened: the transcript keeps every message the model can no longer see, and the
           // context meter simply falls between one turn and the next with no account of why.

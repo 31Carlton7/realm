@@ -1,6 +1,6 @@
 import { ASK_PERMISSION_MODE, sessionEvent, type SessionEvent } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
-import { JsonRpcCallError, type JsonRpcId } from "../jsonrpc/stdio";
+import { JsonRpcCallError, isRpcTimeout, type JsonRpcId } from "../jsonrpc/stdio";
 import { CodexConnection, type ThreadListener } from "./connection";
 import { createCodexMapper } from "./map-codex";
 import { CODEX_FAST_TIER, parseCodexModelPage, probeCodex, type CodexModel } from "./probe";
@@ -478,15 +478,50 @@ export class CodexAdapter implements AgentAdapter {
         // instructions it was started with, and what a fresh value on thread/resume would mean is not
         // something the protocol says (the field is listed unverified there; proven for thread/start in
         // scripts/live-memory-check.ts).
-        const res = obj(opts.resume
-          ? await c.request("thread/resume", { threadId: opts.resume, ...common }, bootMs)
-          : await c.request("thread/start", {
-            ...common,
-            ...(opts.systemContext ? { developerInstructions: opts.systemContext } : {}),
-            sessionStartSource: "startup",
-          }, bootMs));
+        const start = (): Promise<unknown> => c.request("thread/start", {
+          ...common,
+          ...(opts.systemContext ? { developerInstructions: opts.systemContext } : {}),
+          sessionStartSource: "startup",
+        }, bootMs);
+        /**
+         * A resume Codex refuses is a fresh thread, not a dead session.
+         *
+         * `thread/resume` rejects when the thread is no longer in `~/.codex` — deleted by hand, aged
+         * out, or written by a different Codex install. Realm keeps handing back the same
+         * `providerSessionId` on every send, so before this one rejection made the session
+         * permanently unstartable: every attempt took this same branch and failed the same way, with
+         * nothing in the UI to say why.
+         *
+         * The fallback is `thread/start`, which is not merely the other call — it is the one that
+         * carries `developerInstructions`, so the memory channel comes back with it. That asymmetry
+         * is the reason the resume branch cannot simply pass the field and be done.
+         *
+         * The user is told. `declined` on the init event below becomes a `context_reset` seam in the
+         * transcript, because the agent under that line genuinely cannot read what is above it.
+         */
+        let resumeOutcome: "continued" | "declined" | undefined;
+        let raw: unknown;
+        if (opts.resume) {
+          try {
+            raw = await c.request("thread/resume", { threadId: opts.resume, ...common }, bootMs);
+            resumeOutcome = "continued";
+          } catch (e) {
+            // Only a REFUSAL falls back. A timeout means the app-server said nothing at all, and a
+            // second bounded call would spend another whole boot budget waiting on the same silence —
+            // so that failure surfaces as it always has, naming `thread/resume`.
+            if (isRpcTimeout(e)) throw e;
+            opts.onLog?.(`thread/resume ${opts.resume} refused (${bootFailureMessage(e)}); starting a new thread`);
+            raw = await start();
+            resumeOutcome = "declined";
+          }
+        } else {
+          raw = await start();
+        }
+        const res = obj(raw);
         if (disposed) return;
-        const id = str(obj(res.thread).id) || str(opts.resume);
+        // On a declined resume the NEW thread's id is the only honest answer — falling back to
+        // `opts.resume` would record an id Codex has just told us it does not have.
+        const id = str(obj(res.thread).id) || (resumeOutcome === "declined" ? "" : str(opts.resume));
         if (!id) throw new Error("codex did not return a thread id");
         threadId = id;
         // Codex names the exact instruction files it loaded (AGENTS.md hierarchy) in the start response —
@@ -502,6 +537,8 @@ export class CodexAdapter implements AgentAdapter {
         const init = {
           providerSessionId: id, model: str(res.model) || str(opts.model), tools: [], cwd: str(res.cwd) || opts.cwd,
           ...(instructionSources ? { instructionSources } : {}),
+          ...(opts.resume ? { resumeRequested: true } : {}),
+          ...(resumeOutcome ? { resumeOutcome } : {}),
         };
         events.push(sessionEvent("init", init));
         events.push(sessionEvent("status", { status: "idle" }));

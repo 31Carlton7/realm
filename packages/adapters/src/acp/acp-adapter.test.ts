@@ -387,12 +387,17 @@ describe("AcpAdapter", () => {
     const journal = JSON.parse(texts(evs)[0]!) as { loadParams: unknown; newParams: unknown };
     expect(journal.loadParams).toEqual({ sessionId: "sess_prev", cwd: process.cwd(), mcpServers: [] });
     expect(journal.newParams).toBeNull(); // a successful load must not also start a fresh session
+    expect(of(evs, "init")[0]!.payload.resumeOutcome).toBe("continued");
     await handle.dispose();
   });
 
-  it("starts a new session when the agent does not advertise loadSession", async () => {
+  it("starts a new session when the agent does not advertise loadSession, and says it was never asked", async () => {
     const { handle, evs } = await booted({ resume: "sess_prev" }, { env: { FAKE_ACP_NOLOAD: "1" } });
     expect(of(evs, "init")[0]!.payload.providerSessionId).toBe("sess_0");
+    // MUTANT: leave this unreported and the transcript above the new session reads as the agent's own
+    // context, when the agent has never seen a word of it.
+    expect(of(evs, "init")[0]!.payload.resumeRequested).toBe(true);
+    expect(of(evs, "init")[0]!.payload.resumeOutcome).toBe("unsupported");
     await turn(handle, evs, "REVEAL");
     const journal = JSON.parse(texts(evs)[0]!) as { loadParams: unknown; newParams: unknown };
     expect(journal.loadParams).toBeNull();
@@ -406,6 +411,8 @@ describe("AcpAdapter", () => {
     expect(of(evs, "init")[0]!.payload.providerSessionId).toBe("sess_0");
     expect(errors(evs)).toEqual([]); // a failed resume is recoverable, not a session failure
     expect(logs.join("\n")).toContain("no such session on disk");
+    // …and it is now told to the user as well as to the log, which is the one place they cannot see.
+    expect(of(evs, "init")[0]!.payload.resumeOutcome).toBe("declined");
     // The flag is cleared by the failure too, so the fresh session is not mute.
     await turn(handle, evs, "hi");
     expect(texts(evs)).toEqual(["Hello"]);

@@ -19,9 +19,23 @@ export class JsonRpcCallError extends Error {
  * answer lands on an already-settled promise. Every unbounded call into a child process goes through this:
  * a child that spawns and then answers nothing must never leave a promise pending forever.
  */
+/**
+ * A call that ran out of time, distinguishable from one the peer ANSWERED with an error.
+ *
+ * The difference decides what a caller may do next. A peer that said "no" has been heard from, and
+ * trying something else is reasonable; a peer that said nothing may be wedged, and a second bounded
+ * call would simply spend another whole budget waiting on the same silence. `CodexAdapter`'s resume
+ * fallback turns on exactly this.
+ */
+export class RpcTimeoutError extends Error {
+  constructor(message: string) { super(message); this.name = "RpcTimeoutError"; }
+}
+
+export const isRpcTimeout = (e: unknown): boolean => e instanceof RpcTimeoutError;
+
 export function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), ms);
+    const timer = setTimeout(() => reject(new RpcTimeoutError(message)), ms);
     p.then(resolve, reject).finally(() => clearTimeout(timer));
   });
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, parseSpaceIcon, acpBuildMode, acpPlanMode, acpSessionConfig, acpWellKnownMode, parseAcpConfigOptions, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, ASK_PERMISSION_MODE, acpAskMode, isReadOnlyMode, sessionModeOf, modeWireValue, DEFAULT_MODEL_LABEL, PERMISSION_MODES, PLAN_PERMISSION_MODE, SELECTABLE_AGENT_KINDS, SESSION_MODES, AGENT_MIDTURN_DELIVERY, MID_TURN_MODES, resolveMidTurnMode, steerInterrupts, steerNote, type AcpSessionMode } from "./presets";
+import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, parseSpaceIcon, acpBuildMode, acpPlanMode, acpSessionConfig, acpWellKnownMode, parseAcpConfigOptions, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, ASK_PERMISSION_MODE, acpAskMode, isReadOnlyMode, sessionModeOf, modeWireValue, DEFAULT_MODEL_LABEL, PERMISSION_MODES, PLAN_PERMISSION_MODE, SELECTABLE_AGENT_KINDS, SESSION_MODES, AGENT_MIDTURN_DELIVERY, AGENT_SESSION_RESUME, MID_TURN_MODES, resolveMidTurnMode, steerInterrupts, steerNote, type AcpSessionMode } from "./presets";
 import { AgentKindSchema } from "./entities";
 describe("presets", () => {
   it("has at least 8 colors and a lot more icons", () => { expect(SPACE_COLORS.length).toBeGreaterThanOrEqual(8); expect(SPACE_ICONS.length).toBeGreaterThanOrEqual(50); });
@@ -126,6 +126,44 @@ describe("AGENT_SUPPORTS_PERMISSION_MODES", () => {
     expect(AGENT_SUPPORTS_PERMISSION_MODES["acp:gemini"]).toBe(false);
     expect(AGENT_SUPPORTS_PERMISSION_MODES.claude).toBe(true);
     expect(AGENT_SUPPORTS_PERMISSION_MODES.codex).toBe(true);
+  });
+});
+
+describe("AGENT_SESSION_RESUME", () => {
+  it("answers for every agent kind, so a new one cannot be forgotten", () => {
+    // `satisfies Record<AgentKind, …>` already refuses a missing key at compile time; this is the
+    // runtime half, and it is what catches a kind added to the schema in one commit and the table in
+    // another.
+    for (const kind of AgentKindSchema.options) {
+      const row = AGENT_SESSION_RESUME[kind];
+      expect(row, kind).toBeDefined();
+      expect(["native", "advertised", "none"], kind).toContain(row.mode);
+      expect(row.note, kind).toBeTruthy();
+    }
+  });
+
+  it("claims no version boundary for anything, because Realm has measured none", () => {
+    // A finding, not a placeholder. Realm's three sources of truth are its own adapter code, what the
+    // binary advertises at runtime, and what actually happened on the last attempt — none of which is
+    // a version number, and design.md forbids claiming a capability its owner has not stated.
+    for (const kind of AgentKindSchema.options) expect(AGENT_SESSION_RESUME[kind].minVersion, kind).toBeNull();
+  });
+
+  it("separates always-asks from asks-if-advertised from cannot-ask", () => {
+    // `native`: the adapter makes the call unconditionally, and whether it is honoured is a per-request
+    // fact reported on `init`.
+    expect(AGENT_SESSION_RESUME.claude.mode).toBe("native");
+    expect(AGENT_SESSION_RESUME.codex.mode).toBe("native");
+    // `advertised`: every ACP kind, because AcpAdapter only calls session/load when `initialize` said
+    // loadSession — a per-binary, per-run fact this table has no business restating.
+    for (const kind of AgentKindSchema.options) {
+      if (!kind.startsWith("acp:")) continue;
+      if (kind === "acp:deepseek") continue;
+      expect(AGENT_SESSION_RESUME[kind].mode, kind).toBe("advertised");
+    }
+    // `none`: measured absent, and the same source AGENT_CONVERSATION_REWIND cites for deepseek.
+    expect(AGENT_SESSION_RESUME["acp:deepseek"].mode).toBe("none");
+    expect(AGENT_SESSION_RESUME.fake.mode).toBe("none");
   });
 });
 

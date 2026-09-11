@@ -108,6 +108,9 @@ function sectionFor(b: Block): string | null {
     case "compacted": return b.postTokens === undefined
       ? "> **Context compacted.**"
       : `> **Context compacted:** ${b.preTokens} tokens summarised to ${b.postTokens}.`;
+    // And the sharpest version of the same warning: the agent that answered below this line had none
+    // of the conversation above it. A reader of this file would otherwise read one continuous thread.
+    case "context_reset": return `> **Context reset:** ${b.note}`;
     // Likewise: a retry that was still pending when the export ran is a fact about the moment of
     // export, not about the session.
     case "retrying": return null;

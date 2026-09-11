@@ -929,6 +929,38 @@ export class SessionService {
     return handle;
   }
 
+  /**
+   * Say so when the agent under the transcript cannot read it.
+   *
+   * A resume that silently starts a fresh thread under an old conversation is the one lie this whole
+   * area exists to remove: everything above stays on screen, looking for all the world like context
+   * the agent has, and the agent has none of it.
+   *
+   * The predicate is narrow on purpose. The row must ALREADY have held a provider session id — that
+   * is what makes "we asked to continue" true — and the adapter must have reported that the ask did
+   * not succeed. A first boot has nothing to continue; an adapter that reports nothing is not made to
+   * confess something Realm cannot see.
+   *
+   * Failover needs no special case: it clears the token BEFORE the restart, so there is no id to have
+   * been refused and `handoff` is the only seam that speaks there.
+   */
+  private noteContextReset(before: Session, init: SessionEventPayload<"init">): void {
+    if (before.providerSessionId === null) return;
+    if (init.resumeOutcome !== "declined" && init.resumeOutcome !== "unsupported") return;
+    const label = AGENT_META[before.agentKind]?.label ?? before.agentKind;
+    // Persisted and broadcast directly rather than through `onEvent`, which is mid-flight above us.
+    // It lands BEFORE the `init` that prompted it, which is the order a reader wants: the seam, then
+    // the session that starts after it.
+    const stored = this.persist(before.id, sessionEvent("context_reset", {
+      agent: before.agentKind,
+      reason: init.resumeOutcome,
+      // One sentence, built here so every surface tells it identically — the transcript, and anything
+      // that later reads the event log. It says what is still true before it says what is not.
+      note: `This agent could not continue the earlier conversation. Everything above is still here; ${label} starts from your next message.`,
+    }));
+    this.d.rpc.broadcast("session.event", { ...stored, ephemeral: false });
+  }
+
   private onEvent(id: string, ev: SessionEvent): void {
     if (this.closing) return; // shutdown: the row keeps its last real status; markStaleOnBoot resets it
     const before = this.d.sessions.get(id);
@@ -936,7 +968,10 @@ export class SessionService {
     // BEFORE the status update below, so the hook sees the row's PREVIOUS status — a settle is a
     // transition, and only this side of the update still knows both ends of it.
     this.d.notifications?.handleSessionEvent(before, ev);
-    if (ev.type === "init") this.d.sessions.update({ id, providerSessionId: ev.payload.providerSessionId });
+    if (ev.type === "init") {
+      this.noteContextReset(before, ev.payload);
+      this.d.sessions.update({ id, providerSessionId: ev.payload.providerSessionId });
+    }
     // Failover reads the error BEFORE it is persisted below, but does not suppress it: the failure
     // genuinely happened, and a transcript that hid it would leave the following `retrying` or
     // `handoff` line with nothing to explain. `before` is the row as it was when the turn failed —

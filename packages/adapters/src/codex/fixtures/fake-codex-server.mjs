@@ -37,7 +37,8 @@
  * an intentional dispose), `model: "explode"` fails `thread/start` with the revoked-login error shape,
  * `model: "reflect"` echoes the whole `thread/start`/`thread/resume` params object back as the model string
  * (the only field of the start response the adapter surfaces), a resumed thread id containing "busy" rejoins a
- * turn that is already running, FAKE_CODEX_MUTE_INITIALIZE=1 makes
+ * turn that is already running, one containing "gone" is REFUSED by `thread/resume` (the thread is no
+ * longer in ~/.codex), FAKE_CODEX_MUTE_INITIALIZE=1 makes
  * `initialize` go unanswered, FAKE_CODEX_INITIALIZE_DELAY_MS=<ms> delays the answer, and FAKE_CODEX_MUTE_THREAD_START=1 makes `thread/start`/`thread/resume` go
  * unanswered (a child that spawns and handshakes but never opens a thread).
  */
@@ -326,6 +327,13 @@ function handleRequest(id, method, params) {
     }
     case "thread/resume":
       if (process.env.FAKE_CODEX_MUTE_THREAD_START) return;
+      // A thread id containing "gone" is one Codex no longer has — deleted from ~/.codex, aged out,
+      // or written by a different install. This is the rejection that used to make a Realm session
+      // permanently unstartable, because the same id was handed back on every send.
+      if (String(params.threadId).includes("gone")) {
+        fail(id, -32602, `thread not found: ${params.threadId}`);
+        return;
+      }
       startThread(id, params, params.threadId);
       // A thread id containing "busy" was mid-turn when the client went away: resuming rejoins the live turn,
       // whose id the client can only learn from turn/started (the resume response does not carry it).

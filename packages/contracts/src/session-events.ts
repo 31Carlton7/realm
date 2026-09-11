@@ -149,6 +149,27 @@ const P = {
    * says the same true thing either way.
    */
   compacted: z.object({ trigger: z.enum(["manual", "auto"]), preTokens: z.number(), postTokens: z.number().optional() }),
+  /**
+   * The agent below this line is NOT reading the conversation above it.
+   *
+   * Written when a session that HELD a provider session id came back without it — the provider was
+   * asked to continue and declined, or the build could not be asked at all. Everything in the
+   * transcript is still here and still true; what changed is that the agent no longer has it.
+   *
+   * A sibling of `handoff` and `compacted` rather than a variant of either, because it reports a
+   * third thing: `handoff` is a different agent, `compacted` is the same agent with a summarised
+   * context, and this is the same agent with NO context. All three draw as the same seam, because
+   * what they have in common — "what is above is not what is below" — is the part the reader needs.
+   *
+   * Failover needs no special case here: it clears the token BEFORE the restart, so the session has
+   * no id to have been refused and `handoff` is the only seam that speaks there.
+   */
+  context_reset: z.object({
+    agent: z.string(),
+    reason: z.enum(["declined", "unsupported"]),
+    /** The sentence shown. Built server-side so every surface tells it identically. */
+    note: z.string(),
+  }),
   /** A plan the agent proposed. Both shapes are carried because the three protocols send genuinely
    *  different artifacts and neither derives from the other:
    *
@@ -218,6 +239,21 @@ const P = {
      *  Absent means the question was not answered — an agent that has no such concept, or a list the
      *  CLI declined — and the prompter offers nothing rather than guessing. */
     supportsFastMode: z.boolean().optional(),
+    /** Whether Realm ASKED this handshake to continue an earlier conversation. False on a session's
+     *  first boot, true on every boot after one. */
+    resumeRequested: z.boolean().optional(),
+    /**
+     * What came of that ask. Absent when the adapter does not report it.
+     *
+     * - `continued` — the provider ACCEPTED the resume request. Deliberately not "the conversation is
+     *   the same one": the Claude SDK forks to a fresh session id on resume, so "accepted" is the
+     *   strongest claim Realm can make for every agent that reports this, and the one it makes.
+     * - `declined` — the provider was asked and said no. Codex when the thread is gone from
+     *   `~/.codex`; ACP when `session/load` rejects. The adapter started a fresh conversation instead.
+     * - `unsupported` — never asked, because this build cannot. ACP where `initialize` did not answer
+     *   `loadSession: true`.
+     */
+    resumeOutcome: z.enum(["continued", "declined", "unsupported"]).optional(),
   }),
 } as const;
 
@@ -242,6 +278,7 @@ export const SessionEventSchema = z.discriminatedUnion("type", [
   variant("usage"),
   variant("compacted"),
   variant("init"),
+  variant("context_reset"),
   variant("plan"),
   variant("feedback"),
   variant("summary"),
@@ -257,7 +294,7 @@ export function sessionEvent<T extends SessionEventType>(type: T, payload: Sessi
 }
 
 /** Event types the server persists; the rest (assistant_delta) are ephemeral. */
-export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff", "compacted", "summary"];
+export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff", "compacted", "context_reset", "summary"];
 
 export const StoredSessionEventSchema = z.object({ seq: z.number().int(), sessionId: z.string(), event: SessionEventSchema });
 export type StoredSessionEvent = { seq: number; sessionId: string; event: SessionEvent };

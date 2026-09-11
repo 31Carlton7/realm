@@ -315,6 +315,14 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
               <span>Context compacted</span>
               {b.postTokens !== undefined && <span className="msg-handoff-tries">{formatTokens(b.preTokens)} → {formatTokens(b.postTokens)}</span>}
             </div>;
+            // The third seam, and the same class again for the same reason: what a reader needs from
+            // all three is "what is above this line is not what is below it", and drawing that three
+            // slightly different ways would be a distinction that means nothing. The sentence is
+            // built server-side so every surface tells it identically — this renders it, never
+            // rewrites it.
+            case "context_reset": return <div key={key} className="msg-handoff" role="note" data-enter={enter || undefined}>
+              <span>{b.note}</span>
+            </div>;
           }
         })}
         {permissions.map((p, i) => {

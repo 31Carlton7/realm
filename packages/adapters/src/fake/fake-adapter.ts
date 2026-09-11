@@ -18,7 +18,10 @@ export type FakeScript = { on: string; emit: FakeStep[] }[];
 /** Scripted adapter for tests and UI development. Messages matching `on` replay the scripted steps; others echo. */
 export class FakeAdapter implements AgentAdapter {
   readonly kind = "fake" as const;
-  constructor(private cfg: { script: FakeScript; delayMs?: number } = { script: [] }) {}
+  /** `resume` makes this fake report a resume outcome when it is handed one — the scripted adapter
+   *  holds no conversation of its own (`AGENT_SESSION_RESUME.fake` is `none`), so it says nothing
+   *  about resuming unless a test asks it to stand in for an agent that does. */
+  constructor(private cfg: { script: FakeScript; delayMs?: number; resume?: "continued" | "declined" | "unsupported" } = { script: [] }) {}
 
   async probe(): Promise<ProbeResult> { return { kind: this.kind, available: true, version: "fake", loggedIn: true, reason: null }; }
 
@@ -30,7 +33,14 @@ export class FakeAdapter implements AgentAdapter {
     let disposed = false;
     let interrupted = false;
 
-    q.push(sessionEvent("init", { providerSessionId: `fake-${newId()}`, model: opts.model ?? "fake", tools: ["Bash", "Read"], cwd: opts.cwd }));
+    const resumeOutcome = opts.resume ? this.cfg.resume : undefined;
+    q.push(sessionEvent("init", {
+      // A continued resume keeps the id it was handed, as a real adapter does; anything else is a
+      // fresh conversation with a fresh id.
+      providerSessionId: resumeOutcome === "continued" && opts.resume ? opts.resume : `fake-${newId()}`,
+      model: opts.model ?? "fake", tools: ["Bash", "Read"], cwd: opts.cwd,
+      ...(resumeOutcome ? { resumeRequested: true, resumeOutcome } : {}),
+    }));
     q.push(sessionEvent("status", { status: "idle" }));
 
     const resolvePermission = (requestId: string, decision: PermissionDecision) => {

@@ -196,6 +196,54 @@ export const AGENT_CONVERSATION_REWIND = {
 } as const satisfies Record<import("./entities").AgentKind, boolean>;
 
 /**
+ * Whether an agent can be asked to CONTINUE the conversation Realm already has a transcript of.
+ *
+ * Realm has always written `provider_session_id` from each adapter's `init` and passed it back as
+ * `resume` on the next send. What it has never said is whether that worked — and a resume that
+ * silently starts a fresh thread under an old transcript is the one lie this table exists to stop.
+ *
+ * Three modes, because there are three genuinely different situations:
+ *
+ *   - `native` — the adapter always makes a resume call. Claude's `Options.resume`, Codex's
+ *     `thread/resume`. Whether the provider HONOURS it is a per-request fact, reported on `init`.
+ *   - `advertised` — resume exists only if the binary said so. ACP: `AcpAdapter` calls `session/load`
+ *     only when `initialize` answered `loadSession: true`, which is a per-binary, per-run fact this
+ *     table has no business restating. Two builds of the same agent can differ.
+ *   - `none` — measured absent.
+ *
+ * **`minVersion` is null for every kind, and that is a finding rather than a placeholder.** Realm has
+ * measured no version boundary for any agent. Herdr's equivalent table can gate on versions because
+ * it ships its own integrations and knows when each gained the verb; Realm's three sources of truth
+ * are its own adapter code, what the binary advertises at runtime, and what actually happened on the
+ * last attempt — and design.md forbids claiming a capability whose owner has not stated it. A number
+ * invented here would be exactly that claim.
+ */
+export const AGENT_SESSION_RESUME = {
+  /** `Options.resume` in the SDK's options object. Note what "continued" can honestly mean here: the
+   *  SDK FORKS to a new session id on resume, so the only claim Realm can make is that the request
+   *  was accepted — see `resumeOutcome` in the init event. */
+  claude: { mode: "native", minVersion: null, note: "Options.resume" },
+  /** `thread/resume {threadId}`. Rejected when the thread is no longer in `~/.codex`, which the
+   *  adapter now falls back from rather than treating as a dead session. */
+  codex: { mode: "native", minVersion: null, note: "thread/resume" },
+  "acp:cursor": { mode: "advertised", minVersion: null, note: "session/load when initialize says loadSession" },
+  "acp:gemini": { mode: "advertised", minVersion: null, note: "session/load when initialize says loadSession" },
+  "acp:opencode": { mode: "advertised", minVersion: null, note: "session/load when initialize says loadSession" },
+  "acp:copilot": { mode: "advertised", minVersion: null, note: "session/load when initialize says loadSession" },
+  "acp:goose": { mode: "advertised", minVersion: null, note: "session/load when initialize says loadSession" },
+  "acp:qwen": { mode: "advertised", minVersion: null, note: "session/load when initialize says loadSession" },
+  "acp:grok": { mode: "advertised", minVersion: null, note: "session/load when initialize says loadSession" },
+  "acp:fx": { mode: "advertised", minVersion: null, note: "session/load when initialize says loadSession" },
+  "acp:openhands": { mode: "advertised", minVersion: null, note: "session/load when initialize says loadSession" },
+  "acp:hermes": { mode: "advertised", minVersion: null, note: "session/load when initialize says loadSession" },
+  /** Measured absent: dsh-acp's own "Known Limitations" heading says it supports no session load,
+   *  resume, list, delete or fork at all — the same source `AGENT_CONVERSATION_REWIND` cites. */
+  "acp:deepseek": { mode: "none", minVersion: null, note: "no session verbs at all" },
+  /** The scripted fake holds no conversation to continue. */
+  fake: { mode: "none", minVersion: null, note: "scripted; nothing to continue" },
+} as const satisfies Record<import("./entities").AgentKind, { mode: "native" | "advertised" | "none"; minVersion: string | null; note: string }>;
+
+/**
  * How much the agent may do without asking. Ordered least → most permissive.
  *
  * `plan` is deliberately NOT here. It used to sit in this list, which conflated two different axes:
@@ -406,6 +454,24 @@ export function acpPlanMode(modes: readonly AcpSessionMode[] | null | undefined)
  */
 export function acpAskMode(modes: readonly AcpSessionMode[] | null | undefined): AcpSessionMode | null {
   return modes?.find((m) => acpWellKnownMode(m.id, "ask")) ?? null;
+}
+
+/**
+ * The modes THIS session can actually be put into.
+ *
+ * Build is always in the list — it is the absence of the other two rather than a capability — and
+ * each of the others is here only where something would enforce it: a per-kind answer for a
+ * first-party agent, and the agent's own advertised mode ids for an ACP one.
+ *
+ * It lives here rather than in the prompter because two surfaces ask it now: the mode chip's menu,
+ * and the prompter's `/plan` and `/ask` commands. Two copies of this filter would eventually offer a
+ * command for a mode the chip beside it says the agent does not have.
+ */
+export function offeredModes(kind: import("./entities").AgentKind, acpModes: readonly AcpSessionMode[] | null | undefined): SessionMode[] {
+  const acp = kind.startsWith("acp:");
+  const canPlan = acp ? acpPlanMode(acpModes) !== null : AGENT_SUPPORTS_PLAN_MODE[kind];
+  const canAsk = acp ? acpAskMode(acpModes) !== null : AGENT_SUPPORTS_ASK_MODE[kind];
+  return SESSION_MODES.filter((m) => (m.id === "plan" ? canPlan : m.id === "ask" ? canAsk : true)).map((m) => m.id);
 }
 
 /**

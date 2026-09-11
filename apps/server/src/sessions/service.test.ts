@@ -1031,4 +1031,54 @@ describe("default permission mode for new sessions (Plan 12 W6)", () => {
     expect(session.permissionMode).toBe("plan"); // the Plan chip's wire value travels verbatim, setting or no setting
     c.close();
   });
+
+  it("writes a seam when the agent could not continue the earlier conversation", async () => {
+    // A fake that is handed a resume and refuses it, exactly as Codex does for a thread that is no
+    // longer in ~/.codex and ACP does when session/load rejects.
+    const { home, c, sp } = await boot(new FakeAdapter({ script: [] }));
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "hello" });
+    await waitFor(() => c.eventTypes(session.id).includes("usage"));
+    const provider = (await c.call("sessions.get", { id: session.id })).result.providerSessionId;
+    expect(provider).toBeTruthy();
+    c.close(); await app.close();
+
+    app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script: [], resume: "declined" }) } });
+    const c2 = await client(app.port);
+    await c2.call("sessions.send", { id: session.id, text: "again" });
+    await waitFor(() => c2.eventTypes(session.id).includes("context_reset"));
+    const evs = (await c2.call("sessions.events", { id: session.id })).result;
+    const seam = evs.find((s: Any) => s.event.type === "context_reset").event;
+    expect(seam.payload.reason).toBe("declined");
+    // The sentence says what is still true before it says what is not.
+    expect(seam.payload.note).toContain("Everything above is still here");
+    // …and it lands BEFORE the init that prompted it, which is the order a reader wants.
+    const seamAt = evs.findIndex((s: Any) => s.event.type === "context_reset");
+    const initAt = evs.findIndex((s: Any, i: number) => i > seamAt && s.event.type === "init");
+    expect(initAt).toBeGreaterThan(seamAt);
+    // The row now holds the NEW conversation's id, never the one the agent just refused.
+    expect((await c2.call("sessions.get", { id: session.id })).result.providerSessionId).not.toBe(provider);
+    c2.close();
+  });
+
+  it("says nothing on a first boot, or when the resume worked", async () => {
+    // MUTANT: drop the `providerSessionId === null` guard and every session's FIRST handshake claims
+    // it lost a conversation it never had.
+    const { home, c, sp } = await boot(new FakeAdapter({ script: [], resume: "declined" }));
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "hello" });
+    await waitFor(() => c.eventTypes(session.id).includes("usage"));
+    expect(c.eventTypes(session.id)).not.toContain("context_reset");
+    const provider = (await c.call("sessions.get", { id: session.id })).result.providerSessionId;
+    c.close(); await app.close();
+
+    // …and a resume the agent honoured is not a seam either.
+    app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script: [], resume: "continued" }) } });
+    const c2 = await client(app.port);
+    await c2.call("sessions.send", { id: session.id, text: "again" });
+    await waitFor(() => c2.eventTypes(session.id).includes("usage"));
+    expect(c2.eventTypes(session.id)).not.toContain("context_reset");
+    expect((await c2.call("sessions.get", { id: session.id })).result.providerSessionId).toBe(provider);
+    c2.close();
+  });
 });

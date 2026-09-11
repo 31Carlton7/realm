@@ -412,17 +412,33 @@ export class AcpAdapter implements AgentAdapter {
         const mcpServers = acpMcpServers(opts.mcpServers, obj(caps.mcpCapabilities), log);
         let id: string | null = null;
         let session: Bag = {};
-        if (opts.resume && caps.loadSession === true) {
-          replaying = true;
-          try {
-            // The whole prior conversation arrives as session/update notifications before this resolves (§2.3).
-            // Realm has already persisted every one of them, so they are dropped rather than appended.
-            session = obj(await ask("session/load", { sessionId: opts.resume, cwd: opts.cwd, mcpServers }, SESSION_TIMEOUT_MS));
-            id = opts.resume;
-          } catch (e) {
-            log(`session/load failed (${message(e)}); starting a new session instead`);
-          } finally {
-            replaying = false;
+        /**
+         * What came of asking this build to continue the earlier conversation.
+         *
+         * All three answers were already computed here and told only to a log line, which is the one
+         * place the user cannot see. `unsupported` and `declined` both mean the agent below is not
+         * reading the transcript above it — the difference is whether it was ever asked — and both
+         * become a `context_reset` seam once this reaches the init event.
+         */
+        let resumeOutcome: "continued" | "declined" | "unsupported" | undefined;
+        if (opts.resume) {
+          if (caps.loadSession !== true) {
+            resumeOutcome = "unsupported";
+            log(`${spec.label} does not advertise loadSession; starting a new session`);
+          } else {
+            replaying = true;
+            try {
+              // The whole prior conversation arrives as session/update notifications before this resolves (§2.3).
+              // Realm has already persisted every one of them, so they are dropped rather than appended.
+              session = obj(await ask("session/load", { sessionId: opts.resume, cwd: opts.cwd, mcpServers }, SESSION_TIMEOUT_MS));
+              id = opts.resume;
+              resumeOutcome = "continued";
+            } catch (e) {
+              resumeOutcome = "declined";
+              log(`session/load failed (${message(e)}); starting a new session instead`);
+            } finally {
+              replaying = false;
+            }
           }
         }
         if (id === null) {
@@ -469,6 +485,8 @@ export class AcpAdapter implements AgentAdapter {
           tools: [],
           cwd: opts.cwd,
           ...(availableModes.length ? { availableModes } : {}),
+          ...(opts.resume ? { resumeRequested: true } : {}),
+          ...(resumeOutcome ? { resumeOutcome } : {}),
         }));
         events.push(sessionEvent("status", { status: "idle" }));
         // A session persisted in Plan or Ask resumes there (the row's permissionMode carries the

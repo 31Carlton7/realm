@@ -43,6 +43,15 @@ export type Block =
    * of a before-and-after is a number with nothing to compare it to.
    */
   | { kind: "compacted"; preTokens: number; postTokens?: number; ts: number }
+  /**
+   * The agent below this line has NO context, rather than a summarised one.
+   *
+   * The third member of the seam family, and the one that reports the sharpest version of the same
+   * fact: `handoff` is a different agent, `compacted` is the same agent with less, this is the same
+   * agent with nothing. Written when a session that held a provider session id came back without it —
+   * the provider was asked to continue and declined, or the build could not be asked at all.
+   */
+  | { kind: "context_reset"; note: string; reason: "declined" | "unsupported"; ts: number }
   /** A plan the agent proposed. `text` is prose, `steps` a checklist, and at least one is present —
    *  which of them depends on the protocol, not on the agent's mood (see the `plan` event). A revised
    *  plan REPLACES this block rather than appending a second one, so `ts` stays the moment the plan
@@ -208,6 +217,9 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
     case "handoff":
       return { ...t, blocks: [...dropPending(blocks),
         { kind: "handoff", from: e.payload.from, to: e.payload.to, note: e.payload.note, attempt: e.payload.attempt, ts: e.ts }] };
+    case "context_reset":
+      return { ...t, blocks: [...dropPending(blocks),
+        { kind: "context_reset", note: e.payload.note, reason: e.payload.reason, ts: e.ts }] };
     case "retrying": {
       // Replace rather than stack: attempt 2 says what attempt 1 said, one number later, and a
       // transcript that keeps both is a transcript reporting the wait instead of the work.

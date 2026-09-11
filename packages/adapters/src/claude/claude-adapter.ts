@@ -104,7 +104,7 @@ export class ClaudeAdapter implements AgentAdapter {
     const input = new AsyncQueue<SDKUserMessage>();
     const pending = new Map<string, { resolve: (r: PermissionResult) => void; suggestions: PermissionUpdate[]; input: Record<string, unknown> }>();
     const abort = new AbortController();
-    const mapper = createSdkMapper();
+    const mapper = createSdkMapper({ resumed: Boolean(opts.resume) });
     const stderrTail: string[] = [];
     let q: Query | null = null;
     // Tracked rather than read off `options`, because Ask has to hold on a LIVE session: the mode can
@@ -170,6 +170,9 @@ export class ClaudeAdapter implements AgentAdapter {
       canUseTool,
       includePartialMessages: true,
       abortController: abort,
+      // The SDK FORKS to a new session id on resume rather than continuing the old one, which is why
+      // the init event below can only claim the request was accepted — see `resumeOutcome` in the
+      // contract. There is no rejection to catch: an unusable id surfaces as an ordinary boot error.
       resume: opts.resume ?? undefined,
       systemPrompt: opts.systemContext ? { type: "preset", preset: "claude_code", append: opts.systemContext } : undefined,
       // A RECORD keyed by name, not an array: `sdk.d.ts` `mcpServers?: Record<string, McpServerConfig>`.
