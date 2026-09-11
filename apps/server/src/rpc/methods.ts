@@ -1,6 +1,7 @@
 import { DAEMON_PROTOCOL, Methods, type MethodName, type MethodResult } from "@realm/contracts";
 import type { z } from "zod";
 import type { RpcServer } from "./server";
+import { TERMINALS_HISTORY_KEY } from "@realm/contracts";
 import { BOOT_ID } from "../daemon/state";
 
 /** When this process came up, for `daemon.info`. A constant for the same reason `BOOT_ID` is one. */
@@ -162,7 +163,13 @@ export function registerMethods(d: Deps): void {
   reg("iconAssets.delete", (p) => { d.iconAssets.delete(p.id); return { ok: true as const }; });
 
   reg("settings.get", (p) => ({ value: d.settings.get(p.key) }));
-  reg("settings.set", (p) => { d.settings.set(p.key, p.value); return { ok: true as const }; });
+  reg("settings.set", (p) => {
+    d.settings.set(p.key, p.value);
+    // Turning terminal scrollback off purges what was kept. A switch that leaves yesterday's output
+    // on disk is not an off switch, and the thing being kept is whatever a shell printed.
+    if (p.key === TERMINALS_HISTORY_KEY && p.value !== true) d.terminals.purgeHistory();
+    return { ok: true as const };
+  });
 
   // Both check the space exists: the enabled set is keyed by space id, so a typo would silently read and
   // write preferences for a space that is not there rather than saying so.
@@ -499,6 +506,7 @@ export function registerMethods(d: Deps): void {
     if (env) await d.ports.ensureBlock(env.id);
     return d.terminals.open(p);
   });
+  reg("terminals.read", (p) => d.terminals.read(p.terminalId, p.cursor));
   reg("terminals.write", (p) => { d.terminals.write(p.terminalId, p.data); return { ok: true as const }; });
   reg("terminals.prefill", async (p) => { await d.terminals.prefill(p.terminalId, p.command); return { ok: true as const }; });
   reg("terminals.resize", (p) => { d.terminals.resize(p.terminalId, p.cols, p.rows); return { ok: true as const }; });

@@ -436,6 +436,23 @@ export const Methods = {
   "items.delete": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 
   "terminals.create": { params: z.object({ spaceId: IdSchema, cwd: z.string().optional(), cols: z.number().int().default(80), rows: z.number().int().default(24) }), result: z.object({ terminalId: IdSchema, itemId: IdSchema }) },
+  /**
+   * What this client is missing, and what came before it.
+   *
+   * `history` and `live` are separate fields rather than one concatenated string so the pane can draw
+   * the seam between "what the last shell left on screen" and "what this one has said" without having
+   * to find it. `cursor` is `{runId, seq}` from the last `terminal.data` this client applied; one
+   * whose `runId` differs is treated as absent, which is the single rule covering a restarted server,
+   * a respawned pty, and a client that has never seen this terminal.
+   */
+  "terminals.read": { params: z.object({ terminalId: IdSchema, cursor: z.object({ runId: z.string(), seq: z.number().int() }).nullable() }),
+    result: z.object({
+      runId: z.string(), seq: z.number().int(), live: z.string(),
+      /** Output was dropped between the cursor and `live`. The pane resets before replaying: a hole in
+       *  the middle of an escape sequence is a state xterm cannot correct on its own. */
+      truncated: z.boolean(), running: z.boolean(),
+      history: z.object({ data: z.string(), cols: z.number().int(), rows: z.number().int() }).nullable(),
+    }) },
   "terminals.write":  { params: z.object({ terminalId: IdSchema, data: z.string() }), result: z.object({ ok: z.literal(true) }) },
   /** Type a command into a terminal once its shell goes quiet. Never appends a newline: offered, not run. */
   "terminals.prefill": { params: z.object({ terminalId: IdSchema, command: z.string() }), result: z.object({ ok: z.literal(true) }) },
@@ -1314,7 +1331,11 @@ export const Events = {
    *  store puts the item on screen if the space is active. Carries the item so the store need not
    *  re-list. */
   "documents.openRequested": z.object({ spaceId: IdSchema, environmentId: IdSchema, documentsId: IdSchema, itemId: IdSchema, path: z.string() }),
-  "terminal.data":    z.object({ terminalId: IdSchema, data: z.string() }),
+  /** `runId` and `seq` are what make this the app's one delta stream a client can catch up on. Every
+   *  other broadcast carries whole current state and is repaired by a refetch; terminal output is a
+   *  delta, so a client that missed some has no way back without a cursor. `runId` changes whenever a
+   *  pty is (re)spawned, which is exactly when a seq stops meaning anything. */
+  "terminal.data":    z.object({ terminalId: IdSchema, data: z.string(), runId: z.string(), seq: z.number().int() }),
   "terminal.exit":    z.object({ terminalId: IdSchema, exitCode: z.number().int() }),
   /** ephemeral = not persisted (seq = -1), e.g. assistant_delta */
   "session.event":    StoredSessionEventSchema.extend({ ephemeral: z.boolean() }),

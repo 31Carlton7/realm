@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_GROUND_ALPHA, GROUND_ALPHA_RANGE } from "@realm/ui";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { AGENT_CLI_COMMANDS, DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, PAGE_REF_IDS } from "@realm/contracts";
+import { AGENT_CLI_COMMANDS, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, TERMINALS_HISTORY_COPY, TERMINALS_HISTORY_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, PAGE_REF_IDS } from "@realm/contracts";
 import { engineVersionLabel, SettingsPage } from "./SettingsPage";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, macRow, notification, type FakeData } from "../../state/store.test-fakes";
@@ -1022,5 +1022,22 @@ describe("Permissions tab — Apps on this Mac (the grantable half)", () => {
     const field = document.querySelector(".mac-access-field")!;
     await waitFor(() => expect(field.textContent).toContain("/opt/homebrew/bin"));
     expect(screen.queryByRole("button", { name: /Ask for all/ })).toBeNull();
+  });
+});
+
+describe("terminal scrollback", () => {
+  it("is off until it is asked for, and says what it keeps", async () => {
+    const { store, api } = await mount();
+    fireEvent.click(screen.getByRole("radio", { name: "App" }));
+    const sw = screen.getByRole("switch", { name: TERMINALS_HISTORY_COPY.label });
+    // MUTANT: default it on, and Realm starts writing whatever your shells printed to disk without
+    // anybody choosing that.
+    expect(sw).not.toBeChecked();
+    // The detail names the actual hazard rather than gesturing at privacy.
+    expect(screen.getByText(TERMINALS_HISTORY_COPY.detail)).toBeInTheDocument();
+
+    fireEvent.click(sw);
+    await waitFor(() => expect(store.getState().terminalHistory).toBe(true));
+    expect(api.calls).toContain(`setSetting:${TERMINALS_HISTORY_KEY}=true`);
   });
 });

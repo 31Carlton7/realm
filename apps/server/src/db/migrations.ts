@@ -557,4 +557,25 @@ export const migrations: string[] = [
   // Nullable with no default and no backfill: every existing row has no headers, which is what
   // NULL means here and is also true.
   `ALTER TABLE machines ADD COLUMN headers_sealed TEXT;`,
+  // v30 — terminal scrollback: what a shell printed, kept across a restart.
+  //
+  // A separate table and not a column on `terminals`, for two reasons that are both about the hot
+  // path. `TerminalsStore` reads `SELECT *`, and `restoreAll` reads EVERY row at boot — putting a
+  // 128KB blob on that row would make every one of those reads carry the scrollback of every
+  // terminal, to answer questions that never mention it.
+  //
+  // The cascade is the whole cleanup story, and it has one consequence worth writing down rather
+  // than discovering: `onExit` deletes the terminals row, so a shell that exited BEFORE the restart
+  // takes its scrollback with it and restores exactly as it does today — as a pane that is not
+  // running. Only a terminal that was still alive when Realm went away has anything to replay.
+  //
+  // `cols` and `rows` are the size the output was PRINTED at, not the size to restore to. A replayed
+  // 120-column screen above a freshly spawned 80-column shell is a ragged seam nobody would attribute
+  // to the pty's default, so `restoreAll` spawns at these instead of the hardcoded 80×24 it used.
+  `
+  CREATE TABLE terminal_history (
+    terminal_id TEXT PRIMARY KEY REFERENCES terminals(id) ON DELETE CASCADE,
+    data TEXT NOT NULL, cols INTEGER NOT NULL, rows INTEGER NOT NULL,
+    captured_at INTEGER NOT NULL);
+  `,
 ];

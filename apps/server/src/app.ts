@@ -11,7 +11,7 @@ import { ProjectsStore } from "./store/projects";
 import { ItemsStore } from "./store/items";
 import { SettingsStore } from "./store/settings";
 import { ArtifactsStore } from "./store/artifacts";
-import { TerminalsStore } from "./store/terminals";
+import { TerminalHistoryStore, TerminalsStore } from "./store/terminals";
 import { TerminalService } from "./terminals/service";
 import { BrowsersStore } from "./store/browsers";
 import { GraphifyService } from "./graphify/service";
@@ -368,7 +368,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     notifications,
   });
   const envService = new EnvironmentService({ environments, spaces, worktrees, ports, checkpoints, notifications });
-  const terminals = new TerminalService({ db, rpc, spaces, items, terminals: new TerminalsStore(db), environments });
+  const terminals = new TerminalService({ db, rpc, spaces, items, terminals: new TerminalsStore(db), environments, history: new TerminalHistoryStore(db), settings });
   const browsersStore = new BrowsersStore(db);
   const browsers = new BrowserService({ db, rpc, spaces, items, browsers: browsersStore });
 

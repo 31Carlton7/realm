@@ -1,4 +1,4 @@
-import { newId } from "@realm/contracts";
+import { TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, newId } from "@realm/contracts";
 import { existsSync } from "node:fs";
 import { basename } from "node:path";
 import type { Db } from "../db/database";
@@ -6,7 +6,9 @@ import type { RpcServer } from "../rpc/server";
 import type { EnvironmentsStore } from "../store/environments";
 import type { ItemsStore } from "../store/items";
 import type { SpacesStore } from "../store/spaces";
-import type { TerminalsStore } from "../store/terminals";
+import type { TerminalHistoryStore, TerminalsStore } from "../store/terminals";
+import type { SettingsStore } from "../store/settings";
+import { Scrollback, type ScrollbackCursor, type ScrollbackRead } from "./scrollback";
 import { NotFoundError } from "../store/rows";
 import { portEnv } from "../workspace/ports";
 import { TerminalManager } from "./manager";
@@ -15,21 +17,86 @@ import { TerminalManager } from "./manager";
  * Owns the terminal trio: DB row + sidebar item + pty. Nothing else should
  * touch the `terminals` table or spawn ptys directly.
  */
+/** How often the in-memory buffer is written to disk, when the setting is on. A SIGKILL loses at most
+ *  this much; anything shorter would be paying SQLite for output nobody has asked for yet. */
+export const HISTORY_FLUSH_MS = 5_000;
+
 export class TerminalService {
   readonly manager: TerminalManager;
+  /** Always on, and NOT what the `terminals.history` setting gates. It holds bytes that were
+   *  broadcast to every connected client anyway, and it is what makes a reattach show the output that
+   *  arrived while the socket was down. The setting gates only whether it reaches disk. */
+  private readonly scrollback = new Scrollback();
+  private flushTimer: ReturnType<typeof setInterval> | null = null;
   private closed = false;
-  constructor(private d: { db: Db; rpc: RpcServer; spaces: SpacesStore; items: ItemsStore; terminals: TerminalsStore; environments: EnvironmentsStore }) {
+  constructor(private d: {
+    db: Db; rpc: RpcServer; spaces: SpacesStore; items: ItemsStore; terminals: TerminalsStore;
+    environments: EnvironmentsStore; history?: TerminalHistoryStore; settings?: SettingsStore;
+    /** Injected so a test can drive the flush rather than wait for it. */
+    setInterval?: (fn: () => void, ms: number) => ReturnType<typeof setInterval>;
+  }) {
     this.manager = new TerminalManager({
-      onData: (terminalId, data) => d.rpc.broadcast("terminal.data", { terminalId, data }),
+      onData: (terminalId, data) => {
+        const at = this.scrollback.append(terminalId, data);
+        // A chunk with no ring is a chunk from a pty this service did not start — impossible through
+        // `open`/`restoreAll`, which both call `newRun` first, and not worth inventing a seq for.
+        if (at) d.rpc.broadcast("terminal.data", { terminalId, data, runId: at.runId, seq: at.seq });
+      },
       onExit: (terminalId, exitCode) => {
+        this.scrollback.endRun(terminalId);
         if (this.closed) return; // shutting down: DB may already be closed
         // Row goes; item stays so the UI can show the pane as exited until the user removes it.
+        // The row going takes its scrollback with it, by the cascade — which is why a shell that
+        // exited before a restart restores exactly as it always has, as a pane that is not running.
         try { d.terminals.delete(terminalId); } catch (e) {
           if ((e as { code?: string }).code !== "ERR_INVALID_STATE") throw e;
         }
         d.rpc.broadcast("terminal.exit", { terminalId, exitCode });
       },
     });
+    const every = d.setInterval ?? ((fn, ms) => setInterval(fn, ms));
+    this.flushTimer = every(() => this.flushHistory(), HISTORY_FLUSH_MS);
+    // Node keeps the process alive for a pending interval; this one must not be the reason a daemon
+    // with nothing to do refuses to exit.
+    this.flushTimer.unref?.();
+  }
+
+  /** Whether scrollback reaches disk. Read at use rather than cached: a switch flipped in Settings
+   *  takes effect on the next flush, with nothing to restart. */
+  private get historyEnabled(): boolean {
+    const raw = this.d.settings?.get(TERMINALS_HISTORY_KEY);
+    return raw === undefined || raw === null ? TERMINALS_HISTORY_DEFAULT : raw === true;
+  }
+
+  /** Write every live terminal's buffer to disk. A no-op — and a purge is NOT done here — when the
+   *  setting is off; `settings.set` owns the purge, because turning it off should not wait for a tick. */
+  flushHistory(): void {
+    if (this.closed || !this.d.history || !this.historyEnabled) return;
+    for (const id of this.scrollback.ids()) {
+      const snap = this.scrollback.snapshot(id);
+      if (!snap || snap.data === "") continue;
+      // A terminal whose row is gone has no history row to own: the foreign key would refuse it, and
+      // the pane it belonged to is already showing as not running.
+      if (!this.d.terminals.get(id)) continue;
+      try { this.d.history.put({ terminalId: id, ...snap }); } catch (e) {
+        console.error(`[terminals] could not write scrollback for ${id}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  /** Turning the setting off. The in-memory buffers stay — they are not what the switch gates — and
+   *  everything on disk goes. */
+  purgeHistory(): void {
+    this.d.history?.deleteAll();
+  }
+
+  /** What this client is missing, plus the screen that came before it. See `Scrollback.read`. */
+  read(terminalId: string, cursor: ScrollbackCursor | null): ScrollbackRead {
+    const r = this.scrollback.read(terminalId, cursor);
+    if (r) return r;
+    // A terminal this service knows nothing about — closed, or never restored. Answering rather than
+    // throwing keeps the renderer on one path: a pane that is not running looks the same either way.
+    return { runId: "", seq: 0, live: "", truncated: false, running: false, history: null };
   }
 
   has(terminalId: string): boolean { return this.manager.has(terminalId); }
@@ -56,10 +123,18 @@ export class TerminalService {
       if (this.manager.has(row.id)) continue;
       try {
         if (!existsSync(row.cwd)) throw new Error(`cwd missing: ${row.cwd}`);
-        this.manager.create({ id: row.id, cwd: row.cwd, shell: row.shell, cols: 80, rows: 24, env: this.envFor(row.spaceId, row.cwd) });
+        const kept = this.d.history?.get(row.id) ?? null;
+        // The size the output was PRINTED at, not a default. A replayed 120-column screen above a
+        // fresh 80-column shell is a ragged seam nobody would blame on the pty's default width.
+        const cols = kept?.cols ?? 80, rows = kept?.rows ?? 24;
+        // Before `create`, always: a shell can print its prompt before that call returns, and a chunk
+        // appended to no ring is a chunk that never happened.
+        this.scrollback.newRun(row.id, newId(), { cols, rows }, kept ? { data: kept.data, cols: kept.cols, rows: kept.rows } : null);
+        this.manager.create({ id: row.id, cwd: row.cwd, shell: row.shell, cols, rows, env: this.envFor(row.spaceId, row.cwd) });
         restored.push(row.id);
       } catch (e) {
         console.error(`[terminals] not restoring ${row.id}: ${e instanceof Error ? e.message : String(e)}`);
+        this.scrollback.forget(row.id);
         this.d.terminals.delete(row.id);
       }
     }
@@ -78,10 +153,13 @@ export class TerminalService {
       // Auto-title from the cwd basename (U-M1) so several terminals stay tellable-apart; "/" has no
       // basename, so it falls back to the generic label.
       itemId = this.d.items.create({ spaceId: p.spaceId, kind: "terminal", title: basename(cwd) || "Terminal", refId: terminalId }).id;
+      // Before `create`, for `restoreAll`'s reason: the shell can print before the call returns.
+      this.scrollback.newRun(terminalId, newId(), { cols: p.cols, rows: p.rows }, null);
       this.manager.create({ id: terminalId, cwd, cols: p.cols, rows: p.rows, shell, env: this.envFor(p.spaceId, cwd) });
       this.d.db.exec("COMMIT");
     } catch (e) {
       this.d.db.exec("ROLLBACK");
+      this.scrollback.forget(terminalId);
       if (this.manager.has(terminalId)) { try { this.manager.close(terminalId); } catch { /* best effort */ } }
       throw e;
     }
@@ -92,7 +170,10 @@ export class TerminalService {
   write(terminalId: string, data: string): void { this.manager.write(terminalId, data); }
   /** Type `command` into the terminal once its shell settles. No trailing newline — the user presses Return. */
   prefill(terminalId: string, command: string): Promise<void> { return this.manager.writeWhenQuiet(terminalId, command); }
-  resize(terminalId: string, cols: number, rows: number): void { this.manager.resize(terminalId, cols, rows); }
+  resize(terminalId: string, cols: number, rows: number): void {
+    this.manager.resize(terminalId, cols, rows);
+    this.scrollback.resize(terminalId, cols, rows);
+  }
 
   /** Kill the pty (if still alive), delete the row and the item. Throws NOT_FOUND if none of the three exist. */
   close(terminalId: string): void {
@@ -101,6 +182,10 @@ export class TerminalService {
     const alive = this.manager.has(terminalId);
     if (!row && !item && !alive) throw new NotFoundError("terminal", terminalId);
     if (alive) this.manager.close(terminalId);
+    this.scrollback.forget(terminalId);
+    // The cascade takes the history row with the terminals row; this is for the case where the row
+    // was already gone (pty exit) and the scrollback outlived it in memory.
+    this.d.history?.delete(terminalId);
     this.d.terminals.delete(terminalId);
     if (item) {
       this.d.items.delete(item.id);
@@ -126,6 +211,13 @@ export class TerminalService {
     for (const id of ids) { try { this.close(id); } catch (e) { if (!(e instanceof NotFoundError)) throw e; } }
   }
 
-  /** Shutdown: kill ptys but intentionally keep rows/items (unlike close(), which removes them). */
-  closeAll(): void { this.closed = true; this.manager.closeAll(); }
+  /** Shutdown: kill ptys but intentionally keep rows/items (unlike close(), which removes them).
+   *  The synchronous flush FIRST — this is the write that makes a clean quit lose nothing, and after
+   *  `closed` is set the periodic one refuses. */
+  closeAll(): void {
+    this.flushHistory();
+    this.closed = true;
+    if (this.flushTimer) { clearInterval(this.flushTimer); this.flushTimer = null; }
+    this.manager.closeAll();
+  }
 }

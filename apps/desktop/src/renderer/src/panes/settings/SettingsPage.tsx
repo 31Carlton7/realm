@@ -2,7 +2,7 @@ import { PageScroll } from "../../components/ScrollFades";
 import {
   AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, NOTIFICATION_CATEGORIES,
-  PERMISSION_MODES, SELECTABLE_AGENT_KINDS, type AgentKind, type NotificationCategory,
+  PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, type NotificationCategory,
 } from "@realm/contracts";
 import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED,
   THEMES, contrastMisses, deriveVars, exportTheme, importTheme, isHexColour, isOverridden, overrideKey,
@@ -579,6 +579,8 @@ function AppTab() {
   // Not part of `settingsPrefs`: this one is loaded at boot (the first toast can beat a visit here),
   // so it is never null and the row never renders a loading state the others need.
   const desktopNotifications = useApp((s) => s.desktopNotifications);
+  const terminalHistory = useApp((s) => s.terminalHistory);
+  const setTerminalHistory = useApp((s) => s.setTerminalHistory);
   const setDesktopNotifications = useApp((s) => s.setDesktopNotifications);
   const soundCues = useApp((s) => s.soundCues);
   const soundVolume = useApp((s) => s.soundVolume);
@@ -797,6 +799,21 @@ function AppTab() {
           )}
         </div>
       </div>
+
+      <h3 className="settings-head">Terminals</h3>
+      <ul className="settings-list">
+        <li className="settings-row">
+          <div className="settings-row-main">
+            <span className="settings-row-name">{TERMINALS_HISTORY_COPY.label}</span>
+            {/* The detail names what is actually being kept, because "terminal output" is whatever a
+                command printed — and says what turning it off does, because it does something. */}
+            <span className="settings-row-desc">{TERMINALS_HISTORY_COPY.detail}</span>
+          </div>
+          <input type="checkbox" role="switch" className="switch" aria-label={TERMINALS_HISTORY_COPY.label}
+            checked={terminalHistory}
+            onChange={(e) => run(() => setTerminalHistory(e.target.checked))} />
+        </li>
+      </ul>
 
       <h3 className="settings-head">Notifications</h3>
       <ul className="settings-list">

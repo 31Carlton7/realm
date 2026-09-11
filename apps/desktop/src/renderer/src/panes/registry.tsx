@@ -4,6 +4,7 @@ import type { ComponentType, JSX } from "react";
 import { PlaceholderPane } from "./PlaceholderPane";
 import { SessionMeta, SessionPanelActions } from "./session/SessionPane";
 import { MachineMeta, MachinePanelActions, useMachineMenuItems } from "./machine/MachineBar";
+import { TerminalMeta } from "./TerminalMeta";
 
 /** `focused`: the pane sits in the focused leaf (keyboard target — e.g. permission autofocus). */
 export type PaneProps = { item: Item; visible: boolean; focused?: boolean };
@@ -18,6 +19,7 @@ export function PaneFor(props: PaneProps) {
 export const paneMeta: Partial<Record<Item["kind"], (p: { item: Item }) => JSX.Element | null>> = {
   session: SessionMeta, // model label + status dot + cost, moved out of SessionPane's old header
   machine: MachineMeta,  // the state word, and the guest's live resolution in mono (Plan 25 W3)
+  terminal: TerminalMeta, // "Replayed" or "Not running", and nothing at all while the pane is live
 };
 
 /** Optional per-kind icon buttons in the PanelBar's action cluster, left of the ⋯ menu. */

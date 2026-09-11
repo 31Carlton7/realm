@@ -6,7 +6,7 @@ import {
   activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveGroup as groupsMove, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, parseSpaceIcon, type ModelInfo,
+  DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   type AgentKind, type Attachment, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageSummary,
 } from "@realm/contracts";
@@ -332,6 +332,14 @@ export type Api = {
    *  it. Unlike the toast the sound is made in the window, but it still answers to main's decision
    *  rather than its own (see applyNotificationsChanged). */
   playCue(cue: CueName, volume: number): void;
+  /**
+   * Re-read every open terminal's output from the server.
+   *
+   * `terminal.data` is the app's ONE true delta stream — every other event carries whole current
+   * state, which is why the refetches below repair them. A client that missed terminal output has no
+   * way back without asking, so this is the one place a cursor is needed rather than a refetch.
+   */
+  resyncTerminals(): void;
   /** Push the dock badge. Every unread change goes through here; 0 clears it. */
   setBadgeCount(count: number): Promise<void>;
   /** `workspace.gitInfo`: null when cwd is not a git repo (server caches ~3s). */
@@ -1490,6 +1498,9 @@ export type AppState = {
   /** The Settings→App desktop switch. Writes `NOTIFICATIONS_DESKTOP_KEY` and immediately pushes the
    *  badge the new answer implies, so switching off clears the dock rather than freezing a number. */
   setDesktopNotifications(enabled: boolean): Promise<void>;
+  /** Whether Realm keeps terminal scrollback on disk. Off by default — see the contract. */
+  terminalHistory: boolean;
+  setTerminalHistory(enabled: boolean): Promise<void>;
   /** The Settings→App sound switch and its level (0…1). Each writes its key and holds the answer, so
    *  the next broadcast sounds under the new one without waiting for a settings refresh. */
   setSoundCues(enabled: boolean): Promise<void>;
@@ -2115,7 +2126,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
-      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, notificationsSelectedId: null, paneHistory: {},
+      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, notificationsSelectedId: null, paneHistory: {},
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       activeProfileId() { return get().activeSpace()?.profileId ?? null; },
@@ -2156,6 +2167,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           api.getSetting(NOTIFICATIONS_IMESSAGE_KEY).catch(() => null),
           api.getSetting(NOTIFICATIONS_SLACK_WEBHOOK_KEY).catch(() => null),
         ]);
+        // Read separately and defaulted the OTHER way: a preference nobody could read must not switch
+        // scrollback ON, because what it keeps is whatever a shell printed.
+        const terminalHistory = await api.getSetting(TERMINALS_HISTORY_KEY).catch(() => null);
+        set({ terminalHistory: terminalHistory === true });
         const str = (v: unknown) => (typeof v === "string" ? v : "");
         set({ desktopNotifications: desktop !== false, soundCues: sound !== false, soundVolume: cueVolume(volume),
           notificationRelay: { imessage: str(imessage), slackWebhook: str(slackWebhook) } });
@@ -2731,6 +2746,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         get().run(() => Promise.all([get().refreshSpaces(), get().refreshItems(), get().refreshSessions(), get().refreshAllSessions()]));
         // openSession fetches events after each transcript's lastSeq — exactly the missed tail.
         for (const id of Object.keys(get().transcripts)) get().run(() => get().openSession(id));
+        // …and the terminals, which are the same problem with a different cursor.
+        api.resyncTerminals();
         // The delegation registry lives in the server's MEMORY, so it is the one thing here with no
         // table behind it: if the socket dropped because the server went away, every run being
         // mirrored died with it and no `delegation.changed` will ever say so. Both key sets, because
@@ -4040,6 +4057,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ notificationRelay: next });
         if (patch.imessage !== undefined) await api.setSetting(NOTIFICATIONS_IMESSAGE_KEY, patch.imessage.trim());
         if (patch.slackWebhook !== undefined) await api.setSetting(NOTIFICATIONS_SLACK_WEBHOOK_KEY, patch.slackWebhook.trim());
+      },
+      async setTerminalHistory(enabled) {
+        // Set the server first. Turning it OFF also purges what was kept, server-side, and a switch
+        // that flipped in the UI before the delete happened would be claiming something not yet true.
+        await api.setSetting(TERMINALS_HISTORY_KEY, enabled);
+        set({ terminalHistory: enabled });
       },
       async setDesktopNotifications(enabled) {
         await api.setSetting(NOTIFICATIONS_DESKTOP_KEY, enabled);

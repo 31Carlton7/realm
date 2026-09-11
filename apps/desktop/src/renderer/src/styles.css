@@ -1282,6 +1282,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 .machine-primary:active { scale: 0.96; }
 .machine-primary:disabled { opacity: 0.6; }
 .machine-bar-meta { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--rl-text-dim); }
+/* A terminal pane says "Replayed" or "Not running" and otherwise says nothing — same quiet register
+   as the machine's state word, and deliberately the same size and colour as it. */
+.terminal-bar-meta { font-size: 12px; color: var(--rl-text-dim); }
 .machine-bar-size { font: 11px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
 
 /* ── Browser pane (Plan 11 W1) ─────────────────────────────────────────────
