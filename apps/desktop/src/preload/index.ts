@@ -144,6 +144,17 @@ contextBridge.exposeInMainWorld("realm", {
       return () => ipcRenderer.removeListener("realm:notification-activate", handler);
     },
   },
+  /** Quit Realm and stop every agent — the tray's own item, offered in the banner when the only way
+   *  to finish an update is to stop the server that is still running the old one. Confirms in main
+   *  when anything is working, exactly as the tray does. */
+  quitAndStopAgents: (): Promise<void> => ipcRenderer.invoke("daemon:quit-and-stop"),
+  /** What main knows about the agent server's health: restarting after a crash, given up, or working
+   *  against a build this app did not ship. Replayed on every new window. */
+  onDaemonState: (cb: (state: { kind: string; attempt?: number; logPath?: string; why?: string }) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, state: { kind: string; attempt?: number; logPath?: string; why?: string }) => cb(state);
+    ipcRenderer.on("daemon:state", handler);
+    return () => ipcRenderer.removeListener("daemon:state", handler);
+  },
   /** A session picked from the menu-bar item while the window was closed. The space rides along
    *  because the session is very often not in the space that happens to be open. */
   onOpenSession: (cb: (target: { sessionId: string; spaceId: string | null }) => void): (() => void) => {

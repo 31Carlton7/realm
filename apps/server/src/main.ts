@@ -15,6 +15,8 @@ const port = Number.isFinite(envPort) && envPort >= 0 ? envPort : 0;
 const token = newToken();
 const entry = process.argv[1] ?? "";
 let lockedHome: string | null = null;
+/** Set once the app exists; called when `daemon.drain` is accepted. */
+let markDraining: (() => void) | null = null;
 
 try {
   const home = realmHome();
@@ -32,7 +34,11 @@ try {
   lockedHome = home;
 
   const app = await createApp({
-    home, port, token, titleGenerator: generateSessionTitle, summaryGenerator: generateSessionSummary,
+    home, port, token,
+    // Announced in the state file, not just held in memory: the next launcher reads that file before
+    // it reads anything else.
+    onDraining: () => markDraining?.(),
+    titleGenerator: generateSessionTitle, summaryGenerator: generateSessionRecap,
     // Plan 22: where Plynn's meeting exports are read from. Unset in production (the app's own
     // Application Support folder); live checks point it at a fixture so no real recording is read.
     plynnMeetingsDir: process.env.REALM_PLYNN_MEETINGS_DIR || undefined,
@@ -44,6 +50,14 @@ try {
     version: 1, pid: process.pid, bootId: BOOT_ID, port: app.port, token, home, protocol: DAEMON_PROTOCOL,
     bundleId: currentBundleId(entry), entry, startedAt: Date.now(), state: "running",
   });
+
+  // A drain rewrites the state file so a launcher that arrives mid-drain sees `draining` and WAITS
+  // rather than adopting a daemon that is on its way out — `decideLaunch` checks that before it
+  // checks anything about the port, because a draining daemon answers perfectly well.
+  markDraining = () => {
+    const current = readState(home);
+    if (current) writeState(home, { ...current, state: "draining" });
+  };
 
   // Still announced on stdout, unchanged, for the child-process mode `pnpm dev` and the live checks
   // use. A detached daemon has no parent to read it and the write goes nowhere, which is harmless —

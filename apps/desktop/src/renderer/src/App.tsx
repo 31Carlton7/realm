@@ -1,5 +1,6 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { dismissBootSplash } from "./boot-splash";
+import { bannerFor, type DaemonUiState } from "./components/daemon-banner";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { SidebarToggle } from "./components/sidebar/SidebarToggle";
 import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
@@ -89,14 +90,27 @@ function ThemeBridge() {
   return null;
 }
 
-/** Slim persistent banner while the RPC socket is down; Retry skips the backoff wait. */
+/**
+ * Slim persistent banner about the server underneath the app.
+ *
+ * It used to say one thing — "reconnecting…" — which is honest about a dropped socket and a lie about
+ * a server that has stopped for good. Main can tell those apart and this subscribes to what it says;
+ * the words themselves live in `bannerFor`, so what is claimed in each state is testable without a
+ * window. `role="status"` for the ones you wait out, `alert` for the ones you have to act on.
+ */
 function ConnectionBanner() {
-  const state = useApp((s) => s.connectionState);
-  if (state === "connected") return null;
+  const connectionDown = useApp((s) => s.connectionState !== "connected");
+  const [daemon, setDaemon] = useState<DaemonUiState | null>(null);
+  useEffect(() => window.realm?.onDaemonState?.((state) => setDaemon(state as DaemonUiState)), []);
+  const copy = bannerFor({ connectionDown, daemon });
+  if (!copy) return null;
   return (
-    <div className="conn-banner" role="status">
-      <span>Connection lost — reconnecting…</span>
-      <button onClick={() => rpc().retryNow()}>Retry</button>
+    <div className="conn-banner" data-tone={copy.tone} role={copy.tone === "bad" ? "alert" : "status"}>
+      <span>{copy.text}</span>
+      {copy.action === "retry" && <button onClick={() => rpc().retryNow()}>Retry</button>}
+      {copy.action === "quit-and-stop" && (
+        <button onClick={() => void window.realm?.quitAndStopAgents?.()}>Quit &amp; stop agents</button>
+      )}
     </div>
   );
 }

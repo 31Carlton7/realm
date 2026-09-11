@@ -1348,6 +1348,10 @@ button.panel-title:hover { background: var(--rl-hover); }
 .conn-banner { position: fixed; top: 0; left: 50%; transform: translateX(-50%); z-index: 30; display: flex; align-items: center; gap: 12px;
   padding: 5px 12px; border-radius: 0 0 var(--r-ctl) var(--r-ctl);
   background: color-mix(in srgb, var(--rl-warning) 8%, var(--surface)); color: var(--rl-warning); font-size: 12px; box-shadow: var(--shadow-raised); -webkit-app-region: no-drag; }
+/* Something is wrong that waiting will not fix — a server that has given up, or one running the
+   wrong build. Danger rather than warning because the two ask for different things: warning means
+   hold on, danger means do something. */
+.conn-banner[data-tone="bad"] { background: color-mix(in srgb, var(--rl-danger) 8%, var(--surface)); color: var(--rl-danger); }
 .conn-banner button { color: inherit; font-weight: var(--fw-title); padding: 2px 6px; border-radius: var(--r-chip); }
 .conn-banner button:hover { background: var(--rl-hover); }
 /* A system notice ARRIVES; it does not blink into being. Both of these are drawn by something the

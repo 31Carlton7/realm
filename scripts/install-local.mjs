@@ -14,7 +14,8 @@
  * app. See scripts/icon-registrations.mjs.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -49,6 +50,24 @@ export function installPaths(target, pid) {
   };
 }
 
+/** The prefix every kept-behind bundle wears, so the sweep can find them without guessing. */
+export const backupPrefix = (target) => `.${basename(target)}.previous-`;
+
+/**
+ * Which of the kept bundles may be deleted.
+ *
+ * A previous bundle is kept, not removed, when the install finishes: a daemon started from it is
+ * still running out of it, and deleting the path a live process exec'd from is how a draining
+ * daemon's next agent spawn fails. `entry` is what the running daemon says it is running — from its
+ * own state file — and the bundle containing it is the one that has to survive.
+ *
+ * Pure, and over paths only, so the rule is testable without a filesystem or a daemon.
+ */
+export function sweepable(backups, entry) {
+  if (!entry) return backups;
+  return backups.filter((path) => !entry.startsWith(`${path}/`));
+}
+
 /**
  * Guarded install orchestration. `ops` is injected so tests prove ordering and rollback without
  * touching /Applications or launching Electron.
@@ -60,6 +79,11 @@ export function installLocal({ source, target, pid, ops, log }) {
   }
   if (!ops.exists(source)) throw new Error(`built app does not exist: ${source}`);
   ops.verifyBundle(source, BUNDLE_ID);
+
+  for (const stale of sweepable(ops.keptBundles(target), ops.daemonEntry())) {
+    log(`[app:update] removing a previous bundle nothing is running from: ${stale}`);
+    ops.remove(stale);
+  }
 
   const running = ops.runningPids(target);
   if (running.length) {
@@ -88,7 +112,12 @@ export function installLocal({ source, target, pid, ops, log }) {
     throw error;
   }
 
-  if (oldMoved && ops.exists(backup)) ops.remove(backup);
+  // The previous bundle is KEPT rather than removed. The daemon that outlived the app it was started
+  // by is still executing out of it, and every agent it spawns from here on execs a path inside it —
+  // deleting it now is how that spawn fails with ENOENT on a machine where nothing looks wrong.
+  // Yesterday's bundles are swept at the start of the NEXT install, by which time the daemon holding
+  // one has been replaced. Both halves are needed: sweeping only, and a live daemon loses its
+  // binary; keeping only, and /Applications fills up.
   ops.launch(target);
   log(`[app:update] installed and relaunched ${target}`);
 }
@@ -102,14 +131,43 @@ function commandOps() {
       const actual = execFileSync("/usr/libexec/PlistBuddy", ["-c", "Print :CFBundleIdentifier", plist], { encoding: "utf8" }).trim();
       if (actual !== expected) throw new Error(`unexpected bundle id ${JSON.stringify(actual)} in ${source}`);
     },
+    /**
+     * The APP's processes — deliberately not the daemon's.
+     *
+     * realm-server runs under the same Electron binary (`ELECTRON_RUN_AS_NODE=1`), so its command
+     * line begins with exactly this path and used to match. It must not: the quit below asks the APP
+     * to quit, and the app quitting no longer stops the server, so counting the daemon here means
+     * waiting fifteen seconds for something that was never asked to leave and then refusing to
+     * install. Told apart by the argument, which is the server bundle it was handed.
+     */
     runningPids(target) {
       if (!existsSync(target)) return [];
       const binary = executable(target);
       const lines = execFileSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" }).split("\n");
       return lines.flatMap((line) => {
         const match = /^\s*(\d+)\s+(.+)$/.exec(line);
-        return match && (match[2] === binary || match[2].startsWith(`${binary} `)) ? [Number(match[1])] : [];
+        if (!match) return [];
+        const command = match[2];
+        if (command !== binary && !command.startsWith(`${binary} `)) return [];
+        if (command.includes("server/dist/main.js")) return []; // the daemon, not the app
+        return [Number(match[1])];
       });
+    },
+    /** Bundles a previous install kept behind, newest-first order not needed — the sweep is by path. */
+    keptBundles(target) {
+      const parent = dirname(target);
+      const prefix = backupPrefix(target);
+      try {
+        return readdirSync(parent).filter((name) => name.startsWith(prefix)).map((name) => join(parent, name));
+      } catch { return []; }
+    },
+    /** What the running daemon says it is executing, from its own state file. Null when none is. */
+    daemonEntry() {
+      try {
+        const home = process.env.REALM_HOME ?? join(homedir(), "Realm");
+        const state = JSON.parse(readFileSync(join(home, "daemon.json"), "utf8"));
+        return typeof state.entry === "string" ? state.entry : null;
+      } catch { return null; }
     },
     quit(bundleId) {
       execFileSync("osascript", ["-e", `tell application id "${bundleId}" to quit`], { stdio: "ignore" });

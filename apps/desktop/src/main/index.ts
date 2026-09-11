@@ -8,10 +8,11 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { serverEntry, spawnDaemon, startServer } from "./server-process";
 import { daemonStatePath, readDaemonState, readStateForPort, realmHomePath } from "./daemon-state";
-import { daemonModeEnabled, ensureDaemon, probeDaemon } from "./daemon";
-import { bundleIdOf } from "@realm/contracts";
+import { callDaemon, daemonModeEnabled, ensureDaemon, probeDaemon, type HandoffResult } from "./daemon";
+import { decideHandoff, handoffCopy, type DaemonWork } from "./handoff-policy";
+import { bundleIdOf, DAEMON_HANDOFF_MODE_DEFAULT, DAEMON_HANDOFF_MODE_KEY, resolveHandoffMode, type DaemonState } from "@realm/contracts";
 import { closeDaemonLog, daemonLogPath, openDaemonLog } from "./daemon-log";
-import { DaemonSupervisor } from "./daemon-supervisor";
+import { DaemonSupervisor, type DaemonUiState } from "./daemon-supervisor";
 import { SessionTray, type TraySession } from "./session-tray";
 import { confirmQuitCopy, decideQuit } from "./quit-policy";
 import { NOTIFICATIONS_DESKTOP_KEY } from "@realm/contracts";
@@ -54,6 +55,17 @@ let daemonChild: import("node:child_process").ChildProcess | null = null;
 /** Watches the daemon through the bridge, and brings it back when it dies. Null in the non-daemon
  *  shape, where the server child's own `exit` would be the signal and there is nothing to restart. */
 let daemonSupervisor: DaemonSupervisor | null = null;
+/** Set when the launcher adopted a daemon this build did not ship, because the user chose to keep it
+ *  working. The renderer refuses to start new sessions while it is set. */
+let staleDaemon: "bundle" | "protocol" | null = null;
+/** The last thing said about the server's health, replayed to every window that opens — a banner
+ *  that only appears if you happened to have a window open when the event fired is a banner that
+ *  lies by omission. */
+let lastDaemonState: DaemonUiState | null = null;
+function publishDaemonState(state: DaemonUiState) {
+  lastDaemonState = state;
+  for (const w of BrowserWindow.getAllWindows()) w.webContents.send("daemon:state", state);
+}
 /** The three facts about the server, kept so a window recreated from the tray or the dock can be
  *  built without going back through the launcher. */
 let serverInfo: { port: number; home: string; token: string } | null = null;
@@ -265,6 +277,9 @@ async function createWindow(info: { port: number; home: string; token: string })
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else await win.loadFile(join(__dirname, "../renderer/index.html"));
   mainWindow = win;
+  // Replay whatever the server's health last was. A window created after the event — reopened from
+  // the tray, or the first one on a launch that adopted a stale daemon — has heard nothing yet.
+  if (lastDaemonState) win.webContents.send("daemon:state", lastDaemonState);
   // Native trackpad phases for the space swiper (macOS; optional helper).
   const phases = startScrollPhaseStream(win);
   const pane = createBrowserPane(win); // destroys its views on win "closed" itself
@@ -769,6 +784,7 @@ const desktopNotifier = new DesktopNotifier({
   },
   setBadge: (count) => { app.setBadgeCount(count); },
 });
+ipcMain.handle("daemon:quit-and-stop", () => quitAndStopAll());
 ipcMain.handle("notify:show", (_e, input: DesktopNotificationInput) => desktopNotifier.show(input));
 ipcMain.handle("notify:badge", (_e, count: number) => { desktopNotifier.badge(Number(count)); });
 
@@ -875,6 +891,82 @@ ipcMain.handle("files:save-copy", async (_e, path: unknown): Promise<string | nu
  * left behind when the app exits. Both ends hand back the same three facts, so everything downstream
  * of here is written once.
  */
+/**
+ * Replace, or carry on with, a daemon running code this app did not ship.
+ *
+ * The user is asked only when something is actually working, because that is the only thing a
+ * restart costs: sessions resume from their provider ids on the ordinary boot path, runs are
+ * requeued by `recoverOnBoot`, and terminals come back with what they printed. A turn that happens
+ * to be mid-flight is the exception, and it is the one the dialog exists for.
+ */
+async function handOff(running: DaemonState, why: "bundle" | "protocol"): Promise<HandoffResult> {
+  const work = await daemonWork(running);
+  let decision = decideHandoff({ why, work });
+  if (decision.kind === "confirm") {
+    const copy = handoffCopy(decision);
+    const buttons = decision.keepable ? [copy.restart, copy.keep] : [copy.restart];
+    const r = await dialog.showMessageBox({
+      type: "question", buttons, defaultId: 0, cancelId: decision.keepable ? 1 : 0,
+      message: copy.message, detail: copy.detail,
+    });
+    decision = r.response === 0 ? { kind: "restart" } : { kind: "keep" };
+  }
+  if (decision.kind === "keep") return { kind: "adopt", stale: why };
+  // Experimental, and off by default: let the old daemon finish what is in flight instead of
+  // interrupting it. Best-effort — a daemon that will not take `daemon.drain` (an older build that
+  // does not have the method, which is exactly the `protocol` case) gets the SIGTERM below anyway.
+  if (await handoffMode(running) === "drain") {
+    try {
+      await callDaemon(running, "daemon.drain", {});
+      console.error("[daemon] draining the previous server; waiting for it to finish");
+      if (await waitForExit(running.pid, DRAIN_WAIT_MS)) return { kind: "replaced" };
+      console.error("[daemon] drain did not finish in time; stopping it");
+    } catch (e) {
+      console.error(`[daemon] drain refused (${e instanceof Error ? e.message : String(e)}); stopping it`);
+    }
+  }
+  // Stop it and wait for the pid to actually go: spawning ours while the old one still holds the home
+  // lock would just fail, and the launcher's next pass would read a state file that is still current.
+  try { process.kill(running.pid, "SIGTERM"); } catch { /* already gone */ }
+  await waitForExit(running.pid, STOP_WAIT_MS);
+  return { kind: "replaced" };
+}
+
+/** How long a drain is given before it is stopped instead. Generous, because the whole point is a
+ *  turn finishing; capped, because a session that keeps being handed work never goes quiet. */
+const DRAIN_WAIT_MS = 120_000;
+/** How long a SIGTERM'd daemon is given to go. Its own shutdown closes ptys and the database. */
+const STOP_WAIT_MS = 10_000;
+
+/** Wait for a pid to leave. True if it did. */
+async function waitForExit(pid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try { process.kill(pid, 0); } catch { return true; }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return false;
+}
+
+/** The user's handoff preference, read from the daemon we are replacing — it is the one holding the
+ *  settings table. Unreadable means the default, which is `restart`. */
+async function handoffMode(running: DaemonState): Promise<string> {
+  try {
+    const v = await callDaemon(running, "settings.get", { key: DAEMON_HANDOFF_MODE_KEY });
+    return resolveHandoffMode((v as { value?: unknown } | null)?.value);
+  } catch { return DAEMON_HANDOFF_MODE_DEFAULT; }
+}
+
+/** What the daemon we are about to replace has running, or null when it will not say. */
+async function daemonWork(running: DaemonState): Promise<DaemonWork> {
+  try {
+    const info = await callDaemon(running, "daemon.info", {});
+    const r = info as { working?: unknown; activeRuns?: unknown };
+    if (typeof r?.working !== "number" || typeof r.activeRuns !== "number") return null;
+    return { working: r.working, activeRuns: r.activeRuns };
+  } catch { return null; }
+}
+
 /** Start a detached realm-server on `home`. One path, used by the launcher and by the supervisor —
  *  a respawn must be identical to a first spawn or the second one is a different daemon. */
 function startDaemonProcess(home: string): void {
@@ -891,11 +983,10 @@ async function startRealmServer(): Promise<{ port: number; home: string; token: 
       readState: readDaemonState,
       probe: (port, token) => probeDaemon({ port, token }),
       spawn: startDaemonProcess,
-      // Phase 8 turns this into a choice the user gets to make when something is working. Until then
-      // the always-correct half: stop the daemon running other code, and let the loop start ours.
-      onHandoff: async (running) => { try { process.kill(running.pid, "SIGTERM"); } catch { /* already gone */ } },
+      onHandoff: (running, why) => handOff(running, why),
       log: (line) => console.error(line),
     });
+    staleDaemon = handle.stale;
     return { port: handle.port, home, token: handle.token };
   }
   const { child, ready } = startServer({ home });
@@ -957,6 +1048,9 @@ app.whenReady().then(async () => {
     void updater.check();
     // W3: register main as the browser host executor on realm-server's RPC socket. Ops for a view
     // that does not exist fail honestly inside the executor; the bridge just relays.
+    // The user chose to keep an older server working. Said once, and held, so a window opened later
+    // (or reloaded) hears it too rather than silently working against the wrong build.
+    if (staleDaemon) publishDaemonState({ kind: "stale", why: staleDaemon });
     if (daemonModeEnabled({ packaged: app.isPackaged, env: process.env.REALM_DAEMON })) {
       daemonSupervisor = new DaemonSupervisor({
         logPath: daemonLogPath(info.home),
@@ -965,7 +1059,7 @@ app.whenReady().then(async () => {
         spawn: () => startDaemonProcess(info.home),
         onState: (state) => {
           console.error(`[daemon] ${state.kind === "failed" ? `giving up; see ${state.logPath}` : state.kind}`);
-          mainWindow?.webContents.send("daemon:state", state);
+          publishDaemonState(state);
         },
       });
     }

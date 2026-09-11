@@ -1081,4 +1081,28 @@ describe("default permission mode for new sessions (Plan 12 W6)", () => {
     expect((await c2.call("sessions.get", { id: session.id })).result.providerSessionId).toBe(provider);
     c2.close();
   });
+
+  it("a draining daemon finishes what is running and starts nothing new", async () => {
+    const { c, sp } = await boot(new FakeAdapter({ script: [] }));
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "hello" });
+    await waitFor(() => c.eventTypes(session.id).includes("usage"));
+
+    expect((await c.call("daemon.drain", {})).result).toEqual({ draining: true, alreadyDraining: false });
+    // Said in `daemon.info` too, so a launcher reading the socket rather than the file agrees.
+    expect((await c.call("daemon.info", {})).result.state).toBe("draining");
+    // A second drain does not restart the clock.
+    expect((await c.call("daemon.drain", {})).result.alreadyDraining).toBe(true);
+
+    // The visible half: no new work is accepted.
+    expect((await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).error.code).toBe("DAEMON_DRAINING");
+    expect((await c.call("runs.create", { spaceId: sp.id, goal: "do a thing", title: "T" })).error.code).toBe("DAEMON_DRAINING");
+
+    // …and the half that actually prevents the crash: a COLD handle is refused for a session that
+    // exists but is not currently running. MUTANT: allow it and the agent execs a bundle path
+    // `install-local.mjs` has already swapped out from under this process.
+    await app.sessions.stopAll();
+    expect((await c.call("sessions.send", { id: session.id, text: "again" })).error.code).toBe("DAEMON_DRAINING");
+    c.close();
+  });
 });

@@ -12,6 +12,10 @@ import { ItemsStore } from "./store/items";
 import { SettingsStore } from "./store/settings";
 import { ArtifactsStore } from "./store/artifacts";
 import { TerminalHistoryStore, TerminalsStore } from "./store/terminals";
+import { Drain } from "./daemon/drain";
+
+/** How often the drain checks whether anything is still running. */
+const DRAIN_TICK_MS = 1_000;
 import { TerminalService } from "./terminals/service";
 import { BrowsersStore } from "./store/browsers";
 import { GraphifyService } from "./graphify/service";
@@ -295,6 +299,9 @@ export function defaultAdapters(): AdapterRegistry {
 /** `claudeDir` overrides where MemoryService reads user-level Claude files (`~/.claude` otherwise) —
  *  for tests and live checks, which must never depend on (or expose) the real user's memory files. */
 export async function createApp(opts: { home: string; port: number; adapters?: AdapterRegistry; claudeDir?: string;
+  /** Called when a drain is accepted, so the caller can record it outside this process — `main.ts`
+   *  rewrites the state file, which is what makes a mid-drain launcher wait rather than adopt. */
+  onDraining?: () => void;
   /** The RPC token every client must offer as its `realm.<token>` subprotocol. Undefined leaves the
    *  socket open to anything on loopback, which is what the suite's several hundred `createApp` calls
    *  want — production mints one in `main.ts` and writes it to the 0600 state file. */
@@ -721,6 +728,21 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
     profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, machines, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, browserPermissions: browserBroker, cli, cliInstaller,
     iconAssets, iconGeneration, planLimits,
+    /* A drain was accepted: watch for quiescence and close once it holds. The watcher owns the clock
+       and the close; `methods.ts` owns the refusals that make quiescence reachable at all. Unref'd —
+       a daemon with nothing to do must not be held open by its own timer. */
+    onDrain: () => {
+      opts.onDraining?.();
+      const drain = new Drain({
+        counts: () => ({ liveHandles: sessions.liveCount(), activeRuns: runs.activeCount() }),
+        now: () => Date.now(),
+        close: () => { clearInterval(timer); void closeApp(); },
+        log: (line) => console.error(line),
+      });
+      const timer = setInterval(() => drain.tick(), DRAIN_TICK_MS);
+      timer.unref?.();
+      drain.tick();
+    },
   });
   sessions.markStaleOnBoot();
   // AFTER markStaleOnBoot, which is what turns a session that was mid-turn back into a resumable
@@ -754,26 +776,35 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
        Origin at all. */
     allowedOrigins: ["file://", ...(devRendererOrigin() ? [devRendererOrigin()!] : [])],
   });
+  /**
+   * Shut this app down.
+   *
+   * Named so the drain watcher can call the very same sequence the RPC `close` does. A second path
+   * through shutdown is exactly how the two drift, and the drain is the one thing in this file that
+   * closes the app without a caller asking it to.
+   */
+  const closeApp = async (): Promise<void> => {
+    search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
+    schedules?.close(); // before runs: a tick must not create a run on a service that is stopping
+    runs?.close(); // likewise: an in-flight dispatch must not write to a closing handle
+    terminals.closeAll();
+    cliInstaller.disposeAll();
+    await sessions.closeAll();
+    // Gateway before hub: stop accepting new proxied calls before the upstream clients they'd need go
+    // away, so a request racing shutdown fails cleanly (connection refused) rather than mid-call.
+    documents.dispose();
+    // Awaited, and before `db.close()`: an un-awaited close leaves live sockets to somebody else's
+    // Mac open past the process, and the service writes a ws port back to the row as each drops.
+    await machines.closeAll();
+    await preview.close();
+    await mcpGateway.close();
+    await mcpHub.close();
+    await rpc.close();
+    db.close();
+  };
+
   return {
     port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, gateway: mcpGateway,
-    close: async () => {
-      search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
-      schedules?.close(); // before runs: a tick must not create a run on a service that is stopping
-      runs?.close(); // likewise: an in-flight dispatch must not write to a closing handle
-      terminals.closeAll();
-      cliInstaller.disposeAll();
-      await sessions.closeAll();
-      // Gateway before hub: stop accepting new proxied calls before the upstream clients they'd need go
-      // away, so a request racing shutdown fails cleanly (connection refused) rather than mid-call.
-      documents.dispose();
-      // Awaited, and before `db.close()`: an un-awaited close leaves live sockets to somebody else's
-      // Mac open past the process, and the service writes a ws port back to the row as each drops.
-      await machines.closeAll();
-      await preview.close();
-      await mcpGateway.close();
-      await mcpHub.close();
-      await rpc.close();
-      db.close();
-    },
+    close: closeApp,
   };
 }

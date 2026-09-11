@@ -97,6 +97,8 @@ export class SessionService {
    */
   private queued = new Map<string, { prompt: QueuedPrompt; msg: SendMessage }[]>();
   private closing = false;
+  /** Set while the daemon is going quiet for a handoff. See `ensureLive` for the rule that matters. */
+  private draining = false;
   constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; settings: SettingsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; skills: SkillsService; gateway: McpGateway; memory: MemoryService; checkpoints?: CheckpointService;
     /** Failover (fallbacks + forks). Optional so a server built without it behaves exactly as
      *  before: no retries, no handoffs, an error is an error. */
@@ -158,6 +160,8 @@ export class SessionService {
   listAll(): Session[] { return this.d.sessions.listAll(); }
   /** How far the user has read this session. See `sessions.markSeen` in the contract. */
   markSeen(id: string, seq: number): void { this.d.sessions.markSeen(id, seq); }
+  /** Going quiet for a handoff: finish what is running, start nothing new. */
+  setDraining(draining: boolean): void { this.draining = draining; }
   get(id: string): Session { const s = this.d.sessions.get(id); if (!s) throw new NotFoundError("session", id); return s; }
   events(id: string, afterSeq: number, limit: number): StoredSessionEvent[] { this.get(id); return this.d.events.listAfter(id, afterSeq, limit); }
 
@@ -868,6 +872,10 @@ export class SessionService {
 
   private ensureLive(id: string): AgentHandle {
     const existing = this.live.get(id); if (existing) return existing.handle;
+    // The load-bearing refusal of a drain (Plan 26 Phase 8). A handle that is ALREADY running is
+    // fine: the child has exec'd, and the inode survives `install-local.mjs` deleting the bundle
+    // under it. Starting a cold one is not — it would exec a path that no longer exists.
+    if (this.draining) throw new RpcError("DAEMON_DRAINING", "Realm is finishing an update — this session will start again in a moment");
     const s = this.get(id);
     const adapter = this.d.adapters[s.agentKind];
     if (!adapter) throw new RpcError("AGENT_UNAVAILABLE", `${s.agentKind} is not registered`);

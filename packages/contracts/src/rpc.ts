@@ -939,6 +939,17 @@ export const Methods = {
   "daemon.stop": { params: z.object({}), result: z.object({ ok: z.literal(true) }) },
   /** Stop every live agent handle, leaving the daemon up. The tray's *Stop all agents*. */
   "daemon.stopAgents": { params: z.object({}), result: z.object({ stopped: z.number() }) },
+  /**
+   * Go quiet so the bundle underneath can be swapped: finish what is running, start nothing new,
+   * close once nothing has been running for a while.
+   *
+   * Experimental, and reached only through `daemon.handoffMode = "drain"`. The default handoff stops
+   * the daemon and starts the new one, which loses nothing a restart would not have lost anyway; a
+   * drain buys exactly one thing, which is that a turn already in flight finishes rather than being
+   * interrupted. `answer` reports whether the drain was started — a daemon already draining says so
+   * rather than restarting its own clock.
+   */
+  "daemon.drain": { params: z.object({}), result: z.object({ draining: z.literal(true), alreadyDraining: z.boolean() }) },
 
   "workspace.gitInfo": { params: z.object({ cwd: z.string() }), result: GitInfoSchema.nullable() },
 

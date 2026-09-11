@@ -17,6 +17,15 @@
  * cannot start is not going to start on the sixth try, and a restart loop that never gives up is a
  * restart loop nobody can read.
  */
+/**
+ * What the app is prepared to say about the server it is talking to.
+ *
+ * `stale` is not the supervisor's — it is decided once at launch, when the user chose to keep an
+ * older daemon working — but it travels the same channel to the same banner, because from the
+ * renderer's side these are one question: is the thing under me healthy, and if not, what do I do.
+ */
+export type DaemonUiState = SupervisorState | { kind: "stale"; why: "bundle" | "protocol" };
+
 export type SupervisorState =
   | { kind: "connected" }
   /** Disconnected, and we are not acting on it yet — either the pid is alive, or the grace period

@@ -65,6 +65,9 @@ type Result<M extends MethodName> = MethodResult<M> | Promise<MethodResult<M>>;
 
 export type Deps = {
   rpc: RpcServer; home: string; version: string; machineName: string; userName: string;
+  /** Called once when `daemon.drain` is accepted. `createApp` starts the quiescence watcher here —
+   *  the watcher owns the clock and the close, this owns the refusals. */
+  onDrain?: () => void;
   profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; machines: MachineService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService;
   planLimits: PlanLimitsService;
@@ -72,6 +75,18 @@ export type Deps = {
 };
 
 export function registerMethods(d: Deps): void {
+  /**
+   * Whether this daemon is going quiet for a handoff.
+   *
+   * Module-scoped to the registration rather than to the module, so two apps in one test process do
+   * not share it. The refusals it drives are the visible half of a drain; the half that actually
+   * prevents a crash is `SessionService.ensureLive` refusing to start a COLD handle, because that is
+   * the one that would exec a bundle `install-local.mjs` has already deleted.
+   */
+  let draining = false;
+  const refuseWhileDraining = (what: string): void => {
+    if (draining) throw new RpcError("DAEMON_DRAINING", `Realm is finishing an update — you can ${what} again in a moment`);
+  };
   const { rpc } = d;
   const reg = <M extends MethodName>(name: M, fn: (p: Params<M>) => Result<M>) =>
     rpc.register(name, Methods[name].params, async (p) => fn(p as Params<M>));
@@ -87,7 +102,7 @@ export function registerMethods(d: Deps): void {
     const counts = d.sessions.statusCounts();
     return {
       pid: process.pid, bootId: BOOT_ID, protocol: DAEMON_PROTOCOL, startedAt: STARTED_AT,
-      state: "running" as const,
+      state: draining ? ("draining" as const) : ("running" as const),
       working: counts.working, needsYou: counts.needsYou,
       activeRuns: d.runs.activeCount(), liveHandles: d.sessions.liveCount(),
     };
@@ -97,6 +112,18 @@ export function registerMethods(d: Deps): void {
     return { ok: true as const };
   });
   reg("daemon.stopAgents", async () => ({ stopped: await d.sessions.stopAll() }));
+  reg("daemon.drain", () => {
+    const already = draining;
+    if (!already) {
+      draining = true;
+      // Schedules stop FIRST: a tick that fires between here and quiescence would start the very
+      // thing the drain is waiting to see the end of.
+      d.schedules.close();
+      d.sessions.setDraining(true);
+      d.onDrain?.();
+    }
+    return { draining: true as const, alreadyDraining: already };
+  });
 
   reg("workspace.gitInfo", (p) => d.gitInfo.get(p.cwd));
   reg("workspace.diff", (p) => d.gitDiff.summary(p.cwd));
@@ -667,7 +694,7 @@ export function registerMethods(d: Deps): void {
 
   reg("runs.list", (p) => d.runs.list(p));
   reg("runs.get", (p) => d.runs.get(p.id));
-  reg("runs.create", (p) => d.runs.create({ spaceId: p.spaceId, goal: p.goal, title: p.title, constraints: p.constraints, dedupeKey: p.dedupeKey, maxAttempts: p.maxAttempts, deadlineAt: p.deadlineAt }));
+  reg("runs.create", (p) => { refuseWhileDraining("start a task"); return d.runs.create({ spaceId: p.spaceId, goal: p.goal, title: p.title, constraints: p.constraints, dedupeKey: p.dedupeKey, maxAttempts: p.maxAttempts, deadlineAt: p.deadlineAt }); });
   reg("runs.cancel", (p) => d.runs.cancel(p.id));
   reg("runs.retry", (p) => d.runs.retry(p.id));
   reg("runs.approve", (p) => d.runs.approve(p.id, p.approved, p.note));
@@ -732,7 +759,7 @@ export function registerMethods(d: Deps): void {
   reg("sessions.get", (p) => d.sessions.get(p.id));
   // `userDispatched` (W2's ⌘⇧↩) maps to the ONE origin a client may claim; the agent origins are
   // recorded by the server-side tools that create those children, never over RPC.
-  reg("sessions.create", (p) => d.sessions.create({ ...p, dispatchedBy: p.userDispatched ? { kind: "user-dispatch", sessionId: null } : null }));
+  reg("sessions.create", (p) => { refuseWhileDraining("start a session"); return d.sessions.create({ ...p, dispatchedBy: p.userDispatched ? { kind: "user-dispatch", sessionId: null } : null }); });
   reg("sessions.send", async (p) => { await d.sessions.send(p.id, { text: p.text, attachments: p.attachments, mentions: p.mentions, elements: p.elements }, p.delivery); return { ok: true as const }; });
   reg("sessions.dequeue", async (p) => { d.sessions.dequeue(p.id, p.queuedId); return { ok: true as const }; });
   reg("limits.get", async () => ({ limits: d.planLimits.list() }));

@@ -67,34 +67,48 @@ export function decideLaunch(d: {
  * including a refused handshake because the token in the file is stale, reads as null.
  */
 export function probeDaemon(d: { port: number; token: string; timeoutMs?: number }): Promise<Probe> {
-  return new Promise((resolve) => {
+  return callDaemon(d, "system.info", {}, d.timeoutMs).then((result) => {
+    const r = result as { bootId?: unknown; protocol?: unknown } | null;
+    if (typeof r?.bootId !== "string" || typeof r.protocol !== "number") return null;
+    return { bootId: r.bootId, protocol: r.protocol };
+  }).catch(() => null);
+}
+
+/**
+ * One RPC call on a daemon we are not attached to.
+ *
+ * A socket per call, deliberately: this is used before the bridge exists (the probe) and against a
+ * daemon we are about to replace (`daemon.info`, `daemon.stop`), neither of which is a connection
+ * worth keeping. Every failure — refused handshake because the token in the file is stale, a port
+ * answered by something else, silence — rejects, and every caller reads that as "no answer".
+ */
+export function callDaemon(d: { port: number; token: string }, method: string, params: unknown, timeoutMs = 2_000): Promise<unknown> {
+  return new Promise((resolve, reject) => {
     let settled = false;
-    const done = (v: Probe): void => {
+    const done = (fn: () => void): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       try { ws.close(); } catch { /* already closing */ }
-      resolve(v);
+      fn();
     };
-    const timer = setTimeout(() => done(null), d.timeoutMs ?? 2_000);
+    const timer = setTimeout(() => done(() => reject(new Error(`${method} timed out`))), timeoutMs);
     let ws: WebSocket;
     try {
       ws = new WebSocket(`ws://127.0.0.1:${d.port}`, [`realm.${d.token}`]);
-    } catch {
+    } catch (e) {
       clearTimeout(timer);
-      return resolve(null);
+      return reject(e instanceof Error ? e : new Error(String(e)));
     }
-    ws.addEventListener("open", () => ws.send(JSON.stringify({ id: "probe", method: "system.info", params: {} })));
-    ws.addEventListener("error", () => done(null));
-    ws.addEventListener("close", () => done(null));
+    ws.addEventListener("open", () => ws.send(JSON.stringify({ id: "one", method, params })));
+    ws.addEventListener("error", () => done(() => reject(new Error(`${method} failed`))));
+    ws.addEventListener("close", () => done(() => reject(new Error(`${method}: socket closed`))));
     ws.addEventListener("message", (ev) => {
       try {
-        const m = JSON.parse(typeof ev.data === "string" ? ev.data : "") as
-          { id?: string; ok?: boolean; result?: { bootId?: unknown; protocol?: unknown } };
-        if (m.id !== "probe") return;
-        if (!m.ok || typeof m.result?.bootId !== "string" || typeof m.result.protocol !== "number") return done(null);
-        done({ bootId: m.result.bootId, protocol: m.result.protocol });
-      } catch { done(null); }
+        const m = JSON.parse(typeof ev.data === "string" ? ev.data : "") as { id?: string; ok?: boolean; result?: unknown; error?: { message?: string } };
+        if (m.id !== "one") return;
+        done(() => (m.ok ? resolve(m.result) : reject(new Error(m.error?.message ?? method))));
+      } catch { done(() => reject(new Error(`${method}: unreadable answer`))); }
     });
   });
 }
@@ -110,7 +124,16 @@ const isAlive = (pid: number): boolean => {
  *  the ready-line timeout the child-process path has always used. */
 export const DAEMON_WAIT_MS = 15_000;
 
-export type DaemonHandle = { port: number; home: string; token: string; adopted: boolean; state: DaemonState };
+export type DaemonHandle = {
+  port: number; home: string; token: string; adopted: boolean; state: DaemonState;
+  /** Set when we are attached to a daemon this app did not ship, because the user chose to keep it
+   *  working. The UI says so and refuses to start new sessions against it; null is the ordinary case. */
+  stale: "bundle" | "protocol" | null;
+};
+
+/** What a handoff did. `replaced` means the old daemon is going away and the loop should look again;
+ *  `adopt` means the user chose to carry on with it. */
+export type HandoffResult = { kind: "replaced" } | { kind: "adopt"; stale: "bundle" | "protocol" };
 
 /**
  * Get a realm-server we can talk to, starting one only if there isn't one.
@@ -126,7 +149,7 @@ export async function ensureDaemon(d: {
   readState: (home: string) => DaemonState | null;
   probe: (port: number, token: string) => Promise<Probe>;
   spawn: (home: string) => void;
-  onHandoff: (state: DaemonState, why: "bundle" | "protocol") => Promise<void>;
+  onHandoff: (state: DaemonState, why: "bundle" | "protocol") => Promise<HandoffResult>;
   pidAlive?: (pid: number) => boolean;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -135,7 +158,10 @@ export async function ensureDaemon(d: {
   const pidAlive = d.pidAlive ?? isAlive;
   const now = d.now ?? Date.now;
   const sleep = d.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  const deadline = now() + DAEMON_WAIT_MS;
+  // The budget bounds ONE wait for a daemon to come up — not the whole orchestration. Stopping a
+  // daemon we are replacing legitimately takes seconds, and charging that to the replacement's clock
+  // is how a handoff on a slow machine fails to start anything at all. So every ACTION restarts it.
+  let deadline = now() + DAEMON_WAIT_MS;
   let spawned = false;
 
   for (;;) {
@@ -149,13 +175,20 @@ export async function ensureDaemon(d: {
 
     if (decision.kind === "adopt") {
       d.log?.(`[daemon] adopted pid ${decision.state.pid} on port ${decision.state.port}`);
-      return { port: decision.state.port, home: d.home, token: decision.state.token, adopted: !spawned, state: decision.state };
+      return { port: decision.state.port, home: d.home, token: decision.state.token, adopted: !spawned, state: decision.state, stale: null };
     }
     if (decision.kind === "handoff") {
       d.log?.(`[daemon] running daemon is a different ${decision.why}; handing off`);
-      await d.onHandoff(decision.state, decision.why);
-      // Whatever the handoff did — stopped the old daemon, or left it running because the user chose
-      // to keep working — the next pass reads the world again rather than assuming an outcome.
+      const outcome = await d.onHandoff(decision.state, decision.why);
+      // `adopt` is the user choosing to carry on with the old server. Returned from here rather than
+      // looped back into `decideLaunch`, which would decide `handoff` again and ask a second time.
+      if (outcome.kind === "adopt") {
+        return { port: decision.state.port, home: d.home, token: decision.state.token, adopted: true, state: decision.state, stale: outcome.stale };
+      }
+      // `replaced`: the old daemon is going away, and however long that took is not time the
+      // replacement should be charged for. The next pass reads the world again rather than assuming
+      // how far along it is.
+      deadline = now() + DAEMON_WAIT_MS;
     } else if (decision.kind === "spawn") {
       // Once. A spawn that has not produced a readable state file yet reads as `none` on the next
       // pass, and spawning again on that would be exactly the two-daemons bug.
@@ -163,6 +196,7 @@ export async function ensureDaemon(d: {
         d.log?.(`[daemon] starting realm-server (${decision.reason})`);
         d.spawn(d.home);
         spawned = true;
+        deadline = now() + DAEMON_WAIT_MS;
       }
     } else {
       d.log?.(`[daemon] waiting for realm-server (${decision.why})`);

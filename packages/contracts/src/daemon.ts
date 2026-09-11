@@ -46,6 +46,21 @@ export const DAEMON_LOCK_FILE = "daemon.lock";
  * The MIN/MAX pair is the range THIS app can drive. An adopted daemon outside it is a handoff, not a
  * refusal: the app restarts the daemon rather than telling the user their own server is too old.
  */
+/**
+ * How a handoff is taken when the running daemon is not this build's.
+ *
+ * `restart` — stop it, start ours. The default, and always correct: sessions resume from their
+ * provider ids on the ordinary boot path, runs are requeued, terminals come back with what they
+ * printed. `drain` — let it finish what is in flight first. Experimental, because the thing it buys
+ * (one mid-flight turn survives) is small against a second code path through shutdown.
+ */
+export const DAEMON_HANDOFF_MODE_KEY = "daemon.handoffMode";
+export const DAEMON_HANDOFF_MODES = ["restart", "drain"] as const;
+export type DaemonHandoffMode = (typeof DAEMON_HANDOFF_MODES)[number];
+export const DAEMON_HANDOFF_MODE_DEFAULT: DaemonHandoffMode = "restart";
+export const resolveHandoffMode = (raw: unknown): DaemonHandoffMode =>
+  (DAEMON_HANDOFF_MODES as readonly string[]).includes(raw as string) ? (raw as DaemonHandoffMode) : DAEMON_HANDOFF_MODE_DEFAULT;
+
 export const DAEMON_PROTOCOL = 1;
 export const DAEMON_PROTOCOL_MIN = 1;
 export const DAEMON_PROTOCOL_MAX = 1;

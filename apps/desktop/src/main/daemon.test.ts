@@ -75,7 +75,7 @@ describe("ensureDaemon", () => {
           readState: () => file,
           probe: async (_port: number, _token: string): Promise<Probe> => (file ? probe({ bootId: file.bootId, protocol: file.protocol }) : null),
           spawn: () => { this.spawns++; },
-          onHandoff: async (_s: DaemonState, why: "bundle" | "protocol") => { this.handoffs.push(why); },
+          onHandoff: async (_s: DaemonState, why: "bundle" | "protocol") => { this.handoffs.push(why); return { kind: "replaced" as const }; },
           pidAlive: () => true,
           now: () => clock,
           sleep: async (ms: number) => { clock += ms; },
@@ -130,7 +130,7 @@ describe("ensureDaemon", () => {
     const handle = await ensureDaemon({
       ...deps,
       // The handoff stopped the old daemon and a new one came up on the current bundle.
-      onHandoff: async (_s, why) => { w.handoffs.push(why); w.set(state()); },
+      onHandoff: async (_s, why) => { w.handoffs.push(why); w.set(state()); return { kind: "replaced" as const }; },
       readState: () => deps.readState(),
     });
     expect(w.handoffs).toEqual(["bundle"]);
@@ -140,6 +140,43 @@ describe("ensureDaemon", () => {
   it("budgets the wait at the same 15s the ready line always used", () => {
     expect(DAEMON_WAIT_MS).toBe(15_000);
   });
+
+  it("does not charge the replacement for the time it took to stop the old daemon", async () => {
+    const w = world(state({ bundleId: "an-older-build" }));
+    const deps = w.deps();
+    let sinceSpawn = 0;
+    const handle = await ensureDaemon({
+      ...deps,
+      // A real handoff SIGTERMs the old daemon and waits for its pid to go — seconds, on a machine
+      // under load. MUTANT: keep one deadline for the whole orchestration and this throws, which is
+      // exactly what a live check caught: "realm-server did not report ready within 15s", on every
+      // update where the old server took a moment to exit.
+      onHandoff: async (_s, why) => { w.handoffs.push(why); await deps.sleep(12_000); w.set(null); return { kind: "replaced" as const }; },
+      // The replacement takes a few polls to write its state file, as a cold boot does.
+      spawn: () => { deps.spawn(); sinceSpawn = 1; },
+      readState: () => { if (sinceSpawn > 0 && sinceSpawn++ > 3) w.set(state()); return deps.readState(); },
+    });
+    expect(handle.state.bundleId).toBe(OURS.bundleId);
+    expect(w.spawns).toBe(1);
+    expect(w.handoffs).toEqual(["bundle"]);
+  });
+
+  it("adopts the old daemon when the user chooses to keep working, and says it is stale", async () => {
+    const w = world(state({ bundleId: "an-older-build" }));
+    const handle = await ensureDaemon({
+      ...w.deps(),
+      onHandoff: async () => ({ kind: "adopt" as const, stale: "bundle" as const }),
+    });
+    // MUTANT: loop back into decideLaunch after an adopt and the same dialog is asked again, forever,
+    // until the wait budget runs out.
+    expect(handle.stale).toBe("bundle");
+    expect(handle.port).toBe(8790);
+    expect(w.spawns).toBe(0);
+  });
+
+  it("leaves `stale` null on an ordinary adopt", async () => {
+    const w = world(state());
+    expect((await ensureDaemon(w.deps())).stale).toBeNull();
 });
 
 describe("daemonModeEnabled", () => {
@@ -152,4 +189,5 @@ describe("daemonModeEnabled", () => {
     expect(daemonModeEnabled({ packaged: true, env: "0" })).toBe(false);
     expect(daemonModeEnabled({ packaged: true, env: "" })).toBe(true);
   });
+});
 });
