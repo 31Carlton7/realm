@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, parseSpaceIcon, acpBuildMode, acpPlanMode, acpSessionConfig, acpWellKnownMode, parseAcpConfigOptions, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, ASK_PERMISSION_MODE, acpAskMode, isReadOnlyMode, sessionModeOf, modeWireValue, DEFAULT_MODEL_LABEL, PERMISSION_MODES, PLAN_PERMISSION_MODE, SELECTABLE_AGENT_KINDS, SESSION_MODES, type AcpSessionMode } from "./presets";
+import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, parseSpaceIcon, acpBuildMode, acpPlanMode, acpSessionConfig, acpWellKnownMode, parseAcpConfigOptions, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, ASK_PERMISSION_MODE, acpAskMode, isReadOnlyMode, sessionModeOf, modeWireValue, DEFAULT_MODEL_LABEL, PERMISSION_MODES, PLAN_PERMISSION_MODE, SELECTABLE_AGENT_KINDS, SESSION_MODES, AGENT_MIDTURN_DELIVERY, MID_TURN_MODES, resolveMidTurnMode, steerInterrupts, steerNote, type AcpSessionMode } from "./presets";
 import { AgentKindSchema } from "./entities";
 describe("presets", () => {
   it("has at least 8 colors and a lot more icons", () => { expect(SPACE_COLORS.length).toBeGreaterThanOrEqual(8); expect(SPACE_ICONS.length).toBeGreaterThanOrEqual(50); });
@@ -409,5 +409,35 @@ describe("acpSessionConfig — configOptions wins, with the write channel carrie
     const cfg = acpSessionConfig({ configOptions: [{ id: "verbosity", category: "output", options: [{ value: "terse" }] }] });
     expect(cfg.modes).toEqual([]);
     expect(cfg.models).toEqual([]);
+  });
+});
+
+describe("mid-turn prompts", () => {
+  it("resolves anything it does not recognise — including nothing stored — to the rung that interrupts nothing", () => {
+    expect(resolveMidTurnMode(undefined)).toBe("queue");
+    expect(resolveMidTurnMode(null)).toBe("queue");
+    expect(resolveMidTurnMode("yolo")).toBe("queue");
+    expect(resolveMidTurnMode(1)).toBe("queue");
+    for (const mode of MID_TURN_MODES) expect(resolveMidTurnMode(mode)).toBe(mode);
+  });
+
+  it("reads the interrupt cost off AGENT_MIDTURN_DELIVERY rather than keeping a second list", () => {
+    for (const kind of Object.keys(AGENT_MIDTURN_DELIVERY) as (keyof typeof AGENT_MIDTURN_DELIVERY)[]) {
+      expect(steerInterrupts(kind), kind).toBe(AGENT_MIDTURN_DELIVERY[kind] === "interrupt");
+    }
+  });
+
+  it("names the agent, and on an interrupt kind names what the interrupt costs", () => {
+    // Codex is the only kind with a mid-turn route, so it is the only one that may promise this.
+    expect(steerNote("codex")).toContain("Nothing is interrupted");
+    for (const kind of Object.keys(AGENT_MIDTURN_DELIVERY) as (keyof typeof AGENT_MIDTURN_DELIVERY)[]) {
+      const note = steerNote(kind);
+      expect(note, kind).toContain(AGENT_META[kind].label);
+      if (kind === "codex") continue;
+      // The two things an interrupt actually takes. A note that said only "may interrupt" would be
+      // selling the action without its price.
+      expect(note, kind).toContain("aborts the tool call in flight");
+      expect(note, kind).toContain("denies any permission prompt waiting");
+    }
   });
 });

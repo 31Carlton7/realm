@@ -522,6 +522,10 @@ export const Methods = {
     params: z.object({
       machineId: IdSchema,
       name: z.string().min(1).max(120).optional(),
+      /** The connect flow is the pane's own body, so a machine is created EMPTY and configured here
+       *  — which means deciding what kind of machine it is. Absent leaves it alone. */
+      source: MachineSourceSchema.optional(),
+      guest: GuestSpecSchema.optional(),
       endpoint: VncEndpointSchema.optional(),
       /** Absent leaves the stored password alone; null or "" clears it; a string replaces it. The
        *  three-way distinction is what stops a rename quietly dropping somebody's password. */

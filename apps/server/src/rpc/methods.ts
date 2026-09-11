@@ -498,6 +498,9 @@ export function registerMethods(d: Deps): void {
   reg("machines.get", (p) => ({ machine: d.machines.get(p.machineId), state: d.machines.stateOf(p.machineId) }));
   reg("machines.update", (p) => {
     const { passwordStored } = d.machines.update(p.machineId, p);
+    // Persisted here for the same reason `create` does it: the guest's shape is Realm's own
+    // configuration, so it lives in `settings` rather than earning a column.
+    if (p.guest) d.settings.set(`machine.guest:${p.machineId}`, p.guest);
     return { machine: d.machines.get(p.machineId), passwordStored };
   });
   reg("machines.start", (p) => ({ state: d.machines.start(p.machineId) }));

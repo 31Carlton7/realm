@@ -272,7 +272,27 @@ export class SessionService {
     this.broadcastQueue(id);
   }
 
-  /** This session's queue, for a pane that has just mounted. */
+  /**
+   * Send one queued message NOW, ahead of the turn it was waiting for — the chip's send-now.
+   *
+   * By id and through the server rather than by the prompter re-sending the text, because the queue
+   * holds the whole `SendMessage` and the wire shape does not: an `@skill` typed during a turn would
+   * come back as plain text if the prompter rebuilt the message from what it was shown.
+   *
+   * Routed through `send` rather than straight into `steer`, so a queue released after the turn has
+   * already ended is an ordinary send instead of an interrupt of nothing.
+   */
+  async releaseQueued(id: string, queuedId: string): Promise<void> {
+    this.get(id);
+    const waiting = this.queued.get(id) ?? [];
+    const held = waiting.find((w) => w.prompt.id === queuedId);
+    if (!held) return; // the drain got there first
+    const left = waiting.filter((w) => w !== held);
+    if (left.length === 0) this.queued.delete(id); else this.queued.set(id, left);
+    this.broadcastQueue(id);
+    await this.send(id, held.msg, "steer");
+  }
+
   queuedPrompts(id: string): QueuedPrompt[] {
     this.get(id);
     return (this.queued.get(id) ?? []).map((w) => w.prompt);
@@ -282,8 +302,8 @@ export class SessionService {
     this.d.rpc.broadcast("session.queue", { sessionId: id, queued: (this.queued.get(id) ?? []).map((w) => w.prompt) });
   }
 
-  /** Everything a typed message earns on its way to the adapter. Split out of `send` so the queue's
-   *  drain and the steer path reach it without re-deciding what `send` already decided. */
+  /** Everything a typed message earns on its way to the adapter. Reached only from `send` and from
+   *  the two paths that have already chosen — a caller that came here has passed the queue gate. */
   private async deliver(id: string, msg: SendMessage, opts: { checkpoint?: boolean } = {}): Promise<void> {
     // Claim the environment's port block before the adapter can be spawned — `ensureLive` reads it
     // back off the row, so this is the only place the (async) allocation has to happen.
