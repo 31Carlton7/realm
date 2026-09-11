@@ -734,7 +734,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     onDrain: () => {
       opts.onDraining?.();
       const drain = new Drain({
-        counts: () => ({ liveHandles: sessions.liveCount(), activeRuns: runs.activeCount() }),
+        counts: () => ({ working: sessions.statusCounts().working, activeRuns: runs.activeCount() }),
         now: () => Date.now(),
         close: () => { clearInterval(timer); void closeApp(); },
         log: (line) => console.error(line),

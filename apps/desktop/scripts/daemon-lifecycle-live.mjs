@@ -24,7 +24,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { daemonToken, daemonState, tokenProtocols } from "./lib/daemon-token.mjs";
+import { daemonToken, daemonState, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9347), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8914);
@@ -287,11 +287,8 @@ Promise.race([
   .finally(async () => {
     for (const c of children) { try { c.kill("SIGKILL"); } catch { /* already gone */ } }
     // Whatever happened above, this script must never leave a daemon running on a temp directory it
-    // is about to delete. Both the pid recorded at the start and whatever the file says now, because
-    // a handoff mid-run would have replaced one with the other.
-    for (const pid of new Set([daemonPid, daemonState(HOME)?.pid].filter(Boolean))) {
-      try { process.kill(pid, "SIGKILL"); } catch { /* gone */ }
-    }
+    // is about to delete — nor holding the fixed port the next run needs.
+    await stopDaemons(HOME, [daemonPid]);
     for (const ws of sockets) { try { ws.close(); } catch { /* already closed */ } }
     await sleep(300);
     // LIVE_KEEP=1 leaves the scratch home behind, which is the only way to read the daemon's own

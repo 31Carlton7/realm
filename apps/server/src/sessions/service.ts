@@ -675,10 +675,10 @@ export class SessionService {
   /**
    * How many sessions hold a live adapter handle right now.
    *
-   * The quiescence test a draining daemon waits on: no handle means nothing is mid-exec, so the
-   * bundle underneath it can be swapped. It counts handles, not rows — an idle session that would
-   * resume on its next send has none, which is the resting state of most of the sidebar and correctly
-   * contributes nothing.
+   * Counts handles, not rows — an idle session that has never been started holds none. But note what
+   * it is NOT: a measure of activity. A handle lives until the adapter's own event stream ends, so a
+   * session whose turn finished five minutes ago still has one. `statusCounts()` above is the number
+   * that means "working", and it is the one the tray, the quit dialog and the drain all read.
    */
   liveCount(): number {
     return this.live.size;

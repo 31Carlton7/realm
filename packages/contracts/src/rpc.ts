@@ -928,9 +928,10 @@ export const Methods = {
     pid: z.number(), bootId: z.string(), protocol: z.number(), startedAt: z.number(),
     state: z.enum(["running", "draining"]),
     working: z.number(), needsYou: z.number(), activeRuns: z.number(),
-    /** Live adapter handles. A different question from `working`: a session whose turn has ended
-     *  still holds its handle until the adapter exits, so this is larger and is the number a drain
-     *  waits on, while `working` is the number a person is told. */
+    /** Live adapter handles. A different question from `working`, and NOT a measure of activity: a
+     *  session whose turn ended keeps its handle until the adapter's own stream ends, so a daemon
+     *  anybody has used holds some forever. Reported for diagnosis — what a drain waits on, and what
+     *  a person is told, is `working` plus `activeRuns`. */
     liveHandles: z.number(),
   }) },
   /** Stop the daemon: every pty, every agent handle, the database. The tray's *Quit Realm & stop

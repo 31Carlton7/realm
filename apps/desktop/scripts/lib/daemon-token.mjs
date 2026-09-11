@@ -33,3 +33,24 @@ export async function daemonToken(home, { timeoutMs = 15_000 } = {}) {
 
 /** The subprotocol list to hand `new WebSocket(url, protocols)`. */
 export const tokenProtocols = (token) => [`realm.${token}`];
+
+/**
+ * Stop every daemon that has run on this home, for a live check's cleanup.
+ *
+ * Two passes with a pause between them, because one is not enough: a check that fails midway may have
+ * a REPLACEMENT daemon still booting, and it writes its state file after the first read. A single
+ * pass then leaves it running on a scratch directory that is about to be deleted — and holding the
+ * fixed port, so the next run of that same check refuses to start. (Which is exactly what happened.)
+ *
+ * `known` is every pid the check saw along the way; the file is consulted for the ones it did not.
+ */
+export async function stopDaemons(home, known = []) {
+  const pids = new Set(known.filter(Boolean));
+  for (let pass = 0; pass < 2; pass++) {
+    const state = daemonState(home);
+    if (state?.pid) pids.add(state.pid);
+    for (const pid of pids) { try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ } }
+    await new Promise((r) => setTimeout(r, 600));
+  }
+  return [...pids];
+}

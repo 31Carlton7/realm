@@ -1,15 +1,18 @@
 /**
- * Live check for the handoff gate (run with: node apps/desktop/scripts/daemon-handoff-live.mjs)
+ * Live check for the drain handoff (run with: node apps/desktop/scripts/daemon-drain-live.mjs)
  *
- * The claim: an app that finds a daemon running code it did not ship does not adopt it. With nothing
- * working there is no dialog — the old daemon is stopped and a new one started, and the only way to
- * see it happened is that the bootId changed and the old pid is gone.
+ * `daemon-handoff-live.mjs` proves the DEFAULT handoff: stop the old server, start the new one. This
+ * proves the other one, behind `daemon.handoffMode = "drain"` — the old server is asked to go quiet
+ * and close itself, and the app waits for it rather than killing it.
  *
- * The two "different builds" are two copies of the same server bundle at different paths, which is
- * exactly what `bundleId` is defined to notice: it is size-and-mtime of the entry, so a copy made a
- * moment later is a different bundle by construction. That is the same signal `install-local.mjs`
- * produces when it swaps /Applications out from under a running daemon, and it is the signal without
- * the twenty minutes of packaging.
+ * The distinction the check has to make is between those two outcomes, because both end with the old
+ * pid gone and a new daemon up. It makes it by the CLOCK: a drain that works closes within seconds of
+ * quiescence, and one that does not is stopped by the SIGTERM fallback two minutes later. So the
+ * check times it, and asserts the old daemon went away long before the fallback could have fired.
+ *
+ * It also asserts the refusals while draining, over the socket, on the real server — a draining
+ * daemon that still accepts `sessions.create` would exec an agent from a bundle that is being
+ * replaced underneath it.
  *
  * Ports: env-overridable. Touches only a scratch dir; kills only the processes it started.
  */
@@ -22,15 +25,17 @@ import { fileURLToPath } from "node:url";
 import { daemonToken, daemonState, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
-const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9348), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8915);
-const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-handoff-live-"));
+const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9349), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8916);
+const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-drain-live-"));
 const HOME = path.join(scratch, "home");
 const OVERALL_TIMEOUT_MS = Number(process.env.LIVE_TIMEOUT_MS ?? 300_000);
+/** `DRAIN_WAIT_MS` in main/index.ts — what the SIGTERM fallback waits before giving up on a drain.
+ *  A drain that genuinely worked must land far inside this. */
+const DRAIN_FALLBACK_MS = 120_000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const children = [];
 const sockets = [];
 const daemonPids = new Set();
-/** Put the repo's build artifact back the way it was found. Set once the original mtime is known. */
 let restoreMtime = null;
 
 async function portFree(port) {
@@ -89,6 +94,12 @@ function rpc(port, token) {
       pending.set(i, (msg) => (msg.ok ? res(msg.result) : rej(new Error(`${method}: ${msg.error?.message}`))));
       ws.send(JSON.stringify({ id: i, method, params }));
     }),
+    /** Like `call`, but hands back the error code instead of throwing — for the refusals. */
+    code: (method, params) => new Promise((res) => {
+      const i = String(++id);
+      pending.set(i, (msg) => res(msg.ok ? null : msg.error?.code));
+      ws.send(JSON.stringify({ id: i, method, params }));
+    }),
     close: () => ws.close(),
   };
 }
@@ -100,7 +111,6 @@ const check = (name, cond, detail) => {
 
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; } };
 
-/** Launch Electron against a particular server bundle. `entry` is what makes the two runs differ. */
 async function launchApp({ entry, onboard }) {
   const wrapper = path.join(scratch, "wrapper.mjs");
   fs.writeFileSync(wrapper, [
@@ -114,12 +124,8 @@ async function launchApp({ entry, onboard }) {
   const child = spawn(electronBin, [wrapper], {
     env: {
       ...process.env,
-      REALM_HOME: HOME,
-      REALM_PORT: String(SERVER_PORT),
-      REALM_DEVTOOLS_PORT: String(CDP_PORT),
-      REALM_SERVER_ENTRY: entry,
-      REALM_ENABLE_FAKE_AGENT: "1",
-      REALM_DAEMON: "1",
+      REALM_HOME: HOME, REALM_PORT: String(SERVER_PORT), REALM_DEVTOOLS_PORT: String(CDP_PORT),
+      REALM_SERVER_ENTRY: entry, REALM_ENABLE_FAKE_AGENT: "1", REALM_DAEMON: "1",
       LIVE_USER_DATA: path.join(scratch, "userData"),
       LIVE_MAIN: path.join(repoRoot, "apps/desktop/out/main/index.js"),
     },
@@ -144,7 +150,7 @@ async function launchApp({ entry, onboard }) {
     await evalIn(`(() => {
       const input = document.querySelector('.onboarding input:not([type=radio])');
       const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
-      set.call(input, "Handoff"); input.dispatchEvent(new Event("input", { bubbles: true }));
+      set.call(input, "Drain"); input.dispatchEvent(new Event("input", { bubbles: true }));
       input.closest("form").requestSubmit(); return true; })()`);
     await until(() => evalIn(`!!document.querySelector('.composer')`), 30000, "composer");
   } else {
@@ -157,68 +163,89 @@ async function main() {
   for (const p of [CDP_PORT, SERVER_PORT]) {
     if (!(await portFree(p))) throw new Error(`port ${p} is in use — refusing to run`);
   }
+  const entry = path.join(repoRoot, "apps/server/dist/main.js");
+  if (!fs.existsSync(entry)) throw new Error(`no server bundle at ${entry} — run pnpm build`);
+  const times = fs.statSync(entry);
+  restoreMtime = () => fs.utimesSync(entry, times.atime, times.mtime);
 
-  const original = path.join(repoRoot, "apps/server/dist/main.js");
-  if (!fs.existsSync(original)) throw new Error(`no server bundle at ${original} — run pnpm build`);
-  /**
-   * The "new build" is the SAME path with a new mtime, which is precisely what `install-local.mjs`
-   * leaves behind: it swaps the bundle in place, and `bundleId` is size-and-mtime of the entry.
-   *
-   * Copying the bundle elsewhere was the first attempt and does not work — `dist/main.js` imports
-   * sibling chunks AND resolves its externals (zod, node-pty, the agent SDKs) from a sibling
-   * `node_modules`, so a copy in a temp directory is a server that dies on its first import. The
-   * daemon's own log said so, in as many words, which is what that log is for.
-   */
-  const originalTimes = fs.statSync(original);
-  restoreMtime = () => fs.utimesSync(original, originalTimes.atime, originalTimes.mtime);
-
-  // ---- 1. A daemon on the first bundle. ----
-  const first = await launchApp({ entry: original, onboard: true });
+  // ---- 1. A daemon, set to drain, with a session that has actually been used. ----
+  const first = await launchApp({ entry, onboard: true });
   const state1 = await until(() => daemonState(HOME), 20000, "daemon.json");
   daemonPids.add(state1.pid);
-  check("the daemon records the bundle it is running", state1.entry === original && !!state1.bundleId, state1.bundleId);
+  const token = await daemonToken(HOME);
+  const api = rpc(state1.port, token);
+  await api.ready;
+  await api.call("settings.set", { key: "daemon.handoffMode", value: "drain" });
 
-  // Killed rather than quit, so the daemon is left running with no app — which is exactly the state
-  // an update finds.
+  const spaces = await until(async () => { const s = await api.call("spaces.list", {}); return s.length ? s : null; }, 20000, "a space");
+  const { session } = await api.call("sessions.create", { spaceId: spaces[0].id, agentKind: "fake" });
+  await api.call("sessions.send", { id: session.id, text: "a turn that finishes", attachments: [], mentions: [] });
+  await until(async () => (await api.call("sessions.events", { id: session.id })).some((e) => e.event.type === "usage"), 20000, "the turn to settle");
+
+  // The state a drain actually meets: the turn is over, nothing is working, and the session still
+  // holds a warm adapter handle — Realm keeps one until the adapter's stream ends.
+  const settled = await api.call("daemon.info", {});
+  check("the turn finished — nothing is working", settled.working === 0 && settled.activeRuns === 0, settled);
+  check("…and the session still holds a warm handle", settled.liveHandles > 0, { liveHandles: settled.liveHandles });
+  api.close();
+
   first.cdp.close();
   first.child.kill("SIGKILL");
   await until(async () => !alive(first.child.pid), 15000, "electron to die");
-  check("the daemon outlived the app that started it", alive(state1.pid));
 
-  // The install happens here: same path, new mtime.
-  fs.utimesSync(original, new Date(), new Date());
-  check("the bundle on disk is now a different one by Realm's own reckoning",
-    `${fs.statSync(original).size}:${Math.trunc(fs.statSync(original).mtimeMs)}` !== state1.bundleId);
+  // ---- 2. The update: same path, new mtime. ----
+  fs.utimesSync(entry, new Date(), new Date());
 
-  // ---- 2. A launch on the OTHER bundle hands off rather than adopting. ----
-  const second = await launchApp({ entry: original, onboard: false });
+  // ---- 3. Relaunch. The drain should take it, and the old daemon should close ITSELF. ----
+  const t0 = Date.now();
+  const draining = rpc(state1.port, token);
+  await draining.ready;
+  const secondPromise = launchApp({ entry, onboard: false });
+
+  await until(async () => {
+    const s = daemonState(HOME);
+    return s && s.pid === state1.pid && s.state === "draining";
+  }, 40000, "the old daemon to say it is draining");
+  check("the old daemon announced the drain in its state file", true);
+
+  // The refusals, on the real draining server.
+  check("a draining daemon refuses to start a session",
+    (await draining.code("sessions.create", { spaceId: spaces[0].id, agentKind: "fake" })) === "DAEMON_DRAINING");
+  check("…and refuses to start a task",
+    (await draining.code("runs.create", { spaceId: spaces[0].id, goal: "do a thing", title: "T" })) === "DAEMON_DRAINING");
+  // The refusal that actually prevents the crash. A session that still HOLDS a handle may carry on —
+  // the child has exec'd, and its inode survives the bundle being replaced. One that does not would
+  // have to exec a new agent from a path that is being swapped out, so it is refused.
+  await draining.call("daemon.stopAgents", {});
+  check("…and refuses to wake a session whose handle is gone",
+    (await draining.code("sessions.send", { id: session.id, text: "wake up", attachments: [], mentions: [] })) === "DAEMON_DRAINING");
+  draining.close();
+
+  await until(async () => !alive(state1.pid), DRAIN_FALLBACK_MS + 30_000, "the old daemon to close");
+  const took = Date.now() - t0;
+  // The distinction that matters: a drain that worked closes shortly after quiescence; one that did
+  // not is killed by the SIGTERM fallback two minutes later.
+  check("the old daemon closed ITSELF rather than being stopped by the fallback", took < DRAIN_FALLBACK_MS / 2, { tookMs: took });
+
+  const second = await secondPromise;
   const state2 = await until(() => {
     const s = daemonState(HOME);
-    return s && s.bootId !== state1.bootId ? s : null;
-  }, 40000, "the replacement daemon");
+    return s && s.bootId !== state1.bootId && s.state === "running" ? s : null;
+  }, 60000, "the replacement daemon");
   daemonPids.add(state2.pid);
-  // MUTANT: compare versions instead of bundles and this passes while running last week's server —
-  // SERVER_VERSION is a hardcoded "0.0.1" that never moves.
-  check("the old daemon was stopped", !alive(state1.pid), { old: state1.pid });
-  check("a new one is running the bundle this app ships", state2.bundleId !== state1.bundleId, { was: state1.bundleId, now: state2.bundleId });
-  check("and it is genuinely a different process", state2.pid !== state1.pid && state2.bootId !== state1.bootId);
+  check("a replacement is up on the new bundle", state2.bundleId !== state1.bundleId, { was: state1.bundleId, now: state2.bundleId });
 
-  // ---- 3. The app is attached to the NEW one, and it works. ----
-  const token = await daemonToken(HOME);
-  const api = rpc(state2.port, token);
-  await api.ready;
-  const info = await api.call("system.info", {});
-  check("the app is talking to the replacement", info.bootId === state2.bootId);
-  const spaces = await until(async () => { const s = await api.call("spaces.list", {}); return s.length ? s : null; }, 20000, "a space");
-  const { session } = await api.call("sessions.create", { spaceId: spaces[0].id, agentKind: "fake" });
-  await api.call("sessions.send", { id: session.id, text: "after the handoff", attachments: [], mentions: [] });
-  await until(async () => (await api.call("sessions.events", { id: session.id })).some((e) => e.event.type === "usage"), 20000, "a turn on the new daemon");
-  check("work runs on the daemon that replaced it", true);
+  // ---- 4. …and the session that was on the old one still works. ----
+  const after = rpc(state2.port, await daemonToken(HOME));
+  await after.ready;
+  await after.call("sessions.send", { id: session.id, text: "after the drain", attachments: [], mentions: [] });
+  await until(async () => (await after.call("sessions.events", { id: session.id })).filter((e) => e.event.type === "usage").length >= 2, 20000, "a turn on the replacement");
+  check("the session carried across and runs on the replacement", true);
 
-  await api.call("daemon.stop", {});
-  api.close();
+  await after.call("daemon.stop", {});
+  after.close();
   await until(async () => !alive(state2.pid), 20000, "daemon to stop");
-  check("and it stops cleanly", !alive(state2.pid) && daemonState(HOME) === null);
+  check("and it stops cleanly", daemonState(HOME) === null);
 
   second.cdp.close();
   second.child.kill("SIGKILL");
@@ -235,8 +262,6 @@ Promise.race([
     await stopDaemons(HOME, [...daemonPids]);
     for (const ws of sockets) { try { ws.close(); } catch { /* already closed */ } }
     await sleep(300);
-    // LIVE_KEEP=1 leaves the scratch home behind, which is the only way to read the daemon's own
-    // log after a failure — everything it says goes there, not to this script's stdout.
     if (process.env.LIVE_KEEP) console.error(`[live] keeping ${scratch}`);
     else fs.rmSync(scratch, { recursive: true, force: true });
     process.exit(process.exitCode ?? 0);
