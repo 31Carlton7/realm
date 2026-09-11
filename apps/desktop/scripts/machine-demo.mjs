@@ -14,6 +14,7 @@
 import { spawn } from "node:child_process";
 import { connect } from "node:net";
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -285,7 +286,21 @@ async function main() {
   await shot(c, "final");
 }
 
+/**
+ * Take the guests down with the app.
+ *
+ * SIGKILL on Electron alone leaks QEMU. The app's `closeAll` is what stops a guest, and a killed
+ * process does not run it — so the VM is reparented to launchd and keeps running, holding the lock
+ * on a qcow2 inside a scratch home this function is about to delete. A demo run that ends this way
+ * leaves a guest burning a core until someone notices.
+ *
+ * SIGTERM first, to give `closeAll` its chance, then the hammer; and then any qemu still naming this
+ * run's scratch directory in its argv, which is precise enough that it cannot touch a guest the user
+ * started themselves.
+ */
 const cleanup = () => {
+  try { electron?.kill("SIGTERM"); } catch { /* gone */ }
+  try { execFileSync("/bin/sh", ["-c", `pkill -f ${JSON.stringify(scratch)} 2>/dev/null; sleep 1; pkill -KILL -f ${JSON.stringify(scratch)} 2>/dev/null; true`], { stdio: "ignore" }); } catch { /* best effort */ }
   try { electron?.kill("SIGKILL"); } catch { /* gone */ }
   if (!process.env.DEMO_KEEP) { try { fs.rmSync(scratch, { recursive: true, force: true }); } catch { /* best effort */ } }
 };
