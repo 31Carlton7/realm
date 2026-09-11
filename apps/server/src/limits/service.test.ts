@@ -33,8 +33,9 @@ describe("PlanLimitsService", () => {
     // The distinction the panel hangs on: a kind that CANNOT report reads differently from one that
     // simply has not run yet. Neither may read as "you have used nothing".
     expect(rowFor(rows, "acp:cursor").unavailable).toBe("unsupported");
-    expect(rowFor(rows, "codex").unavailable).toBe("unsupported");
+    // Both providers that were captured off a live wire are waiting, not refusing.
     expect(rowFor(rows, "claude").unavailable).toBe("not-yet-known");
+    expect(rowFor(rows, "codex").unavailable).toBe("not-yet-known");
     for (const row of rows) expect(row.windows).toEqual([]);
   });
 

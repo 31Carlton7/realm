@@ -132,7 +132,23 @@ export class CodexConnection {
 
   private routeNotification(method: string, params: unknown): void {
     const threadId = threadIdOf(params);
-    if (!threadId) { this.onLog?.(`[codex] ${method}`); return; } // global advisory: rate limits, config warnings
+    if (!threadId) {
+      /* Account-scoped, so it names no thread — and it is about the ACCOUNT behind every thread on
+       * this connection, which is why it goes to all of them rather than to a chosen one. Delivering
+       * it to a single listener would stop the readings the moment that session was closed.
+       *
+       * Duplicates are fine and the fold upstream is keyed by agent kind, so N sessions reporting the
+       * same quota converge on one row. Only this one method is fanned out: every other threadless
+       * notification (config warnings, deprecation notices) stays logged-and-dropped, because those
+       * ARE per-thread advisories that happen to arrive without one and would otherwise appear in
+       * every open session at once. */
+      if (method === "account/rateLimits/updated") {
+        for (const l of this.threads.values()) this.deliverNotification(l, method, params);
+        return;
+      }
+      this.onLog?.(`[codex] ${method}`);
+      return;
+    }
     const l = this.threads.get(threadId);
     if (l) { this.deliverNotification(l, method, params); return; }
     this.push(threadId, { kind: "note", method, params });

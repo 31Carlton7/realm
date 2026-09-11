@@ -1,6 +1,7 @@
 # Codex CLI `app-server` protocol — reference for the Realm adapter
 
-Verified against `codex-cli 0.146.0` on macOS, 2026-08-22.
+Verified against `codex-cli 0.146.0` on macOS, 2026-08-22. §3.1 re-verified against `codex-cli
+0.154.0`, 2026-09-10.
 
 Everything marked **verified** was captured from a live `codex app-server` process. Everything
 marked **unverified** was read from the generated TypeScript bindings (`codex app-server
@@ -135,7 +136,7 @@ unsubscribe unverified)
      "total":{"totalTokens":154,"inputTokens":120,"cachedInputTokens":20,"cacheWriteInputTokens":0,
               "outputTokens":34,"reasoningOutputTokens":12},
      "last":{…},"modelContextWindow":258400}}
-← account/rateLimits/updated {"rateLimits":{"limitId":"codex","primary":null,…}}
+← account/rateLimits/updated {"rateLimits":{"limitId":"codex","primary":{…},"secondary":{…},…}}  // §3.1
 ← thread/status/changed  {"threadId":"…","status":{"type":"idle"}}
 ← turn/completed         {"threadId":"…","turn":{"id":"01a02bb7-76fb-…","itemsView":"summary",
                           "items":[{"type":"agentMessage","id":"msg_final","text":"DONE",…}],
@@ -225,8 +226,40 @@ Thread-scoped notifications all carry `threadId`; turn-scoped ones add `turnId`;
 | `error` | Turn-level error | `error: TurnError {message, codexErrorInfo, additionalDetails}`, `willRetry: boolean`, `threadId`, `turnId` |
 | `warning` / `guardianWarning` / `configWarning` / `deprecationNotice` | Advisory | `message`, `threadId?`, `summary`/`details` for `configWarning` |
 | `mcpServer/startupStatus/updated` | MCP server lifecycle | `threadId\|null`, `name`, `status`, `error`, `failureReason` |
-| `account/rateLimits/updated` | Rate limit snapshot | `rateLimits{limitId,primary,secondary,credits,planType,…}` |
+| `account/rateLimits/updated` | Rate limit snapshot | `rateLimits{limitId,limitName,normalModelSlug,primary,secondary,credits,individualLimit,spendControlReached,planType,rateLimitReachedType}` — full shape below (verified) |
 | `rawResponse/completed`, `rawResponseItem/completed` | Raw upstream Responses payloads | very noisy; opt out |
+
+### 3.1 `account/rateLimits/updated` (real capture)
+
+Captured verbatim from `codex-cli 0.154.0` on a live ChatGPT account, 2026-09-10. Fires once per
+turn, after `thread/tokenUsage/updated`. (verified)
+
+```json
+{"rateLimits":{
+  "limitId":"codex","limitName":null,"normalModelSlug":null,
+  "primary":  {"usedPercent":0,"windowDurationMins":300,  "resetsAt":1789120863},
+  "secondary":{"usedPercent":0,"windowDurationMins":10080,"resetsAt":1789583947},
+  "credits":{"hasCredits":true,"unlimited":false,"balance":null},
+  "individualLimit":null,"spendControlReached":null,
+  "planType":"unknown","rateLimitReachedType":null}}
+```
+
+Four things the adapter has to get right, each of which was wrong in the earlier note above:
+
+1. **`resetsAt` is epoch SECONDS**, not milliseconds. Claude's SDK reports the same concept in ms, so
+   one of the two has to be converted or a reset three hours out renders as January 1970.
+2. **`primary` / `secondary` are POSITIONS, not durations.** The duration is `windowDurationMins`
+   beside them — 300 (5 hours) and 10080 (7 days) as measured, the same pair Claude names `five_hour`
+   and `seven_day`. Read the label off the duration, not off the slot name.
+3. **`planType` was the literal string `"unknown"`**, not a tier, on a real ChatGPT-authenticated
+   account. Treat it as "not reported" rather than displaying it.
+4. **`rateLimitReachedType` is the only status field, and it reports a limit ALREADY reached.** There
+   is no approaching-the-limit signal on this wire — unlike Claude's
+   `status: "allowed_warning"` — so a pre-emptive warning cannot be built from this notification
+   without inventing a threshold. `null` while inside the limits.
+
+An earlier capture in §2.4 recorded `"primary":null`, so an empty slot is a shape that really occurs;
+a slot with no `usedPercent` must be dropped rather than shown as 0%.
 
 `ThreadItem` discriminators (`item.type`): `userMessage`, `agentMessage`, `reasoning`, `plan`,
 `commandExecution`, `fileChange`, `mcpToolCall`, `dynamicToolCall`, `collabAgentToolCall`,

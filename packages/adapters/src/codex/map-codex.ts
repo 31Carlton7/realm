@@ -1,4 +1,4 @@
-import { sessionEvent, type SessionEvent } from "@realm/contracts";
+import { sessionEvent, windowLabelForMinutes, type SessionEvent } from "@realm/contracts";
 import { obj, str, type Bag } from "../bag";
 
 const num = (v: unknown): number => (typeof v === "number" ? v : 0);
@@ -228,6 +228,51 @@ export function createCodexMapper() {
             // present only once Codex has named a tier at all. Codex has no reason codes — a tier it
             // will not serve is refused at `turn/start`, which is already an error in the transcript.
             ...(serviceTier === undefined ? {} : { fastMode: serviceTier === "priority" ? "on" as const : "off" as const }) })];
+        }
+
+        /**
+         * The account's plan quota. Captured live from codex-cli 0.154.0 — see
+         * docs/dev/codex-app-server-protocol.md §3 for the verbatim payload.
+         *
+         * Three things about the real shape that the code has to respect:
+         *
+         *  - `resetsAt` is epoch SECONDS here, where Claude's stream reports milliseconds. Multiplied
+         *    once, at the edge, so everything above this line holds one unit.
+         *  - `primary` / `secondary` are POSITIONS, not durations. The duration lives beside them in
+         *    `windowDurationMins` (300 and 10080 as measured), so the label is read off that — which
+         *    is what makes Codex's two windows line up with the 5-hour and weekly ones Claude names.
+         *  - `planType` was the literal string `"unknown"` on a live ChatGPT account, not a tier. It
+         *    is only carried through when it says something, so the card reads "plan not reported"
+         *    rather than "Codex Unknown".
+         *
+         * `rateLimitReachedType` is the only status Codex offers, and it reports a limit ALREADY hit.
+         * There is no approaching-the-limit signal on this wire, so `alert` never becomes
+         * "approaching" for Codex — see PLAN_LIMIT_REPORTING's `warns: false`.
+         */
+        case "account/rateLimits/updated": {
+          const limits = obj(p.rateLimits);
+          const windows = (["primary", "secondary"] as const).flatMap((slot) => {
+            const w = obj(limits[slot]);
+            if (typeof w.usedPercent !== "number") return [];
+            return [{
+              id: slot,
+              label: windowLabelForMinutes(num(w.windowDurationMins)),
+              utilization: w.usedPercent,
+              resetsAt: typeof w.resetsAt === "number" ? w.resetsAt * 1000 : null,
+            }];
+          });
+          const reached = str(limits.rateLimitReachedType) || null;
+          const planType = str(limits.planType);
+          return [sessionEvent("rate_limit", {
+            subscriptionType: planType && planType !== "unknown" ? planType : null,
+            organization: null,
+            windows,
+            alert: reached ? "exceeded" : "none",
+            // The slot Codex names, when it names one, so the row it belongs to is the row that tones.
+            alertWindow: reached === "primary" || reached === "secondary" ? reached : null,
+            unavailable: null,
+            detail: reached,
+          })];
         }
 
         case "thread/settings/updated": {

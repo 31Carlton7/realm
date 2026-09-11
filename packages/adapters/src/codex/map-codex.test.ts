@@ -267,8 +267,89 @@ describe("createCodexMapper", () => {
 
   it("drops advisory and firehose notifications", () => {
     const m = createCodexMapper();
-    for (const method of ["warning", "configWarning", "deprecationNotice", "mcpServer/startupStatus/updated", "account/rateLimits/updated", "rawResponse/completed", "serverRequest/resolved", "thread/started"]) {
+    // `account/rateLimits/updated` left this list once the adapter started reading it — see
+    // "plan limits, as Codex reports them" below.
+    for (const method of ["warning", "configWarning", "deprecationNotice", "mcpServer/startupStatus/updated", "rawResponse/completed", "serverRequest/resolved", "thread/started"]) {
       expect(m.map(method, {})).toEqual([]);
     }
+  });
+});
+
+/**
+ * The account's plan quota, as Codex actually sends it.
+ *
+ * `CAPTURED` is the payload verbatim off a live `codex app-server` (codex-cli 0.154.0) — pinning the
+ * real bytes rather than a hand-written approximation is the whole point: the previous pass at this
+ * feature read the shape out of the protocol doc, where `primary` was recorded as `null`, and got it
+ * wrong. The three fields worth failing over are the epoch UNIT, the position-not-duration naming,
+ * and `planType: "unknown"` being a non-answer rather than a tier.
+ */
+const CAPTURED = {
+  rateLimits: {
+    limitId: "codex",
+    limitName: null,
+    normalModelSlug: null,
+    primary: { usedPercent: 0, windowDurationMins: 300, resetsAt: 1789120863 },
+    secondary: { usedPercent: 0, windowDurationMins: 10080, resetsAt: 1789583947 },
+    credits: { hasCredits: true, unlimited: false, balance: null },
+    individualLimit: null,
+    spendControlReached: null,
+    planType: "unknown",
+    rateLimitReachedType: null,
+  },
+};
+
+describe("plan limits, as Codex reports them", () => {
+  const read = (over: Record<string, unknown> = {}) =>
+    createCodexMapper().map("account/rateLimits/updated", { rateLimits: { ...CAPTURED.rateLimits, ...over } })[0]!.payload as {
+      subscriptionType: string | null; windows: { id: string; label: string; utilization: number | null; resetsAt: number | null }[];
+      alert: string; alertWindow: string | null; detail: string | null;
+    };
+
+  it("maps the captured payload to both windows, labelled by their duration", () => {
+    const p = read();
+    expect(p.windows.map((w) => [w.id, w.label])).toEqual([["primary", "5-hour"], ["secondary", "Weekly"]]);
+  });
+
+  /* The trap. Codex sends epoch SECONDS; Claude's stream sends milliseconds. Unconverted, a reset
+   * three hours out renders as January 1970 — a wrong answer that looks like a formatting bug rather
+   * than a unit bug, which is why it earns an assertion on the exact captured value. */
+  it("converts resetsAt from epoch seconds to milliseconds", () => {
+    expect(read().windows[0]!.resetsAt).toBe(1789120863 * 1000);
+    expect(read().windows[1]!.resetsAt).toBe(1789583947 * 1000);
+  });
+
+  it("carries usedPercent through as the utilization, including a real zero", () => {
+    // Zero is a measurement here, not a missing value — the account genuinely had used nothing.
+    expect(read().windows.map((w) => w.utilization)).toEqual([0, 0]);
+    expect(read({ primary: { usedPercent: 88, windowDurationMins: 300, resetsAt: 1 } }).windows[0]!.utilization).toBe(88);
+  });
+
+  it("treats planType 'unknown' as no answer rather than as a tier", () => {
+    // Measured live on a ChatGPT account. "Codex Unknown" on the card would be worse than silence.
+    expect(read().subscriptionType).toBeNull();
+    expect(read({ planType: "pro" }).subscriptionType).toBe("pro");
+  });
+
+  it("reports no alert while the account is inside its limits", () => {
+    expect(read().alert).toBe("none");
+    expect(read().alertWindow).toBeNull();
+  });
+
+  /* Codex's only status field reports a limit ALREADY hit — there is no approaching signal on this
+   * wire, so `approaching` must never appear for Codex however full a window is. */
+  it("goes straight to exceeded when Codex names a limit it has reached, and never to approaching", () => {
+    const p = read({ rateLimitReachedType: "secondary", secondary: { usedPercent: 100, windowDurationMins: 10080, resetsAt: 1 } });
+    expect(p.alert).toBe("exceeded");
+    expect(p.alertWindow).toBe("secondary");
+    expect(p.detail).toBe("secondary");
+    expect(read({ primary: { usedPercent: 99, windowDurationMins: 300, resetsAt: 1 } }).alert).toBe("none");
+  });
+
+  it("drops a window slot Codex sent empty rather than inventing a zero for it", () => {
+    // `primary: null` is what the protocol doc's earlier capture recorded, so it is a shape that
+    // really does occur — and a window with no percentage must not become a 0% bar.
+    const p = read({ primary: null });
+    expect(p.windows.map((w) => w.id)).toEqual(["secondary"]);
   });
 });

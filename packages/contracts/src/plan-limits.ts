@@ -99,11 +99,20 @@ export const PLAN_LIMIT_REPORTING: Record<AgentKind, PlanLimitReporting> = {
   // `SDKRateLimitEvent` on the message stream (status + utilization + resetsAt + rateLimitType), plus
   // the control call behind `/usage` for every window at once and the subscription tier.
   claude: { source: "claude-sdk", plan: true, warns: true },
-  // The app server DOES emit `account/rateLimits/updated` with `{limitId, primary, secondary, credits,
-  // planType}` — see docs/dev/codex-app-server-protocol.md §3. It is `none` here because the adapter
-  // does not read it yet and the captured shape is still partly unverified (`"primary":null,…`);
-  // stating a capability Realm has not measured is how a panel ends up confidently wrong.
-  codex: { source: "none", plan: false, warns: false },
+  // `account/rateLimits/updated`, captured live from codex-cli 0.154.0 (the verbatim payload is in
+  // docs/dev/codex-app-server-protocol.md §3). Two windows, 300 and 10080 minutes — the same 5-hour
+  // and weekly pair Claude reports.
+  //
+  // `warns: false`, and the asymmetry is real rather than an omission: the only status on this wire
+  // is `rateLimitReachedType`, which reports a limit ALREADY hit. There is no approaching-the-limit
+  // signal, so a Codex account gets the bars in Settings but no push warning before it runs out.
+  // Deriving one from `usedPercent` would mean Realm picking the threshold, which is the one thing
+  // this module refuses to do — the provider owns the verdict or there is no verdict.
+  //
+  // `plan: true` because the channel exists (`planType`), not because it answered: on a live ChatGPT
+  // account it was the literal string "unknown", which the mapper carries through as null so the card
+  // says "plan not reported" instead of inventing a tier.
+  codex: { source: "codex-app-server", plan: true, warns: false },
   // No ACP kind has a rate-limit or plan concept anywhere in the protocol — there is no request to
   // make and no notification to listen for. Absence is the honest answer, not a zeroed bar.
   "acp:gemini": { source: "none", plan: false, warns: false },
@@ -142,6 +151,23 @@ const WINDOW_LABELS: Record<string, string> = {
   seven_day_overage_included: "Weekly (with extra usage)",
   overage: "Extra usage",
 };
+
+/**
+ * A window's label from the length of the window itself.
+ *
+ * Codex names its two windows `primary` and `secondary` — positions, not durations — and puts the
+ * duration in `windowDurationMins` beside them. Reading the label off the duration is what makes
+ * "5-hour" and "Weekly" line up with the windows Claude reports under those names, and what keeps
+ * the labels right if Codex ever changes what primary means. Measured on codex-cli 0.154.0:
+ * `primary` is 300 minutes and `secondary` is 10080.
+ */
+export function windowLabelForMinutes(minutes: number): string {
+  if (!Number.isFinite(minutes) || minutes <= 0) return "Plan";
+  if (minutes === 10080) return "Weekly";
+  if (minutes % 1440 === 0) { const d = minutes / 1440; return d === 1 ? "Daily" : `${d}-day`; }
+  if (minutes % 60 === 0) return `${minutes / 60}-hour`;
+  return `${minutes}-minute`;
+}
 
 /** A window id as a label. Unknown ids become sentence-cased words rather than vanishing. */
 export function planWindowLabel(id: string): string {

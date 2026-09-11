@@ -43,6 +43,27 @@ async function booted(o: Partial<StartOptions> = {}) {
   return { adapter, handle, evs, done };
 }
 
+describe("plan limits", () => {
+  /* End to end over the fake server, which emits the notification with the live capture's shape
+   * (fixtures/fake-codex-server.mjs). The mapper's own suite pins the field-by-field reading; this
+   * one proves the notification survives the connection's fan-out to the session that asked. */
+  it("reports both windows off a real turn, in Realm's units", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "hello", attachments: [] });
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+
+    const [limits] = of(evs, "rate_limit");
+    expect(limits).toBeDefined();
+    expect(limits!.payload.windows).toEqual([
+      { id: "primary", label: "5-hour", utilization: 12, resetsAt: 1789120863 * 1000 },
+      { id: "secondary", label: "Weekly", utilization: 44, resetsAt: 1789583947 * 1000 },
+    ]);
+    // Inside its limits, and on an account whose planType says nothing.
+    expect(limits!.payload.alert).toBe("none");
+    expect(limits!.payload.subscriptionType).toBeNull();
+  });
+});
+
 describe("plans", () => {
   it("carries BOTH of Codex's plan shapes, each as its own card", async () => {
     const { handle, evs } = await booted();

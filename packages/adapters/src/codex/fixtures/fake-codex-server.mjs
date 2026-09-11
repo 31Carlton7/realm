@@ -223,6 +223,19 @@ async function streamMessageTurn(threadId, turnId, text) {
       modelContextWindow: 258400,
     },
   });
+  // After the token usage, which is where the real server puts it. Shape and units copied from the
+  // live capture in docs/dev/codex-app-server-protocol.md §3.1 — `resetsAt` in epoch SECONDS, the
+  // duration beside each slot rather than in its name.
+  notify("account/rateLimits/updated", {
+    rateLimits: {
+      limitId: "codex", limitName: null, normalModelSlug: null,
+      primary: { usedPercent: 12, windowDurationMins: 300, resetsAt: 1789120863 },
+      secondary: { usedPercent: 44, windowDurationMins: 10080, resetsAt: 1789583947 },
+      credits: { hasCredits: true, unlimited: false, balance: null },
+      individualLimit: null, spendControlReached: null,
+      planType: "unknown", rateLimitReachedType: null,
+    },
+  });
   endTurn(threadId, turnId);
 }
 
