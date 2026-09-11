@@ -15,6 +15,23 @@ export type RelayTransport = {
   slack: (url: string, text: string) => Promise<void>;
 };
 
+/**
+ * Does the iMessage half still work once realm-server is a daemon that outlived Realm.app?
+ *
+ * Measured, because at level C — no Electron at all — this relay is the ENTIRE story of how a person
+ * finds out anything happened, and a silent TCC denial would be the worst possible failure of it.
+ *
+ * It works. macOS resolves a process's Automation responsibility at exec and keeps it; a child
+ * spawned detached, whose parent then exits and which is reparented to launchd, still drives Messages
+ * under the grant that was in force when it started. Verified directly: a detached child outliving
+ * its parent gets a clean answer from Messages rather than errAEEventNotPermitted.
+ *
+ * What does NOT survive is being asked for the first time. A TCC prompt needs somebody frontmost to
+ * answer it, and a headless daemon has nobody — so a Mac that has never granted Automation to Realm
+ * gets a denial rather than a dialog. That is survivable exactly because of the posture below: every
+ * relay failure is a log line and never a throw, and the Slack webhook is plain HTTP with no TCC at
+ * all, which is why Settings offers both rather than treating iMessage as the real one.
+ */
 export const realTransport: RelayTransport = {
   imessage: (handle, text) => new Promise((resolve, reject) => {
     // Argument vector, never a shell string: the text is whatever an agent named its tool call.
