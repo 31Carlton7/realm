@@ -22,6 +22,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9371), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8937);
@@ -67,8 +68,8 @@ function cdp(wsUrl) {
   };
 }
 
-function rpc(port) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+function rpc(port, token) {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}`, tokenProtocols(token));
   let id = 0;
   const pending = new Map();
   const ready = new Promise((res) => ws.addEventListener("open", res));
@@ -223,7 +224,7 @@ async function main() {
   /* The Files tab is the surface the bug was reported on, and it is empty on a fresh home — so it is
      given something to scroll. Attachments on a user message are what the index calls an upload
      (`artifactsFromEvent`), which is the real write path rather than a row poked into the table. */
-  const api = rpc(SERVER_PORT);
+  const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
   const session = (await api.call("sessions.listAll", {}))[0];
   const files = Array.from({ length: 12 }, (_, i) => path.join(scratch, `seed-${i}.md`));

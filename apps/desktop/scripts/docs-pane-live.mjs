@@ -20,6 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9361), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8927);
@@ -72,8 +73,8 @@ function cdp(wsUrl) {
 /** A client for the server's own RPC socket. The fake agent has to be selected over the wire — a
  *  fresh session defaults to an engine this scratch home has no CLI for, and the summary needs an
  *  actual answer to summarise. Same helper `message-actions-live.mjs` uses, for the same reason. */
-function rpc(port) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+function rpc(port, token) {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}`, tokenProtocols(token));
   let id = 0;
   const pending = new Map();
   const ready = new Promise((res) => ws.addEventListener("open", res));
@@ -174,7 +175,7 @@ async function main() {
   await c.send("Emulation.setDeviceMetricsOverride", { width: 1400, height: 900, deviceScaleFactor: 2, mobile: false });
   await sleep(400);
 
-  const api = rpc(SERVER_PORT);
+  const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
   const sessions = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15000, "a session");
   const spaceId = sessions[0].spaceId;

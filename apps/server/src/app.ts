@@ -93,6 +93,23 @@ export type App = { port: number; db: Db; terminals: TerminalService; sessions: 
 export const SERVER_VERSION = "0.0.1";
 
 /**
+ * The wire's version, for a client deciding whether it can talk to a daemon it did not start.
+ *
+ * Separate from `SERVER_VERSION`, which is a hardcoded string that has never moved and so cannot
+ * answer the question. Bump this when a change to the RPC surface would make an older renderer
+ * misbehave rather than merely miss a feature — added methods and added optional fields do not
+ * qualify, since a client that does not call them cannot notice.
+ */
+export const PROTOCOL = 1;
+
+/** The Vite dev server's origin, when Electron told us about it by inheriting it into our env. */
+function devRendererOrigin(): string | null {
+  const url = process.env.ELECTRON_RENDERER_URL;
+  if (!url) return null;
+  try { return new URL(url).origin; } catch { return null; }
+}
+
+/**
  * Claude, Codex and both ACP agents are always registered; availability is reported by `agents.probe` so the
  * New Session sheet can disable the ones that are not installed or not signed in. The scripted fake is only
  * registered when REALM_ENABLE_FAKE_AGENT=1 (offline dev).
@@ -288,6 +305,10 @@ export function defaultAdapters(): AdapterRegistry {
 /** `claudeDir` overrides where MemoryService reads user-level Claude files (`~/.claude` otherwise) —
  *  for tests and live checks, which must never depend on (or expose) the real user's memory files. */
 export async function createApp(opts: { home: string; port: number; adapters?: AdapterRegistry; claudeDir?: string;
+  /** The RPC token every client must offer as its `realm.<token>` subprotocol. Undefined leaves the
+   *  socket open to anything on loopback, which is what the suite's several hundred `createApp` calls
+   *  want — production mints one in `main.ts` and writes it to the 0600 state file. */
+  token?: string;
   /** W5 test/live-check knobs for the browser-agent registry: `fallbackKind` (default claude) is the
    *  child agent when the parent's kind has no skills-injection route; `timeouts` shrinks the settle
    *  budget so suites don't wait minutes. Production callers pass neither. */
@@ -731,7 +752,15 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   await mcpGateway.listen();
   await preview.listen();
   await machineProxy.listen();
-  const port = await rpc.listen(opts.port);
+  const port = await rpc.listen(opts.port, "127.0.0.1", {
+    token: opts.token,
+    /* The origins Realm loads its own renderer from, measured rather than assumed: a packaged window
+       is a `file://` document and Chromium stamps `Origin: file://` on its WebSocket handshake; under
+       `pnpm dev` the window is the Vite server and stamps that origin instead. Everything else that
+       dials this socket (main's bridge, the CLI, the live checks) is `ws` from Node and sends no
+       Origin at all. */
+    allowedOrigins: ["file://", ...(devRendererOrigin() ? [devRendererOrigin()!] : [])],
+  });
   return {
     port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, gateway: mcpGateway,
     close: async () => {

@@ -30,6 +30,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9334), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8900);
@@ -113,8 +114,8 @@ void 0`;
 
 /** The server's own socket, for the one thing the UI cannot do here: put the session on the fake
  *  agent so a send completes on a machine with no CLI installed. */
-function rpc(port) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+function rpc(port, token) {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}`, tokenProtocols(token));
   let id = 0;
   const pending = new Map();
   const ready = new Promise((res) => ws.addEventListener("open", res));
@@ -340,7 +341,7 @@ async function main() {
      `user_message` event, which carries only `{path, mime}` — the name and the size are dropped on
      the wire. So this is a round trip, not a re-render, and the question is whether the picture
      survives it. */
-  const api = rpc(SERVER_PORT);
+  const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
   const session = await until(async () => {
     const all = await api.call("sessions.listAll", {});

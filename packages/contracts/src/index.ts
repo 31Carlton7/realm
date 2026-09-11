@@ -22,6 +22,12 @@ export * from "./fence";
 export * from "./chips";
 export * from "./cli";
 export * from "./computer-use";
+/* Colour maths, the shape of a palette, and reading a VS Code theme into one. Down here rather than
+   in `@realm/ui` because the SERVER imports all three to translate a theme file on disk, and the ui
+   package is React — the seed is data, and only expanding it into a palette needs a renderer. */
+export * from "./colour";
+export * from "./theme-seed";
+export * from "./vscode-theme";
 export * from "./delegation";
 export * from "./search";
 export * from "./import";
@@ -32,11 +38,14 @@ export * from "./plan-limits";
 export * from "./documents";
 export * from "./library";
 export * from "./runs";
+export * from "./daemon";
 export * from "./schedules";
 export * from "./failover";
 export * from "./school";
 export * from "./links";
 export * from "./connectors";
 export * from "./machine";
+export * from "./simulator";
+export * from "./goal";
 export * from "./sandbox";
 export * from "./keysym";

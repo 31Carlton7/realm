@@ -11,6 +11,10 @@ export type ScrollPhaseMessage = { phase: string; momentum: string; dx: number; 
 export type BrowserViewState = { id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean };
 contextBridge.exposeInMainWorld("realm", {
   port: port === undefined ? NaN : Number(port), home: arg("realm-home") ?? "",
+  /** The RPC token, offered as the `realm.<token>` subprotocol on every dial. Realm's socket binds
+   *  loopback, which a WebSocket dial from any web page can reach — CORS does not apply to it — so
+   *  without this the renderer is not the only thing that can call `sessions.create`. */
+  token: arg("realm-token") ?? "",
   /** Which OS this is, for the one preference that only exists on one of them: macOS is the only
    *  platform where the window has a material behind it, so the sidebar's transparency has nothing
    *  to reveal anywhere else (main/index.ts gives Windows and Linux an opaque backgroundColor). */
@@ -18,6 +22,9 @@ contextBridge.exposeInMainWorld("realm", {
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke("pick-folder"),
   /** Native multi-select file picker; [] when cancelled. */
   pickFiles: (): Promise<PickedFile[]> => ipcRenderer.invoke("pick-files"),
+  /** The path of a VS Code theme file the user chose, or null if they cancelled. The path alone —
+   *  the server reads and translates it, so no theme bytes cross this boundary. */
+  pickThemeFile: (): Promise<string | null> => ipcRenderer.invoke("pick-theme-file"),
   /** A downscaled data: URL for an image attachment, or null for anything that is not a readable
    *  image. The renderer cannot read the file itself, and CSP forbids `file://` — this is the only
    *  way an attachment is ever seen rather than merely named. */

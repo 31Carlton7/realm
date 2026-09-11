@@ -29,6 +29,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = 9223, SERVER_PORT = 8788;
@@ -81,8 +82,8 @@ function cdp(wsUrl) {
 /** A minimal client for the server's WebSocket JSON-RPC. The scripted agent is not offered in the
  *  harness chip — deliberately, it is a dev adapter — so the session is switched onto it here, the
  *  way the UI would if it did. The renderer is subscribed to the same server and renders the result. */
-function rpc(port) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+function rpc(port, token) {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}`, tokenProtocols(token));
   let id = 0;
   const pending = new Map();
   const ready = new Promise((res) => ws.addEventListener("open", res));
@@ -255,7 +256,7 @@ async function main() {
 
   // Put the open session on the scripted adapter. Over RPC rather than through the harness chip:
   // `fake` is not in SELECTABLE_AGENT_KINDS, on purpose — it is a dev adapter, not an offer.
-  const api = rpc(SERVER_PORT);
+  const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
   const sessions = await until(async () => {
     const all = await api.call("sessions.listAll", {});

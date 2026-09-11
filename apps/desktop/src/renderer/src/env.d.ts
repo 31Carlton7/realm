@@ -6,12 +6,16 @@ interface PickedFile { path: string; mime: string; name: string; size: number }
 interface Window {
   realm: {
     port: number; home: string;
+    /** The RPC token from the preload, sent as the `realm.<token>` subprotocol on every dial. */
+    token: string;
     /** `process.platform` from the preload. Absent in jsdom, which has no bridge — every reader has
      *  to treat "unknown" as "no window material" rather than guessing macOS. */
     platform?: string;
     pickFolder(): Promise<string | null>;
     /** Native multi-select file picker; [] when cancelled. */
     pickFiles(): Promise<PickedFile[]>;
+    /** The path of a VS Code colour theme the user chose, or null if they cancelled. */
+    pickThemeFile(): Promise<string | null>;
     /** Downscaled data: URL for an image attachment; null for anything not a readable image. */
     /** `tile` (the default) is a 96px mark beside a name; `card` is the Library's preview. */
     attachmentThumbnail(path: string, size?: "tile" | "card"): Promise<string | null>;

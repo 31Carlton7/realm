@@ -21,6 +21,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9344), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8911);
@@ -72,8 +73,8 @@ function cdp(wsUrl) {
   };
 }
 
-function rpc(port) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+function rpc(port, token) {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}`, tokenProtocols(token));
   let id = 0;
   const pending = new Map();
   const ready = new Promise((res) => ws.addEventListener("open", res));
@@ -182,7 +183,7 @@ async function main() {
 
   // `fake` is deliberately not in SELECTABLE_AGENT_KINDS, so the switch goes over RPC rather than
   // through the model chip — the same route media-live.mjs takes, for the same reason.
-  const api = rpc(SERVER_PORT);
+  const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
   const sessions = await until(async () => {
     const all = await api.call("sessions.listAll", {});

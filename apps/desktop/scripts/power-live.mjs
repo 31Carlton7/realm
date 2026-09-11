@@ -28,6 +28,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = 9223, SERVER_PORT = 8788;
@@ -94,8 +95,8 @@ async function evalIn(c, expr) {
 }
 
 /** A realm-server RPC client, so the stream is driven at a cadence this script owns. */
-function rpcClient(url) {
-  const ws = new WebSocket(url);
+function rpcClient(url, token) {
+  const ws = new WebSocket(url, tokenProtocols(token));
   let id = 0;
   const pending = new Map();
   ws.addEventListener("message", (ev) => {
@@ -238,7 +239,7 @@ async function main() {
   await until(() => evalIn(c, `!!document.querySelector('.panel')`), 20000, "first pane");
 
   // A fake-agent session, made server-side so this script owns the stream's cadence.
-  rpc = rpcClient(`ws://127.0.0.1:${SERVER_PORT}`);
+  rpc = rpcClient(`ws://127.0.0.1:${SERVER_PORT}`, await daemonToken(path.join(scratch, "home")));
   await rpc.ready;
   const spaces = await rpc.call("spaces.list", {});
   const spaceId = spaces[0].id;

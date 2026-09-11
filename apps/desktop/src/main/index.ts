@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { startServer } from "./server-process";
+import { daemonStatePath, readStateForPort } from "./daemon-state";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
 import { compressIconIfNeeded, describeFiles, existingPath, fileThumbnail, openablePath, saveTempAttachment, statFile, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
@@ -124,7 +125,7 @@ if (process.env.REALM_DEVTOOLS_PORT) app.commandLine.appendSwitch("remote-debugg
 // stacked over Realm. Cost: some battery while occluded — a workstation-app tradeoff made knowingly.
 app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 
-async function createWindow(info: { port: number; home: string }) {
+async function createWindow(info: { port: number; home: string; token: string }) {
   const win = new BrowserWindow({
     width: 1400, height: 900, minWidth: 900, minHeight: 600,
     // y:14 centres the ~14px lights in a 40px strip, and the renderer keeps every strip they can land
@@ -144,7 +145,7 @@ async function createWindow(info: { port: number; home: string }) {
       : { backgroundColor: "#17181a" }),
     // sandbox: false because electron-vite emits an ESM preload (.mjs), which Electron only loads unsandboxed.
     webPreferences: { preload: join(__dirname, "../preload/index.mjs"), contextIsolation: true, sandbox: false,
-      additionalArguments: [`--realm-port=${info.port}`, `--realm-home=${info.home}`] },
+      additionalArguments: [`--realm-port=${info.port}`, `--realm-home=${info.home}`, `--realm-token=${info.token}`] },
   });
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) void shell.openExternal(url);
@@ -752,6 +753,28 @@ ipcMain.handle("files:save-copy", async (_e, path: unknown): Promise<string | nu
   return r.filePath;
 });
 
+/**
+ * One Realm per machine.
+ *
+ * Absent until now, which was survivable while each launch owned its own server child on its own
+ * ephemeral port. It stops being survivable the moment the server outlives the app: two launches
+ * would mean two processes racing one `realm.db`, and the home lock in realm-server would turn the
+ * second one into a startup error the user did not ask for. Cheaper and clearer to never get there.
+ *
+ * The second launch exits immediately; this one raises the window it already has.
+ */
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    const win = mainWindow;
+    if (!win) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  });
+}
+
 app.whenReady().then(async () => {
   try {
     installMenu();
@@ -767,13 +790,18 @@ app.whenReady().then(async () => {
     // TODO(plan-2): reconnect/restart when server exits after ready
     child.on("exit", () => { serverChild = null; });
     const info = await ready;
+    // The token realm-server minted at boot. It is never on stdout, so the state file is the only
+    // place it exists — and without it neither the renderer nor the bridge below can get onto the
+    // socket at all, so a missing file is a hard failure rather than a degraded start.
+    const state = readStateForPort(info.home, info.port);
+    if (!state) throw new Error(`realm-server started on port ${info.port} but wrote no matching ${daemonStatePath(info.home)}`);
     realmHome = info.home;
     // Media streaming opens only once home is known: `media:poster` writes QuickLook scratch under it.
     handleMediaProtocol();
     // Sweep once at launch; saveTempAttachment sweeps again on every paste, so a session that never
     // restarts the app is bounded too.
     void sweepTempAttachments(tempAttachmentDir(info.home)).catch(() => {});
-    await createWindow(info);
+    await createWindow({ ...info, token: state.token });
     // Disabled builds return their existing state without loading electron-updater. Signed packaged
     // builds check the public feed and download in the background; failures remain visible in
     // Settings without blocking startup.
@@ -781,7 +809,7 @@ app.whenReady().then(async () => {
     // W3: register main as the browser host executor on realm-server's RPC socket. Ops for a view
     // that does not exist fail honestly inside the executor; the bridge just relays.
     agentBridge = startBrowserAgentBridge({
-      port: info.port,
+      port: info.port, token: state.token,
       handleOp: (op, params) => {
         // Answered here rather than in the executor: it needs no window and no CDP, and realm-server
         // asks for it the instant it registers. `exportOauthKey` is the ONE key that leaves main;

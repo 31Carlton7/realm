@@ -32,6 +32,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9338), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8904);
@@ -171,8 +172,8 @@ void 0`;
 
 /** The server's own RPC socket. The fake agent has to be selected over the wire, and a sent message
  *  is what puts a user bubble on screen to measure. */
-function rpc(port) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+function rpc(port, token) {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}`, tokenProtocols(token));
   let id = 0;
   const pending = new Map();
   const ready = new Promise((res) => ws.addEventListener("open", res));
@@ -352,7 +353,7 @@ async function main() {
      20px the corner is small enough that a fixed fraction would be pinning antialiasing as much as
      shape, but a bubble that fills more of its corner with the gate on than with it off can only be
      the worklet doing it. */
-  const api = rpc(SERVER_PORT);
+  const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
   const sessions = await until(async () => { const all = await api.call("sessions.listAll", {}); return all.length ? all : null; }, 15000, "a session");
   await api.call("sessions.setAgent", { id: sessions[0].id, agentKind: "fake" });

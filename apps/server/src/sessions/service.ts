@@ -641,6 +641,17 @@ export class SessionService {
   async deleteAllInSpace(spaceId: string): Promise<void> {
     for (const s of this.d.sessions.list(spaceId)) await this.delete(s.id);
   }
+  /**
+   * How many sessions hold a live adapter handle right now.
+   *
+   * This is the number the daemon's callers mean by "working": the tray title, the confirmation on
+   * *Quit Realm & stop agents*, and the quiescence test a draining daemon waits for. It counts
+   * handles, not rows — an idle session that would resume on its next send has none, which is the
+   * resting state of most of the sidebar and correctly contributes nothing.
+   */
+  liveCount(): number {
+    return this.live.size;
+  }
   /** Shutdown: dispose live handles; rows/items stay so sessions resume next boot. */
   async closeAll(): Promise<void> {
     this.closing = true;

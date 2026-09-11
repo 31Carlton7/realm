@@ -37,15 +37,17 @@ export function createBridgeCore(handleOp: HandleOp, sendRaw: (json: string) => 
 const RECONNECT_MS = 2_000;
 
 /** Connect (and keep reconnecting) to realm-server on the given port. Uses Node's built-in global
- *  WebSocket — no dependency, and main already knows the port from the server's ready line. */
-export function startBrowserAgentBridge(opts: { port: number; handleOp: HandleOp; onLog?: (line: string) => void }): { stop(): void } {
+ *  WebSocket — no dependency, and main already knows the port from the server's ready line. `token`
+ *  is read from the daemon state file and offered as the `realm.<token>` subprotocol; the server
+ *  refuses the handshake without it. */
+export function startBrowserAgentBridge(opts: { port: number; token: string; handleOp: HandleOp; onLog?: (line: string) => void }): { stop(): void } {
   let stopped = false;
   let ws: WebSocket | null = null;
   let timer: NodeJS.Timeout | null = null;
 
   const connect = (): void => {
     if (stopped) return;
-    const socket = new WebSocket(`ws://127.0.0.1:${opts.port}`);
+    const socket = new WebSocket(`ws://127.0.0.1:${opts.port}`, [`realm.${opts.token}`]);
     ws = socket;
     const core = createBridgeCore(opts.handleOp, (json) => {
       if (socket.readyState === WebSocket.OPEN) socket.send(json);

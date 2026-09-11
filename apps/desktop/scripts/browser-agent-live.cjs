@@ -115,10 +115,20 @@ function startRealmServer() {
   return { child, ready };
 }
 
+
+/** The RPC token realm-server minted at boot. It lives only in the 0600 `<home>/daemon.json` — never
+ *  on stdout — and the socket refuses a handshake that does not offer it as a subprotocol. */
+function daemonToken(home) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(home, "daemon.json"), "utf8"));
+    return typeof raw.token === "string" && raw.token ? raw.token : null;
+  } catch { return null; }
+}
+
 // ---- a minimal RPC client over the server's WS ----
-function connectRpc(port) {
+function connectRpc(port, token) {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, [`realm.${token}`]);
     const pending = new Map();
     const eventHandlers = [];
     let n = 0;
@@ -161,7 +171,7 @@ async function main() {
   blockBrowserDownloads(() => {});
   const bridge = startBrowserAgentBridge({ port: info.port, handleOp: (op, params) => host.handleOp(op, params), onLog: (l) => log(l) });
 
-  const rpc = await connectRpc(info.port);
+  const rpc = await connectRpc(info.port, daemonToken(path.join(scratch, "home")));
 
   // Play the renderer: when the agent opens a browser, mount + place its native view.
   const permissionLog = [];
