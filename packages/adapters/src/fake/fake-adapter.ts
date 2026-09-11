@@ -1,4 +1,4 @@
-import { newId, sessionEvent, type SessionEvent } from "@realm/contracts";
+import { newId, sessionEvent, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import type { AgentAdapter, AgentHandle, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
 
@@ -9,7 +9,10 @@ export type FakeStep =
    *  place, which is what the real agents do and the one plan behaviour a script must be able to
    *  reproduce. */
   | { kind: "plan"; planId: string; text?: string; steps?: { text: string; status: "pending" | "in_progress" | "completed" }[] }
-  | { kind: "throw"; message: string };
+  | { kind: "throw"; message: string }
+  /** A plan-quota reading, as `SDKRateLimitEvent` produces one on the real Claude wire. The scripted
+   *  adapter is the only kind that can drive the limits path end to end in a test. */
+  | { kind: "rateLimit"; payload: SessionEventPayload<"rate_limit"> };
 export type FakeScript = { on: string; emit: FakeStep[] }[];
 
 /** Scripted adapter for tests and UI development. Messages matching `on` replay the scripted steps; others echo. */
@@ -47,6 +50,7 @@ export class FakeAdapter implements AgentAdapter {
         if (interrupted) break; // like the real adapter: interrupt stops the turn; the turn's natural end still emits usage + idle
         await sleep();
         if (st.kind === "throw") throw new Error(st.message);
+        if (st.kind === "rateLimit") { q.push(sessionEvent("rate_limit", st.payload)); continue; }
         if (st.kind === "plan") { q.push(sessionEvent("plan", { planId: st.planId, ...(st.text ? { text: st.text } : {}), ...(st.steps ? { steps: st.steps } : {}) })); continue; }
         if (st.kind === "text") {
           const id = newId();

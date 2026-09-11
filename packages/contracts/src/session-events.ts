@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PlanAlertSchema, PlanLimitsUnavailableSchema, PlanWindowSchema } from "./plan-limits";
 
 const P = {
   /** `from` is present ONLY when another session delivered this message (Plan 20's interjection).
@@ -53,6 +54,24 @@ const P = {
      *  a cancelled turn is not a fault, and reporting it as one is the loudest lie in the log. */
     interrupted: z.boolean().optional() }),
   error: z.object({ message: z.string() }),
+  /**
+   * The provider's accounting of the ACCOUNT's plan quota, as it changes.
+   *
+   * Carried on the session's event channel because that is the only wire an adapter has, but it is
+   * not about this session and is deliberately absent from `PERSISTED_EVENT_TYPES`: a transcript is
+   * what happened in a conversation, and "your weekly window is at 78%" was true of the account for
+   * a moment and will be wrong by the time anyone re-reads the log. The server folds it into
+   * per-agent state instead, where the newest reading simply replaces the last.
+   */
+  rate_limit: z.object({
+    subscriptionType: z.string().nullable(),
+    organization: z.string().nullable(),
+    windows: z.array(PlanWindowSchema),
+    alert: PlanAlertSchema,
+    alertWindow: z.string().nullable(),
+    unavailable: PlanLimitsUnavailableSchema.nullable(),
+    detail: z.string().nullable(),
+  }),
   /**
    * The session changed agents mid-flight, because the one it was on could not finish the turn
    * (`failover.ts` decides when). Persisted, and rendered — a session that changes hands has to say
@@ -226,6 +245,7 @@ export const SessionEventSchema = z.discriminatedUnion("type", [
   variant("plan"),
   variant("feedback"),
   variant("summary"),
+  variant("rate_limit"),
 ]);
 
 export type SessionEvent = z.infer<typeof SessionEventSchema>;

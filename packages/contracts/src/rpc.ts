@@ -18,6 +18,7 @@ import { SEARCH_GROUP_LIMIT, SEARCH_GROUP_LIMIT_MAX, SEARCH_QUERY_MAX, SearchRes
 import { ImportResultSchema, ImportScanSchema } from "./import";
 import { GuideProgressSchema } from "./documents";
 import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageSummarySchema } from "./usage";
+import { PlanLimitsSchema } from "./plan-limits";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
 import { GuestSpecSchema, MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
 import { FailoverPolicySchema } from "./failover";
@@ -1147,6 +1148,9 @@ export const Methods = {
    *  drains on its own as turns settle, so an index the prompter read a moment ago may already name a
    *  different message. Unknown ids are a no-op — the drain that removed it got there first. */
   "sessions.dequeue": { params: z.object({ id: IdSchema, queuedId: z.string().min(1) }), result: z.object({ ok: z.literal(true) }) },
+  /** Every provider's plan quota as last reported, one row per agent kind — including the kinds that
+   *  cannot report, which carry `unavailable` so a panel can say why instead of drawing empty bars. */
+  "limits.get": { params: z.object({}), result: z.object({ limits: z.array(PlanLimitsSchema) }) },
   /** Send one queued message now, ahead of the turn it was waiting for. By id, and server-side, because
    *  the queue holds the mentions and element chips the message was composed with and `QueuedPrompt`
    *  does not — a prompter that re-sent the text it was shown would drop them. */
@@ -1285,6 +1289,9 @@ export const Events = {
    *  Carries the whole list rather than a delta: it is a handful of short strings, and a prompter that
    *  applied deltas would have to reason about one arriving before its initial `sessions.queued` read. */
   "session.queue":    z.object({ sessionId: IdSchema, queued: z.array(QueuedPromptSchema) }),
+  /** A provider restated the account's plan quota. Carries every kind's row rather than the one that
+   *  changed: it is a short list, and the panel and the session chip both read the whole thing. */
+  "limits.changed":   z.object({ limits: z.array(PlanLimitsSchema) }),
   /** One browser CDP operation for the registered browser host (Plan 11 W3). Sent TARGETED to the one
    *  client that called `browserHost.register`, never broadcast — see that method's doc comment. The
    *  host answers with a `browserHost.result` call carrying the same `callId`. */

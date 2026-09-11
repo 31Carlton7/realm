@@ -239,6 +239,10 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
       const { [e.payload.messageId]: _prev, ...rest } = t.feedback;
       return { ...t, feedback: e.payload.rating ? { ...rest, [e.payload.messageId]: e.payload.rating } : rest };
     }
+    // A plan-quota reading is about the ACCOUNT, not this conversation, and the store folds it into
+    // per-agent state off the event stream. The transcript is unchanged by it on purpose: a block
+    // saying "weekly window at 78%" would be a sentence nobody said, stuck between two that were.
+    case "rate_limit": return t;
     // The four numbers are replaced wholesale; the context measurement is CARRIED when the new event
     // does not state one. Not staleness — occupancy does not reset between turns, so the last
     // measurement is still the last true thing known about this window, and the adapter restates the

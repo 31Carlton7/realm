@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementContext, newId, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type ElementChip, type Environment, type QueuedPrompt, type Session, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
+import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementContext, newId, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type ElementChip, type Environment, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent } from "@realm/contracts";
 import type { AdapterRegistry, AgentHandle, PermissionDecision, ProbeResult, SkillMention, UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -122,6 +122,8 @@ export class SessionService {
      *  and gated for exactly the same reasons as `titleGenerator` above: it is a billed call, so only
      *  the real server process passes one, and it is `void`ed off the settle rather than awaited. */
     summaries?: { onSettled(sessionId: string): Promise<void> };
+    /** Where a `rate_limit` reading goes. Per agent KIND, not per session — see PlanLimitsService. */
+    planLimits?: { apply(kind: AgentKind, reading: SessionEventPayload<"rate_limit">): void };
   }) {}
 
   /** Cached probe (TTL + in-flight dedup): each `probeAll` spawns a child process per registered agent,
@@ -918,6 +920,9 @@ export class SessionService {
      * edit across twenty files must not open twenty tabs, and a `.ts` does not belong behind a
      * rich-text editor. */
     if (ev.type === "tool_call") this.surfaceWrittenDocument(id, ev.payload.name, ev.payload.input);
+    // Not persisted and not this session's: the reading describes the ACCOUNT behind every session on
+    // this agent, so it is folded into per-kind state and never into the transcript.
+    if (ev.type === "rate_limit") this.d.planLimits?.apply(before.agentKind, ev.payload);
     if (ev.type === "status") {
       this.d.sessions.update({ id, status: ev.payload.status });
       this.d.rpc.broadcast("session.status", { sessionId: id, status: ev.payload.status });

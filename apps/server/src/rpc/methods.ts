@@ -5,6 +5,7 @@ import type { ProfilesStore } from "../store/profiles";
 import type { SpacesStore } from "../store/spaces";
 import type { IconAssetsStore } from "../store/icon-assets";
 import type { IconGenerationService } from "../icons/service";
+import type { PlanLimitsService } from "../limits/service";
 import type { ProjectsStore } from "../store/projects";
 import type { EnvironmentsStore } from "../store/environments";
 import type { EnvironmentService } from "../environments/service";
@@ -61,6 +62,7 @@ export type Deps = {
   rpc: RpcServer; home: string; version: string; machineName: string; userName: string;
   profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; machines: MachineService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService;
+  planLimits: PlanLimitsService;
   delegation: DelegationEngine;
 };
 
@@ -693,6 +695,7 @@ export function registerMethods(d: Deps): void {
   reg("sessions.create", (p) => d.sessions.create({ ...p, dispatchedBy: p.userDispatched ? { kind: "user-dispatch", sessionId: null } : null }));
   reg("sessions.send", async (p) => { await d.sessions.send(p.id, { text: p.text, attachments: p.attachments, mentions: p.mentions, elements: p.elements }, p.delivery); return { ok: true as const }; });
   reg("sessions.dequeue", async (p) => { d.sessions.dequeue(p.id, p.queuedId); return { ok: true as const }; });
+  reg("limits.get", async () => ({ limits: d.planLimits.list() }));
   reg("sessions.releaseQueued", async (p) => { await d.sessions.releaseQueued(p.id, p.queuedId); return { ok: true as const }; });
   reg("sessions.queued", async (p) => ({ queued: d.sessions.queuedPrompts(p.id) }));
   reg("sessions.interrupt", async (p) => { await d.sessions.interrupt(p.id); return { ok: true as const }; });

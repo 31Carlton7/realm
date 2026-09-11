@@ -28,6 +28,7 @@ export * from "./import";
 export * from "./models";
 export * from "./catalog";
 export * from "./usage";
+export * from "./plan-limits";
 export * from "./documents";
 export * from "./library";
 export * from "./runs";

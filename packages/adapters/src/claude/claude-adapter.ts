@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { query as sdkQuery, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type Query } from "@anthropic-ai/claude-agent-sdk";
-import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, newId, sessionEvent, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
+import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, mergeWindows, newId, planWindowLabel, sessionEvent, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { createSdkMapper } from "./map-sdk-message";
 import { probeClaude } from "./probe";
@@ -227,6 +227,76 @@ export class ClaudeAdapter implements AgentAdapter {
       } catch { /* the CLI declined; the capability stays unstated */ }
     };
 
+    /** A utilization percentage, or null for anything that is not a finite number — the SDK types
+     *  these as nullable and a `null` drawn as 0% would read as an empty window. */
+    const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+    /** An ISO-8601 reset time as epoch ms. The stream reports `resetsAt` in ms already; this control
+     *  request reports `resets_at` as a string, and the two must land in one unit. */
+    const millis = (v: unknown): number | null => {
+      if (typeof v === "number" && Number.isFinite(v)) return v;
+      if (typeof v !== "string") return null;
+      const t = Date.parse(v);
+      return Number.isNaN(t) ? null : t;
+    };
+
+    /**
+     * Ask the CLI for the whole plan picture — every rate-limit window, plus the subscription tier.
+     *
+     * The stream's `rate_limit_event` names ONE window (the one that just moved) and the account's
+     * status; this control request answers the rest, which is what a panel showing "5-hour, weekly,
+     * and the per-model windows" needs. Called once after the handshake and again whenever the
+     * stream says something changed, so the panel is populated before the first limit moves.
+     *
+     * Two properties of the SDK shape the code has to respect:
+     *
+     *  - Fable (and every future model bucket) arrives in `rate_limits.model_scoped[]` under a
+     *    server-supplied `display_name`, NOT under a fixed key like `seven_day_opus`. So the array is
+     *    read generically and the label is the server's word, never one written here.
+     *  - `rate_limits_available: false` is a real answer, not an error: an API key, Bedrock or Vertex
+     *    session has no plan quota. It becomes `not-on-a-plan` so the panel says that instead of
+     *    drawing empty bars.
+     *
+     * The method is named `usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`, and this is
+     * the whole of Realm's exposure to it: every failure mode — renamed, removed, throwing — lands in
+     * the catch and leaves the last stream-reported window standing on its own.
+     */
+    const readPlanLimits = async (): Promise<SessionEventPayload<"rate_limit"> | null> => {
+      const ask = (q as { usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: () => Promise<unknown> } | undefined)
+        ?.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
+      if (typeof ask !== "function") return null;
+      try {
+        const res = await ask.call(q) as {
+          subscription_type?: unknown; rate_limits_available?: unknown;
+          rate_limits?: Record<string, unknown> | null;
+        };
+        if (disposed) return null;
+        const subscriptionType = typeof res.subscription_type === "string" ? res.subscription_type : null;
+        if (res.rate_limits_available === false) {
+          return { subscriptionType, organization: null, windows: [], alert: "none", alertWindow: null, unavailable: "not-on-a-plan", detail: null };
+        }
+        const limits = res.rate_limits;
+        if (!limits || typeof limits !== "object") return null;
+        const windows: PlanWindow[] = [];
+        for (const [id, value] of Object.entries(limits)) {
+          if (id === "model_scoped") {
+            // The server's own label is the id here, because there is no key to use instead.
+            for (const bucket of Array.isArray(value) ? value : []) {
+              const b = bucket as { display_name?: unknown; utilization?: unknown; resets_at?: unknown };
+              if (typeof b?.display_name !== "string") continue;
+              windows.push({ id: `model:${b.display_name}`, label: planWindowLabel(`model:${b.display_name}`), utilization: num(b.utilization), resetsAt: millis(b.resets_at) });
+            }
+            continue;
+          }
+          const w = value as { utilization?: unknown; resets_at?: unknown } | null;
+          if (!w || typeof w !== "object" || !("utilization" in w || "resets_at" in w)) continue;
+          windows.push({ id, label: planWindowLabel(id), utilization: num(w.utilization), resetsAt: millis(w.resets_at) });
+        }
+        return { subscriptionType, organization: null, windows, alert: "none", alertWindow: null, unavailable: null, detail: null };
+      } catch {
+        return null; // experimental and allowed to vanish; the stream still reports one window
+      }
+    };
+
     /**
      * Ask the CLI how full the window actually is, and restate the turn's usage with the answer.
      *
@@ -279,6 +349,10 @@ export class ClaudeAdapter implements AgentAdapter {
               providerSessionId: String(i.session_id ?? ""), model: String(i.model ?? ""),
               tools: Array.isArray(i.tools) ? i.tools.map(String) : [], cwd: String(i.cwd ?? opts.cwd),
             });
+            // The plan panel should be answerable before any limit moves, so it is read once here
+            // rather than waiting for the first `rate_limit_event` — which on a quiet account may
+            // never come. Off the message loop, like the fast-mode probe above it.
+            void readPlanLimits().then((p) => { if (p && !disposed) events.push(sessionEvent("rate_limit", p)); }).catch(() => {});
             if (!running) events.push(sessionEvent("status", { status: "idle" })); // init arrives after the first send in streaming mode
             continue;
           }
@@ -301,6 +375,25 @@ export class ClaudeAdapter implements AgentAdapter {
             // suite yields its fixture once per session, so a second turn cannot be driven through
             // it — this line is the reason that mutant is not reachable there, not an oversight.)
             interrupted = false;
+            continue;
+          }
+          if (msg.type === "rate_limit_event") {
+            const info = (msg as { rate_limit_info?: Record<string, unknown> }).rate_limit_info ?? {};
+            const status = info.status;
+            const alert: PlanAlert = status === "rejected" ? "exceeded" : status === "allowed_warning" ? "approaching" : "none";
+            const id = typeof info.rateLimitType === "string" ? info.rateLimitType : null;
+            const window: PlanWindow[] = id
+              ? [{ id, label: planWindowLabel(id), utilization: num(info.utilization), resetsAt: millis(info.resetsAt) }]
+              : [];
+            // The full picture first, so a panel opened on this event shows every window rather than
+            // only the one that moved. Its `alert` is always "none" — the control request reports
+            // quotas, not status — so the stream's verdict is laid over it here.
+            const full = await readPlanLimits();
+            const merged = full
+              ? { ...full, windows: mergeWindows(full.windows, window), alert, alertWindow: id }
+              : { subscriptionType: null, organization: null, windows: window, alert, alertWindow: id,
+                  unavailable: null, detail: typeof info.overageDisabledReason === "string" ? info.overageDisabledReason : null };
+            events.push(sessionEvent("rate_limit", merged));
             continue;
           }
           for (const e of mapper.map(msg)) events.push(e);

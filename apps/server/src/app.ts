@@ -47,6 +47,7 @@ import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
 import { SessionService } from "./sessions/service";
 import { SessionSummaryService } from "./sessions/summary";
+import { PlanLimitsService } from "./limits/service";
 import type { ProbeResult } from "@realm/adapters";
 import { SkillsService } from "./skills/service";
 import { McpServersStore, McpCallLogStore } from "./store/mcp";
@@ -558,7 +559,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
         onError: (line) => console.error(line),
       })
     : undefined;
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker, titleGenerator: opts.titleGenerator, summaries, documents,
+  const planLimits = new PlanLimitsService({ rpc });
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker, titleGenerator: opts.titleGenerator, summaries, planLimits, documents,
     // The session-event rail, fanned out: the notifications feed AND the durable-run supervisor read
     // the SAME event off the same hook, so a run settles off exactly the status transition the feed
     // reports rather than off a poll of its own (runs/service.ts).
@@ -704,7 +706,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
     profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, machines, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, browserPermissions: browserBroker, cli, cliInstaller,
-    iconAssets, iconGeneration,
+    iconAssets, iconGeneration, planLimits,
   });
   sessions.markStaleOnBoot();
   // AFTER markStaleOnBoot, which is what turns a session that was mid-turn back into a resumable
