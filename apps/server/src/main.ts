@@ -5,13 +5,13 @@
 delete process.env.ELECTRON_RUN_AS_NODE;
 
 import { generateSessionSummary, generateSessionTitle } from "@realm/adapters";
-import { createApp, PROTOCOL } from "./app";
+import { createApp } from "./app";
+import { DAEMON_PROTOCOL } from "@realm/contracts";
 import { realmHome } from "./paths";
-import { acquireLock, clearState, currentBundleId, newBootId, newToken, readState, releaseLock, writeState } from "./daemon/state";
+import { BOOT_ID, acquireLock, clearState, currentBundleId, newToken, readState, releaseLock, writeState } from "./daemon/state";
 
 const envPort = Number(process.env.REALM_PORT);
 const port = Number.isFinite(envPort) && envPort >= 0 ? envPort : 0;
-const bootId = newBootId();
 const token = newToken();
 const entry = process.argv[1] ?? "";
 let lockedHome: string | null = null;
@@ -21,7 +21,7 @@ try {
   // Mutual exclusion is on the HOME, not the port. What two servers would corrupt is one `realm.db`:
   // two live-session maps, two schedulers claiming the same rows, two processes racing the migration
   // runner. Taking the lock BEFORE createApp means the loser has not yet opened the database.
-  const lock = acquireLock(home, { pid: process.pid, bootId });
+  const lock = acquireLock(home, { pid: process.pid, bootId: BOOT_ID });
   if (lock.kind === "held") {
     // Not a failure — it is the ordinary answer for a second launch. The launcher reads the code and
     // adopts the daemon already running instead of showing the user an error about a lock file.
@@ -41,7 +41,7 @@ try {
   // The state file is written only now, because `createApp` is what binds the port — a file
   // announcing a port nothing is listening on is worse than no file at all.
   writeState(home, {
-    version: 1, pid: process.pid, bootId, port: app.port, token, home, protocol: PROTOCOL,
+    version: 1, pid: process.pid, bootId: BOOT_ID, port: app.port, token, home, protocol: DAEMON_PROTOCOL,
     bundleId: currentBundleId(entry), entry, startedAt: Date.now(), state: "running",
   });
 
@@ -52,6 +52,21 @@ try {
   // is a secret with one place to go wrong.
   process.stdout.write(JSON.stringify({ type: "ready", port: app.port, home }) + "\n");
 
+  // A headless crash is silent: nobody is watching stderr, and the next thing the user notices is an
+  // app that will not start. One timestamped line into the log is the difference between that and a
+  // question somebody can answer.
+  const fatal = (kind: string) => (e: unknown) => {
+    process.stderr.write(`[realm-server] ${new Date().toISOString()} ${kind}: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}\n`);
+    if (kind !== "uncaughtException") return;
+    // Tidy up on the way out. Not load-bearing — a launcher finding a state file whose pid is gone
+    // decides to spawn, and a lock whose pid is gone is broken and retaken — but leaving them behind
+    // means the next launch's log says "stale" about a crash it could have said nothing about.
+    try { clearState(home); releaseLock(home, { pid: process.pid }); } catch { /* nothing left to do */ }
+    process.exit(1);
+  };
+  process.on("unhandledRejection", fatal("unhandledRejection"));
+  process.on("uncaughtException", fatal("uncaughtException"));
+
   const shutdown = async () => {
     // Clear before closing: between these two a launcher must not read a file pointing at a socket
     // that is already refusing connections.
@@ -61,6 +76,10 @@ try {
     process.exit(0);
   };
   process.on("SIGINT", shutdown); process.on("SIGTERM", shutdown);
+  // SIGHUP's default action is termination, and a daemon started from a terminal gets one when that
+  // terminal closes. `detached: true` already puts us in our own session, out of the way of the
+  // controlling terminal — this is the belt to that's brace, and it costs one line.
+  process.on("SIGHUP", () => process.stderr.write("[realm-server] ignoring SIGHUP\n"));
 } catch (e) {
   if (lockedHome) releaseLock(lockedHome, { pid: process.pid });
   const message = e instanceof Error ? e.message : String(e);

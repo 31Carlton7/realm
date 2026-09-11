@@ -33,6 +33,10 @@ const env = {
   HOME: process.env.HOME, USER: process.env.USER, LOGNAME: process.env.LOGNAME,
   TMPDIR: process.env.TMPDIR, SHELL: process.env.SHELL || "/bin/zsh",
   PATH: "/usr/bin:/bin", REALM_HOME: home, REALM_PORT: String(PORT),
+  // This launches the REAL packaged app, where realm-server would otherwise run as a daemon that
+  // outlives the smoke test — a scratch home with a server still holding it open, left behind on
+  // every run. The child shape is also what the exit assertions below already assume.
+  REALM_DAEMON: "0",
 };
 
 const results = [];

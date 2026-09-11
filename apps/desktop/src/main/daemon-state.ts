@@ -7,8 +7,17 @@
  * it, and the file is the only place it exists.
  */
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { DAEMON_STATE_FILE, DaemonStateSchema, type DaemonState } from "@realm/contracts";
+
+/**
+ * Where `~/Realm` is — resolved HERE rather than read back from the server, because adoption has to
+ * find `daemon.json` before any server exists to ask. It mirrors `apps/server/src/paths.ts`, and the
+ * two cannot drift: main passes this value to every server it spawns as REALM_HOME, so the server
+ * agrees by construction rather than by coincidence.
+ */
+export const realmHomePath = (): string => process.env.REALM_HOME ?? join(homedir(), "Realm");
 
 export const daemonStatePath = (home: string): string => join(home, DAEMON_STATE_FILE);
 

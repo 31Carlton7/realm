@@ -36,6 +36,21 @@ export const DAEMON_STATE_FILE = "daemon.json";
 export const DAEMON_LOCK_FILE = "daemon.lock";
 
 /**
+ * The wire's version, for a client deciding whether it can talk to a daemon it did not start.
+ *
+ * Separate from `SERVER_VERSION`, which is a hardcoded string that has never moved and so cannot
+ * answer the question. Bump `DAEMON_PROTOCOL` when a change to the RPC surface would make an older
+ * renderer misbehave rather than merely miss a feature — added methods and added optional fields do
+ * not qualify, since a client that does not call them cannot notice.
+ *
+ * The MIN/MAX pair is the range THIS app can drive. An adopted daemon outside it is a handoff, not a
+ * refusal: the app restarts the daemon rather than telling the user their own server is too old.
+ */
+export const DAEMON_PROTOCOL = 1;
+export const DAEMON_PROTOCOL_MIN = 1;
+export const DAEMON_PROTOCOL_MAX = 1;
+
+/**
  * Identity of a server bundle, as "is the daemon running the code this app ships?".
  *
  * Not the version string: `SERVER_VERSION` is a hardcoded "0.0.1" that has never moved, and

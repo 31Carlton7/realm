@@ -1,6 +1,7 @@
-import { Methods, type MethodName, type MethodResult } from "@realm/contracts";
+import { DAEMON_PROTOCOL, Methods, type MethodName, type MethodResult } from "@realm/contracts";
 import type { z } from "zod";
 import type { RpcServer } from "./server";
+import { BOOT_ID } from "../daemon/state";
 import type { ProfilesStore } from "../store/profiles";
 import type { SpacesStore } from "../store/spaces";
 import type { IconAssetsStore } from "../store/icon-assets";
@@ -71,7 +72,7 @@ export function registerMethods(d: Deps): void {
   const reg = <M extends MethodName>(name: M, fn: (p: Params<M>) => Result<M>) =>
     rpc.register(name, Methods[name].params, async (p) => fn(p as Params<M>));
 
-  reg("system.info", () => ({ realmHome: d.home, version: d.version, machineName: d.machineName, userName: d.userName }));
+  reg("system.info", () => ({ realmHome: d.home, version: d.version, machineName: d.machineName, userName: d.userName, bootId: BOOT_ID, protocol: DAEMON_PROTOCOL }));
 
   reg("workspace.gitInfo", (p) => d.gitInfo.get(p.cwd));
   reg("workspace.diff", (p) => d.gitDiff.summary(p.cwd));

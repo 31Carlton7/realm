@@ -27,6 +27,20 @@ export function currentBundleId(entry: string): string {
   try { return bundleIdOf(statSync(entry)); } catch { return "missing"; }
 }
 
+/**
+ * This process's identity, minted once when this module first loads.
+ *
+ * A module constant rather than a value threaded from `main.ts` through `createApp` into
+ * `registerMethods`, because that is exactly what it is: one id per running server, for the whole
+ * life of that server. `main.ts` writes it into the state file and `system.info` reports it, and the
+ * only property anything depends on is that those two agree — which they do by construction here, and
+ * only by discipline if it travels.
+ *
+ * (The suite creates many apps inside one process, so they share a boot id. Nothing compares boot ids
+ * between two apps; the comparison this exists for is between a state FILE and the socket it names.)
+ */
+export const BOOT_ID = randomUUID();
+
 export const newBootId = (): string => randomUUID();
 export const newToken = (): string => randomBytes(32).toString("base64url");
 

@@ -879,7 +879,11 @@ export const Methods = {
   /** `machineName` is the Mac's user-facing ComputerName ("Carlton's M4 MacBook Pro"), falling back to
    *  the hostname stripped of `.local`. Display-only (the prompter's under-strip machine label, Plan 12
    *  W1): Realm runs agents on this machine and no other, so there is nothing to select. */
-  "system.info": { params: z.object({}), result: z.object({ realmHome: z.string(), version: z.string(), machineName: z.string(), userName: z.string() }) },
+  /** `bootId` is what makes a daemon identifiable. A launcher that finds `daemon.json` knows a pid
+   *  and a port, and both can lie — a pid is reused, a port is answered by somebody else. Asking the
+   *  socket for the id minted at ITS boot and comparing is the only test that settles it. `protocol`
+   *  is the same question about the wire, for an app that did not start the daemon it found. */
+  "system.info": { params: z.object({}), result: z.object({ realmHome: z.string(), version: z.string(), machineName: z.string(), userName: z.string(), bootId: z.string(), protocol: z.number() }) },
 
   "workspace.gitInfo": { params: z.object({ cwd: z.string() }), result: GitInfoSchema.nullable() },
 

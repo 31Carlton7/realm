@@ -50,7 +50,9 @@ export function resolveServerEntry(d: { override: string | undefined; packaged: 
     : join(d.appPath, "..", "server", "dist", "main.js");
 }
 
-export function startServer(): { child: ChildProcess; ready: Promise<ServerInfo> } {
+/** The bundle this app would run, checked to exist. Shared by both spawn shapes below, and by the
+ *  launcher, which needs to stat it to know whether an adopted daemon is running the same code. */
+export function serverEntry(): string {
   const entry = resolveServerEntry({
     override: process.env.REALM_SERVER_ENTRY,
     packaged: app.isPackaged,
@@ -58,15 +60,48 @@ export function startServer(): { child: ChildProcess; ready: Promise<ServerInfo>
     resourcesPath: process.resourcesPath,
   });
   if (!existsSync(entry)) throw new Error(`realm-server bundle not found at ${entry} — run \`pnpm build\` (dev) or re-package (dist)`);
+  return entry;
+}
+
+/**
+ * Start realm-server as a DETACHED daemon: its own session and process group, output on a log file,
+ * and unreferenced so this process can exit without waiting for it.
+ *
+ * `detached: true` is load-bearing twice over. A child in our process group receives the ⌃C a
+ * developer types in the terminal that started `pnpm dev`, and it receives SIGHUP when that terminal
+ * goes away — either one would kill the very thing this feature exists to keep alive. `setsid` puts
+ * it out of reach of both.
+ *
+ * There is no ready promise, because there is no pipe to read one from: stdout is the log file. The
+ * caller learns the daemon is up the same way a launcher that did not spawn it does — by watching for
+ * the state file and probing the port. One readiness path instead of two.
+ */
+export function spawnDaemon(d: { home: string; logFd: number }): ChildProcess {
+  const entry = serverEntry();
+  const env = { ...process.env, REALM_HOME: d.home };
+  const stdio: ["ignore", number, number] = ["ignore", d.logFd, d.logFd];
+  const nodeBin = process.env.REALM_NODE;
+  const child = nodeBin
+    ? spawn(nodeBin, [entry], { env, stdio, detached: true })
+    : spawn(process.execPath, [entry], { env: { ...env, ELECTRON_RUN_AS_NODE: "1" }, stdio, detached: true });
+  // Without this, Electron's event loop is held open by a child it no longer wants to own, and quit
+  // waits on a process that is meant to outlive it.
+  child.unref();
+  return child;
+}
+
+export function startServer(opts: { home?: string } = {}): { child: ChildProcess; ready: Promise<ServerInfo> } {
+  const entry = serverEntry();
   // Electron's own binary IS a Node runtime under ELECTRON_RUN_AS_NODE — the packaged app depends on
   // no system node at all (a Finder launch has launchd's minimal PATH: no node, no Homebrew).
   // apps/server/src/main.ts drops the variable from its own env first thing, so terminals, probes and
   // agent CLIs spawned downstream never inherit it. REALM_NODE stays as an escape hatch: point it at
   // a specific node binary and the old spawn shape is used unchanged.
   const nodeBin = process.env.REALM_NODE;
+  const env = { ...process.env, ...(opts.home ? { REALM_HOME: opts.home } : {}) };
   const child = nodeBin
-    ? spawn(nodeBin, [entry], { env: { ...process.env }, stdio: ["ignore", "pipe", "inherit"] })
-    : spawn(process.execPath, [entry], { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, stdio: ["ignore", "pipe", "inherit"] });
+    ? spawn(nodeBin, [entry], { env, stdio: ["ignore", "pipe", "inherit"] })
+    : spawn(process.execPath, [entry], { env: { ...env, ELECTRON_RUN_AS_NODE: "1" }, stdio: ["ignore", "pipe", "inherit"] });
   const ready = new Promise<ServerInfo>((resolve, reject) => {
     const parser = new ReadyLineParser();
     const stdout = child.stdout!;

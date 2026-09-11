@@ -14,6 +14,8 @@
     "dist:dir": "pnpm build && pnpm --filter @realm/desktop dist:dir",
     "app:update": "pnpm dist:dir && node scripts/install-local.mjs",
     "app:icons": "node scripts/icon-registrations.mjs",
+    "daemon:status": "node scripts/daemon.mjs status",
+    "daemon:stop": "node scripts/daemon.mjs stop",
     "release": "node scripts/release.mjs"
   },
   "devDependencies": {

@@ -40,7 +40,15 @@ const RECONNECT_MS = 2_000;
  *  WebSocket — no dependency, and main already knows the port from the server's ready line. `token`
  *  is read from the daemon state file and offered as the `realm.<token>` subprotocol; the server
  *  refuses the handshake without it. */
-export function startBrowserAgentBridge(opts: { port: number; token: string; handleOp: HandleOp; onLog?: (line: string) => void }): { stop(): void } {
+export function startBrowserAgentBridge(opts: {
+  port: number; token: string; handleOp: HandleOp; onLog?: (line: string) => void;
+  /** Liveness, for the daemon supervisor. This socket is the only continuous signal main has about a
+   *  server it may not own — there is no child to watch exit — and it already redials forever, so
+   *  `onDisconnected` fires once per failed attempt and is the supervisor's tick as well as its
+   *  signal. */
+  onConnected?: () => void;
+  onDisconnected?: () => void;
+}): { stop(): void } {
   let stopped = false;
   let ws: WebSocket | null = null;
   let timer: NodeJS.Timeout | null = null;
@@ -52,11 +60,12 @@ export function startBrowserAgentBridge(opts: { port: number; token: string; han
     const core = createBridgeCore(opts.handleOp, (json) => {
       if (socket.readyState === WebSocket.OPEN) socket.send(json);
     });
-    socket.addEventListener("open", () => { opts.onLog?.("[browser-agent] bridge connected"); core.onOpen(); });
+    socket.addEventListener("open", () => { opts.onLog?.("[browser-agent] bridge connected"); core.onOpen(); opts.onConnected?.(); });
     socket.addEventListener("message", (ev) => { void core.onMessage(typeof ev.data === "string" ? ev.data : ""); });
     socket.addEventListener("close", () => {
       if (stopped || ws !== socket) return;
       opts.onLog?.("[browser-agent] bridge disconnected; retrying");
+      opts.onDisconnected?.();
       timer = setTimeout(connect, RECONNECT_MS);
     });
     socket.addEventListener("error", () => { /* close fires next; reconnect happens there */ });

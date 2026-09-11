@@ -1,13 +1,17 @@
 import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, shell, systemPreferences, Tray, type MenuItemConstructorOptions } from "electron";
 import { BrowserCredentialInputSchema, newId, type BrowserCredential, type MediaFile } from "@realm/contracts";
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { copyFile, writeFile } from "node:fs/promises";
 import { spawn, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { startServer } from "./server-process";
-import { daemonStatePath, readStateForPort } from "./daemon-state";
+import { serverEntry, spawnDaemon, startServer } from "./server-process";
+import { daemonStatePath, readDaemonState, readStateForPort, realmHomePath } from "./daemon-state";
+import { daemonModeEnabled, ensureDaemon, probeDaemon } from "./daemon";
+import { bundleIdOf } from "@realm/contracts";
+import { closeDaemonLog, daemonLogPath, openDaemonLog } from "./daemon-log";
+import { DaemonSupervisor } from "./daemon-supervisor";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
 import { compressIconIfNeeded, describeFiles, existingPath, fileThumbnail, openablePath, saveTempAttachment, statFile, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
@@ -36,7 +40,16 @@ import { handleMediaProtocol, mediaPoster, registerMediaScheme, servablePath, st
    actually reads files is installed in `whenReady`, once the server has told us where home is. */
 registerMediaScheme();
 
+/** The server child, in the non-daemon shape: a process this one owns and SIGTERMs on quit. */
 let serverChild: import("node:child_process").ChildProcess | null = null;
+/** The daemon, when we are the launch that started it. Deliberately NOT the liveness signal — the
+ *  whole point of a daemon is that the next launch adopts one it has no handle for, so supervision
+ *  goes through the bridge and the recorded pid instead. Held only so a `Quit Realm & stop agents`
+ *  in the same session as the spawn does not have to go back to the file for a pid. */
+let daemonChild: import("node:child_process").ChildProcess | null = null;
+/** Watches the daemon through the bridge, and brings it back when it dies. Null in the non-daemon
+ *  shape, where the server child's own `exit` would be the signal and there is nothing to restart. */
+let daemonSupervisor: DaemonSupervisor | null = null;
 /** Realm's data directory, as announced by the server on startup. Pasted attachments live under it. */
 let realmHome: string | null = null;
 /** The Realm window, for the things that need it OUTSIDE the renderer's own IPC: whether it is
@@ -754,6 +767,49 @@ ipcMain.handle("files:save-copy", async (_e, path: unknown): Promise<string | nu
 });
 
 /**
+ * Get realm-server, in whichever of its two shapes this build uses.
+ *
+ * Packaged: a daemon that outlives this process, found if one is already up and started if not. Dev
+ * and the live checks: the child on a pipe it has always been, with `daemonMode` off so nothing is
+ * left behind when the app exits. Both ends hand back the same three facts, so everything downstream
+ * of here is written once.
+ */
+/** Start a detached realm-server on `home`. One path, used by the launcher and by the supervisor —
+ *  a respawn must be identical to a first spawn or the second one is a different daemon. */
+function startDaemonProcess(home: string): void {
+  const fd = openDaemonLog(home);
+  try { daemonChild = spawnDaemon({ home, logFd: fd }); } finally { closeDaemonLog(fd); }
+}
+
+async function startRealmServer(): Promise<{ port: number; home: string; token: string }> {
+  const home = realmHomePath();
+  if (daemonModeEnabled({ packaged: app.isPackaged, env: process.env.REALM_DAEMON })) {
+    const handle = await ensureDaemon({
+      home,
+      ourBundleId: bundleIdOf(statSync(serverEntry())),
+      readState: readDaemonState,
+      probe: (port, token) => probeDaemon({ port, token }),
+      spawn: startDaemonProcess,
+      // Phase 8 turns this into a choice the user gets to make when something is working. Until then
+      // the always-correct half: stop the daemon running other code, and let the loop start ours.
+      onHandoff: async (running) => { try { process.kill(running.pid, "SIGTERM"); } catch { /* already gone */ } },
+      log: (line) => console.error(line),
+    });
+    return { port: handle.port, home, token: handle.token };
+  }
+  const { child, ready } = startServer({ home });
+  serverChild = child;
+  child.on("exit", () => { serverChild = null; });
+  const started = await ready;
+  // The token realm-server minted at boot. It is never on stdout, so the state file is the only place
+  // it exists — and without it neither the renderer nor the bridge can get onto the socket at all, so
+  // a missing file is a hard failure rather than a degraded start.
+  const state = readStateForPort(started.home, started.port);
+  if (!state) throw new Error(`realm-server started on port ${started.port} but wrote no matching ${daemonStatePath(started.home)}`);
+  return { port: started.port, home: started.home, token: state.token };
+}
+
+/**
  * One Realm per machine.
  *
  * Absent until now, which was survivable while each launch owned its own server child on its own
@@ -785,31 +841,38 @@ app.whenReady().then(async () => {
     const login = await loginShellPath();
     process.env.PATH = mergePath(process.env.PATH, login);
     if (!login) console.warn("[env] login-shell PATH resolution failed; using fallback:", process.env.PATH);
-    const { child, ready } = startServer();
-    serverChild = child;
-    // TODO(plan-2): reconnect/restart when server exits after ready
-    child.on("exit", () => { serverChild = null; });
-    const info = await ready;
-    // The token realm-server minted at boot. It is never on stdout, so the state file is the only
-    // place it exists — and without it neither the renderer nor the bridge below can get onto the
-    // socket at all, so a missing file is a hard failure rather than a degraded start.
-    const state = readStateForPort(info.home, info.port);
-    if (!state) throw new Error(`realm-server started on port ${info.port} but wrote no matching ${daemonStatePath(info.home)}`);
+    const info = await startRealmServer();
     realmHome = info.home;
     // Media streaming opens only once home is known: `media:poster` writes QuickLook scratch under it.
     handleMediaProtocol();
     // Sweep once at launch; saveTempAttachment sweeps again on every paste, so a session that never
     // restarts the app is bounded too.
     void sweepTempAttachments(tempAttachmentDir(info.home)).catch(() => {});
-    await createWindow({ ...info, token: state.token });
+    await createWindow(info);
     // Disabled builds return their existing state without loading electron-updater. Signed packaged
     // builds check the public feed and download in the background; failures remain visible in
     // Settings without blocking startup.
     void updater.check();
     // W3: register main as the browser host executor on realm-server's RPC socket. Ops for a view
     // that does not exist fail honestly inside the executor; the bridge just relays.
+    if (daemonModeEnabled({ packaged: app.isPackaged, env: process.env.REALM_DAEMON })) {
+      daemonSupervisor = new DaemonSupervisor({
+        logPath: daemonLogPath(info.home),
+        recordedPid: () => readDaemonState(info.home)?.pid ?? null,
+        pidAlive: (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; } },
+        spawn: () => startDaemonProcess(info.home),
+        onState: (state) => {
+          console.error(`[daemon] ${state.kind === "failed" ? `giving up; see ${state.logPath}` : state.kind}`);
+          mainWindow?.webContents.send("daemon:state", state);
+        },
+      });
+    }
     agentBridge = startBrowserAgentBridge({
-      port: info.port, token: state.token,
+      port: info.port, token: info.token,
+      onConnected: () => daemonSupervisor?.onConnected(),
+      // Both on the same event: the bridge redials every two seconds, which is exactly the cadence a
+      // supervisor watching for a dead pid wants, so it needs no clock of its own.
+      onDisconnected: () => { daemonSupervisor?.onDisconnected(); daemonSupervisor?.tick(); },
       handleOp: (op, params) => {
         // Answered here rather than in the executor: it needs no window and no CDP, and realm-server
         // asks for it the instant it registers. `exportOauthKey` is the ONE key that leaves main;
@@ -835,12 +898,38 @@ app.on("window-all-closed", () => app.quit());
 /** Everything a quit must tear down, in one place: the browser-agent bridge and the realm-server
  *  child (SIGTERM — the server's own handler closes ptys and the DB). Idempotent: quitAndInstall
  *  paths can arrive here twice (`before-quit-for-update`, then the ordinary quit machinery). */
-function shutdownForQuit() {
+/**
+ * Let go of realm-server without stopping it: the bridge, the computer-use helper, the driving
+ * indicator. Everything here belongs to THIS process and means nothing once it is gone; nothing here
+ * touches the server.
+ */
+function detachFromDaemon() {
+  daemonSupervisor?.stop();
+  daemonSupervisor = null;
   computerDriving.dispose();
   computerHelper.stop();
   agentBridge?.stop();
   agentBridge = null;
+}
+
+/**
+ * Stop realm-server, and every pty and agent it owns.
+ *
+ * By pid from the state file rather than through our own child handle, because after this feature
+ * most launches have no handle: the daemon they are talking to was started by a previous launch and
+ * adopted. SIGTERM is the graceful path — the server's own handler clears its state file, releases
+ * the home lock, closes the ptys and closes the database.
+ */
+function stopDaemon() {
   serverChild?.kill("SIGTERM");
+  const pid = daemonChild?.pid ?? readDaemonState(realmHome ?? realmHomePath())?.pid;
+  if (pid && pid !== process.pid) { try { process.kill(pid, "SIGTERM"); } catch { /* already gone */ } }
+  daemonChild = null;
+}
+
+function shutdownForQuit() {
+  detachFromDaemon();
+  stopDaemon();
 }
 app.on("before-quit", shutdownForQuit);
 // electron-updater's quitAndInstall() (mac: Squirrel, driven through Electron's native autoUpdater)

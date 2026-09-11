@@ -92,16 +92,6 @@ import { userFirstName } from "./user-name";
 export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; runs: RunService; gateway: McpGateway; close(): Promise<void> };
 export const SERVER_VERSION = "0.0.1";
 
-/**
- * The wire's version, for a client deciding whether it can talk to a daemon it did not start.
- *
- * Separate from `SERVER_VERSION`, which is a hardcoded string that has never moved and so cannot
- * answer the question. Bump this when a change to the RPC surface would make an older renderer
- * misbehave rather than merely miss a feature — added methods and added optional fields do not
- * qualify, since a client that does not call them cannot notice.
- */
-export const PROTOCOL = 1;
-
 /** The Vite dev server's origin, when Electron told us about it by inheriting it into our env. */
 function devRendererOrigin(): string | null {
   const url = process.env.ELECTRON_RENDERER_URL;
