@@ -45,6 +45,21 @@ export type Fit = {
 export const SNAP_COVERAGE = 0.92;
 
 /**
+ * The screen's own inset, padding and corner, in CSS pixels — the numbers `styles.css` states as
+ * tokens, restated here because the CLIP has to be computed in JS and the two must not drift.
+ * `styles.test.ts` asserts the stylesheet still agrees with each of them.
+ *
+ * `PICTURE_RADIUS` is `SCREEN_RADIUS - SCREEN_PAD` and is not a free choice: design.md requires
+ * nested radii to be concentric — an outer corner equals the inner one plus the padding between
+ * them — so a picture inset 12px inside a 28px corner takes 16, and any other number makes the two
+ * curves visibly non-parallel at the corner.
+ */
+export const SCREEN_INSET = 8;
+export const SCREEN_PAD = 12;
+export const SCREEN_RADIUS = 28;
+export const PICTURE_RADIUS = SCREEN_RADIUS - SCREEN_PAD;
+
+/**
  * Lay a framebuffer into a box.
  *
  * The bug this exists to prevent, and it is the reason `dpr` is a parameter at all: noVNC sizes its

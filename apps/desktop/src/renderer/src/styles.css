@@ -144,6 +144,16 @@
      and the ratio that makes a 720px composer right makes a 60px bubble a lozenge. 20 is what reads
      like the 16px arc this replaces on a bubble two lines tall. */
   --r-squircle-msg: 26px;
+  /* The machine screen's, and the reason it is not --r-squircle: the prompter's 36 is read against a
+     720px card, and the same number on a screen inset into a pane reads as a porthole. A little less
+     is what was asked for and what the shape wants — 28 keeps an unmistakable signature corner with
+     a long flat run either side of it. */
+  --r-squircle-screen: 28px;
+  /* The same curve on a CARD in a picker. 12px (--r-panel) made these read as rows in a list, which
+     is exactly what design.md says they are not: each carries a mark, a name and a line about what
+     it is. 20 on a card about 72px tall is close to the signature's own proportion (36/96) without
+     turning a two-line card into a lozenge. */
+  --r-squircle-card: 20px;
   --sidebar-w: 280px; --prompter-w: 720px;
   /* The session summary's strip, read by the panel AND by the pane that makes room for it. */
   --summary-w: min(320px, 80vw);
@@ -1158,8 +1168,27 @@ button.panel-title:hover { background: var(--rl-hover); }
 .machine-screen { position: relative; flex: 1; min-width: 0; min-height: 0; display: grid; place-items: center;
   /* Not `--canvas`. A guest desktop is arbitrary and must not fight a near-white surround in light
      mode — the ruling `.terminal-pane` already writes down for its own interior. */
-  background: var(--rl-terminal-bg); overflow: hidden; }
-.machine-host { display: block; width: var(--machine-w); height: var(--machine-h); }
+  background: var(--rl-terminal-bg);
+  /* Detached from the pane on all four sides, at the inset the sidebar and the summary card use —
+     the app's one measure for "this surface is a card on a page rather than the page". The screen
+     used to run edge to edge, which made a guest's desktop read as the window's own content.
+     `--sidebar-inset` and not a new number: a second 8px with a different name is not a system. */
+  margin: var(--sidebar-inset);
+  border-radius: var(--r-squircle-screen); corner-shape: squircle;
+  /* The guard that lets the corner exist at all. The canvas is centred in the CONTENT box, so this
+     keeps the picture clear of the curve — a 28px superellipse reaches about 8px in from the corner,
+     and 12 covers that with room to spare. Without it a guest whose aspect ratio matched the pane's
+     would push its square corners into the round ones.
+     `ResizeObserver` reports `contentRect`, which EXCLUDES padding, so `fit.ts` sizes the framebuffer
+     against the padded box for free and the letterbox arithmetic needs to know nothing about this. */
+  padding: 12px;
+  overflow: hidden; }
+/* The picture's own corner, concentric inside the screen's. A path and not a radius: `border-radius`
+   here would be the circular arc, which is the one form design.md rules out — it would sit a few
+   inches from a prompter wearing the real superellipse. The path is built from the same `fit` the
+   box is sized by, so the clip and the picture can never disagree about where the edge is. */
+.machine-host { display: block; width: var(--machine-w); height: var(--machine-h);
+  clip-path: var(--machine-clip, none); }
 /* The one-device-pixel inset outline every screenshot in the app wears. It is what stops a pale
    guest desktop bleeding into the letterbox with no edge at all. */
 .machine-host canvas { display: block; width: 100%; height: 100%; box-shadow: var(--shadow-hairline); }
@@ -1197,9 +1226,10 @@ button.panel-title:hover { background: var(--rl-hover); }
    form, one in a pane too narrow for two. */
 .machine-routes { display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: 6px; }
 .machine-route { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0;
-  /* `--r-panel` and no `corner-shape`: the image cards directly below wear exactly this, and one
-     screen gets one card shape. (The pane bans the signature curve outright — see styles.test.ts.) */
-  padding: 10px 12px 11px; text-align: left; border-radius: var(--r-panel);
+  /* On the signature curve, and painted below so it is the real superellipse rather than a circular
+     stand-in. design.md gives the curve to "an install card", which is exactly what one of these is:
+     a surface you read and choose from, not a row you count past. */
+  padding: 12px 14px 13px; text-align: left; border-radius: var(--r-squircle-card); corner-shape: squircle;
   border: var(--hairline-w) solid var(--rl-line); background: transparent;
   transition: background-color var(--dur-hover) ease, border-color var(--dur-hover) ease; }
 .machine-route:hover { background: var(--rl-hover); }
@@ -1241,7 +1271,12 @@ button.panel-title:hover { background: var(--rl-hover); }
 .machine-guest-facts { font-size: 12px; line-height: 1.5; color: var(--rl-text-dim); }
 .machine-guest-size { font: 11px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
 .machine-actions { display: flex; gap: 8px; }
-.machine-primary { height: 34px; padding: 0 14px; border-radius: var(--r-ctl); border: none;
+/* The control form of the curve, by the house formula rather than a number: a control takes its
+   corner as a PROPORTION of its own height (--sq-ratio-ctl), because at this size the corner is
+   nearly the whole short side and a fixed radius copied down from a surface reads as square. 34 ×
+   0.48 is 16.3 — the figure tokens.css names for a 34px control. */
+.machine-primary { height: 34px; padding: 0 14px; border: none;
+  border-radius: calc(34px * var(--sq-ratio-ctl)); corner-shape: squircle;
   background: var(--rl-accent); color: var(--rl-accent-contrast); font-size: 13px; font-weight: var(--fw-label);
   transition: opacity var(--dur-hover) ease, scale var(--dur-press) var(--ease-out-strong); }
 .machine-primary:active { scale: 0.96; }
@@ -2964,6 +2999,47 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   background: paint(rl-squircle);
   --sq-radius-top: var(--r-squircle);
   --sq-radius-bottom: var(--r-squircle);
+}
+/* The machine screen, and the one surface in this list whose corner had to be PROVED rather than
+   declared. A canvas cannot be painted behind — its content is opaque, and `mask-image: paint()`
+   parses in this Chromium and does not mask (measured: the masked box renders square). So the curve
+   goes on the GROUND the screen is letterboxed into, which is an ordinary background and takes the
+   painter like any other card, and the picture keeps its own square edge inside it. */
+:root[data-squircle] .machine-screen {
+  border-radius: 0;
+  background: paint(rl-squircle);
+  --sq-fill: var(--rl-terminal-bg);
+  --sq-radius-top: var(--r-squircle-screen);
+  --sq-radius-bottom: var(--r-squircle-screen);
+}
+/* The route cards. The fill moves to `--sq-fill` — `background` is spent on `paint()` — and each
+   state below mirrors one `background` declaration above, in the same order, so the cascade that
+   picks a fill up there picks it down here too. The BORDER goes to the painter's ring for the same
+   reason a `.btn`'s does: a border is drawn on the square border box `border-radius: 0` leaves
+   behind, so left alone it would trace a rectangle around a curved card. */
+:root[data-squircle] .machine-route {
+  border-radius: 0; border-color: transparent;
+  background: paint(rl-squircle);
+  --sq-fill: transparent;
+  --sq-ring: var(--rl-line); --sq-ring-w: var(--hairline-w);
+  --sq-radius-top: var(--r-squircle-card);
+  --sq-radius-bottom: var(--r-squircle-card);
+}
+:root[data-squircle] .machine-route:hover { --sq-fill: var(--rl-hover); }
+:root[data-squircle] .machine-route[data-on] {
+  --sq-fill: color-mix(in srgb, var(--rl-accent) 10%, transparent);
+  --sq-ring: var(--rl-accent);
+}
+/* The Connect button. A flatter superellipse than the surfaces wear (--sq-n-ctl): its radius is
+   already 96% of what a 34px control can take, so the squareness left to answer is the curve's. */
+:root[data-squircle] .machine-primary {
+  border-radius: 0;
+  background: paint(rl-squircle);
+  --sq-fill: var(--rl-accent);
+  --sq-ring-w: 0;
+  --sq-radius-top: calc(34px * var(--sq-ratio-ctl));
+  --sq-radius-bottom: calc(34px * var(--sq-ratio-ctl));
+  --sq-n: var(--sq-n-ctl);
 }
 /* ── Painted CONTROLS ──────────────────────────────────────────────────────
    The surfaces above are one-per-pane and wear a 36px corner, where a superellipse and a circular

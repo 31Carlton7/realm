@@ -5,7 +5,8 @@ import type { PaneProps } from "../registry";
 import { useApp } from "../../state/store";
 import { rpc } from "../../rpc/client";
 import { getMachineHub, loadRfb } from "./machine-hub";
-import { fitFramebuffer, scaleLabel, type FitMode } from "./fit";
+import { fitFramebuffer, scaleLabel, PICTURE_RADIUS, type FitMode } from "./fit";
+import { squirclePath } from "./squircle-path";
 import { E2B_STREAM_PORT, SANDBOX_NOTES, describeEndpoint, parseMachineAddress, type SandboxProvider } from "@realm/contracts";
 
 /**
@@ -634,10 +635,25 @@ function Screen({ machineId, state }: { machineId: string; state: MachineState }
 
   const fb = { width: state.width ?? 0, height: state.height ?? 0 };
   const fit = useMemo(() => fitFramebuffer(fb, box, dpr, mode), [fb.width, fb.height, box.width, box.height, dpr, mode]);
+  /**
+   * The picture's corner, as a path rather than a radius.
+   *
+   * It has to be computed here because a clip path needs real pixels, and this is where the pixels
+   * are: the same `fit` the canvas is sized from. A `border-radius` would draw the circular arc —
+   * the one thing design.md rules out, since it would sit next to a prompter wearing the real curve.
+   *
+   * Empty while the guest has no size yet, and `undefined` rather than `"none"` so the attribute is
+   * simply absent: clipping a zero-sized box would clip the connecting screen away entirely.
+   */
+  const clip = useMemo(() => squirclePath(fit.cssWidth, fit.cssHeight, PICTURE_RADIUS), [fit.cssWidth, fit.cssHeight]);
 
   return (
     <div className="machine-screen" data-scale={mode} data-grabbed={grabbed || undefined} ref={holder}
-      style={{ ["--machine-w" as string]: `${fit.cssWidth}px`, ["--machine-h" as string]: `${fit.cssHeight}px` }}>
+      style={{
+        ["--machine-w" as string]: `${fit.cssWidth}px`,
+        ["--machine-h" as string]: `${fit.cssHeight}px`,
+        ["--machine-clip" as string]: clip ? `path("${clip}")` : "none",
+      }}>
       {!ready && (
         <div className="machine-starting" role="status">
           <span className="spinner" aria-hidden="true" />

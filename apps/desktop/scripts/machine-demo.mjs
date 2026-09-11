@@ -245,6 +245,16 @@ async function main() {
     }, 240000, "guest pixels").catch(() => null);
     console.log(got ? `\n  guest framebuffer ${got.w}x${got.h}, ${got.corner} lit pixels in the console corner` : "\n  guest never drew its own console");
     await sleep(1200);
+    // The letterbox geometry, measured rather than eyeballed off the screenshot. jsdom has no layout
+    // and a crop can be read four different ways; these four rects say which box is which.
+    const geom = await evalIn(c, `(() => {
+      const pick = (sel) => { const e = document.querySelector(sel); if (!e) return null;
+        const r = e.getBoundingClientRect(); const cs = getComputedStyle(e);
+        return { sel, x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height),
+                 pad: cs.padding, margin: cs.margin, radius: cs.borderRadius, bg: cs.backgroundImage.slice(0, 24) }; };
+      return [".machine-pane", ".machine-screen", ".machine-host", ".machine-host canvas"].map(pick);
+    })()`);
+    for (const g of geom) console.log(`  ${g ? `${g.sel.padEnd(22)} ${g.x},${g.y} ${g.w}x${g.h}  pad=${g.pad} margin=${g.margin} r=${g.radius} bg=${g.bg}` : "(missing)"}`);
     await shot(c, "guest-running");
 
     if (got) {

@@ -229,6 +229,16 @@ must also be listed in the paint-worklet rule in `styles.css`. A panel that decl
 without the paint renders a plain rounded rect next to a composer wearing a real one, which is worse
 than not having asked. `styles.test.ts` enforces this — the two can no longer drift.
 
+The paint worklet draws a FILL, which is why the signature can only go on a surface whose corner is
+made of its own background. A box holding live content that paints itself — a canvas, a video, a
+native view — cannot take it: painting goes behind opaque content and changes nothing, and
+`mask-image: paint(rl-squircle)` parses in this Chromium without masking (measured against the real
+renderer, where the masked box came out square). The answer is not a circular `border-radius`
+standing in for the curve next to a composer wearing the real one. It is to round the GROUND the
+content is laid into — Realm's surface, which is paintable — and leave the content its own square
+edge, with enough padding between the two that the picture never reaches the corner. The machine
+pane's screen is the worked example.
+
 A list whose rows carry more than one line each is a list of cards, not of rows. Rows separated by
 nothing but a line break read as one block of prose, which is what makes a page of them feel like
 splattered text however carefully each row is written. Give them air and a surface; do not give them

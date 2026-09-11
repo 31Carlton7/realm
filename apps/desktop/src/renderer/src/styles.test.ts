@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { REALM_SEED, deriveVars, oklchToHex } from "@realm/ui";
+import { PICTURE_RADIUS, SCREEN_INSET, SCREEN_PAD, SCREEN_RADIUS } from "./panes/machine/fit";
 
 /** §6's motion table and its "do NOT animate" list are enforceable only against the stylesheet
  *  itself — jsdom has no layout, no compositor and no CSSOM for a raw file, so nothing else in the
@@ -828,15 +829,22 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // actually has, set inline because the mark is a picture of a tree that changes per item.
       // Both carry a fallback of 1, so a glyph that never receives them is still a single cell.
       "--glyph-cols", "--glyph-rows",
-      // The machine screen's letterboxed size (panes/machine/MachinePane.tsx): computed by `fit.ts`
-      // from the guest's framebuffer, the pane's measured box and the display's scale factor, and
-      // set inline because none of those three is a thing a stylesheet can know.
-      "--machine-w", "--machine-h",
       // The session pane's measured height (SessionSummary.tsx): the cap the summary panel clamps
       // its content-driven height against. Set inline because only the DOM can measure a pane, and
       // used with a 100vh fallback, so a panel that never receives it is capped at the window rather
       // than uncapped.
-      "--summary-pane-h",
+      "--dock-pane-h",
+      // The machine screen's letterboxed size (panes/machine/MachinePane.tsx): computed by `fit.ts`
+      // from the guest's framebuffer, the pane's measured box and the display's scale factor, and
+      // set inline because none of those three is a thing a stylesheet can know.
+      "--machine-w", "--machine-h",
+      // The picture's superellipse corner as a clip path (panes/machine/squircle-path.ts). Inline
+      // for a reason no other squircle in the app has: a canvas takes neither the paint worklet —
+      // its content is opaque, and `mask-image: paint()` does not mask in this Chromium — nor
+      // `corner-shape`, which is inert here. A path needs real pixels, so it is built from the same
+      // `fit` the canvas is sized by. Carries a `none` fallback, so a screen that never receives it
+      // is unclipped rather than clipped away to nothing.
+      "--machine-clip",
     ]);
     const used = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]!));
     expect([...used].filter((n) => !defined.has(n) && !n.startsWith("--dsg-")).sort()).toEqual([]);
@@ -2619,12 +2627,89 @@ describe("the machine pane's screen", () => {
     expect(bodiesFor(".machine-pane").join(" ")).not.toMatch(/border|box-shadow/);
   });
 
-  it("keeps the signature curve off it — a screen is not a panel the eye rests in", () => {
-    // design.md gives the squircle to "a panel the eye rests in", and a remote desktop is content
-    // rather than a surface. A rounded corner over a guest's own square window is also a corner that
-    // eats pixels the guest drew.
-    const machineRules = RULES.filter((r) => partsOf(r).some((s) => s.includes(".machine-")));
-    expect(machineRules.filter((r) => /corner-shape/.test(r.body)).flatMap(partsOf)).toEqual([]);
+  it("puts the curve on the GROUND the screen sits in, never on the picture itself", () => {
+    /* Reversed from the original rule, deliberately, and the distinction it replaces it with is the
+       part worth keeping. The old rule was "no curve anywhere in this pane", on the argument that a
+       remote desktop is content rather than a surface and a rounded corner eats pixels the guest
+       drew. The second half of that is still true — so the canvas is still square, and what rounds
+       is the letterbox it is centred in, which is Realm's surface and not the guest's.
+
+       That split is also the only one this Chromium can actually draw. A canvas cannot be painted
+       behind, and `mask-image: paint(rl-squircle)` parses here and does not mask — measured against
+       the real renderer, where the masked box came out square. A curve on the picture would have to
+       be a circular `border-radius` pretending to be the signature, next to a prompter wearing the
+       real one. */
+    const screen = bodiesFor(".machine-screen").join(" ");
+    expect(screen).toContain("corner-shape: squircle");
+    expect(screen).toContain("border-radius: var(--r-squircle-screen)");
+    // Painted, or it is a circular arc wearing the signature's name — see the invariant above.
+    expect(bodiesFor(":root[data-squircle] .machine-screen").join(" ")).toContain("--sq-fill: var(--rl-terminal-bg)");
+
+    // The picture keeps its square edge, on both paths a frame can arrive by.
+    for (const sel of [".machine-host canvas", ".machine-poll"]) {
+      expect(bodiesFor(sel).join(" "), sel).not.toContain("corner-shape");
+      expect(bodiesFor(sel).join(" "), sel).not.toMatch(/border-radius:(?!\s*0)/);
+    }
+  });
+
+  it("states the screen's inset, padding and corner as the same numbers fit.ts computes the clip from", () => {
+    /* The clip has to be built in JS — a canvas takes neither the painter nor `corner-shape` — so
+       these four numbers exist in a stylesheet AND in a module, and nothing but this test stops them
+       drifting. A drift is not a crash: it is a picture whose corner is a degree off the ground's,
+       which nobody notices and everybody feels. */
+    expect(css).toContain(`--r-squircle-screen: ${SCREEN_RADIUS}px;`);
+    const screen = bodiesFor(".machine-screen").join(" ");
+    expect(screen).toContain(`padding: ${SCREEN_PAD}px`);
+    expect(tokensCss).toContain(`--sidebar-inset: ${SCREEN_INSET}px;`);
+    expect(screen).toContain("margin: var(--sidebar-inset)");
+    // Concentric, which is design.md's rule for a radius inside a radius and not a preference.
+    expect(PICTURE_RADIUS).toBe(SCREEN_RADIUS - SCREEN_PAD);
+  });
+
+  it("clips the picture with a path, never a border-radius", () => {
+    // `border-radius` here would be the circular arc — the exact form design.md rules out, a few
+    // inches from a prompter wearing the real superellipse.
+    const host = bodiesFor(".machine-host").join(" ");
+    expect(host).toContain("clip-path: var(--machine-clip, none)");
+    expect(host).not.toMatch(/border-radius/);
+  });
+
+  it("insets the screen and keeps the canvas clear of the corner it just gained", () => {
+    /* The padding is not spacing — it is what makes the radius legible. The canvas is centred in the
+       CONTENT box, so without it a guest whose aspect ratio matched the pane's would push square
+       corners into round ones. A 28px superellipse reaches ~8px in from the corner; the mutant is
+       dropping this below that, which no other test would notice.
+
+       `fit.ts` needs to know nothing about either: `ResizeObserver` reports `contentRect`, which
+       excludes padding, so the letterbox is computed against the padded box already. */
+    const screen = bodiesFor(".machine-screen").join(" ");
+    expect(screen).toContain("margin: var(--sidebar-inset)");
+    const pad = /padding:\s*(\d+)px/.exec(screen);
+    expect(pad, "the screen must be padded, or its corner cuts the picture").not.toBe(null);
+    expect(Number(pad![1])).toBeGreaterThanOrEqual(12);
+  });
+
+  it("gives the route cards and Connect the curve too, both painted", () => {
+    // The user-facing ask these serve: a picker of cards and the button under it, on the same corner
+    // family as the screen above them rather than three different roundings on one form.
+    const card = bodiesFor(".machine-route").join(" ");
+    expect(card).toContain("border-radius: var(--r-squircle-card)");
+    expect(card).toContain("corner-shape: squircle");
+    // Its border has to become the painter's RING, or it traces a rectangle around a curved card.
+    const paintedCard = bodiesFor(":root[data-squircle] .machine-route").join(" ");
+    expect(paintedCard).toContain("border-color: transparent");
+    expect(paintedCard).toContain("--sq-ring: var(--rl-line)");
+    // Every state that moved `background` above must move `--sq-fill` here, or the card paints its
+    // resting fill in all of them.
+    expect(bodiesFor(":root[data-squircle] .machine-route:hover").join(" ")).toContain("--sq-fill: var(--rl-hover)");
+    expect(bodiesFor(":root[data-squircle] .machine-route[data-on]").join(" ")).toContain("--sq-fill:");
+
+    // The button takes its corner as a proportion of its own height, which is the house formula for
+    // a control — a fixed radius copied down from a surface reads as square at this size.
+    const btn = bodiesFor(".machine-primary").join(" ");
+    expect(btn).toContain("border-radius: calc(34px * var(--sq-ratio-ctl))");
+    expect(btn).toContain("corner-shape: squircle");
+    expect(bodiesFor(":root[data-squircle] .machine-primary").join(" ")).toContain("--sq-n: var(--sq-n-ctl)");
   });
 
   it("gives `suspended` a shape rather than a fifth hue", () => {
