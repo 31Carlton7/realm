@@ -144,6 +144,13 @@ contextBridge.exposeInMainWorld("realm", {
       return () => ipcRenderer.removeListener("realm:notification-activate", handler);
     },
   },
+  /** A session picked from the menu-bar item while the window was closed. The space rides along
+   *  because the session is very often not in the space that happens to be open. */
+  onOpenSession: (cb: (target: { sessionId: string; spaceId: string | null }) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, target: { sessionId: string; spaceId: string | null }) => cb(target);
+    ipcRenderer.on("realm:open-session", handler);
+    return () => ipcRenderer.removeListener("realm:open-session", handler);
+  },
   /**
    * Settings → Sign-ins: the ONLY enrollment path for a browser credential.
    *

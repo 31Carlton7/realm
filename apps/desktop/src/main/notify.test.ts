@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { DesktopNotifier, type NativeNotification } from "./notify";
 
-function harness(o: { supported?: boolean; focused?: boolean } = {}) {
-  const state = { supported: o.supported ?? true, focused: o.focused ?? false };
+function harness(o: { supported?: boolean; focused?: boolean; hasWindow?: boolean } = {}) {
+  const state = { supported: o.supported ?? true, focused: o.focused ?? false, hasWindow: o.hasWindow ?? true };
   /** Ordered, because ORDER is the bug: a click handler wired after show() misses a toast the user
    *  hit the instant it appeared. */
   const log: string[] = [];
@@ -12,6 +12,7 @@ function harness(o: { supported?: boolean; focused?: boolean } = {}) {
   const notifier = new DesktopNotifier({
     supported: () => state.supported,
     windowFocused: () => state.focused,
+    hasWindow: () => state.hasWindow,
     create: (opts) => {
       created.push(opts);
       log.push("create");
@@ -99,5 +100,39 @@ describe("DesktopNotifier — the OS hop", () => {
     expect(h.badge()).toBe(0);
     h.notifier.badge(Number.POSITIVE_INFINITY);
     expect(h.badge()).toBe(0);
+  });
+});
+
+describe("two sources, one toast", () => {
+  it("lets the resident speak only when there is no window", () => {
+    const h = harness({ hasWindow: true });
+    // A window exists, so its renderer is already asking for this row. Two toasts for one
+    // notification is worse than none.
+    expect(h.notifier.show(row, "main")).toBe(false);
+    h.state.hasWindow = false;
+    expect(h.notifier.show(row, "main")).toBe(true);
+  });
+
+  it("never toasts the same row twice, whichever source asked", () => {
+    const h = harness({ hasWindow: true });
+    expect(h.notifier.show(row, "renderer")).toBe(true);
+    // The window closing between the renderer's request and main's is a real few milliseconds.
+    h.state.hasWindow = false;
+    expect(h.notifier.show(row, "main")).toBe(false);
+  });
+
+  it("still refuses everything while the window is focused — the user is already looking", () => {
+    const h = harness({ focused: true, hasWindow: true });
+    expect(h.notifier.show(row, "renderer")).toBe(false);
+    expect(h.notifier.show(row, "main")).toBe(false);
+  });
+
+  it("remembers a bounded number of rows, because this process now runs for days", () => {
+    const h = harness({ hasWindow: false });
+    for (let i = 0; i < 250; i++) expect(h.notifier.show({ id: `n${i}`, title: "t", body: null }, "main")).toBe(true);
+    // The oldest have been forgotten, which is the price of the bound and is the right price: a row
+    // from 250 notifications ago is not one anybody is about to be toasted for a second time.
+    expect(h.notifier.show({ id: "n0", title: "t", body: null }, "main")).toBe(true);
+    expect(h.notifier.show({ id: "n249", title: "t", body: null }, "main")).toBe(false);
   });
 });

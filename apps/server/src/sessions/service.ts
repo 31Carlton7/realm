@@ -642,15 +642,38 @@ export class SessionService {
     for (const s of this.d.sessions.list(spaceId)) await this.delete(s.id);
   }
   /**
+   * What the daemon would tell a person: how many sessions are mid-turn, and how many are stopped
+   * waiting for an answer.
+   *
+   * Statuses rather than handles, deliberately. `liveCount` below is larger — a session keeps its
+   * adapter handle after a turn ends, until the adapter itself exits — and "3 working" has to mean
+   * three turns in flight, not three warm subprocesses.
+   */
+  statusCounts(): { working: number; needsYou: number } {
+    let working = 0, needsYou = 0;
+    for (const s of this.d.sessions.listAll()) {
+      if (s.status === "running") working++;
+      else if (s.status === "waiting_permission") needsYou++;
+    }
+    return { working, needsYou };
+  }
+  /**
    * How many sessions hold a live adapter handle right now.
    *
-   * This is the number the daemon's callers mean by "working": the tray title, the confirmation on
-   * *Quit Realm & stop agents*, and the quiescence test a draining daemon waits for. It counts
-   * handles, not rows — an idle session that would resume on its next send has none, which is the
-   * resting state of most of the sidebar and correctly contributes nothing.
+   * The quiescence test a draining daemon waits on: no handle means nothing is mid-exec, so the
+   * bundle underneath it can be swapped. It counts handles, not rows — an idle session that would
+   * resume on its next send has none, which is the resting state of most of the sidebar and correctly
+   * contributes nothing.
    */
   liveCount(): number {
     return this.live.size;
+  }
+  /** Stop every live adapter handle, leaving the service up: the tray's *Stop all agents*. Rows and
+   *  items stay exactly as they are, so each session resumes on its next send. */
+  async stopAll(): Promise<number> {
+    const ids = [...this.live.keys()];
+    for (const id of ids) await this.stop(id);
+    return ids.length;
   }
   /** Shutdown: dispose live handles; rows/items stay so sessions resume next boot. */
   async closeAll(): Promise<void> {

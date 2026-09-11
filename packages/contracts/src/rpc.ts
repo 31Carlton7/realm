@@ -658,7 +658,10 @@ export const Methods = {
    * renderer could call `register` too, but it would only be volunteering to execute CDP work it has
    * no views for — there is no privilege to gain, every op still runs under main's own guards.
    */
-  "browserHost.register": { params: z.object({}), result: z.object({ ok: z.literal(true) }) },
+  /** `hasWindow` is re-sent whenever main's window opens or closes, as an ordinary re-register. It is
+   *  what lets a refused browser op say something true: "Realm's window is closed — open it from the
+   *  menu bar" and "Realm is not running" are different problems with different fixes. */
+  "browserHost.register": { params: z.object({ hasWindow: z.boolean().optional() }), result: z.object({ ok: z.literal(true) }) },
   "browserHost.result": { params: z.object({ callId: z.string(), ok: z.boolean(), result: z.unknown().optional(), error: z.string().optional() }), result: z.object({ ok: z.literal(true) }) },
 
   "settings.get": { params: z.object({ key: z.string() }), result: z.object({ value: z.unknown() }) },
@@ -883,7 +886,34 @@ export const Methods = {
    *  and a port, and both can lie — a pid is reused, a port is answered by somebody else. Asking the
    *  socket for the id minted at ITS boot and comparing is the only test that settles it. `protocol`
    *  is the same question about the wire, for an app that did not start the daemon it found. */
-  "system.info": { params: z.object({}), result: z.object({ realmHome: z.string(), version: z.string(), machineName: z.string(), userName: z.string(), bootId: z.string(), protocol: z.number() }) },
+  "system.info": { params: z.object({}), result: z.object({ realmHome: z.string(), version: z.string(), machineName: z.string(), userName: z.string(), bootId: z.string(), protocol: z.number(),
+    /** When the last window went away, or null while one is attached. The notifications page reads it
+     *  to draw a "While you were away" line: with a daemon running headless, "what happened since I
+     *  stopped looking" is a question the app can now actually answer. */
+    detachedSince: z.number().nullable() }) },
+
+  /**
+   * What the daemon is doing, for the app that is attached to it.
+   *
+   * `working` counts live adapter handles, not rows — an idle session that would resume on its next
+   * send has none, which is the resting state of most of the sidebar. `activeRuns` is the unattended
+   * half: work nobody is watching is exactly what must not be stopped by accident.
+   */
+  "daemon.info": { params: z.object({}), result: z.object({
+    pid: z.number(), bootId: z.string(), protocol: z.number(), startedAt: z.number(),
+    state: z.enum(["running", "draining"]),
+    working: z.number(), needsYou: z.number(), activeRuns: z.number(),
+    /** Live adapter handles. A different question from `working`: a session whose turn has ended
+     *  still holds its handle until the adapter exits, so this is larger and is the number a drain
+     *  waits on, while `working` is the number a person is told. */
+    liveHandles: z.number(),
+  }) },
+  /** Stop the daemon: every pty, every agent handle, the database. The tray's *Quit Realm & stop
+   *  agents*, and the launcher's handoff. Answers before it closes, so the caller is not waiting on a
+   *  socket that is being torn down underneath the reply. */
+  "daemon.stop": { params: z.object({}), result: z.object({ ok: z.literal(true) }) },
+  /** Stop every live agent handle, leaving the daemon up. The tray's *Stop all agents*. */
+  "daemon.stopAgents": { params: z.object({}), result: z.object({ stopped: z.number() }) },
 
   "workspace.gitInfo": { params: z.object({ cwd: z.string() }), result: GitInfoSchema.nullable() },
 

@@ -73,27 +73,72 @@ type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; time
  * panes but travel the same one main↔server socket to the same one registered executor. The name is
  * the browser's because that is what first needed a bridge; the machinery was never browser-specific.
  */
+/**
+ * How much of Realm is actually here.
+ *
+ * Once the server outlives the app there are three states, not two, and every degradation decision
+ * hangs off which one we are in:
+ *
+ *   - `window` — Electron is running with a window open. Everything works.
+ *   - `no-window` — Electron is running as a menu-bar resident. Computer use, the Keychain keys and
+ *     OS notifications still work; anything needing a browser pane does not.
+ *   - `headless` — no Electron at all. Agents, runs, schedules, terminals and the relay work; nothing
+ *     that needs a screen does.
+ *
+ * The distinction is what lets a refusal say something true. "Realm's window is closed — open it from
+ * the menu bar" and "Realm is not running" are different problems with different fixes, and a single
+ * "not connected" message would be wrong for one of them every time.
+ */
+export type HostLevel = "window" | "no-window" | "headless";
+
 export class BrowserHostBridge {
   private host: WebSocket | null = null;
+  private hasWindow = false;
+  private detached: number | null = null;
   private readonly pending = new Map<string, Pending>();
 
-  constructor(private readonly d: { rpc: RpcServer }) {}
+  constructor(private readonly d: { rpc: RpcServer; now?: () => number }) {}
 
   /** Whether an executor is currently connected — the tools' "is the app even running?" check. */
   get connected(): boolean {
     return this.host !== null;
   }
 
+  get level(): HostLevel {
+    if (!this.host) return "headless";
+    return this.hasWindow ? "window" : "no-window";
+  }
+
+  /**
+   * When the last window went away, or null while one is open.
+   *
+   * Read by `system.info`, and through it by the notifications page's "While you were away" line.
+   * It is a window fact, not a connection fact: a daemon nobody has ever attached to reports the
+   * moment the server booted, because everything since then happened with nobody watching.
+   */
+  get detachedSince(): number | null {
+    return this.detached;
+  }
+
   /** `browserHost.register`: adopt this socket as THE executor. A previous host's unanswered ops are
-   *  failed now — their answers would come from a process that no longer owns any views. */
-  register(client: WebSocket): void {
+   *  failed now — their answers would come from a process that no longer owns any views. `hasWindow`
+   *  is re-sent by main whenever the window opens or closes, which is an ordinary re-register. */
+  register(client: WebSocket, opts: { hasWindow?: boolean } = {}): void {
     if (this.host && this.host !== client) this.failAll("browser host replaced by a new registration");
     this.host = client;
+    this.setWindow(opts.hasWindow ?? false);
     client.once("close", () => {
       if (this.host !== client) return; // already superseded; the new host's ops are not ours to fail
       this.host = null;
+      this.setWindow(false);
       this.failAll("browser host disconnected");
     });
+  }
+
+  private setWindow(hasWindow: boolean): void {
+    if (hasWindow === this.hasWindow) return;
+    this.hasWindow = hasWindow;
+    this.detached = hasWindow ? null : (this.d.now ?? Date.now)();
   }
 
   /** `browserHost.result`: settle one op. Unknown callIds are ignored — a late answer to an op that
@@ -112,7 +157,10 @@ export class BrowserHostBridge {
   call(op: HostOp, params: Record<string, unknown>): Promise<unknown> {
     if (!(HOST_OPS as readonly string[]).includes(op)) return Promise.reject(new Error(`unknown host op "${op}"`));
     const host = this.host;
-    if (!host) return Promise.reject(new Error("the Realm app is not connected — browser tools need the desktop app running"));
+    // Level C: realm-server is running headless and there is no Electron at all. A different problem
+    // from a closed window, with a different fix, so it gets different words — main answers that case
+    // itself and never reaches this line.
+    if (!host) return Promise.reject(new Error("Realm is not running — open Realm on this Mac, then try again"));
     const callId = randomBytes(9).toString("base64url");
     return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -122,7 +170,7 @@ export class BrowserHostBridge {
       if (!this.d.rpc.sendTo(host, "browserHost.op", { callId, op, params })) {
         this.pending.delete(callId);
         clearTimeout(timer);
-        reject(new Error("the Realm app disconnected — browser tools need the desktop app running"));
+        reject(new Error("Realm stopped running — open Realm on this Mac, then try again"));
       }
     });
   }

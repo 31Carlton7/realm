@@ -277,6 +277,12 @@ export function App() {
       const st = store.getState();
       st.run(() => st.activateDesktopNotification(id));
     });
+    // A session chosen from the menu-bar item while this window did not exist. Main has already
+    // brought the window back; landing on the pane is the store's job, exactly as it is for a toast.
+    const offOS = window.realm?.onOpenSession?.(({ sessionId, spaceId }) => {
+      const st = store.getState();
+      st.run(() => st.revealSession(sessionId, spaceId));
+    });
     // A review verdict landed (or was dismissed/cleared) for an environment (Plan 13 W3): apply the
     // payload directly — the diff pane's review section reads `reviews[environmentId]`.
     const offR = rpc().on("review.changed", (p) => store.getState().applyReviewChanged(p));
@@ -325,6 +331,7 @@ export function App() {
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);
+      offOS?.();
     };
   }, [store]);
   return (

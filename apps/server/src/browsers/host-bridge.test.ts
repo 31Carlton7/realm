@@ -23,7 +23,36 @@ describe("BrowserHostBridge", () => {
   it("rejects immediately when no host has registered — never hangs", async () => {
     const { rpc } = fakeHost();
     const bridge = new BrowserHostBridge({ rpc });
-    await expect(bridge.call("snapshot", {})).rejects.toThrow(/desktop app running/);
+    // The words matter: with the daemon, "nothing registered" means Realm is not running at all,
+    // which is a different problem from a closed window and has a different fix. Main answers the
+    // closed-window case itself and never reaches this line.
+    await expect(bridge.call("snapshot", {})).rejects.toThrow("Realm is not running — open Realm on this Mac, then try again");
+  });
+
+  it("reports which of the three levels we are at, and when the window went away", () => {
+    let clock = 1_000;
+    const { rpc, ws } = fakeHost();
+    const bridge = new BrowserHostBridge({ rpc, now: () => clock });
+    expect(bridge.level).toBe("headless");
+    // Null, not the boot time: a daemon nobody has attached to yet has had no window to lose, and
+    // "while you were away" over a span in which nothing happened is a heading with nothing under it.
+    expect(bridge.detachedSince).toBeNull();
+
+    bridge.register(ws, { hasWindow: true });
+    expect(bridge.level).toBe("window");
+    expect(bridge.detachedSince).toBeNull();
+
+    // The window closed. Main re-registers on the same socket — an ordinary re-register, not a drop —
+    // and this timestamp is what the notifications page draws its "While you were away" line from.
+    clock = 2_000;
+    bridge.register(ws, { hasWindow: false });
+    expect(bridge.level).toBe("no-window");
+    expect(bridge.detachedSince).toBe(2_000);
+
+    clock = 3_000;
+    bridge.register(ws, { hasWindow: true });
+    expect(bridge.level).toBe("window");
+    expect(bridge.detachedSince).toBeNull();
   });
 
   it("round-trips: call sends a targeted op, handleResult settles it", async () => {

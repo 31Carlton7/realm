@@ -179,6 +179,37 @@ describe("createBridgeCore", () => {
     await core.onMessage("not json at all");
     expect(sent).toEqual([]);
   });
+
+  it("is also an RPC client, on the socket it already has", async () => {
+    const sent: { id: string; method: string; params: unknown }[] = [];
+    const core = createBridgeCore(async () => ({}), (json) => sent.push(JSON.parse(json)));
+    const answer = core.call("sessions.listAll", {});
+    expect(sent[0]).toMatchObject({ method: "sessions.listAll" });
+    await core.onMessage(JSON.stringify({ id: sent[0]!.id, ok: true, result: [{ id: "s1" }] }));
+    expect(await answer).toEqual([{ id: "s1" }]);
+
+    const failing = core.call("sessions.listAll", {});
+    await core.onMessage(JSON.stringify({ id: sent[1]!.id, ok: false, error: { code: "NOT_FOUND", message: "nope" } }));
+    await expect(failing).rejects.toThrow("NOT_FOUND: nope");
+  });
+
+  it("rejects everything in flight when the socket drops, rather than waiting on a dead one", async () => {
+    const core = createBridgeCore(async () => ({}), () => {});
+    const answer = core.call("sessions.listAll", {});
+    core.onClose();
+    await expect(answer).rejects.toThrow("realm-server disconnected");
+  });
+
+  it("hands non-op events to its subscriber, and still answers ops", async () => {
+    const seen: { event: string; payload: unknown }[] = [];
+    const sent: { method: string }[] = [];
+    const core = createBridgeCore(async () => ({ ok: true }), (json) => sent.push(JSON.parse(json)), (event, payload) => seen.push({ event, payload }));
+    await core.onMessage(JSON.stringify({ event: "session.status", payload: { sessionId: "s1", status: "running" } }));
+    expect(seen).toEqual([{ event: "session.status", payload: { sessionId: "s1", status: "running" } }]);
+    await core.onMessage(JSON.stringify({ event: "browserHost.op", payload: { callId: "c1", op: "snapshot", params: {} } }));
+    expect(seen).toHaveLength(1); // ops are answered, not forwarded
+    expect(sent.at(-1)).toMatchObject({ method: "browserHost.result" });
+  });
 });
 
 describe("act mark wiring (W4; the cursor and the frame, Plan 25 W2)", () => {

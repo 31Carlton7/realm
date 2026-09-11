@@ -2,6 +2,9 @@ import { DAEMON_PROTOCOL, Methods, type MethodName, type MethodResult } from "@r
 import type { z } from "zod";
 import type { RpcServer } from "./server";
 import { BOOT_ID } from "../daemon/state";
+
+/** When this process came up, for `daemon.info`. A constant for the same reason `BOOT_ID` is one. */
+const STARTED_AT = Date.now();
 import type { ProfilesStore } from "../store/profiles";
 import type { SpacesStore } from "../store/spaces";
 import type { IconAssetsStore } from "../store/icon-assets";
@@ -72,7 +75,27 @@ export function registerMethods(d: Deps): void {
   const reg = <M extends MethodName>(name: M, fn: (p: Params<M>) => Result<M>) =>
     rpc.register(name, Methods[name].params, async (p) => fn(p as Params<M>));
 
-  reg("system.info", () => ({ realmHome: d.home, version: d.version, machineName: d.machineName, userName: d.userName, bootId: BOOT_ID, protocol: DAEMON_PROTOCOL }));
+  reg("system.info", () => ({ realmHome: d.home, version: d.version, machineName: d.machineName, userName: d.userName, bootId: BOOT_ID, protocol: DAEMON_PROTOCOL, detachedSince: d.browserBridge.detachedSince }));
+
+  /* The daemon, as seen by the app attached to it. `daemon.stop` signals THIS process rather than
+     reaching for a close handle, because that is the same path an external `pnpm daemon:stop`, the
+     supervisor and the launcher's handoff all take — one shutdown sequence, not two. The reply is
+     sent first; the signal lands on the next tick, so the caller is not waiting on a socket being
+     torn down underneath its answer. */
+  reg("daemon.info", () => {
+    const counts = d.sessions.statusCounts();
+    return {
+      pid: process.pid, bootId: BOOT_ID, protocol: DAEMON_PROTOCOL, startedAt: STARTED_AT,
+      state: "running" as const,
+      working: counts.working, needsYou: counts.needsYou,
+      activeRuns: d.runs.activeCount(), liveHandles: d.sessions.liveCount(),
+    };
+  });
+  reg("daemon.stop", () => {
+    setTimeout(() => process.kill(process.pid, "SIGTERM"), 50);
+    return { ok: true as const };
+  });
+  reg("daemon.stopAgents", async () => ({ stopped: await d.sessions.stopAll() }));
 
   reg("workspace.gitInfo", (p) => d.gitInfo.get(p.cwd));
   reg("workspace.diff", (p) => d.gitDiff.summary(p.cwd));
@@ -588,12 +611,19 @@ export function registerMethods(d: Deps): void {
   // The browser agent host's bridge (Plan 11 W3). `register` is raw `rpc.register` rather than `reg`
   // because it is the one method that needs its caller's socket — the bridge sends that exact client
   // its `browserHost.op` events from then on.
-  rpc.register("browserHost.register", Methods["browserHost.register"].params, async (_p, ctx) => {
-    d.browserBridge.register(ctx.client);
+  rpc.register("browserHost.register", Methods["browserHost.register"].params, async (p, ctx) => {
+    d.browserBridge.register(ctx.client, { hasWindow: p.hasWindow });
     // Adopt the `oauth` domain key from main's Keychain-anchored keyring, so `oauthJson` stops being
     // plaintext in realm.db. Fire-and-forget on purpose: registration must not block on it, and a
     // failure is the pre-existing plaintext posture rather than a broken bridge. Re-fetched on every
     // register, so an Electron main that restarted re-supplies it.
+    //
+    // Both keys land in module-level secret boxes, which is what makes them survive the app rather
+    // than the window. Quitting Realm costs nothing here: the daemon holds the keys for its whole
+    // life, and a new Electron re-supplies them on its next register. The one case that loses them is
+    // a daemon that restarts with no Electron running to ask — after that, oauth falls back to its
+    // documented plaintext posture and machines refuse to store a password at all, until the next
+    // time the app is opened.
     void d.browserBridge.call("oauthKey", {})
       .then((r) => { oauthSecretBox.setKey(typeof (r as { key?: unknown })?.key === "string" ? (r as { key: string }).key : null); })
       .catch(() => { /* no key: writes stay plaintext, exactly as before this existed */ });

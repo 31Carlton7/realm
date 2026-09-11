@@ -12,6 +12,10 @@ import { daemonModeEnabled, ensureDaemon, probeDaemon } from "./daemon";
 import { bundleIdOf } from "@realm/contracts";
 import { closeDaemonLog, daemonLogPath, openDaemonLog } from "./daemon-log";
 import { DaemonSupervisor } from "./daemon-supervisor";
+import { SessionTray, type TraySession } from "./session-tray";
+import { confirmQuitCopy, decideQuit } from "./quit-policy";
+import { NOTIFICATIONS_DESKTOP_KEY } from "@realm/contracts";
+import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
 import { compressIconIfNeeded, describeFiles, existingPath, fileThumbnail, openablePath, saveTempAttachment, statFile, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
@@ -50,6 +54,94 @@ let daemonChild: import("node:child_process").ChildProcess | null = null;
 /** Watches the daemon through the bridge, and brings it back when it dies. Null in the non-daemon
  *  shape, where the server child's own `exit` would be the signal and there is nothing to restart. */
 let daemonSupervisor: DaemonSupervisor | null = null;
+/** The three facts about the server, kept so a window recreated from the tray or the dock can be
+ *  built without going back through the launcher. */
+let serverInfo: { port: number; home: string; token: string } | null = null;
+/** RPC over the bridge's socket, for the questions main asks on its own behalf: the tray's counts,
+ *  and the window flag the server refuses browser ops by. Null while the bridge is down. */
+let bridgeClient: BridgeClient | null = null;
+
+/**
+ * The menu-bar item, up whenever the window is not.
+ *
+ * It is the only visible thing left after ⌘Q, which is why it exists at all: a person is entitled to
+ * know that something is still running and to be able to stop it, and with the window gone there is
+ * nowhere else to say either.
+ */
+const sessionTray = new SessionTray({
+  createTray: () => {
+    const tray = new Tray(nativeImage.createEmpty());
+    return {
+      setTitle: (t) => tray.setTitle(t),
+      setToolTip: (t) => tray.setToolTip(t),
+      setContextMenu: (template) => tray.setContextMenu(Menu.buildFromTemplate(template)),
+      destroy: () => tray.destroy(),
+    };
+  },
+  actions: {
+    reattach: (target) => { void reattach(target); },
+    stopAllAgents: () => { void bridgeClient?.call("daemon.stopAgents", {}).catch(() => {}); },
+    quitAndStop: () => { void quitAndStopAll(); },
+  },
+});
+
+/** The counts the tray shows, asked of the daemon. Null when the bridge is down, which the callers
+ *  read as "we do not know" rather than as zero — claiming nothing is running is the one wrong answer
+ *  here, because it is the answer that makes a quit look safe. */
+async function daemonCounts(): Promise<{ working: number; needsYou: number } | null> {
+  try {
+    const info = await bridgeClient?.call("daemon.info", {});
+    const r = info as { working?: unknown; needsYou?: unknown } | undefined;
+    if (typeof r?.working !== "number" || typeof r.needsYou !== "number") return null;
+    return { working: r.working, needsYou: r.needsYou };
+  } catch { return null; }
+}
+
+/**
+ * Show a toast for a surfaced row while there is no window.
+ *
+ * The renderer owns this whenever it exists; this is only the resident's half. The user's
+ * `notifications.desktop` switch is read from the server rather than assumed, because a person who
+ * turned toasts off did not mean "except when the window is closed".
+ */
+async function residentToast(payload: unknown) {
+  const p = payload as { notification?: { id?: unknown; title?: unknown; body?: unknown } | null; unread?: unknown } | undefined;
+  if (typeof p?.unread === "number") desktopNotifier.badge(p.unread);
+  const n = p?.notification;
+  if (!n || typeof n.id !== "string" || typeof n.title !== "string") return;
+  try {
+    const enabled = await bridgeClient?.call("settings.get", { key: NOTIFICATIONS_DESKTOP_KEY });
+    if ((enabled as { value?: unknown } | null)?.value === false) return;
+  } catch { return; }
+  desktopNotifier.show({ id: n.id, title: n.title, body: typeof n.body === "string" ? n.body : null }, "main");
+}
+
+/** Refresh the tray from the daemon. Called on every `session.status` and on each reconnect, both of
+ *  which are the only ways these numbers change. */
+async function refreshTray() {
+  if (!sessionTray.showing) return;
+  const counts = await daemonCounts();
+  if (!counts) return;
+  const sessions = await trayCandidates();
+  sessionTray.update(counts, sessions);
+}
+
+/** The sessions worth naming in the menu: the ones waiting on an answer first, then the ones working.
+ *  An idle session is not a reason to open the app, so it is not in the list. */
+async function trayCandidates(): Promise<TraySession[]> {
+  try {
+    const [rows, spaces] = await Promise.all([
+      bridgeClient!.call("sessions.listAll", {}) as Promise<{ id: string; title: string; status: string; spaceId: string }[]>,
+      bridgeClient!.call("spaces.list", {}) as Promise<{ id: string; name: string }[]>,
+    ]);
+    const nameOf = new Map(spaces.map((sp) => [sp.id, sp.name]));
+    const rank = (status: string) => (status === "waiting_permission" ? 0 : status === "running" ? 1 : 2);
+    return rows
+      .filter((r) => rank(r.status) < 2)
+      .sort((a, b) => rank(a.status) - rank(b.status))
+      .map((r) => ({ id: r.id, spaceId: r.spaceId, title: r.title, spaceName: nameOf.get(r.spaceId) ?? null }));
+  } catch { return []; }
+}
 /** Realm's data directory, as announced by the server on startup. Pasted attachments live under it. */
 let realmHome: string | null = null;
 /** The Realm window, for the things that need it OUTSIDE the renderer's own IPC: whether it is
@@ -654,10 +746,13 @@ ipcMain.handle("updates:install", () => { updater.install(); });
 const desktopNotifier = new DesktopNotifier({
   supported: () => Notification.isSupported(),
   windowFocused: () => mainWindow?.isFocused() ?? false,
+  hasWindow: () => mainWindow !== null && !mainWindow.isDestroyed(),
   create: (o) => new Notification(o),
   focusWindow: () => {
     const win = mainWindow;
-    if (!win) return;
+    // No window at all: this is the resident's own toast, and a click on it is a request to come
+    // back. `reattach` recreates the window; the row id below lands once it exists.
+    if (!win) { void reattach(); return; }
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
@@ -665,7 +760,13 @@ const desktopNotifier = new DesktopNotifier({
     // window behind whatever the user was in would be worse than not raising it at all.
     if (process.platform === "darwin") app.focus({ steal: true });
   },
-  activate: (id) => { mainWindow?.webContents.send("realm:notification-activate", id); },
+  activate: (id) => {
+    const win = mainWindow;
+    // A click that recreated the window has no renderer listening yet — the send would land nowhere.
+    // Waiting for the first paint is the honest fix; `did-finish-load` is when a listener exists.
+    if (win && !win.webContents.isLoading()) win.webContents.send("realm:notification-activate", id);
+    else win?.webContents.once("did-finish-load", () => win.webContents.send("realm:notification-activate", id));
+  },
   setBadge: (count) => { app.setBadgeCount(count); },
 });
 ipcMain.handle("notify:show", (_e, input: DesktopNotificationInput) => desktopNotifier.show(input));
@@ -842,6 +943,7 @@ app.whenReady().then(async () => {
     process.env.PATH = mergePath(process.env.PATH, login);
     if (!login) console.warn("[env] login-shell PATH resolution failed; using fallback:", process.env.PATH);
     const info = await startRealmServer();
+    serverInfo = info;
     realmHome = info.home;
     // Media streaming opens only once home is known: `media:poster` writes QuickLook scratch under it.
     handleMediaProtocol();
@@ -869,10 +971,18 @@ app.whenReady().then(async () => {
     }
     agentBridge = startBrowserAgentBridge({
       port: info.port, token: info.token,
-      onConnected: () => daemonSupervisor?.onConnected(),
+      hasWindow: () => mainWindow !== null && !mainWindow.isDestroyed(),
+      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); },
       // Both on the same event: the bridge redials every two seconds, which is exactly the cadence a
       // supervisor watching for a dead pid wants, so it needs no clock of its own.
-      onDisconnected: () => { daemonSupervisor?.onDisconnected(); daemonSupervisor?.tick(); },
+      onDisconnected: () => { bridgeClient = null; daemonSupervisor?.onDisconnected(); daemonSupervisor?.tick(); },
+      onEvent: (event, payload) => {
+        // The counts the tray shows change on exactly one event.
+        if (event === "session.status") { void refreshTray(); return; }
+        // And the resident's own toasts, for the case the renderer used to own alone: with no window
+        // there is nobody to ask for one, and a toast is the whole of how anything reaches you.
+        if (event === "notifications.changed") void residentToast(payload);
+      },
       handleOp: (op, params) => {
         // Answered here rather than in the executor: it needs no window and no CDP, and realm-server
         // asks for it the instant it registers. `exportOauthKey` is the ONE key that leaves main;
@@ -883,7 +993,12 @@ app.whenReady().then(async () => {
         // no view, so they are answered before the window check below.
         if (op.startsWith("computer")) return computerHost.handleOp(op, params);
         const host = agentHost;
-        if (!host) return Promise.reject(new Error("the Realm window is not open — browser tools need it"));
+        // Level B: Electron is here, the window is not. The refusal names the actual fix, because
+        // "Realm is not connected" would be false — it is connected, that is how this message got
+        // here — and an agent told the wrong problem retries the wrong thing. Ops are never queued
+        // for a window that might open: a CDP click executed four minutes late against a page that
+        // moved on is worse than a refusal.
+        if (!host) return Promise.reject(new Error("Realm's window is closed — open it from the menu bar, then try again"));
         return host.handleOp(op, params);
       },
       onLog: (line) => console.error(line),
@@ -894,10 +1009,18 @@ app.whenReady().then(async () => {
     app.quit();
   }
 });
-app.on("window-all-closed", () => app.quit());
-/** Everything a quit must tear down, in one place: the browser-agent bridge and the realm-server
- *  child (SIGTERM — the server's own handler closes ptys and the DB). Idempotent: quitAndInstall
- *  paths can arrive here twice (`before-quit-for-update`, then the ordinary quit machinery). */
+/**
+ * Closing the last window no longer quits.
+ *
+ * It used to, because closing Realm and stopping the work were the same act. They are two acts now,
+ * and this gesture only ever meant the first one — see `quit-policy.ts`. The dock icon goes away and
+ * the menu-bar item comes up, so there is always exactly one visible sign that something is running.
+ */
+app.on("window-all-closed", () => { if (!quittingForReal) goResident(); });
+
+/** Reopening from the dock, Spotlight, or the tray's *Open Realm*. */
+app.on("activate", () => { void reattach(); });
+
 /**
  * Let go of realm-server without stopping it: the bridge, the computer-use helper, the driving
  * indicator. Everything here belongs to THIS process and means nothing once it is gone; nothing here
@@ -927,14 +1050,85 @@ function stopDaemon() {
   daemonChild = null;
 }
 
+/**
+ * Put the UI away and leave the work running.
+ *
+ * The tray comes up here and not on the next status event, because the failure this whole design can
+ * produce is somebody who thinks they quit and did not — and an empty menu bar for the two seconds
+ * until an event happens to arrive is exactly that failure, briefly.
+ */
+function goResident() {
+  sessionTray.show();
+  if (process.platform === "darwin") app.dock?.hide();
+  // The server stops relaying browser-pane ops to a process with no pane to run them in, and starts
+  // saying so in words that name the real problem.
+  void bridgeClient?.call("browserHost.register", { hasWindow: false }).catch(() => {});
+}
+
+/** Bring the window back, optionally landing on one session. */
+async function reattach(target?: { sessionId: string; spaceId: string | null }) {
+  if (process.platform === "darwin") app.dock?.show();
+  const existing = mainWindow;
+  if (existing && !existing.isDestroyed()) {
+    if (existing.isMinimized()) existing.restore();
+    existing.show();
+    existing.focus();
+  } else if (serverInfo) {
+    await createWindow(serverInfo);
+  }
+  sessionTray.hide();
+  void bridgeClient?.call("browserHost.register", { hasWindow: true }).catch(() => {});
+  if (target) mainWindow?.webContents.send("realm:open-session", target);
+}
+
+/** True once a gesture that really means "stop everything" has been taken. Read by `before-quit` and
+ *  `window-all-closed`, both of which otherwise divert into resident mode. */
+let quittingForReal = false;
+
+/** The tray's *Quit Realm & stop agents* — the one path that stops the daemon, and the only place in
+ *  the app where quitting and stopping the work are the same act. */
+async function quitAndStopAll() {
+  const working = (await daemonCounts()) ?? { working: 0, needsYou: 0 };
+  const decision = decideQuit({ trigger: "quit-all", working: working.working });
+  if (decision.kind === "confirm") {
+    const copy = confirmQuitCopy(decision.working);
+    const r = await dialog.showMessageBox({
+      type: "warning", buttons: [copy.confirm, "Cancel"], defaultId: 1, cancelId: 1,
+      message: copy.message, detail: copy.detail,
+    });
+    if (r.response !== 0) return;
+  }
+  quittingForReal = true;
+  app.quit();
+}
+
 function shutdownForQuit() {
   detachFromDaemon();
   stopDaemon();
 }
-app.on("before-quit", shutdownForQuit);
+
+/**
+ * ⌘Q means "put the UI away", not "stop the agents".
+ *
+ * Preventing the default here is the whole of it: the app stays alive with no window, the daemon is
+ * untouched, and the tray says what is still running. Only `quittingForReal` — set by the tray's own
+ * *Quit Realm & stop agents* — lets a quit through to `shutdownForQuit`.
+ */
+app.on("before-quit", (e) => {
+  if (decideQuit({ trigger: "quit", working: 0 }).kind === "go-resident" && !quittingForReal) {
+    e.preventDefault();
+    for (const w of BrowserWindow.getAllWindows()) w.close();
+    goResident();
+    return;
+  }
+  shutdownForQuit();
+});
 // electron-updater's quitAndInstall() (mac: Squirrel, driven through Electron's native autoUpdater)
 // closes every window and quits WITHOUT the ordinary before-quit ordering — the documented hook for
 // that path is `autoUpdater`'s before-quit-for-update. Without it an update-restart would strand the
 // server child (and its ptys) while Squirrel swaps the bundle under it. Registered unconditionally:
 // it costs nothing while the updater gate (updater.ts) keeps quitAndInstall unreachable.
-electronAutoUpdater.on("before-quit-for-update", shutdownForQuit);
+// An update restart deliberately does NOT stop the daemon — the opposite of what this hook used to
+// do. Squirrel swaps the bundle and relaunches us, and the launcher's handoff deals with the daemon
+// it finds; killing it here would stop every agent for an update the user may not have noticed.
+electronAutoUpdater.on("before-quit-for-update", () => { quittingForReal = true; detachFromDaemon(); });

@@ -8,6 +8,8 @@ interface Window {
     port: number; home: string;
     /** The RPC token from the preload, sent as the `realm.<token>` subprotocol on every dial. */
     token: string;
+    /** A session picked from the menu-bar item while the window was closed. */
+    onOpenSession(cb: (target: { sessionId: string; spaceId: string | null }) => void): () => void;
     /** `process.platform` from the preload. Absent in jsdom, which has no bridge — every reader has
      *  to treat "unknown" as "no window material" rather than guessing macOS. */
     platform?: string;
