@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from "react";
+import { dismissBootSplash } from "./boot-splash";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { SidebarToggle } from "./components/sidebar/SidebarToggle";
 import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
@@ -152,6 +153,10 @@ export function Main() {
   const focusPaneFull = useApp((s) => s.focusPaneFull);
   const unfocusPane = useApp((s) => s.unfocusPane);
   const run = useApp((s) => s.run);
+  // The boot mark in index.html comes down when there is something to show — which is `booted`, not
+  // mount: this component renders an empty shell for as long as `boot()` is in flight. Declared
+  // above the early returns below, because a hook after a `return` is a hook that stops running.
+  useEffect(() => { if (booted) dismissBootSplash(); }, [booted]);
   // First run (W4): no spaces at all — the onboarding sheet, not a sentence pointing at a "+". It is
   // gated on `booted` because an unbooted store also has zero spaces, and on the space COUNT rather than
   // `activeSpaceId`, so it can never come back for someone who already has spaces.

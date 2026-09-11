@@ -9,6 +9,68 @@
          either way. -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ws://127.0.0.1:* http://127.0.0.1:*; img-src 'self' data: realm-media: http://127.0.0.1:*; media-src realm-media:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-src http://127.0.0.1:*" />
     <title>Realm</title>
+    <!-- The boot mark. Inline — style AND geometry — because this exists to cover the gap BEFORE the
+         bundle runs, and anything it had to fetch would arrive on the far side of the gap it is for.
+         The renderer's CSP allows inline style; it allows no inline script, and this needs none. -->
+    <style>
+      #boot {
+        position: fixed; inset: 0; display: grid; place-items: center;
+        pointer-events: none; z-index: 2147483647;
+        /* Held back 200ms on purpose: a warm launch paints before that and shows nothing at all,
+           which is better than a logo that flashes for a single frame. */
+        animation: boot-in 240ms cubic-bezier(.23, 1, .32, 1) 200ms both;
+      }
+      #boot[data-done] { animation: boot-out 200ms ease-in both; }
+      @keyframes boot-in { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes boot-out { from { opacity: 1; } to { opacity: 0; } }
+      .boot-mark { width: 64px; height: auto; }
+      /* The house shimmer's timing (1.4s linear infinite — styles.css `.shimmer-text`), spent as a
+         highlight swept across the mark rather than across text. Clipped to the mark's own
+         silhouette, so the sweep is never a band crossing an empty window. */
+      .boot-shine { animation: boot-sweep 1.4s linear infinite; }
+      @keyframes boot-sweep { from { transform: translateX(0); } to { transform: translateX(84px); } }
+      /* On a light desktop the mark is silver on near-white and would dissolve. The edge is what
+         keeps it readable without repainting the brand in a second colour. */
+      @media (prefers-color-scheme: light) {
+        .boot-mark { filter: brightness(.86) drop-shadow(0 1px 2px rgba(0, 0, 0, .3)); }
+      }
+      /* The sweep is decoration and goes. The mark stays, because it is the content. */
+      @media (prefers-reduced-motion: reduce) {
+        .boot-shine { display: none; }
+        #boot, #boot[data-done] { animation-duration: 1ms; animation-delay: 0ms; }
+      }
+    </style>
   </head>
-  <body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body>
+  <body><div id="boot" aria-hidden="true"><svg class="boot-mark" viewBox="0 0 40 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="b-0" x1="10" y1="32" x2="31" y2="42" gradientUnits="userSpaceOnUse"><stop stop-color="#8d939a"/><stop offset="1" stop-color="#697078"/></linearGradient>
+        <linearGradient id="b-1" x1="8" y1="6" x2="26" y2="16" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff"/><stop offset="1" stop-color="#e6e8eb"/></linearGradient>
+        <linearGradient id="b-2" x1="10" y1="15" x2="39" y2="31" gradientUnits="userSpaceOnUse"><stop stop-color="#b9bec4"/><stop offset=".55" stop-color="#a0a6ac"/><stop offset="1" stop-color="#8a9097"/></linearGradient>
+        <linearGradient id="b-3" x1="5" y1="25" x2="14" y2="41" gradientUnits="userSpaceOnUse"><stop stop-color="#eef0f2"/><stop offset=".48" stop-color="#dcdfe3"/><stop offset="1" stop-color="#bfc4c9"/></linearGradient>
+        <linearGradient id="b-4" x1="1" y1="16" x2="28" y2="32" gradientUnits="userSpaceOnUse"><stop stop-color="#dcdfe3"/><stop offset=".55" stop-color="#c6cacf"/><stop offset="1" stop-color="#b0b5bb"/></linearGradient>
+        <linearGradient id="b-5" x1="25" y1="7" x2="35" y2="24" gradientUnits="userSpaceOnUse"><stop stop-color="#fbfbfc"/><stop offset=".5" stop-color="#eaecee"/><stop offset="1" stop-color="#cfd3d8"/></linearGradient>
+        <clipPath id="b-clip">
+          <path d="m9.72461 41.7983h18.49589c1.2717 0 2.4469-.6785 3.0827-1.7798l4.1102-7.1191h-20.5481z"/>
+          <path d="m25.1445 15.1015h-20.55661l4.11021-7.11909c.63585-1.10133 1.811-1.77977 3.0827-1.77977h18.4959z"/>
+          <path d="m39.5272 25.7801c.6358-1.1014.6358-2.4582 0-3.5596l-4.1102-7.1191-5.1378 8.8989h-20.55068l5.13718 8.8989h20.5481l.0016-.0027.0016.0027z"/>
+          <path d="m14.8634 32.8992-5.13775-8.8988-5.13776 8.8988 5.13776 8.8989z"/>
+          <path d="m25.1445 15.1014h-20.55593l-4.108166 7.1192c-.635516 1.1013-.635318 2.458.000521 3.5591l4.111125 7.1195 5.13775-8.8989h20.55l.0013-.0021z"/>
+          <path d="m35.4181 15.1015-5.1378-8.89886-5.1377 8.89886 5.1377 8.8989z"/>
+        </clipPath>
+        <linearGradient id="b-shine" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#fff" stop-opacity="0"/>
+          <stop offset=".5" stop-color="#fff" stop-opacity=".72"/>
+          <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      <g>
+        <path fill="url(#b-0)" d="m9.72461 41.7983h18.49589c1.2717 0 2.4469-.6785 3.0827-1.7798l4.1102-7.1191h-20.5481z"/>
+        <path fill="url(#b-1)" d="m25.1445 15.1015h-20.55661l4.11021-7.11909c.63585-1.10133 1.811-1.77977 3.0827-1.77977h18.4959z"/>
+        <path fill="url(#b-2)" d="m39.5272 25.7801c.6358-1.1014.6358-2.4582 0-3.5596l-4.1102-7.1191-5.1378 8.8989h-20.55068l5.13718 8.8989h20.5481l.0016-.0027.0016.0027z"/>
+        <path fill="url(#b-3)" d="m14.8634 32.8992-5.13775-8.8988-5.13776 8.8988 5.13776 8.8989z"/>
+        <path fill="url(#b-4)" d="m25.1445 15.1014h-20.55593l-4.108166 7.1192c-.635516 1.1013-.635318 2.458.000521 3.5591l4.111125 7.1195 5.13775-8.8989h20.55l.0013-.0021z"/>
+        <path fill="url(#b-5)" d="m35.4181 15.1015-5.1378-8.89886-5.1377 8.89886 5.1377 8.8989z"/>
+      </g>
+      <g clip-path="url(#b-clip)"><rect class="boot-shine" x="-44" y="-4" width="44" height="56" fill="url(#b-shine)"/></g>
+    </svg></div><div id="root"></div><script type="module" src="/src/main.tsx"></script></body>
 </html>
