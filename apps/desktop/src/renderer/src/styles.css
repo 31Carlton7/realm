@@ -838,14 +838,17 @@ kbd { font: 11px var(--font-mono); }
 /* The two columns share ONE height, set here rather than on either child: the detail pane grows with
    whatever the highlighted model has to say, and a list that capped itself independently would leave
    the divider hanging in mid-air below it. `stretch` then makes the shorter column fill. */
-.mp-body { display: flex; min-height: 0; max-height: min(52vh, 420px); align-items: stretch; }
+/* The band's depth and ground live on the ROW, not on either column: the list and the detail sit
+   side by side under one border, and two different dissolve depths on one surface read as two
+   materials. Declared once here, inherited by both wraps below. */
+.mp-body { display: flex; min-height: 0; max-height: min(52vh, 420px); align-items: stretch;
+  --fade-h: 28px; --fade-top-h: 28px; --fade-ground: var(--surface); }
 /* The list keeps its own scroll and a fixed share of the width, so highlighting a row can never
    reflow the column the eye is reading down. */
 /* The list and its two bands. The band is short (28px) and the list pads by the same, so the row
    under one is still fully clickable — a fade that eats its own last row is a fade you have to
    scroll past. `--fade-ground` because this list sits on the picker's surface, not on a pane. */
 .mp-list-wrap { position: relative; width: 306px; flex: none; display: flex; min-height: 0;
-  --fade-h: 28px; --fade-top-h: 28px; --fade-ground: var(--surface);
   border-right: var(--hairline-w) solid var(--rl-hairline); }
 .mp-list-wrap > .edge-fade { inset: auto 0 0 0; }
 .mp-list-wrap > .edge-fade[data-edge="top"] { inset: 0 0 auto 0; }
@@ -891,6 +894,12 @@ kbd { font: 11px var(--font-mono); }
 .mp-detail { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 13px 14px; overflow: hidden; }
 /* Only the prose and the stats scroll. The footer holds its place, so the button this pane exists to
    lead to is never the part that falls off the bottom edge. */
+/* The scroller's own relative box, so the bands sit at the BLURB's ends rather than the column's:
+   `.mp-detail` also holds the Effort strip and Use model, and a band pinned to its bottom would have
+   dissolved those instead of the text above them. */
+.mp-detail-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
+.mp-detail-wrap > .edge-fade { inset: auto 0 0 0; }
+.mp-detail-wrap > .edge-fade[data-edge="top"] { inset: 0 0 auto 0; }
 .mp-detail-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
 .mp-detail-head { display: flex; align-items: center; gap: 8px; }
 .mp-detail-head h3 { margin: 0; font-size: 14.5px; font-weight: var(--fw-title); letter-spacing: -.01em;

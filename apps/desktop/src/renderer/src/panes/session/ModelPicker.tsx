@@ -381,12 +381,20 @@ function ModelDetail({ row, route, info, onRoute, onUse, effortItems, overflow, 
 }) {
   const { note, catalog } = modelDetail(row, info);
   const harness = AGENT_NOTES[route];
+  const body = useRef<HTMLDivElement>(null);
   return (
     <div className="mp-detail" aria-live="polite">
       {/* Everything the model has to SAY scrolls; the two controls below it never do. A long blurb
           on a small window used to push "Use model" past the popover's edge — the one control the
           whole pane exists to lead to. */}
-      <div className="mp-detail-body">
+      {/* Both ends dissolve, the same way the list beside them does. This column hard-clipped at both
+          edges: a blurb taller than the box was cut mid-line under the harness strip, and cut again
+          against the Effort divider, which reads as a rendering fault rather than as more text. The
+          bands are opacity-gated on there being something under them, so an unscrolled blurb is not
+          smudged for nothing. */}
+      <div className="mp-detail-wrap">
+      <ScrollFades scroller={body} />
+      <div ref={body} className="mp-detail-body">
       <div className="mp-detail-head">
         <Icon name={AGENT_META[route].icon} size={18} colored />
         <h3>{row.label}</h3>
@@ -422,6 +430,7 @@ function ModelDetail({ row, route, info, onRoute, onUse, effortItems, overflow, 
         <p className="mp-harness-billing">{harness.billing}</p>
         {harness.limits && <p className="mp-harness-limits"><Icon name="alert" size={12} /> {harness.limits}</p>}
         {row.blockedReason && <p className="mp-harness-limits"><Icon name="alert" size={12} /> {row.blockedReason}</p>}
+      </div>
       </div>
       </div>
       <div className="mp-detail-foot">

@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { canonicalModelKey, type AgentKind, type ModelInfo } from "@realm/contracts";
 import { ModelPicker } from "./ModelPicker";
@@ -49,6 +51,12 @@ const search = () => screen.getByRole("combobox", { name: "Search models" });
 /** Only the group headings — never a scroll the highlight asked for. */
 const groupScrolls = () => scrolled.filter((s) => s.id.startsWith("mp-group-")).map((s) => s.id);
 
+const repoFile = (rel: string): string => {
+  let dir = dirname(new URL(import.meta.url).pathname);
+  while (dir !== "/" && !existsSync(join(dir, "pnpm-workspace.yaml"))) dir = dirname(dir);
+  return join(dir, rel);
+};
+
 describe("the jump strip names the list's own separators", () => {
   it("offers one button per harness heading, in the order the list draws them", () => {
     mount();
@@ -75,6 +83,36 @@ describe("the jump strip names the list's own separators", () => {
     // Gated bands, not bare spans: `.edge-fade` is opacity-0 until `data-on` says there is something
     // under it, so a hand-written pair (as the model list carried) paints nothing at all, ever.
     expect(bands).toEqual(["start", "end"]);
+  });
+
+  it("dissolves the model blurb at both ends too, inside its own box", () => {
+    mount();
+    /* The detail column hard-clipped at both edges: a blurb taller than the box was cut mid-line
+       under the harness strip and cut again against the Effort divider, which reads as a rendering
+       fault rather than as more text.
+
+       The band has to hang off `.mp-detail-wrap` and NOT off `.mp-detail`. `.mp-detail` also holds
+       the Effort strip and Use model, so a band pinned to its bottom would dissolve those controls
+       instead of the text above them — the mutant that still looks plausible in a diff. */
+    const wrap = document.querySelector(".mp-detail-wrap");
+    expect(wrap, "the blurb needs its own relative box for the bands to sit in").not.toBeNull();
+    const bands = [...wrap!.querySelectorAll(":scope > .edge-fade")].map((b) => b.getAttribute("data-edge"));
+    expect(bands).toEqual(["top", null]);
+    // And the scroller is its sibling, not its parent: a band inside the box it fades travels with
+    // the content and dissolves the middle of the blurb.
+    expect(wrap!.querySelector(":scope > .mp-detail-body")).not.toBeNull();
+    expect(document.querySelector(".mp-detail-body .edge-fade")).toBeNull();
+  });
+
+  it("states the band's depth once, on the row that owns both columns", () => {
+    // The list and the blurb sit side by side under one border. Two dissolve depths on one surface
+    // read as two materials, and the way that happens is each column declaring its own.
+    const css = readFileSync(repoFile("apps/desktop/src/renderer/src/styles.css"), "utf8");
+    const body = /\.mp-body \{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(body).toMatch(/--fade-h:/);
+    expect(body).toMatch(/--fade-ground:/);
+    const listWrap = /\.mp-list-wrap \{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(listWrap, "the column must inherit the depth, not restate it").not.toMatch(/--fade-h:/);
   });
 
   it("scrolls the named heading to the top of the list", () => {
