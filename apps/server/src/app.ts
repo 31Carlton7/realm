@@ -356,6 +356,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // The relay reads its destinations from settings at send time; wired with the real transport
   // here and nowhere else, so every test and live-check script sends nothing off the machine.
   const notifications = new NotificationsService({ store: new NotificationsStore(db), settings, rpc,
+    // Space names for the relay line: with no window anywhere, that line is all a person gets, and a
+    // session title alone does not say which space to open.
+    spaces: { get: (id: string) => spaces.get(id) },
     relay: new NotificationRelay({ settings, transport: realTransport, log: (line) => console.error(line) }) });
   // `isEnvironmentBusy` is a late-bound closure rather than a constructor argument because the two
   // services genuinely need each other: SessionService checkpoints every turn, and CheckpointService

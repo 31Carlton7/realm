@@ -578,4 +578,20 @@ export const migrations: string[] = [
     data TEXT NOT NULL, cols INTEGER NOT NULL, rows INTEGER NOT NULL,
     captured_at INTEGER NOT NULL);
   `,
+  // v31 — `sessions.seen_seq`: how far this user has actually READ a session's transcript.
+  //
+  // Distinct from `last_event_seq`, which is how far the session has been WRITTEN. The gap between
+  // the two is the only thing that can answer "what is new since I was last here", and with a daemon
+  // that runs while the app is closed that gap is no longer a rare few seconds — it is days.
+  //
+  // A column on `sessions` and not a table, unlike `terminal_history` one migration up, because the
+  // shapes are opposite: this is one small integer read on every listing, and that blob was 128KB
+  // read by nothing that asked for it.
+  //
+  // Defaulted to 0 rather than backfilled to `last_event_seq`. 0 means "never opened", which for an
+  // existing session is a claim about the future and not about the past: the first open stamps it,
+  // and until then the rules that read it (the sidebar dot, the "new since you were here" line)
+  // simply have nothing to draw. Backfilling would assert that every session in the database has
+  // been read to the end, which is the one thing nobody can know.
+  `ALTER TABLE sessions ADD COLUMN seen_seq INTEGER NOT NULL DEFAULT 0;`,
 ];

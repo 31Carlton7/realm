@@ -307,6 +307,18 @@ export const SessionSchema = z.object({
   /** Derived from the environment's `path`, not stored on the session — read-only for every consumer. */
   cwd: z.string(), status: SessionStatusSchema, providerSessionId: z.string().nullable(),
   title: z.string(), lastEventSeq: z.number().int(),
+  /**
+   * How far this user has READ the transcript, against `lastEventSeq`'s how far it has been WRITTEN.
+   *
+   * The gap between the two is the only thing that can answer "what is new since I was last here",
+   * and with a daemon that keeps working while the app is closed that gap is no longer a few seconds
+   * — it is however long you were away.
+   *
+   * 0 means never opened, which is a claim about the future rather than the past: the first open
+   * stamps it, and until then the rules that read it draw nothing rather than declaring a whole
+   * transcript unread.
+   */
+  seenSeq: z.number().int(),
   /** The item of the session's own terminal side panel, once it has been opened at least once (W4).
    *  That item is hidden from every item listing — the terminal belongs to the session, not the space. */
   terminalItemId: IdSchema.nullable(),

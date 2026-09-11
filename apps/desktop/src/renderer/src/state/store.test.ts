@@ -3177,3 +3177,63 @@ describe("the computer-use allowed-apps list", () => {
     expect(store.getState().computerAllowedApps.s1).toEqual([]);
   });
 });
+
+describe("what changed while you were away", () => {
+  /** A session with `total` persisted events, `seen` of which this user has read. */
+  const seeded = (total: number, seen: number) => {
+    const api = fakeApi();
+    const sess = session("sx", "s1", { lastEventSeq: total, seenSeq: seen });
+    api.data.sessions = [sess];
+    api.data.items.s1 = [item("ix", "s1", { kind: "session", refId: "sx", title: "Fix login" })];
+    api.data.sessionEvents = { sx: Array.from({ length: total }, (_, i) => ({
+      seq: i + 1, sessionId: "sx", event: { type: "assistant_text", ts: 1000 + i, payload: { messageId: `m${i}`, text: `line ${i}` } },
+    })) as never };
+    return api;
+  };
+
+  it("draws the rule once, at the first thing you have not read", async () => {
+    const store = createAppStore(seeded(5, 3));
+    await store.getState().boot();
+    await store.getState().openSession("sx");
+    const blocks = store.getState().transcripts.sx!.t.blocks;
+    const at = blocks.findIndex((b) => b.kind === "unseen-mark");
+    // MUTANT: mark every event past the seq and the transcript grows a rule per message.
+    expect(blocks.filter((b) => b.kind === "unseen-mark")).toHaveLength(1);
+    // Three read, so the rule sits above the fourth.
+    expect(at).toBe(3);
+  });
+
+  it("draws nothing when there is nothing on one side of it", async () => {
+    // Never opened: `seenSeq` 0 is a claim about the future, not "you have read none of this".
+    const fresh = createAppStore(seeded(5, 0));
+    await fresh.getState().boot();
+    await fresh.getState().openSession("sx");
+    expect(fresh.getState().transcripts.sx!.t.blocks.some((b) => b.kind === "unseen-mark")).toBe(false);
+
+    // Caught up: nothing below the line.
+    const caught = createAppStore(seeded(5, 5));
+    await caught.getState().boot();
+    await caught.getState().openSession("sx");
+    expect(caught.getState().transcripts.sx!.t.blocks.some((b) => b.kind === "unseen-mark")).toBe(false);
+  });
+
+  it("stamps the mark only for the session with the keyboard", async () => {
+    const api = seeded(3, 1);
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openItem("ix");
+    await store.getState().openSession("sx");
+    api.calls.length = 0;
+
+    // An event on the focused pane: watching a transcript move IS reading it.
+    store.getState().applySessionEvent({ seq: 4, sessionId: "sx", ephemeral: false,
+      event: { type: "assistant_text", ts: 2000, payload: { messageId: "m9", text: "new" } } } as never);
+    await vi.waitFor(() => expect(api.calls.some((c) => c.startsWith("markSessionSeen:sx"))).toBe(true));
+
+    // …and one on a session that is not the focused pane keeps its dot.
+    api.calls.length = 0;
+    store.getState().applySessionEvent({ seq: 5, sessionId: "other", ephemeral: false,
+      event: { type: "assistant_text", ts: 2001, payload: { messageId: "m10", text: "x" } } } as never);
+    expect(api.calls.some((c) => c.startsWith("markSessionSeen:other"))).toBe(false);
+  });
+});

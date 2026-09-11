@@ -146,7 +146,7 @@ export function registerMethods(d: Deps): void {
   reg("spaces.update", (p) => { const r = d.spaces.update(p); rpc.broadcast("spaces.changed", {}); return r; });
   reg("spaces.reorder", (p) => { d.spaces.reorder(p.ids); rpc.broadcast("spaces.changed", {}); return { ok: true as const }; });
   reg("spaces.setLayout", (p) => { const r = d.spaces.setLayout(p.id, p.layout); rpc.broadcast("spaces.changed", {}); return r; });
-  reg("spaces.setGroups", (p) => { const r = d.spaces.setGroups(p.id, p.groups); rpc.broadcast("spaces.changed", {}); return r; });
+  reg("spaces.setGroups", (p) => { const r = d.spaces.setGroups(p.id, p.groups, p.activeItemId); rpc.broadcast("spaces.changed", {}); return r; });
   reg("spaces.delete", async (p) => {
     // Machines first: their rows go with the space by ON DELETE CASCADE, but a live socket to
     // somebody else's Mac does not, and a leaked connection is worse than a leaked row.
@@ -728,6 +728,7 @@ export function registerMethods(d: Deps): void {
   });
   reg("sessions.list", (p) => d.sessions.list(p.spaceId));
   reg("sessions.listAll", () => d.sessions.listAll());
+  reg("sessions.markSeen", (p) => { d.sessions.markSeen(p.id, p.seq); return { ok: true as const }; });
   reg("sessions.get", (p) => d.sessions.get(p.id));
   // `userDispatched` (W2's ⌘⇧↩) maps to the ONE origin a client may claim; the agent origins are
   // recorded by the server-side tools that create those children, never over RPC.

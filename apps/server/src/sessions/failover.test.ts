@@ -20,7 +20,7 @@ function harness(opts: { policy?: unknown; agentKind?: AgentKind } = {}) {
     id: "se1", spaceId: "sp1", projectId: null, agentKind: opts.agentKind ?? "claude",
     model: "claude-opus-5", effort: null, permissionMode: "default", fastMode: false,
     environmentId: "en1", cwd: "/tmp/x", status: "running", providerSessionId: "prov-1",
-    title: "t", lastEventSeq: 0, terminalItemId: null, dispatchedBy: null,
+    title: "t", lastEventSeq: 0, seenSeq: 0, terminalItemId: null, dispatchedBy: null,
     createdAt: 0, updatedAt: 0,
   } as Session;
 

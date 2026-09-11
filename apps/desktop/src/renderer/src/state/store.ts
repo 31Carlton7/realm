@@ -136,7 +136,7 @@ export type Api = {
   /** `spaces.setGroups` — the whole group set (membership, names, active pointer, per-group zoom) in
    *  one write. Every layout persist goes through this now; `setLayout` survives only for the fakes
    *  and for callers that genuinely mean "just the active group's tree". */
-  setGroups(spaceId: string, groups: SpaceGroups): Promise<Space>;
+  setGroups(spaceId: string, groups: SpaceGroups, activeItemId: string | null): Promise<Space>;
   createTerminal(spaceId: string): Promise<{ terminalId: string; itemId: string }>;
   /** `browsers.create` — row + item; the native view is the pane's own business (Plan 11 W1). */
   createBrowser(spaceId: string): Promise<{ browserId: string; itemId: string; url: string }>;
@@ -173,7 +173,7 @@ export type Api = {
   setSetting(key: string, value: unknown): Promise<void>;
   /** `system.info` — the under-strip's display-only machine label (Plan 12 W1) and the person's
    *  first name for the hero greeting. One call: boot wants both labels at the same moment. */
-  systemInfo(): Promise<{ machineName: string; userName: string }>;
+  systemInfo(): Promise<{ machineName: string; userName: string; detachedSince: number | null }>;
   /** Native folder picker; resolves null when cancelled. */
   pickFolder(): Promise<string | null>;
   /** Native multi-select file picker; resolves [] when cancelled. */
@@ -427,6 +427,8 @@ export type Api = {
   listNotifications(cursor: string | null, limit?: number): Promise<{ notifications: Notification[]; nextCursor: string | null; unread: number }>;
   /** `notifications.markRead` — named ids, or the whole (global) feed. */
   markNotificationsRead(input: { ids?: string[]; all?: boolean }): Promise<{ ok: true; unread: number }>;
+  /** `sessions.markSeen` — how far this user has read a session's transcript. */
+  markSessionSeen(id: string, seq: number): Promise<void>;
   /** `review.request` (Plan 13 W3): spawn the read-only reviewer over this environment. Returns as
    *  soon as the reviewer session exists; the verdict arrives as a `review.changed` broadcast. */
   requestReview(environmentId: string): Promise<{ sessionId: string; itemId: string }>;
@@ -652,6 +654,18 @@ export type AppState = {
   /** The leaf pane that has focus (pane clicks, open/split target). Reset to the first leaf whenever the
    *  layout no longer contains it. */
   focusedLeafId: string | null;
+  /**
+   * Where "new since you were here" is drawn, per session, FROZEN at the moment the pane opened.
+   *
+   * Frozen because the alternative is a line that runs away from you: stamping `seen_seq` as you read
+   * and re-reading it on every event would keep pushing the rule to the bottom, so it would never mark
+   * anything. This is captured once, from the value stored before this open, and stays put until the
+   * pane is opened again.
+   *
+   * Absent for a session opened for the first time (nothing was missed) and for one already caught
+   * up — in both cases there is no line to draw.
+   */
+  newSinceSeq: Record<string, number>;
   /** Per-pane back/forward trails, keyed by leaf id (see `PaneHistory`). Written in exactly one place —
    *  `writeGroups`, which reconciles it against the layout on every structural write — plus the two
    *  explicit actions (`navigateInPane`, `stepPaneNav`) and the item prune in `refreshItems`. */
@@ -896,6 +910,14 @@ export type AppState = {
    *  host reports no real name (or before boot's fetch answers), which the greeting reads as "greet
    *  the space, not the person" rather than as a blank to print. */
   userName: string;
+  /**
+   * When Realm's last window went away, or null while one is open.
+   *
+   * The notifications page draws a line at it. Null means there is nothing to draw — a server nobody
+   * has detached from has no "while you were away" to report — and the page then renders exactly what
+   * it always has, which is why this can be absent without a second code path.
+   */
+  detachedSince: number | null;
   /** The prompter's Connectors submenu source (Plan 12 W1), by space id: the same `mcp.list` projection
    *  the settings sheet reads, cached HERE so the menu shows LAST KNOWN state — `mcp.list` reads rows
    *  and the hub's held status, it dials nothing, so refreshing on menu open never probes a server.
@@ -1481,6 +1503,15 @@ export type AppState = {
   /** Mark rows read — named ids, or the whole global feed ("all"). Applies the server's returned
    *  unread count; the broadcast that follows carries the same number. */
   markNotificationsRead(ids: string[] | "all"): Promise<void>;
+  /**
+   * Record that this user has read a session up to its newest event.
+   *
+   * Called under the same predicate the notifications feed auto-reads by — the session is in the
+   * focused pane — because that is the only thing the renderer actually knows about reading. A pane
+   * restored behind another one at launch has been opened but not read, and stamping it would erase
+   * the dot that is the whole point.
+   */
+  markSessionSeen(sessionId: string): Promise<void>;
   /** The `notifications.changed` handler: applies the server's unread count, folds a surfaced row into
    *  the held feed, and auto-reads a `session_done` for the session pane the user is looking at (the
    *  renderer is the one honest holder of focus — see the server service's doc comment). */
@@ -1983,6 +2014,19 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (profileId) get().setProfilePageTab(profileId, (entry.view ?? "skills") as ProfilePageTab);
       }
     };
+    /** The leaf holding the item this space had focused when it was last written, or null when there
+     *  is none, the item is gone, or it is not in the active group's layout. Null falls through to
+     *  `focusIn`, which is what the app did before focus was restorable at all. */
+    const leafForActiveItem = (layout: Layout): string | null => {
+      const itemId = get().spaces.find((sp) => sp.id === get().activeSpaceId)?.activeItemId;
+      return itemId ? findLeafOfItem(layout, itemId)?.id ?? null : null;
+    };
+    /** Whether this session is the pane with the keyboard. The one thing the renderer knows about
+     *  attention, and the same test the notifications feed's auto-read already makes. */
+    const isFocusedSession = (sessionId: string): boolean => {
+      const focused = get().items.find((i) => i.id === itemIdOfLeaf(get().layout, get().focusedLeafId));
+      return focused?.kind === "session" && focused.refId === sessionId;
+    };
     /** Focus keeps its leaf while the layout still has it; otherwise it resets to the first leaf. */
     const focusIn = (layout: Layout) => {
       const f = get().focusedLeafId;
@@ -2111,7 +2155,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, submitKey: "enter", sidebarCollapsed: false, items: [], groups: null, layout: null, focusedLeafId: null, projects: [], environments: {}, error: null,
+      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, easterEggs: false, konamiUnlocked: false, submitKey: "enter", midTurnMode: "queue", sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
       paletteOpen: false, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, machineState: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
@@ -2122,7 +2166,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {},
-      machineName: "", userName: "", connectors: {}, browserAllowlists: {}, computerAllowedApps: {},
+      machineName: "", userName: "", detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
@@ -2140,14 +2184,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           api.getSetting(SETTING_TERMINAL_PANEL),
           // Labels, not dependencies: a failure here must not take boot down with it — the strip
           // simply shows no machine name, and the greeting no name.
-          api.systemInfo().catch(() => ({ machineName: "", userName: "" })),
+          api.systemInfo().catch(() => ({ machineName: "", userName: "", detachedSince: null })),
         ]);
         const agent = AgentKindSchema.safeParse(lastAgent);
         set({ profiles, themePref: isThemePref(theme) ? theme : "system", themeNames: { light: storedPalette(light, legacyName, "light"), dark: storedPalette(dark, legacyName, "dark") },
           themeOverrides: parseThemeOverrides(overrides), contrast: typeof contrast === "number" ? clampContrast(contrast) : CONTRAST_RANGE.default, fonts: parseFontPref(fonts),
           groundAlpha: typeof groundAlpha === "number" ? clampGroundAlpha(groundAlpha) : DEFAULT_GROUND_ALPHA, swipeInvert: swipeInvert === true,
-          submitKey: isSubmitKey(submitKey) ? submitKey : "enter", sidebarCollapsed: sidebarCollapsed === true, lastAgentKind: agent.success ? agent.data : null,
-          terminalPanel: parseTerminalPanels(panels), machineName: system.machineName, userName: system.userName });
+          submitKey: isSubmitKey(submitKey) ? submitKey : "enter", sidebarCollapsed: sidebarCollapsed === true,
+          sidebarWidth: typeof sidebarWidth === "number" ? clampSidebarWidth(sidebarWidth) : SIDEBAR_WIDTH.default,
+          lastAgentKind: agent.success ? agent.data : null,
+          easterEggs: eggs === true, konamiUnlocked: konami === true,
+          terminalPanel: parseTerminalPanels(panels), machineName: system.machineName, userName: system.userName, detachedSince: system.detachedSince });
         // AppShell is already mounted during boot: keep spaces unpublished until each saved custom
         // icon can resolve, rather than visibly rendering its folder fallback first.
         await hydrateSpaceIcons(spaces);
@@ -2252,12 +2299,19 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const live = new Set(items.filter((i) => !i.archived).map((i) => i.id));
         const groups = reconcileGroups(get().groups ?? groupsFromLayout(get().layout), live);
         const layout = activeLayout(groups);
+        const firstHydrate = !layoutHydrated;
         layoutHydrated = true;
         // The same prune has to reach the back/forward trails, or Back would offer to return a pane to
         // an item deleted here or in another window. Applied BEFORE writeGroups' reconcile so the
         // layout's own occupants are re-seeded on top of the pruned trails, never the other way round.
         set({ paneHistory: forgetNavItems(get().paneHistory, live) });
-        set(writeGroups(groups, { items, focusedLeafId: focusIn(layout) }));
+        // Focus is restored on the FIRST hydrate of a space and never again. `spaces.active_item_id`
+        // has had a writer and no reader since it was added; this is the reader. A later
+        // `items.changed` must not move focus — another window opening a pane would otherwise pull
+        // the keyboard out of whatever this one is typing into — which is also why `focusIn` keeps
+        // the current leaf whenever the layout still has it.
+        const restored = firstHydrate ? leafForActiveItem(layout) : null;
+        set(writeGroups(groups, { items, focusedLeafId: restored ?? focusIn(layout) }));
       },
       async refreshAllItems() {
         set({ allItems: await api.listAllItems() });
@@ -2884,9 +2938,26 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           // @-mention picker reads. Skipped for Cursor/fake sessions: no picker, no fetch.
           const opened = get().sessions[id];
           if (opened && AGENT_SKILL_SUPPORT[opened.agentKind] === "injected") get().run(() => get().refreshSkills(opened.spaceId));
+          // The rule's position, read from the mark as it was BEFORE this open, and only when there
+          // is something on both sides of it: a session opened for the first time (`seenSeq` 0) has
+          // missed nothing, and one already caught up has nothing to divide.
+          const row = get().sessions[id];
+          const seenSeq = row && row.seenSeq > 0 ? row.seenSeq : null;
           let { lastSeq, t } = get().transcripts[id] ?? prev;
-          for (const e of [...events, ...(loading.get(id) ?? [])]) if (e.seq > lastSeq) { t = reduceTranscript(t, e.event); lastSeq = e.seq; }
+          let marked = get().newSinceSeq[id] !== undefined;
+          for (const e of [...events, ...(loading.get(id) ?? [])]) {
+            if (e.seq <= lastSeq) continue;
+            // The FIRST event past the mark carries it. `reduceTranscript` refuses a second one, so
+            // re-entering this loop on a later page cannot draw two rules.
+            const mark = seenSeq !== null && !marked && e.seq > seenSeq;
+            if (mark) marked = true;
+            t = reduceTranscript(t, e.event, mark);
+            lastSeq = e.seq;
+          }
           setTranscript(id, { lastSeq, t });
+          if (marked && get().newSinceSeq[id] === undefined && seenSeq !== null) {
+            set({ newSinceSeq: { ...get().newSinceSeq, [id]: seenSeq } });
+          }
         } finally { loading.delete(id); }
       },
       applySessionEvent(ev) {
@@ -2900,6 +2971,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // A persisted event is ordered AFTER the deltas still waiting, so it folds them into its own
         // write rather than racing the frame that would have applied them.
         setTranscript(ev.sessionId, { lastSeq: ev.seq, t: reduceTranscript(drainInto(ev.sessionId, cur.t), ev.event) });
+        // Watching a transcript move IS reading it. Same predicate the notifications auto-read uses —
+        // this session is the focused pane — because "which pane has the keyboard" is the only thing
+        // the renderer actually knows about attention. A pane in the background, or restored behind
+        // another one at launch, keeps its dot.
+        if (isFocusedSession(ev.sessionId)) void get().run(() => get().markSessionSeen(ev.sessionId));
       },
       flushSessionDeltas() {
         if (pendingDeltas.size === 0) return;
@@ -3960,6 +4036,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ notifications: [...get().notifications, ...page.notifications.filter((n) => !known.has(n.id))],
           notificationsCursor: page.nextCursor });
         applyUnread(page.unread);
+      },
+      async markSessionSeen(sessionId) {
+        const t = get().transcripts[sessionId];
+        const row = get().sessions[sessionId];
+        if (!t || !row || t.lastSeq <= row.seenSeq) return;
+        // Optimistic, because the dot is on screen and waiting a round trip to clear it is a flicker
+        // the user reads as the app not noticing them.
+        mergeSession({ ...row, seenSeq: t.lastSeq });
+        await api.markSessionSeen(sessionId, t.lastSeq);
       },
       async markNotificationsRead(ids) {
         const r = ids === "all" ? await api.markNotificationsRead({ all: true }) : await api.markNotificationsRead({ ids });

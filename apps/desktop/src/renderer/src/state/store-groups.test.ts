@@ -379,3 +379,56 @@ describe("seedGroups", () => {
     expect(seedGroups(sp)).toEqual(seedGroups(sp));
   });
 });
+
+describe("focus survives closing the app", () => {
+  let api: FakeApi;
+  beforeEach(() => { api = fakeApi(); });
+
+  it("is written in the same call as the layout, as an ITEM", async () => {
+    const store = await booted(api);
+    await store.getState().openItem("i1");
+    await store.getState().openItemAt("i2", findLeafOfItem(store.getState().layout!, "i1")!.id, "right");
+    await store.getState().flushPersist();
+    // The item, not the leaf: a leaf id is a fact about one arrangement, so a stored leaf id would
+    // point at nothing the first time anybody rebuilt the split around the same panes.
+    expect(api.data.spaces.find((sp) => sp.id === "s1")!.activeItemId).toBe("i2");
+  });
+
+  it("comes back on the first hydrate of a space", async () => {
+    const store = await booted(api);
+    await store.getState().openItem("i1");
+    await store.getState().openItemAt("i2", findLeafOfItem(store.getState().layout!, "i1")!.id, "right");
+    await store.getState().flushPersist();
+
+    // A fresh app against the same data — which is what a restart is.
+    const next = createAppStore(api);
+    await next.getState().boot();
+    // MUTANT: never read `activeItemId` and focus lands on the first leaf, which is the pane the user
+    // was NOT in — every relaunch puts the keyboard somewhere they have to correct.
+    expect(next.getState().focusedLeafId).toBe(findLeafOfItem(next.getState().layout!, "i2")!.id);
+  });
+
+  it("is NOT moved by a later items change — another window must not take the keyboard", async () => {
+    const store = await booted(api);
+    await store.getState().openItem("i1");
+    await store.getState().openItemAt("i2", findLeafOfItem(store.getState().layout!, "i1")!.id, "right");
+    // Focus the other pane WITHOUT persisting, so the stored answer and the live one disagree.
+    const other = findLeafOfItem(store.getState().layout!, "i1")!.id;
+    store.getState().focusLeaf(other);
+    await store.getState().refreshItems();
+    // MUTANT: restore focus on every hydrate and an `items.changed` from another window yanks the
+    // cursor out of whatever this one is typing into.
+    expect(store.getState().focusedLeafId).toBe(other);
+  });
+
+  it("falls back to the first leaf when the remembered item is gone", async () => {
+    const store = await booted(api);
+    await store.getState().openItem("i1");
+    await store.getState().flushPersist();
+    // The item was deleted from another window between runs.
+    api.data.spaces.find((sp) => sp.id === "s1")!.activeItemId = "i-deleted";
+    const next = createAppStore(api);
+    await next.getState().boot();
+    expect(next.getState().focusedLeafId).toBe(next.getState().layout!.id);
+  });
+});

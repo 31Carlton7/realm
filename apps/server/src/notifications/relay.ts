@@ -2,10 +2,18 @@ import { execFile } from "node:child_process";
 import { NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, RELAYED_CATEGORIES, type NotificationCategory } from "@realm/contracts";
 import type { SettingsStore } from "../store/settings";
 
-/** One line, as it reaches a phone: the session, then what it wants. */
-export function relayText(n: { category: NotificationCategory; title: string; body: string | null }): string {
+/**
+ * One line, as it reaches a phone: the session, where it is, then what it wants.
+ *
+ * The space name is here because at level C — realm-server running headless, with no Realm window
+ * anywhere — this line is ALL a person gets. A session title alone does not say which of three spaces
+ * to open, and "Fix the login flow needs your OK" is a sentence you cannot act on without going
+ * looking. Omitted when there is no space (a row about the app itself, not about work in one).
+ */
+export function relayText(n: { category: NotificationCategory; title: string; body: string | null; spaceName?: string | null }): string {
   const head = n.category === "permission" ? "needs your OK" : n.category === "run_blocked" ? "is blocked" : "finished";
-  return `Realm: ${n.title} ${head}${n.body ? ` — ${n.body}` : ""}`;
+  const where = n.spaceName ? ` (${n.spaceName})` : "";
+  return `Realm: ${n.title}${where} ${head}${n.body ? ` — ${n.body}` : ""}`;
 }
 
 export type RelayTransport = {
@@ -68,7 +76,7 @@ export class NotificationRelay {
     return t.imessage !== "" || t.slack !== "";
   }
 
-  send(n: { category: NotificationCategory; title: string; body: string | null }): void {
+  send(n: { category: NotificationCategory; title: string; body: string | null; spaceName?: string | null }): void {
     if (!RELAYED_CATEGORIES.includes(n.category)) return;
     const t = this.targets();
     const text = relayText(n);

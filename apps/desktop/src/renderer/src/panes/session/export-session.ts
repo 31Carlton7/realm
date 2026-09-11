@@ -111,6 +111,9 @@ function sectionFor(b: Block): string | null {
     // And the sharpest version of the same warning: the agent that answered below this line had none
     // of the conversation above it. A reader of this file would otherwise read one continuous thread.
     case "context_reset": return `> **Context reset:** ${b.note}`;
+    // One reader's place in a shared log. It is not part of what the session produced, and an
+    // exported file has no reader whose place it could describe.
+    case "unseen-mark": return null;
     // Likewise: a retry that was still pending when the export ran is a fact about the moment of
     // export, not about the session.
     case "retrying": return null;

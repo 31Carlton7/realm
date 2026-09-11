@@ -323,6 +323,12 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             case "context_reset": return <div key={key} className="msg-handoff" role="note" data-enter={enter || undefined}>
               <span>{b.note}</span>
             </div>;
+            // Not a seam: nothing changed about the agent here, and wearing the seam's class would
+            // say it had. This is a mark about the READER — where they stopped — so it is the one
+            // rule in the column that carries the accent, and it says so in the second person.
+            case "unseen-mark": return <div key={key} className="msg-unseen" role="separator" aria-label="New since you were here" data-enter={enter || undefined}>
+              <span>New since you were here</span>
+            </div>;
           }
         })}
         {permissions.map((p, i) => {

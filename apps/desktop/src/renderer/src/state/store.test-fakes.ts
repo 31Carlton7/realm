@@ -29,7 +29,7 @@ export const item = (id: string, spaceId: string, extra: Partial<Item> = {}): It
   ({ id, spaceId, kind: "terminal", title: "t", sortOrder: 0, pinned: false, archived: false, refId: id, createdAt: 0, updatedAt: 0, ...extra });
 export const session = (id: string, spaceId: string, extra: Partial<Session> = {}): Session =>
   ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, fastMode: false, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", cwd: "/tmp", status: "idle",
-    providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, terminalItemId: null, dispatchedBy: null, createdAt: 0, updatedAt: 0, ...extra });
+    providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, seenSeq: 0, terminalItemId: null, dispatchedBy: null, createdAt: 0, updatedAt: 0, ...extra });
 
 export const skillRow = (id: string, extra: Partial<Skill> = {}): Skill =>
   ({ id, name: id, description: `does ${id}`, path: `/realm-home/skills/${id}/SKILL.md`, enabled: true, valid: true, reason: null,
@@ -109,6 +109,9 @@ export const macRow = (id: string, label: string, group: MacAccessRow["group"], 
 };
 
 export type FakeData = {
+  /** `system.info.detachedSince` — when Realm's last window went away. Null (the default) is a server
+   *  with a window attached, which is what every test that does not care about it wants. */
+  detachedSince?: number | null;
   /** Plan 22: lectures per space, Plynn's meetings folder, and guide progress by `documentsId:path`. */
   lectures?: Record<string, Lecture[]>;
   plynn?: { available: boolean; folder: string; meetings: PlynnMeeting[] };
@@ -285,6 +288,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
   const destroyedBrowserViews: string[] = [];
   const sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[] }[] = [];
   const data: Required<FakeData> = {
+    detachedSince: overrides.detachedSince ?? null,
     profiles: overrides.profiles ?? [profile("p1", "Work"), profile("p2", "School")],
     spaces: overrides.spaces ?? [space("s1", "p1", "Versed", { color: "#7c6cff" }), space("s2", "p1", "Homework", { color: "#3ddc97" })],
     items: overrides.items ?? { s1: [item("i1", "s1", { title: "Terminal" })] },
@@ -599,10 +603,13 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     // from the active group — a test that reads the returned space's `layout` gets what the real one
     // would return, so a store bug that persists the wrong active group shows up here rather than
     // silently round-tripping.
-    setGroups: async (sid, groups) => {
+    setGroups: async (sid, groups, activeItemId) => {
       calls.push(`setGroups:${sid}`);
       const i = data.spaces.findIndex((x) => x.id === sid);
-      const s = { ...(i >= 0 ? data.spaces[i]! : findSpace(sid)), groups, layout: activeLayout(groups) };
+      // Focus is stored in the same write as the layout, exactly as the server does — a fake that
+      // dropped it would let a store bug that never sends focus round-trip silently.
+      const s = { ...(i >= 0 ? data.spaces[i]! : findSpace(sid)), groups, layout: activeLayout(groups),
+        activeItemId: activeItemId === undefined ? (i >= 0 ? data.spaces[i]!.activeItemId : null) : activeItemId };
       if (i >= 0) data.spaces[i] = s;
       return s;
     },
@@ -641,7 +648,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       data.computerAllowedApps[spaceId] = stored;
       return stored;
     },
-    systemInfo: async () => { calls.push("systemInfo"); return { machineName: "Carlton's M4 MacBook Pro", userName: "Carlton" }; },
+    markSessionSeen: async (id, seq) => {
+      calls.push(`markSessionSeen:${id}@${seq}`);
+      const row = data.sessions.find((x) => x.id === id);
+      if (row) row.seenSeq = Math.max(row.seenSeq, seq);
+    },
+    systemInfo: async () => { calls.push("systemInfo"); return { machineName: "Carlton's M4 MacBook Pro", userName: "Carlton", detachedSince: data.detachedSince ?? null }; },
     pickFolder: async () => "/tmp/picked-repo",
     // Whatever a test parks in `data.pickFiles` is what the native picker "returns".
     pickFiles: async () => { calls.push("pickFiles"); return data.pickFiles.splice(0, data.pickFiles.length); },

@@ -3,13 +3,13 @@ import { newId, SessionEventSchema, type AgentKind, type DispatchedBy, type Disp
 import { NotFoundError, RpcError, now } from "./rows";
 
 type Row = { id: string; space_id: string; project_id: string | null; agent_kind: AgentKind; model: string | null; effort: string | null; fast_mode: number;
-  permission_mode: string; environment_id: string; cwd: string; status: SessionStatus; provider_session_id: string | null; title: string; last_event_seq: number;
+  permission_mode: string; environment_id: string; cwd: string; status: SessionStatus; provider_session_id: string | null; title: string; last_event_seq: number; seen_seq: number;
   terminal_item_id: string | null; dispatched_by_kind: DispatchKind | null; dispatched_by_session_id: string | null; created_at: number; updated_at: number };
 const toSession = (r: Row): Session => ({
   id: r.id, spaceId: r.space_id, projectId: r.project_id, agentKind: r.agent_kind, model: r.model, effort: r.effort,
   fastMode: r.fast_mode === 1,
   permissionMode: r.permission_mode, environmentId: r.environment_id, cwd: r.cwd, status: r.status, providerSessionId: r.provider_session_id, title: r.title,
-  lastEventSeq: r.last_event_seq, terminalItemId: r.terminal_item_id,
+  lastEventSeq: r.last_event_seq, seenSeq: r.seen_seq, terminalItemId: r.terminal_item_id,
   dispatchedBy: r.dispatched_by_kind ? { kind: r.dispatched_by_kind, sessionId: r.dispatched_by_session_id } : null,
   createdAt: r.created_at, updatedAt: r.updated_at,
 });
@@ -27,6 +27,11 @@ export type SessionUpdate = { id: string; status?: SessionStatus; providerSessio
 
 export class SessionsStore {
   constructor(private db: Db) {}
+  /** Move the read mark forward. Never backwards — a stale client holding an old seq must not
+   *  resurrect an unseen dot on a session somebody has already caught up on. */
+  markSeen(id: string, seq: number): void {
+    this.db.prepare("UPDATE sessions SET seen_seq = MAX(seen_seq, ?) WHERE id = ?").run(seq, id);
+  }
   list(spaceId: string): Session[] {
     return (this.db.prepare(`${SELECT} WHERE s.space_id = ? ORDER BY s.created_at`).all(spaceId) as Row[]).map(toSession);
   }

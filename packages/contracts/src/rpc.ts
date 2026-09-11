@@ -301,7 +301,15 @@ export const Methods = {
   /** The whole group set in one write — group membership, names, the active pointer and each group's
    *  zoom all move together, and splitting them into per-field methods would let a reload land between
    *  two halves of one gesture. Supersedes `spaces.setLayout`, which stays for the layout-only path. */
-  "spaces.setGroups": { params: z.object({ id: IdSchema, groups: SpaceGroupsSchema }), result: SpaceSchema },
+  /**
+   * The whole group set, and which item had the keyboard, in ONE write.
+   *
+   * Together rather than in two calls on purpose: focus is a fact ABOUT a layout, and two round trips
+   * can be interleaved by another window's write, leaving a stored focus that points into a layout it
+   * was never captured against. `activeItemId` is the ITEM and not the leaf, because a leaf id is a
+   * fact about one arrangement and does not survive the layout being rebuilt around the same panes.
+   */
+  "spaces.setGroups": { params: z.object({ id: IdSchema, groups: SpaceGroupsSchema, activeItemId: IdSchema.nullable().optional() }), result: SpaceSchema },
   "spaces.delete": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 
   // The icon picker's "Generated"/"Uploaded" library (per-profile, reusable across every space —
@@ -1162,6 +1170,17 @@ export const Methods = {
   "sessions.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(SessionSchema) },
   /** Every session across every space — the client's sessionId→spaceId map for cross-space badges. */
   "sessions.listAll": { params: z.object({}), result: z.array(SessionSchema) },
+  /**
+   * Record how far this user has read a session's transcript.
+   *
+   * Written under the same predicate the notifications feed already auto-reads by — the session is in
+   * the focused pane, so you are looking at it — rather than on any open, because a pane restored
+   * behind another one at launch is not something anybody has read.
+   *
+   * Monotonic server-side: a stale client cannot walk the mark backwards and resurrect a dot on a
+   * session somebody has already caught up on.
+   */
+  "sessions.markSeen": { params: z.object({ id: IdSchema, seq: z.number().int() }), result: z.object({ ok: z.literal(true) }) },
   "sessions.get":    { params: z.object({ id: IdSchema }), result: SessionSchema },
   /** `environmentId` pins the session to an existing checkout (the seam W2 uses to open one in a
    *  worktree). Omitted, the session lands in the project's checkout, or the space's primary.

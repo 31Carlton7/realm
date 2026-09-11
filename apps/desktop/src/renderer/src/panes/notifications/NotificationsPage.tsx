@@ -6,6 +6,7 @@ import { PermissionCard } from "../session/PermissionCard";
 import { Sheet } from "../../components/Sheet";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import type { PaneProps } from "../registry";
+import { feedSections, sectionLabel } from "./feed-sections";
 
 const CATEGORY_ICON: Record<NotificationCategory, string> = {
   permission: "alert", session_done: "checkCircle", mcp_health: "plug", agent_probe: "bot", worktree_hazard: "branch", review_done: "diff",
@@ -60,17 +61,15 @@ export function NotificationsPage({ item }: PaneProps) {
   const markNotificationsRead = useApp((s) => s.markNotificationsRead);
   const selectNotification = useApp((s) => s.selectNotification);
   const cursor = useApp((s) => s.notificationsCursor);
+  const detachedSince = useApp((s) => s.detachedSince);
   const run = useApp((s) => s.run);
 
   useEffect(() => { void run(() => refreshNotifications()); }, [run, refreshNotifications]);
 
-  const groups: { label: string; rows: Notification[] }[] = [];
-  for (const n of notifications) {
-    const label = dayLabel(n.createdAt);
-    const g = groups.at(-1);
-    if (g && g.label === label) g.rows.push(n);
-    else groups.push({ label, rows: [n] });
-  }
+  // Two sections come off the top before the days are built — see `feedSections`. Day grouping alone
+  // buries Tuesday's unanswered permission under Wednesday's finished turns, and with a daemon
+  // running headless "what is blocked on me" is not a detail of this feed, it is why it exists.
+  const sections = feedSections(notifications, { detachedSince, dayLabel });
   // A selection whose row has left the held slice (marked read elsewhere, paged away) shows the empty
   // detail rather than a stale card — the feed is the truth, the selection is only a pointer into it.
   const selected = notifications.find((n) => n.id === selectedId) ?? null;
@@ -97,17 +96,22 @@ export function NotificationsPage({ item }: PaneProps) {
             </div>
           ) : (
             <>
-              {groups.map((g) => (
-                <section key={g.label} className="notif-day" aria-label={g.label}>
-                  <h2 className="notif-day-label">{g.label}</h2>
-                  <ul className="notif-cards">
-                    {g.rows.map((n) => (
-                      <NotificationRow key={n.id} n={n} selected={n.id === selectedId}
-                        onSelect={() => run(() => selectNotification(item.id, n.id))} />
-                    ))}
-                  </ul>
-                </section>
-              ))}
+              {sections.map((sec, i) => {
+                const label = sectionLabel(sec);
+                return (
+                  /* The same row and the same card in every section. A pinned question is not a
+                     different KIND of row — it is the same row, read first. */
+                  <section key={`${sec.kind}:${label}:${i}`} className="notif-day" data-section={sec.kind} aria-label={label}>
+                    <h2 className="notif-day-label">{label}</h2>
+                    <ul className="notif-cards">
+                      {sec.rows.map((n) => (
+                        <NotificationRow key={n.id} n={n} selected={n.id === selectedId}
+                          onSelect={() => run(() => selectNotification(item.id, n.id))} />
+                      ))}
+                    </ul>
+                  </section>
+                );
+              })}
               {cursor && <button className="btn notif-more" onClick={() => run(() => loadMoreNotifications())}>Load more</button>}
             </>
           )}

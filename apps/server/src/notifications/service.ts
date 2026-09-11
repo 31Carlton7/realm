@@ -44,7 +44,10 @@ const SETTLE_WORD: Record<string, string> = { idle: "Finished a turn", ended: "E
  * genuinely new information to a user who saw the old one.
  */
 export class NotificationsService {
-  constructor(private d: { store: NotificationsStore; settings: SettingsStore; rpc: RpcServer; relay?: NotificationRelay }) {}
+  constructor(private d: { store: NotificationsStore; settings: SettingsStore; rpc: RpcServer; relay?: NotificationRelay;
+    /** Space names, for the relay line. Optional: a server built without it relays exactly as it did
+     *  before, naming the session and not where it lives. */
+    spaces?: { get(id: string): { name: string } | null } }) {}
 
   list(p: { cursor: string | null; limit: number }): { notifications: Notification[]; nextCursor: string | null; unread: number } {
     const { notifications, nextCursor } = this.d.store.list(p);
@@ -83,7 +86,8 @@ export class NotificationsService {
     // Beyond the machine, and only for what SURFACED: an absorbed repeat of a still-open condition
     // is one story, and a phone that buzzed for every re-ask of one permission would be muted by
     // lunchtime. The category gate lives in the relay, beside the destinations it reads.
-    if (surfaced) this.d.relay?.send({ category: input.category, title: input.title, body: input.body });
+    if (surfaced) this.d.relay?.send({ category: input.category, title: input.title, body: input.body,
+      spaceName: input.spaceId ? this.d.spaces?.get(input.spaceId)?.name ?? null : null });
   }
 
   /** Stamp a key's open row resolved (if any) and say how it ended. */

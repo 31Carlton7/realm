@@ -85,6 +85,15 @@ export class SessionService {
    * persisted queue would therefore drain the moment the app came up, sending messages the user
    * queued yesterday and has stopped expecting. It survives what it needs to survive: a pane closed
    * and reopened, a window reloaded, a client disconnecting, all of which leave the server up.
+   *
+   * **The daemon settles this rather than reopening it.** Every case the queue needs to survive is
+   * one where the server stays up, and a server that now outlives the app stays up through strictly
+   * more of them — closing the window no longer ends the process at all. The only thing left that
+   * clears this map is a real server restart, and after one there is no in-flight turn by
+   * construction, so there is nothing a persisted queue could correctly drain into. If unsent text
+   * is ever wanted across a restart it is drafts AND the queue together, restored as drafts — text
+   * the user can look at and send — never as a queue that sends itself. Unsent text is already not
+   * durable anywhere: `drafts` is renderer memory.
    */
   private queued = new Map<string, { prompt: QueuedPrompt; msg: SendMessage }[]>();
   private closing = false;
@@ -147,6 +156,8 @@ export class SessionService {
   isLive(id: string): boolean { return this.live.has(id); }
   list(spaceId: string): Session[] { return this.d.sessions.list(spaceId); }
   listAll(): Session[] { return this.d.sessions.listAll(); }
+  /** How far the user has read this session. See `sessions.markSeen` in the contract. */
+  markSeen(id: string, seq: number): void { this.d.sessions.markSeen(id, seq); }
   get(id: string): Session { const s = this.d.sessions.get(id); if (!s) throw new NotFoundError("session", id); return s; }
   events(id: string, afterSeq: number, limit: number): StoredSessionEvent[] { this.get(id); return this.d.events.listAfter(id, afterSeq, limit); }
 

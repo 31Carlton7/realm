@@ -52,6 +52,16 @@ export type Block =
    * the provider was asked to continue and declined, or the build could not be asked at all.
    */
   | { kind: "context_reset"; note: string; reason: "declined" | "unsupported"; ts: number }
+  /**
+   * Where you stopped reading.
+   *
+   * Not an event — nothing happened here. It is a mark about THIS reader, inserted while the
+   * transcript is rebuilt at open time, which is why it is placed by the store rather than derived
+   * from anything on the wire. It appears at most once, and only when there is something on both
+   * sides of it: a session opened for the first time has nothing above the line, and one you are
+   * caught up on has nothing below it.
+   */
+  | { kind: "unseen-mark"; ts: number }
   /** A plan the agent proposed. `text` is prose, `steps` a checklist, and at least one is present —
    *  which of them depends on the protocol, not on the agent's mood (see the `plan` event). A revised
    *  plan REPLACES this block rather than appending a second one, so `ts` stays the moment the plan
@@ -151,8 +161,16 @@ const findLast = (blocks: Block[], pred: (b: Block) => boolean): number => { for
 
 /** Pure reducer: normalized session events → what the transcript renders. Deltas accumulate into the open
  *  streaming assistant block; the final `assistant_text` replaces it. */
-export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
+/**
+ * `markUnseen` inserts the "new since you were here" rule immediately BEFORE this event's block.
+ *
+ * An argument rather than a synthetic event because it is not one: nothing happened at that point in
+ * the session, and putting it on the wire would mean persisting one reader's place in a log that is
+ * shared by every window.
+ */
+export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = false): Transcript {
   const blocks = t.blocks.slice(); const last = blocks.at(-1);
+  if (markUnseen && !blocks.some((b) => b.kind === "unseen-mark")) blocks.push({ kind: "unseen-mark", ts: e.ts });
   switch (e.type) {
     case "user_message": blocks.push({ kind: "user", text: e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ts: e.ts }); return { ...t, blocks };
     case "assistant_delta": {
@@ -326,4 +344,7 @@ export function reduceTranscript(t: Transcript, e: SessionEvent): Transcript {
   }
 }
 
-export const reduceAll = (events: SessionEvent[], start = emptyTranscript()): Transcript => events.reduce(reduceTranscript, start);
+// Wrapped rather than passed directly: `reduce` hands its callback an index as the third argument,
+// which would land on `markUnseen` and mark whichever event happened to be at a truthy position.
+export const reduceAll = (events: SessionEvent[], start = emptyTranscript()): Transcript =>
+  events.reduce((t, e) => reduceTranscript(t, e), start);

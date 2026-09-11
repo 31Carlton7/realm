@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { emptyLayout, itemIdOfLeaf, type Item, type Layout } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { RenameInput } from "../RenameInput";
@@ -98,6 +98,23 @@ export function ItemGlyph({ layout, itemId }: { layout: Layout; itemId: string }
  *  way, but the store treats an already-open item as "go there" (focus its pane, no layout change);
  *  only SPACE rows actually open into the focused leaf. Moving an open item is a drag, or the row
  *  menu's "Open here". */
+/**
+ * Sessions with events this user has not read.
+ *
+ * `seenSeq` is stamped when a session's pane has the keyboard, so this set is exactly "something
+ * happened while you were looking elsewhere" — which, with a server that keeps working while the app
+ * is closed, is the question the sidebar could not answer before.
+ *
+ * Derived with `useMemo` from the `sessions` slice rather than computed inside the selector: a
+ * selector that builds a fresh Set returns a new reference every time the store is read, which zustand
+ * compares by identity and reads as a change — an unconditional re-render loop.
+ */
+const unseenSessions = (sessions: AppState["sessions"]): Set<string> => {
+  const out = new Set<string>();
+  for (const row of Object.values(sessions)) if (row.seenSeq > 0 && row.lastEventSeq > row.seenSeq) out.add(row.id);
+  return out;
+};
+
 export function ItemList({ items, variant, layout: groupLayout }: {
   items: Item[]; variant: "open" | "space" | "archived";
   /** The layout the quadrant glyph is drawn against — the owning GROUP's tree, which for a group that
@@ -108,6 +125,8 @@ export function ItemList({ items, variant, layout: groupLayout }: {
   const layout = groupLayout ?? activeLayoutValue;
   const focusedLeafId = useApp((s) => s.focusedLeafId);
   const sessionStatus = useApp((s) => s.sessionStatus);
+  const sessionRows = useApp((s) => s.sessions);
+  const unseen = useMemo(() => unseenSessions(sessionRows), [sessionRows]);
   const browserDriving = useApp((s) => s.browserDriving);
   const machineState = useApp((s) => s.machineState);
   const openItem = useApp((s) => s.openItem);
@@ -141,12 +160,22 @@ export function ItemList({ items, variant, layout: groupLayout }: {
               {/* The status is part of the accessible name (A-L4): the dot alone is invisible to a reader. */}
               <button className="item-row"
                 aria-label={it.kind === "session" && sessionStatus[it.refId] ? `${it.title} — ${STATUS_LABEL[sessionStatus[it.refId]!]}`
+                  : it.kind === "session" && unseen.has(it.refId) ? `${it.title} — new since you were here`
                   : it.kind === "browser" && browserDriving[it.refId] ? `${it.title} — agent is driving`
                   : it.kind === "machine" ? `${it.title} — ${MACHINE_WORDS[machineState[it.refId]?.status ?? "off"]}` : it.title}
                 onClick={() => activate(it)}>
                 <Icon name={it.kind} size={16} /><span className="item-title">{it.title}</span>
                 {it.kind === "session" && sessionStatus[it.refId] && (
                   <span className="status-dot item-status" data-status={sessionStatus[it.refId]} title={STATUS_LABEL[sessionStatus[it.refId]!]} />
+                )}
+                {/* Something happened here that you have not seen. Drawn only when the session is
+                    NOT already wearing a status dot, because two marks on one row would be asking a
+                    reader to tell apart "this is running" from "this said something" at four pixels
+                    — and a session that is running is one whose news you are about to get anyway.
+                    A session with no live handle gets no chrome of its own: Realm starts adapters
+                    lazily, so "not live" is the resting state of most of the sidebar. */}
+                {it.kind === "session" && !sessionStatus[it.refId] && unseen.has(it.refId) && (
+                  <span className="status-dot item-status" data-status="unseen" title="New since you were here" />
                 )}
                 {/* W4: a browser row wears the driving dot only WHILE an agent act is in flight —
                     the same status-dot idiom sessions use, a new `driving` state on the same rail. */}

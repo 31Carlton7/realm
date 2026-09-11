@@ -102,10 +102,15 @@ export class SpacesStore {
   }
   /** The whole group set in one write. `layout_json` is kept in step with the active group's layout so
    *  it never becomes a stale second answer to "what is on screen" (see migration v17). */
-  setGroups(id: string, groups: SpaceGroups): Space {
-    if (!this.get(id)) throw new NotFoundError("space", id);
-    this.db.prepare("UPDATE spaces SET groups_json = ?, layout_json = ?, updated_at = ? WHERE id = ?")
-      .run(JSON.stringify(groups), JSON.stringify(activeLayout(groups)), now(), id);
+  setGroups(id: string, groups: SpaceGroups, activeItemId?: string | null): Space {
+    const cur = this.get(id);
+    if (!cur) throw new NotFoundError("space", id);
+    // Focus goes in the SAME statement as the layout it was captured against — see `spaces.setGroups`
+    // in the contract. Omitted leaves the stored value alone, so a caller that does not track focus
+    // cannot clear somebody else's.
+    this.db.prepare("UPDATE spaces SET groups_json = ?, layout_json = ?, active_item_id = ?, updated_at = ? WHERE id = ?")
+      .run(JSON.stringify(groups), JSON.stringify(activeLayout(groups)),
+        activeItemId === undefined ? cur.activeItemId : activeItemId, now(), id);
     return this.get(id)!;
   }
   delete(id: string): void {
