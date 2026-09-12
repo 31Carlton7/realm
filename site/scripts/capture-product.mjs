@@ -44,6 +44,74 @@ const releaseBrief = `# Realm 0.6
 
 Keep the work, the evidence and the handoff visible in one space.`
 
+/**
+ * What the editor scene opens, written into the space's own folder through the same
+ * `documents.write` the pane saves with.
+ *
+ * Three files rather than one: ⌘P over a checkout holding a single file is a list that proves
+ * nothing, and the pane's tab strip has nothing to be a strip of.
+ */
+const sourceFiles = {
+  "session-mapper.ts": `import type { AgentEvent, SessionEvent } from "@realm/contracts"
+
+/** One provider notification becomes zero or more transcript events, and nothing else. */
+export function mapAgentEvent(event: AgentEvent, seq: number): SessionEvent[] {
+  switch (event.kind) {
+    case "text":
+      return [{ kind: "assistant", seq, text: event.text, streamId: event.streamId }]
+    case "thinking":
+      // Markdown, not raw text: an agent's headings and fences read as literal syntax otherwise.
+      return [{ kind: "thinking", seq, markdown: event.text }]
+    case "tool_call":
+      return [{ kind: "tool", seq, callId: event.id, name: event.name, input: event.input }]
+    case "plan":
+      // The structure is the point. Keeping the prose and dropping the steps is what the plan
+      // card exists to undo.
+      return [{ kind: "plan", seq, steps: event.steps, state: event.state }]
+    default:
+      return []
+  }
+}
+`,
+  "adapter.ts": `import { mapAgentEvent } from "./session-mapper"
+
+/**
+ * One stdio transport, shared by both agent families. The mappers above it are pure, which is what
+ * lets the transcript be written once rather than three times.
+ */
+export class Adapter {
+  constructor(private readonly transport: Transport) {}
+
+  async send(sessionId: string, text: string): Promise<void> {
+    await this.transport.request("session/prompt", { sessionId, text })
+  }
+
+  onNotification(sessionId: string, event: AgentEvent): void {
+    for (const mapped of mapAgentEvent(event, this.nextSeq(sessionId))) {
+      this.emit(sessionId, mapped)
+    }
+  }
+}
+`,
+  "transcript.ts": `import type { SessionEvent } from "@realm/contracts"
+
+/** A sub-agent's parent is resolved only among calls already seen, so a late event cannot
+ *  re-parent history. */
+export function nest(events: SessionEvent[]): TranscriptNode[] {
+  const seen = new Map<string, TranscriptNode>()
+  const roots: TranscriptNode[] = []
+  for (const event of events) {
+    const node = { event, children: [] }
+    const parent = event.parentCallId ? seen.get(event.parentCallId) : undefined
+    if (parent) parent.children.push(node)
+    else roots.push(node)
+    if (event.kind === "tool") seen.set(event.callId, node)
+  }
+  return roots
+}
+`,
+}
+
 let electron = null
 
 async function portIsFree(port) {
@@ -96,8 +164,14 @@ function connectCdp(url) {
   }
 }
 
-function connectRpc(port) {
-  const socket = new WebSocket(`ws://127.0.0.1:${port}`)
+/**
+ * The RPC socket now takes a token, and it travels as the WebSocket subprotocol `realm.<token>` —
+ * the one channel both `ws` and a browser can set (apps/server/src/rpc/server.ts). realm-server mints
+ * it at boot and writes it to `daemon.json` under REALM_HOME, which is the only place it exists; an
+ * untokened upgrade is refused with a non-101 and reads here as an unexplained network error.
+ */
+function connectRpc(port, token) {
+  const socket = new WebSocket(`ws://127.0.0.1:${port}`, [`realm.${token}`])
   const pending = new Map()
   let id = 0
   socket.addEventListener("message", (event) => {
@@ -207,21 +281,31 @@ function makeContext(page, rpc) {
     }
   }
 
-  /** Select a Settings tab and prove it took: the first click after the page mounts gets dropped. */
+  /**
+   * Select a rail tab and prove it took: the first click after a page mounts gets dropped.
+   *
+   * The proof reads the CLICKED tab's own `data-selected`, not the document's first selected tab.
+   * Two rails can be mounted at once — a space page in one pane and Settings in another — and asking
+   * the document for "the selected tab" then answers with whichever rail comes first in the DOM,
+   * which is not the one being driven. That made every `tab()` call fail for the rest of a run as
+   * soon as any scene left a space page open, and the failure read as "Settings never selected", a
+   * page that was in fact perfectly fine.
+   */
   const tab = async (label) => {
+    const find = `[...document.querySelectorAll('.page-rail-tab')]
+      .find((candidate) => candidate.textContent.trim().startsWith(${JSON.stringify(label)}))`
     for (let attempt = 0; attempt < 4; attempt += 1) {
       await evaluate(`(() => {
-        const element = [...document.querySelectorAll('.page-rail-tab')]
-          .find((candidate) => candidate.textContent.trim().startsWith(${JSON.stringify(label)}));
+        const element = ${find};
         if (!element) return false;
         (element.querySelector('input') ?? element).click();
         return true;
       })()`)
       await sleep(450)
-      const selected = await evaluate(`document.querySelector('.page-rail-tab[data-selected]')?.textContent.trim() ?? ''`)
-      if (selected.startsWith(label)) return
+      if (await evaluate(`(() => { const element = ${find}; return element ? element.hasAttribute('data-selected') : false; })()`)) return
     }
-    throw new Error(`Settings never selected the ${label} tab`)
+    const seen = await evaluate(`[...document.querySelectorAll('.page-rail-tab')].map((t) => t.textContent.trim()).join(' | ')`)
+    throw new Error(`never selected the ${label} tab — rails on screen: ${seen || "(none)"}`)
   }
 
   /**
@@ -411,6 +495,42 @@ const scenes = [
     },
   },
   {
+    // After the terminal, which is what makes the space's folder a git checkout: ⌘P and ⌘⇧P fall
+    // back to a directory walk outside a repository, and a capture of the fallback under a caption
+    // about `git grep` would be showing the weaker search.
+    name: "editor",
+    async run({ evaluate, command, escape, focusPane, press, solo, shot, rpc, until }) {
+      await solo()
+      await command("Documents")
+      await until(() => evaluate(`!!document.querySelector('.documents-pane')`), 20_000, "the documents pane")
+      const spaces = await rpc.call("spaces.list", {})
+      const spaceId = spaces[0].id
+      // Get-or-create over the space's primary checkout — the same workspace the pane just opened,
+      // not a second tab strip over the same files.
+      const { documentsId } = await rpc.call("documents.create", { spaceId })
+      for (const [path, text] of Object.entries(sourceFiles)) {
+        const written = await rpc.call("documents.write", { documentsId, path, text, baseHash: null })
+        // A refusal is a result here, not an error: `baseHash: null` means "this file should not
+        // exist yet", and something on disk already answering to that name is the one case.
+        if (!written.ok) console.warn(`    documents.write ${path}: already on disk`)
+      }
+      await rpc.call("documents.openPath", { spaceId, path: "session-mapper.ts" })
+      // `.cm-content` rather than the editor's `aria-label`: the label is set once the file's
+      // language mode has loaded, so waiting on it is waiting on a dynamic import.
+      await until(() => evaluate(`!!document.querySelector('.documents-code .cm-content')`), 20_000, "the code editor")
+      await focusPane()
+      // ⌘P has no palette row — the keymap is the only way in — so it goes through the real key
+      // stream like everything else that types. An empty query is legal there and means "the first
+      // files in the checkout", which is what the finder shows before a keystroke.
+      await evaluate(`document.activeElement?.blur?.(); true`)
+      await press("p", { code: "KeyP", vk: 80, meta: true })
+      await until(() => evaluate(`!!document.querySelector('.palette-opt')`), 10_000, "the file finder")
+      await sleep(600)
+      await shot("editor")
+      await escape()
+    },
+  },
+  {
     // NOTE: there is deliberately no browser scene. The browser pane is a native `WebContentsView`,
     // and `Page.captureScreenshot` on the renderer cannot see its pixels — a capture of it is an
     // empty rectangle where the page should be. Showing that would be worse than not showing it.
@@ -422,6 +542,73 @@ const scenes = [
       await focusPane()
       await sleep(900)
       await shot("spaces")
+    },
+  },
+  {
+    // The space page again, a tab along. Like the Settings run below, the page is opened once and
+    // the two scenes after it only change tabs — `Open space` lands on whichever tab was last
+    // selected, so `spaces` above has to come first or it captures this one's.
+    name: "commands",
+    async run({ evaluate, command, focusPane, solo, tab, shot, rpc, until }) {
+      const spaces = await rpc.call("spaces.list", {})
+      const spaceId = spaces[0].id
+      const scripts = [
+        { id: null, name: "Test", command: "pnpm -r test", cwd: null },
+        { id: null, name: "Typecheck", command: "pnpm -r typecheck", cwd: null },
+        // No `cwd` on any of them: a relative folder is resolved against the space's own folder, and
+        // naming one this staged space does not have would put a script in the shot that cannot run.
+        { id: null, name: "Dev server", command: "pnpm dev --port 3100", cwd: null },
+      ]
+      for (const script of scripts) {
+        await rpc.call("scripts.save", { spaceId, script }).catch((error) => {
+          console.warn(`    scripts.save ${script.name}: ${error.message}`)
+        })
+      }
+      await solo()
+      await command("Open space")
+      await until(() => evaluate(`!!document.querySelector('.page-rail-tab')`), 15_000, "the space page")
+      await focusPane()
+      await tab("Scripts")
+      await until(() => evaluate(`document.querySelectorAll('.settings-list .settings-row').length > 0`), 10_000, "the scripts list")
+      await sleep(900)
+      await shot("commands")
+    },
+  },
+  {
+    name: "sandbox",
+    async run({ evaluate, tab, shot, until }) {
+      await tab("Sandbox")
+      // Left at the posture it ships with. The panel states that posture itself, and turning it on
+      // here would put a Seatbelt policy under every terminal the rest of the run opens.
+      await until(() => evaluate(`!!document.querySelector('.sandbox-choice')`), 10_000, "the sandbox postures")
+      await sleep(900)
+      await shot("sandbox")
+    },
+  },
+  {
+    name: "rewind",
+    async run({ evaluate, clickText, escape, tab, shot, until }) {
+      await tab("History")
+      const opened = await evaluate(`(() => {
+        const row = document.querySelector('.page-content button.page-row[aria-label*="open checkpoints"]');
+        if (!row) return false;
+        row.click();
+        return true;
+      })()`)
+      if (!opened) throw new Error("No checkout on the History tab to open checkpoints for")
+      await until(() => evaluate(`!!document.querySelector('.cp-list .cp-row')`), 15_000, "the checkpoints")
+      await clickText(".cp-row button", "Restore")
+      await until(() => evaluate(`!!document.querySelector('.cp-hazard')`), 10_000, "the restore confirmation")
+      // The sentence this scene exists to show. A checkpoint with no provider cursor behind it says
+      // the opposite — "Files only" — and that is the honest answer for it, so the scene fails here
+      // and drops out rather than publishing a screenshot its caption contradicts.
+      const rewinds = await evaluate(
+        `[...document.querySelectorAll('.cp-note')].some((note) => note.textContent.includes('The conversation rewinds too'))`,
+      )
+      if (!rewinds) throw new Error("This checkpoint restores files only — there is no conversation rewind to show")
+      await sleep(600)
+      await shot("rewind")
+      await escape()
     },
   },
   {
@@ -519,6 +706,21 @@ const scenes = [
     },
   },
   {
+    name: "keys",
+    async run({ evaluate, tab, shot, until }) {
+      await tab("Keys")
+      // The panel reads the file before it can draw a chord, so a fixed wait would sometimes
+      // capture "Loading…".
+      await until(
+        () => evaluate(`document.querySelectorAll('.settings-list .settings-row').length > 0`),
+        15_000,
+        "the shortcut list",
+      )
+      await sleep(1_200)
+      await shot("keys")
+    },
+  },
+  {
     name: "memory",
     async run({ evaluate, command, focusPane, solo, shot, until }) {
       await solo()
@@ -547,6 +749,43 @@ const scenes = [
       })()`)
       await sleep(1_200)
       await shot("sidebar")
+    },
+  },
+  {
+    // Straight after `sidebar`, because it is the same column under a different lens and the pane
+    // beside it is already the staged run.
+    name: "activity",
+    async run({ evaluate, shot, rpc, until }) {
+      // The lens is every chat under the PROFILE, so it needs chats in more than one space before it
+      // is showing what it is for. Created, not sent to: an unstarted session is an ordinary row
+      // here, and starting four would be four agent CLIs.
+      const spaces = await rpc.call("spaces.list", {})
+      const seeded = [
+        { name: "Realm", title: "Nest a sub-agent's calls under the one that spawned them" },
+        { name: "Site", title: "Capture the features carousel from the built app" },
+        { name: "School", title: "Turn Tuesday's lecture into a study guide" },
+      ]
+      for (const { name, title } of seeded) {
+        const space = spaces.find((candidate) => candidate.name === name)
+        if (!space) continue
+        await rpc.call("sessions.create", { spaceId: space.id, agentKind: "claude", title }).catch((error) => {
+          console.warn(`    sessions.create ${title}: ${error.message}`)
+        })
+      }
+      const lens = await evaluate(`(() => {
+        const button = document.querySelector('.sb-toggle[aria-label="Activity"]');
+        if (!button) return false;
+        button.click();
+        return true;
+      })()`)
+      if (!lens) throw new Error("No activity lens toggle in the sidebar")
+      await until(() => evaluate(`!!document.querySelector('.sb-activity .sb-chat-row')`), 15_000, "the activity lens")
+      await sleep(900)
+      await shot("activity")
+      // Back to the space lens. The sidebar is in every shot after this one, and leaving it on the
+      // feed would put this scene's subject behind the next two.
+      await evaluate(`document.querySelector('.sb-toggle[aria-label="Activity"]')?.click(); true`)
+      await sleep(400)
     },
   },
   {
@@ -630,7 +869,18 @@ async function main() {
     mobile: false,
   })
 
-  const rpc = connectRpc(serverPort)
+  const token = await until(
+    () => {
+      try {
+        return JSON.parse(fs.readFileSync(path.join(scratch, "home", "daemon.json"), "utf8")).token ?? null
+      } catch {
+        return null
+      }
+    },
+    20_000,
+    "realm-server's token",
+  )
+  const rpc = connectRpc(serverPort, token)
   await rpc.ready
   const ctx = makeContext(page, rpc)
 

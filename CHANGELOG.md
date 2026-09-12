@@ -16,8 +16,9 @@ exactly as you left it.
 matter, found in the space folder's `commands/`, in `~/Realm/commands/`, and read-only from
 `~/.claude/commands/`; `$ARGUMENTS` and `$1`…`$9` expand into the draft, and a placeholder nothing was
 typed for is left standing rather than quietly emptied. A script is a named shell line — `pnpm test` —
-that runs in a real terminal and is addressable as `script.<id>.run`, so a key can be bound to it. A
-key bound to another space's script reaches the browser instead of dying quietly.
+that runs in a real terminal and is addressable as `script.<id>.run`, so a key can be bound to it.
+A key bound to a script this space does not define is left alone rather than swallowed, so it still
+does whatever it would have done.
 
 **Source files open in an editor.** CodeMirror 6 in the documents pane, in the app's own theme, with
 find, undo and a file-changed-on-disk prompt that asks rather than picking a winner. Markdown still
@@ -43,6 +44,21 @@ Seatbelt is not a container, and the settings page says so.
 was last worked on, each row carrying the space, the folder and the branch — the facts that tell two
 chats called "Fix the login form" apart. The gateway's call log keeps its record in the ⌘K sheet and
 in a space's Connections tab.
+
+**Machines.** A pane that shows a screen somewhere else and lets an agent drive it: a second Mac over
+Screen Sharing, a cloud sandbox, or a Linux guest Realm boots here. Four transports are recognised
+from whatever address a provider hands out, the password stays on this side of the relay, and the
+agent's pointer is drawn as a pointer so you can watch it work.
+
+**realm-server outlives the app.** It has a name, a lock and a door now: closing the window stops
+looking rather than stops working, a second launch finds the daemon already running instead of
+racing it for the database, and Realm keeps a menu-bar presence while it does. A refusal to run
+against a server this app did not ship is enforced, not assumed.
+
+**Smaller things.** A cursor on terminal output, so reattaching to a shell is not the same as losing
+it. Codex's plan windows read off the wire it was already sending them on, and how much of the plan
+is left. A message typed mid-turn can wait its turn or take it. Focus is restored where you left it,
+with an answer to what changed while you were away.
 
 **Fixed.** The band above the prompter is one object again: a plan, goal or agents strip stacked over
 a composer in Plan or Ask mode kept the neutral edge while the card wore the mode's colour, which

@@ -9,6 +9,62 @@ import type { Entry } from "@/lib/changelog"
  */
 export const entries: Entry[] = [
   {
+    slug: "v1-3-0",
+    title: "Realm v1.3.0",
+    date: "2026-09-12",
+    version: "v1.3.0",
+    area: "Release",
+    summary:
+      "A keymap that is a file you own, your own slash commands and a space's scripts, source files in an editor with search across the checkout, a restore that takes the conversation with it, and a macOS sandbox for agents and terminals.",
+    body: [
+      { kind: "h", text: "The keymap is a file" },
+      { kind: "p", text: "`~/Realm/keybindings.json` holds rules of `{key, command, when}`, where `when` is a boolean expression over what the window is doing — `!overlayOpen && sessionFocus`. The last matching rule wins, which is how a rule you write beats a default Realm ships. Defaults are seeded the first time it is read, and newly shipped ones merge in later unless a rule of yours already claims that command or that key. Everything that prints a shortcut reads the same list the handler reads, so a rebind moves the hint with it instead of leaving a lie in the palette." },
+      { kind: "p", text: "Settings ▸ Keys lists all 43 commands with their current chord, marks a rule a later rule has already defeated, and says plainly when your file could not be parsed — Realm runs its defaults and leaves the file exactly as you left it." },
+      { kind: "h", text: "Your own slash commands, and scripts a space owns" },
+      { kind: "p", text: "A command is a markdown file with front matter, found in the space folder's `commands/`, in `~/Realm/commands/`, and read-only from `~/.claude/commands/`. `$ARGUMENTS` and `$1`…`$9` expand into the draft, and a placeholder nothing was typed for is left standing rather than quietly emptied." },
+      { kind: "p", text: "A script is a named shell line — `pnpm test` — that runs in a real terminal and is addressable as `script.<id>.run`, so a key can be bound to it." },
+      { kind: "h", text: "Source files open in an editor" },
+      { kind: "p", text: "CodeMirror 6 in the documents pane, in the app's own theme, with find, undo and a file-changed-on-disk prompt that asks rather than picking a winner. Markdown still opens in the rich editor." },
+      { kind: "p", text: "⌘P finds a file by name across the checkout and ⌘⇧P searches its contents through `git grep` — which honours `.gitignore` and still finds the file written ten seconds ago and never committed. A space with no checkout says so instead of showing an empty list." },
+      { kind: "h", text: "A restore can take the conversation with it" },
+      { kind: "p", text: "Restoring a checkpoint put the files back and left the agent remembering having written them. For Claude sessions it now rewinds both: the transcript is cut back to that point and the provider conversation is resumed truncated at the same turn, so the agent carries on with no memory of the turns after it. Every other agent says so rather than implying otherwise — \"Files only — the agent keeps its memory of these turns.\"" },
+      { kind: "h", text: "Agents and terminals can be sandboxed" },
+      { kind: "p", text: "A macOS Seatbelt policy applied when Realm starts an agent CLI or a shell: this space's checkouts and the toolchain caches are writable, `$HOME` is not, and `~/.ssh`, `~/.aws` and `~/Library/Keychains` cannot be read at all. It confines the process and everything that process starts." },
+      { kind: "p", text: "It ships **off**, per space and on purpose: the writable-root list has not met enough real toolchains yet, and one shared `codex app-server` cannot hold two spaces' policies — so a Codex session in a sandboxed space refuses to start rather than running unprotected. Seatbelt is not a container, and the settings page says so." },
+      { kind: "h", text: "The activity lens lists your chats" },
+      { kind: "p", text: "Every one, across the profile's spaces, grouped by the day it was last worked on, each row carrying the space, the folder and the branch — the facts that tell two chats called \"Fix the login form\" apart." },
+      { kind: "h", text: "Machines" },
+      { kind: "p", text: "A pane that shows a screen somewhere else and lets an agent drive it: a second Mac over Screen Sharing, a cloud sandbox, or a Linux guest Realm boots here. Four transports are recognised from whatever address a provider hands out, the password stays on this side of the relay, and the agent's pointer is drawn as a pointer so you can watch it work." },
+      { kind: "h", text: "realm-server outlives the app" },
+      { kind: "p", text: "It has a name, a lock and a door now: closing the window stops looking rather than stops working, a second launch finds the daemon already running instead of racing it for the database, and Realm keeps a menu-bar presence while it does. A refusal to run against a server this app did not ship is enforced, not assumed." },
+      { kind: "h", text: "Smaller things" },
+      { kind: "p", text: "A cursor on terminal output, so reattaching to a shell is not the same as losing it. Codex\u2019s plan windows read off the wire it was already sending them on, and how much of the plan is left. A message typed mid-turn can wait its turn or take it. Focus is restored where you left it, with an answer to what changed while you were away." },
+      { kind: "h", text: "Fixed" },
+      { kind: "p", text: "The band above the prompter is one object again: a plan, goal or agents strip stacked over a composer in Plan or Ask mode kept the neutral edge while the card wore the mode's colour, which notched the join at both sides." }
+    ],
+  },
+  {
+    slug: "v1-2-0",
+    title: "Realm v1.2.0",
+    date: "2026-09-10",
+    version: "v1.2.0",
+    area: "Release",
+    summary:
+      "Pane dividers that stay put under a browser view, pane-group tabs you can reorder, first run in two columns, and a quieter set of surfaces.",
+    body: [
+      { kind: "h", text: "Dividers that stay put" },
+      { kind: "p", text: "The line between two panes was disappearing and coming back when you nudged it. A browser pane is a native view that composites above the window's own drawing, and its bounds rounded each edge independently — so a pane whose left edge landed a fraction of a pixel short covered the divider beside it and could not be drawn over in return. Even splits were where it bit: halves round outward-safe, thirds and sixths do not. The view is now inset to the pixel grid and can never reach outside its own box." },
+      { kind: "h", text: "Reorderable pane-group tabs" },
+      { kind: "p", text: "Drag a tab along the strip to reorder it, or move it with ⌥← and ⌥→. The drop indicator is a rule in the gap between tabs, distinct from dropping a pane onto a tab, which still moves that pane into the group." },
+      { kind: "h", text: "First run, in two columns" },
+      { kind: "p", text: "The agents on the left, the space on the right. Stacked, the one field anybody types sat below a dozen radios; side by side each half is scannable on its own. The space's icon and colour are on that form now — first run was already choosing them, it just never showed you." },
+      { kind: "h", text: "Quieter surfaces" },
+      { kind: "p", text: "The prompter's lift is cast from its curve rather than its box, so the shadow follows the corner instead of squaring it off. The space strip's fill dissolves into the material behind it, and the under-strip takes the card's ring and as much of its rounding as it can hold." },
+      { kind: "h", text: "Fixed" },
+      { kind: "p", text: "`pnpm app:icons` finds and clears the stale bundle registrations that were putting an old app icon on notification banners — every packaged build left in a worktree claims the same bundle identifier, and macOS can resolve a notification's icon to any of them." }
+    ],
+  },
+  {
     slug: "v1-1-0",
     title: "Realm v1.1.0",
     date: "2026-09-09",

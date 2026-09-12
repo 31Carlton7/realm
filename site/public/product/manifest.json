@@ -5,16 +5,13 @@
   "documents",
   "workspace",
   "terminal",
+  "editor",
   "spaces",
-  "library",
   "connections",
   "schedules",
-  "usage",
-  "appearance",
-  "permissions",
-  "engines",
   "memory",
   "sidebar",
+  "activity",
   "profiles",
   "notifications"
 ]
