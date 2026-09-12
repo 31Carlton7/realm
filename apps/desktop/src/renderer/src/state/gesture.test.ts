@@ -4,6 +4,44 @@ import { createDragSwipe } from "./gesture";
 const BOUNDS = { canPrev: true, canNext: true };
 const mk = () => createDragSwipe({ width: 240, idleMs: 90 });
 
+describe.each([false, true])("sidebar intent (native phases: %s)", (native) => {
+  const start = () => { const t = mk(); if (native) t.phase("began", 0); return t; };
+
+  it("never displaces a single space in either direction", () => {
+    const t = start();
+    for (const dx of [2, 80, -160]) {
+      expect(t.wheel(dx, 0, 10, { canPrev: false, canNext: false })).toEqual({ type: "ignore" });
+      expect(t.offset()).toBe(0);
+    }
+  });
+
+  it("ignores horizontal jitter until a deliberate drag accumulates", () => {
+    const t = start();
+    expect(t.wheel(2, 0, 10, BOUNDS)).toEqual({ type: "ignore" });
+    expect(t.wheel(2, 0, 20, BOUNDS)).toEqual({ type: "ignore" });
+    expect(t.wheel(3, 0, 30, BOUNDS)).toEqual({ type: "move", offset: 7 });
+  });
+
+  it("does not turn diagonal scrolling into a horizontal drag", () => {
+    const t = start();
+    for (let i = 1; i <= 10; i++) expect(t.wheel(5, 5, i * 10, BOUNDS)).toEqual({ type: "ignore" });
+    expect(t.offset()).toBe(0);
+  });
+
+  it("still allows a deliberate swipe after vertical scrolling", () => {
+    const t = start();
+    expect(t.wheel(2, 100, 10, BOUNDS)).toEqual({ type: "ignore" });
+    expect(t.wheel(-20, 0, 20, BOUNDS)).toEqual({ type: "move", offset: -20 });
+  });
+
+  it("settles a displaced page when the last other space disappears", () => {
+    const t = start();
+    expect(t.wheel(20, 0, 10, BOUNDS)).toEqual({ type: "move", offset: 20 });
+    expect(t.wheel(20, 0, 20, { canPrev: false, canNext: false })).toEqual({ type: "settle" });
+    expect(t.offset()).toBe(0);
+  });
+});
+
 describe("drag swipe (timer fallback — no phase source)", () => {
   it("small drag moves the content, then settles back on idle", () => {
     const t = mk();
