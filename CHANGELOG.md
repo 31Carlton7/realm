@@ -1,5 +1,53 @@
 # Changelog
 
+## v1.3.0 — 2026-09-12
+
+**The keymap is a file.** `~/Realm/keybindings.json` holds rules of `{key, command, when}`, where
+`when` is a boolean expression over what the window is doing — `!overlayOpen && sessionFocus`. The
+last matching rule wins, which is how a rule you write beats a default Realm ships. Defaults are
+seeded the first time it is read, and newly shipped ones merge in later unless a rule of yours
+already claims that command or that key. Everything that *prints* a shortcut reads the same list the
+handler reads, so a rebind moves the hint with it instead of leaving a lie in the palette. Settings ▸
+Keys lists all 43 commands with their current chord, marks a rule a later rule has already defeated,
+and says plainly when your file could not be parsed — Realm runs its defaults and leaves the file
+exactly as you left it.
+
+**Your own slash commands, and scripts a space owns.** A command is a markdown file with front
+matter, found in the space folder's `commands/`, in `~/Realm/commands/`, and read-only from
+`~/.claude/commands/`; `$ARGUMENTS` and `$1`…`$9` expand into the draft, and a placeholder nothing was
+typed for is left standing rather than quietly emptied. A script is a named shell line — `pnpm test` —
+that runs in a real terminal and is addressable as `script.<id>.run`, so a key can be bound to it. A
+key bound to another space's script reaches the browser instead of dying quietly.
+
+**Source files open in an editor.** CodeMirror 6 in the documents pane, in the app's own theme, with
+find, undo and a file-changed-on-disk prompt that asks rather than picking a winner. Markdown still
+opens in the rich editor. ⌘P finds a file by name across the checkout and ⌘⇧P searches its contents
+through `git grep` — which honours `.gitignore` and still finds the file written ten seconds ago and
+never committed. A space with no checkout says so instead of showing an empty list.
+
+**A restore can take the conversation with it.** Restoring a checkpoint put the files back and left
+the agent remembering having written them. For Claude sessions it now rewinds both: the transcript is
+cut back to that point and the provider conversation is resumed truncated at the same turn, so the
+agent carries on with no memory of the turns after it. Every other agent says so rather than
+implying otherwise — "Files only — the agent keeps its memory of these turns."
+
+**Agents and terminals can be sandboxed.** A macOS Seatbelt policy applied when Realm starts an agent
+CLI or a shell: this space's checkouts and the toolchain caches are writable, `$HOME` is not, and
+`~/.ssh`, `~/.aws` and `~/Library/Keychains` cannot be read at all. It confines the process and
+everything that process starts. It ships **off**, per space and on purpose: the writable-root list has
+not met enough real toolchains yet, and one shared `codex app-server` cannot hold two spaces'
+policies — so a Codex session in a sandboxed space refuses to start rather than running unprotected.
+Seatbelt is not a container, and the settings page says so.
+
+**The activity lens lists your chats.** Every one, across the profile's spaces, grouped by the day it
+was last worked on, each row carrying the space, the folder and the branch — the facts that tell two
+chats called "Fix the login form" apart. The gateway's call log keeps its record in the ⌘K sheet and
+in a space's Connections tab.
+
+**Fixed.** The band above the prompter is one object again: a plan, goal or agents strip stacked over
+a composer in Plan or Ask mode kept the neutral edge while the card wore the mode's colour, which
+notched the join at both sides.
+
 ## v1.2.0 — 2026-09-10
 
 **Dividers that stay put.** The line between two panes was disappearing and coming back when you
