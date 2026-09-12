@@ -13,6 +13,11 @@
     "requiredValidatorTypes": ["workflow"]
   },
   "validators": [{
+    "id": "codex-setup-dependencies", "type": "static",
+    "argv": ["pnpm", "--filter", "@realm/server...", "install", "--frozen-lockfile", "--ignore-scripts"],
+    "cwd": ".", "timeoutMs": 180000, "required": true, "evidence": null,
+    "policy": { "metricThresholds": [], "maxCostUsd": null, "requireCostTelemetry": false }
+  }, {
     "id": "codex-setup-discovery", "type": "workflow",
     "argv": ["node", "scripts/validate-codex-setup.mjs"], "cwd": ".", "timeoutMs": 150000,
     "required": true, "evidence": { "path": ".validation/codex-setup.json" },
