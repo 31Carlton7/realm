@@ -16,6 +16,20 @@ export default async function HomePage() {
         <RealmCanvas className="h-full w-full" />
       </div>
 
+      {/* The copy sits OVER the mark by design, and on a wide screen it lands on the dark lower-left
+          of the hexagon and reads. A portrait screen turns the same composition over: the copy block
+          is proportionally twice as tall, so the tagline crosses the lit centre instead — three lines
+          of white type on a white facet, with the wordmark almost gone.
+          A wash to the page colour under the bottom half gives the type back the dark ground the
+          desktop gets for free. It has to be a wash and not a smaller canvas: the hero paints its own
+          background AND its light streaks run off all four edges, so ending the box early cut both
+          across the page in a hard horizontal line. Phones only — a wide screen composes correctly
+          and does not want its mark dimmed. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-[28%] bottom-0 bg-linear-to-b from-transparent via-page/85 to-page sm:hidden"
+      />
+
       <div className="relative z-10 mt-auto flex shrink-0 flex-col gap-8 p-6 sm:flex-row sm:items-end sm:justify-between sm:gap-10 sm:p-10">
         <div className="min-w-0">
           {/* The mark and the name are the label; the sentence is the page's one display statement,

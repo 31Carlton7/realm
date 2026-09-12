@@ -99,6 +99,7 @@ function ProfileChip() {
   const activeProfileId = useApp((s) => s.activeProfileId());
   const selectProfile = useApp((s) => s.selectProfile);
   const setSpacesOpen = useApp((s) => s.setSpacesOpen);
+  const openDestinationPage = useApp((s) => s.openDestinationPage);
   const run = useApp((s) => s.run);
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -116,12 +117,26 @@ function ProfileChip() {
         <Menu align="left" placement="up" anchorRef={btnRef} label="Profiles" onClose={() => setOpen(false)} items={[
           ...profiles.map((p) => ({
             label: `${p.name}${count(p.id) ? "" : " (empty)"}`,
+            // Each profile wears its own mark in its own colour, the way the space switcher lists
+            // spaces — and because the two rows below carry glyphs, every row in this menu reserves
+            // the slot regardless; an empty one beside a named thing that HAS an icon reads as a
+            // missing image rather than as restraint.
+            icon: <span style={{ color: p.color, display: "grid" }}><Icon name={p.icon ?? "user"} size={16} /></span>,
             checked: p.id === activeProfileId,
             disabled: count(p.id) === 0,
             onSelect: () => run(() => selectProfile(p.id)),
           })),
           { kind: "separator" as const },
-          { label: "All spaces…", kbd: "⌘⇧Space", onSelect: () => setSpacesOpen(true) },
+          // The grid it opens, as its glyph: every row below asks for the slot, and the one row that
+          // left it empty read as a missing image rather than as restraint.
+          { label: "All spaces…", icon: <Icon name="layout" size={16} />, kbd: "⌘⇧Space", onSelect: () => setSpacesOpen(true) },
+          { kind: "separator" as const },
+          /* The two app-level pages you reach FROM here rather than from the space you are in: what
+             this Mac is connected to, and how Realm itself is set up. Neither belongs to a space, so
+             this chip — the one control in the column whose subject is the account rather than the
+             work — is where they are asked for. Same pages, same overlay, same glyphs as the rows. */
+          { label: "Connections", icon: <Icon name="connections-page" size={16} />, onSelect: () => openDestinationPage("connections-page") },
+          { label: "Settings", icon: <Icon name="settings" size={16} />, onSelect: () => openDestinationPage("settings-page") },
         ]} />
       )}
     </>

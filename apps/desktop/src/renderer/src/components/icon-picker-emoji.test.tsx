@@ -15,8 +15,8 @@ function repoFile(rel: string): string {
 }
 const SRC = "apps/desktop/src/renderer/src/components";
 /** Budget for the lazy chunk to arrive (see the note at its first use). Generous because the import is
- *  real: under a loaded machine Vite's transform of the 387KB dataset takes seconds, and vitest's own
- *  5s per-test default fires first — so the two tests that load it carry an explicit budget too. */
+ *  real: under a loaded machine Vite's transform of the datasets takes seconds, and vitest's own
+ *  5s per-test default fires first — so the tests that load it carry an explicit budget too. */
 const CHUNK_MS = 20_000;
 
 const pageItem = (spaceId: string) => item(`pg-${spaceId}`, spaceId, { kind: "space-page", title: "Overview", refId: spaceId });
@@ -27,20 +27,25 @@ async function mount() {
   return store;
 }
 
-/* The emoji tab owns a 387KB dataset it walks at module scope, so it is loaded on demand rather than
-   during startup. Splitting it out is only worth anything if the tab still works, and only SAFE if
-   nothing else pulls the chunk in behind its back. */
+/* The emoji tab owns two datasets it indexes at module scope — 387KB of names and 270KB of the
+   keywords that make the search answer an intent — so it is loaded on demand rather than during
+   startup. Splitting it out is only worth anything if the tab still works, and only SAFE if nothing
+   else pulls the chunk in behind its back. */
 describe("the icon picker's emoji tab is loaded on demand", () => {
   /* The split is a BUNDLING fact, so it is asserted against the source rather than the DOM: rendering
-     cannot tell a lazy chunk from an eager one once both have loaded, but a static
-     `import ... from "unicode-emoji-json"` anywhere on IconPicker's own module graph puts 387KB back
-     into the startup chunk. This is the assertion that dies if someone inlines the tab again. */
-  it("IconPicker itself never imports the emoji dataset — only the lazy chunk does", () => {
+     cannot tell a lazy chunk from an eager one once both have loaded, but a static import of either
+     dataset anywhere on IconPicker's own module graph puts 650KB back into the startup chunk. This
+     is the assertion that dies if someone inlines the tab again — or, now that the search lives in
+     `emoji-search.ts`, if someone reaches for `searchEmoji` from a module that loads eagerly. */
+  const DATASETS = ["unicode-emoji-json", "emojilib"];
+  it("IconPicker itself never imports the emoji datasets — only the lazy chunk does", () => {
     const picker = readFileSync(repoFile(`${SRC}/IconPicker.tsx`), "utf8");
-    expect(picker).not.toContain("unicode-emoji-json");
+    for (const dep of [...DATASETS, "emoji-search"]) expect(picker, dep).not.toContain(dep);
     expect(picker).toContain('lazy(() => import("./IconPickerEmoji"))');
     const tab = readFileSync(repoFile(`${SRC}/IconPickerEmoji.tsx`), "utf8");
-    expect(tab).toContain("unicode-emoji-json");
+    expect(tab).toContain("./emoji-search");
+    const search = readFileSync(repoFile(`${SRC}/emoji-search.ts`), "utf8");
+    for (const dep of DATASETS) expect(search, dep).toContain(dep);
   });
 
   it("opening the picker does not mount the emoji grid; choosing the tab does", async () => {
@@ -51,8 +56,9 @@ describe("the icon picker's emoji tab is loaded on demand", () => {
     expect(screen.queryByRole("radiogroup", { name: "Emoji" })).toBeNull();
 
     fireEvent.click(screen.getByRole("tab", { name: "Emoji" }));
-    // Suspense resolves a REAL dynamic import here, and the module it pulls is a 387KB JSON file that
-    // Vite must transform — a second or more on a loaded machine, well past findBy's 1s default.
+    // Suspense resolves a REAL dynamic import here, and the module it pulls parses two large JSON
+    // files that Vite must transform — a second or more on a loaded machine, past findBy's 1s
+    // default.
     // Waiting properly is the point: a shorter wait would just be flaky about the thing under test.
     const grid = await screen.findByRole("radiogroup", { name: "Emoji" }, { timeout: CHUNK_MS });
     expect(grid).toBeTruthy();

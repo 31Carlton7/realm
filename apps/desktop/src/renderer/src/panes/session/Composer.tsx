@@ -1,20 +1,23 @@
-import { LINK_SERVICE_META, elementChipToken, scanElementChips, type LinkChip } from "@realm/contracts";
-import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, formatAttachmentSize, type AcpSessionMode, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
+import { LINK_SERVICE_META, elementChipToken, scanElementChips, type LinkChip , type SessionRef } from "@realm/contracts";
+import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, EFFORT_LEVELS, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, steerInterrupts, steerNote, tightestWindow, type AcpSessionMode, type MidTurnMode, type PlanLimits, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { useFileDrop } from "../../components/use-file-drop";
+import { useItemDrop } from "../../components/use-item-drop";
 import type { AgentProbe, PickedAttachment, SessionOptions, SubmitKey } from "../../state/store";
 import { agentAvailability, availabilityNote } from "../../state/agent-availability";
 import { MentionPicker, filterMentionSkills, mentionQueryAt } from "./MentionPicker";
 import { SlashPicker } from "./SlashPicker";
-import { filterSlashCommands, slashQueryAt, type SlashCommand } from "./slash-commands";
+import { filterSlashCommands, slashCallIn, slashQueryAt, type SlashCommand } from "./slash-commands";
 import { modelIdOn, modelRows } from "./model-rows";
 import { SkillPicker } from "./SkillPicker";
 import { ModelPicker, formatEffort, type FastMode, type OverflowGroup } from "./ModelPicker";
 import { heroGreeting } from "./greeting";
 import { chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, isChipKind, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
 import { AttachmentTile } from "./AttachmentTile";
+import { whenLabel } from "../schedules/SchedulesPage";
+import { DelegatedRuns } from "./DelegatedRuns";
 import { TodoStrip } from "./TodoStrip";
 import { SessionUsage } from "./SessionUsage";
 import type { Usage } from "./transcript-model";
@@ -29,6 +32,8 @@ const MAX_ROWS_PX = 254;
 const EMPTY_USAGE: Usage = { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 };
 /** Stable empty default, for the same reason. */
 const NO_COMMANDS: SlashCommand[] = [];
+/** Stable empty default, for the same reason. */
+const NO_GREETINGS: readonly string[] = [];
 
 /** Branch + diff chips (W3): still the one way IN to the diff pane. The cwd and environment chips
  *  that used to lead this group are retired outright (prompter rework): the folder and the checkout
@@ -90,6 +95,101 @@ function ChipMenu({ ariaLabel, title, label, icon, items, warning }: { ariaLabel
  * message is sent. A handoff the agent completes itself (path, link) used to get a row too, and it
  * read as narration under every Codex message; see `attachmentSummary`.
  */
+/**
+ * The provider's own warning that this account is close to a limit, or past one.
+ *
+ * Shown only when the provider says so — `alert` comes from Claude's `allowed_warning`/`rejected`,
+ * never from a utilization Realm compared against a number it chose. That is what keeps this row
+ * silent at 31% and present at 92% without Realm having an opinion about where the line is.
+ *
+ * Above the prompter rather than in the transcript, and for the same reason the queue is: it is about
+ * what will happen to the NEXT message, not about anything that was said.
+ */
+function LimitRow({ limits }: { limits: PlanLimits | null }) {
+  if (!limits || limits.alert === "none") return null;
+  const named = limits.windows.find((w) => w.id === limits.alertWindow);
+  // The window the provider named, or the fullest one it reported. A warning with neither is still
+  // worth showing — the account is near a limit and the useful half of that sentence is not the name.
+  const w = named ?? tightestWindow(limits.windows);
+  const pct = w?.utilization === null || w?.utilization === undefined ? null : Math.round(w.utilization);
+  return (
+    <p className="composer-limit" data-alert={limits.alert}>
+      <Icon name="alert" size={12} className="attach-note-glyph" />
+      <span>
+        {limits.alert === "exceeded"
+          ? `${w ? w.label : "Plan"} limit reached.`
+          : `${w ? w.label : "Plan"} limit ${pct === null ? "nearly used" : `at ${pct}%`}.`}
+        {w?.resetsAt ? ` Resets ${whenLabel(w.resetsAt)}.` : ""}
+      </span>
+    </p>
+  );
+}
+
+/**
+ * The messages waiting for this turn to end, oldest first.
+ *
+ * Above the input rather than in the transcript, because they are not transcript: nothing has been
+ * asked yet, and a bubble for a message no agent has seen would make the log claim otherwise.
+ *
+ * The send-now sits on the row rather than in the button corner, which is Stop's while a turn runs.
+ * What it costs is `steerNote`'s answer and differs by agent.
+ */
+function QueueRow({ kind, queued, onRelease, onDrop }: { kind: AgentKind; queued: QueuedPrompt[]; onRelease: (queuedId: string) => void; onDrop: (queuedId: string) => void }) {
+  if (queued.length === 0) return null;
+  const note = steerNote(kind);
+  return (
+    <ul className="composer-queue" aria-label="Queued messages">
+      {queued.map((q, i) => (
+        <li key={q.id} className="composer-queue-item">
+          <span className="queue-position" aria-hidden="true">{i + 1}</span>
+          {/* One line, with the whole of it in the title: the row is a reminder of what is coming, and
+              the message becomes a real bubble the moment it goes out. */}
+          <span className="queue-text" title={q.text}>{q.text || "(attachments only)"}</span>
+          {q.attachments.length > 0 && (
+            <span className="queue-attach" title={q.attachments.map((a) => basenameOf(a.path)).join(", ")}>
+              <Icon name="attach" size={12} />{q.attachments.length}
+            </span>
+          )}
+          <button type="button" className="queue-send" title={note} onClick={() => onRelease(q.id)}>Send now</button>
+          <button type="button" className="queue-drop" aria-label={`Remove queued message: ${q.text}`} title="Remove" onClick={() => onDrop(q.id)}>
+            <Icon name="close" size={12} />
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * The other sessions this draft points at.
+ *
+ * A row of pills rather than tokens in the text, and that is forced: `draft-format.ts` allows a
+ * painted run to change "colour, background and underline" and never "weight, family, size or
+ * spacing", because the mirror sits under a real textarea. A mark inside a run moves every glyph
+ * after it. So a reference that shows WHO it points at lives beside the box, like an attachment.
+ *
+ * The mark is the agent's own, in the agent's own colour — a session is recognised by which agent is
+ * running it long before anyone reads the title.
+ */
+/** Stable, so a Composer with no references does not get a new array on every render. */
+const NO_SESSION_REFS: readonly SessionRef[] = [];
+
+function SessionRefRow({ refs, onRemove }: { refs: readonly SessionRef[]; onRemove: (sessionId: string) => void }) {
+  if (refs.length === 0) return null;
+  return (
+    <ul className="composer-refs" aria-label="Sessions this message points at">
+      {refs.map((r) => (
+        <li key={r.sessionId} className="composer-ref">
+          <Icon name={AGENT_META[r.agent as AgentKind]?.icon ?? "chat"} size={14} colored className="composer-ref-mark" />
+          <span className="composer-ref-title">{r.title}</span>
+          <button type="button" className="composer-ref-remove" aria-label={`Stop pointing at ${r.title}`}
+            title="Remove" onClick={() => onRemove(r.sessionId)}><Icon name="close" size={12} /></button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function AttachmentRow({ kind, attachments, onRemove }: { kind: AgentKind; attachments: PickedAttachment[]; onRemove: (path: string) => void }) {
   if (attachments.length === 0) return null;
   return (
@@ -159,17 +259,45 @@ export function connectorState(s: McpServer): { tone: "ok" | "warning" | "muted"
  * upward placement re-measures for the new height) — the two-step idiom the menu machinery already
  * carries, not a hover-submenu invented for one item. No Plugins item: Realm has no plugin system,
  * and the plan refuses menu parity over honesty.
+ *
+ * **Mode** rides the same idiom. It used to be a chip in the control row, paired with the permission
+ * chip inside a `.chip-group` that drew the two as one segmented control. Two things were wrong with
+ * that: the row is where the things you change PER MESSAGE live, and the mode is a property of the
+ * session that most turns never touch; and grouping it with permissions implied the two were one
+ * decision, when Plan and Ask actually REPLACE the permission axis rather than sit beside it. The
+ * row keeps the permission chip alone, which is also what un-groups its corners.
+ *
+ * The row carries the current mode as its value, because removing the chip removed the only place
+ * the mode was written down. The card's own tint still says it for Plan and Ask; Build is untinted,
+ * and this is where Build is legible.
  */
-function PlusMenu({ onAttachPick, onAddFolder, onSkills, canSkills, connectors, onOpened, onManageConnections, btnRef }: {
+function PlusMenu({ onAttachPick, onAddFolder, onSkills, canSkills, onGoal, connectors, onOpened, onManageConnections,
+  mode, modeItems, modeTitle, modePending, canChooseMode, btnRef }: {
   onAttachPick: () => void; onAddFolder: () => void;
   /** Open the skill picker. Offered only when `canSkills` — an item that would silently do nothing
    *  (a Cursor session, a machine with no skills anywhere) is never grown. */
   onSkills: () => void; canSkills: boolean;
+  /** Arm the box with `/goal `, or null when this prompter has no goal command to arm — the gate is
+   *  the command list itself, so this row can never offer something the `/` picker does not. */
+  onGoal: (() => void) | null;
   /** The space's servers, or null when the cache has never been fetched (rendered as loading). */
   connectors: McpServer[] | null;
   /** Fired on open — the store re-reads its cache (a row read, never a probe). */
   onOpened: () => void;
   onManageConnections: () => void;
+  /** The session's mode, and the rows that change it — built by the Composer (`modeItems`) so the
+   *  per-agent filtering that decides whether Plan or Ask is even offered stays in one place. */
+  mode: SessionMode;
+  modeItems: MenuItem[];
+  modeTitle: string;
+  /** The agent is live but has not named its modes yet (ACP kinds answer at handshake). Distinguished
+   *  from "offers none" because they read the same on a disabled row and mean opposite things: one is
+   *  a wait, the other is an answer. */
+  modePending: boolean;
+  /** Whether this agent offers any mode to choose. False collapses the row to a static value: a
+   *  session whose agent has named no modes still has one, and hiding it would leave the mode with
+   *  nowhere at all to be read. */
+  canChooseMode: boolean;
   /** The plus button itself, so the Composer can anchor the skill picker on it. Shared rather than
    *  wrapped: the control row's left group is asserted by DOM order, and a wrapper element would be a
    *  new child of it. */
@@ -178,14 +306,39 @@ function PlusMenu({ onAttachPick, onAddFolder, onSkills, canSkills, connectors, 
   const ownBtn = useRef<HTMLButtonElement>(null);
   const btn = btnRef ?? ownBtn;
   const [open, setOpen] = useState(false);
-  const [view, setView] = useState<"root" | "connectors">("root");
+  const [view, setView] = useState<"root" | "connectors" | "mode">("root");
   const enabled = (connectors ?? []).filter((s) => s.enabled);
+  const modeRow = (
+    <span className="plus-submenu-label">
+      Mode
+      <span className="plus-submenu-value" data-mode={mode}>
+        <Icon name={MODE_ICON[mode]} size={12} />{MODE_LABEL[mode]}
+      </span>
+      {canChooseMode && <Icon name="chevronRight" size={12} className="plus-submenu-caret" />}
+    </span>
+  );
+  const modeRowTitle = canChooseMode ? modeTitle : modePending ? "Waiting for the agent's modes" : modeTitle;
   const rootItems: MenuItem[] = [
     { label: "Add files…", kbd: "⌘U", onSelect: onAttachPick },
     { label: "Add folder…", onSelect: onAddFolder },
     ...(canSkills ? [{ label: "Skills", onSelect: onSkills } as MenuItem] : []),
     { kind: "separator" },
+    /* A goal sits with Mode rather than with the files above it: both are properties of the SESSION
+       rather than of this message. It arms the box instead of opening anything — the objective is
+       the argument, and there is nothing to pick from — which is the same gesture `/goal` already
+       is, reached by someone who does not know the command exists. */
+    ...(onGoal ? [{ label: "Set a goal…", onSelect: onGoal } as MenuItem] : []),
+    // Static when the agent offers nothing to switch to — the value is still worth reading, and a
+    // row that opened onto a list of one would be a control whose only outcome is the state it is in.
+    canChooseMode
+      ? { label: modeRow, title: modeRowTitle, keepOpen: true, onSelect: () => setView("mode") }
+      : { label: modeRow, title: modeRowTitle, disabled: true, onSelect: () => {} },
     { label: <span className="plus-submenu-label">Connectors<Icon name="chevronRight" size={12} className="plus-submenu-caret" /></span>, keepOpen: true, onSelect: () => setView("connectors") },
+  ];
+  const modeViewItems: MenuItem[] = [
+    { label: <span className="plus-submenu-label"><Icon name="chevronLeft" size={12} className="plus-submenu-caret" />Mode</span>, keepOpen: true, onSelect: () => setView("root") },
+    { kind: "separator" },
+    ...modeItems,
   ];
   const connectorItems: MenuItem[] = [
     { label: <span className="plus-submenu-label"><Icon name="chevronLeft" size={12} className="plus-submenu-caret" />Connectors</span>, keepOpen: true, onSelect: () => setView("root") },
@@ -222,8 +375,11 @@ function PlusMenu({ onAttachPick, onAddFolder, onSkills, canSkills, connectors, 
       </button>
       {/* key={view}: the in-place swap changes the menu's height, and the upward placement was
           measured at mount — remounting re-measures instead of overlapping the anchor. */}
-      {open && <Menu key={view} items={view === "root" ? rootItems : connectorItems} onClose={() => setOpen(false)}
-        anchorRef={btn} placement="up" label={view === "root" ? "Add" : "Connectors"} />}
+      {open && <Menu key={view}
+        items={view === "root" ? rootItems : view === "mode" ? modeViewItems : connectorItems}
+        onClose={() => setOpen(false)}
+        anchorRef={btn} placement="up"
+        label={view === "root" ? "Add" : view === "mode" ? "Mode" : "Connectors"} />}
     </>
   );
 }
@@ -262,8 +418,18 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, onSend, onStop, onOptions, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, supportsFastMode, links, onLinkPaste }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, supportsFastMode, links, onLinkPaste, compact = false }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
+  /**
+   * The quick chat's prompter: the card, and only the card.
+   *
+   * Everything the flag removes is a fact about WHERE and HOW a session runs — the permission and
+   * mode chips, the machine, the workspace, the meter, the agents in flight. A quick chat is a
+   * question you ask in a corner of the screen; none of those are the question, and a row of them
+   * under a 280px card would be most of the window. What stays is what the ask still needs: the
+   * model, attachments, and send.
+   */
+  compact?: boolean;
   /** Open the diff pane for the session's checkout (W3) — what the branch/diff chips do. */
   onOpenDiff: () => void;
   draft: string; onDraftChange: (text: string) => void;
@@ -277,6 +443,11 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   onAttachFiles: (files: File[]) => void;
   onRemoveAttachment: (path: string) => void;
   onSend: (text: string) => void; onStop: () => void; onOptions: (o: SessionOptions) => void;
+  /** The other sessions this draft points at, and the two ways they change. */
+  sessionRefs?: readonly SessionRef[]; onRemoveSessionRef?: (sessionId: string) => void;
+  /** One of Realm's own sidebar items was dropped on the prompter. The pane decides what it means. */
+  onDropItem?: (itemId: string) => void;
+  queued?: QueuedPrompt[]; onReleaseQueued?: (queuedId: string) => void; onDropQueued?: (queuedId: string) => void; midTurnMode?: MidTurnMode; planLimits?: PlanLimits | null;
   /** Set the permission Build will return to, while a read-only mode is in force. Absent leaves the
    *  chip a label, which is what the read-only mounts want. */
   onParkPermission?: (permissionMode: string) => void;
@@ -340,6 +511,8 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   /** Which key sends the draft (Settings ▸ App). Default "enter": plain Enter sends. "cmdEnter":
    *  only ⌘/Ctrl+Enter sends, plain Enter inserts a newline. */
   submitKey?: SubmitKey;
+  /** Whether the easter eggs are on. Passed straight to the model picker. */
+  eggs?: boolean;
   /** The session-derived suggested prompt (`prompt-hint.ts`), or null when there is nothing specific
    *  to offer. Shown as the hint text over the empty box and filled in by ⇥. */
   promptHint?: string | null;
@@ -350,6 +523,13 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
    *  ever transmitted, which is the whole difference between this and an `@`-mention. Empty (the
    *  default) means typing `/` opens nothing at all. */
   slashCommands?: SlashCommand[];
+  /** The session's goal strip, already built by the pane — `null` for a session pursuing none. A
+   *  node rather than the goal itself, for `hero`'s reason: everything it needs to DO belongs to the
+   *  pane, and a Composer that took four goal callbacks would be a Composer that knows about goals. */
+  goal?: React.ReactNode;
+  /** Hero-greeting lines from an unlocked friend pack. Drawn only with the eggs on, like everything
+   *  else a pack brings — the switch is the consent boundary and a pack is not a way around it. */
+  packGreetings?: readonly string[];
   /** Whether the harness has said THIS session's model can run fast mode (the `init` event's own
    *  answer). Undefined is "not stated", and the picker offers no switch — never a disabled one,
    *  because there is nothing the user could do about a capability nobody has claimed. */
@@ -394,6 +574,26 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   /* The card CLAIMS a file drag from the session pane around it, which is also a drop target. Both
      lighting up for one drag would say the file is about to land in two places. */
   const drop = useFileDrop(onAttachFiles, true);
+  // A second vocabulary on the same box: files attach, one of Realm's own items points. The
+  // hooks claim different `dataTransfer` types, so neither ever sees the other's drag.
+  const itemDrop = useItemDrop((itemId) => onDropItem?.(itemId));
+  /* …except in the quick chat, where the card takes no drag at all and the handlers below are left
+     off it. That window is 380px of one thing: its own glow covers the card as well as the
+     transcript, and a card that claimed inside it would swap a glow around the window for a
+     rectangle around its bottom strip. `dropping` stays false with nothing attached, so the card's
+     ring and its "Drop to attach" hint come off with the handlers. */
+  const dropHandlers = compact ? {} : drop.handlers;
+  /* COMPOSED, not two spreads. Two `{...handlers}` on one element is one set silently overwriting
+     the other — which is how the file drop stopped working the moment the item drop was added, and
+     what the prompter's own drop tests caught. Each hook ignores the drag it does not own, so
+     calling both in order is safe and exactly one of them ever acts. `compact` turns both off
+     together, the way it already turned the file one off alone. */
+  const bothDrops = compact ? {} : {
+    onDragEnter: (e: DragEvent) => { drop.handlers.onDragEnter(e); itemDrop.handlers.onDragEnter(e); },
+    onDragOver: (e: DragEvent) => { drop.handlers.onDragOver(e); itemDrop.handlers.onDragOver(e); },
+    onDragLeave: (e: DragEvent) => { drop.handlers.onDragLeave(e); itemDrop.handlers.onDragLeave(e); },
+    onDrop: (e: DragEvent) => { drop.handlers.onDrop(e); itemDrop.handlers.onDrop(e); },
+  };
   /** Pasting an image: it has no path yet, which the store handles. A paste with no files is text —
    *  fall through untouched, or ⌘V would stop working in the one box people paste into most. */
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
@@ -425,7 +625,8 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   // The greeting is picked once per session (and re-picked only if the space is renamed or the name
   // arrives late from boot): the time of day is read at that moment, so an open hero never rewrites
   // itself mid-sentence at 6pm.
-  const greeting = useMemo(() => heroGreeting({ spaceName, userName, seed: session.id }), [spaceName, userName, session.id]);
+  const greeting = useMemo(() => heroGreeting({ spaceName, userName, seed: session.id, extra: eggs ? packGreetings : [] }),
+    [spaceName, userName, session.id, eggs, packGreetings]);
 
   // ── Rich text (highlight mirror) ───────────────────────────────────────
   // The textarea keeps every character; what it does NOT keep is its own colour. Its text is painted
@@ -444,7 +645,11 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const linkOf = (tokenText: string): LinkChip | null => { const c = scanElementChips(tokenText)[0]; return c ? linkByLabel.get(c.label) ?? null : null; };
   // Coloured as a mention only if `scanMentions` resolves it — the same call the server re-runs on the
   // sent text. Stale ids get the warning tone the note below the card already explains.
-  const segments = useMemo(() => highlightSegments(draft, liveMentionIds, staleMentions), [draft, liveMentionIds, staleMentions]);
+  /* The command ids the mirror may colour — the same list the picker offers, so a run and the popover
+     under it can never disagree about whether `/goal` is a command. */
+  const commandIds = useMemo(() => slashCommands.map((c) => c.id), [slashCommands]);
+  const segments = useMemo(() => highlightSegments(draft, liveMentionIds, staleMentions, commandIds),
+    [draft, liveMentionIds, staleMentions, commandIds]);
   /* Chip geometry, in draft offsets rather than pixels. The mirror is behind the textarea and takes no
      pointer events, so a click never reaches a painted run — but it does not have to: the browser has
      already resolved the point to a caret by the time `click` fires, and `selectionStart` is that same
@@ -594,15 +799,42 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const pickSlash = (c: SlashCommand) => {
     if (!slashToken) return;
     const rest = draft.slice(slashToken.end).replace(/^\s+/, "");
+    setSlashActive(0);
+    /* A command that needs an argument is ARMED rather than run: the picker is open, so nothing has
+       been typed after it yet, and running now would run it on nothing. The box keeps the command
+       and gains a space; Enter is what finishes the gesture (see `send`). */
+    if (c.takesArgument && !rest) {
+      const armed = `/${c.id} `;
+      onDraftChange(armed);
+      pendingSel.current = { start: armed.length, end: armed.length };
+      return;
+    }
     onDraftChange(rest);
     pendingSel.current = { start: 0, end: 0 };
-    setSlashActive(0);
-    c.run();
+    // What followed the command goes to the command as well as back into the box: `/plan look at the
+    // auth code` flips the mode and leaves the sentence ready to send.
+    c.run(rest);
   };
 
   /** The "+" menu's Skills item: prime the @-mention picker — insert `@` at the caret (led by a space
    *  when it would otherwise glue onto a word, a shape mentionQueryAt refuses as an email) and put the
    *  caret after it; the existing picker takes over. Deliberately not a second picker. */
+  /**
+   * The "+" menu's goal row: put the draft BEHIND `/goal `, so Enter starts it.
+   *
+   * The same armed shape `pickSlash` leaves for an argument-taking command, with one difference it
+   * has to have: `pickSlash` only ever fires on a draft that IS the token, so it can replace the
+   * whole box. This can be reached with a sentence already typed, and that sentence is almost
+   * always the objective — so it becomes the argument rather than being thrown away.
+   */
+  const armGoal = () => {
+    const typed = draft.trim();
+    const armed = typed.startsWith("/goal") ? draft : `/goal ${typed}`;
+    onDraftChange(armed);
+    // the [draft] layout effect focuses the textarea and puts the caret here
+    pendingSel.current = { start: armed.length, end: armed.length };
+  };
+
   /** Insert `@<id>` at the caret, the same shape `pickMention` leaves behind — so a skill added from
    *  the picker and one completed by typing `@` produce byte-identical drafts. */
   const insertMention = (id: string) => {
@@ -633,7 +865,30 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   // which reads none of them — can't carry a message by themselves, because the adapter would deliver
   // literally nothing, so they don't unlock the button and its tooltip says why.
   const deliverable = attachments.some((a) => attachmentDisposition(kind, a.mime) !== "ignored");
-  const send = () => { const t = draft.trim(); if (!t && !deliverable) return; onSend(t); onDraftChange(""); };
+
+  /* While a turn runs the corner button is Stop, so a message typed into the box has no button of its
+     own and the keyboard is its only route. The tooltip on the one button that IS there is where that
+     gets said — and it says which of the two things the send will do, because the answer is a setting
+     and a tooltip that guessed would be wrong for half of its readers. */
+  const stopTitle = draft.trim() || deliverable
+    ? midTurnMode === "steer"
+      ? `Stop (interrupt). ⌘↵ sends your message instead — ${steerInterrupts(kind) ? "which also stops this turn" : `into the turn ${AGENT_META[kind].label} is running`}.`
+      : "Stop (interrupt). ⌘↵ queues your message for when this turn ends."
+    : "Stop (interrupt)";
+  const send = () => {
+    /* A draft that IS a call to an argument-taking command runs it instead of going to the agent.
+       This is the other half of `pickSlash`'s arming: by the time an objective has been typed after
+       `/goal`, the picker has long since stepped aside (`slashQueryAt` closes it once the caret
+       leaves the token), so Enter is the only gesture left to finish the gesture with. */
+    const call = slashCallIn(draft, slashCommands);
+    if (call) {
+      if (!call.rest) return; // `/goal ` on its own has nothing to run on; the box keeps waiting
+      onDraftChange("");
+      call.command.run(call.rest);
+      return;
+    }
+    const t = draft.trim(); if (!t && !deliverable) return; onSend(t); onDraftChange("");
+  };
 
   /** Apply a list rewrite: the draft is the source of truth, so this is one `onDraftChange` plus the
    *  selection to restore once React has painted the new text (same channel a mention pick uses). */
@@ -742,7 +997,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   // Effort's one home is the model picker (prompter rework): the standalone chip is retired, the
   // chip's gray suffix names the level, and this list is the picker's permanent Effort section.
   // Deliberately narrow (no `MenuItem[]`): OverflowGroup's item shape, which has no separator arm.
-  const effortItems = EFFORT_LEVELS.map((l) => ({ label: formatEffort(l), checked: session.effort === l, onSelect: () => onOptions({ effort: l }) }));
+  const effortItems = EFFORT_LEVELS.map((l) => ({ label: formatEffort(l), checked: session.effort === l, effort: l, onSelect: () => onOptions({ effort: l }) }));
   /* The switch and the truth, kept apart. `on` is what the session asked for and lives in its row;
      `state`/`reason` are what the last finished turn reported and live on the usage sample — see the
      `usage` event's own note for why those can differ, routinely. Built only when the harness has
@@ -846,13 +1101,27 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             line.setAttribute("data-nod", "");
           }}
           onAnimationEnd={(e) => e.currentTarget.removeAttribute("data-nod")}>
-          {greeting.map((part, i) => (part.em ? <em key={i}>{part.text}</em> : <Fragment key={i}>{part.text}</Fragment>))}
+          {/* One child, not one per run: the box is a flex container, and each run as its own
+              anonymous flex item would have its leading and trailing spaces collapsed away —
+              "working on in" would sit flush against the space's name. */}
+          <span>
+            {greeting.map((part, i) => (part.em ? <em key={i}>{part.text}</em> : <Fragment key={i}>{part.text}</Fragment>))}
+          </span>
         </div>
       )}
-      {/* Above the card and inside the dock, so the hero→docked move carries it and it cannot be
-          left behind mid-transition. In flow, so it grows UPWARD into the transcript rather than
-          pushing the prompter's own controls off their bottom edge. */}
-      <TodoStrip todos={todos} />
+      {/* The band of tabs above the card, outermost first: who is working, then what the plan is,
+          then what the checkout has changed. It reads down the page from the most live fact to the
+          least — agents come and go within a turn, a plan lasts a run, a branch lasts a session —
+          and each tab draws nothing at all when it has nothing to say.
+
+          Inside the dock, so the hero→docked move carries them and none is left behind
+          mid-transition. In flow, so they grow UPWARD into the transcript rather than pushing the
+          prompter's own controls off the bottom edge they sit on. */}
+      {!compact && <DelegatedRuns sessionId={session.id} />}
+      {/* Above the plan, because a goal outranks it: the plan is how this turn is going, the goal is
+          why there is a turn at all. */}
+      {!compact && goal}
+      {!compact && <TodoStrip todos={todos} />}
       {/* Over-strip: the branch and what the checkout has changed, on a tab of their own above the
           card. It was a chip among the workspace chips under the prompter, and a diff is not that
           kind of fact — the row below reports where the session runs and never changes, while this
@@ -863,7 +1132,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
           Between the to-do strip and the card, so the two tabs stack into one frame band rather
           than fighting over the same edge (the join is `.composer-todos + .composer-overstrip` in
           styles.css) and the plan keeps its own top corners. */}
-      {gitInfo && (
+      {gitInfo && !compact && (
         <div className="composer-overstrip">
           <GitChip gitInfo={gitInfo} onOpenDiff={onOpenDiff} />
         </div>
@@ -874,8 +1143,11 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
           that is the single most consequential fact about the next send — worth more than a chip in
           a row of chips, which is where it used to live alone. Build is the default and stays
           neutral: a colour that is always on is a colour that says nothing. */}
-      <div className="composer" data-mode={mode} data-dropping={drop.dropping || undefined} {...drop.handlers}>
+      <div className="composer" data-mode={mode} data-dropping={drop.dropping || itemDrop.dropping || undefined} {...bothDrops}>
+        <LimitRow limits={planLimits} />
+        <QueueRow kind={kind} queued={queued} onRelease={onReleaseQueued ?? (() => {})} onDrop={onDropQueued ?? (() => {})} />
         <AttachmentRow kind={kind} attachments={attachments} onRemove={onRemoveAttachment} />
+        <SessionRefRow refs={sessionRefs} onRemove={onRemoveSessionRef ?? (() => {})} />
         {/* A mention whose skill vanished after typing (W4): warning tone, same row language as the
             attachment fates — the last moment the degradation is actionable is before send. */}
         {staleMentions.length > 0 && (
@@ -952,14 +1224,18 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             onClose={() => setSkillPickerOpen(false)} />
         )}
         {drop.dropping && <div className="composer-drop-hint" aria-hidden="true">Drop to attach</div>}
+        {itemDrop.dropping && <div className="composer-drop-hint" aria-hidden="true">Drop to point this message at that session</div>}
         <div className="composer-bar">
           <div className="composer-opts" ref={optsRef} data-collapsed={collapsed || undefined}>
             {/* The "+" opens the add menu now (Plan 12 W1) — its Add files… reaches the SAME picker
                 through the same handler the bare attach button used to call directly. */}
             <PlusMenu onAttachPick={onAttachPick} onAddFolder={() => onAddFolder?.()}
               onSkills={() => setSkillPickerOpen(true)} canSkills={allSkills.length > 0}
+              onGoal={slashCommands.some((c) => c.id === "goal") ? armGoal : null}
               connectors={connectors} onOpened={() => onConnectorsOpened?.()}
-              onManageConnections={() => onManageConnections?.()} btnRef={plusRef} />
+              onManageConnections={() => onManageConnections?.()}
+              mode={mode} modeItems={modeItems} modeTitle={modeTitle} modePending={acpModesPending}
+              canChooseMode={canPlan || canAsk} btnRef={plusRef} />
             {/* Left group order (prompter rework): "+" · permission · mode · branch. The permission
                 and mode chips sit against the attach button; the git chip trails them. */}
             {/* In Plan and in Ask the permission mode is not in effect — Claude's `plan` replaces it
@@ -969,12 +1245,11 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
                 picker whose selection changes nothing would be a lie; so would having no way to
                 answer "what should happen when I approve this plan?" at the moment you are asking
                 it. Same control, same list, pointed at the value that is actually settable here. */}
-            {/* One control, still two buttons (see `.chip-group`). The wrapper is unconditional and
-                hides itself when empty: both chips come and go on their own conditions, and a
-                wrapper that had to know which of the four combinations it was in would be a fifth
-                place to keep them in step. */}
-            <div className="chip-group">
-            {canSetPermissionMode && (
+            {/* One chip, ungrouped. The mode moved into the "+" menu (see PlusMenu), and with it the
+                reason this pair was drawn as a segmented control — a group of one is nine seam rules
+                that can never fire, and it left the permission chip wearing a squared corner and a
+                hairline ring that no other chip in the row has. */}
+            {canSetPermissionMode && !compact && (
               inReadOnly
                 ? <ChipMenu ariaLabel="Permission mode" warning={parked === "bypassPermissions"}
                     title={`${MODE_LABEL[mode]} is read-only — this is what returning to Build will restore`}
@@ -982,17 +1257,6 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
                 : !collapsed && <ChipMenu ariaLabel="Permission mode" warning={session.permissionMode === "bypassPermissions"}
                     label={permissionLabel(session.permissionMode)} items={permissionItems} />
             )}
-            {(canPlan || canAsk) && (
-              <ChipMenu ariaLabel="Mode" title={modeTitle} icon={MODE_ICON[mode]} label={MODE_LABEL[mode]} items={modeItems} />
-            )}
-            {/* The materialize-honestly window: the session is live but the agent has not named its
-                modes yet. Disabled (a static label, out of the tab order) rather than absent, so the
-                chip does not pop into a row the user is already aiming at — and rather than enabled,
-                because offering Plan before the agent has said it exists would be a guess. */}
-            {!canPlan && !canAsk && acpModesPending && (
-              <ChipMenu ariaLabel="Mode" title="Waiting for the agent's modes" icon="tool" label="Build" items={[]} />
-            )}
-            </div>
             {confirmBypass && (
               <button className="composer-chip bypass-confirm"
                 onClick={() => { setConfirmBypass(false); if (inReadOnly) onParkPermission?.("bypassPermissions"); else onOptions({ permissionMode: "bypassPermissions" }); }}>
@@ -1007,7 +1271,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
                 beside it. The chip still wears the harness's mark, so nothing it said is lost. */}
             <ModelPicker kind={kind} model={session.model} effort={session.effort} rows={rows} info={modelInfo}
               onToggleFavorite={onToggleModelFavorite}
-              onPick={onPickModel} effortItems={effortItems} overflow={overflow} fast={fast} />
+              onPick={onPickModel} effortItems={effortItems} overflow={overflow} fast={fast} eggs={eggs} />
             {/* Send↔stop morph (§6): both icons stay in the DOM; data-state cross-fades them (160ms,
                 opacity + scale .25→1 + 4px blur). ⌘↵ still sends while running — only the button morphs. */}
             {/* Attachments the agent will receive can go alone (Plan 14 W5 relaxed sessions.send's
@@ -1015,7 +1279,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
                 button look broken there, it says why. */}
             <button className="composer-send" data-state={running ? "stop" : "send"}
               aria-label={running ? "Stop" : "Send"}
-              title={running ? "Stop (interrupt)"
+              title={running ? stopTitle
                 : !draft.trim() && attachments.length > 0 && !deliverable ? `${AGENT_META[kind].label} ignores these attachments — add a message to send`
                 : "Send (⌘↵)"}
               disabled={!running && !draft.trim() && !deliverable}
@@ -1028,6 +1292,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
       </div>
       {/* Under-strip (Plan 12 W1): where this session runs. In normal flow inside .composer-dock so
           the hero→docked move — one transform on the dock (§6: 320ms) — carries it untouched. */}
+      {!compact && (
       <div className="composer-understrip">
         {machineName && (
           // Display only, deliberately: Realm runs agents on this Mac and no other. The selector
@@ -1047,6 +1312,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
           <SessionUsage usage={usage} contextWindow={contextWindow} />
         </div>
       </div>
+      )}
 
     </div>
   );

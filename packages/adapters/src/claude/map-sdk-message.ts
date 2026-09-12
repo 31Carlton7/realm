@@ -40,6 +40,39 @@ function exitPlanText(name: string, input: Record<string, unknown>): string | nu
 const FAST_STATES = new Set(["off", "cooldown", "on"]);
 
 /**
+ * Where the provider's own CHAIN stood at the end of one turn — the two uuids a truncating resume
+ * needs, reported together because they are only meaningful together.
+ *
+ * - `promptUuid` — the chain entry for the message that STARTED the turn. `Options.resumeDropsTurn`
+ *   declares it when a resume means to discard this turn.
+ * - `endUuid` — the turn's LAST chain entry, which is what `Options.resumeSessionAt` wants of the turn
+ *   being KEPT. Deliberately not "the last assistant message": the SDK's own guidance is to fork at the
+ *   kept turn's last entry whatever it is, because an end-turn tool session finishes on a tool_result
+ *   carrier (then a `structured_output` attachment), and an interrupted turn finishes on the completed
+ *   tool_result in its tail — forking at the last assistant uuid in either case leaves kept-turn payload
+ *   in the discarded range, which the CLI's validator deliberately refuses.
+ *
+ * Either may be null: a turn whose prompt the CLI never echoed, or one that produced no chain entry at
+ * all, leaves the cursor incomplete, and an incomplete cursor is stored as no cursor.
+ */
+export type ChainCursor = { promptUuid: string | null; endUuid: string | null };
+
+/** Whether a top-level `user` frame is the turn's PROMPT rather than a tool-result carrier.
+ *
+ *  A tool_result carrier is a user-role chain entry too, and confusing one for the prompt would declare
+ *  the wrong turn to `resumeDropsTurn` — a mis-declaration the CLI answers with a refusal, so the cost
+ *  of getting this wrong is a permanently unusable cursor rather than a silent bad fork. `shouldQuery:
+ *  false` appends are excluded for the same reason they are called out in the SDK's fork-point
+ *  guidance: they persist as bare user entries and start no turn. */
+function isPromptEntry(msg: { message?: unknown; isSynthetic?: boolean; shouldQuery?: boolean }): boolean {
+  if (msg.isSynthetic === true || msg.shouldQuery === false) return false;
+  const content = (msg.message as { content?: unknown } | undefined)?.content;
+  if (typeof content === "string") return true;
+  if (!Array.isArray(content)) return false;
+  return !content.some((b) => (b as Block)?.type === "tool_result");
+}
+
+/**
  * `resumed` says this session asked the SDK to continue an earlier conversation, so the `init` event
  * can report what came of it. The claim is deliberately narrow — the SDK forks to a NEW session id on
  * resume rather than continuing the old one, so "the request was accepted" is the strongest thing
@@ -48,8 +81,37 @@ const FAST_STATES = new Set(["off", "cooldown", "on"]);
 export function createSdkMapper(opts: { resumed?: boolean } = {}) {
   const streamMsgIds = new Map<string | null, string>(); // parent_tool_use_id -> current streaming message id
   const emittedText = new Set<string>();
+  /**
+   * The chain cursor, in three slots rather than two.
+   *
+   * `running` accumulates while a turn is in flight; `settled` is frozen from it by the `result` that
+   * ends the turn and is what `chain()` reports. The freeze is what makes the reading safe to take
+   * after the turn: the consumer asks on the SETTLE, which is emitted after `result` is mapped, and a
+   * pair of live slots would by then already be empty or (worse) filling with the next turn.
+   *
+   * `running.promptUuid` keeps the FIRST prompt of the turn. A second one is a message the session
+   * absorbed mid-turn, and that is exactly the case `resumeDropsTurn` exists to refuse — so naming the
+   * first is both the truthful answer and the one that makes the guard fire instead of silently
+   * dropping somebody's queued message.
+   */
+  let running: ChainCursor = { promptUuid: null, endUuid: null };
+  let settled: ChainCursor = { promptUuid: null, endUuid: null };
+  /** Every top-level chain entry, and nothing else. `system`/`stream_event`/control frames carry uuids
+   *  too, and none of them is an entry in the conversation's chain — a fork point naming one would be a
+   *  position the resume cannot find. Subagent frames (`parent_tool_use_id` set) are excluded as well:
+   *  they belong to a sidechain, and a turn's last MAIN-chain entry always follows them. */
+  const trackChainEntry = (msg: SDKMessage) => {
+    if (msg.type !== "assistant" && msg.type !== "user") return;
+    const m = msg as { parent_tool_use_id?: string | null; uuid?: string };
+    if (m.parent_tool_use_id != null || typeof m.uuid !== "string" || m.uuid === "") return;
+    running.endUuid = m.uuid;
+    if (msg.type === "user" && running.promptUuid === null && isPromptEntry(msg as never)) running.promptUuid = m.uuid;
+  };
   return {
+    /** Where the last SETTLED turn left the provider's chain. Both nulls until a turn has completed. */
+    chain(): ChainCursor { return { ...settled }; },
     map(msg: SDKMessage): SessionEvent[] {
+      trackChainEntry(msg);
       const out: SessionEvent[] = [];
       switch (msg.type) {
         case "system": {
@@ -146,6 +208,11 @@ export function createSdkMapper(opts: { resumed?: boolean } = {}) {
           if (r.subtype !== "success" || r.is_error) out.push(sessionEvent("error", { message: r.errors?.join("\n") || r.result || r.subtype }));
           emittedText.clear();
           streamMsgIds.clear();
+          // The turn is over: freeze its chain cursor and start the next one empty. Frozen rather than
+          // simply left standing, because the next turn begins writing into `running` the moment its
+          // prompt is echoed, and the consumer reads on the SETTLE that follows this message.
+          settled = running;
+          running = { promptUuid: null, endUuid: null };
           break;
         }
         default: break; // other SDK notices ignored in v1

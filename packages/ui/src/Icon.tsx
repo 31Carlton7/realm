@@ -16,7 +16,7 @@ import {
   Award01Icon, BulbIcon, Key01Icon, LockIcon, Notification01Icon, Mic01Icon, HeadphonesIcon, Video01Icon, DiceIcon, Store01Icon,
   House01Icon, PlaneIcon, Train01Icon, BicycleIcon, Globe02Icon, PaintBucketIcon, Pen01Icon, RulerIcon, PenTool01Icon, StartUp01Icon,
   Bookmark01Icon, BookOpen02Icon, FavouriteIcon, HeartbreakIcon, CameraAiIcon, FireworksIcon, DiceFaces01Icon, GameboyIcon, PentagonIcon, MicroscopeIcon,
-  Maximize01Icon, Minimize01Icon, LayoutTable01Icon, SidebarLeft01Icon, Archive02Icon, ArchiveArrowUpIcon,
+  ArrowExpand01Icon, Minimize01Icon, LayoutTable01Icon, SidebarLeft01Icon, Archive02Icon, ArchiveArrowUpIcon,
   // Inline media playback (MediaView.tsx).
   PlayIcon, PauseIcon, VolumeHighIcon, VolumeOffIcon,
   // The reader's verdict on an assistant message (MessageActions.tsx).
@@ -24,6 +24,10 @@ import {
   // The session's summary panel (SessionSummary.tsx).
   InformationCircleIcon,
   ComputerIcon,
+  // The sidebar's head row: the gateway call log (SidebarActivity.tsx).
+  Pulse01Icon,
+  // A machine pane's ⋯ menu: the chord it sends to the guest, and the clipboard it pushes across.
+  KeyboardIcon, ClipboardIcon,
   // Hermes Agent's own mark, in this set's hand — see `caduceus` below.
   CaduceusIcon,
 } from "@hugeicons-pro/core-stroke-standard";
@@ -49,16 +53,24 @@ export const icons = {
   thumbsUp: ThumbsUpIcon, thumbsDown: ThumbsDownIcon, info: InformationCircleIcon,
   branch: GitBranchIcon, diff: GitCompareIcon, commit: GitCommitIcon, pullRequest: GitPullRequestIcon,
   splitRight: Layout2ColumnIcon, splitDown: Layout2RowIcon,
-  // Pane focus (zoom one pane to the whole host) and its inverse; `group` is a pane group's tab.
-  focusPane: Maximize01Icon, unfocusPane: Minimize01Icon, group: LayoutTable01Icon,
+  /* Pane focus (zoom one pane to the whole host) and its inverse; `group` is a pane group's tab.
+     Focus is the two-arrow diagonal — the corner-to-corner expand every window control in every OS
+     draws. The pack's `Maximize01` is a PINCH GESTURE: a hand with a thumb and finger and two small
+     arrows, which at 14px is a smudge that says nothing about what the button does. */
+  focusPane: ArrowExpand01Icon, unfocusPane: Minimize01Icon, group: LayoutTable01Icon,
   // The same glyph under the name a document is looking for. A plan card opening its full text is
   // not focusing a pane, and a call site should not have to borrow the pane system's word for it.
-  expand: Maximize01Icon,
+  expand: ArrowExpand01Icon,
   play: PlayIcon, pause: PauseIcon, volumeOn: VolumeHighIcon, volumeOff: VolumeOffIcon,
   // Same glyph as `group`, under the name a spreadsheet is actually looking for — a document's
   // icon should not have to borrow the pane system's vocabulary to find a table.
   table: LayoutTable01Icon,
   laptop: LaptopIcon, plug: PlugSocketIcon, download: Download04Icon,
+  /* A trace, not a bar chart: `Activity01` and its siblings draw the line inside a framed box, and
+     at 14px beside the sidebar toggle the frame is most of what survives — two glyphs that read as
+     two panels. The bare pulse says "things happening" at that size. */
+  activity: Pulse01Icon,
+  keyboard: KeyboardIcon, clipboard: ClipboardIcon,
   // Shelve a sidebar row / take it back off the shelf. The pair is directional on purpose — the same
   // box, with the restore glyph lifting out of it — so the hover button reads as a toggle.
   archive: Archive02Icon, unarchive: ArchiveArrowUpIcon,
@@ -125,11 +137,19 @@ export function Icon({ name, size = 16, className, colored = false }: { name: Ic
     const mark = brandMarks[name];
     const fill = colored && "color" in mark ? mark.color : "currentColor";
     const paths: readonly string[] = typeof mark.d === "string" ? [mark.d] : mark.d;
+    const viewBox = ("viewBox" in mark && mark.viewBox) || "0 0 24 24";
+    /* `size` is the glyph's HEIGHT, and the width follows the mark's own aspect.
+       Most marks are square and this changes nothing. A WORDMARK is not — E2B publishes "E2B" at
+       104×30 — and forcing one into a square box letterboxes it to a third of the rung, which is the
+       difference between a logo and a smudge. The rung has always meant "how tall is this glyph in
+       this row"; only the square marks let the two readings look identical. */
+    const [, , vbW = 24, vbH = 24] = viewBox.split(/[\s,]+/).map(Number);
+    const width = vbH > 0 ? Math.round(size * (vbW / vbH)) : size;
     return (
       // Decorative like the rest of the set: every mark sits beside text that already names the
       // agent, so announcing "Anthropic" again would only add noise. `data-brand` is the test and
       // CSS hook.
-      <svg className={className} data-brand={name} width={size} height={size} viewBox={("viewBox" in mark && mark.viewBox) || "0 0 24 24"}
+      <svg className={className} data-brand={name} width={width} height={size} viewBox={viewBox}
         xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
         {paths.map((d, i) => <path key={i} d={d} fill={fill} fillRule={"evenOdd" in mark ? "evenodd" : undefined} />)}
       </svg>

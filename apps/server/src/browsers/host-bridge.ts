@@ -24,6 +24,10 @@ export const BROWSER_HOST_OPS = [
   "oauthKey",
   /** The `machine` domain key (Plan 25 W3), for the RFB handshakes realm-server performs itself. */
   "machineKey",
+  /** The `eggs` domain key: what lets realm-server remember the word a friend group typed, rather
+   *  than asking for it at every launch. Its own domain, so a blob sealed here cannot be opened as
+   *  a machine password — `secret-box` mixes the domain in as AAD. */
+  "eggsKey",
   /** Arm a one-shot download grant, click the ref, and await the file. The DIRECTORY is decided
    *  server-side (from the space's project) and travels with the op — main never picks a path, and
    *  the page never influences one. */

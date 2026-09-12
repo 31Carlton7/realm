@@ -145,7 +145,7 @@ const BINDINGS: Binding[] = [
   {
     match: (e) => e.key.toLowerCase() === "j" && mod(e, { meta: true }),
     inInputs: true,
-    run: (s) => { const it = focusedItem(s); if (it?.kind === "session") s.run(() => s.toggleTerminalPanel(it.refId)); },
+    run: (s) => { const it = focusedItem(s); if (it?.kind === "session") s.toggleSessionDock(it.refId, { kind: "terminal" }); },
   },
   // ⌘⇧↩ → dispatch the focused session's draft (Plan 13 W2): one gesture creates a session, sends
   // the draft there, and brings the new pane in beside WITHOUT stealing focus. `inInputs` because it

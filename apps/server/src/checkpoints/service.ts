@@ -8,6 +8,7 @@ import type { EnvironmentsStore } from "../store/environments";
 import type { SessionsStore } from "../store/sessions";
 import { NotFoundError, RpcError } from "../store/rows";
 import { CheckpointGit, checkpointRef } from "../workspace/checkpoints";
+import { decodeProviderCursor, decodeSessionCursor, encodeArmedRewind, encodeProviderCursor, encodeSessionCursor } from "./rewind";
 
 /**
  * Retention: the newest `MAX_CHECKPOINTS_PER_ENVIRONMENT` per environment, oldest dropped first.
@@ -55,6 +56,20 @@ export type CheckpointDeps = {
    *  acknowledgement (the tree moved under an open confirmation). Optional — a harness without the
    *  notifications feed behaves exactly as before. */
   notifications?: { worktreeHazard(input: { spaceId: string | null; environmentId: string; title: string; body: string }): void };
+  /**
+   * Rewind ONE session's conversation to where this checkpoint found it: truncate Realm's stored
+   * transcript to `throughSeq`, and arm `fork` so the session's next adapter start resumes the provider
+   * conversation at that point. Returns whether it actually happened.
+   *
+   * Injected rather than imported, for the same knot `isEnvironmentBusy` documents: `SessionService`
+   * calls INTO this service on every turn, so it cannot also be a dependency of it. It is also the
+   * right owner — it holds the live handles, the event store and the broadcast channel, none of which
+   * belong to checkpoints.
+   *
+   * Optional, and its absence is reported rather than hidden: a harness wired without it answers
+   * `rewindsConversation: false` everywhere, which is the truth for that harness.
+   */
+  rewindSession?: (input: { sessionId: string; throughSeq: number; fork: string }) => boolean;
 };
 
 /**
@@ -74,6 +89,17 @@ export type CheckpointDeps = {
  */
 export class CheckpointService {
   constructor(private d: CheckpointDeps) {}
+
+  /**
+   * The `turn` checkpoint each session's IN-FLIGHT turn was captured in front of.
+   *
+   * In memory, and the one thing lost with it is a cursor. A checkpoint's provider cursor needs two
+   * uuids known at two different moments — the kept turn's last chain entry (at capture) and the
+   * discarded turn's prompt (once the turn has run) — so the row is completed at the settle, and this
+   * map is how the settle finds the row. A crash between the two leaves the checkpoint with no cursor,
+   * which restores the files and says so: exactly what Realm knows about that turn and nothing more.
+   */
+  private turnCheckpoints = new Map<string, string>();
 
   list(environmentId: string, sessionId: string | null): Checkpoint[] {
     this.environment(environmentId);
@@ -99,9 +125,15 @@ export class CheckpointService {
     const id = newId();
     const ref = checkpointRef(env.id, id);
     const state = await this.d.git.capture({ cwd: env.path, environmentId: env.id, checkpointId: id, message: `realm: ${input.label}` });
+    // Realm's own transcript position, read AFTER the git work rather than before it: `capture` is
+    // awaited in front of the message, so nothing of this turn is on the rail yet either way, and
+    // reading it last means the number is as close to the restore point as this method can make it.
+    // Null outside a session, which is the honest answer and not a zero — a zero would claim the
+    // transcript was empty.
+    const sessionSeq = input.sessionId ? this.d.sessions.get(input.sessionId)?.lastEventSeq ?? null : null;
     let checkpoint: Checkpoint;
     try {
-      checkpoint = this.d.checkpoints.create({ id, environmentId: env.id, sessionId: input.sessionId, kind: input.kind, label: input.label, ref, state });
+      checkpoint = this.d.checkpoints.create({ id, environmentId: env.id, sessionId: input.sessionId, kind: input.kind, label: input.label, ref, state, sessionSeq });
     } catch (e) {
       // The ref exists and the row does not: exactly the leak rule 1 forbids. Take the ref back off.
       await this.d.git.deleteRefs(env.path, [ref]).catch(() => {});
@@ -122,11 +154,67 @@ export class CheckpointService {
     const session = this.d.sessions.get(sessionId);
     if (!session) return null;
     try {
-      return await this.capture({ environmentId: session.environmentId, sessionId, kind: "turn", label: labelFrom(text) });
+      const checkpoint = await this.capture({ environmentId: session.environmentId, sessionId, kind: "turn", label: labelFrom(text) });
+      // Claimed even when the capture declined (a plain folder): the map is keyed by session, and a
+      // stale entry from three turns ago would attach THIS turn's prompt uuid to the wrong checkpoint.
+      if (checkpoint) this.turnCheckpoints.set(sessionId, checkpoint.id); else this.turnCheckpoints.delete(sessionId);
+      return checkpoint;
     } catch (e) {
+      this.turnCheckpoints.delete(sessionId);
       onLog?.(`[checkpoints] capture failed for session ${sessionId}: ${e instanceof Error ? e.message : String(e)}`);
       return null;
     }
+  }
+
+  /**
+   * A turn settled: write down where the provider's conversation now stands, and complete the cursor on
+   * the checkpoint this turn was captured in front of.
+   *
+   * Two writes, and they are the two halves of one fact:
+   *
+   *  - the checkpoint that FRONTED this turn gets `{session, at: <where the previous turn ended>,
+   *    dropsTurn: <this turn's prompt>}` — everything `resumeSessionAt` + `resumeDropsTurn` need to put
+   *    the model back on the far side of this turn;
+   *  - the session row's cursor moves to where THIS turn ended, which is what the NEXT turn's
+   *    checkpoint will fork to.
+   *
+   * `session` is the guard that keeps the two uuids in one chain. The pair is written only when the
+   * previous turn's cursor was recorded under the same provider session id this turn ran in: the SDK
+   * forks to a new session id on every resume, so a pair spanning a restart would name a position in a
+   * chain the resumed session may not have. A mismatch writes no cursor at all, and that checkpoint
+   * restores the files only.
+   *
+   * Only `turn` checkpoints ever get a cursor, because only a turn checkpoint fronts exactly ONE turn —
+   * which is precisely the unit `resumeDropsTurn` validates. A `manual` or `pre-restore` checkpoint
+   * fronts no turn, so there is nothing it could honestly declare as dropped.
+   */
+  noteTurnCursor(sessionId: string, turn: { providerSessionId: string | null; promptUuid: string | null; endUuid: string | null }): void {
+    const checkpointId = this.turnCheckpoints.get(sessionId) ?? null;
+    this.turnCheckpoints.delete(sessionId);
+    const session = this.d.sessions.get(sessionId);
+    if (!session || !AGENT_CONVERSATION_REWIND[session.agentKind]) return;
+    if (!turn.providerSessionId) return; // nothing to name a chain by; nothing worth writing down
+    const previous = decodeSessionCursor(this.d.sessions.providerCursor(sessionId));
+    if (checkpointId && turn.promptUuid && previous?.session === turn.providerSessionId) {
+      this.d.checkpoints.setProviderCursor(checkpointId,
+        encodeProviderCursor({ session: turn.providerSessionId, at: previous.at, dropsTurn: turn.promptUuid }));
+    }
+    if (turn.endUuid) {
+      this.d.sessions.setProviderCursor(sessionId, encodeSessionCursor({ session: turn.providerSessionId, at: turn.endUuid }));
+    }
+  }
+
+  /**
+   * A provider refused the fork this checkpoint's cursor described.
+   *
+   * The cursor goes, permanently. The refusal is deterministic — the same request fails forever — so a
+   * row that went on advertising it would be an invitation to re-send something that can only fail
+   * again, and `rewindsConversation` would keep promising a rewind this checkpoint cannot deliver.
+   * What is kept is the provider's own account of why, which `SessionService` writes onto the session
+   * and onto its transcript.
+   */
+  forgetProviderCursor(checkpointId: string): void {
+    this.d.checkpoints.setProviderCursor(checkpointId, null);
   }
 
   /** What restoring would cost, and whether the checkpoint is still usable at all. */
@@ -135,7 +223,7 @@ export class CheckpointService {
     const env = this.environment(cp.environmentId);
     const base = {
       checkpointId: cp.id, environmentId: env.id, path: env.path, label: cp.label, createdAt: cp.createdAt,
-      rewindsConversation: this.rewindsConversation(cp.sessionId),
+      rewindsConversation: this.rewindsConversation(cp),
     };
     if (!existsSync(env.path) || !await this.d.git.isRepository(env.path) || !await this.d.git.refIntact(env.path, cp.ref, cp.commitSha)) {
       return { ...base, filesChanged: 0, commitsRolledBack: 0, headMovable: false, headReason: null, intact: false };
@@ -156,6 +244,14 @@ export class CheckpointService {
    *  3. Capture the CURRENT state as a `pre-restore` checkpoint. If this fails, nothing is restored —
    *     the whole safety argument for offering restore is that it is itself undoable.
    *  4. Restore.
+   *  5. LAST, and only if step 4 succeeded: rewind the conversation to match.
+   *
+   * Step 5's position is the whole of its correctness. A transcript truncated before the workspace
+   * restore, on a restore that then failed, is not a partial success — it is destruction: the turns
+   * that wrote the files are gone from Realm's record while the files themselves are still there, and
+   * no checkpoint undoes that (a `pre-restore` checkpoint holds a TREE, not a transcript). Files first
+   * means the worst case is the opposite order of damage, which is not damage at all: the workspace is
+   * back, the agent still remembers, and the result says `conversationRewound: false`.
    */
   async restore(id: string, acknowledge: RestoreAck): Promise<RestoreResult> {
     const cp = this.d.checkpoints.require(id);
@@ -188,8 +284,36 @@ export class CheckpointService {
       filesChanged: preview.filesChanged,
       commitsRolledBack: outcome.headMoved ? preview.commitsRolledBack : 0,
       filesRemoved: outcome.filesRemoved,
-      conversationRewound: false, // no adapter can; see AGENT_CONVERSATION_REWIND
+      // Per session and per checkpoint, never a constant — and re-derived rather than read off
+      // `preview`, because `preview` was taken before the files moved and this is a report of what
+      // actually happened.
+      conversationRewound: this.rewind(cp),
     };
+  }
+
+  /**
+   * The conversation half of a restore: Realm's transcript back to `sessionSeq`, and the provider's
+   * next start armed to resume at `providerCursor`.
+   *
+   * Both or neither, which is why there is one method and one return value. Truncating Realm's own
+   * transcript without rewinding the provider is the lie `AGENT_CONVERSATION_REWIND` was written to
+   * forbid — the turns would leave the reader's screen and stay in the model's context.
+   *
+   * Failure here is reported, never thrown. The files are already back by the time this runs, and a
+   * restore that put the workspace right must not be reported to the caller as a failure because the
+   * conversation could not follow.
+   */
+  private rewind(cp: Checkpoint): boolean {
+    if (!this.rewindsConversation(cp)) return false;
+    const cursor = decodeProviderCursor(cp.providerCursor)!;
+    try {
+      return this.d.rewindSession!({
+        sessionId: cp.sessionId!, throughSeq: cp.sessionSeq!,
+        fork: encodeArmedRewind({ ...cursor, checkpointId: cp.id }),
+      });
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -219,12 +343,32 @@ export class CheckpointService {
     this.d.checkpoints.delete(doomed.map((c) => c.id));
   }
 
-  /** Whether restoring would also rewind the agent's memory of those turns. False for every adapter
-   *  Realm ships — the table says why, and the UI says so out loud rather than pretending. */
-  private rewindsConversation(sessionId: string | null): boolean {
-    if (!sessionId) return false;
-    const session = this.d.sessions.get(sessionId);
-    return session ? AGENT_CONVERSATION_REWIND[session.agentKind] : false;
+  /**
+   * Whether restoring THIS checkpoint would also rewind the agent's memory of those turns.
+   *
+   * Five conditions, and each one is a different way the answer can honestly be no:
+   *
+   *  1. a rewind hook is wired at all — without one this build cannot truncate its own transcript, and
+   *     a `true` here would promise something nothing in the process can do;
+   *  2. the checkpoint belongs to a session, and that session still exists;
+   *  3. that session's agent has a truncating resume (`AGENT_CONVERSATION_REWIND`);
+   *  4. Realm knows where its own transcript stood — `sessionSeq`, null on every row written before
+   *     this feature and on every capture taken outside a session;
+   *  5. the provider cursor is complete AND still names the session's CURRENT provider session id.
+   *     The SDK forks to a new id on every resume, so a cursor recorded before a restart describes a
+   *     position in a chain the live session may no longer contain, and Realm will not guess.
+   *
+   * Condition 5 is also what makes a refusal permanent: the refusal clears the checkpoint's cursor, so
+   * this answers false for that checkpoint from then on and nothing re-sends the rejected fork.
+   */
+  private rewindsConversation(cp: Checkpoint): boolean {
+    if (!this.d.rewindSession) return false;
+    if (!cp.sessionId || cp.sessionSeq === null) return false;
+    const cursor = decodeProviderCursor(cp.providerCursor);
+    if (!cursor) return false;
+    const session = this.d.sessions.get(cp.sessionId);
+    if (!session || !AGENT_CONVERSATION_REWIND[session.agentKind]) return false;
+    return cursor.session === session.providerSessionId;
   }
 }
 

@@ -23,9 +23,15 @@ import { DocumentsStore } from "./store/documents";
 import { DocumentService } from "./documents/service";
 import { DocumentPreviewServer } from "./documents/preview";
 import { MachineService } from "./machines/service";
+import { SimulatorService } from "./simulators/service";
+import { GoalService } from "./goals/service";
+import { EggService } from "./eggs/service";
+import { createGoalProvider } from "./goals/agent-tools";
+import { GoalsStore } from "./store/goals";
 import { MachineWsProxy } from "./machines/ws-proxy";
 import { join } from "node:path";
 import { MachinesStore } from "./store/machines";
+import { SimulatorsStore } from "./store/simulators";
 import { ImageStore } from "./machines/images";
 import { GuestSpecSchema, type GuestSpec } from "@realm/contracts";
 import { QemuManager } from "./machines/qemu-manager";
@@ -50,10 +56,15 @@ import { AskService } from "./delegation/ask";
 import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
 import { SessionService } from "./sessions/service";
-import { SessionSummaryService } from "./sessions/summary";
+import { RECAP_DEBOUNCE_MS, SessionSummaryService } from "./sessions/summary";
 import { PlanLimitsService } from "./limits/service";
 import type { ProbeResult } from "@realm/adapters";
 import { SkillsService } from "./skills/service";
+import { UserCommandsService } from "./commands/service";
+import { ScriptService } from "./scripts/service";
+import { KeybindingsService } from "./keybindings/service";
+import { ThemesService } from "./themes/service";
+import { FontsService } from "./fonts/service";
 import { McpServersStore, McpCallLogStore } from "./store/mcp";
 import { McpService, oauthStatusOf } from "./mcp/service";
 import { McpHub } from "./mcp/hub";
@@ -72,6 +83,7 @@ import { SchedulesStore } from "./store/schedules";
 import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, type AdapterRegistry } from "@realm/adapters";
 import { GitInfoService } from "./workspace/git-info";
 import { GitDiffService } from "./workspace/git-diff";
+import { ProjectSearchService } from "./workspace/grep";
 import { GitWriteService } from "./workspace/git-write";
 import { PortAllocator } from "./workspace/ports";
 import { WorktreeService } from "./workspace/worktrees";
@@ -87,6 +99,7 @@ import { FailoverService } from "./sessions/failover";
 import { ImportService } from "./import/service";
 import { RpcServer } from "./rpc/server";
 import { registerMethods } from "./rpc/methods";
+import { ExecutionSandboxService } from "./sandbox/service";
 import { machineName } from "./machine-name";
 import { userFirstName } from "./user-name";
 
@@ -333,7 +346,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  turn — omitted here on purpose so tests and live-check scripts never make one; the real server
    *  process (`main.ts`) passes `generateSessionSummary`. Without it the panes show the derived line,
    *  which is exactly what they showed before this existed. */
-  summaryGenerator?: (input: { asked: string; transcript: string; facts: string }) => Promise<string>;
+  /** One call answering BOTH of a settle's model-written fields — the summary and the prompter's
+   *  hint. Omitted on any build that must not make a billed call: without it the panes show the
+   *  derived line and the prompter keeps its deterministic ladder. */
+  summaryGenerator?: (input: { asked: string; transcript: string; facts: string })
+    => Promise<{ summary: string; hint: string | null }>;
   /** Plan 22: where Plynn's meeting exports are read from. Tests point this at a fixture; production
    *  leaves it unset for `~/Library/Application Support/Plynn/Meetings`. */
   plynnMeetingsDir?: string;
@@ -356,6 +373,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const worktrees = new WorktreeService(opts.home);
   const sessionsStore = new SessionsStore(db);
   const settings = new SettingsStore(db);
+  /* The Seatbelt policy an agent CLI or a shell is spawned under — one instance, shared by the two
+     spawn sites (TerminalService and SessionService) so they can never resolve a space differently.
+     `realmHome` is passed rather than derived: this process's REALM_HOME and `opts.home` are the same
+     directory in production, and a test on a scratch home must protect ITS database, not the real one. */
+  const sandbox = new ExecutionSandboxService({ settings, environments, realmHome: opts.home });
   // The notifications feed (Plan 12 W5): the ONE writer of notification rows. Every producer below —
   // SessionService's event hook, the hub's onStatus callback, the two stale-ack refusal sites — hands
   // its events here rather than writing rows of its own, so the dedup rule and the category toggles
@@ -375,10 +397,19 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const checkpoints = new CheckpointService({
     checkpoints: new CheckpointsStore(db), environments, sessions: sessionsStore, git: checkpointGit,
     isEnvironmentBusy: (id) => sessionService?.isEnvironmentBusy(id) ?? false,
+    // The conversation half of a restore. The same late-bound closure as above, and the same knot:
+    // SessionService owns the transcript, the live handles and the arm the next start reads.
+    rewindSession: (input) => sessionService?.rewindConversation(input) ?? false,
     notifications,
   });
   const envService = new EnvironmentService({ environments, spaces, worktrees, ports, checkpoints, notifications });
-  const terminals = new TerminalService({ db, rpc, spaces, items, terminals: new TerminalsStore(db), environments, history: new TerminalHistoryStore(db), settings });
+  const terminals = new TerminalService({ db, rpc, spaces, items, terminals: new TerminalsStore(db), environments, history: new TerminalHistoryStore(db), settings, sandbox });
+  // A space's named shell commands. Runs go through TerminalService, which is also where each run
+  // picks up its environment's port block (envFor → portEnv) — nothing here duplicates that.
+  const scripts = new ScriptService({
+    settings, terminals, items,
+    spaces: { folderPathOf: (spaceId: string): string | null => spaces.get(spaceId)?.folderPath ?? null },
+  });
   const browsersStore = new BrowsersStore(db);
   const browsers = new BrowserService({ db, rpc, spaces, items, browsers: browsersStore });
 
@@ -386,6 +417,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      service for an address at CONNECT time — never a cached one, so an edited machine cannot be
      reconnected to at its old address — and the service is where the proxy's callbacks land. */
   const machinesStore = new MachinesStore(db);
+  const simulatorsStore = new SimulatorsStore(db);
   const machineProxy: MachineWsProxy = new MachineWsProxy({
     targetFor: (id) => machines.targetFor(id),
     onConnected: (id, size) => machines.onConnected(id, size),
@@ -412,6 +444,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     .map((m) => [m.id, GuestSpecSchema.safeParse(settings.get(`machine.guest:${m.id}`))] as const)
     .filter((e): e is [string, { success: true; data: GuestSpec }] => e[1].success)
     .map(([id, parsed]) => [id, parsed.data] as [string, GuestSpec]));
+  /* An Apple Simulator in a pane. Nothing is constructed for it beyond this: the pixels come from
+     `serve-sim` over loopback and the renderer reads them itself, so there is no proxy, no port and
+     no driver — the three things `MachineService` above needs a page of wiring for. */
+  const simulators = new SimulatorService({ rpc, spaces, items, simulators: simulatorsStore });
   // Plan 22: the preview listener guides and PDFs are framed from. Its root lookup is late-bound to
   // the service below (a workspace id → its checkout), which is the only thing it needs to know.
   const preview = new DocumentPreviewServer({ rootOf: (id) => documents.rootOfWorkspace(id) });
@@ -430,6 +466,21 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // reads as project-less rather than failing the scan — the rest of the roots are still valid.
     spaces: { folderPathOf: (spaceId: string): string | null => spaces.get(spaceId)?.folderPath ?? null },
   });
+  // User-defined slash commands: `<space folder>/commands`, `<REALM_HOME>/commands`, and (read-only)
+  // `~/.claude/commands`. Same `spaces` seam and same `claudeDir` override the skills and memory
+  // services take, so a test can point all three at one fixture.
+  const userCommands = new UserCommandsService({
+    home: opts.home, claudeDir: opts.claudeDir,
+    spaces: { folderPathOf: (spaceId: string): string | null => spaces.get(spaceId)?.folderPath ?? null },
+  });
+  // The user's keymap, as a file under ~/Realm. Seeded and merged on read; see the service for why a
+  // malformed file is reported rather than thrown and never rewritten.
+  const keybindings = new KeybindingsService({ home: opts.home, onLog: (line) => console.error(line) });
+  // Imported VS Code themes, as files under ~/Realm/themes.
+  const themes = new ThemesService({ home: opts.home });
+  // Google Fonts, downloaded once into ~/Realm/fonts.
+  const fonts = new FontsService({ home: opts.home });
+
   const installed = skills.installBundled();
   if (installed.length) console.error(`[skills] installed bundled skill(s): ${installed.join(", ")}`);
   const mcpServersStore = new McpServersStore(db);
@@ -578,10 +629,29 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
         // which is not grounds for withholding the feature.
         available: async (): Promise<boolean> => (await sessions.probe()).some((p: ProbeResult) => p.kind === "claude" && p.available && p.loggedIn !== false),
         onError: (line) => console.error(line),
+        // Wait for the session to actually go quiet. A rapid exchange otherwise pays for a recap per
+        // turn, each superseded by the next before anybody reads it.
+        debounceMs: RECAP_DEBOUNCE_MS,
+        isIdle: (id) => sessionsStore.get(id)?.status === "idle",
       })
     : undefined;
+  /* The friend packs. Restored at boot from the words this Realm was given — the packs themselves
+     ship sealed, so a Realm nobody has told a word to has nothing to show. */
+  const eggs = new EggService({ settings });
+  { const opened = eggs.restore(); if (opened > 0) console.log(`[eggs] ${opened} friend pack(s) unlocked`); }
   const planLimits = new PlanLimitsService({ rpc });
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, browserPermissions: browserBroker, titleGenerator: opts.titleGenerator, summaries, planLimits, documents,
+  /* Goal mode. Declared before the session service so that service can hold it, and given its own
+     seam back — `deliver` goes through `sessions.send`, which is the same door a person's message
+     comes through. Late-bound for the reason the machine proxy above is: the two need each other,
+     and a goal cannot deliver anything until there is a session service to deliver it. */
+  const goals: GoalService = new GoalService({
+    rpc, goals: new GoalsStore(db),
+    deliver: (sessionId, text, tag) =>
+      sessions.send(sessionId, { text, attachments: [], ...(tag === "goal-start" ? {} : { goal: tag === "goal-budget" ? "budget" as const : "continuation" as const }) }),
+    queued: (sessionId) => sessions.queuedFor(sessionId).length > 0,
+    log: (line) => console.log(line),
+  });
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, sandbox, browserPermissions: browserBroker, titleGenerator: opts.titleGenerator, summaries, planLimits, documents, goals,
     // The session-event rail, fanned out: the notifications feed AND the durable-run supervisor read
     // the SAME event off the same hook, so a run settles off exactly the status transition the feed
     // reports rather than off a poll of its own (runs/service.ts).
@@ -655,6 +725,14 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // gateway's own per-space enablement is what decides whether a session sees the tools.
   const machineAllowlist = new MachineAllowlist({ settings });
   mcpGateway.registerProvider(createMachineAgentProvider({ mcp, machines, broker: browserBroker, allowlist: machineAllowlist, rpc }));
+  /* Goal mode's two tools, and they appear only on a session that is actually pursuing a goal — see
+     the provider. Registered after the session service exists because the goal service it wraps
+     delivers through it. */
+  mcpGateway.registerProvider(createGoalProvider({ goals, mcp }));
+  /* Any goal that was running when Realm last closed is parked rather than resumed. A desktop app is
+     relaunched by someone opening it, sometimes days later and usually to do something else — see
+     `parkOnBoot`. */
+  { const parked = goals.parkOnBoot(); if (parked > 0) console.log(`[goal] parked ${parked} goal(s) that were running at shutdown`); }
   // The graphify CLI seam (probe + `graphify update`). Only the space's checkout path crosses into
   // it — it never learns what a space or a database is.
   const graphify = new GraphifyService({ rootForSpace: (id) => documents.rootForSpace(id) });
@@ -726,8 +804,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const [machine, user] = await Promise.all([machineName(), userFirstName()]);
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, machines, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, browserPermissions: browserBroker, cli, cliInstaller,
-    iconAssets, iconGeneration, planLimits,
+    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch: new ProjectSearchService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, browserPermissions: browserBroker, cli, cliInstaller,
+    iconAssets, iconGeneration, planLimits, userCommands, scripts, keybindings, sandbox,
     /* A drain was accepted: watch for quiescence and close once it holds. The watcher owns the clock
        and the close; `methods.ts` owns the refusals that make quiescence reachable at all. Unref'd —
        a daemon with nothing to do must not be held open by its own timer. */
@@ -787,6 +865,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
     schedules?.close(); // before runs: a tick must not create a run on a service that is stopping
     runs?.close(); // likewise: an in-flight dispatch must not write to a closing handle
+    summaries?.close(); // a debounced recap must not fire onto a closing handle, or outlive the process
     terminals.closeAll();
     cliInstaller.disposeAll();
     await sessions.closeAll();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  LayoutSchema, allItems, closeItem, emptyLayout, findLeafOfItem, firstLeaf,
+  LayoutSchema, allItems, closeItem, closeLeaf, emptyLayout, findLeafOfItem, firstLeaf,
   equalSizes, equalizeSplit, gridPreset, migrateLayout, openItem, splitLeaf, updateSizes,
   type Layout, type LayoutLeaf, type LayoutSplit,
 } from "./layout";
@@ -358,5 +358,51 @@ describe("plumbing", () => {
     expect(findLeafOfItem(l, "b")?.id).toBe("L-b");
     expect(findLeafOfItem(l, "zz")).toBeNull();
     expect((updateSizes(l, "S1", [60, 40]) as { sizes: number[] }).sizes).toEqual([60, 40]);
+  });
+});
+
+/**
+ * Dropping a deliberately-empty pane.
+ *
+ * Keyed by LEAF, unlike `closeItem` — an empty leaf has nothing to look it up by except where it is,
+ * which is also why `closeItem` deliberately keeps every empty leaf it finds.
+ */
+describe("closeLeaf", () => {
+  it("prunes the empty leaf and hands its space to the sibling", () => {
+    const l = row([leaf("a"), leaf(null)]);
+    expect(closeLeaf(l, "L-empty")).toEqual(leaf("a"));
+  });
+
+  /* The control only ever means "drop this empty box". Pruning a leaf with something in it would lift
+     an open session out of the layout from a button that never said it would. */
+  it("leaves a leaf that holds an item completely alone", () => {
+    const l = row([leaf("a"), leaf("b")]);
+    expect(closeLeaf(l, "L-a")).toEqual(l);
+  });
+
+  it("keeps ONE empty leaf when the tree would otherwise become nothing", () => {
+    // The state this function is usually asked to remove is also the only honest answer when it is
+    // the last pane there is — so the id survives and the box stays.
+    const only = leaf(null);
+    expect(closeLeaf(only, "L-empty")).toEqual(only);
+  });
+
+  it("keeps the other empty panes — only the one pointed at goes", () => {
+    const a: LayoutLeaf = { type: "leaf", id: "L1", itemId: null };
+    const b: LayoutLeaf = { type: "leaf", id: "L2", itemId: null };
+    expect(closeLeaf(row([a, b]), "L2")).toEqual(a);
+  });
+
+  it("ignores a leaf id that is not in the tree", () => {
+    const l = row([leaf("a"), leaf(null)]);
+    expect(closeLeaf(l, "L-nope")).toEqual(l);
+  });
+
+  it("renormalises the sizes of what is left, as closeItem does", () => {
+    const l = row([leaf("a"), leaf("b"), leaf(null)], [50, 30, 20]);
+    const out = closeLeaf(l, "L-empty") as LayoutSplit;
+    expect(out.type).toBe("split");
+    expect(out.sizes.reduce((x, y) => x + y, 0)).toBeCloseTo(100);
+    expect(out.sizes[0]! / out.sizes[1]!).toBeCloseTo(50 / 30);
   });
 });

@@ -7,7 +7,7 @@ export type Block =
    *  W5) still renders a bubble naming its files rather than an empty one. */
   /** `from` is present only when ANOTHER session delivered this message (Plan 20). Absent means the
    *  user typed it — the ordinary case — and the pane must not attribute those to anyone. */
-  | { kind: "user"; text: string; attachments?: { path: string; mime: string }[]; from?: { sessionId: string; title: string }; ts: number }
+  | { kind: "user"; text: string; attachments?: { path: string; mime: string }[]; from?: { sessionId: string; title: string }; goal?: "continuation" | "budget"; ts: number }
   | { kind: "assistant"; messageId: string; text: string; streaming: boolean; ts: number }
   | { kind: "thinking"; messageId: string; text: string; ts: number }
   /** `parentToolUseId` is the Task/Agent call this one was made UNDER — Claude's
@@ -119,6 +119,10 @@ export type Transcript = {
    *  a summary still in flight) — and null is exactly when the panes fall back to the derived text,
    *  so the surfaces never wait on a model to say something. */
   summary: { text: string; throughSeq: number } | null;
+  /** The model-written next-move suggestion, when the server produced one for the LAST turn. Null is
+   *  the ordinary case — no generator, no Claude CLI, a decline, or a turn the user has already
+   *  answered — and it is exactly when the prompter falls back to the deterministic ladder. */
+  promptHint: { text: string; throughSeq: number } | null;
 };
 
 /** Stable render identity for a block. Tool calls key on their own id so a card keeps its expanded
@@ -127,7 +131,7 @@ export type Transcript = {
 export const blockKey = (b: Block, i: number): string =>
   b.kind === "tool" ? `tool:${b.toolUseId}` : b.kind === "plan" ? `plan:${b.planId}` : `${b.kind}:${i}`;
 
-export const emptyTranscript = (): Transcript => ({ blocks: [], pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {}, summary: null });
+export const emptyTranscript = (): Transcript => ({ blocks: [], pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {}, summary: null, promptHint: null });
 
 export type UserBlock = Extract<Block, { kind: "user" }>;
 
@@ -172,7 +176,11 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
   const blocks = t.blocks.slice(); const last = blocks.at(-1);
   if (markUnseen && !blocks.some((b) => b.kind === "unseen-mark")) blocks.push({ kind: "unseen-mark", ts: e.ts });
   switch (e.type) {
-    case "user_message": blocks.push({ kind: "user", text: e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ts: e.ts }); return { ...t, blocks };
+    /* The hint is cleared here, and that is the whole of how a stale suggestion is prevented: it was
+       written about the turn that had just ended, and the moment the user sends anything it is a
+       suggestion about a turn that is no longer the last one. The prompter shows the deterministic
+       ladder in the gap until the next settle produces a new one. */
+    case "user_message": blocks.push({ kind: "user", text: e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ...(e.payload.goal ? { goal: e.payload.goal } : {}), ts: e.ts }); return { ...t, blocks, promptHint: null };
     case "assistant_delta": {
       if (last?.kind === "assistant" && last.messageId === e.payload.messageId && last.streaming) blocks[blocks.length - 1] = { ...last, text: last.text + e.payload.delta };
       else blocks.push({ kind: "assistant", messageId: e.payload.messageId, text: e.payload.delta, streaming: true, ts: e.ts });
@@ -265,6 +273,11 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
     case "summary":
       return t.summary && t.summary.throughSeq > e.payload.throughSeq ? t
         : { ...t, summary: { text: e.payload.text, throughSeq: e.payload.throughSeq } };
+    /* Same forward-only rule as the summary above it, and for the same reason: a hint generated for
+       an earlier turn can land after a newer one on a slow machine, and the newer answer wins. */
+    case "prompt_hint":
+      return t.promptHint && t.promptHint.throughSeq > e.payload.throughSeq ? t
+        : { ...t, promptHint: { text: e.payload.text, throughSeq: e.payload.throughSeq } };
     case "feedback": {
       const { [e.payload.messageId]: _prev, ...rest } = t.feedback;
       return { ...t, feedback: e.payload.rating ? { ...rest, [e.payload.messageId]: e.payload.rating } : rest };

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
 import type { SessionEvent, SessionEventOf, SessionEventType } from "@realm/contracts";
-import { CodexAdapter, REALM_APPLICATION_CONTEXT, codexMcpConfig, codexPolicyFor, pickCodexDecision } from "./codex-adapter";
+import { CODEX_SANDBOX_REFUSAL, CodexAdapter, REALM_APPLICATION_CONTEXT, codexMcpConfig, codexPolicyFor, pickCodexDecision } from "./codex-adapter";
 import type { AgentHandle, StartOptions } from "../types";
 
 /**
@@ -1176,5 +1176,39 @@ describe("a resume Codex refuses", () => {
     // MUTANT: fall back on any rejection and this becomes "thread/start", after waiting 400ms rather
     // than 200 — a wedged app-server answered by asking it a second question.
     expect(of(evs, "error")[0]!.payload.message).toMatch(/thread\/resume within 200ms/);
+  });
+});
+
+/**
+ * Codex fails CLOSED. One shared `codex app-server` cannot hold two spaces' Seatbelt policies, so a
+ * session Realm was asked to confine does not start — it does not quietly start unconfined.
+ */
+describe("the sandbox refusal", () => {
+  const wrap = (command: string, args: string[]) => ({ command: "/usr/bin/sandbox-exec", args: ["-p", "(version 1)", "--", command, ...args] });
+
+  it("refuses to start when it is handed a wrap it cannot honour", () => {
+    const adapter = newAdapter();
+    // MUTANT: ignore `opts.wrap` — the shape every other adapter's `wrap` would have you expect —
+    // and a Codex session in a sandboxed space runs with the user's full account while Settings says
+    // it is confined. That is the exact lie the whole feature exists to prevent.
+    expect(() => adapter.start(startOpts({ wrap }))).toThrow(CODEX_SANDBOX_REFUSAL);
+    // Named, not generic: a person reading this has to learn why, and what to do instead.
+    expect(CODEX_SANDBOX_REFUSAL).toMatch(/one `codex app-server` process/);
+    expect(CODEX_SANDBOX_REFUSAL).toMatch(/No sandbox/);
+  });
+
+  it("refuses before it takes anything — no process, no refcount, nothing to release", () => {
+    const adapter = newAdapter();
+    expect(() => adapter.start(startOpts({ wrap }))).toThrow();
+    // MUTANT: put the check after `acquire()` and a refused session strands the shared child with a
+    // ref nothing will ever give back.
+    expect(adapter.processCount).toBe(0);
+    expect(adapter.sessionCount).toBe(0);
+  });
+
+  it("starts normally when there is no wrap, which is every space on the shipped default", async () => {
+    // The other half of fail-closed: it must refuse ONLY what it was actually asked to confine.
+    const { evs } = await booted();
+    expect(types(evs)).toContain("init");
   });
 });

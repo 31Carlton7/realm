@@ -209,6 +209,49 @@ describe("BrowserPane", () => {
       expect(store.getState().browserRects).toEqual([{ itemId: "i1", x: 10, y: 40, width: 600, height: 400 }]);
     });
 
+    /**
+     * The reported bug: clicking Settings with a browser open left the browser painting over the
+     * page, which is unreadable and unrecoverable without closing the page blind.
+     *
+     * A page overlay is DOM, and a native `WebContentsView` paints over all of it — so unlike a
+     * sheet (a card with room beside it that the browser can be snapped away from) a full-host page
+     * has no complement, and the only honest answer is to hide the view. Both halves are asserted
+     * because they go out in one `sync()`: the SHOW flag main acts on, and the rect that tells
+     * floating surfaces where a view is.
+     */
+    it("hides the view and drops its rect while a page is open over the workspace", async () => {
+      const shows: boolean[] = [];
+      const f = fakeBridges({ url: "https://example.com" });
+      f.bridges.host.setBounds = (_id, _rect, _dpr, show) => { shows.push(show); };
+      const { store } = mountWithStore(f);
+      await settle();
+      expect(shows.at(-1)).toBe(true);
+      expect(store.getState().browserRects).toHaveLength(1);
+
+      await act(async () => { store.setState({ pageOverlay: { kind: "settings-page", refId: "settings", spaceId: "s1" } }); await settle(); });
+
+      /* The mutant this catches: the sync effect deliberately does not depend on the overlay (it
+         owns the view's create/adopt/release lifecycle and re-running it would rebuild the view), so
+         without the one-line re-sync effect nothing ever told main — which is exactly how this
+         shipped. */
+      expect(shows.at(-1)).toBe(false);
+      expect(store.getState().browserRects).toEqual([]);
+    });
+
+    it("shows it again when the page closes", async () => {
+      const shows: boolean[] = [];
+      const f = fakeBridges({ url: "https://example.com" });
+      f.bridges.host.setBounds = (_id, _rect, _dpr, show) => { shows.push(show); };
+      const { store } = mountWithStore(f);
+      await settle();
+      await act(async () => { store.setState({ pageOverlay: { kind: "settings-page", refId: "settings", spaceId: "s1" } }); await settle(); });
+      expect(shows.at(-1)).toBe(false);
+      // Hidden, never destroyed: the view kept running and comes back at the same rect.
+      await act(async () => { store.setState({ pageOverlay: null }); await settle(); });
+      expect(shows.at(-1)).toBe(true);
+      expect(store.getState().browserRects).toHaveLength(1);
+    });
+
     it("no page, no rect — the empty state is plain DOM and floats may cover it", async () => {
       const { store } = mountWithStore(fakeBridges({ url: "" }));
       await settle();
@@ -290,13 +333,18 @@ describe("BrowserPane", () => {
 });
 
 describe("shouldShowView", () => {
-  it("requires all four conditions", () => {
-    const base = { paneVisible: true, dragging: false, settled: true, hasUrl: true };
+  it("requires all five conditions", () => {
+    const base = { paneVisible: true, pageOverlay: false, dragging: false, settled: true, hasUrl: true };
     expect(shouldShowView(base)).toBe(true);
     expect(shouldShowView({ ...base, paneVisible: false })).toBe(false);
     expect(shouldShowView({ ...base, dragging: true })).toBe(false);
     expect(shouldShowView({ ...base, settled: false })).toBe(false);
     expect(shouldShowView({ ...base, hasUrl: false })).toBe(false);
+    /* A native WebContentsView paints over ALL dom, so a page opened over the workspace cannot cover
+       one — and a full-host overlay leaves no complement to snap a browser into, the way a sheet
+       does. The measured symptom: opening Settings with a browser behind it left the page readable
+       only where the browser did not happen to be. */
+    expect(shouldShowView({ ...base, pageOverlay: true })).toBe(false);
   });
 });
 

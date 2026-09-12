@@ -57,14 +57,34 @@ describe("what a font preference writes", () => {
 
 describe("read back off a user-editable settings row", () => {
   it("keeps what it recognises and defaults the rest, field by field", () => {
-    // THE trusted-row mutant: cast it. An unknown family resolves to undefined in `fontVars` and
-    // writes the literal string "undefined" into --font-ui — a window with no text in it.
+    // THE trusted-row mutant: cast it. A value this does not vet reaches `fontVars` and can write
+    // the literal string "undefined" into --font-ui — a window with no text in it.
     expect(parseFontPref({ ui: "system", uiWeight: "medium", code: "system" }))
       .toEqual({ ui: "system", uiWeight: "medium", code: "system" });
-    expect(parseFontPref({ ui: "Comic Sans", uiWeight: 700, code: "system" }))
-      .toEqual({ ui: "bundled", uiWeight: "regular", code: "system" });
+    // A FAMILY NAME is a real answer now — the two reserved words are no longer the whole offer.
+    expect(parseFontPref({ ui: "Comic Sans MS", uiWeight: 700, code: "system" }))
+      .toEqual({ ui: "Comic Sans MS", uiWeight: "regular", code: "system" });
     for (const junk of [null, undefined, "bundled", 3, []]) expect(parseFontPref(junk)).toEqual(DEFAULT_FONTS);
     // Whatever comes back is a family the app has a stack for.
     expect(fontVars(parseFontPref({ ui: "nope" }))["--font-ui"]).toContain("sans-serif");
+  });
+
+  it("refuses a family name that could break out of the CSS stack", () => {
+    /* The name goes into `font-family` inside quotes, so a quote or a semicolon in it would end the
+       declaration and take the rest of the stack with it. Refused at the parse, not escaped at the
+       write: there is one place this value is vetted and it is here. */
+    for (const bad of ['a"; color: red; font-family: "b', "a;b", "a<b>", "", "x".repeat(80)]) {
+      expect(parseFontPref({ ui: bad }).ui, bad).toBe("bundled");
+    }
+  });
+
+  it("puts a chosen family in FRONT of the role's own fallbacks, so a missing one still reads", () => {
+    const ui = fontVars(parseFontPref({ ui: "Iosevka" }))["--font-ui"]!;
+    expect(ui.startsWith('"Iosevka", ')).toBe(true);
+    expect(ui).toContain("system-ui");
+    const code = fontVars(parseFontPref({ code: "Fira Code" }))["--font-mono"]!;
+    expect(code.startsWith('"Fira Code", ')).toBe(true);
+    // A mono choice falls back to a MONO stack, never to the UI one.
+    expect(code).toContain("monospace");
   });
 });

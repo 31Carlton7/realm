@@ -161,7 +161,14 @@ export type DocumentEntry = z.infer<typeof DocumentEntrySchema>;
  * slide deck shown read-only beside the session working on it. Neither goes through the Markdown or
  * sheet models.
  */
-export const DocumentKindSchema = z.enum(["doc", "sheet", "slides", "latex", "html", "pdf", "preview", "unsupported"]);
+/**
+ * `code` is the plain-text lane: a source file opened to be EDITED rather than rendered. It is its
+ * own member and not a flavour of `doc` because the two disagree about every decision downstream —
+ * `doc` is rich text through tiptap, where a stray newline is a paragraph and the bytes on disk are
+ * the editor's business; `code` is bytes, exactly, and an editor that reflows them has corrupted a
+ * file. Widening the enum is safe: `agent_kind`-style, no persisted row re-parses.
+ */
+export const DocumentKindSchema = z.enum(["doc", "sheet", "slides", "latex", "html", "pdf", "preview", "code", "unsupported"]);
 export type DocumentKind = z.infer<typeof DocumentKindSchema>;
 
 /**
@@ -224,6 +231,26 @@ export const CheckpointSchema = z.object({
   headSha: z.string().nullable(),
   /** The branch ref HEAD was on, or null when detached. Restore will not move a HEAD that has left it. */
   headRef: z.string().nullable(),
+  /**
+   * Realm's own transcript position when this was captured: the `seq` of the newest stored session
+   * event at that moment. Null for a checkpoint taken outside any session, and for every row written
+   * before conversation rewind existed — which is the honest answer for those, not a zero. A restore
+   * truncates the transcript to this seq, so a row without one restores files only.
+   *
+   * `.default(null)` rather than a bare `.nullable()` so that a row written by an older build — which
+   * has no such column at all — still parses. The alternative, a required field, would turn every
+   * pre-existing checkpoint into a parse error on the first read after upgrade.
+   */
+  sessionSeq: z.number().int().nullable().default(null),
+  /**
+   * Where the PROVIDER's conversation stood, in whatever form that provider's adapter can later hand
+   * back to it. Opaque here on purpose: only the adapter that wrote it may interpret it, because the
+   * shape is the provider's and not Realm's (Claude stores a chain-entry UUID; another agent that
+   * gains a truncating resume will store something else entirely). Null when the session's agent
+   * cannot be rewound at all — see `AGENT_CONVERSATION_REWIND`. Defaulted for the same
+   * older-row reason as `sessionSeq` above.
+   */
+  providerCursor: z.string().nullable().default(null),
   createdAt: z.number().int(),
 });
 export type Checkpoint = z.infer<typeof CheckpointSchema>;

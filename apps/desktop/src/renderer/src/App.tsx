@@ -10,31 +10,34 @@ import { PlynnImportSheet } from "./components/PlynnImportSheet";
 import { RemoveWorktreeSheet } from "./components/RemoveWorktreeSheet";
 import { CheckpointsSheet } from "./components/CheckpointsSheet";
 import { ActivitySheet } from "./components/ActivitySheet";
-import { CommandPalette, usePaletteHotkey } from "./components/CommandPalette";
+import { CommandPalette } from "./components/CommandPalette";
 import { QuickChat } from "./components/QuickChat";
-import { SpaceOverview, useSpacesHotkey } from "./components/sidebar/SpaceOverview";
+import { PageOverlay } from "./components/PageOverlay";
+import { SpaceOverview } from "./components/sidebar/SpaceOverview";
+import { useKonami } from "./use-konami";
+import { useKeybindings } from "./keys";
 import { PaneHost } from "./components/PaneHost";
 import { getTerminalHub } from "./panes/terminal-hub";
 import { getBrowserBridges } from "./panes/browser/browser-client";
 import { GroupBar } from "./components/GroupBar";
 import { Onboarding } from "./components/Onboarding";
 import { StoreContext, createAppStore, useApp } from "./state/store";
+import { useStore } from "zustand";
 import { liveApi } from "./state/live-api";
 import { rpc } from "./rpc/client";
 import { emptyLayout } from "@realm/contracts";
 import { useApplyTheme } from "./theme/useTheme";
-import { useGlobalHotkeys } from "./hotkeys";
 import "./panes";
 
 /**
  * The sidebar column and the content beside it — or, collapsed, a top rail and the content below it.
  *
- * The two states are one row, not two layouts: collapsed, the 280px column is gone and the
- * content takes the whole window. What is left to place is the macOS traffic lights, which have no
- * sidebar to sit in any more and would otherwise land on the first pane's title.
+ * The two states are one row, not two layouts: collapsed, the column is gone and the content takes
+ * the whole window. What is left to place is the macOS traffic lights, which have no sidebar to sit
+ * in any more and would otherwise land on the first pane's title.
  *
  * They land on the first pane's BAR, and the corner that holds them is an overlay — absolutely
- * positioned, no height of its own — so collapsing buys back 280px of width and costs nothing. It
+ * positioned, no height of its own — so collapsing buys back the whole column and costs nothing. It
  * used to cost a 38px full-width rail whose only content was this one button, which is a strip of
  * chrome across every pane forever in exchange for a corner. The strip beneath the lights reserves
  * their width instead (see --corner-w in styles.css).
@@ -46,8 +49,13 @@ import "./panes";
  */
 export function AppShell() {
   const collapsed = useApp((s) => s.sidebarCollapsed);
+  // The column's width is painted here rather than on the sidebar itself because the collapse
+  // animation is a negative margin of exactly this number, and `.sb-corner` is placed against the
+  // same edge: one variable on the shell, read by everything that has to agree with it.
+  const width = useApp((s) => s.sidebarWidth);
   return (
-    <div className="app" data-sidebar-collapsed={collapsed || undefined}>
+    <div className="app" data-sidebar-collapsed={collapsed || undefined}
+      style={{ "--sidebar-w": `${width}px` } as CSSProperties}>
       {/* Mounted whether or not it is showing, so collapsing is a MOVE rather than an unmount —
           there is no exit animation for an element React has already removed. `inert` is what makes
           that safe: a hidden sidebar must not answer the keyboard or a screen reader just because it
@@ -62,6 +70,49 @@ export function AppShell() {
 }
 
 /** Writes the active space's palette to :root; lives under the store provider so it can read state. */
+/**
+ * Whether the app's decorative motion is allowed to run right now, stamped on `:root` for the
+ * stylesheet to answer to.
+ *
+ * Two reasons it stops: the window does not have the user's attention, or they asked for it to stay
+ * off. The first is the one that matters for a laptop — an agent working for an hour while its
+ * person is in another app used to cost exactly what one being watched costs, and measured
+ * (`scripts/power-audit.mjs`) that is about half a core per pane.
+ *
+ * `blur`/`focus` on the window rather than `visibilitychange`: Chromium already stops servicing a
+ * window it considers hidden, and the case that was costing power is the one it does NOT consider
+ * hidden — Realm sitting in full view beside the editor someone is actually typing in.
+ */
+function QuietBridge() {
+  const lowPower = useApp((s) => s.lowPower);
+  const windowActive = useApp((s) => s.windowActive);
+  const setWindowActive = useApp((s) => s.setWindowActive);
+
+  useEffect(() => {
+    const active = () => setWindowActive(true);
+    const idle = () => setWindowActive(false);
+    window.addEventListener("focus", active);
+    window.addEventListener("blur", idle);
+    // The window can also be hidden outright — minimised, or on another Space. Chromium throttles
+    // that case itself, but the attribute should agree with reality either way.
+    const visibility = () => setWindowActive(document.visibilityState === "visible" && document.hasFocus());
+    document.addEventListener("visibilitychange", visibility);
+    visibility();
+    return () => {
+      window.removeEventListener("focus", active);
+      window.removeEventListener("blur", idle);
+      document.removeEventListener("visibilitychange", visibility);
+    };
+  }, [setWindowActive]);
+
+  useEffect(() => {
+    const quiet = lowPower || !windowActive;
+    if (quiet) document.documentElement.setAttribute("data-quiet", lowPower ? "always" : "unfocused");
+    else document.documentElement.removeAttribute("data-quiet");
+  }, [lowPower, windowActive]);
+  return null;
+}
+
 function ThemeBridge() {
   const color = useApp((s) => s.activeSpace()?.color ?? null);
   const pref = useApp((s) => s.themePref);
@@ -158,6 +209,7 @@ export function Main() {
   const focusedLeafId = useApp((s) => s.focusedLeafId);
   const focusLeaf = useApp((s) => s.focusLeaf);
   const closeFromLayout = useApp((s) => s.closeFromLayout);
+  const closeEmptyPane = useApp((s) => s.closeEmptyPane);
   const splitFocused = useApp((s) => s.splitFocused);
   const openItemAt = useApp((s) => s.openItemAt);
   const newSessionInstant = useApp((s) => s.newSessionInstant);
@@ -186,6 +238,7 @@ export function Main() {
         onUnzoom={() => run(() => unfocusPane())}
         onFocus={focusLeaf}
         onClose={(id) => run(() => closeFromLayout(id))}
+        onCloseEmpty={(leafId) => run(() => closeEmptyPane(leafId))}
         // The split button targets its own leaf: focus it synchronously, then split reads the fresh focus.
         onSplit={(leafId, dir) => { focusLeaf(leafId); run(() => splitFocused(dir)); }}
         onResize={resizeSplit}
@@ -198,13 +251,32 @@ export function Main() {
 
 export function App() {
   const store = useMemo(() => createAppStore(liveApi()), []);
-  usePaletteHotkey(store);
-  useSpacesHotkey(store);
-  useGlobalHotkeys(store);
+  /* One keymap, one handler. The three hooks this replaces each owned a slice of the keyboard and
+     each matched loosely — mounting them alongside `useKeybindings` would fire every shipped chord
+     twice, which for a toggle like ⌘K means opening and closing the palette in one keystroke.
+     `keys` is undefined until the server answers; the hook runs the shipped defaults meanwhile,
+     which is what every keystroke before the first round trip had to do anyway. */
+  const keys = useStore(store, (s) => s.keybindings);
+  useKeybindings(store, keys);
+  useKonami(store);
+  useEffect(() => {
+    const load = () => {
+      void rpc().call("keybindings.get", {}).then((file) => store.getState().setKeybindings(file.rules)).catch(() => {});
+    };
+    load();
+    return rpc().on("keybindings.changed", load);
+  }, [store]);
   useEffect(() => {
     const s = store.getState();
     s.run(() => s.boot());
     const offS = rpc().on("spaces.changed", () => store.getState().run(() => store.getState().refreshSpaces()));
+    /* A space's scripts changed — from this window's Scripts panel or another's. Re-read rather than
+       patch: `spaceScripts` is what `ownsScriptCommand` consults synchronously on a keystroke, and a
+       stale copy is a bound key that runs a script the user just deleted. */
+    const offSc = rpc().on("scripts.changed", ({ spaceId }) => {
+      const st = store.getState();
+      if (spaceId === st.activeSpaceId) st.run(() => st.refreshScripts(spaceId));
+    });
     const offI = rpc().on("items.changed", ({ spaceId }) => {
       const st = store.getState();
       if (spaceId === st.activeSpaceId) { st.run(() => st.refreshItems()); st.run(() => st.refreshSessions()); }
@@ -251,6 +323,20 @@ export function App() {
       const st = store.getState();
       if (st.spaceSkills[spaceId]) st.run(() => st.refreshSkills(spaceId));
     });
+    /* The themes folder changed — imported here, or edited on disk. Unconditional, unlike skills:
+       there is one themes folder rather than one per space, and the palette it holds may be the one
+       the window is wearing right now. */
+    const offTh = rpc().on("themes.changed", () => {
+      const st = store.getState();
+      st.run(() => st.refreshCustomThemes());
+    });
+    /* A font family was installed or removed — from this window or another. Unconditional for the
+       themes folder's reason: there is one fonts folder, and what it holds may be the face the window
+       is wearing right now. */
+    const offFo = rpc().on("fonts.changed", () => {
+      const st = store.getState();
+      st.run(() => st.refreshFonts());
+    });
     // A space's memory document or AGENTS.md changed. Same held-only rule as skills.
     const offMem = rpc().on("memory.changed", ({ spaceId }) => {
       const st = store.getState();
@@ -283,9 +369,17 @@ export function App() {
     // Machines (Plan 25 W3), on the same terms and for the same reason: the sidebar's dot and the
     // pane's body read one map, and a switch back to a space should find it already truthful.
     const offMach = rpc().on("machine.status", (p) => store.getState().applyMachineState(p));
+    const offSim = rpc().on("simulator.status", (p) => store.getState().applySimulatorState(p));
+    const offGoal = rpc().on("goal.changed", (p) => store.getState().applyGoalChanged(p));
     const offMimg = rpc().on("machineImage.progress", (p) => store.getState().applyMachineImageProgress(p));
     const offE = rpc().on("session.event", (ev) => store.getState().applySessionEvent(ev));
     const offT = rpc().on("session.status", ({ sessionId, status }) => store.getState().applySessionStatus(sessionId, status));
+    // The queue behind a running turn. Applied in every window for the reason the statuses are: the
+    // session's pane may be open in any of them, and the payload is a handful of short strings.
+    const offQ = rpc().on("session.queue", ({ sessionId, queued }) => store.getState().applySessionQueue(sessionId, queued));
+    // The account's plan quota, restated by whichever provider just heard about it. Applied in every
+    // window: the figure is about the account, so every window is looking at the same one.
+    const offPL = rpc().on("limits.changed", ({ limits }) => store.getState().applyPlanLimits(limits));
     // The feed (Plan 12 W5): every change carries the server's unread count for the sidebar pill, and
     // a surfaced row for the focused-pane auto-read — see applyNotificationsChanged.
     const offN = rpc().on("notifications.changed", (p) => store.getState().applyNotificationsChanged(p));
@@ -346,7 +440,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offV(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offMem(); offB(); offDO(); offSA(); offBA(); offBD(); offMach(); offMimg(); offE(); offT(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offMC(); offCO(); offCD(); offC();
+      offS(); offSc(); offI(); offV(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offMem(); offB(); offDO(); offSA(); offBA(); offBD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);
@@ -356,8 +450,12 @@ export function App() {
   return (
     <StoreContext.Provider value={store}>
       <ThemeBridge />
+      <QuietBridge />
       <AppShell />
       <ConnectionBanner />
+      {/* App-level pages, over the workspace and never inside it. Before the sheets so a sheet opened
+          from a page still lands on top of it. */}
+      <PageOverlay />
       <SheetHost />
       {/* Over everything and outside the layout: it takes no pane, so it belongs to the window
           rather than to any one space's arrangement of it. */}

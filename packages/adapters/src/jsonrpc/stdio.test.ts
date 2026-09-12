@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { spawn as nodeSpawn } from "node:child_process";
 import { StdioJsonRpc, JsonRpcCallError } from "./stdio";
 
 /**
@@ -44,7 +45,7 @@ process.stdin.on("data", (c) => {
 });
 `;
 
-const make = (over: Partial<ConstructorParameters<typeof StdioJsonRpc>[0]> = {}) => {
+const make = (over: Partial<ConstructorParameters<typeof StdioJsonRpc>[0]> = {}, spawn?: typeof nodeSpawn) => {
   const notifications: { method: string; params: unknown }[] = [];
   const serverRequests: { id: number | string; method: string; params: unknown }[] = [];
   const stderr: string[] = [];
@@ -56,7 +57,7 @@ const make = (over: Partial<ConstructorParameters<typeof StdioJsonRpc>[0]> = {})
     onStderr: (l) => stderr.push(l),
     onExit,
     ...over,
-  });
+  }, spawn ? { spawn } : {});
   return { rpc, notifications, serverRequests, stderr, onExit };
 };
 
@@ -143,5 +144,51 @@ describe("StdioJsonRpc", () => {
     await waitFor(() => expect(onExit).toHaveBeenCalled());
     expect(onExit).toHaveBeenCalledWith(expect.objectContaining({ disposed: false }));
     await rpc.dispose();
+  });
+});
+
+/**
+ * Realm's execution sandbox, as this transport sees it: a function applied to the argv at the spawn.
+ * Everything here is about what reaches `spawnFn` — the adapters above it never look at the result.
+ */
+describe("StdioJsonRpc and the sandbox wrap", () => {
+  it("spawns exactly its own command and args when no wrap is supplied", async () => {
+    const seen: { command: string; args: string[] }[] = [];
+    // The real spawn behind a recorder, typed through the overload set the seam declares.
+    const spy = ((command: string, args: readonly string[]) => {
+      seen.push({ command, args: [...args] });
+      return nodeSpawn(command, [...args], { cwd: process.cwd(), stdio: ["pipe", "pipe", "pipe"] });
+    }) as unknown as typeof nodeSpawn;
+    const { rpc } = make({}, spy);
+    await expect(rpc.request<{ pong: number }>("ping", { n: 1 })).resolves.toEqual({ pong: 1 });
+    expect(seen).toEqual([{ command: process.execPath, args: ["-e", echoScript] }]);
+    await rpc.dispose();
+  });
+
+  it("hands the wrap the unwrapped argv, and spawns what it answers with", async () => {
+    // MUTANT: accept `wrap` and spawn `o.command` anyway. `env` sets a variable the child prints
+    // back, so a process that came from the ORIGINAL argv answers with an empty string.
+    const seen: { command: string; args: string[] }[] = [];
+    const { rpc } = make({
+      args: ["-e", "process.stdout.write(JSON.stringify({ id: 1, result: { via: process.env.REALM_WRAPPED ?? '' } }) + '\\n')"],
+      wrap: (command, args) => { seen.push({ command, args }); return { command: "/usr/bin/env", args: ["REALM_WRAPPED=yes", command, ...args] }; },
+    });
+    await expect(rpc.request<{ via: string }>("ping")).resolves.toEqual({ via: "yes" });
+    expect(seen[0]!.command).toBe(process.execPath);
+    await rpc.dispose();
+  });
+
+  it("lets a wrap's throw out of the constructor instead of spawning unconfined", () => {
+    // The fail-closed gate at this transport. A child that could not be confined is not started, and
+    // the caller — `AcpAdapter`'s boot — reports a session that would not start.
+    const spawnFn = vi.fn();
+    expect(() => new StdioJsonRpc({
+      command: process.execPath, args: ["-e", ""], cwd: process.cwd(),
+      wrap: () => { throw new Error("sandbox-exec is missing"); },
+      onNotification: () => {}, onServerRequest: () => {}, onExit: () => {},
+    }, { spawn: spawnFn as unknown as typeof nodeSpawn })).toThrow(/sandbox-exec is missing/);
+    // MUTANT: wrap the call in a try that falls back to the bare command, and this is the line that
+    // notices — the child would have been spawned anyway.
+    expect(spawnFn).not.toHaveBeenCalled();
   });
 });

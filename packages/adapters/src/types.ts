@@ -56,6 +56,27 @@ export type StartOptions = {
   skills?: SkillsInjection;
   resume?: string | null;
   env?: Record<string, string>;
+  /**
+   * Last look at the argv before it becomes a process. Realm's execution sandbox passes one of these
+   * (`ExecutionSandboxService.wrap`); given the command and arguments an adapter was about to spawn,
+   * it answers with what to spawn instead — `/usr/bin/sandbox-exec` with a compiled Seatbelt profile
+   * and the original command behind a `--`.
+   *
+   * **Passed straight through, never interpreted.** An adapter hands it whatever it was going to
+   * spawn and spawns what comes back. Nothing here inspects the result, branches on it, or tries to
+   * decide whether the wrapping was worth doing — that decision belongs to the server, which is the
+   * only thing that knows the space's posture.
+   *
+   * **It MAY THROW — let it.** A throw means the sandbox could not be applied and the session must
+   * not start: the whole design rests on there being no path where a failed wrap yields an
+   * unconfined spawn. An adapter that caught this and spawned the original command would turn the
+   * feature into decoration. Report it the way a failed boot is reported; never recover from it.
+   *
+   * Absent means spawn exactly what the adapter has always spawned. The server omits it for a space
+   * whose posture is `off`, so an un-opted-in user's process plumbing is untouched by this feature
+   * rather than merely equivalent to what it was.
+   */
+  wrap?: (command: string, args: string[]) => { command: string; args: string[] };
   /** Diagnostic sink for provider stderr / log lines. */
   onLog?: (line: string) => void;
 };

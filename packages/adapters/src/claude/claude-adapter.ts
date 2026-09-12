@@ -1,12 +1,40 @@
 import { readFile, stat } from "node:fs/promises";
-import { query as sdkQuery, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type Query } from "@anthropic-ai/claude-agent-sdk";
+import { spawn as nodeSpawn } from "node:child_process";
+import { query as sdkQuery, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type SpawnOptions, type SpawnedProcess, type Query } from "@anthropic-ai/claude-agent-sdk";
 import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, mergeWindows, newId, planWindowLabel, sessionEvent, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
-import { createSdkMapper } from "./map-sdk-message";
+import { createSdkMapper, type ChainCursor } from "./map-sdk-message";
 import { probeClaude } from "./probe";
 import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
 
 type QueryFn = typeof sdkQuery;
+
+/**
+ * The truncating half of a resume: put the model back where a checkpoint found it.
+ *
+ * `resumeAt` is a chain-entry uuid of the session named by `resume`, and `resumeDropsTurn` is the
+ * prompt uuid of the one turn past it that the caller means to discard. They ride TOGETHER or not at
+ * all: `resumeSessionAt` alone is the SDK's unvalidated truncation, which would silently discard a
+ * queued message or a task notification the session absorbed mid-turn, and refusing to do that
+ * silently is the entire point of the pair.
+ *
+ * Declared here rather than on `StartOptions` because these two fields are Claude's and no other
+ * adapter has anything to map them onto (`AGENT_CONVERSATION_REWIND` says why). They reach `start` as
+ * extra properties on the options object, which is structurally what `StartOptions` permits; promoting
+ * them into `StartOptions` proper is a one-line change in `../types` whenever a second agent gains a
+ * truncating resume, and this type then collapses into it.
+ *
+ * PRINT/HEADLESS LANE ONLY, and this adapter is on it: the pair is honoured by the print-mode CLI, the
+ * Agent SDK and ProcessTransport. An interactive `claude --resume` accepts both and ignores them — no
+ * truncation, no guard, no error — so nothing here may be reused to drive an interactive boot and go on
+ * expecting the guard to be armed.
+ */
+export type ClaudeResumeFork = { resumeAt?: string | null; resumeDropsTurn?: string | null };
+
+/** What `ClaudeAdapter.start` really returns: an `AgentHandle` that can also say where the provider's
+ *  chain stood at the end of the last settled turn. Every other adapter returns a bare handle, because
+ *  none of the other wires carries a chain entry to report. */
+export type ClaudeHandle = AgentHandle & { chainCursor(): ChainCursor };
 
 /**
  * `Options.mcpServers` for the SDK: a record keyed by name (`sdk.d.ts:1734`), whose members are the
@@ -91,6 +119,40 @@ export function claudeSdkPermissionMode(mode: string | null | undefined): string
 const STDERR_TAIL_LINES = 50;
 const DISPOSE_TIMEOUT_MS = 3000;
 
+/**
+ * The CLI subprocess, started through Realm's execution sandbox instead of plainly.
+ *
+ * Installed as `Options.spawnClaudeCodeProcess` and ONLY when a wrap was supplied — see the option
+ * for why standing aside matters for everyone else.
+ *
+ * `wrap` is called outside any `try`: it throws when Seatbelt cannot be applied, and that throw has
+ * to travel — the SDK reports it as a process that would not start, which is exactly the outcome a
+ * session in a sandboxed space must have. There is no branch here that spawns `o.command` unchanged.
+ *
+ * Two details the SDK's own `spawnLocalProcess` does that a bare `spawn` would not:
+ *
+ *  - **stderr is drained.** `SpawnedProcess` has no stderr field, so once a custom spawner is in
+ *    play the SDK never reads the child's stderr. A piped-and-unread stderr fills at the OS buffer
+ *    (~64KB) and then BLOCKS the CLI mid-write. Draining it into `onStderr` both prevents that and
+ *    keeps the diagnostic tail this adapter already builds from `Options.stderr`.
+ *  - **`signal` is passed through.** It is the SDK's forwarded abort, which fires only after its
+ *    stdin-EOF + grace window (`sdk.d.ts`), so hanging Node's kill on it does not race the CLI's own
+ *    graceful shutdown.
+ */
+function spawnWrapped(o: SpawnOptions, wrap: NonNullable<StartOptions["wrap"]>, onStderr: (data: string) => void): SpawnedProcess {
+  const { command, args } = wrap(o.command, o.args);
+  const child = nodeSpawn(command, args, { cwd: o.cwd, env: o.env, signal: o.signal, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+  child.stderr?.setEncoding("utf8");
+  child.stderr?.on("data", (data: string) => onStderr(data));
+  // Unhandled, a stream 'error' takes the whole server down with an uncaughtException. The child
+  // dying is reported by 'exit'; a stderr read that failed is only a lost diagnostic.
+  child.stderr?.on("error", () => {});
+  // `sdk.d.ts`: "ChildProcess already satisfies this interface." The only difference TypeScript can
+  // see is that `stdin`/`stdout` are nullable on ChildProcess and not on SpawnedProcess — and
+  // `stdio: ["pipe","pipe","pipe"]` three lines up is what makes them non-null here.
+  return child as unknown as SpawnedProcess;
+}
+
 /** Claude adapter on the Agent SDK in streaming-input mode. `canUseTool` is bridged to permission_request/response events. */
 export class ClaudeAdapter implements AgentAdapter {
   readonly kind = "claude" as const;
@@ -99,7 +161,7 @@ export class ClaudeAdapter implements AgentAdapter {
 
   async probe(): Promise<ProbeResult> { const p = await probeClaude(); return { kind: this.kind, ...p }; }
 
-  start(opts: StartOptions): AgentHandle {
+  start(opts: StartOptions & ClaudeResumeFork): ClaudeHandle {
     const events = new AsyncQueue<SessionEvent>();
     const input = new AsyncQueue<SDKUserMessage>();
     const pending = new Map<string, { resolve: (r: PermissionResult) => void; suggestions: PermissionUpdate[]; input: Record<string, unknown> }>();
@@ -174,6 +236,20 @@ export class ClaudeAdapter implements AgentAdapter {
       // the init event below can only claim the request was accepted — see `resumeOutcome` in the
       // contract. There is no rejection to catch: an unusable id surfaces as an ordinary boot error.
       resume: opts.resume ?? undefined,
+      // …and, when a checkpoint restore armed one, the truncating form of that resume: keep the
+      // conversation up to `resumeSessionAt` and drop the single turn `resumeDropsTurn` names.
+      //
+      // All three or none. Without `resume` there is no session to truncate, and without
+      // `resumeDropsTurn` the SDK performs an UNVALIDATED truncation — which would quietly discard
+      // anything else that landed past the fork point (a queued user message, a task notification)
+      // rather than refusing. The refusal is the feature; the unguarded form is not one Realm wants.
+      //
+      // This IS the rejection to catch that plain `resume` has none of: the guard answers with an
+      // `error_during_execution` result whose message starts `Resume rejected by --resume-drops-turn:`.
+      // It is deterministic, so `SessionService` maps it to a recovery path and never retries it.
+      ...(opts.resume && opts.resumeAt && opts.resumeDropsTurn
+        ? { resumeSessionAt: opts.resumeAt, resumeDropsTurn: opts.resumeDropsTurn }
+        : {}),
       systemPrompt: opts.systemContext ? { type: "preset", preset: "claude_code", append: opts.systemContext } : undefined,
       // A RECORD keyed by name, not an array: `sdk.d.ts` `mcpServers?: Record<string, McpServerConfig>`.
       // Some documentation shows an array; disk wins.
@@ -198,6 +274,18 @@ export class ClaudeAdapter implements AgentAdapter {
       env: { ...process.env, ...opts.env },
       stderr: onStderr,
       pathToClaudeCodeExecutable: process.env.REALM_CLAUDE_BIN,
+      // Realm's execution sandbox. The SDK owns the argv — which node, which cli.js, which flags —
+      // so there is nowhere else to stand: `spawnClaudeCodeProcess` is the SDK's own documented seam
+      // for running the CLI somewhere other than plainly here (`sdk.d.ts`: "Use this to run Claude
+      // Code in VMs, containers, or remote environments"), and it is handed the exact command and
+      // args it was about to spawn.
+      //
+      // Present ONLY when the server passed a wrap — i.e. only for a space that is actually
+      // sandboxed. Installing it unconditionally would put Realm's spawn in front of the SDK's for
+      // everybody, including the users this release ships `off` for, and the SDK's own
+      // `spawnLocalProcess` does more than `spawn` (windowsHide, a stderr tail, an exit it delays
+      // until stderr closes). Standing aside is the only way to promise them an unchanged process.
+      ...(opts.wrap ? { spawnClaudeCodeProcess: (so) => spawnWrapped(so, opts.wrap!, onStderr) } : {}),
       // Asked for at start AND re-assertable mid-session (see setOptions). Passing it here rather
       // than only through `applyFlagSettings` is what makes the FIRST turn of a session that was
       // switched on before it started run fast — the flag layer can only be written once a query
@@ -450,6 +538,10 @@ export class ClaudeAdapter implements AgentAdapter {
 
     return {
       events,
+      /** Where the provider's chain stood at the end of the last SETTLED turn. Read by the server on
+       *  the settle, which is the only moment the answer is both complete and not yet overwritten by
+       *  the next turn — see the mapper's freeze. */
+      chainCursor: () => mapper.chain(),
       send: async (m: UserMessage) => {
         if (disposed || input.isClosed) { events.push(sessionEvent("error", { message: "session ended" })); return; }
         let images: Array<Record<string, unknown>>;

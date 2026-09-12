@@ -34,6 +34,7 @@ function renderHost(over: Partial<PaneHostProps> = {}) {
   const props: PaneHostProps = {
     layout: split2, items, focusedLeafId: "L1",
     onFocus: vi.fn(), onClose: vi.fn(), onSplit: vi.fn(), onDropItem: vi.fn(), onEqualize: vi.fn(),
+    onCloseEmpty: vi.fn(),
     ...over,
   };
   // PanelBar reads the store (rename/delete, per-kind meta), so every host render needs a provider.
@@ -104,11 +105,41 @@ describe("PaneHost", () => {
     expect(panel("L1").querySelector(".panel-bar")).toBeInTheDocument();
   });
 
-  it("renders the placeholder and no PanelBar for an empty leaf", () => {
+  /* An empty leaf gets the placeholder and a bar of its own — a title-less strip whose only control
+     is the trash. It used to have no bar at all, which left ⌘W as the one way to be rid of the pane
+     and nothing on screen to say so. It is NOT a full PanelBar: there is no item to name, rename,
+     split from or navigate. */
+  it("renders the placeholder and a trash-only bar for an empty leaf", () => {
     renderHost({ layout: { type: "leaf", id: "L", itemId: null }, items: [], focusedLeafId: "L" });
     expect(screen.getByText("Open something from the sidebar.")).toBeInTheDocument();
-    expect(document.querySelector(".panel")).toBeInTheDocument();
-    expect(document.querySelector(".panel-bar")).toBeNull();
+    const bar = document.querySelector(".panel-bar");
+    expect(bar).toHaveClass("panel-bar-empty");
+    expect(within(bar as HTMLElement).getByRole("button", { name: "Close this empty pane" })).toBeInTheDocument();
+    // Nothing an empty pane cannot answer for: no title, no split, no pane menu.
+    expect(bar!.querySelector(".panel-title")).toBeNull();
+    expect(within(bar as HTMLElement).queryByRole("button", { name: /Split/ })).toBeNull();
+    expect(within(bar as HTMLElement).queryByRole("button", { name: /Pane menu/ })).toBeNull();
+  });
+
+  it("the trash drops THIS leaf, by id", () => {
+    const withEmpty: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
+      { type: "leaf", id: "L1", itemId: "A" },
+      { type: "leaf", id: "L9", itemId: null },
+    ] };
+    const { props } = renderHost({ layout: withEmpty, focusedLeafId: "L1" });
+    fireEvent.click(screen.getByRole("button", { name: "Close this empty pane" }));
+    expect(props.onCloseEmpty).toHaveBeenCalledWith("L9");
+    // And it is not the item-keyed close: an empty pane has no item to pass to it.
+    expect(props.onClose).not.toHaveBeenCalled();
+  });
+
+  /* It takes no confirm, unlike the trash on a page or a terminal. Nothing is being deleted — there
+     is nothing under an empty box — so a second click would guard a consequence that does not exist. */
+  it("drops the pane on the first click — there is nothing under it to confirm", () => {
+    const { props } = renderHost({ layout: { type: "leaf", id: "L", itemId: null }, items: [], focusedLeafId: "L" });
+    fireEvent.click(screen.getByRole("button", { name: "Close this empty pane" }));
+    expect(props.onCloseEmpty).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/Really delete/)).toBeNull();
   });
 
   it("marks empty leaves with data-empty so a focused empty leaf (which has no header to accent-underline) still gets a visual focus mark (W5 carry-item)", () => {
@@ -214,6 +245,19 @@ describe("PaneHost", () => {
     expect(props.onSplit).toHaveBeenLastCalledWith("L1", "col");
     // The non-browser pane keeps its ⋯ menu — the rework is scoped to browser panes.
     expect(within(panel("L2")).getByRole("button", { name: "Pane menu for Tab B" })).toBeInTheDocument();
+  });
+
+  /* The focus glyph came OFF every other pane bar — the ⋯ row one click away said the same thing in
+     words, with its shortcut printed beside it. The browser bar has no ⋯ to say it, so the glyph
+     stays there and only there. THE mutant: drop it here too, and the one pane kind that cannot open
+     a menu loses every route to focus except a shortcut nothing on screen mentions. */
+  it("browser pane KEEPS the inline focus toggle — it is the one bar with no ⋯ row to replace it", () => {
+    const onZoom = vi.fn();
+    renderHost({ onZoom });
+    fireEvent.click(within(panel("L1")).getByRole("button", { name: "Focus Tab A" }));
+    expect(onZoom).toHaveBeenCalledExactlyOnceWith("L1");
+    // ...and the pane that DOES have a menu carries no such button in its bar.
+    expect(within(panel("L2")).queryByRole("button", { name: "Focus Tab B" })).toBeNull();
   });
 
   it("browser pane delete is two-step INLINE (U-H2), deleting through the store on the confirm", async () => {

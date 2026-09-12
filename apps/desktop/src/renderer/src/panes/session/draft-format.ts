@@ -1,4 +1,5 @@
 import { scanElementChips, scanMentions } from "@realm/contracts";
+import { slashQueryAt } from "./slash-commands";
 
 /**
  * The prompter's rich-text layer, as pure functions over the draft string.
@@ -32,7 +33,17 @@ export type SegmentKind =
   /** A backticked span. Tinted, never re-typefaced — a monospace run here would shift the caret. */
   | "code"
   /** An `@[…]` token standing for an element the user picked in a browser pane. */
-  | "element";
+  | "element"
+  /**
+   * The `/name` opening the draft, when it names a command the prompter actually has.
+   *
+   * Gated on the command existing, for the reason `mention` is gated on the skill resolving: a slash
+   * is a path separator, a division sign and half of every URL, and colouring `/usr` or `/or` would
+   * claim something is about to happen that is not. Uncoloured is the honest state for a message
+   * that merely begins with a slash — and while a command is half-typed, the picker under the box is
+   * already saying what it could become.
+   */
+  | "slash";
 
 export type Segment = { text: string; kind: SegmentKind | null };
 
@@ -43,7 +54,7 @@ type Span = { start: number; end: number; kind: SegmentKind; rank: number };
    inside backticks is code, an `@` inside a URL is neither. Lower wins. `element` shares marker's 0
    because its rank never decides anything: no other span here can begin at `@[`, so an element chip
    is never in a tie. */
-const RANK = { element: 0, marker: 0, punct: 1, code: 2, link: 3, mention: 4 } as const;
+const RANK = { element: 0, marker: 0, slash: 0, punct: 1, code: 2, link: 3, mention: 4 } as const;
 
 /** `http(s)://…` and bare `www.…`, up to whitespace. Trailing punctuation is trimmed below — a URL
  *  ending a sentence must not swallow the full stop, and a URL in parentheses must not eat the `)`. */
@@ -73,12 +84,27 @@ function urlEnd(text: string, start: number, raw: string): number {
  * function the server re-runs on the sent text — so a token is coloured as a mention if and only if
  * it would resolve as one. A highlight that guessed differently from the wire would be a lie told in
  * the one place the user could still act on it.
+ *
+ * `commandIds` is the same idea for the `/name` opening the draft: it colours if and only if the
+ * prompter has that command, so the colour means "this will run" rather than "this looks like it
+ * might". Empty is the ordinary case for a session whose commands have not loaded.
  */
-export function highlightSegments(text: string, liveIds: Iterable<string>, staleIds: Iterable<string> = []): Segment[] {
+export function highlightSegments(text: string, liveIds: Iterable<string>, staleIds: Iterable<string> = [],
+  commandIds: Iterable<string> = []): Segment[] {
   const spans: Span[] = [];
   // An element chip's label is arbitrary page text, so a URL or a backtick inside it must not cut the
   // token in half. What protects it is that it starts first: the `@[` is always left of anything the
   // label contains, and a span starting inside an already-emitted one is dropped whole.
+  /* The command opening the draft. `slashQueryAt` at caret 1 is the same gate the picker uses — only
+     position 0, only `[a-z0-9-]` — so the run and the popover can never disagree about what the
+     token IS; the only extra question here is whether it names something. */
+  const opening = slashQueryAt(text, 1);
+  if (opening) {
+    const ids = new Set(commandIds);
+    if (ids.has(text.slice(1, opening.end).toLowerCase())) {
+      spans.push({ start: opening.start, end: opening.end, kind: "slash", rank: RANK.slash });
+    }
+  }
   for (const c of scanElementChips(text)) spans.push({ start: c.start, end: c.end, kind: "element", rank: RANK.element });
   for (const t of scanMentions(text, liveIds)) spans.push({ start: t.start, end: t.end, kind: "mention", rank: RANK.mention });
   for (const t of scanMentions(text, staleIds)) spans.push({ start: t.start, end: t.end, kind: "mention-stale", rank: RANK.mention });

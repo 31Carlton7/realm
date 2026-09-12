@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
-import { allItems, findLeafOfItem, type Layout } from "@realm/contracts";
+import { allItems, findLeafOfItem, type Layout, type McpCall } from "@realm/contracts";
 import { Sidebar } from "./Sidebar";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, iconAsset, item, session, space } from "../../state/store.test-fakes";
@@ -37,6 +37,102 @@ describe("Arc sidebar", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: /Homework/ })).toBeInTheDocument());
     expect(store.getState().activeSpaceId).toBe("s2");
     expect(screen.queryByRole("button", { name: "Terminal" })).not.toBeInTheDocument();
+  });
+
+  /* The heading is the COLUMN's, not the page's. One per swiper page meant one "Space menu" per
+     space, all with the same accessible name and told apart only by `inert` — and it put the space's
+     name below the destination rows instead of at the top of its own sidebar. */
+  it("heads the column, above New session and outside the swiper", async () => {
+    const { container, store } = await mount();
+    const header = container.querySelector(".space-header")!;
+    expect(header.closest(".sb-top")).not.toBeNull();
+    expect(header.closest(".swiper")).toBeNull();
+    // The search bar that used to sit between them is a glyph in the header's own actions now.
+    expect(header.nextElementSibling).toHaveClass("new-item");
+    expect(container.querySelector(".search")).toBeNull();
+    expect(screen.getAllByRole("heading")).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Space menu" })).toHaveLength(1);
+    // It follows the active space rather than holding whichever one it was mounted with.
+    fireEvent.click(screen.getByRole("button", { name: /switch to space Homework/i }));
+    await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
+    expect(screen.getByRole("heading", { name: /Homework/ })).toBeInTheDocument();
+  });
+
+  /* The feed answers IN the column: it stands where the space's list stands, in the column's own
+     rows, and nothing about it is a sheet over the work. The button is the lens, lit while the feed
+     is the body and flipping back on a second press. */
+  it("gives the column over to the chat feed, from a button beside the collapse toggle", async () => {
+    /* The lens mechanism, which did not change when its content did: a lit button, the swiper giving
+       up the body, and no sheet. What it shows is now the chats — the gateway log's own behaviour is
+       tested against the component in `activity-list.test.tsx`. */
+    const { store, container } = await mount(fakeApi({
+      sessions: [session("se1", "s1", { title: "Fix the login form", updatedAt: Date.now() })],
+    }));
+    const button = () => screen.getByRole("button", { name: "Activity" });
+    expect(button().closest(".sb-head")).not.toBeNull();
+    expect(button().nextElementSibling).toHaveClass("sb-toggle"); // the collapse toggle keeps the edge
+    expect(button()).toHaveAttribute("aria-pressed", "false");
+    expect(container.querySelector(".swiper")).not.toBeNull();
+
+    fireEvent.click(button());
+    await waitFor(() => expect(store.getState().sidebarView).toBe("activity"));
+    // No sheet — the whole point of the change. The space's list gives up the body instead.
+    expect(store.getState().sheet).toBeNull();
+    expect(button()).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => expect(container.querySelector(".sb-chat-row")).not.toBeNull());
+    expect(container.querySelector(".swiper")).toBeNull();
+    expect(screen.getByText("Fix the login form")).toBeInTheDocument();
+    expect(container.querySelector(".sb-activity .group-label")!.textContent).toBe("Today");
+
+    fireEvent.click(button());
+    await waitFor(() => expect(store.getState().sidebarView).toBe("space"));
+    expect(container.querySelector(".swiper")).not.toBeNull();
+  });
+
+  it("says the feed is empty in its own words, inside the column's own inset", async () => {
+    const { container } = await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    const blank = await waitFor(() => {
+      const el = container.querySelector(".sb-activity-empty");
+      if (!el) throw new Error("not yet");
+      return el;
+    });
+    expect(blank.textContent).toContain("No chats yet");
+    expect(container.querySelectorAll(".sb-activity .item-row")).toHaveLength(0);
+    // The inset is the page's, declared on the feed rather than inherited from a page it is not in.
+    expect(container.querySelector(".sb-activity")).toHaveClass("sb-activity-blank");
+  });
+
+  /* The full-width "Search… ⌘K" button is gone: it was a control the height of a field standing in
+     for a palette one keystroke away, and it cost the column a row of its own height. What has to
+     survive the swap is the CLICK — the palette is not reachable any other way with a pointer — and
+     the shortcut, which moves to the tooltip where a hint that never changes belongs. */
+  it("opens the palette from a glyph in the header's actions, shortcut on the tooltip", async () => {
+    const { store, container } = await mount();
+    const button = screen.getByRole("button", { name: "Search" });
+    expect(button.closest(".space-header-actions")).not.toBeNull();
+    expect(button).toHaveAttribute("title", "Search (⌘K)");
+    expect(container.querySelector(".sb-top .search")).toBeNull();
+    fireEvent.click(button);
+    await waitFor(() => expect(store.getState().paletteOpen).toBe(true));
+  });
+
+  /* The feed was a destination row with a count pill — a permanent line of the nav for something
+     usually at zero. It is a button in the head row now, beside the activity log: both are
+     app-level, both are "is this up", and neither is a place in this space. */
+  it("opens the notifications page from the head row's bell, and closes it again", async () => {
+    const { store, container } = await mount();
+    const bell = () => screen.getByRole("button", { name: "Notifications" });
+    expect(bell().closest(".sb-head")).not.toBeNull();
+    expect(bell().nextElementSibling).toHaveAccessibleName("Activity");
+    // …and it is not ALSO a row in the nav, which is the state a half-done move leaves behind.
+    expect(within(container.querySelector<HTMLElement>(".sb-destinations")!).queryByRole("button", { name: /Notifications/ })).toBeNull();
+    expect(bell()).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(bell());
+    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("notifications-page"));
+    expect(bell()).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(bell());
+    await waitFor(() => expect(store.getState().pageOverlay).toBeNull());
   });
 
   it("session items show a status dot that follows sessionStatus, and the row's accessible name carries the status (A-L4)", async () => {
@@ -282,8 +378,8 @@ describe("Arc sidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Work" }));
     // The pill names the profile, so it opens the profile page — the space page keeps its own two
     // doors (the title row and the menu's Open space, tested below).
-    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "profile-page")).toBe(true));
-    expect(store.getState().items.some((i) => i.kind === "space-page")).toBe(false);
+    await waitFor(() => expect((store.getState().pageOverlay?.kind === "profile-page")).toBe(true));
+    expect((store.getState().pageOverlay?.kind === "space-page")).toBe(false);
     expect(store.getState().sheet).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "New space" }));
     expect(store.getState().sheet).toEqual({ kind: "new-space" });
@@ -291,17 +387,18 @@ describe("Arc sidebar", () => {
 
   it("the header title row itself opens the space PAGE (the transcription's front door)", async () => {
     const { store } = await mount();
+    const layout = JSON.stringify(store.getState().layout);
     fireEvent.click(screen.getByRole("button", { name: "Versed" }));
-    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "space-page" && i.refId === "s1")).toBe(true));
-    const page = store.getState().items.find((i) => i.kind === "space-page")!;
-    expect(JSON.stringify(store.getState().layout)).toContain(page.id);
+    await waitFor(() => expect(store.getState().pageOverlay).toEqual({ kind: "space-page", refId: "s1", spaceId: "s1" }));
+    // Over the workspace, not in it: the layout the user arranged is untouched.
+    expect(JSON.stringify(store.getState().layout)).toBe(layout);
   });
 
   it("the space menu's Open space opens the page — the sheet's ⋯ entry point did not go dead", async () => {
     const { store } = await mount();
     fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Open space" }));
-    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "space-page" && i.refId === "s1")).toBe(true));
+    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("space-page"));
   });
 
   it("OPEN label is absent when nothing is open; unopened items render under SPACE", async () => {
@@ -659,5 +756,57 @@ describe("paneMapOf — the arrangement itself, not a category of arrangement", 
   it("says nothing when there is nothing true to say", () => {
     expect(paneMapOf(leaf("L1", "i1"), "i1")).toBeNull();       // one pane is not an arrangement
     expect(paneMapOf(split("row", [leaf("L1", "i1"), leaf("L2", "i2")]), "gone")).toBeNull();
+  });
+});
+
+describe("the space switcher", () => {
+  /* A second door to the same place the strip at the foot of the column already is — but next to the
+     NAME, which is where you look when the question is "which space am I in". The strip answers a
+     different question ("which others are there") and answers it without naming them. */
+  const two = () => fakeApi({
+    spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Ledger")],
+  });
+
+  it("does not steal the title's click — that still opens the space page", async () => {
+    // The title has opened the page since Plan 12. Turning it into a switcher would move a door
+    // somebody already knows where to find, which is why the caret is its own control.
+    await mount(two());
+    // Named by its content, which is the space's own name — `title` is a tooltip, not a name.
+    const title = document.querySelector(".space-title") as HTMLButtonElement;
+    expect(title.textContent).toContain("Versed");
+    expect(title.getAttribute("aria-haspopup")).toBe(null);
+    expect(screen.getByRole("button", { name: "Switch space" })).not.toBe(title);
+  });
+
+  it("lists every space, with its own icon and a check on the one you are in", async () => {
+    await mount(two());
+    fireEvent.click(screen.getByRole("button", { name: "Switch space" }));
+    const menu = await screen.findByRole("menu", { name: "Spaces" });
+    const rows = within(menu).getAllByRole("menuitemcheckbox");
+    expect(rows.map((r) => r.textContent)).toEqual(["Versed", "Ledger"]);
+    // The icon slot is what makes a space recognisable at a glance; without it this is a list of
+    // words that happen to be space names.
+    expect(rows[0]!.querySelector("svg")).not.toBeNull();
+    expect(rows.filter((r) => r.getAttribute("aria-checked") === "true").map((r) => r.textContent)).toEqual(["Versed"]);
+  });
+
+  it("switches on select", async () => {
+    const { store } = await mount(two());
+    fireEvent.click(screen.getByRole("button", { name: "Switch space" }));
+    const menu = await screen.findByRole("menu", { name: "Spaces" });
+    await act(async () => { fireEvent.click(within(menu).getByRole("menuitemcheckbox", { name: /Ledger/ })); });
+    await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
+  });
+
+  it("picking the space you are already in does nothing at all", async () => {
+    /* `selectSpace` refetches the whole item list. Doing that to land where you already are is a
+       flash of an empty column for no reason — the mutant is dropping the guard. */
+    const { store, api } = await mount(two());
+    const before = api.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Switch space" }));
+    const menu = await screen.findByRole("menu", { name: "Spaces" });
+    await act(async () => { fireEvent.click(within(menu).getByRole("menuitemcheckbox", { name: /Versed/ })); });
+    expect(store.getState().activeSpaceId).toBe("s1");
+    expect(api.calls.length).toBe(before);
   });
 });

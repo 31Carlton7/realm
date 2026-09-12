@@ -48,16 +48,25 @@ function hash(seed: string): number {
   return h;
 }
 
-export function heroGreeting({ spaceName, userName = "", seed, at = new Date() }: {
+export function heroGreeting({ spaceName, userName = "", seed, extra = [], at = new Date() }: {
   spaceName: string;
   /** "" when the host reports no real name — then the named variants sit the round out. */
   userName?: string;
   /** Session id: one greeting per session, held for the session's life. */
   seed: string;
+  /**
+   * Lines an unlocked friend pack brought, in that group's own voice.
+   *
+   * Whole sentences rather than variants: a pack is written by somebody who is not looking at this
+   * file, and asking them for a function of `{space, name, part}` would be asking them to learn a
+   * shape to make a joke. They join the pool on the same seeded pick as everything else, so a
+   * session's greeting is still fixed for its life.
+   */
+  extra?: readonly string[];
   at?: Date;
 }): GreetingPart[] {
   const name = userName.trim();
-  const pool = name ? [...ANY, ...NAMED] : ANY;
+  const pool = [...(name ? [...ANY, ...NAMED] : ANY), ...extra.map((line): Variant => () => [t(line)])];
   const variant = pool[hash(seed) % pool.length]!;
   return variant({ space: spaceName, name, part: dayPart(at) });
 }

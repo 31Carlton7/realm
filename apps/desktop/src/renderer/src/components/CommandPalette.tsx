@@ -1,14 +1,17 @@
 import { Icon, THEMES, themeModes } from "@realm/ui";
-import { AGENT_META, PRESETS, SELECTABLE_AGENT_KINDS, emptyLayout, itemIdOfLeaf, allItems as openItemIds, type DestinationPageKind, type Item, type PresetName, type SearchResults, type SearchSnippet } from "@realm/contracts";
-import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { AGENT_META, PRESETS, SELECTABLE_AGENT_KINDS, chordsForCommand, displayKeyChord, emptyLayout, itemIdOfLeaf, allItems as openItemIds, type DestinationPageKind, type Item, type PresetName, type SearchResults, type SearchSnippet } from "@realm/contracts";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import type { StoreApi } from "zustand";
 import { centerOverComplement } from "../state/no-overlay";
-import { useApp, useBrowserRects, type AppState } from "../state/store";
+import { useApp, useBrowserRects, type AppState, type PaletteMode } from "../state/store";
 import { useResolvedMode, type ThemePref } from "../theme/useTheme";
 import { ItemGlyph } from "./sidebar/ItemList";
 import { SpaceIcon } from "./SpaceIcon";
 
 type Entry = { id: string; label: string; hint?: ReactNode; icon: ReactNode; run: () => void; section: string; disabled?: boolean;
+  /** A pre-rendered label, for a row whose match positions matter (a ⌘P path). `label` stays a plain
+   *  string because it is what the instant filter scores against — two jobs, two fields. */
+  display?: ReactNode;
   /** A deep-search row (Plan 16 W2): rendered below the instant rows, under its group header even
    *  while a query is typed (instant rows go flat with a query; these stay grouped). */
   deep?: boolean };
@@ -18,6 +21,15 @@ type Entry = { id: string; label: string; hint?: ReactNode; icon: ReactNode; run
 export const SEARCH_DEBOUNCE_MS = 120;
 /** One character matches everything and helps no one; deep search starts at two. */
 export const SEARCH_MIN_QUERY = 2;
+
+/** What the one palette calls itself in each of its three narrowings. Without this the surface is
+ *  byte-identical in all three and a ⌘P that landed in the wrong mode is indistinguishable from a
+ *  ⌘P that did nothing. */
+export const PALETTE_PLACEHOLDER: Record<PaletteMode, string> = {
+  all: "Search…",
+  files: "Open a file…",
+  grep: "Find in files…",
+};
 
 function Snippet({ parts }: { parts: SearchSnippet }) {
   return <span className="palette-snippet">{parts.map((p, i) => p.match ? <mark key={i}>{p.text}</mark> : <span key={i}>{p.text}</span>)}</span>;
@@ -128,6 +140,20 @@ function PaletteBody({ closing }: { closing: boolean }) {
   const newBrowser = useApp((s) => s.newBrowser);
   const newMachine = useApp((s) => s.newMachine);
   const openDocuments = useApp((s) => s.openDocuments);
+  const keybindings = useApp((s) => s.keybindings);
+  /* A shortcut hint has to come from the same list the handler reads. Printing `⌘T` from a string
+     literal was fine while the keymap was hardcoded; now that a user can rebind anything, a literal
+     is a claim about their machine that Realm has no basis for. `chordsForCommand` returns only the
+     chord whose WINNING rule is that command, so a binding a later rule defeated is never advertised.
+     Nothing is shown when the command is unbound — an absent hint is honest, an invented one is not. */
+  const kbd = useCallback((command: string) => {
+    const chord = chordsForCommand(keybindings, command)[0];
+    return chord ? <kbd>{displayKeyChord(chord)}</kbd> : undefined;
+  }, [keybindings]);
+  const paletteMode = useApp((s) => s.paletteMode);
+  const searchProjectFiles = useApp((s) => s.searchProjectFiles);
+  const searchProjectText = useApp((s) => s.searchProjectText);
+  const openDocumentPath = useApp((s) => s.openDocumentPath);
   const newSession = useApp((s) => s.newSession);
   const newSessionInstant = useApp((s) => s.newSessionInstant);
   const newSessionInWorktree = useApp((s) => s.newSessionInWorktree);
@@ -149,7 +175,6 @@ function PaletteBody({ closing }: { closing: boolean }) {
   const openSpacePage = useApp((s) => s.openSpacePage);
   const setSpacesOpen = useApp((s) => s.setSpacesOpen);
   const openDestinationPage = useApp((s) => s.openDestinationPage);
-  const destinationPageElsewhere = useApp((s) => s.destinationPageElsewhere);
   const openProfilePage = useApp((s) => s.openProfilePage);
   const openActivity = useApp((s) => s.openActivity);
   const setPaletteOpen = useApp((s) => s.setPaletteOpen);
@@ -193,6 +218,40 @@ function PaletteBody({ closing }: { closing: boolean }) {
     return () => clearTimeout(t);
   }, [deepQuery, searchDeep]);
 
+  /* ⌘P / ⌘⇧F: the same palette, narrowed to a checkout. Debounced and stale-guarded with the same
+     `searchSeq` the deep search uses, so a slow grep can never overwrite a newer keystroke's answer.
+     Kept separate from `deep` rather than folded into it because these search a DIRECTORY and that
+     one searches Realm's records — one of them can be null because there is no checkout, which is a
+     different sentence from "no results". */
+  const [project, setProject] = useState<{ forQuery: string; rows: Entry[]; cwd: boolean } | null>(null);
+  useEffect(() => {
+    if (paletteMode === "all") { setProject(null); return; }
+    const seq = ++searchSeq.current;
+    // ⌘P with no query is the first N files; ⌘⇧F with no query would be every line in the repo.
+    if (paletteMode === "grep" && deepQuery.length < SEARCH_MIN_QUERY) { setProject(null); return; }
+    setSearching(true);
+    const t = setTimeout(() => {
+      const open = (path: string) => run(async () => { await openDocumentPath(path); setPaletteOpen(false); });
+      const answer: Promise<Entry[] | null> = paletteMode === "files"
+        ? searchProjectFiles(deepQuery).then((r) => r && r.hits.map((h): Entry => ({
+            id: `file:${h.path}`, section: "Files", deep: true,
+            label: h.path, display: <Snippet parts={h.segments} />,
+            icon: <Icon name="documents" size={16} />, run: () => open(h.path),
+          })))
+        : searchProjectText(deepQuery).then((r) => r && r.hits.map((h): Entry => ({
+            id: `grep:${h.path}:${h.line}`, section: "In files", deep: true,
+            label: `${h.path}:${h.line}`, hint: <Snippet parts={h.segments} />,
+            icon: <Icon name="code" size={16} />, run: () => open(h.path),
+          })));
+      void answer.then((rows) => {
+        if (searchSeq.current !== seq) return;
+        setProject({ forQuery: deepQuery, rows: rows ?? [], cwd: rows !== null });
+        setSearching(false);
+      }).catch(() => { if (searchSeq.current === seq) { setProject(null); setSearching(false); } });
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [paletteMode, deepQuery, searchProjectFiles, searchProjectText, openDocumentPath, setPaletteOpen, run]);
+
   const entries = useMemo<Entry[]>(() => {
     const l = layout ?? emptyLayout();
     const openIds = openItemIds(l);
@@ -233,7 +292,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
       ...(anyWaiting ? [act("respond-permission", "Respond to pending permission", "alert", () => run(() => jumpToPermission()))] : []),
       // The overview (⌘⇧Space). Ahead of the per-space switches below because it is the one entry that
       // stays useful at any number of spaces — the switches are a list that grows with the home.
-      act("all-spaces", "All spaces", "layout", () => setSpacesOpen(true), <kbd>⌘⇧Space</kbd>),
+      act("all-spaces", "All spaces", "layout", () => setSpacesOpen(true), kbd("spaces.toggle")),
       // Built directly rather than via `act()`: a space's icon can be an emoji or a saved asset
       // (`parseSpaceIcon`), not just a Hugeicons name, so it needs `SpaceIcon`'s resolver — the same
       // reason the `item:` entries above bypass `act()` for `ItemGlyph`.
@@ -248,7 +307,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
         act(`group-${g.id}`, `Group: ${g.name}`, "group", () => run(() => activatePaneGroup(g.id)),
           g.id === groups!.activeGroupId ? "current" : undefined)) : []),
       ...(activeSpaceId ? [act("new-group", "New pane group", "group", () => run(() => newPaneGroup()))] : []),
-      act("new-terminal", "New terminal", "terminal", () => run(() => newTerminal()), <kbd>⌘T</kbd>),
+      act("new-terminal", "New terminal", "terminal", () => run(() => newTerminal()), kbd("terminal.new")),
       act("new-browser", "New browser", "browser", () => run(() => newBrowser())),
       /* "Connect", not "New machine": what this makes is a pane with a connect flow in it, and a
          machine only exists once there is somewhere to reach. It lands where you are looking, like
@@ -266,7 +325,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
       ] : []),
       // No ellipsis and no sheet (W3): both this and the per-agent one-shots below go straight through
       // newSession — the only difference is whether the agent is named or inherited from last use.
-      act("new-session", "New session", "session", () => run(() => newSessionInstant()), <kbd>⌘N</kbd>),
+      act("new-session", "New session", "session", () => run(() => newSessionInstant()), kbd("session.new")),
       act("new-session-worktree", "New session in a worktree", "branch", () => run(() => newSessionInWorktree())),
       // Dispatch (Plan 13 W2): the honest simple palette shape — it dispatches the FOCUSED session's
       // current draft, and with no draft to dispatch it is disabled and says what would arm it,
@@ -274,39 +333,35 @@ function PaletteBody({ closing }: { closing: boolean }) {
       // (picking an entry closes the palette; a hint nobody sees is not a hint).
       ...(focusedSession ? [{
         id: "act:dispatch", section: "Actions", icon: <Icon name="send" size={16} />,
-        label: "Dispatch task", hint: (drafts[focusedSession] ?? "").trim() ? <kbd>⌘⇧↵</kbd> : "type a draft first",
+        label: "Dispatch task", hint: (drafts[focusedSession] ?? "").trim() ? kbd("session.dispatchDraft") : "type a draft first",
         disabled: !(drafts[focusedSession] ?? "").trim(),
         run: () => run(() => dispatchDraft(focusedSession)),
       } as Entry] : []),
       ...SELECTABLE_AGENT_KINDS.map((a) => act(`new-${a}`, `New ${AGENT_META[a].label} session`, AGENT_META[a].icon, () => run(() => newSession({ agentKind: a })))),
       act("new-space", "New space…", "add", () => openSheet({ kind: "new-space" })),
-      // A space is a PAGE (Plan 12 W3): this routes to the space-page pane, not a sheet.
-      ...(activeSpaceId ? [act("open-space", "Open space", "settings", () => run(() => openSpacePage(activeSpaceId)))] : []),
-      // The active space's PROFILE page (Plan 14 W2) — same gate: the page needs a layout to live in.
-      ...(activeSpaceId ? [act("open-profile", "Open profile", "profile-page", () => run(() => openProfilePage()))] : []),
-      // The sidebar destinations (W4) — gated like "Open space": the page needs a layout to live in.
-      // Each carries a second entry while — and only while — its page sits in a pane that is not the
-      // focused one, which is the one situation where the placement changes the outcome. That is the
-      // same choice the sidebar row spells ⌥-click, so neither surface can do what the other cannot.
-      ...(activeSpaceId ? DESTINATIONS.flatMap(([kind, noun]) => [
-        act(`open-${noun}`, `Open ${noun}`, kind, () => run(() => openDestinationPage(kind))),
-        ...(destinationPageElsewhere(kind)
-          ? [act(`open-${noun}-here`, `Open ${noun} in this pane`, kind, () => run(() => openDestinationPage(kind, "here")))]
-          : []),
-      ]) : []),
+      // A space is a PAGE (Plan 12 W3): this shows the space's Overview over the workspace.
+      ...(activeSpaceId ? [act("open-space", "Open space", "settings", () => openSpacePage(activeSpaceId))] : []),
+      // The active space's PROFILE page (Plan 14 W2) — same gate: the page reads from a space.
+      ...(activeSpaceId ? [act("open-profile", "Open profile", "profile-page", () => openProfilePage())] : []),
+      /* The sidebar destinations (W4), one entry each. They used to carry a second — "in this pane" —
+         because a page was a layout item and where it landed was a real choice. A page is an overlay
+         now: there is one, it is over everything, and a placement to choose would be a choice with
+         no outcome. */
+      ...(activeSpaceId ? DESTINATIONS.map(([kind, noun]) =>
+        act(`open-${noun}`, `Open ${noun}`, kind, () => openDestinationPage(kind))) : []),
       // Global (every space's calls, W7) — unlike the space page above, it never needs an activeSpaceId.
       act("mcp-activity", "MCP Activity", "tool", () => run(() => openActivity())),
-      act("split-right", "Split right", "layout", () => run(() => splitFocused("row")), <kbd>⌘\</kbd>),
-      act("split-down", "Split down", "layout", () => run(() => splitFocused("col")), <kbd>⌘⇧\</kbd>),
+      act("split-right", "Split right", "layout", () => run(() => splitFocused("row")), kbd("pane.splitRight")),
+      act("split-down", "Split down", "layout", () => run(() => splitFocused("col")), kbd("pane.splitDown")),
       ...(focusedItem ? [
-        act("close-pane", "Close pane", "close", () => run(() => closeFromLayout(focusedItem.id)), <kbd>⌘W</kbd>),
+        act("close-pane", "Close pane", "close", () => run(() => closeFromLayout(focusedItem.id)), kbd("pane.close")),
         // The pane keeps its place in the group either way — this only changes how much room it gets.
         zoomedLeaf
-          ? act("unfocus-pane", "Unfocus pane", "unfocusPane", () => run(() => toggleFocusPane()), <kbd>⌘⇧F</kbd>)
-          : act("focus-pane", `Focus “${focusedItem.title}”`, "focusPane", () => run(() => toggleFocusPane()), <kbd>⌘⇧F</kbd>),
+          ? act("unfocus-pane", "Unfocus pane", "unfocusPane", () => run(() => toggleFocusPane()), kbd("pane.toggleFocus"))
+          : act("focus-pane", `Focus “${focusedItem.title}”`, "focusPane", () => run(() => toggleFocusPane()), kbd("pane.toggleFocus")),
         act("rename", `Rename “${focusedItem.title}”`, "edit", () => requestRename(focusedItem.id)),
       ] : []),
-      ...(focusedRunning ? [act("interrupt", "Interrupt running session", "stop", () => run(() => interruptSession(focusedSession!)), <kbd>esc</kbd>)] : []),
+      ...(focusedRunning ? [act("interrupt", "Interrupt running session", "stop", () => run(() => interruptSession(focusedSession!)), kbd("session.interrupt"))] : []),
       ...(activeSpaceId ? PRESETS.map((p) => act(`layout-${p}`, `Layout: ${PRESET_LABELS[p]}`, "layout", () => run(() => applyPreset(p)))) : []),
     ];
 
@@ -326,9 +381,9 @@ function PaletteBody({ closing }: { closing: boolean }) {
     }));
 
     return [...open, ...activeRest, ...others, ...actions, ...themes, ...palettes];
-  }, [spaces, activeSpaceId, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref, themeNames, mode, drafts, dispatchDraft,
+  }, [kbd, spaces, activeSpaceId, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref, themeNames, mode, drafts, dispatchDraft,
       selectSpace, openItem, newTerminal, newBrowser, newMachine, openDocuments, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeFromLayout, requestRename,
-      interruptSession, jumpToPermission, applyPreset, setThemePref, setThemeName, openSheet, openSpacePage, openDestinationPage, destinationPageElsewhere, openProfilePage, openActivity, setSpacesOpen, run,
+      interruptSession, jumpToPermission, applyPreset, setThemePref, setThemeName, openSheet, openSpacePage, openDestinationPage, openProfilePage, openActivity, setSpacesOpen, run,
       groups, zoomedLeaf, activatePaneGroup, newPaneGroup, toggleFocusPane]);
 
   // Empty query: everything, grouped under faint section headers. With a query: a flat list ranked
@@ -369,7 +424,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
       out.push({
         id: `deep-skill:${h.id}`, deep: true, section: "Skills", label: h.name,
         icon: <Icon name="library-page" size={16} />, hint: <Snippet parts={h.snippet} />,
-        run: () => run(() => openDestinationPage("library-page")),
+        run: () => openDestinationPage("library-page"),
       });
     }
     for (const h of r.memory) {
@@ -377,10 +432,10 @@ function PaletteBody({ closing }: { closing: boolean }) {
         id: `deep-memory:${h.scope}:${h.spaceId ?? h.profileId}`, deep: true, section: "Memory", label: h.title,
         icon: <Icon name="context" size={16} />, hint: <Snippet parts={h.snippet} />,
         run: () => run(async () => {
-          if (h.scope === "profile") { await openProfilePage("memory"); return; }
+          if (h.scope === "profile") { openProfilePage("memory"); return; }
           if (!h.spaceId) return;
           if (h.spaceId !== activeSpaceId) await selectSpace(h.spaceId);
-          await openSpacePage(h.spaceId, "memory");
+          openSpacePage(h.spaceId, "memory");
         }),
       });
     }
@@ -398,7 +453,12 @@ function PaletteBody({ closing }: { closing: boolean }) {
     return out;
   }, [q, deep, filtered, allItems, items, activeSpaceId, selectSpace, openItem, openDestinationPage, openProfilePage, openSpacePage, run]);
 
-  const combined = q ? [...filtered, ...deepEntries] : filtered;
+  /* A narrowed palette shows ONLY the checkout's answer: the instant rows are Realm's own objects and
+     mixing them into "open a file" would make the top of the list mean something different from the
+     rest of it. Stale answers are dropped by query rather than rendered against the wrong text. */
+  const combined = paletteMode !== "all"
+    ? (project?.forQuery === deepQuery ? project.rows : [])
+    : q ? [...filtered, ...deepEntries] : filtered;
   const sel = Math.min(index, Math.max(0, combined.length - 1));
 
   useEffect(() => { listRef.current?.querySelector<HTMLElement>(`[data-index="${sel}"]`)?.scrollIntoView?.({ block: "nearest" }); }, [sel]);
@@ -419,7 +479,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
           <Icon name="search" size={16} />
           <input autoFocus role="combobox" aria-label="Command palette" aria-expanded="true" aria-controls="palette-list" aria-autocomplete="list"
             aria-activedescendant={combined[sel] ? `palette-opt-${sel}` : undefined}
-            placeholder="Search…" value={query} onChange={(e) => { setQuery(e.target.value); setIndex(0); }} onKeyDown={onKeyDown} />
+            placeholder={PALETTE_PLACEHOLDER[paletteMode]} value={query} onChange={(e) => { setQuery(e.target.value); setIndex(0); }} onKeyDown={onKeyDown} />
           <kbd>esc</kbd>
         </div>
         <div id="palette-list" ref={listRef} role="listbox" className="palette-list">
@@ -427,6 +487,12 @@ function PaletteBody({ closing }: { closing: boolean }) {
               settled empty answer says "No matches". Instant rows render regardless, immediately. */}
           {combined.length === 0 && (searching
             ? <div className="palette-empty muted">Searching…</div>
+            /* A narrowed palette with no checkout is not "no matches" — there is nothing to match
+               against, and saying the former sends someone looking for a typo in their query. */
+            : paletteMode !== "all" && project?.cwd === false
+              ? <div className="palette-empty muted">This space has no checkout yet — link a project to search its files.</div>
+            : paletteMode === "grep" && deepQuery.length < SEARCH_MIN_QUERY
+              ? <div className="palette-empty muted">Type at least {SEARCH_MIN_QUERY} characters to search file contents.</div>
             : <div className="palette-empty muted">No matches</div>)}
           {combined.map((e, i) => (
             <Fragment key={e.id}>
@@ -436,7 +502,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
               <div id={`palette-opt-${i}`} role="option" aria-selected={i === sel} aria-disabled={e.disabled || undefined} data-index={i}
                 className={"palette-opt" + (i === sel ? " selected" : "") + (e.disabled ? " disabled" : "")}
                 onMouseEnter={() => setIndex(i)} onMouseDown={(ev) => ev.preventDefault()} onClick={() => pick(e)}>
-                <span className="palette-icon">{e.icon}</span><span className="palette-label">{e.label}</span>
+                <span className="palette-icon">{e.icon}</span><span className="palette-label">{e.display ?? e.label}</span>
                 {e.hint && <span className="palette-hint">{e.hint}</span>}
               </div>
             </Fragment>

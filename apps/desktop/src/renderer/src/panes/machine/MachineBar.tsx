@@ -1,7 +1,7 @@
 import type { Item } from "@realm/contracts";
 import { PLATFORM_CHORDS } from "@realm/contracts";
 import type { MenuItem } from "../../components/Menu";
-import { Icon } from "@realm/ui";
+import { Icon, type IconName } from "@realm/ui";
 import { useApp } from "../../state/store";
 import { rpc } from "../../rpc/client";
 import { parseChord } from "@realm/contracts";
@@ -69,48 +69,48 @@ export function dotFor(status: string): string {
  * run on `window` and `preventDefault`, so ⌘T opens a Realm terminal rather than reaching the guest
  * — and a Realm user's muscle memory is Realm's until they say otherwise.
  */
-export function MachinePanelActions({ item }: { item: Item }) {
+export function MachinePanelActions({ item, keep }: { item: Item; keep: number }) {
+  const actions = useMachineActions(item);
+  return (<>
+    {actions.slice(0, keep).map((a) => (
+      <button key={a.id} className="icon-btn" aria-label={a.aria} aria-pressed={a.on}
+        data-on={a.on || undefined} title={a.title} onClick={a.onSelect}>
+        <Icon name={a.icon} size={14} />
+      </button>
+    ))}
+  </>);
+}
+
+/** The machine's two, as data, for the reason SessionPane.tsx gives at length: the bar draws the
+ *  first `keep` and the ⋯ menu picks up where it left off, and one list is what keeps the two from
+ *  disagreeing about where a given control currently is. Order is priority — the connection toggle
+ *  is the one control a machine pane cannot be worked without, so it is what holds the bar. */
+type MachineAction = { id: string; label: string; title: string; aria: string; icon: IconName; on: boolean; onSelect: () => void };
+
+function useMachineActions(item: Item): MachineAction[] {
   const state = useApp((s) => s.machineState[item.refId]);
   const grabbed = useApp((s) => s.machineGrab[item.refId] === true);
   const setGrab = useApp((s) => s.setMachineGrab);
   const status = state?.status ?? "off";
   const on = status === "running" || status === "booting";
   const toggle = () => { void rpc().call(on ? "machines.stop" : "machines.start", { machineId: item.refId }).catch(() => {}); };
-  return (<>
-    {/* Only while there is a screen to send keys to. A grab toggle on a pane showing a connect form
-        would change what every key does for no reason anybody could see. */}
-    {status === "running" && (
-      <button className="icon-btn" aria-label={`Send keystrokes to ${item.title}`} aria-pressed={grabbed}
-        data-on={grabbed || undefined} title={grabbed ? "Realm's shortcuts are off" : "Grab keyboard"}
-        onClick={() => setGrab(item.refId, !grabbed)}>
-        <Icon name="key" size={14} />
-      </button>
-    )}
-    <button className="icon-btn" aria-label={`Connection to ${item.title}`} aria-pressed={on} data-on={on || undefined}
-      title={on ? "Disconnect" : "Connect"} onClick={toggle}>
-      <Icon name="plug" size={14} />
-    </button>
-  </>);
+  const list: MachineAction[] = [{
+    id: "connection", label: on ? "Disconnect" : "Connect", title: on ? "Disconnect" : "Connect",
+    aria: `Connection to ${item.title}`, icon: "plug", on, onSelect: toggle,
+  }];
+  /* Only while there is a screen to send keys to. A grab toggle on a pane showing a connect form
+     would change what every key does for no reason anybody could see. */
+  if (status === "running") list.push({
+    id: "grab", label: grabbed ? "Release the keyboard" : "Grab the keyboard",
+    title: grabbed ? "Realm's shortcuts are off" : "Grab keyboard",
+    aria: `Send keystrokes to ${item.title}`, icon: "key", on: grabbed,
+    onSelect: () => setGrab(item.refId, !grabbed),
+  });
+  return list;
 }
 
-/**
- * The machine pane's own rows in the ⋯ menu (Plan 25 W7).
- *
- * Three groups, and each exists because of something the platform or the protocol will not do:
- *
- *   - **Send key ▸.** ⌘Q, ⌘Tab and ⌘Space are menu accelerators and window-server chords, and a menu
- *     accelerator fires in MAIN before the renderer sees a keydown — `hotkeys.ts` writes that down
- *     for ⌘W. So no amount of grabbing the keyboard can deliver them, and the pane must not pretend
- *     otherwise. Sending them deliberately is what every remote-desktop client does.
- *   - **Clipboard ▸, two explicit actions and no automatic sync.** RFB's clipboard is latin-1
- *     historically and extended only where both ends speak the pseudo-encoding, so it cannot pretend
- *     to be transparent. And automatic Mac→guest sync would silently push whatever is on the user's
- *     clipboard into a machine that may be running anything — send-then-⌘V is the two-step every
- *     client uses, and it is a two-step on purpose.
- *   - **Scale.** Fit is the default because a remote screen is a thing you want all of; Actual size
- *     is the only mode where `image-rendering: pixelated` is honest, and the bar says which.
- */
-export function useMachineMenuItems(item: Item): MenuItem[] {
+export function useMachineMenuItems(item: Item, keep: number): MenuItem[] {
+  const overflow = useMachineActions(item).slice(keep);
   /* A HOOK, and called unconditionally by `usePaneMenuItems` for every pane kind — see the note
      there. Reading the store any other way from a plain function would either re-render every pane
      bar on any state change, or read a snapshot that goes stale the moment the menu is open. */
@@ -143,8 +143,19 @@ export function useMachineMenuItems(item: Item): MenuItem[] {
     if (text) entry.rfb.clipboardPasteFrom(text);
   };
   return [
+    /* The bar's own actions that did not fit, first and as one group — the cluster continued, not a
+       second copy of it. `keep` is the budget PanelBar measured; see components/pane-bar-fit.ts. */
+    ...(overflow.length > 0
+      ? [{ kind: "separator" as const },
+         ...overflow.map((a): MenuItem => ({ label: a.label, icon: <Icon name={a.icon} size={14} />, checked: a.on, onSelect: a.onSelect })),
+         { kind: "separator" as const }]
+      : []),
     {
       label: "Send key",
+      /* The layout rows below open a glyph column for the whole menu, so this pane's own top-level
+         rows fill it rather than starting at a second left edge. The chords under this one keep the
+         blank slot on purpose: it is what makes them read as ITS list instead of four more actions. */
+      icon: <Icon name="keyboard" size={14} />,
       disabled: !connected,
       // A submenu would be a second surface for six rows; the chords are named inline instead, which
       // is also how they read in every other client's menu.
@@ -165,6 +176,7 @@ export function useMachineMenuItems(item: Item): MenuItem[] {
     { kind: "separator" as const },
     {
       label: "Paste into this machine",
+      icon: <Icon name="clipboard" size={14} />,
       disabled: !connected,
       title: "Sends your clipboard, then press ⌘V in the guest. RFB's clipboard is not transparent, so this is deliberate rather than automatic.",
       onSelect: () => { void paste(); },

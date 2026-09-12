@@ -190,23 +190,24 @@ window.__live = window.__live ?? {
       gaps: band ? { left: band.l - p.l, right: p.r - band.r } : null,
     };
   },
-  /** The rail against the scroll bands, with the column scrolled far enough that both bands are on.
+  /** The rail against the dissolve, with the column scrolled far enough that both ends are live.
    *
-   *  The bands are pointer-transparent chrome painted with a backdrop filter, so nothing about them
-   *  can be asserted except where they are: a band that overlaps the rail IS the rail rendered
-   *  through a blur, which is what a screenshot showed and no jsdom test can. */
+   *  The dissolve is a mask on the column, so what there is to check is which ELEMENT carries it: a
+   *  mask on anything that also holds the rail is the rail dissolving with the content, which is
+   *  what a screenshot showed when the effect was two bands hung off .page-body. Masks do not
+   *  overlap things — they belong to a box — so this reports the boxes rather than an intersection. */
   async railUnderFade() {
     const content = document.querySelector('.page-content');
     const rail = document.querySelector('.page-rail');
     if (!content || !rail) return null;
     content.scrollTop = 200;
     await new Promise((r) => setTimeout(r, 300));
-    const rr = rail.getBoundingClientRect();
-    const on = [...document.querySelectorAll('.edge-fade')].filter((b) => b.hasAttribute('data-on'));
-    const over = on.map((b) => b.getBoundingClientRect())
-      .filter((r) => r.left < rr.right && r.right > rr.left && r.top < rr.bottom && r.bottom > rr.top)
-      .map((r) => this.box({ getBoundingClientRect: () => r }));
-    return { scrolled: Math.round(content.scrollTop), on: on.length, over, rail: this.box(rail) };
+    const masked = [...document.querySelectorAll('.page-scroll, .page-body, .page-rail, .page-content')]
+      .filter((el) => getComputedStyle(el).maskImage !== 'none');
+    const ends = (content.dataset.dissolve ?? '').split(' ').filter(Boolean);
+    return { scrolled: Math.round(content.scrollTop), on: ends.length,
+             over: masked.filter((el) => el !== content).map((el) => el.className),
+             rail: this.box(rail) };
   },
   /** Any CSS colour as the sRGB triple the compositor will paint, via the compositor itself. */
   srgb(color) {
@@ -481,9 +482,9 @@ async function main() {
     await sleep(200);
     fades.push({ width, ...(await evalIn(c, `__live.railUnderFade()`)) });
   }
-  console.log("\n── Settings: the scroll bands against the rail ──────────────────");
-  for (const f of fades) console.log(`  window ${String(f.width).padStart(4)}  bands on ${f.on}  over the rail ${f.over.length}  rail ${JSON.stringify(f.rail)}`);
-  check("settings: a scrolled column dissolves at its ends and the rail is never under a band",
+  console.log("\n── Settings: the dissolve against the rail ─────────────────────");
+  for (const f of fades) console.log(`  window ${String(f.width).padStart(4)}  ends live ${f.on}  other masked boxes ${f.over.length}  rail ${JSON.stringify(f.rail)}`);
+  check("settings: a scrolled column dissolves at its ends and nothing but the column is masked",
     fades.every((f) => f.on > 0 && f.over.length === 0), fades.map((f) => ({ width: f.width, on: f.on, over: f.over })));
   await evalIn(c, `__live.settingsTab("Engines")`);
 

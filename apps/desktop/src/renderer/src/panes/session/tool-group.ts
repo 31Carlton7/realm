@@ -59,25 +59,7 @@ const NO_NESTED: readonly ToolNode[] = [];
  *  Lifting a sub-agent's calls out of the top level closes the gaps they left, so a parent's own
  *  calls that were only separated by its child's now group as the one run they always were. */
 export function groupTranscript(blocks: readonly Block[]): TranscriptItem[] {
-  // Only calls ALREADY seen are candidate parents — the map is written after the lookup, one pass,
-  // in arrival order. That is true of every real transcript (a sub-agent cannot act before the call
-  // that spawned it) and it is also what makes a cycle unrepresentable: a malformed pair of ids
-  // would otherwise nest into each other, vanish from the render, and recurse until the stack went.
-  const nodes = new Map<string, ToolNode>();
-  /** `node` is null for everything that is not a tool call, and IS the node otherwise — carried
-   *  rather than rebuilt so a card's `nested` keeps its identity across renders. */
-  const top: { key: string; block: Block; node: ToolNode | null }[] = [];
-  for (let i = 0; i < blocks.length; i++) {
-    const b = blocks[i]!;
-    if (b.kind !== "tool") { top.push({ key: blockKey(b, i), block: b, node: null }); continue; }
-    const parent = b.parentToolUseId === undefined ? undefined : nodes.get(b.parentToolUseId);
-    const node: ToolNode = { key: blockKey(b, i), block: b, nested: [] };
-    nodes.set(b.toolUseId, node);
-    // A parent this transcript does not hold leaves the call where it is. An id Realm cannot resolve
-    // is still work the agent did, and hiding it would lose the call rather than nest it.
-    if (parent) parent.nested.push(node); else top.push({ key: node.key, block: b, node });
-  }
-
+  const { top } = buildToolTree(blocks);
   const out: TranscriptItem[] = [];
   let i = 0;
   while (i < top.length) {
@@ -91,6 +73,51 @@ export function groupTranscript(blocks: readonly Block[]): TranscriptItem[] {
     else for (const s of steps) out.push({ kind: "block", key: s.key, block: s.block, nested: s.nested });
   }
   return out;
+}
+
+/**
+ * One tool call and everything a sub-agent did under it, by the call's own id.
+ *
+ * What the sub-agent drawer reads: a `Task`/`Agent`/`Workflow` call IS its sub-agent, and the calls
+ * nested beneath it are that agent's whole visible working — there is no session, no transcript row
+ * and no other trace of it anywhere.
+ *
+ * Built by the SAME pass `groupTranscript` uses rather than a second walk of its own. The nesting
+ * rules here are not obvious (arrival order is what makes a cycle unrepresentable, and an unresolved
+ * parent leaves its call at the top level), and two readers of them would eventually disagree about
+ * which agent a call belonged to.
+ */
+export function findToolNode(blocks: readonly Block[], toolUseId: string): ToolNode | null {
+  return buildToolTree(blocks).nodes.get(toolUseId) ?? null;
+}
+
+/**
+ * Blocks as a forest: every call with its sub-agents' calls hung off it, in arrival order.
+ *
+ * Only calls ALREADY seen are candidate parents — the map is written after the lookup, one pass, in
+ * arrival order. That is true of every real transcript (a sub-agent cannot act before the call that
+ * spawned it) and it is also what makes a cycle unrepresentable: a malformed pair of ids would
+ * otherwise nest into each other, vanish from the render, and recurse until the stack went.
+ */
+function buildToolTree(blocks: readonly Block[]): {
+  /** `node` is null for everything that is not a tool call, and IS the node otherwise — carried
+   *  rather than rebuilt so a card's `nested` keeps its identity across renders. */
+  top: { key: string; block: Block; node: ToolNode | null }[];
+  nodes: Map<string, ToolNode>;
+} {
+  const nodes = new Map<string, ToolNode>();
+  const top: { key: string; block: Block; node: ToolNode | null }[] = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i]!;
+    if (b.kind !== "tool") { top.push({ key: blockKey(b, i), block: b, node: null }); continue; }
+    const parent = b.parentToolUseId === undefined ? undefined : nodes.get(b.parentToolUseId);
+    const node: ToolNode = { key: blockKey(b, i), block: b, nested: [] };
+    nodes.set(b.toolUseId, node);
+    // A parent this transcript does not hold leaves the call where it is. An id Realm cannot resolve
+    // is still work the agent did, and hiding it would lose the call rather than nest it.
+    if (parent) parent.nested.push(node); else top.push({ key: node.key, block: b, node });
+  }
+  return { top, nodes };
 }
 
 /** Marks a tool tree with the enter flags the transcript's tracker just decided (transcript-enter).

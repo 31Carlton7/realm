@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { PAGE_REF_IDS, sessionEvent, type StoredSessionEvent } from "@realm/contracts";
 import { NotificationsPage, dayLabel } from "./NotificationsPage";
-import { Destinations } from "../../components/sidebar/Destinations";
+import { SidebarNotifications } from "../../components/sidebar/SidebarNotifications";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, notification, session, type FakeData } from "../../state/store.test-fakes";
 
@@ -263,35 +263,47 @@ describe("the Notifications page (Plan 12 W5)", () => {
   });
 });
 
-describe("the sidebar Destinations row (W5)", () => {
-  async function mountSidebar(overrides: FakeData = {}) {
+/** The row became a bell in the head row; everything the row was tested for is still true of it,
+ *  and one thing more — the count now has to reach a reader through the NAME, because a 16px chip
+ *  at a glyph's shoulder is not something a screen reader can describe by its shape. */
+describe("the head row's bell", () => {
+  async function mountBell(overrides: FakeData = {}) {
     const api = fakeApi(overrides);
     const store = createAppStore(api);
     await store.getState().boot();
-    const r = render(<StoreContext.Provider value={store}><Destinations /></StoreContext.Provider>);
+    const r = render(<StoreContext.Provider value={store}><SidebarNotifications /></StoreContext.Provider>);
     return { store, api, ...r };
   }
 
   it("wears the SERVER's unread count from boot, before any feed page was ever fetched — one source", async () => {
-    const { store } = await mountSidebar({ notifications: [notification("n1"), notification("n2"), notification("n3", { readAt: 1 })] });
-    const row = screen.getByRole("button", { name: /Notifications/ });
-    expect(within(row).getByLabelText("2 unread")).toHaveTextContent("2");
-    expect(store.getState().notifications).toEqual([]); // no rows held — the pill cannot be a row count
+    const { store } = await mountBell({ notifications: [notification("n1"), notification("n2"), notification("n3", { readAt: 1 })] });
+    const bell = screen.getByRole("button", { name: "Notifications, 2 unread" });
+    expect(within(bell).getByText("2")).toHaveClass("sb-badge");
+    expect(store.getState().notifications).toEqual([]); // no rows held — the badge cannot be a row count
   });
 
-  it("shows no pill at zero (dead chrome ban), and opens the notifications page on click", async () => {
-    const { api, store } = await mountSidebar();
-    const row = screen.getByRole("button", { name: /Notifications/ });
-    expect(within(row).queryByLabelText(/unread/)).toBeNull();
-    row.click();
-    await waitFor(() => expect(api.calls.some((c) => c.startsWith("createItem:"))).toBe(true));
-    const created = store.getState().items.find((i) => i.kind === "notifications-page");
-    expect(created?.refId).toBe(PAGE_REF_IDS["notifications-page"]);
+  it("shows no badge at zero (dead chrome ban), and opens the notifications page on click", async () => {
+    const { api, store, container } = await mountBell();
+    const bell = screen.getByRole("button", { name: "Notifications" });
+    expect(container.querySelector(".sb-badge")).toBeNull();
+    bell.click();
+    // The page comes up OVER the workspace — no item created, nothing added to the sidebar.
+    await waitFor(() => expect(store.getState().pageOverlay).toEqual({
+      kind: "notifications-page", refId: PAGE_REF_IDS["notifications-page"], spaceId: store.getState().activeSpaceId,
+    }));
+    expect(api.calls.some((c) => c.startsWith("createItem:"))).toBe(false);
   });
 
-  it("tracks notifications.changed broadcasts verbatim", async () => {
-    const { store } = await mountSidebar();
+  it("tracks notifications.changed broadcasts verbatim, in the badge AND in the name", async () => {
+    const { store } = await mountBell();
     store.getState().applyNotificationsChanged({ notification: null, unread: 12 });
-    await waitFor(() => expect(screen.getByLabelText("12 unread")).toHaveTextContent("12"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Notifications, 12 unread" })).toBeInTheDocument());
+    expect(screen.getByText("12")).toHaveClass("sb-badge");
+    /* Three digits do not fit beside a 14px glyph at the type floor, so past ninety-nine the badge
+       says "a lot" and the exact number is on the page it opens — but the NAME keeps it, because
+       nothing about a reader's ability to hear "127" depends on the width of a chip. */
+    store.getState().applyNotificationsChanged({ notification: null, unread: 127 });
+    await waitFor(() => expect(screen.getByText("99+")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Notifications, 127 unread" })).toBeInTheDocument();
   });
 });

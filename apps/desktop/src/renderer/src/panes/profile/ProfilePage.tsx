@@ -97,6 +97,7 @@ const isEverywhere = (scope: Skill["scope"] | McpServer["scope"]) =>
 function ProfileSkillsTab({ spaceId, profileId, profileName, spaceName }: { spaceId: string; profileId: string; profileName: string; spaceName: string }) {
   const skills = useApp((s) => s.spaceSkills[spaceId]);
   const refreshSkills = useApp((s) => s.refreshSkills);
+  const openSkillPage = useApp((s) => s.openSkillPage);
   const run = useApp((s) => s.run);
   useEffect(() => { run(() => refreshSkills(spaceId)); }, [spaceId, refreshSkills, run]);
 
@@ -111,7 +112,7 @@ function ProfileSkillsTab({ spaceId, profileId, profileName, spaceName }: { spac
         <span>{profileName}'s skills</span>
         {own.length === 0
           ? <p className="env-empty">No skills are defined at this profile yet — move one here with "Move to profile…" on a space's Skills tab.</p>
-          : <ul className="settings-list">{own.map((sk) => <ProfileSkillRow key={sk.id} spaceId={spaceId} skill={sk} profileName={profileName} spaceName={spaceName} />)}</ul>}
+          : <ul className="settings-list">{own.map((sk) => <ProfileSkillRow key={sk.id} spaceId={spaceId} skill={sk} profileName={profileName} spaceName={spaceName} onOpen={() => run(() => openSkillPage(sk.id))} />)}</ul>}
       </div>
       {everywhere.length > 0 && (
         <div className="field">
@@ -121,7 +122,7 @@ function ProfileSkillsTab({ spaceId, profileId, profileName, spaceName }: { spac
             {everywhere.map((sk) => (
               <li key={sk.id} className="settings-row">
                 <div className="settings-row-main">
-                  <span className="settings-row-name">{sk.name}</span>
+                  <button type="button" className="settings-row-name skill-open" onClick={() => run(() => openSkillPage(sk.id))}>{sk.name}</button>
                   <span className="settings-row-desc">{sk.valid ? sk.description : sk.reason}</span>
                 </div>
               </li>
@@ -133,15 +134,16 @@ function ProfileSkillsTab({ spaceId, profileId, profileName, spaceName }: { spac
   );
 }
 
-/** One of the profile's own skills: the row plus its demote move behind the shared confirm. */
-function ProfileSkillRow({ spaceId, skill: sk, profileName, spaceName }: { spaceId: string; skill: Skill; profileName: string; spaceName: string }) {
+/** One of the profile's own skills: the row plus its demote move behind the shared confirm. The name
+ *  is the same door every other skill list carries — it opens the Library's one skill viewer. */
+function ProfileSkillRow({ spaceId, skill: sk, profileName, spaceName, onOpen }: { spaceId: string; skill: Skill; profileName: string; spaceName: string; onOpen: () => void }) {
   const demoteSkill = useApp((s) => s.demoteSkill);
   const run = useApp((s) => s.run);
   const [confirming, setConfirming] = useState(false);
   return (
     <li className="settings-row" data-invalid={!sk.valid || undefined}>
       <div className="settings-row-main">
-        <span className="settings-row-name">{sk.name}</span>
+        <button type="button" className="settings-row-name skill-open" onClick={onOpen}>{sk.name}</button>
         {sk.valid
           ? <span className="settings-row-desc">{sk.description}</span>
           : <span className="settings-row-problem"><Icon name="alert" size={12} /> {sk.reason}</span>}

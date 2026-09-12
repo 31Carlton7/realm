@@ -672,3 +672,119 @@ describe("realm-browser allowedTools (Plan 11 W4)", () => {
     await handle.dispose();
   });
 });
+
+/**
+ * The truncating resume (`Options.resumeSessionAt` + `Options.resumeDropsTurn`) — what a checkpoint
+ * restore arms. Everything here is asserted on the Options object the adapter hands `query`, because
+ * that is the whole of Realm's part: the truncation itself happens inside the CLI, on the print/headless
+ * lane this adapter is on, and no test in this suite can reach it.
+ */
+describe("truncating resume", () => {
+  const start = (opts: Partial<StartOptions & { resumeAt?: string | null; resumeDropsTurn?: string | null }>, captureOptions: Record<string, unknown>[]) => {
+    const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, captureOptions }) as never });
+    return a.start({ cwd: "/tmp", mcpServers: [], ...opts });
+  };
+  const optionsFor = async (opts: Partial<StartOptions & { resumeAt?: string | null; resumeDropsTurn?: string | null }>) => {
+    const captureOptions: Record<string, unknown>[] = [];
+    const h = start(opts, captureOptions);
+    await h.send({ text: "hi", attachments: [] });
+    await h.dispose();
+    return captureOptions[0]!;
+  };
+
+  it("sends the fork point and the dropped turn alongside the resume", async () => {
+    const o = await optionsFor({ resume: "sess-1", resumeAt: "u-end", resumeDropsTurn: "u-prompt" });
+    expect(o).toMatchObject({ resume: "sess-1", resumeSessionAt: "u-end", resumeDropsTurn: "u-prompt" });
+  });
+
+  it("sends NEITHER when the dropped turn is unknown — an unguarded truncation is not on offer", async () => {
+    /* The named mutant: passing `resumeSessionAt` on its own. The SDK's documented behaviour without
+       `resumeDropsTurn` is an UNVALIDATED truncation, which silently discards whatever else landed past
+       the fork point — a queued user message, a task notification. The guard is the feature; its absence
+       is not a degraded version of it. */
+    const o = await optionsFor({ resume: "sess-1", resumeAt: "u-end" });
+    expect(o.resume).toBe("sess-1");
+    expect("resumeSessionAt" in o).toBe(false);
+    expect("resumeDropsTurn" in o).toBe(false);
+  });
+
+  it("sends neither when there is no session to resume", async () => {
+    // `resumeSessionAt` names a position in the chain `resume` loads. With no `resume` there is no
+    // chain, and the pair would be an instruction about nothing.
+    const o = await optionsFor({ resume: null, resumeAt: "u-end", resumeDropsTurn: "u-prompt" });
+    expect("resumeSessionAt" in o).toBe(false);
+    expect("resumeDropsTurn" in o).toBe(false);
+  });
+
+  it("leaves an ordinary resume exactly as it was", async () => {
+    const o = await optionsFor({ resume: "sess-1" });
+    expect(o.resume).toBe("sess-1");
+    expect("resumeSessionAt" in o).toBe(false);
+    expect("resumeDropsTurn" in o).toBe(false);
+  });
+
+  it("reports the settled turn's chain cursor off the handle", async () => {
+    // The server reads this on the settle to write a checkpoint's cursor. The fixture's turn ends on an
+    // assistant entry (`a2`) after a tool_result carrier (`r1`), and carries no prompt replay — which is
+    // exactly what a cursor with no `dropsTurn` looks like, and why such a cursor is stored as none.
+    const captureOptions: Record<string, unknown>[] = [];
+    const a = new ClaudeAdapter({ query: fakeQuery({ captureOptions }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const c = collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle");
+    await h.send({ text: "hi", attachments: [] });
+    await c;
+    expect(h.chainCursor()).toEqual({ promptUuid: null, endUuid: "a2" });
+    await h.dispose();
+  });
+});
+
+/**
+ * Realm's execution sandbox on the Claude side. The SDK owns the argv, so the only place to stand is
+ * its own `spawnClaudeCodeProcess` seam — and the tests that matter are about when Realm stands on
+ * it and when it deliberately does not.
+ */
+describe("the sandbox wrap", () => {
+  const options = async (start: Partial<StartOptions>) => {
+    const captureOptions: Record<string, unknown>[] = [];
+    const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, captureOptions }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [], ...start });
+    const c = collectUntil(h.events, () => false);
+    await h.send({ text: "hi", attachments: [] });
+    await h.dispose(); await c;
+    return captureOptions[0]!;
+  };
+
+  it("leaves the SDK's own spawn alone for a session with no sandbox", async () => {
+    // The un-opted-in path, which is what this release ships. The SDK's `spawnLocalProcess` does
+    // more than `spawn` — windowsHide, a stderr tail, an exit it holds until stderr closes — and a
+    // user who never asked for a sandbox must keep all of it.
+    //
+    // MUTANT: install the seam unconditionally and this key appears for everybody.
+    expect(await options({})).not.toHaveProperty("spawnClaudeCodeProcess");
+  });
+
+  it("takes over the spawn only when a wrap was supplied", async () => {
+    expect(await options({ wrap: (command, args) => ({ command, args }) })).toHaveProperty("spawnClaudeCodeProcess");
+  });
+
+  it("hands the wrap the SDK's own argv and spawns what it answers with", async () => {
+    const seen: { command: string; args: string[] }[] = [];
+    const o = await options({
+      wrap: (command, args) => { seen.push({ command, args }); return { command, args: ["WRAPPED"] }; },
+    });
+    const spawn = o.spawnClaudeCodeProcess as (so: { command: string; args: string[]; cwd?: string; env: NodeJS.ProcessEnv; signal: AbortSignal }) => { stdout: NodeJS.ReadableStream; kill(s: NodeJS.Signals): boolean };
+    const child = spawn({ command: "/bin/echo", args: ["ORIGINAL"], cwd: process.cwd(), env: process.env, signal: new AbortController().signal });
+    // MUTANT: pass `so.command`/`so.args` straight to spawn and this prints ORIGINAL — an agent the
+    // user asked to confine, running unconfined.
+    const printed = await new Promise<string>((res) => { let out = ""; child.stdout.on("data", (d) => { out += String(d); }); child.stdout.on("end", () => res(out)); });
+    expect(printed.trim()).toBe("WRAPPED");
+    expect(seen).toEqual([{ command: "/bin/echo", args: ["ORIGINAL"] }]);
+  });
+
+  it("lets a wrap's throw out of the spawn rather than starting the CLI unconfined", async () => {
+    const o = await options({ wrap: () => { throw new Error("sandbox-exec is missing"); } });
+    const spawn = o.spawnClaudeCodeProcess as (so: { command: string; args: string[]; env: NodeJS.ProcessEnv; signal: AbortSignal }) => unknown;
+    expect(() => spawn({ command: "/bin/echo", args: [], env: process.env, signal: new AbortController().signal }))
+      .toThrow(/sandbox-exec is missing/);
+  });
+});

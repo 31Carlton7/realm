@@ -8,6 +8,7 @@ import { rpc } from "../../rpc/client";
 import { useApp } from "../../state/store";
 import { Menu, type MenuItem } from "../../components/Menu";
 import type { PaneProps } from "../registry";
+import { useScrollMemory } from "../scroll-memory";
 import {
   canSave, edited, externalChange, keepMine, opened, saved, takeTheirs, writeRejected, type Buffer,
 } from "./buffers";
@@ -52,6 +53,9 @@ const baseName = (p: string) => p.split("/").pop() ?? p;
 const RichTextEditor = lazy(() => import("./RichTextEditor").then((m) => ({ default: m.RichTextEditor })));
 /** Same treatment for the sheet stack: the grid + formula engine load only when a sheet is opened. */
 const SheetEditor = lazy(() => import("./SheetEditor").then((m) => ({ default: m.SheetEditor })));
+/** Same treatment again: CodeMirror plus a grammar is a payload a workspace of Markdown must never
+ *  pay for, and `code-modes.ts` splits the grammars one chunk further. */
+const CodeEditor = lazy(() => import("./CodeEditor").then((m) => ({ default: m.CodeEditor })));
 
 /**
  * The document workspace pane (Plan 17 W1): a tab strip over open files, one editor per file type.
@@ -303,6 +307,7 @@ export function DocumentsPane({ item }: PaneProps) {
           <Editor
             buffer={buf} kind={kind} mode={mode} documentsId={documentsId}
             onChange={(text) => setBuffer(buf.path, (b) => edited(b, text))}
+            onSave={() => { void save(buf.path); }}
           />
         </>
       )}
@@ -436,10 +441,11 @@ function DocumentNameInput({ stem, onCommit, onCancel }: { stem: string; onCommi
   );
 }
 
-type DocIcon = "artifact" | "documents" | "table" | "browser" | "layout";
+type DocIcon = "artifact" | "documents" | "table" | "browser" | "layout" | "code";
 
 function iconForKind(k: DocumentKind): DocIcon {
   return k === "sheet" ? "table" : k === "html" ? "browser" : k === "slides" ? "layout"
+    : k === "code" ? "code"
     : k === "unsupported" || k === "pdf" ? "artifact" : "documents";
 }
 const iconFor = (path: string): DocIcon => iconForKind(documentKindFor(path));
@@ -472,13 +478,17 @@ function ConflictBar({ onKeepMine, onTakeTheirs }: { onKeepMine: () => void; onT
  * The editor host. W2 adds the rich Markdown editor for `doc` and `slides`; the source view remains for
  * every kind and is the only view for `sheet` and `latex` until W3 and W5 replace it.
  */
-function Editor({ buffer, kind, mode, documentsId, onChange }: {
+function Editor({ buffer, kind, mode, documentsId, onChange, onSave }: {
   buffer: Buffer; kind: DocumentKind; mode: "rich" | "source"; documentsId: string;
-  onChange: (text: string) => void;
+  onChange: (text: string) => void; onSave: () => void;
 }) {
   // The toggle itself lives in the head bar beside the name — the editor only has to know which view
   // it is drawing. A PDF has no text, so it is preview-only regardless of the mode (Plan 22).
   const structured = structuredViewFor(kind);
+  /* Where the reader was in this file, kept across the unmount a space switch causes
+     (scroll-memory.ts). Per VIEW as well as per file: the rich column and the source text are two
+     different heights of the same document, and an offset taken in one is meaningless in the other. */
+  const sourceScroll = useScrollMemory(`doc:${documentsId}:source:${buffer.path}`);
   // A PDF and a Quick Look render have no text at all, so neither has a source view to toggle to.
   const showStructured = structured !== null && (mode === "rich" || structured === "pdf" || structured === "render");
   return (
@@ -497,10 +507,19 @@ function Editor({ buffer, kind, mode, documentsId, onChange }: {
                 document's editor state onto another's. */}
             {structured === "grid"
               ? <SheetEditor key={buffer.path} path={buffer.path} text={buffer.text} onChange={onChange} />
-              : <RichTextEditor key={buffer.path} text={buffer.text} onChange={onChange} />}
+              : <RichTextEditor key={buffer.path} text={buffer.text} onChange={onChange}
+                  scrollKey={`doc:${documentsId}:rich:${buffer.path}`} />}
+          </Suspense>
+        ) : kind === "code" ? (
+          <Suspense fallback={<div className="pane-placeholder muted">Loading editor…</div>}>
+            {/* Keyed by path for the same reason the rich editor is: a new file gets a new editor
+                rather than one document's undo history diffed onto another's. */}
+            <CodeEditor key={buffer.path} path={buffer.path} text={buffer.text}
+              onChange={onChange} onSave={onSave}
+              scrollKey={`doc:${documentsId}:code:${buffer.path}`} />
           </Suspense>
         ) : (
-          <textarea className="documents-source" value={buffer.text} spellCheck={false}
+          <textarea className="documents-source" ref={sourceScroll} value={buffer.text} spellCheck={false}
             aria-label={`Edit ${baseName(buffer.path)}`} onChange={(e) => onChange(e.target.value)} />
         )}
       </div>

@@ -502,6 +502,16 @@ ipcMain.handle("pick-icon-image", async (): Promise<PickedFile | null> => {
   return (await describeFiles(r.filePaths))[0] ?? null;
 });
 
+/** A VS Code colour theme, for `themes.import`. `.jsonc` alongside `.json` because VS Code accepts
+ *  comments in these files and plenty of published themes use them; the server's reader strips them. */
+ipcMain.handle("pick-theme-file", async (): Promise<string | null> => {
+  const r = await dialog.showOpenDialog({
+    properties: ["openFile"],
+    filters: [{ name: "VS Code colour theme", extensions: ["json", "jsonc"] }],
+  });
+  return r.canceled ? null : r.filePaths[0] ?? null;
+});
+
 /** Compression by PATH, so the store can run it on every icon upload rather than only the ones that
  *  came through the dialog above. A drop onto the picker hands the renderer a `File` whose path never
  *  passed through `pick-icon-image`, which is how a 1.3MB headshot reached `iconAssets.upload` and was
@@ -1083,6 +1093,7 @@ app.whenReady().then(async () => {
         // there is deliberately no sibling op for the credential key.
         if (op === "oauthKey") return Promise.resolve({ key: secrets()?.exportOauthKey() ?? null });
         if (op === "machineKey") return Promise.resolve({ key: secrets()?.exportMachineKey() ?? null });
+        if (op === "eggsKey") return Promise.resolve({ key: secrets()?.exportEggsKey() ?? null });
         // Computer-use ops share this socket but not the browser executor: they need no window and
         // no view, so they are answered before the window check below.
         if (op.startsWith("computer")) return computerHost.handleOp(op, params);

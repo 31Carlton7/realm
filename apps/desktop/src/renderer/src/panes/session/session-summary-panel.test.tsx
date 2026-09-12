@@ -3,8 +3,10 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { createAppStore, StoreContext } from "../../state/store";
 import { fakeApi, item } from "../../state/store.test-fakes";
 import { reduceAll } from "./transcript-model";
-import { sessionEvent } from "@realm/contracts";
-import { SessionSummaryButton, SUMMARY_PIN_MIN_PANE, contextRows } from "./SessionSummary";
+import { sessionEvent, type GitInfo } from "@realm/contracts";
+import { contextRows, planBodyBelowTitle, planRows, planTitle } from "./SessionSummary";
+import { SessionPanelActions } from "./SessionPane";
+import { DOCK_PIN_MIN_PANE } from "./pane-dock";
 import { session as fakeSession } from "../../state/store.test-fakes";
 
 afterEach(() => cleanup());
@@ -20,7 +22,7 @@ async function mount(events: Event[]) {
   store.setState({ transcripts: { se1: { lastSeq: 0, t: reduceAll(events) } } });
   const view = render(
     <StoreContext.Provider value={store}>
-      <SessionSummaryButton item={item("i9", "s1", { kind: "session", refId: "se1", title: "A session" })} />
+      <SessionPanelActions item={item("i9", "s1", { kind: "session", refId: "se1", title: "A session" })} keep={Number.POSITIVE_INFINITY} />
     </StoreContext.Provider>,
   );
   return { api, store, ...view };
@@ -173,7 +175,7 @@ describe("pinned beside the transcript, or floating over it", () => {
       <StoreContext.Provider value={store}>
         <div className="panel">
           <div className="panel-bar">
-            <SessionSummaryButton item={item("i9", "s1", { kind: "session", refId: "se1", title: "A session" })} />
+            <SessionPanelActions item={item("i9", "s1", { kind: "session", refId: "se1", title: "A session" })} keep={Number.POSITIVE_INFINITY} />
           </div>
           <div className="session-pane" />
         </div>
@@ -183,12 +185,12 @@ describe("pinned beside the transcript, or floating over it", () => {
   }
 
   it("pins in a wide pane: the pane makes room, and a click outside does NOT close it", async () => {
-    const { restore } = await mountInPane(SUMMARY_PIN_MIN_PANE + 50);
+    const { restore } = await mountInPane(DOCK_PIN_MIN_PANE + 50);
     openPanel();
     const panel = await screen.findByRole("dialog", { name: "Session summary" });
     expect(panel).toHaveAttribute("data-pinned");
     // The transcript gets out of the way rather than being covered — the whole point of pinning.
-    expect(document.querySelector(".session-pane")).toHaveAttribute("data-summary-pinned");
+    expect(document.querySelector(".session-pane")).toHaveAttribute("data-dock-pinned");
     fireEvent.mouseDown(document.body);
     expect(screen.getByRole("dialog", { name: "Session summary" })).toBeInTheDocument();
     restore();
@@ -198,11 +200,11 @@ describe("pinned beside the transcript, or floating over it", () => {
     /* Pinning at any width means a pane split three ways shows a summary and a sliver. Below the
        threshold the panel is an overlay you did not make room for, and those close on an outside
        click like any other. */
-    const { restore } = await mountInPane(SUMMARY_PIN_MIN_PANE - 50);
+    const { restore } = await mountInPane(DOCK_PIN_MIN_PANE - 50);
     openPanel();
     const panel = await screen.findByRole("dialog", { name: "Session summary" });
     expect(panel).not.toHaveAttribute("data-pinned");
-    expect(document.querySelector(".session-pane")).not.toHaveAttribute("data-summary-pinned");
+    expect(document.querySelector(".session-pane")).not.toHaveAttribute("data-dock-pinned");
     fireEvent.mouseDown(document.body);
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Session summary" })).toBeNull());
     restore();
@@ -215,36 +217,38 @@ describe("pinned beside the transcript, or floating over it", () => {
      result in failover-live.mjs, because only a real window has boxes.
      THE mutant: put `height: rect.height` back on the style object. */
   it("hands the pane's height over as a CAP and states no height of its own", async () => {
-    const { restore } = await mountInPane(SUMMARY_PIN_MIN_PANE + 50);
+    const { restore } = await mountInPane(DOCK_PIN_MIN_PANE + 50);
     openPanel();
     const panel = await screen.findByRole("dialog", { name: "Session summary" });
     expect(panel.style.height).toBe("");
     expect(panel.style.maxHeight).toBe("");
     // 800 is the stubbed pane height. The stylesheet subtracts the panel's own inset from it.
-    expect(panel.style.getPropertyValue("--summary-pane-h")).toBe("800px");
+    // `--dock-pane-h`, not `--summary-pane-h`: the strip is shared with the sub-agent panel now,
+    // and a property named for one of its two occupants would be a lie on the other.
+    expect(panel.style.getPropertyValue("--dock-pane-h")).toBe("800px");
     // Still docked to the pane's top edge: shorter than the pane means top-aligned, not floated free.
     expect(panel.style.top).toBe("0px");
     restore();
   });
 
-  it("its scroller carries the shared edge bands, and neither is drawn over content that fits", async () => {
-    /* `ScrollFades` rather than a band of its own: the primitive only paints when the scroller has
-       something past the edge, which is what keeps a panel whose rows fit from wearing a smear along
-       the bottom of a list that ends there. THE mutant: an always-on `.summary-fade` div. */
-    const { restore } = await mountInPane(SUMMARY_PIN_MIN_PANE + 50);
+  it("its scroller carries the shared dissolve, and neither end is live over content that fits", async () => {
+    /* The shared primitive rather than a band of its own: it only dissolves an end the scroller has
+       something past, which is what keeps a panel whose rows fit from wearing a smear along the
+       bottom of a list that ends there. THE mutant: an always-on `.summary-fade` div. */
+    const { restore } = await mountInPane(DOCK_PIN_MIN_PANE + 50);
     openPanel();
     const panel = await screen.findByRole("dialog", { name: "Session summary" });
     const wrap = panel.querySelector(".summary-scroll-wrap")!;
-    expect(wrap.querySelector(".summary-scroll")).not.toBeNull();
-    const bands = [...wrap.querySelectorAll(":scope > .edge-fade")];
-    expect(bands).toHaveLength(2);
-    // Nothing scrolls in jsdom, so nothing is under either band, so neither is on.
-    expect(bands.some((b) => b.hasAttribute("data-on"))).toBe(false);
+    const scroller = wrap.querySelector(".summary-scroll")!;
+    expect(scroller).toHaveAttribute("data-dissolve");
+    // Nothing scrolls in jsdom, so nothing is past either end, so neither is named.
+    expect(scroller.getAttribute("data-dissolve")).toBe("");
+    expect(wrap.querySelector(".edge-fade")).toBeNull();
     restore();
   });
 
   it("a click INSIDE the floating panel, or on its own button, is not an outside click", async () => {
-    const { restore } = await mountInPane(SUMMARY_PIN_MIN_PANE - 50);
+    const { restore } = await mountInPane(DOCK_PIN_MIN_PANE - 50);
     openPanel();
     const panel = await screen.findByRole("dialog", { name: "Session summary" });
     fireEvent.mouseDown(panel);
@@ -278,12 +282,28 @@ describe("the session's context", () => {
     });
     expect(rows.map((r) => [r.label, r.value])).toEqual([
       ["worktree", "realm"],
-      ["branch · 2 changed", "feat/context"],
+      ["branch", "feat/context"],
+      ["2 files", "+1 −0"],
       ["Claude", "claude-opus-5 · high"],
       ["permission", "Accept edits"],
       ["memory", "Realm memory, CLAUDE.md"],
       ["connection", "linear"],
     ]);
+  });
+
+  /* The two halves of the changes row, which are not the same number: `dirty` counts porcelain
+     entries and the signs count lines. A tree whose only change is an untracked file has a dirty
+     count and no lines, and "+0 −0" there would read as a session that touched nothing. */
+  it("states the working tree in lines where git counted them, and in files where it could not", () => {
+    const changes = (git: Partial<GitInfo>) => contextRows({
+      session: base(), env: null, memory: null, servers: [],
+      git: { branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0, ...git },
+    }).find((r) => r.action === "diff");
+    expect(changes({ dirty: 3, additions: 40, deletions: 12 })).toMatchObject({ label: "3 files", value: "+40 −12", diff: { additions: 40, deletions: 12 } });
+    expect(changes({ dirty: 1, additions: 0, deletions: 0 })).toMatchObject({ label: "1 file", value: "changed" });
+    expect(changes({ dirty: 1 })?.diff).toBeUndefined();
+    // A clean tree has no row at all, rather than a row reading zero.
+    expect(changes({ dirty: 0, additions: 0, deletions: 0 })).toBeUndefined();
   });
 
   it("draws no branch and no connections when nothing has said there are any", () => {
@@ -306,5 +326,60 @@ describe("the session's context", () => {
     expect(sectionNames()).toContain("Context");
     expect(within(document.querySelector(".summary-fact")!.parentElement!).getByText("main")).toBeInTheDocument();
     await waitFor(() => expect(api.calls.some((c) => c.startsWith("memorySources:se1"))).toBe(true));
+  });
+});
+
+/**
+ * The plan rows under the spend figure. Every assertion here is about NOT drawing something: a panel
+ * that reported 0% of a limit nobody has stated would be the most expensive thing it could say, and
+ * the silence has four separate causes that all have to end the same way.
+ */
+describe("the account the session spends from", () => {
+  const limits = (patch: Record<string, unknown> = {}) => ({
+    agentKind: "claude", subscriptionType: "max", organization: null, unavailable: null,
+    alert: "none", alertWindow: null, detail: null, updatedAt: 1,
+    windows: [{ id: "five_hour", label: "5-hour", utilization: 20, resetsAt: null },
+              { id: "weekly", label: "Weekly", utilization: 85, resetsAt: null }],
+    ...patch,
+  } as never);
+
+  it("names the plan and the window that runs out first", () => {
+    expect(planRows(limits(), "claude").map((r) => [r.label, r.value]))
+      .toEqual([["plan", "Claude Max"], ["Weekly", "85%"]]);
+  });
+
+  it("carries the provider's alert on the window's value, and nothing of its own", () => {
+    expect(planRows(limits(), "claude")[1]?.tone).toBeUndefined();
+    expect(planRows(limits({ alert: "approaching" }), "claude")[1]?.tone).toBe("warning");
+    expect(planRows(limits({ alert: "exceeded" }), "claude")[1]?.tone).toBe("danger");
+  });
+
+  it("draws nothing at all where the provider has not answered", () => {
+    expect(planRows(null, "claude")).toEqual([]);
+    expect(planRows(limits(), null)).toEqual([]);
+    expect(planRows(limits({ unavailable: "unsupported" }), "claude")).toEqual([]);
+    // A plan with no tier is a row that cannot be named; a window with no utilization is not a 0%.
+    expect(planRows(limits({ subscriptionType: null }), "claude").map((r) => r.label)).toEqual(["Weekly"]);
+    expect(planRows(limits({ windows: [{ id: "weekly", label: "Weekly", utilization: null, resetsAt: null }] }), "claude").map((r) => r.label)).toEqual(["plan"]);
+  });
+});
+
+describe("a plan opened as a sheet", () => {
+  const plan = (text: string) => ({ planId: "p1", text, steps: [], ts: 0 });
+
+  it("drops the heading the sheet's own title is lifted from, so the plan is titled once", () => {
+    /* The sheet chrome prints `planTitle`, and `planTitle` IS the plan's first heading — leaving it
+       in the body draws the same sentence twice, once as chrome and once as an <h1>. The mutant is
+       returning `p.text` unchanged, which is exactly the bug this fixes. */
+    const p = plan("# Watchable machines\n\n## Context\n\nRealm drives things.");
+    expect(planTitle(p)).toBe("Watchable machines");
+    expect(planBodyBelowTitle(p)).toBe("## Context\n\nRealm drives things.");
+  });
+
+  it("keeps prose that merely opens without a heading, and later repeats of the title", () => {
+    const bare = plan("Watchable machines: a visible cursor.\n\nMore prose.");
+    expect(planBodyBelowTitle(bare)).toBe(bare.text);
+    const echoed = plan("# Watchable machines\n\n# Watchable machines\n\nBody.");
+    expect(planBodyBelowTitle(echoed)).toBe("# Watchable machines\n\nBody.");
   });
 });

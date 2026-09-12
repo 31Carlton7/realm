@@ -80,11 +80,17 @@ function Confirm({ preview }: { preview: RestorePreview }) {
       <p className="cp-note">
         Nothing is lost: the checkout as it is right now is captured first, and appears above as an undo point.
       </p>
-      {!preview.rewindsConversation && (
-        <p className="cp-note">
-          Files only — the agent keeps its memory of these turns. No agent Realm supports can rewind a conversation.
-        </p>
-      )}
+      {/* Both branches, because the old copy said no agent Realm supports can rewind a conversation and
+          that is no longer true: Claude's truncating resume can, when this checkpoint recorded the
+          cursors and the session still holds the provider conversation they name. The negative copy is
+          deliberately unspecific — it is true of every way a rewind can be unavailable (wrong agent, no
+          cursor recorded, a cursor the CLI refused, a conversation that has moved on) and naming one
+          of them here would be a guess. */}
+      <p className="cp-note">
+        {preview.rewindsConversation
+          ? "The conversation rewinds too: this session's transcript is cut back to this point, and the agent picks up from here with no memory of the turns after it."
+          : "Files only — the agent keeps its memory of these turns."}
+      </p>
       {!preview.headMovable && preview.headReason && (
         <p className="cp-note">The branch will not move: {preview.headReason}.</p>
       )}

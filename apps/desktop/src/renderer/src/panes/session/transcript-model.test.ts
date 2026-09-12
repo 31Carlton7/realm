@@ -399,3 +399,38 @@ describe("a background sub-agent's start and stop", () => {
     expect(t.blocks).toHaveLength(1);
   });
 });
+
+/**
+ * The generated prompt hint on the transcript.
+ *
+ * Two rules, and the second is the one that keeps ⇥ from typing a stale sentence: the hint was
+ * written about the turn that had just ended, so the moment the user sends anything it stops being
+ * about the last turn and has to go.
+ */
+describe("the prompt hint", () => {
+  const hint = (text: string, throughSeq: number) => sessionEvent("prompt_hint", { text, throughSeq });
+
+  it("takes the newest hint, and never an older one arriving late", () => {
+    // Same forward-only rule the summary has: on a slow machine a hint generated for an earlier turn
+    // can land after a newer one, and the newer answer is the one about the transcript on screen.
+    const t = reduceAll([hint("newer", 9), hint("older", 4)]);
+    expect(t.promptHint).toEqual({ text: "newer", throughSeq: 9 });
+  });
+
+  it("is dropped the moment the user sends anything", () => {
+    const t = reduceAll([
+      sessionEvent("user_message", { text: "go", attachments: [] }),
+      sessionEvent("assistant_text", { messageId: "m1", text: "done" }),
+      hint("Write tests for it.", 2),
+      sessionEvent("user_message", { text: "actually do this", attachments: [] }),
+    ]);
+    /* The mutant: keeping it here. The prompter would offer "Write tests for it." under a transcript
+       whose last line is a different request, and ⇥ would send it. */
+    expect(t.promptHint).toBeNull();
+  });
+
+  it("is absent on a transcript that never produced one, which is the ordinary case", () => {
+    expect(reduceAll([sessionEvent("user_message", { text: "hi", attachments: [] })]).promptHint).toBeNull();
+    expect(emptyTranscript().promptHint).toBeNull();
+  });
+});

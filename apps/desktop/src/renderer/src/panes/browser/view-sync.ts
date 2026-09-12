@@ -14,6 +14,16 @@ export const SETTLE_MS = 180;
 export type ViewSyncFlags = {
   /** The pane sits in a visible leaf (PaneProps.visible). */
   paneVisible: boolean;
+  /**
+   * An app-level page (Settings, Library, Notifications, …) is open over the workspace.
+   *
+   * A native `WebContentsView` paints over ALL dom, so a DOM overlay cannot cover one — and unlike a
+   * sheet, which is a card with room beside it, the page overlay covers the whole pane host and
+   * leaves no complement to snap a browser into. Hiding is the only honest answer: opening Settings
+   * with a browser pane behind it left the page reachable only where the browser did not happen to
+   * be. The view keeps running and comes back at the same rect when the page closes.
+   */
+  pageOverlay: boolean;
   /** A sidebar/pane item drag is in flight — drags are on the do-NOT-animate list, and the view
    *  hides outright rather than trailing the placeholder (research mitigation). */
   dragging: boolean;
@@ -26,7 +36,7 @@ export type ViewSyncFlags = {
 
 /** THE visibility verdict, sent to main with every bounds sync. */
 export function shouldShowView(f: ViewSyncFlags): boolean {
-  return f.paneVisible && !f.dragging && f.settled && f.hasUrl;
+  return f.paneVisible && !f.pageOverlay && !f.dragging && f.settled && f.hasUrl;
 }
 
 /** Is this drag one of ours? Existing items and the new-session row carry custom MIME types;

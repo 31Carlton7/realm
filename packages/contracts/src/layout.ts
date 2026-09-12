@@ -146,6 +146,34 @@ export function closeItem(l: Layout, itemId: string): Layout {
   }
 }
 
+/**
+ * Remove an EMPTY leaf by id, pruning on the same terms `closeItem` does.
+ *
+ * Its own function rather than a branch in `closeItem`, because the two are keyed differently: an
+ * item can only be open in one leaf, while a deliberately-empty leaf has nothing to look it up by
+ * except where it is. `closeItem`'s own note says it keeps leaves that were already empty — this is
+ * how the one the user actually pointed at goes.
+ *
+ * A leaf holding an item is left alone: closing THAT is `closeItem`'s job, and pruning it here would
+ * lift an open session out of the layout from a control that only ever means "drop this empty box".
+ */
+export function closeLeaf(l: Layout, leafId: string): Layout {
+  const pruned = prune(l);
+  // The tree may not become nothing: the last leaf survives, same id, empty — which is exactly the
+  // state this function is usually asked to remove, and is the right answer when it is the only one.
+  return pruned ?? { ...firstLeaf(l), itemId: null };
+
+  function prune(n: Layout): Layout | null {
+    if (n.type === "leaf") return n.id === leafId && n.itemId === null ? null : n;
+    const kept: Layout[] = []; const sizes: number[] = [];
+    n.children.forEach((c, i) => { const p = prune(c); if (p) { kept.push(p); sizes.push(n.sizes[i] ?? 0); } });
+    if (kept.length === 0) return null;
+    if (kept.length === 1) return kept[0]!;
+    const total = sizes.reduce((a, b) => a + b, 0) || 1;
+    return { ...n, children: kept, sizes: sizes.map((s) => (s / total) * 100) };
+  }
+}
+
 /** Open an item into a leaf, replacing whatever it held (the replaced item just stops being open).
  *  Items are unique in the layout: if the item is open elsewhere it is moved. A null/unknown leafId
  *  targets the first leaf. */

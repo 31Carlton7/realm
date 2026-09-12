@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { contrast, hexToOklch, parseOklch as parse } from "./oklch";
+import { contrast, hexToOklch, parseOklch as parse } from "@realm/contracts";
 import { clampContrast, CONTRAST_FLOOR, CONTRAST_RANGE, INK_GROUNDS, REALM_SEED, THEMES, THEME_VARS, contrastMisses, deriveVars, paletteFor,
   parseThemeOverride, parseThemeOverrides, resolveMode, seedFor, themeModes, themeSwatches, themeVars,
-  type ThemeOverride } from "./themes";
+  type ThemeName, type ThemeOverride } from "./themes";
 import type { Mode } from "./theme";
 
 /** The eight validated chart series, copied from tokens.css. A theme does not repaint them; what it
@@ -237,9 +237,14 @@ describe("the picker's swatches", () => {
 });
 
 describe("provenance", () => {
+  /** The palettes drawn here rather than ported from somewhere. Everything else in THEMES arrived
+   *  from a project that has a name and a licence, and owes it a line. Adding to this list is how a
+   *  palette says it has no upstream — which is a claim someone has to make on purpose. */
+  const OWN: ThemeName[] = ["realm", "phosphor"];
+
   it("every vendored palette credits its upstream and its licence", () => {
     for (const theme of THEMES) {
-      if (theme.name === "realm") { expect(theme.credit).toBeNull(); continue; }
+      if (OWN.includes(theme.name)) { expect(theme.credit, theme.name).toBeNull(); continue; }
       expect(theme.credit, theme.name).toMatch(/MIT ©/);
     }
   });

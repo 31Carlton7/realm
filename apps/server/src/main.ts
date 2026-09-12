@@ -4,7 +4,7 @@
 // stray ELECTRON_RUN_AS_NODE=1 breaks any Electron-based tool a child might launch.
 delete process.env.ELECTRON_RUN_AS_NODE;
 
-import { generateSessionSummary, generateSessionTitle } from "@realm/adapters";
+import { generateSessionRecap, generateSessionTitle } from "@realm/adapters";
 import { createApp } from "./app";
 import { DAEMON_PROTOCOL } from "@realm/contracts";
 import { realmHome } from "./paths";

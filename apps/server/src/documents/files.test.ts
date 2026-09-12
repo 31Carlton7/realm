@@ -3,7 +3,7 @@ import { readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { DOCUMENT_MAX_BYTES } from "@realm/contracts";
-import { hashText, isTempArtifact, readDocument, readIfExists, writeAtomic, writeDocument } from "./files";
+import { TEXT_SNIFF_BYTES, hashText, isTempArtifact, readDocument, readIfExists, textRefusal, writeAtomic, writeDocument } from "./files";
 
 let dir: string;
 const p = (name: string) => join(dir, name);
@@ -100,5 +100,57 @@ describe("writeDocument — the lost-update guard", () => {
     await writeFile(p("a.md"), "same");
     const r = await writeDocument(p("a.md"), "same", hashText("same"));
     expect(r).toEqual({ ok: true, hash: hashText("same") });
+  });
+});
+
+describe("textRefusal", () => {
+  it("calls a NUL byte binary, the way git does", () => {
+    expect(textRefusal(Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x01]))).toBe("binary");
+    expect(textRefusal(Buffer.from("const x = 1;\n", "utf8"))).toBeNull();
+  });
+  it("calls undecodable bytes not-utf8 rather than binary — it IS text, just not ours", () => {
+    // "café au lait" in Latin-1: no NUL, but 0xE9 is not valid UTF-8. Opened as text it becomes
+    // "caf\uFFFD" and the first save writes that back, losing the é for good.
+    expect(textRefusal(Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x20, 0x61, 0x75]))).toBe("not-utf8");
+  });
+  it("catches a truncated character at the end of a file it read whole", () => {
+    // Only the SNIFF boundary is allowed to cut a character in half. A short file that ends
+    // mid-sequence is malformed, and stream mode applied unconditionally would wave it through.
+    expect(textRefusal(Buffer.from([0x68, 0x69, 0xf0, 0x9f]))).toBe("not-utf8");
+  });
+  it("accepts a multi-byte character straddling the sniff boundary", () => {
+    // The bug this prevents: a file with an emoji whose bytes span byte 8192 would be "binary" in
+    // whichever quarter of cases the split lands mid-character.
+    const head = Buffer.from("a".repeat(TEXT_SNIFF_BYTES - 2), "utf8");
+    const bytes = Buffer.concat([head, Buffer.from("🙂", "utf8"), Buffer.from("tail", "utf8")]);
+    expect(textRefusal(bytes)).toBeNull();
+  });
+  it("accepts an empty file", () => {
+    expect(textRefusal(Buffer.alloc(0))).toBeNull();
+  });
+  it("looks only at the head — a text file with a blob in its middle still opens", () => {
+    const bytes = Buffer.concat([Buffer.from("x".repeat(TEXT_SNIFF_BYTES), "utf8"), Buffer.from([0x00])]);
+    expect(textRefusal(bytes)).toBeNull();
+  });
+});
+
+describe("readDocument({ refuseBinary })", () => {
+  it("refuses a binary file, naming it", async () => {
+    await writeFile(p("logo.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x0d]));
+    await expect(readDocument(p("logo.png"), { refuseBinary: true })).rejects.toThrow(/logo\.png is a binary file/);
+  });
+  it("refuses a file it would rewrite on save, with a different sentence", async () => {
+    await writeFile(p("latin.txt"), Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]));
+    await expect(readDocument(p("latin.txt"), { refuseBinary: true })).rejects.toThrow(/not UTF-8/);
+  });
+  it("still reads ordinary source", async () => {
+    await writeFile(p("a.ts"), "export const x = 1;\n");
+    expect((await readDocument(p("a.ts"), { refuseBinary: true })).text).toBe("export const x = 1;\n");
+  });
+  it("leaves the default path alone — a rename onto a PNG must still say EXISTS", async () => {
+    // The reason the flag is opt-in: `renameDocument` asks `readIfExists` whether the target is
+    // there, and "that file is binary" is not an answer to the question it asked.
+    await writeFile(p("logo.png"), Buffer.from([0x89, 0x50, 0x00]));
+    expect(await readIfExists(p("logo.png"))).not.toBeNull();
   });
 });

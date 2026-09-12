@@ -246,6 +246,7 @@ describe("SecretStore — the key handoff and the audit log", () => {
     const { store } = makeStore({ available: false });
     expect(store.exportOauthKey()).toBeNull();
     expect(store.exportMachineKey()).toBeNull();
+    expect(store.exportEggsKey()).toBeNull();
   });
 
   it("exports the machine key too, and it is a DIFFERENT key from oauth's", () => {
@@ -256,9 +257,14 @@ describe("SecretStore — the key handoff and the audit log", () => {
     // one key for both would let a machine's box open an oauth blob, which is the whole property the
     // domain byte exists to deny.
     expect(machine).not.toBe(store.exportOauthKey());
-    // …and the credential key is STILL not exported. Two keys leave this class; the third does not.
+    /* …and the credential key is STILL not exported. The list is enumerated rather than counted so
+       that adding an export is a deliberate edit to this line: `exportEggsKey` (the word that
+       unlocks a friend pack) joined it on purpose, and the one that must never appear is a
+       credential key — one bridge op away from a server that can open somebody's saved sign-ins. */
     expect(Object.getOwnPropertyNames(SecretStore.prototype).filter((m) => m.startsWith("export")).sort())
-      .toEqual(["exportMachineKey", "exportOauthKey"]);
+      .toEqual(["exportEggsKey", "exportMachineKey", "exportOauthKey"]);
+    expect(store.exportEggsKey()).not.toBe(machine);
+    expect(store.exportEggsKey()).not.toBe(store.exportOauthKey());
   });
 
   /* The upgrade that would otherwise have been silent data loss. `machine` is a domain added after

@@ -1,8 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { SpaceStrip } from "./SpaceStrip";
 import { StoreContext, createAppStore, spaceBadge } from "../../state/store";
 import { fakeApi, session, space } from "../../state/store.test-fakes";
+import { exited } from "../popover-exit.test-fakes";
 
 async function mount(api = fakeApi()) {
   const store = createAppStore(api);
@@ -132,8 +133,35 @@ describe("SpaceStrip profile scoping", () => {
     expect(api.calls.filter((c) => c.startsWith("reorderSpaces:")).at(-1)).toBe("reorderSpaces:s2,s1,s3");
   });
 
-  it("the gear is gone from the strip — Settings is a destination row now", async () => {
+  it("the gear is not a slot in the strip — it is inside the chip's menu", async () => {
     await mount();
+    // No button in the RAIL: the strip is a rail about spaces, and the gear was the one thing in it
+    // that was not one. It costs a menu row instead of a slot the strip has none of.
     expect(screen.queryByRole("button", { name: "Settings" })).toBeNull();
+  });
+
+  /* The chip is the one control in the column whose subject is the account rather than the work, so
+     the two pages that belong to neither a space nor a session are asked for here: what this Mac is
+     connected to, and how Realm itself is set up. They open the same overlay the destination rows
+     open — one page, one way in, whichever door was used. */
+  it("the profile menu opens Connections and Settings, each wearing its own glyph", async () => {
+    const { store } = await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Profile: Work" }));
+    const menu = await screen.findByRole("menu", { name: "Profiles" });
+    for (const name of ["Connections", "Settings"]) {
+      expect(within(menu).getByRole("menuitem", { name }).querySelector(".menu-icon svg")).not.toBeNull();
+    }
+    // Every row reserves the slot once any row asks for one, so the profiles carry their own marks
+    // rather than starting 20px left of the two rows under them.
+    expect(within(menu).getByRole("menuitemcheckbox", { name: /Work/ }).querySelector(".menu-icon svg")).not.toBeNull();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Settings" }));
+    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("settings-page"));
+
+    // §6's exit keeps the dismissed menu mounted for a beat, and the chip is a toggle: pressing it
+    // inside that beat would close what is already closing rather than open it again.
+    await exited();
+    fireEvent.click(screen.getByRole("button", { name: "Profile: Work" }));
+    fireEvent.click(within(await screen.findByRole("menu", { name: "Profiles" })).getByRole("menuitem", { name: "Connections" }));
+    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("connections-page"));
   });
 });

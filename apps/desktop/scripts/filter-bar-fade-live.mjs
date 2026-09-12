@@ -3,16 +3,20 @@
  * (run with: node apps/desktop/scripts/filter-bar-fade-live.mjs)
  *
  * The bug this pins: scroll the Library and the search field and filter chips — the controls that
- * decide WHAT the grid is showing — slid under `.edge-fade[data-edge=top]` and went to a smudge.
- * A backdrop-filter takes everything painted beneath it, and the bar was painted beneath it, so the
- * band a designer added to dissolve CONTENT was blurring CHROME. Nothing in jsdom can see this: it
- * is paint order and a compositor filter, and the stylesheet on its own only says who has a z-index.
+ * decide WHAT the grid is showing — slid under the page's top fade and went to a smudge. That fade
+ * was a backdrop-filter, and a backdrop-filter takes everything painted beneath it, so a band added
+ * to dissolve CONTENT was blurring CHROME. The z-index that used to exempt the bar is gone with the
+ * band: the dissolve is a mask on the scroller now, and a mask applies to everything the element
+ * paints, so nothing inside a scroller can be lifted out of it.
  *
- * So it is measured on pixels. With the bar parked inside the band, a clip of it is captured and
- * scored for sharpness (mean absolute difference between neighbouring pixels — blur is exactly the
- * operation that flattens that). The mutant is the fix taken away, `z-index: auto` on the bar, at the
- * same scroll offset with the same content: the score has to collapse, or the check is measuring
- * nothing. Both Library tabs that carry a bar are run, since they are two different elements.
+ * What holds instead is the property that made the mask the right answer. A mask takes ALPHA, not
+ * detail: the bar scrolling into the dissolve keeps every edge it had and simply becomes less there,
+ * which is what a thing leaving looks like — where a blur destroys the detail and reads as a broken
+ * render. That is measurable, so it is measured: a clip of the bar parked inside the dissolve is
+ * scored for sharpness (mean absolute difference between neighbouring pixels, normalised for the
+ * fade's own loss of contrast), and the mutant is a backdrop blur put back over the same strip at
+ * the same offset. The score has to collapse under the mutant, or the check is measuring nothing.
+ * Both Library tabs that carry a bar are run, since they are two different elements.
  *
  * Ports: env-overridable. Touches only a scratch dir; kills only the process it started.
  */
@@ -123,7 +127,7 @@ globalThis.__live = {
     const s = sc.getBoundingClientRect(), b = bar.getBoundingClientRect();
     return { x: Math.round(b.left), y: Math.round(s.top), width: Math.round(b.width),
              height: Math.round(Math.min(depth, b.bottom - s.top)),
-             armed: !!wrap.querySelector('.edge-fade[data-edge="top"][data-on]'),
+             armed: (sc.dataset.dissolve ?? '').includes('start'),
              barZ: getComputedStyle(bar).zIndex, scrollTop: Math.round(sc.scrollTop),
              overflow: Math.round(sc.scrollHeight - sc.clientHeight) };
   },
@@ -247,16 +251,18 @@ async function main() {
     await evalIn(c, `__live.park(${JSON.stringify(sel)}, ${into})`);
     await sleep(350);
     const clip = await evalIn(c, `__live.clip(${JSON.stringify(sel)})`);
-    check(`${tab}: the column scrolls and the top band is armed over the bar`,
+    check(`${tab}: the column scrolls and the top end is dissolving over the bar`,
       clip.overflow > 12 && clip.armed && clip.height > 8, clip);
-    check(`${tab}: the bar outranks the band's layer 1`, Number(clip.barZ) > 1, { z: clip.barZ });
 
-    const fixed = await evalIn(c, SHARPNESS(await shot(c, clip, `${tab.toLowerCase()}-fixed`)));
+    const dissolved = await evalIn(c, SHARPNESS(await shot(c, clip, `${tab.toLowerCase()}-dissolved`)));
 
-    // The mutant: put the bar back in the band's backdrop, nothing else moved.
+    /* The mutant: a backdrop blur over the same strip — the band this replaced, in one line. Nothing
+       else moves, so the only difference between the two readings is what the effect does to detail. */
     await evalIn(c, `(() => {
-      const st = document.createElement('style'); st.id = 'mutant-z';
-      st.textContent = '.page-filters, .skills-filter-row { z-index: auto !important; }';
+      const st = document.createElement('style'); st.id = 'mutant-blur';
+      st.textContent = '.page-scroll::after { content: ""; position: absolute; inset: 0 0 auto 0;'
+        + ' height: var(--fade-top-h); z-index: 3; pointer-events: none;'
+        + ' backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }';
       document.head.appendChild(st); return true; })()`);
     await sleep(350);
     const parked = await evalIn(c, `__live.clip(${JSON.stringify(sel)})`);
@@ -264,10 +270,10 @@ async function main() {
       parked.scrollTop === clip.scrollTop && parked.y === clip.y && parked.height === clip.height, parked);
     const mutant = await evalIn(c, SHARPNESS(await shot(c, parked, `${tab.toLowerCase()}-mutant`)));
 
-    check(`${tab}: the bar stays sharp under the band, and the mutant reproduces the smudge`,
-      fixed > mutant * 1.5, { fixed, mutant, ratio: +(fixed / mutant).toFixed(2) });
+    check(`${tab}: the bar keeps its detail as it dissolves, where a blur would take it`,
+      dissolved > mutant * 1.5, { dissolved, mutant, ratio: +(dissolved / mutant).toFixed(2) });
 
-    await evalIn(c, `(() => { document.getElementById('mutant-z').remove(); return true; })()`);
+    await evalIn(c, `(() => { document.getElementById('mutant-blur').remove(); return true; })()`);
     await sleep(250);
   }
 }

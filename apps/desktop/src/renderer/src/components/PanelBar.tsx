@@ -4,6 +4,7 @@ import { PAGE_REF_IDS, type Item } from "@realm/contracts";
 import { paneActions, paneMeta, usePaneMenuItems } from "../panes/registry";
 import { useApp } from "../state/store";
 import { Menu } from "./Menu";
+import { useActionBudget } from "./pane-bar-fit";
 import { RenameInput } from "./RenameInput";
 
 /**
@@ -59,10 +60,16 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
   // Two-step destructive confirm (U-H2), same pattern as the sidebar's item menu.
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const menuBtn = useRef<HTMLButtonElement>(null);
-  const kindItems = usePaneMenuItems(item);
+  const bar = useRef<HTMLDivElement>(null);
+  const isBrowser = item.kind === "browser";
+  /* How many of the kind's own actions still fit as buttons; the rest are rows in the ⋯ menu below.
+     The browser's bar has no menu to overflow INTO — W2.3 forbids it a dropdown — so it is told it
+     has room for everything and keeps the inline cluster it has always had. */
+  const budget = useActionBudget(bar);
+  const keep = isBrowser ? Number.POSITIVE_INFINITY : budget;
+  const kindItems = usePaneMenuItems(item, keep);
   const Meta = paneMeta[item.kind];
   const Actions = paneActions[item.kind];
-  const isBrowser = item.kind === "browser";
   const closeMenu = () => { setMenuOpen(false); setConfirmingDelete(false); };
   const deletesOnClose = DELETES_ON_CLOSE.has(item.kind);
   /* The confirm is owed by the OBJECT, not by the button. A pty, a live web view and a document
@@ -71,12 +78,17 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
   const confirmFirst = !PAGE_KINDS.has(item.kind);
   const deleteNow = () => run(() => deleteItem(item.id));
   /**
-   * Focus (fill the host) and Unfocus (back to the split) as ONE toggle, filled while it is on.
+   * Focus (fill the host) and Unfocus (back to the split) as ONE toggle, filled while it is on —
+   * for the BROWSER bar only, which is the one bar that cannot open a menu.
    *
-   * It replaces a banner across the top of the pane host that read "Focused: <title> | Unfocus". The
-   * banner existed because a focused pane hides its siblings, so something had to carry the state the
-   * screen no longer showed — but a whole strip to say what a lit button says is a row of chrome
-   * charged for one bit. The bit lives on the control that changes it now.
+   * Every other kind used to carry this in the action cluster too, next to the ⋯ that already
+   * offered the same thing one row down. Two controls for one action is one too many in a bar whose
+   * whole job is to stay out of the pane's way, and the toolbar copy was the one paying rent: the
+   * menu row says the word "Focus", prints ⌘⇧F beside it, and flips to "Unfocus pane" in the same
+   * place — everything the lit glyph said, said in language. So the glyph goes and the row stays.
+   *
+   * The browser keeps it because W2.3 forbids its bar a dropdown (the native view paints over
+   * anything that opens below), and a focus reachable only from a shortcut is not reachable.
    *
    * `data-on` and one glyph, which is the treatment `SessionSummaryButton` already wears: the icon
    * cannot fill (only the stroke pack ships), so the BUTTON does. Swapping the glyph as well would
@@ -85,7 +97,7 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
    *
    * The NAME flips rather than carrying `aria-pressed`. A toggle takes one or the other, never both:
    * "Unfocus Two, pressed" is a sentence at war with itself. The flipped name is also how a screen
-   * reader learns the pane IS focused, which is the banner's job inherited rather than dropped.
+   * reader learns the pane IS focused.
    */
   const focusToggle = (zoomed ? onUnzoom : onZoom) ? (
     <button className="icon-btn" data-on={zoomed || undefined}
@@ -94,7 +106,7 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
       onClick={zoomed ? onUnzoom : onZoom}><Icon name="focusPane" size={14} /></button>
   ) : null;
   return (
-    <div className="panel-bar">
+    <div className="panel-bar" ref={bar}>
       {/* The pane's own trail, at the LEFT edge where every back button in every app lives. Rendered
           disabled rather than hidden at the ends of the trail: arrows that come and go would shift
           the title under the pointer mid-click, and a greyed arrow is how a user learns the pane
@@ -114,7 +126,7 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
         )}
       <span className="panel-meta">{Meta ? <Meta item={item} /> : null}</span>
       <span className="panel-actions">
-        {Actions ? <Actions item={item} /> : null}
+        {Actions ? <Actions item={item} keep={keep} /> : null}
         {isBrowser ? (
           // W2.3 (no-overlay): a browser pane's header may never spawn a dropdown — the native view
           // paints over anything that opens below the bar. Everything the ⋯ menu carried is inline:
@@ -129,7 +141,6 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
           </>
         ) : (
           <>
-          {focusToggle}
           <button ref={menuBtn} className="icon-btn" aria-label={`Pane menu for ${item.title}`} aria-haspopup="menu"
             aria-expanded={menuOpen} title="Pane menu" onClick={() => { setConfirmingDelete(false); setMenuOpen((v) => !v); }}>
             <Icon name="more" size={14} />
@@ -152,26 +163,33 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
       </span>
       {!isBrowser && menuOpen && (
         <Menu anchorRef={menuBtn} align="right" label={`Actions for ${item.title}`} onClose={closeMenu} items={[
-          { label: "Rename", onSelect: () => setRenaming(true) },
+          /* Every row names its verb twice — once in the word, once in the glyph that the SAME
+             action wears everywhere else in the app. The split pair is the pane host's own two
+             layout marks, focus is the bar's expand arrows, and delete is the trash the bar's
+             trailing control shows. A menu whose icons were invented here would teach a second
+             vocabulary for the one it is a shortcut to. */
+          { label: "Rename", icon: <Icon name="edit" size={14} />, onSelect: () => setRenaming(true) },
           /* The pane kind's own rows, above the layout ones every pane shares — a machine's Send key
              and Clipboard belong with the thing they act on rather than under Split right. */
           ...kindItems,
           { kind: "separator" },
-          { label: "Split right", kbd: "⌘\\", onSelect: () => onSplit("row") },
-          { label: "Split down", kbd: "⌘⇧\\", onSelect: () => onSplit("col") },
+          { label: "Split right", icon: <Icon name="splitRight" size={14} />, kbd: "⌘\\", onSelect: () => onSplit("row") },
+          { label: "Split down", icon: <Icon name="splitDown" size={14} />, kbd: "⌘⇧\\", onSelect: () => onSplit("col") },
+          /* The bar no longer carries a focus glyph, so this row is the whole control: the word, the
+             shortcut, and a name that flips with the state rather than a pressed flag beside it. */
           ...(zoomed
-            ? (onUnzoom ? [{ label: "Unfocus pane", kbd: "⌘⇧F", onSelect: onUnzoom }] : [])
-            : (onZoom ? [{ label: "Focus pane", kbd: "⌘⇧F", onSelect: onZoom }] : [])),
+            ? (onUnzoom ? [{ label: "Unfocus pane", icon: <Icon name="unfocusPane" size={14} />, kbd: "⌘⇧F", onSelect: onUnzoom }] : [])
+            : (onZoom ? [{ label: "Focus pane", icon: <Icon name="focusPane" size={14} />, kbd: "⌘⇧F", onSelect: onZoom }] : [])),
           // Where the bar's own control deletes, this is the only route left to the layout-only
           // close — so it says which of the two it is, instead of leaving "Close" to mean either.
-          { label: deletesOnClose ? "Close pane (keep in space)" : "Close", kbd: "⌘W", onSelect: onClose },
+          { label: deletesOnClose ? "Close pane (keep in space)" : "Close", icon: <Icon name="close" size={14} />, kbd: "⌘W", onSelect: onClose },
           // Delete lives in the bar for those kinds; repeating it here would be two controls for
           // one action, and only one of them would ever wear the armed state.
           ...(deletesOnClose ? [] : [
             { kind: "separator" as const },
             confirmingDelete
-              ? { label: <strong>Really delete?</strong>, danger: true, onSelect: () => run(() => deleteItem(item.id)) }
-              : { label: "Delete", danger: true, keepOpen: true, onSelect: () => setConfirmingDelete(true) },
+              ? { label: <strong>Really delete?</strong>, icon: <Icon name="trash" size={14} />, danger: true, onSelect: () => run(() => deleteItem(item.id)) }
+              : { label: "Delete", icon: <Icon name="trash" size={14} />, danger: true, keepOpen: true, onSelect: () => setConfirmingDelete(true) },
           ]),
         ]} />
       )}

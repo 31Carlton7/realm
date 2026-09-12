@@ -1,7 +1,8 @@
 import { Icon } from "@realm/ui";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { basenameOf, isDirectoryMime, isImageMime, isOpenablePath, isPlayablePath } from "@realm/contracts";
 import { useThumbnail } from "../../components/use-thumbnail";
+import { squirclePath } from "../machine/squircle-path";
 import { MediaLightbox } from "./media/MediaView";
 import { useMediaFiles } from "./media/use-media";
 
@@ -11,6 +12,39 @@ const extOf = (path: string): string => {
   const dot = base.lastIndexOf(".");
   return dot > 0 ? base.slice(dot + 1).toLowerCase().slice(0, 4) : "";
 };
+
+/**
+ * The well's superellipse, as a clip path.
+ *
+ * The fill and the ring are the paint worklet's, like every other signature corner in the app. What
+ * the worklet cannot do is clip the tile's CONTENTS — the thumbnail and the type badge — and under
+ * it `border-radius` has to be 0, so `overflow: hidden` clips them to a square. A picture with square
+ * corners sitting on a painted superellipse is the one arrangement that looks worse than either
+ * shape alone.
+ *
+ * So the well takes a clip path, for the reason `squircle-path.ts` exists at all. It costs a read of
+ * the tile's own box: the size lives in the stylesheet (`--attach-tile`, 44px in the prompter and
+ * 56px in a message) and the path needs it in pixels. Read once, on mount — a tile is one of two
+ * sizes and never changes between them, so there is nothing here to keep watching.
+ */
+function useSquircleWell(): { ref: React.RefObject<HTMLSpanElement | null>; clip: string | undefined } {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [clip, setClip] = useState<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const box = el.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) return; // not laid out yet; the fallback corner still reads
+    /* The ratio comes from the stylesheet too, so the clip and the painted fill are derived from one
+       number rather than from two that have to be kept equal. */
+    const ratio = parseFloat(getComputedStyle(el).getPropertyValue("--sq-ratio-media")) || 0.4;
+    /* `path("…")`, not the bare `d`: `squirclePath` returns the path DATA, and `clip-path` takes a
+       shape. The machine pane wraps it at its own call site for the same reason. */
+    const d = squirclePath(box.width, box.height, Math.round(box.width * ratio));
+    setClip(d ? `path("${d}")` : undefined);
+  }, []);
+  return { ref, clip };
+}
 
 /**
  * One attachment, as a square: the file itself when macOS can render it — the image, the first page
@@ -72,6 +106,7 @@ export function AttachmentTile({ path, mime, name, detail, disposition, onRemove
   // `Calculator.app` on a click. The mime table is the gate precisely to stop that, and a folder
   // tile that shows what it is without offering to launch it is the honest trade.
   const canOpen = isOpenablePath(path);
+  const well = useSquircleWell();
 
   /* Media opens here, everything else opens THERE. The branch is on `file` — main's own answer about
      the file on disk — rather than on the mime the caller passed, so a path that has since moved
@@ -85,7 +120,7 @@ export function AttachmentTile({ path, mime, name, detail, disposition, onRemove
     <>
       {/* The picture and its badge sit in their own well, which is the element that clips to the
           rounded corners. The tile around it must NOT clip — the tip hangs outside its box. */}
-      <span className="attach-art">
+      <span className="attach-art" ref={well.ref} style={well.clip ? { ["--attach-clip" as string]: well.clip } : undefined}>
         {thumb
           // alt="" on purpose: the file is named once, by the visually-hidden span below. An alt
           // here would have a screen reader read it twice.

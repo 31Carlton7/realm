@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CONTRAST_FLOOR, REALM_SEED, THEMES, deriveVars, themeVars } from "@realm/ui/src/themes";
-import { hexToOklch, parseOklch, srgb, srgbLuminance } from "@realm/ui/src/oklch";
+import { hexToOklch, parseOklch, srgb, srgbLuminance } from "@realm/contracts";
 import { grainVars } from "./grain";
 
 /* The wash is decoration; the contrast floor is not. This walks every face the app can wear, paints
@@ -97,10 +97,10 @@ function decorate(vars: Record<string, string>, mode: Mode, ground: string, hue:
 
 describe("the decorative wash never costs text its contrast floor", () => {
   /* Every sweep below iterates FACES, and every one of them would pass on an empty list. The count
-     is also the "all seventeen faces" that grain.ts and tokens.css both state in prose, so pinning
+     is also the "all eighteen faces" that grain.ts and tokens.css both state in prose, so pinning
      it here is what stops a palette gaining or losing a face and leaving those two comments wrong. */
   it("sweeps every face the app ships, so none of the guarantees below can pass vacuously", () => {
-    expect(FACES.length).toBe(17);
+    expect(FACES.length).toBe(18);
   });
 
   for (const surface of SURFACES) {

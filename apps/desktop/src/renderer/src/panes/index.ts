@@ -28,3 +28,5 @@ import { AgentsPage } from "./agents/AgentsPage";
 registerPane("agents-page", AgentsPage);
 import { MachinePane } from "./machine/MachinePane";
 registerPane("machine", MachinePane);
+import { SimulatorPane } from "./simulator/SimulatorPane";
+registerPane("simulator", SimulatorPane);

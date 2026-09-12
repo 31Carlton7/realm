@@ -44,6 +44,21 @@ const typeAt = (value: string, at = value.length) => {
 };
 
 describe("the prompter's rich-text mirror", () => {
+  /* Through the real pane, because the command list is the pane's — `highlightSegments` is gated on a
+     command existing, and a wiring mistake would leave every slash uncoloured with the unit tests
+     still green. `/goal` is one the prompter genuinely has. */
+  it("paints a slash command the prompter actually has, and only its token", async () => {
+    await mount();
+    type("/goal ship the release notes");
+    expect(painted()).toEqual([["ch-slash", "/goal"]]);
+  });
+
+  it("leaves a slash that names no command as plain text", async () => {
+    await mount();
+    type("/usr/local/bin is where it lives");
+    expect(painted()).toEqual([]);
+  });
+
   it("paints links and live mentions, and reproduces the draft exactly", async () => {
     await mount();
     type("https://piazza.com/usc\n\nyou can use @mac for this");

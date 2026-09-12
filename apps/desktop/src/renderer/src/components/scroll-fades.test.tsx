@@ -20,11 +20,16 @@ function mount(axis: "y" | "x", metrics: Parameters<typeof sized>[1]) {
       </div>
     );
   }
-  const r = render(<Harness />);
+  render(<Harness />);
   act(() => { sized(scroller, metrics); scroller.dispatchEvent(new Event("scroll")); });
-  const band = (edge: string) => r.container.querySelector(`.edge-fade[data-edge="${edge}"]`)
-    ?? r.container.querySelector(".edge-fade:not([data-edge])");
-  const on = (edge: string) => band(edge)!.hasAttribute("data-on");
+  /* What there is to read is the SCROLLER's own marking: the dissolve is a mask on it, so the ends
+     that are live are the ones named in `data-dissolve`. `start`/`end` are the attribute's own
+     words; "top" and "bottom" are what the vertical pair mean. */
+  const on = (edge: string) => {
+    const key = axis === "y" ? "dissolve" : "dissolveX";
+    const named = (scroller.dataset[key] ?? "").split(" ");
+    return named.includes(edge === "top" ? "start" : edge === "bottom" ? "end" : edge);
+  };
   const scrollTo = (n: number) => act(() => {
     if (axis === "y") scroller.scrollTop = n; else scroller.scrollLeft = n;
     scroller.dispatchEvent(new Event("scroll"));
@@ -32,7 +37,7 @@ function mount(axis: "y" | "x", metrics: Parameters<typeof sized>[1]) {
   return { on, scrollTo };
 }
 
-describe("the edge fades are gated on there being something under them", () => {
+describe("the dissolve is gated on there being something under it", () => {
   it("shows the far band only while content runs past it, and the near band only once scrolled", () => {
     const { on, scrollTo } = mount("y", { scrollHeight: 500, clientHeight: 100 });
     expect(on("top")).toBe(false); // nothing above a list at rest

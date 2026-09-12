@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
-import { mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { openDatabase } from "../db/database";
@@ -447,5 +447,77 @@ description: rewritten.
     expect(ids()).toEqual([]);
     skill(agentsDir(), "fresh");
     expect(ids()).toEqual(["agents.fresh"]);
+  });
+});
+
+describe("SkillsService.detail — one skill, whole", () => {
+  it("splits the document off the frontmatter and carries the row unchanged", () => {
+    skill(service.root, "mac", "---\nname: mac\ndescription: drives Calendar.\nlicense: MIT\n---\n\n# Using mac\n\nRun `mac --help`.\n");
+    const d = service.detail(SPACE, "mac");
+    expect(d.skill).toEqual(byId("mac"));
+    expect(d.body).toBe("\n# Using mac\n\nRun `mac --help`.\n");
+    // Every key the reader made sense of, Realm's own two included — the viewer picks what to show.
+    expect(d.frontmatter).toEqual({ name: "mac", description: "drives Calendar.", license: "MIT" });
+    expect(d.truncated).toBe(false);
+  });
+
+  it("opens an INVALID skill too, with the raw file as its body — that is how its author sees what is wrong", () => {
+    skill(service.root, "broken", "no frontmatter here\njust prose\n");
+    const d = service.detail(SPACE, "broken");
+    expect(d.skill.valid).toBe(false);
+    expect(d.body).toBe("no frontmatter here\njust prose\n");
+    expect(d.frontmatter).toEqual({});
+  });
+
+  it("lists what is bundled beside the SKILL.md, depth-first, and never the SKILL.md itself", () => {
+    skill(service.root, "viz");
+    mkdirSync(join(service.root, "viz", "references"), { recursive: true });
+    mkdirSync(join(service.root, "viz", ".git"), { recursive: true });
+    writeFileSync(join(service.root, "viz", "references", "palette.md"), "# Palette\n");
+    writeFileSync(join(service.root, "viz", "render.py"), "print(1)\n");
+    writeFileSync(join(service.root, "viz", "logo.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    writeFileSync(join(service.root, "viz", ".hidden"), "x");
+    expect(service.detail(SPACE, "viz").resources).toEqual([
+      { rel: "logo.png", size: 4, readable: false },
+      { rel: "references/palette.md", size: 10, readable: true },
+      { rel: "render.py", size: 9, readable: true },
+    ]);
+  });
+
+  it("refuses an id this space cannot see rather than reading a directory it has no claim on", () => {
+    skill(service.root, "mac");
+    expect(() => service.detail(SPACE, "nope")).toThrow(RpcError);
+  });
+});
+
+describe("SkillsService.readFile — a bundled file, confined to its skill", () => {
+  it("reads a file beside the SKILL.md by its relative path", () => {
+    skill(service.root, "viz");
+    mkdirSync(join(service.root, "viz", "references"), { recursive: true });
+    writeFileSync(join(service.root, "viz", "references", "palette.md"), "# Palette\n");
+    expect(service.readFile(SPACE, "viz", "references/palette.md")).toEqual({ text: "# Palette\n", truncated: false });
+  });
+
+  it("refuses a path that climbs out of the skill's own directory", () => {
+    skill(service.root, "viz");
+    skill(service.root, "other");
+    writeFileSync(join(home, "secret.txt"), "shh");
+    // The escape resolves to a real file either way — the refusal has to come from the confinement
+    // check, not from the read failing.
+    expect(() => service.readFile(SPACE, "viz", "../other/SKILL.md")).toThrow(RpcError);
+    expect(() => service.readFile(SPACE, "viz", "../../secret.txt")).toThrow(RpcError);
+  });
+
+  it("refuses a SYMLINK out of the skill, which resolving the path alone would let through", () => {
+    skill(service.root, "viz");
+    writeFileSync(join(home, "secret.txt"), "shh");
+    symlinkSync(join(home, "secret.txt"), join(service.root, "viz", "escape.txt"));
+    expect(() => service.readFile(SPACE, "viz", "escape.txt")).toThrow(RpcError);
+  });
+
+  it("refuses a directory, and says so rather than answering with its listing", () => {
+    skill(service.root, "viz");
+    mkdirSync(join(service.root, "viz", "references"), { recursive: true });
+    expect(() => service.readFile(SPACE, "viz", "references")).toThrow(RpcError);
   });
 });

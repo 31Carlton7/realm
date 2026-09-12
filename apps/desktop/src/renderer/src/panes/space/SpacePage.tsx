@@ -572,11 +572,16 @@ function HistoryTab({ spaceId }: { spaceId: string }) {
   );
 }
 
+import { ScriptsPanel } from "../../components/settings/ScriptsPanel";
+import { SandboxPanel } from "../../components/settings/SandboxPanel";
+
 const PAGE_TABS: { id: SpacePageTab; label: string }[] = [
   { id: "general", label: "General" },
   { id: "memory", label: "Memory" },
   { id: "skills", label: "Skills" },
   { id: "connections", label: "Connections" },
+  { id: "scripts", label: "Scripts" },
+  { id: "sandbox", label: "Sandbox" },
   { id: "sessions", label: "Sessions" },
   { id: "tasks", label: "Tasks" },
   { id: "history", label: "History" },
@@ -607,6 +612,7 @@ export function SpacePage({ item }: PaneProps) {
   // A tab IS a change of what this pane shows, so it is a stop on the pane's back/forward trail.
   const navigateInPane = useApp((s) => s.navigateInPane);
   const newSessionInstant = useApp((s) => s.newSessionInstant);
+  const openSkillPage = useApp((s) => s.openSkillPage);
   const run = useApp((s) => s.run);
 
   if (!space) return <div className="pane-placeholder muted">This space no longer exists.</div>;
@@ -640,7 +646,10 @@ export function SpacePage({ item }: PaneProps) {
         <div className="page-content" data-wide={tab === "tasks" || undefined}>
           {tab === "general" && <GeneralTab spaceId={spaceId} />}
           {tab === "memory" && <MemoryTab spaceId={spaceId} />}
-          {tab === "skills" && <SkillsPanel spaceId={spaceId} />}
+          {/* The same skill rows, opening the same viewer. It lives on the Library page, so this
+              list names the skill and goes there rather than growing a second copy of it — a skill
+              reached from two lists has to open ONE way (design.md). */}
+          {tab === "skills" && <SkillsPanel spaceId={spaceId} onOpen={(id) => run(() => openSkillPage(id))} />}
           {/* Plan 9's gateway-era MCP surface IS this tab — one settings surface for one set of
               servers, exactly as it was in the retired sheet. */}
           {tab === "connections" && <>
@@ -652,6 +661,8 @@ export function SpacePage({ item }: PaneProps) {
                 what agents in this space may reach outside it. */}
             <div className="form settings-panel"><ComputerApps spaceId={spaceId} /></div>
           </>}
+          {tab === "scripts" && <ScriptsPanel spaceId={spaceId} />}
+          {tab === "sandbox" && <SandboxPanel spaceId={spaceId} />}
           {tab === "sessions" && <SessionsTab spaceId={spaceId} />}
           {tab === "tasks" && <TasksTab spaceId={spaceId} />}
           {tab === "history" && <HistoryTab spaceId={spaceId} />}

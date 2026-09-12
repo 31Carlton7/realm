@@ -1,8 +1,8 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import { activeLayout, setActiveLayout, COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip } from "@realm/contracts";
-import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, Skill, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry } from "@realm/contracts";
+import { activeLayout, setActiveLayout, COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_KEYBINDINGS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack } from "@realm/contracts";
+import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
-import { basenameOf, mimeForPath, nextFireOf } from "@realm/contracts";
+import { basenameOf, expandCommand, mimeForPath, nextFireOf } from "@realm/contracts";
 import type { CliStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageSummary, UsageTotals } from "@realm/contracts";
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
@@ -51,7 +51,11 @@ export const agentsFileState = (extra: Partial<AgentsFileState> = {}): AgentsFil
 
 export const checkpoint = (id: string, environmentId: string, extra: Partial<Checkpoint> = {}): Checkpoint =>
   ({ id, environmentId, sessionId: null, kind: "turn", label: "a turn", ref: `refs/realm/checkpoints/${environmentId}/${id}`,
-    commitSha: `sha-${id}`, headSha: "head", headRef: "refs/heads/main", createdAt: 0, ...extra });
+    commitSha: `sha-${id}`, headSha: "head", headRef: "refs/heads/main",
+    /* Null by default so the base fake is the case that still exists in the wild: a checkpoint with
+       no conversation cursor, which restores files only. A test that wants the rewind path asks for
+       it by name through `extra`, rather than every unrelated test silently exercising it. */
+    sessionSeq: null, providerCursor: null, createdAt: 0, ...extra });
 export const preview = (id: string, environmentId: string, extra: Partial<RestorePreview> = {}): RestorePreview =>
   ({ checkpointId: id, environmentId, path: "/tmp", label: "a turn", createdAt: 0, filesChanged: 0, commitsRolledBack: 0,
     headMovable: true, headReason: null, intact: true, rewindsConversation: false, ...extra });
@@ -112,6 +116,12 @@ export type FakeData = {
   /** `system.info.detachedSince` — when Realm's last window went away. Null (the default) is a server
    *  with a window attached, which is what every test that does not care about it wants. */
   detachedSince?: number | null;
+  /** Goal mode: the objective each session is pursuing, by session id. */
+  goals?: Record<string, Goal>;
+  /** Friend packs the fake server holds, the words that open them, and which are already open. */
+  eggPacks?: UnlockedEggPack[];
+  eggWords?: Record<string, string>;
+  eggsUnlocked?: string[];
   /** Plan 22: lectures per space, Plynn's meetings folder, and guide progress by `documentsId:path`. */
   lectures?: Record<string, Lecture[]>;
   plynn?: { available: boolean; folder: string; meetings: PlynnMeeting[] };
@@ -161,9 +171,41 @@ export type FakeData = {
   skills?: Record<string, Skill[]>;
   /** The library folder `skills.list` reports. */
   skillsRoot?: string;
+  /** A space's user-defined slash commands, by space id. Absent → none, which is what a space with no
+   *  `commands/` directory really reports. */
+  commands?: Record<string, UserCommand[]>;
+  /** The folder `commands.list` reports as the space's own writable root. */
+  commandsRoot?: string;
+  /** A space's project scripts, by space id. Absent → none. */
+  scripts?: Record<string, Script[]>;
+  /** What `keybindings.get` answers with. Defaults to the shipped rules with no error — the state a
+   *  fresh install is in. */
+  keybindings?: KeybindingsFile;
+  /** What `sandbox.get` answers with. Defaults to the shipped posture (`off`) inherited from the
+   *  default, on a Mac where Seatbelt works — the state a fresh install is in. */
+  sandbox?: SandboxState;
+  /** What `project.grep` / `project.files` answer. Empty by default: a test that wants project search
+   *  results asks for them, rather than every palette test rendering rows it never mentioned. */
+  projectGrep?: ProjectGrepResult;
+  projectFiles?: ProjectFilesResult;
   /** What `skills.sources` answers, by space id. Absent → the library alone, which is what a machine
    *  with no other agent directories on it really does report. */
   skillSources?: Record<string, SkillSource[]>;
+  /** Imported VS Code themes, as `themes.list` answers. */
+  customThemes?: StoredTheme[];
+  /** Families downloaded into `~/Realm/fonts`, as `fonts.installed` answers. */
+  installedFonts?: InstalledFont[];
+  /** What `fonts.catalog` answers with. */
+  fontCatalog?: CatalogFont[];
+  /** What the native theme picker returns — null is "the user cancelled". */
+  pickedThemeFile?: string | null;
+  /** What `themes.import` answers with; absent gives a plausible dark theme. */
+  importedTheme?: StoredTheme;
+  /** What `skills.read` answers, by skill id: the `SKILL.md` body and the files bundled beside it.
+   *  Absent id → an empty document with no resources, which is what a one-line SKILL.md really is. */
+  skillDocs?: Record<string, { body?: string; frontmatter?: Record<string, string>; resources?: SkillResource[] }>;
+  /** What `skills.readFile` answers, keyed `<skillId>/<rel>`. Absent → NOT_FOUND, as on the server. */
+  skillFiles?: Record<string, string>;
   /** What `mcp.test` answers, by server id. Absent id → reached false, "no test result configured". */
   mcpTest?: Record<string, McpTestResult>;
   /** Realm memory documents by space id. */
@@ -261,7 +303,15 @@ export type FakeApi = Api & {
   destroyedBrowserViews: string[];
   /** Every `sendMessage`, with the attachments that actually went on the wire. `mentions` is present
    *  only when non-empty, so mention-free assertions stay byte-for-byte what they always were. */
-  sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; elements?: ElementChip[] }[];
+  sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; elements?: ElementChip[]; delivery?: "auto" | "queue" | "steer" }[];
+  /** What `scripts.save` was handed, verbatim — the fields a form sends are the thing worth
+   *  asserting, and the `calls` log only carries an id. */
+  savedScripts: { spaceId: string; script: ScriptInput }[];
+  /** What `sessions.queued` answers. Set by a test that needs a pane to mount over a queue. */
+  queuedPrompts: QueuedPrompt[];
+  /** What `limits.get` answers. Empty by default: an account nobody has asked about reports nothing,
+   *  which is the state the plan card has to render honestly. */
+  planLimitRows: PlanLimits[];
   /** Every `mcp.add`/`mcp.update` input exactly as sent — what the secrecy tests read: an update that
    *  should have omitted `env` is caught here, not inferred from state. */
   mcpWrites: (AddMcpServerInput | UpdateMcpServerInput)[];
@@ -286,7 +336,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
   const calls: string[] = [];
   const disposed: string[] = [];
   const destroyedBrowserViews: string[] = [];
-  const sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[] }[] = [];
+  const sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; elements?: ElementChip[]; delivery?: "auto" | "queue" | "steer" }[] = [];
+  /** What `scripts.save` was handed, verbatim. A typed capture beside `sent`, because the fields a
+   *  form sends are the thing worth asserting and the `calls` log only carries an id. */
+  const savedScripts: { spaceId: string; script: ScriptInput }[] = [];
+  const queuedPrompts: QueuedPrompt[] = [];
+  const planLimitRows: PlanLimits[] = [];
   const data: Required<FakeData> = {
     detachedSince: overrides.detachedSince ?? null,
     profiles: overrides.profiles ?? [profile("p1", "Work"), profile("p2", "School")],
@@ -296,6 +351,10 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     environments: overrides.environments ?? {},
     settings: overrides.settings ?? {},
     computerAllowedApps: overrides.computerAllowedApps ?? {},
+    goals: overrides.goals ?? {},
+    eggPacks: overrides.eggPacks ?? [],
+    eggWords: overrides.eggWords ?? {},
+    eggsUnlocked: overrides.eggsUnlocked ?? [],
     sessions: overrides.sessions ?? [],
     sessionEvents: overrides.sessionEvents ?? {},
     sessionTerminals: overrides.sessionTerminals ?? {},
@@ -318,7 +377,30 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     checkpointPreview: overrides.checkpointPreview ?? {},
     skills: overrides.skills ?? {},
     skillsRoot: overrides.skillsRoot ?? "/realm-home/skills",
+    commands: overrides.commands ?? {},
+    commandsRoot: overrides.commandsRoot ?? "/realm-home/commands",
+    scripts: overrides.scripts ?? {},
+    keybindings: overrides.keybindings ?? { path: "/realm-home/keybindings.json", rules: [...DEFAULT_KEYBINDINGS], error: null },
+    sandbox: overrides.sandbox ?? {
+      prefs: { posture: "off", network: true }, inherited: true, defaults: { posture: "off", network: true },
+      policy: { posture: "off", network: true, writableRoots: [], readableRoots: [], readOnlyPaths: [], protectedRoots: [] },
+      summary: "Not sandboxed — this session runs with your full account.", available: true, unavailableReason: null,
+    },
+    projectGrep: overrides.projectGrep ?? { hits: [], source: "git", truncated: false },
+    projectFiles: overrides.projectFiles ?? { hits: [], source: "git", truncated: false },
     skillSources: overrides.skillSources ?? {},
+    customThemes: overrides.customThemes ?? [],
+    installedFonts: overrides.installedFonts ?? [],
+    fontCatalog: overrides.fontCatalog ?? [],
+    pickedThemeFile: overrides.pickedThemeFile ?? null,
+    importedTheme: overrides.importedTheme ?? {
+      id: "imported", label: "Imported", mode: "dark" as const,
+      seed: { bg: "#101014", ink: "#e6e6e6", accent: "#7aa2f7", green: "#3fb950", orange: "#d29922", red: "#f85149",
+        syntax: { comment: "#6a737d", keyword: "#bb9af7", string: "#9ece6a", number: "#ff9e64", title: "#7aa2f7", type: "#2ac3de", attr: "#e0af68" } },
+      source: { file: "/themes/Imported.json", derived: [] },
+    },
+    skillDocs: overrides.skillDocs ?? {},
+    skillFiles: overrides.skillFiles ?? {},
     mcpTest: overrides.mcpTest ?? {},
     memoryDocs: overrides.memoryDocs ?? {},
     agentsFiles: overrides.agentsFiles ?? {},
@@ -420,7 +502,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     };
   };
   const api: FakeApi = {
-    calls, disposed, destroyedBrowserViews, sent, mcpWrites, importApplied, delays: {}, onCreateTerminal: null, data,
+    calls, disposed, destroyedBrowserViews, sent, savedScripts, queuedPrompts, planLimitRows, mcpWrites, importApplied, delays: {}, onCreateTerminal: null, data,
     // Plan 17 W1. An in-memory filesystem keyed by workspace id: enough for the store's own tests to
     // exercise open/save without touching disk. The DocumentsPane's own behaviour is covered by
     // buffers.test.ts (the transitions) and the server's service.test.ts (the real filesystem).
@@ -630,6 +712,42 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       await wait("createMachine");
       return { machineId: it.refId, itemId: it.id };
     },
+    goalGet: async (sessionId) => { calls.push(`goalGet:${sessionId}`); return { goal: data.goals[sessionId] ?? null }; },
+    eggsList: async () => { calls.push("eggsList"); return { packs: data.eggPacks.filter((p) => data.eggsUnlocked.includes(p.id)) }; },
+    eggsUnlock: async (passphrase) => {
+      calls.push(`eggsUnlock:${passphrase}`);
+      // The fake's "crypto": a pack opens for the word its fixture names. Everything the app does
+      // with the answer is the same either way, and a scrypt round in a unit test is 100ms of nothing.
+      const pack = data.eggPacks.find((p) => data.eggWords[p.id] === passphrase) ?? null;
+      if (pack && !data.eggsUnlocked.includes(pack.id)) data.eggsUnlocked.push(pack.id);
+      return { pack };
+    },
+    eggsForget: async (id) => { calls.push(`eggsForget:${id}`); data.eggsUnlocked = data.eggsUnlocked.filter((x) => x !== id); },
+    goalStart: async (sessionId, objective, tokenBudget) => {
+      calls.push(`goalStart:${sessionId}`);
+      const goal = { sessionId, objective, status: "active" as const, tokenBudget, tokensUsed: 0, turns: 0, note: null, startedAt: 0, updatedAt: 0 };
+      data.goals[sessionId] = goal;
+      return { goal };
+    },
+    goalSet: async (sessionId, status, note) => {
+      calls.push(`goalSet:${sessionId}=${status}`);
+      const goal = { ...(data.goals[sessionId] ?? { sessionId, objective: "", tokenBudget: null, tokensUsed: 0, turns: 0, startedAt: 0, updatedAt: 0 }), status, note };
+      data.goals[sessionId] = goal;
+      return { goal };
+    },
+    goalResume: async (sessionId) => {
+      calls.push(`goalResume:${sessionId}`);
+      const goal = { ...(data.goals[sessionId] ?? { sessionId, objective: "", tokenBudget: null, tokensUsed: 0, turns: 0, note: null, startedAt: 0, updatedAt: 0 }), status: "active" as const, note: null };
+      data.goals[sessionId] = goal;
+      return { goal };
+    },
+    goalClear: async (sessionId) => { calls.push(`goalClear:${sessionId}`); delete data.goals[sessionId]; },
+    createSimulator: async (sid, name) => {
+      calls.push(`createSimulator:${sid}`);
+      const it = item(`i${++n}`, sid, { kind: "simulator", title: name }); (data.items[sid] ??= []).push(it);
+      await wait("createSimulator");
+      return { simulatorId: it.refId, itemId: it.id };
+    },
     updateItem: async (input) => {
       for (const list of Object.values(data.items)) {
         const i = list.findIndex((x) => x.id === input.id);
@@ -693,7 +811,14 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     disposeTerminal: (id) => { disposed.push(id); },
     destroyBrowserView: (id) => { destroyedBrowserViews.push(id); },
     listSessions: async (sid) => { calls.push(`listSessions:${sid}`); return data.sessions.filter((s) => s.spaceId === sid); },
-    listAllSessions: async () => { calls.push("listAllSessions"); await wait("listAllSessions"); return [...data.sessions]; },
+    listAllSessions: async (profileId = null) => {
+      calls.push(`listAllSessions:${profileId ?? "all"}`);
+      await wait("listAllSessions");
+      // Mirrors the server's join rather than returning everything: a test that asserts the feed is
+      // profile-scoped must be able to fail.
+      const ids = new Set(data.spaces.filter((sp) => profileId === null || sp.profileId === profileId).map((sp) => sp.id));
+      return data.sessions.filter((s) => ids.has(s.spaceId));
+    },
     getSession: async (id) => { calls.push(`getSession:${id}`); const s = data.sessions.find((x) => x.id === id); if (!s) throw new Error(`no session ${id}`); return s; },
     createSession: async (input) => {
       // `cwd` is derived from the environment server-side (W1), so the fake derives it too — a
@@ -705,13 +830,25 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
         ...(input.userDispatched ? { dispatchedBy: { kind: "user-dispatch" as const, sessionId: null } } : {}),
         ...(env ? { environmentId: env.id, cwd: env.path } : {}) });
       data.sessions.push(s);
-      const it = item(`i${++n}`, input.spaceId, { kind: "session", title: s.title, refId: s.id }); (data.items[input.spaceId] ??= []).push(it);
       calls.push(`createSession:${input.agentKind}`);
+      const it = item(`i${++n}`, input.spaceId, { kind: "session", title: s.title, refId: s.id }); (data.items[input.spaceId] ??= []).push(it);
       return { session: s, itemId: it.id };
     },
-    sendMessage: async (id, text, attachments, mentions, elements) => {
+    /** Mirrors the server: no item row at all, so the session appears in no list anywhere. */
+    createUnlistedSession: async (input) => {
+      calls.push(`createUnlistedSession:${input.agentKind}`);
+      const s = session(`se${++n}`, input.spaceId, { agentKind: input.agentKind, title: input.title ?? "Fake agent session" });
+      data.sessions.push(s);
+      return { session: s };
+    },
+    deleteSession: async (id) => {
+      calls.push(`deleteSession:${id}`);
+      data.sessions = data.sessions.filter((x) => x.id !== id);
+      for (const [sid, rows] of Object.entries(data.items)) data.items[sid] = rows.filter((x) => x.refId !== id);
+    },
+    sendMessage: async (id, text, attachments, mentions, elements, delivery, sessionRefs) => {
       calls.push(`sendMessage:${id}=${text}${attachments.length ? ` +[${attachments.map((a) => `${a.path}:${a.mime}`).join(",")}]` : ""}`);
-      sent.push({ id, text, attachments, ...(mentions.length ? { mentions } : {}), ...(elements?.length ? { elements } : {}) });
+      sent.push({ id, text, attachments, ...(mentions.length ? { mentions } : {}), ...(elements?.length ? { elements } : {}), ...(sessionRefs?.length ? { sessionRefs } : {}), ...(delivery && delivery !== "auto" ? { delivery } : {}) });
     },
     forkSession: async (checkpointId, agentKind) => {
       // The kind rides the call log, because "which agent did the fork land on" is the whole of what
@@ -733,13 +870,91 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       (data.items[spaceId] ??= []).push(it);
       return { session: sess, itemId: it.id, environment: env };
     },
+    listThemes: async () => { calls.push("listThemes"); return { root: "/realm-home/themes", themes: [...data.customThemes] }; },
+    pickThemeFile: async () => { calls.push("pickThemeFile"); return data.pickedThemeFile; },
+    importTheme: async (path) => {
+      calls.push(`importTheme:${path}`);
+      const t = { ...data.importedTheme, source: { ...data.importedTheme.source, file: path } };
+      data.customThemes = [...data.customThemes.filter((x) => x.id !== t.id), t];
+      return t;
+    },
+    removeTheme: async (id) => { calls.push(`removeTheme:${id}`); data.customThemes = data.customThemes.filter((t) => t.id !== id); },
+    listInstalledFonts: async () => { calls.push("listInstalledFonts"); return { root: "/realm-home/fonts", fonts: [...data.installedFonts] }; },
+    fontCatalog: async () => { calls.push("fontCatalog"); return { fonts: [...data.fontCatalog] }; },
+    installFont: async (family) => {
+      calls.push(`installFont:${family}`);
+      const f = { family, weights: [400, 500], bytes: 1024 };
+      data.installedFonts = [...data.installedFonts.filter((x) => x.family !== family), f];
+      return f;
+    },
+    removeFont: async (family) => { calls.push(`removeFont:${family}`); data.installedFonts = data.installedFonts.filter((f) => f.family !== family); },
+    fontFaces: async (family) => { calls.push(`fontFaces:${family}`); return { faces: [{ weight: 400, base64: "AA==" }] }; },
     listSkills: async (spaceId) => { calls.push(`listSkills:${spaceId}`); return { root: data.skillsRoot, skills: [...(data.skills[spaceId] ?? [])] }; },
+    /* Empty by default: a space with no `commands/` directory is the overwhelmingly common case, and
+       a fake that invented one would make every unrelated test exercise the merge path. */
+    projectGrep: async (cwd, query) => { calls.push(`projectGrep:${cwd}:${query}`); return data.projectGrep; },
+    projectFiles: async (cwd, query) => { calls.push(`projectFiles:${cwd}:${query}`); return data.projectFiles; },
+    listScripts: async (spaceId) => { calls.push(`listScripts:${spaceId}`); return { scripts: [...(data.scripts[spaceId] ?? [])] }; },
+    runScript: async (spaceId, commandId) => { calls.push(`runScript:${spaceId}:${commandId}`); return { terminalId: "t-script", itemId: "i-script", cwd: "/repo" }; },
+    saveScript: async (spaceId, script) => {
+      calls.push(`saveScript:${spaceId}:${script.id ?? "new"}`);
+      savedScripts.push({ spaceId, script });
+      const list = (data.scripts[spaceId] ??= []);
+      // A real 26-char ULID: IdSchema is what `parseScriptCommandId` checks the id against, so a
+      // short placeholder here would be rejected as malformed rather than exercising the real path.
+      const row: Script = { ...script, id: script.id ?? `01HQ${"0".repeat(21)}${list.length}` };
+      const at = list.findIndex((sc) => sc.id === row.id);
+      if (at >= 0) list[at] = row; else list.push(row);
+      return row;
+    },
+    removeScript: async (spaceId, id) => {
+      calls.push(`removeScript:${spaceId}:${id}`);
+      data.scripts[spaceId] = (data.scripts[spaceId] ?? []).filter((sc) => sc.id !== id);
+    },
+    reorderScripts: async (spaceId, ids) => {
+      calls.push(`reorderScripts:${spaceId}:${ids.join(",")}`);
+      const by = new Map((data.scripts[spaceId] ?? []).map((sc) => [sc.id, sc]));
+      data.scripts[spaceId] = ids.flatMap((id) => { const sc = by.get(id); return sc ? [sc] : []; });
+      return { scripts: [...data.scripts[spaceId]!] };
+    },
+    getSandbox: async (spaceId) => { calls.push(`getSandbox:${spaceId}`); return { ...data.sandbox }; },
+    setSandbox: async (spaceId, prefs) => {
+      calls.push(`setSandbox:${spaceId}:${prefs === null ? "inherit" : `${prefs.posture}/${prefs.network ? "net" : "nonet"}`}`);
+      data.sandbox = { ...data.sandbox, prefs: prefs ?? data.sandbox.defaults, inherited: prefs === null };
+      return { ...data.sandbox };
+    },
+    getKeybindings: async () => { calls.push("getKeybindings"); return { ...data.keybindings }; },
+    writeKeybindings: async (rules) => { calls.push("writeKeybindings"); data.keybindings = { ...data.keybindings, rules: [...rules], error: null }; return { ...data.keybindings }; },
+    resetKeybindings: async () => { calls.push("resetKeybindings"); data.keybindings = { path: data.keybindings.path, rules: [...DEFAULT_KEYBINDINGS], error: null }; return { ...data.keybindings }; },
+    listCommands: async (spaceId) => { calls.push(`listCommands:${spaceId}`); return { root: data.commandsRoot, commands: [...(data.commands[spaceId ?? ""] ?? [])] }; },
+    expandCommand: async (spaceId, name, args) => {
+      calls.push(`expandCommand:${spaceId}:${name}`);
+      const command = (data.commands[spaceId ?? ""] ?? []).find((c) => c.name === name);
+      if (!command) throw new Error(`no such command: ${name}`);
+      /* The real expander, not a lookalike: placeholder handling is the whole behaviour here, and a
+         fake that substituted differently would let a test pass against semantics the server does
+         not have. */
+      return { command, ...expandCommand(command.body, args) };
+    },
     listSkillSources: async (spaceId) => {
       calls.push(`listSkillSources:${spaceId}`);
       const configured = data.skillSources[spaceId];
       if (configured) return { sources: [...configured] };
       return { sources: [{ kind: "library" as const, key: "library", label: "Realm library", path: data.skillsRoot,
         count: (data.skills[spaceId] ?? []).length, removable: false }] };
+    },
+    readSkill: async (spaceId, id) => {
+      calls.push(`readSkill:${spaceId}:${id}`);
+      const skill = (data.skills[spaceId] ?? []).find((s) => s.id === id);
+      if (!skill) throw new Error(`skill "${id}" is not in this space's skills`);
+      const doc = data.skillDocs[id] ?? {};
+      return { skill, body: doc.body ?? "", frontmatter: doc.frontmatter ?? {}, resources: doc.resources ?? [], truncated: false };
+    },
+    readSkillFile: async (spaceId, id, rel) => {
+      calls.push(`readSkillFile:${spaceId}:${id}:${rel}`);
+      const text = data.skillFiles[`${id}/${rel}`];
+      if (text === undefined) throw new Error(`no file at ${rel} in skill "${id}"`);
+      return { text, truncated: false };
     },
     addSkillScanRoot: async (path) => { calls.push(`addSkillScanRoot:${path}`); },
     removeSkillScanRoot: async (path) => { calls.push(`removeSkillScanRoot:${path}`); },
@@ -815,6 +1030,10 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return m;
     },
     interruptSession: async (id) => { calls.push(`interrupt:${id}`); },
+    dequeuePrompt: async (id, queuedId) => { calls.push(`dequeue:${id}:${queuedId}`); },
+    releaseQueuedPrompt: async (id, queuedId) => { calls.push(`releaseQueued:${id}:${queuedId}`); },
+    sessionQueue: async () => queuedPrompts,
+    planLimits: async () => { calls.push("planLimits"); return planLimitRows; },
     recordFeedback: async (id, messageId, rating) => { calls.push(`recordFeedback:${id}:${messageId}=${rating ?? "none"}`); },
     respondPermission: async (id, requestId, decision) => { calls.push(`respondPermission:${id}:${requestId}:${decision}`); },
     setSessionOptions: async (id, o) => {
@@ -1131,7 +1350,10 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       (data.checkpoints[p.environmentId] ??= []).unshift(undo);
       return { environmentId: p.environmentId, path: p.path, undoCheckpointId: undo.id,
         headMoved: p.headMovable, filesChanged: p.filesChanged, commitsRolledBack: p.headMovable ? p.commitsRolledBack : 0,
-        filesRemoved: 0, conversationRewound: false };
+        /* Mirrors the server: the same conditions that make `rewindsConversation` true on the preview
+           are what make the restore actually rewind. A fake hardcoding `false` would make the rewind
+           path unreachable from any test. */
+        filesRemoved: 0, conversationRewound: p.rewindsConversation };
     },
     listMcpServers: async (spaceId) => {
       calls.push(`listMcpServers:${spaceId}`);

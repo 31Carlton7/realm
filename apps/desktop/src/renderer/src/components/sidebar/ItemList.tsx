@@ -1,7 +1,7 @@
 import { Icon } from "@realm/ui";
 import { useMemo, useState } from "react";
 import { emptyLayout, itemIdOfLeaf, type Item, type Layout } from "@realm/contracts";
-import { useApp } from "../../state/store";
+import { useApp, type AppState } from "../../state/store";
 import { RenameInput } from "../RenameInput";
 import { useItemContextMenu } from "./ItemContextMenu";
 import { dotFor } from "../../panes/machine/MachineBar";

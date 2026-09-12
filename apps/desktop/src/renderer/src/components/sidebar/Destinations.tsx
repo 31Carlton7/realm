@@ -5,17 +5,14 @@ import { useApp } from "../../state/store";
 
 /**
  * Sidebar destinations (Plan 12 W4, Universe screenshot 3): app-level pages above the space section —
- * quiet rows, not items. Each opens (or focuses — one page per space) its destination pane in the
- * active space's layout via `openDestinationPage`.
+ * quiet rows, and the pages they open are not items either. Each shows its page OVER the workspace
+ * (`pageOverlay`), which is what keeps opening one from rearranging the panes you were working in.
  *
  * Realm adopts Universe's PATTERN, not its inventory: Library and Connections only. Discover, Calendar
  * and the rest are Universe's cloud product; and no row renders disabled here — dead chrome is worse
  * than absence.
  */
 export function Destinations() {
-  // The server's count, verbatim (`notifications.list`/`notifications.changed`) — never a client-side
-  // tally of rows, which would be a second derivation site that could disagree with the page's header.
-  const unread = useApp((s) => s.notificationsUnread);
   // How many agents are waiting on a permission, across every space — the one number a manager of
   // several sessions wants without opening anything. Derived from the same status map the space
   // strip's badges read, so the two cannot disagree.
@@ -29,11 +26,9 @@ export function Destinations() {
       </DestRow>
       <DestRow kind="library-page" label="Library" />
       <DestRow kind="connections-page" label="Connections" />
-      {/* W5: the feed row. The pill appears only when something is actually unread — a permanent
-          zero would be dead chrome, which this nav bans. */}
-      <DestRow kind="notifications-page" label="Notifications">
-        {unread > 0 && <span className="status-pill dest-count" data-tone="warning" aria-label={`${unread} unread`}>{unread}</span>}
-      </DestRow>
+      {/* The feed is NOT a row here. It was one, with a count pill, and it held a permanent line of
+          the nav for something that is usually at zero — it is the bell in the head row now
+          (SidebarNotifications), which is the same page from a control that costs no row. */}
       {/* Work this space starts on a clock. It sits with the app-level pages rather than inside the
           space page because it is a DESTINATION — somewhere you go to see what is armed — and
           because its runs outlive whichever session was open when they were set up. */}
@@ -53,12 +48,12 @@ export function Destinations() {
 }
 
 /**
- * One destination row. A plain click homes: one page per space, so a second click goes to the pane that
- * already holds it, wherever that is. ⌥-click puts the page in the focused pane instead — the gesture
- * for "I want this here", which until now was a drag.
+ * One destination row. A click shows the page over the workspace; the row lights while it is up, and
+ * pressing it again puts it away — a lit control says the state and undoes it in the same click.
  *
- * The tooltip appears only while the two would differ, so a row that has nothing to offer says nothing
- * rather than teaching a modifier that does the same thing as no modifier.
+ * There is no ⌥-click any more. It used to mean "put this page in the focused pane", which was a real
+ * choice while a page was a layout item; a page is an overlay now, so there is one and it is over
+ * everything.
  */
 function DestRow({ kind, label, icon, children }: {
   kind: DestinationPageKind; label: string;
@@ -67,11 +62,11 @@ function DestRow({ kind, label, icon, children }: {
   children?: ReactNode;
 }) {
   const openDestinationPage = useApp((s) => s.openDestinationPage);
-  const elsewhere = useApp((s) => s.destinationPageElsewhere(kind));
-  const run = useApp((s) => s.run);
+  const closePageOverlay = useApp((s) => s.closePageOverlay);
+  const open = useApp((s) => s.pageOverlay?.kind === kind);
   return (
-    <button className="item-row dest-row" title={elsewhere ? `⌥-click to open ${label} in the focused pane` : undefined}
-      onClick={(e) => run(() => openDestinationPage(kind, e.altKey ? "here" : "reuse"))}>
+    <button className="item-row dest-row" data-on={open || undefined} aria-pressed={open}
+      onClick={() => (open ? closePageOverlay() : openDestinationPage(kind))}>
       <Icon name={icon ?? kind} size={16} /><span>{label}</span>
       {children}
     </button>

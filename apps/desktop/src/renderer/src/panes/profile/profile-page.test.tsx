@@ -78,8 +78,12 @@ describe("ProfilePage · Skills", () => {
     expect(screen.queryByText("space-only")).toBeNull();
     const everywhere = within(screen.getByText("Everywhere").closest(".field") as HTMLElement);
     expect(everywhere.getByText("legacy")).toBeInTheDocument();
-    // Read-only: no move, no switch — just the note pointing at its space of use.
-    expect(everywhere.queryByRole("button")).toBeNull();
+    /* Read-only: nothing here CHANGES the row — no move, no switch, just the note pointing at its
+       space of use. The name is a button, and deliberately: it opens the skill's page, which is
+       reading rather than editing, and a skill has to open the same way from every list. */
+    expect(everywhere.getByRole("button", { name: "legacy" })).toBeInTheDocument();
+    expect(everywhere.queryAllByRole("button").map((b) => b.textContent)).toEqual(["legacy"]);
+    expect(everywhere.queryByRole("switch")).toBeNull();
     expect(everywhere.getByText(/manage it from a space page/)).toBeInTheDocument();
   });
 

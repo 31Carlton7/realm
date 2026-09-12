@@ -8,6 +8,14 @@ import { SpaceGroupsSchema } from "./groups";
 import { StoredSessionEventSchema } from "./session-events";
 import { LibraryEntrySchema, LibraryQuerySchema } from "./library";
 import { SkillSchema, SkillDetailSchema, SkillIdSchema, SkillSourceSchema } from "./skills";
+import { CommandOriginKindSchema, UserCommandSchema } from "./commands";
+import { ScriptInputSchema, ScriptSchema } from "./scripts";
+import { KeybindingSchema, KeybindingsFileSchema } from "./keybindings";
+import {
+  PROJECT_FILES_LIMIT, PROJECT_FILES_LIMIT_MAX, PROJECT_GREP_LIMIT, PROJECT_GREP_LIMIT_MAX,
+  PROJECT_QUERY_MAX, ProjectFilesResultSchema, ProjectGrepResultSchema,
+} from "./project-search";
+import { CatalogFontSchema, InstalledFontSchema, StoredThemeSchema } from "./theme-seed";
 import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema } from "./mcp";
 import { MEMORY_DOC_MAX, MemorySourcesSchema, MemoryStateSchema } from "./memory";
 import { NotificationSchema } from "./notifications";
@@ -21,8 +29,13 @@ import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageSummarySchem
 import { PlanLimitsSchema } from "./plan-limits";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
 import { GuestSpecSchema, MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
+import { MAX_SESSION_REFS, SessionRefSchema } from "./session-refs";
+import { SIMULATOR_CA_DEBUG, SimulatorActSchema, SimulatorAppSchema, SimulatorAxTreeSchema, SimulatorCameraSourceSchema, SimulatorDeviceSchema, SimulatorEventSchema, SimulatorSchema, SimulatorStateSchema, SimulatorPlatformSchema, SimulatorUiStateSchema } from "./simulator";
+import { GoalSchema, GoalStatusSchema } from "./goal";
+import { UnlockedEggPackSchema } from "./egg-pack";
 import { FailoverPolicySchema } from "./failover";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
+import { ExecutionSandboxPolicySchema, ExecutionSandboxPrefsSchema } from "./execution-sandbox";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
 export const RpcErrorSchema = z.object({ code: z.string(), message: z.string() });
@@ -236,7 +249,9 @@ export const RestorePreviewSchema = z.object({
   headReason: z.string().nullable(),
   /** False when the ref is gone or no longer points at the recorded commit — the checkpoint is unusable. */
   intact: z.boolean(),
-  /** True when the session's agent could also be rewound. Always false today; see AGENT_CONVERSATION_REWIND. */
+  /** True when restoring this checkpoint also rewinds the agent's memory of those turns. Per
+   *  checkpoint and per session, not per adapter: the row needs both cursors, and the session's
+   *  provider conversation must still be the one they name. Claude only — see AGENT_CONVERSATION_REWIND. */
   rewindsConversation: z.boolean(),
 });
 export type RestorePreview = z.infer<typeof RestorePreviewSchema>;
@@ -285,6 +300,33 @@ const CliStatusSchema = z.object({
 const CliJobStartSchema = z.object({
   id: z.string(), kind: AgentKindSchema, action: CliActionSchema, command: z.string(),
 }) satisfies z.ZodType<CliJobStart>;
+
+/**
+ * Everything Settings needs about one space's execution sandbox, in one answer.
+ *
+ * Mirrors `ExecutionSandboxService.state()` field for field. The lock is on the server side rather
+ * than here — `methods.ts` returns that method's value straight out of a handler typed by this
+ * schema, so the two drifting apart is a typecheck failure, not a wire bug.
+ *
+ * `policy` rides along fully resolved because the writable roots are the only honest answer to "what
+ * can this actually write" — they are derived from THIS Mac's layout, and a picker that showed three
+ * posture names without them would be describing a policy nobody can check.
+ */
+export const SandboxStateSchema = z.object({
+  prefs: ExecutionSandboxPrefsSchema,
+  /** True when `prefs` came from the default rather than from this space, so the UI can draw an
+   *  override as an override instead of as a duplicate of the default. */
+  inherited: z.boolean(),
+  defaults: ExecutionSandboxPrefsSchema,
+  policy: ExecutionSandboxPolicySchema,
+  summary: z.string(),
+  /** Whether Seatbelt can be applied on this machine at all. Beside the posture and not behind its
+   *  own method, because a picker that hid it would offer three choices of which two refuse to start. */
+  available: z.boolean(),
+  /** Realm's own words about why not, shown verbatim. Null when available. */
+  unavailableReason: z.string().nullable(),
+});
+export type SandboxState = z.infer<typeof SandboxStateSchema>;
 
 /** Method registry: params + result schemas. Server validates params; client types results. */
 export const Methods = {
@@ -570,6 +612,97 @@ export const Methods = {
   /** Delete the machine itself — row, item and connection. Closing a PANE is a layout operation and
    *  does not come through here; see `MachineService.closeFromLayout`. */
   "machines.close": { params: z.object({ machineId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+
+  /* Simulators: an Apple Simulator on this Mac, streamed into a pane.
+     `machines.*` in shape, with the differences the thing itself has. There is no `update` and no
+     address: the only thing a caller can change is WHICH device, and `start` takes it — a pane that
+     had to `update` and then `start` could leave a row pointed at a device nobody asked to watch.
+     `devices` is a question about the Mac rather than about any row, which is why it takes no id. */
+  "simulators.create": {
+    params: z.object({ spaceId: IdSchema, name: z.string().min(1).max(120), udid: z.string().max(128).nullable().default(null) }),
+    result: z.object({ simulatorId: IdSchema, itemId: IdSchema }),
+  },
+  "simulators.devices": { params: z.object({}), result: z.object({ devices: z.array(SimulatorDeviceSchema), available: z.boolean() }) },
+  "simulators.list": { params: z.object({ spaceId: IdSchema }), result: z.object({ simulators: z.array(SimulatorSchema), states: z.array(SimulatorStateSchema) }) },
+  "simulators.get": { params: z.object({ simulatorId: IdSchema }), result: z.object({ simulator: SimulatorSchema, state: SimulatorStateSchema }) },
+  /** Boots the device if it is not booted, serves it if nobody is serving it, and adopts the stream
+   *  if somebody already is. `udid` points the row at a device and starts it in one call. */
+  "simulators.start": { params: z.object({ simulatorId: IdSchema, udid: z.string().max(128).nullable().default(null),
+    /* Sent with the udid because the two are one fact. Optional so an older client, or a
+       restart of a row that already knows what it is, keeps working — the service falls back
+       to the row's stored platform. */
+    platform: SimulatorPlatformSchema.optional() }), result: z.object({ state: SimulatorStateSchema }) },
+  /** Kills the STREAM. The device stays booted: it is usually somebody's Xcode session. */
+  "simulators.stop": { params: z.object({ simulatorId: IdSchema }), result: z.object({ state: SimulatorStateSchema }) },
+  "simulators.close": { params: z.object({ simulatorId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** The device's own settings, read fresh: appearance, text size, the accessibility switches. */
+  "simulators.ui": { params: z.object({ simulatorId: IdSchema }), result: z.object({ ui: SimulatorUiStateSchema }) },
+  /** Set one, and answer with what the device reports afterwards — never with the value that was
+   *  asked for (see `SimulatorService.setUi`). `detail` carries the CLI's own refusal. */
+  "simulators.setUi": {
+    params: z.object({ simulatorId: IdSchema, option: z.string().min(1).max(64), value: z.string().min(1).max(64) }),
+    result: z.object({ ok: z.boolean(), ui: SimulatorUiStateSchema, detail: z.string() }),
+  },
+  /** What is on screen, by name: the foreground app's accessibility tree, frames in POINTS. */
+  "simulators.ax": { params: z.object({ simulatorId: IdSchema }), result: z.object({ tree: SimulatorAxTreeSchema }) },
+  /** Everything installed on the device — the user's own app among Apple's. */
+  "simulators.apps": { params: z.object({ simulatorId: IdSchema }), result: z.object({ apps: z.array(SimulatorAppSchema) }) },
+  /** A full-resolution PNG in the space's `simulator/` folder. The path is relative to the space, so
+   *  the caller can hand it straight to `documents.openPath`. */
+  "simulators.screenshot": { params: z.object({ simulatorId: IdSchema }), result: z.object({ path: z.string(), absolute: z.string() }) },
+  /** This Mac's cameras, for the `webcam` feed. */
+  "simulators.webcams": { params: z.object({}), result: z.object({ webcams: z.array(z.string()) }) },
+  /** What the device has lately been told to do, by anyone. */
+  "simulators.events": {
+    params: z.object({ simulatorId: IdSchema, limit: z.number().int().min(1).max(200).default(40) }),
+    result: z.object({ events: z.array(SimulatorEventSchema) }),
+  },
+  /**
+   * Everything else a device can be told to do that is one command and one answer.
+   *
+   * One method rather than nine, because on both sides each is a line: a menu item here, a `simctl`
+   * or `serve-sim` invocation there. `text` comes back only for the pasteboard read.
+   */
+  "simulators.act": {
+    params: z.object({ simulatorId: IdSchema, act: SimulatorActSchema }),
+    result: z.object({ ok: z.boolean(), detail: z.string(), text: z.string().optional() }),
+  },
+  /** A memory warning, or a CoreAnimation debug overlay. */
+  "simulators.poke": {
+    params: z.object({
+      simulatorId: IdSchema,
+      poke: z.union([
+        z.object({ kind: z.literal("memory-warning") }),
+        z.object({ kind: z.literal("ca-debug"), option: z.enum(SIMULATOR_CA_DEBUG), on: z.boolean() }),
+      ]),
+    }),
+    result: z.object({ ok: z.boolean(), detail: z.string() }),
+  },
+
+  /* Goal mode: an objective a session keeps working on across turns.
+     `start` both creates the goal and sends its first turn — an objective that sat there until
+     someone pressed send would be a note, not a goal. `resume` is the same shape for a stopped one.
+     `set` is the one verb the AGENT also reaches, through the `goal` tool provider: pause, blocked
+     and complete are the same state change whoever decides it. */
+  "goals.get": { params: z.object({ sessionId: IdSchema }), result: z.object({ goal: GoalSchema.nullable() }) },
+  "goals.start": {
+    params: z.object({
+      sessionId: IdSchema,
+      objective: z.string().min(1).max(8_000),
+      /** Omitted means no ceiling, which is the default: a budget is a thing you ask for. */
+      tokenBudget: z.number().int().positive().nullable().default(null),
+    }),
+    result: z.object({ goal: GoalSchema }),
+  },
+  "goals.set": { params: z.object({ sessionId: IdSchema, status: GoalStatusSchema, note: z.string().max(2_000).nullable().default(null) }), result: z.object({ goal: GoalSchema }) },
+  "goals.resume": { params: z.object({ sessionId: IdSchema }), result: z.object({ goal: GoalSchema }) },
+  "goals.clear": { params: z.object({ sessionId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+
+  /* Friend packs. `unlock` takes a word and tries it against every sealed pack; the answer is the one
+     it opened or null, and deliberately nothing else — no near-miss, no count of how many exist. */
+  "eggs.list": { params: z.object({}), result: z.object({ packs: z.array(UnlockedEggPackSchema) }) },
+  "eggs.unlock": { params: z.object({ passphrase: z.string().min(1).max(200) }), result: z.object({ pack: UnlockedEggPackSchema.nullable() }) },
+  "eggs.forget": { params: z.object({ id: z.string().min(1).max(64) }), result: z.object({ ok: z.literal(true) }) },
   "browsers.get":    { params: z.object({ browserId: IdSchema }), result: BrowserSchema },
   /** Last committed navigation state, written back by the renderer (debounced). A `title` also renames
    *  the browser's item — the pane header and sidebar track the page, as in any browser's tab strip. */
@@ -689,8 +822,63 @@ export const Methods = {
   "browserHost.register": { params: z.object({ hasWindow: z.boolean().optional() }), result: z.object({ ok: z.literal(true) }) },
   "browserHost.result": { params: z.object({ callId: z.string(), ok: z.boolean(), result: z.unknown().optional(), error: z.string().optional() }), result: z.object({ ok: z.literal(true) }) },
 
+/**
+   * Themes imported from VS Code colour files, and the folder they live in.
+   *
+   * Files rather than rows, in `~/Realm/themes`, for the reason `~/Realm/skills` is a folder: a
+   * theme is something you might hand-edit, copy to another Mac, or delete in Finder.
+   */
+  "themes.list": { params: z.object({}), result: z.object({ root: z.string(), themes: z.array(StoredThemeSchema) }) },
+  /** Translate a VS Code colour theme at `path` and keep it. Re-importing the same file name
+   *  replaces it, which is what makes "fix it and import again" work. */
+  "themes.import": { params: z.object({ path: z.string().min(1) }), result: StoredThemeSchema },
+  /** Forget one. A face still naming it falls back to `realm`, which is `paletteFor`'s own rule. */
+  "themes.remove": { params: z.object({ id: z.string().min(1) }), result: z.object({ ok: z.literal(true) }) },
+/**
+   * Font families fetched from Google Fonts, and the folder they live in.
+   *
+   * Downloaded once and served from `~/Realm/fonts` rather than linked from Google at runtime: Realm
+   * runs on your Mac, and an app that re-fetches its own typeface every launch does not — it would
+   * also mean no text the first time you opened it on a plane.
+   *
+   * Fonts already installed on the Mac are NOT here. Those need no fetching and no storage; the
+   * renderer reads them with `queryLocalFonts()` and CSS names them directly.
+   */
+  "fonts.installed": { params: z.object({}), result: z.object({ root: z.string(), fonts: z.array(InstalledFontSchema) }) },
+  /** The Google Fonts catalog, from a day-old disk cache when there is one. A stale list beats an
+   *  empty one, so a failed fetch falls back to the cache however old it is. */
+  "fonts.catalog": { params: z.object({}), result: z.object({ fonts: z.array(CatalogFontSchema) }) },
+  "fonts.install": { params: z.object({ family: z.string().min(1) }), result: InstalledFontSchema },
+  "fonts.remove": { params: z.object({ family: z.string().min(1) }), result: z.object({ ok: z.literal(true) }) },
+  /** One family's files as base64, for the renderer to build `@font-face` rules from. Base64 over
+   *  this socket rather than a second HTTP route: a latin woff2 is tens of kilobytes, they are read
+   *  once at boot, and another way to serve bytes out of the Realm home is another set of path
+   *  checks to get right. */
+  "fonts.faces": {
+    params: z.object({ family: z.string().min(1) }),
+    result: z.object({ faces: z.array(z.object({ weight: z.number().int(), base64: z.string() })) }),
+  },
   "settings.get": { params: z.object({ key: z.string() }), result: z.object({ value: z.unknown() }) },
   "settings.set": { params: z.object({ key: z.string(), value: z.unknown() }), result: z.object({ ok: z.literal(true) }) },
+
+  /* The execution sandbox: what an agent CLI or a shell in this space is allowed to touch.
+     Deliberately NOT `settings.get`/`settings.set` on a raw key, even though that is where the rows
+     live — this answer carries a RESOLVED policy and a live availability verdict, neither of which a
+     stored value has, and both of which the picker needs to avoid offering a choice that cannot run.
+
+     **A change here reaches the NEXT spawn, never a running one.** Seatbelt is applied by
+     `sandbox-exec` at the moment a process is exec'd; there is no call that re-confines a process
+     that is already running, and Realm does not pretend otherwise by restarting anything on its own.
+     So a session or terminal that is already alive keeps the policy it was started with until it is
+     stopped and started again — which is the honest behaviour, and the reason `summary` on a live
+     session's detail well is a record of how that session BOOTED rather than of what Settings says
+     now. */
+  "sandbox.get": { params: z.object({ spaceId: IdSchema }), result: SandboxStateSchema },
+  /** `prefs: null` clears this space's override and puts it back on the default. The answer is the
+   *  space's whole new state, so a caller never has to follow a write with a read. */
+  "sandbox.set": { params: z.object({ spaceId: IdSchema, prefs: ExecutionSandboxPrefsSchema.nullable() }), result: SandboxStateSchema },
+  /** The posture every space without an override inherits — including spaces that do not exist yet. */
+  "sandbox.setDefaults": { params: z.object({ prefs: ExecutionSandboxPrefsSchema }), result: ExecutionSandboxPrefsSchema },
 
   /**
    * Realm's skills library as this space sees it: every directory under `<realmHome>/skills`, each
@@ -746,6 +934,54 @@ export const Methods = {
   /** Stop scanning a user-added directory. Nothing on disk is touched, and the enabled entries of the
    *  skills under it are kept, so re-adding it restores exactly what was on. */
   "skills.removeScanRoot": { params: z.object({ path: z.string().min(1) }), result: z.object({ ok: z.literal(true) }) },
+
+  /**
+   * A space's user-defined slash commands — every file found, valid or not, shadowed or not. The
+   * invalid ones are the point: a template with a typo has to be findable, not missing.
+   *
+   * `spaceId` is nullable because the palette lists commands outside a session: null drops the space
+   * folder's `commands/` and keeps the user-level and agent ones.
+   */
+  "commands.list": { params: z.object({ spaceId: IdSchema.nullable() }), result: z.object({ root: z.string(), commands: z.array(UserCommandSchema) }) },
+  /** Expand one command's template against what the user typed after it. `missing` names the
+   *  placeholders nothing was typed for; they are left STANDING in `text`, so the draft shows them. */
+  "commands.expand": {
+    params: z.object({ spaceId: IdSchema.nullable(), name: z.string().min(1), args: z.string().default("") }),
+    result: z.object({ command: UserCommandSchema, text: z.string(), missing: z.array(z.string()) }),
+  },
+  /** Every directory scanned and what each contributed — the "why is this command here" panel, the
+   *  same shape and the same `count: 0` rule as `skills.sources`. */
+  "commands.sources": {
+    params: z.object({ spaceId: IdSchema.nullable() }),
+    result: z.object({ sources: z.array(z.object({ kind: CommandOriginKindSchema, key: z.string(), label: z.string(), path: z.string(), count: z.number().int(), writable: z.boolean() })) }),
+  },
+
+  "scripts.list":    { params: z.object({ spaceId: IdSchema }), result: z.object({ scripts: z.array(ScriptSchema) }) },
+  /** Create (null id) or update in place. Update keeps the script's id AND its position, so a rename
+   *  cannot move a bound key's label out from under whoever bound it. */
+  "scripts.save":    { params: z.object({ spaceId: IdSchema, script: ScriptInputSchema }), result: ScriptSchema },
+  "scripts.remove":  { params: z.object({ spaceId: IdSchema, id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  "scripts.reorder": { params: z.object({ spaceId: IdSchema, ids: z.array(IdSchema) }), result: z.object({ scripts: z.array(ScriptSchema) }) },
+  /** Run one, in a terminal. Takes the `script.<id>.run` COMMAND id rather than the script id, so the
+   *  keybinding layer and the runner list reach this by the same name. Returns the terminal and its
+   *  item: a run the user has to go looking for is a run they will not read. */
+  "scripts.run":     { params: z.object({ spaceId: IdSchema, commandId: z.string().min(1) }), result: z.object({ terminalId: IdSchema, itemId: IdSchema, cwd: z.string() }) },
+
+  /**
+   * The user's keymap, at `~/Realm/keybindings.json`.
+   *
+   * A file rather than rows, for the reason `~/Realm/themes` is a folder: a keymap is something you
+   * hand-edit, diff, and keep in a dotfiles repo. `get` is ALSO the seed-and-merge path, so there is
+   * no separate install step a restored home could miss — and `result.error` is non-null when the
+   * file could not be used as written, in which case `rules` is Realm's defaults and the file on disk
+   * has been left exactly as the user left it.
+   */
+  "keybindings.get": { params: z.object({}), result: KeybindingsFileSchema },
+  /** Replace the file. Rules are stored exactly as given: order IS precedence (the last matching rule
+   *  wins), so the server never sorts, normalises or dedupes them. */
+  "keybindings.set": { params: z.object({ rules: z.array(KeybindingSchema) }), result: KeybindingsFileSchema },
+  /** Back to what Realm ships — the one call allowed to discard the user's rules. */
+  "keybindings.reset": { params: z.object({}), result: KeybindingsFileSchema },
 
   /**
    * Every MCP server Realm knows about, each carrying this space's own enabled flag.
@@ -960,6 +1196,34 @@ export const Methods = {
   /** One file's patch, on one side of the index. `path` is relative to the checkout ROOT (the `root`
    *  `workspace.diff` reported), and is refused if it is absolute or contains `..`. */
   "workspace.fileDiff": { params: z.object({ cwd: z.string(), path: z.string(), staged: z.boolean().default(false) }), result: FileDiffSchema },
+
+  /**
+   * Search a CHECKOUT, where `search.query` searches Realm's own records: ⌘⇧F over the text of the
+   * files an environment points at, and ⌘P over their names. `cwd` is the environment's path, like
+   * every `workspace.*` method, and is re-validated server-side.
+   *
+   * Both are bounded in the service (apps/server/src/workspace/grep.ts) rather than here — a cap the
+   * client applies has already paid for the bytes — and both report `source`: `git` when the
+   * directory is a repository, `walk` for the fallback, which is a weaker search and says so rather
+   * than passing itself off as the same answer.
+   */
+  "project.grep": {
+    params: z.object({
+      cwd: z.string(),
+      query: z.string().min(1).max(PROJECT_QUERY_MAX),
+      limit: z.number().int().min(1).max(PROJECT_GREP_LIMIT_MAX).default(PROJECT_GREP_LIMIT),
+    }),
+    result: ProjectGrepResultSchema,
+  },
+  /** An EMPTY query is legal and means "the first N files", which is what ⌘P shows before a keystroke. */
+  "project.files": {
+    params: z.object({
+      cwd: z.string(),
+      query: z.string().max(PROJECT_QUERY_MAX).default(""),
+      limit: z.number().int().min(1).max(PROJECT_FILES_LIMIT_MAX).default(PROJECT_FILES_LIMIT),
+    }),
+    result: ProjectFilesResultSchema,
+  },
   /** `git add` for exactly these paths — per file, not per hunk. See git-write.ts for why. */
   "workspace.stage": { params: z.object({ cwd: z.string(), paths: z.array(z.string()).min(1) }), result: z.object({ ok: z.literal(true) }) },
   /** Take these paths back out of the index. Never touches the working tree. */
@@ -1181,7 +1445,10 @@ export const Methods = {
   "agents.probe": { params: z.object({ force: z.boolean().default(false) }), result: z.array(z.object({ kind: AgentKindSchema, available: z.boolean(), version: z.string().nullable(), loggedIn: z.boolean().nullable(), reason: z.string().nullable(), models: z.array(z.object({ id: z.string(), label: z.string() })).nullable().optional() })) },
   "sessions.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(SessionSchema) },
   /** Every session across every space — the client's sessionId→spaceId map for cross-space badges. */
-  "sessions.listAll": { params: z.object({}), result: z.array(SessionSchema) },
+  /** Every session Realm holds, or every session in ONE profile. Scoped by the server's space→profile
+   *  join when `profileId` is given — the same rule `search.query` states, for the same reason: a
+   *  client-side filter is not trusted to keep one profile's work out of another's surfaces. */
+  "sessions.listAll": { params: z.object({ profileId: IdSchema.nullable().default(null) }), result: z.array(SessionSchema) },
   /**
    * Record how far this user has read a session's transcript.
    *
@@ -1224,7 +1491,7 @@ export const Methods = {
    *  `elements` is OPTIONAL rather than defaulted, and the prompter omits the key outright when the
    *  draft has no element chips — so a message that never touched a browser pane puts exactly the
    *  bytes on this wire that it always has. */
-  "sessions.send":   { params: z.object({ id: IdSchema, text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]), mentions: z.array(SkillIdSchema).max(32).default([]), elements: z.array(ElementChipSchema).max(MAX_ELEMENT_CHIPS).optional(), delivery: z.enum(["auto", "queue", "steer"]).default("auto") })
+  "sessions.send":   { params: z.object({ id: IdSchema, text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]), mentions: z.array(SkillIdSchema).max(32).default([]), elements: z.array(ElementChipSchema).max(MAX_ELEMENT_CHIPS).optional(), sessionRefs: z.array(SessionRefSchema).max(MAX_SESSION_REFS).optional(), delivery: z.enum(["auto", "queue", "steer"]).default("auto") })
     .refine((p) => p.text.length > 0 || p.attachments.length > 0, { message: "a message needs text or at least one attachment" }), result: z.object({ ok: z.literal(true) }) },
   /** Drop one message off the queue before its turn comes. `queuedId` rather than an index: the queue
    *  drains on its own as turns settle, so an index the prompter read a moment ago may already name a
@@ -1289,8 +1556,9 @@ export const Methods = {
    * "Fork from here" (Plan 16 W3): a NEW worktree restored to this checkpoint's captured tree, plus a
    * NEW session pinned to it, `dispatchedBy: { kind: "fork", sessionId: <ancestor> }`. The ancestor
    * session, its environment and its checkpoints are left byte-untouched — the restore machinery runs
-   * against the fresh worktree only, never in place. The provider conversation CANNOT be rewound
-   * (AGENT_CONVERSATION_REWIND is false for every adapter), so the fork is a WORKSPACE fork: the
+   * against the fresh worktree only, never in place. A fork does not carry the provider
+   * conversation — Claude's truncating resume forks the chain of the session it NAMES, and a fork
+   * makes a session with no provider id — so the fork is a WORKSPACE fork: the
    * ancestor transcript up to the checkpoint rides into the new session as fenced text, truncated at
    * a stated cap — and the UI says exactly that.
    *
@@ -1328,6 +1596,18 @@ export const Events = {
   /** A space's skill set changed — either the library on disk or that space's enabled flags. Clients
    *  holding a skills list re-fetch; a session already running keeps the set it started with. */
   "skills.changed":   z.object({ spaceId: IdSchema }),
+  /** A space's scripts changed — added, edited, removed or reordered. Clients holding a list (the
+   *  runner, the keybinding editor) re-fetch. There is deliberately no `commands.changed` beside it:
+   *  nothing in Realm writes a command file or watches the directory, so nobody could ever emit one. */
+  "scripts.changed":  z.object({ spaceId: IdSchema }),
+  /** The keymap changed — set, reset, or newly shipped defaults merged in. Carries nothing: the list
+   *  is small and re-reading it is cheaper than diffing a payload, exactly as `themes.changed`. */
+  "keybindings.changed": z.object({}),
+  /** The themes folder changed — imported, removed, or edited on disk. Carries nothing: the list is
+   *  small and re-reading it is cheaper than diffing a payload against what each client holds. */
+  "themes.changed":   z.object({}),
+  /** A font family was installed or removed. */
+  "fonts.changed":    z.object({}),
   /** An MCP server was added, edited, removed, or toggled for a space. Carries no payload because the
    *  server list is global: add/edit/remove change what EVERY space lists, and a per-space event would
    *  leave the other spaces' open settings panes stale. Clients holding a list re-fetch. */
@@ -1437,6 +1717,20 @@ export const Events = {
    *  field here a password could occupy — the URL's token authorises a loopback socket whose far end
    *  the server has ALREADY authenticated. */
   "machine.status": MachineStateSchema,
+  /** A simulator's stream changed state — the pane's body and the pane bar's toggle read this one.
+   *
+   *  It carries `streamUrl` and `wsUrl` for `machine.status`'s reason: the pane must not have to
+   *  make a round trip to learn where the pixels are, and both are loopback URLs already inside the
+   *  renderer's `img-src`/`connect-src`. Nothing secret rides it — serve-sim's routes are
+   *  unauthenticated on 127.0.0.1, which is the same trust boundary the preview UI itself uses. */
+  "simulator.status": SimulatorStateSchema,
+  /** A session's goal changed — started, counted a turn, stopped, or went away (`goal: null`).
+   *
+   *  It carries the whole goal for `machine.status`' reason: the prompter's strip draws every field
+   *  on it, and a pane that had to fetch after each event would draw a stale objective for a round
+   *  trip. Nothing here is a secret — the objective is the user's own words, which they are looking
+   *  at in the prompter while this fires. */
+  "goal.changed": z.object({ sessionId: IdSchema, goal: GoalSchema.nullable() }),
   /** A mutating machine tool call SETTLED (Plan 25 W4) — the browser ticker's twin. `text` is the
    *  same sentence the permission card showed, which for a machine names the coordinates: they mean
    *  little to a person, but they are the only thing telling two clicks apart. */

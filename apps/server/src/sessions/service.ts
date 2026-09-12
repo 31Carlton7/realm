@@ -1,6 +1,6 @@
 import { realpathSync } from "node:fs";
-import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementContext, newId, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type ElementChip, type Environment, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent } from "@realm/contracts";
-import type { AdapterRegistry, AgentHandle, PermissionDecision, ProbeResult, SkillMention, UserMessage } from "@realm/adapters";
+import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementContext, newId, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type ElementChip, type Environment, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent } from "@realm/contracts";
+import { CODEX_SANDBOX_REFUSAL, type AdapterRegistry, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
 import type { ItemsStore } from "../store/items";
@@ -16,11 +16,14 @@ import type { FailoverHooks } from "./failover";
 import { portEnv, type PortAllocator } from "../workspace/ports";
 import type { WorktreeService } from "../workspace/worktrees";
 import type { CheckpointService } from "../checkpoints/service";
+import { decodeArmedRewind, isRewindRefusal, type ArmedRewind } from "../checkpoints/rewind";
 import { ProbeCache } from "./probe-cache";
 import type { SkillsService } from "../skills/service";
 import type { McpGateway } from "../mcp/gateway";
 import { capabilitiesContext } from "../mcp/capabilities";
 import type { MemoryService } from "../memory/service";
+import type { ExecutionSandboxService } from "../sandbox/service";
+import { sandboxWrapFor, type SpawnWrap } from "../sandbox/spawn-wrap";
 import type { MemorySources } from "@realm/contracts";
 
 /**
@@ -28,7 +31,10 @@ import type { MemorySources } from "@realm/contracts";
  * as chips: they never enter the transcript (which keeps what the user typed, chips and all) and are
  * appended, fenced, to the text the ADAPTER sees — the same split mentions already follow.
  */
-export type SendMessage = { text: string; attachments: { path: string; mime: string }[]; mentions?: string[]; elements?: ElementChip[] };
+export type SendMessage = { text: string; attachments: { path: string; mime: string }[]; mentions?: string[]; elements?: ElementChip[]; sessionRefs?: SessionRef[];
+  /** Written by the session's own goal rather than typed. Rides to the transcript event and nowhere
+   *  else: what the AGENT is handed is the same prompt either way. */
+  goal?: "continuation" | "budget" };
 
 /* The placeholder a session wears until its first message names it. Not "<Agent> session": the
  * agent is already shown on the row, and repeating it there says nothing about WHICH session this
@@ -96,6 +102,26 @@ export class SessionService {
    * durable anywhere: `drafts` is renderer memory.
    */
   private queued = new Map<string, { prompt: QueuedPrompt; msg: SendMessage }[]>();
+  /**
+   * The truncating resume the CURRENT handle was booted with, per session — the in-memory half of a
+   * restore's armed fork.
+   *
+   * The durable half is the session row (`rewind_fork_json`), which is what survives the restart
+   * between a restore and the next send. This map is narrower and shorter-lived: it exists so the pump
+   * can recognise the CLI's refusal as belonging to a fork THIS process asked for, and so it can name
+   * the checkpoint whose cursor must then be forgotten. Empty for every session that has not just been
+   * restored, which is nearly all of them.
+   */
+  private forkInFlight = new Map<string, ArmedRewind>();
+  /**
+   * The message a forked start carried, held only until that start proves itself.
+   *
+   * A fork refusal kills the turn before the agent sees a word of it, so without this the user's
+   * message would be silently eaten by a recovery they never asked for. Set only when a fork is
+   * actually in flight and dropped on the first sign the boot worked, so an ordinary session never
+   * holds a copy of what it just sent.
+   */
+  private rewindTurns = new Map<string, SendMessage>();
   private closing = false;
   /** Set while the daemon is going quiet for a handoff. See `ensureLive` for the rule that matters. */
   private draining = false;
@@ -103,6 +129,9 @@ export class SessionService {
     /** Failover (fallbacks + forks). Optional so a server built without it behaves exactly as
      *  before: no retries, no handoffs, an error is an error. */
     failover?: FailoverHooks;
+    /** The Seatbelt policy an agent CLI is spawned under. Optional so a harness built without it
+     *  spawns exactly what Realm spawned before this feature existed. */
+    sandbox?: ExecutionSandboxService;
     /** The documents service, for surfacing a file the agent wrote. Optional like every other
      *  nicety here: a server built without it simply shows nothing. */
     documents?: { openPath(p: { spaceId: string; environmentId?: string; path: string }): Promise<unknown> };
@@ -132,9 +161,18 @@ export class SessionService {
     /** Writes the model's account of a session when a turn settles (`SessionSummaryService`). Wired
      *  and gated for exactly the same reasons as `titleGenerator` above: it is a billed call, so only
      *  the real server process passes one, and it is `void`ed off the settle rather than awaited. */
+    /** The settle's model-written fields — the summary and the prompter's hint, from one call. */
     summaries?: { onSettled(sessionId: string): Promise<void> };
     /** Where a `rate_limit` reading goes. Per agent KIND, not per session — see PlanLimitsService. */
     planLimits?: { apply(kind: AgentKind, reading: SessionEventPayload<"rate_limit">): void };
+    /** Goal mode (`GoalService`), which is the one thing here that can start a turn nobody asked
+     *  for. Optional and absent in most tests, exactly like the two above: a suite that never
+     *  mentions goals must not have a session continue itself behind its back. */
+    goals?: {
+      onUsage(sessionId: string, reading: SessionEventPayload<"usage">): void;
+      onError(sessionId: string): void;
+      onSettled(sessionId: string, opts: { interrupted: boolean }): Promise<unknown>;
+    };
   }) {}
 
   /** Cached probe (TTL + in-flight dedup): each `probeAll` spawns a child process per registered agent,
@@ -157,7 +195,8 @@ export class SessionService {
 
   isLive(id: string): boolean { return this.live.has(id); }
   list(spaceId: string): Session[] { return this.d.sessions.list(spaceId); }
-  listAll(): Session[] { return this.d.sessions.listAll(); }
+  /** `null` = every profile. See `SessionsStore.listAll` for why the scoping is a join and not a filter. */
+  listAll(profileId: string | null = null): Session[] { return this.d.sessions.listAll(profileId); }
   /** How far the user has read this session. See `sessions.markSeen` in the contract. */
   markSeen(id: string, seq: number): void { this.d.sessions.markSeen(id, seq); }
   /** Going quiet for a handoff: finish what is running, start nothing new. */
@@ -277,6 +316,10 @@ export class SessionService {
     await this.deliver(id, next.msg);
   }
 
+  /** What this session still has waiting to go out. Read by goal mode, which stands down when the
+   *  user has typed something: their message is the next turn, and the goal picks up behind it. */
+  queuedFor(id: string): { prompt: QueuedPrompt; msg: SendMessage }[] { return this.queued.get(id) ?? []; }
+
   /** Drop a queued message before its turn comes. An id the queue no longer holds is a no-op: the
    *  drain got there first, which is a race the prompter cannot win and should not have to. */
   dequeue(id: string, queuedId: string): void {
@@ -331,13 +374,18 @@ export class SessionService {
     // that can refuse a message is a worse failure than not having one.
     if (opts.checkpoint !== false) await this.checkpointTurn(id, msg.text);
     const handle = this.ensureLive(id);
+    // A start that carried a restore's fork can be refused at fork time, before the model sees a word
+    // of this message — so the message is held until that boot proves itself, and re-sent plainly if it
+    // does not. Only on this path: `deliverInterjection` and `resendTurn` do their own bookkeeping, and
+    // a peer's question re-sent behind the user's back is not a recovery anyone asked for.
+    if (this.forkInFlight.has(id)) this.rewindTurns.set(id, msg);
     // Recorded BEFORE the message goes out, because the failure this enables recovery from can
     // arrive on the very first event back. A new turn also clears the previous one's retry budget
     // and chain position — those are per-turn, not per-session.
     this.d.failover?.turnStarted(id, msg);
     this.maybeTitleFrom(id, msg.text);
     // The transcript records what the USER wrote — `@mac` and all. Only the wire below is rewritten.
-    this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: msg.attachments }));
+    this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: msg.attachments, ...(msg.goal ? { goal: msg.goal } : {}) }));
     await handle.send(this.resolveMentions(id, msg));
   }
 
@@ -378,7 +426,10 @@ export class SessionService {
    */
   private resolveMentions(id: string, msg: SendMessage): UserMessage {
     const declared = [...new Set(msg.mentions ?? [])].filter((m) => SkillIdSchema.safeParse(m).success);
-    const context = elementContext(msg.elements ?? []);
+    // Both blocks ride the same way and in this order: what the user picked ON a page, then who
+    // else they pointed at. Appended to the user's own text rather than sent as a system note,
+    // because all three agent wires take one markdown string and nothing else.
+    const context = elementContext(msg.elements ?? []) + sessionRefContext(msg.sessionRefs ?? []);
     const base = { text: msg.text + context, attachments: msg.attachments };
     if (declared.length === 0) return base;
     const tokens = scanMentions(msg.text, declared);
@@ -644,6 +695,10 @@ export class SessionService {
     this.d.failover?.release(id);
     // Nothing left to send into. No broadcast: the session's own row is going away with it.
     this.queued.delete(id);
+    // …and the rewind bookkeeping. The row carrying the durable half goes below; these two are what a
+    // still-draining pump could otherwise read after the session it describes has stopped existing.
+    this.forkInFlight.delete(id);
+    this.rewindTurns.delete(id);
     // The terminal belongs to the session: deleting the session must not leave its pty running.
     const term = s.terminalItemId ? this.d.items.get(s.terminalItemId) : null;
     if (term) this.closeTerminalItem(term.refId);
@@ -870,6 +925,16 @@ export class SessionService {
     await this.d.ports.ensureBlock(s.environmentId);
   }
 
+  /** The Seatbelt wrapper this session's agent CLI is spawned through, or `undefined` when its space
+   *  has no sandbox (see `sandboxWrapFor`).
+   *
+   *  `extraWritableRoots: [s.cwd]` because the session's own checkout must be writable even when it is
+   *  not one of the space's registered environments — a session pointed at a folder Realm has not
+   *  catalogued would otherwise be confined out of the very directory it was opened on. */
+  private wrapFor(s: Session): SpawnWrap | undefined {
+    return sandboxWrapFor(this.d.sandbox, { spaceId: s.spaceId, extraWritableRoots: [s.cwd] });
+  }
+
   private ensureLive(id: string): AgentHandle {
     const existing = this.live.get(id); if (existing) return existing.handle;
     // The load-bearing refusal of a drain (Plan 26 Phase 8). A handle that is ALREADY running is
@@ -879,6 +944,17 @@ export class SessionService {
     const s = this.get(id);
     const adapter = this.d.adapters[s.agentKind];
     if (!adapter) throw new RpcError("AGENT_UNAVAILABLE", `${s.agentKind} is not registered`);
+    // The space's Seatbelt policy, resolved before anything else is allocated so a refusal costs
+    // nothing to unwind. `undefined` for a space on `off`, which is what this release ships: no
+    // wrapper is installed at all, and every adapter below spawns exactly the argv it always did.
+    // See `TerminalService.wrapFor` for the same reasoning at the other spawn site.
+    const wrap = this.wrapFor(s);
+    // Codex, and only Codex, refuses rather than running unconfined. `CodexAdapter.start` throws on
+    // a `wrap` it cannot honour, and this is the same refusal one step earlier — before a gateway
+    // token has been minted for a session that will not exist, and as an `RpcError` whose code the
+    // renderer can branch on. Both exist on purpose: this one is the refusal a user meets, and the
+    // adapter's is the one that holds for any OTHER caller that ever starts a Codex session.
+    if (wrap && s.agentKind === "codex") throw new RpcError("SANDBOX_AGENT_UNSUPPORTED", CODEX_SANDBOX_REFUSAL);
     // The environment's port block, read back off the row that ensurePorts just settled: an agent
     // told to `pnpm dev` in a worktree starts on that worktree's ports, not on the space's.
     const env = this.d.environments.get(s.environmentId);
@@ -924,13 +1000,31 @@ export class SessionService {
       : capabilitiesContext(this.d.gateway.realmProvidersFor(id, s.spaceId));
     const joined = [capabilities, baseContext, agentContext, handoffContext].filter((p): p is string => Boolean(p)).join("\n\n");
     const systemContext = joined.length > 0 ? joined : undefined;
+    // The fork a checkpoint restore armed, if one is still waiting. Read off the ROW and not from
+    // memory: a restore is refused while any handle in the checkout is live, so the arm is by
+    // construction consumed by a later start — often a later PROCESS — and an in-memory one would be
+    // dropped by the first restart between the two.
+    //
+    // Dropped rather than carried when the session holds no provider session id: there is no
+    // conversation to truncate, and `resumeSessionAt` without `resume` means nothing.
+    const fork = s.providerSessionId ? decodeArmedRewind(this.d.sessions.rewindFork(id)) : null;
+    // The two extra options travel structurally — only `ClaudeAdapter` reads them, and only Claude has
+    // anywhere to put them (see ClaudeResumeFork). Built as a variable rather than inline so the extra
+    // pair is declared where it is passed instead of being an unchecked cast at the call.
+    const startOptions: import("@realm/adapters").StartOptions & { resumeAt?: string | null; resumeDropsTurn?: string | null } = {
+      cwd: s.cwd, model: s.model, effort: s.effort, permissionMode: s.permissionMode, fastMode: s.fastMode, mcpServers, resume: s.providerSessionId,
+      skills,
+      systemContext,
+      // The port block, plus `REALM_SANDBOX*` — a statement of the posture this process was started
+      // under, for a log line or a bug report to read. Nothing reads them back.
+      env: { ...(env ? portEnv(env) : {}), ...this.d.sandbox?.env(s.spaceId) },
+      ...(wrap ? { wrap } : {}),
+      ...(fork ? { resumeAt: fork.at, resumeDropsTurn: fork.dropsTurn } : {}),
+      onLog: (line) => console.error(`[session ${id.slice(-6)}] ${line}`),
+    };
     let handle: AgentHandle;
     try {
-      handle = adapter.start({ cwd: s.cwd, model: s.model, effort: s.effort, permissionMode: s.permissionMode, fastMode: s.fastMode, mcpServers, resume: s.providerSessionId,
-        skills,
-        systemContext,
-        env: env ? portEnv(env) : {},
-        onLog: (line) => console.error(`[session ${id.slice(-6)}] ${line}`) });
+      handle = adapter.start(startOptions);
     } catch (e) {
       // `gateway.register` above already minted a token for this session before `adapter.start` had any
       // chance to fail — a throw here must not leave that token valid with no live session behind it
@@ -939,6 +1033,14 @@ export class SessionService {
       this.d.gateway.release(id);
       throw e;
     }
+    if (fork) {
+      // Disarmed the moment the process carrying it exists, and not before. The boot is where the
+      // truncation happens, so there is nothing left for a later start to do — while leaving the row
+      // armed would re-fork a chain that has since moved on. A `start` that THREW keeps the arm, which
+      // is why this sits after the try: nothing was asked of the provider in that case.
+      this.d.sessions.setRewindFork(id, null);
+      this.forkInFlight.set(id, fork);
+    }
     const pump = (async () => {
       try { for await (const ev of handle.events) this.onEvent(id, ev); }
       catch (e) { console.error(`[sessions] pump failed for ${id}: ${e instanceof Error ? e.message : String(e)}`); }
@@ -946,6 +1048,87 @@ export class SessionService {
     })();
     this.live.set(id, { handle, pump, skillsInjected: skills !== undefined });
     return handle;
+  }
+
+  /**
+   * The conversation half of a checkpoint restore, called by `CheckpointService` once the WORKSPACE is
+   * already back (`CheckpointDeps.rewindSession`).
+   *
+   * Two writes, and they are one fact: Realm's transcript loses everything after the checkpoint, and
+   * the session's next adapter start is armed to resume the provider conversation at the same point.
+   * Neither happens without the other — a transcript truncated alone hides turns the model would still
+   * be carrying, which is the lie `AGENT_CONVERSATION_REWIND` exists to refuse.
+   *
+   * Refuses while the session holds a live handle, and that refusal is not redundant with
+   * `CheckpointService`'s environment-busy check: that one guards the checkout, this one guards the
+   * arm. The fork is honoured at BOOT, so a live handle would mean a truncated transcript above a
+   * conversation nothing is ever going to truncate.
+   */
+  rewindConversation(input: { sessionId: string; throughSeq: number; fork: string }): boolean {
+    if (!this.d.sessions.get(input.sessionId)) return false;
+    if (this.live.has(input.sessionId)) return false;
+    this.d.events.truncate(input.sessionId, input.throughSeq);
+    this.d.sessions.setRewindFork(input.sessionId, input.fork);
+    return true;
+  }
+
+  /**
+   * A turn settled: hand the checkpoint service the provider's chain position, and retire the fork that
+   * survived to get here.
+   *
+   * The cursor is read off the HANDLE, because it is the only thing that ever saw the chain — Realm's
+   * own transcript records what was said, not the uuids the provider filed it under. Adapters that have
+   * no chain to report simply have no `chainCursor`, and this then records nothing rather than a
+   * fabricated position: the structural check is the honest form of "this agent cannot be rewound", the
+   * same fact `AGENT_CONVERSATION_REWIND` states statically.
+   *
+   * Reaching this at all means a forked boot produced a complete turn, so the fork is retired here:
+   * the refusal arrives instead of a settle, never after one.
+   */
+  private noteTurnCursor(id: string, before: Session): void {
+    this.forkInFlight.delete(id);
+    this.rewindTurns.delete(id);
+    if (!this.d.checkpoints) return;
+    const handle = this.live.get(id)?.handle as (AgentHandle & { chainCursor?: () => { promptUuid: string | null; endUuid: string | null } }) | undefined;
+    const chain = handle?.chainCursor?.();
+    if (!chain) return;
+    this.d.checkpoints.noteTurnCursor(id, { providerSessionId: before.providerSessionId, ...chain });
+  }
+
+  /**
+   * The provider refused the fork — the one documented failure of a truncating resume.
+   *
+   * The refusal is deterministic: the CLI validated that everything past the fork point belonged to the
+   * declared turn, found something that did not, and will find it again every time. So this recovers
+   * and never retries:
+   *
+   *  1. the checkpoint's cursor is forgotten, so `rewindsConversation` stops promising a rewind that
+   *     this checkpoint can no longer deliver and nothing can arm the same request twice;
+   *  2. the refusal is written onto the session verbatim — the CLI's own diagnostic names what it found
+   *     in the discarded range, and Realm has nothing better to say than that;
+   *  3. the handle booted with the refused fork is torn down and the turn re-sent plainly, because the
+   *     refusal happened at fork time and the user's message never reached the model at all.
+   *
+   * `false` when this was not a fork refusal, which is how the caller knows to let the error travel its
+   * ordinary road (failover included).
+   */
+  private handleRewindRefusal(id: string, message: string): boolean {
+    const fork = this.forkInFlight.get(id);
+    if (!fork || !isRewindRefusal(message)) return false;
+    this.forkInFlight.delete(id);
+    const held = this.rewindTurns.get(id);
+    this.rewindTurns.delete(id);
+    this.d.checkpoints?.forgetProviderCursor(fork.checkpointId);
+    this.d.sessions.recordRewindRefusal(id, message);
+    console.error(`[sessions] rewind refused for ${id}; resuming plainly: ${message}`);
+    // Off the pump: `stop` waits on the very loop this is being called from, so awaiting it here would
+    // be waiting on ourselves. The dispose is not optional — the CLI refused at boot, so the process
+    // this handle wraps has no usable conversation to send into.
+    void (async () => {
+      await this.stop(id).catch(() => {});
+      if (held && !this.closing) await this.resendTurn(id, held).catch(() => {});
+    })();
+    return true;
   }
 
   /**
@@ -991,11 +1174,20 @@ export class SessionService {
       this.noteContextReset(before, ev.payload);
       this.d.sessions.update({ id, providerSessionId: ev.payload.providerSessionId });
     }
+    // A refused truncating resume is claimed here FIRST, and deliberately kept away from failover: the
+    // refusal is deterministic, so every retry mechanism in the building would re-send a request that
+    // can only fail again. It is still persisted below — the CLI's diagnostic is the evidence, and
+    // hiding it would leave the plain resume that follows with nothing to explain it.
+    const rewindRefused = ev.type === "error" && this.handleRewindRefusal(id, ev.payload.message);
     // Failover reads the error BEFORE it is persisted below, but does not suppress it: the failure
     // genuinely happened, and a transcript that hid it would leave the following `retrying` or
     // `handoff` line with nothing to explain. `before` is the row as it was when the turn failed —
     // the handoff rewrites `agentKind`, so reading it afterwards would name the wrong agent.
-    if (ev.type === "error") this.d.failover?.onError(before, ev.payload.message);
+    if (ev.type === "error" && !rewindRefused) this.d.failover?.onError(before, ev.payload.message);
+    // …and goal mode hears about it too: three errored turns in a row is what stops a goal from
+    // continuing into a wall it cannot see (a missing CLI errors and settles in milliseconds).
+    // Same exemption: the turn is being re-sent plainly, so it has not failed yet.
+    if (ev.type === "error" && !rewindRefused) this.d.goals?.onError(id);
     /* A document the agent just WROTE gets shown.
      *
      * This is the gap behind "I asked for a doc and the docs pane never opened": Realm knew about
@@ -1011,6 +1203,9 @@ export class SessionService {
     // Not persisted and not this session's: the reading describes the ACCOUNT behind every session on
     // this agent, so it is folded into per-kind state and never into the transcript.
     if (ev.type === "rate_limit") this.d.planLimits?.apply(before.agentKind, ev.payload);
+    // A goal's budget is spent by tokens rather than by turns, and this event is where a turn's cost
+    // is reported. Counted even on a turn that errored: the tokens were still spent.
+    if (ev.type === "usage") this.d.goals?.onUsage(id, ev.payload);
     if (ev.type === "status") {
       this.d.sessions.update({ id, status: ev.payload.status });
       this.d.rpc.broadcast("session.status", { sessionId: id, status: ev.payload.status });
@@ -1019,6 +1214,11 @@ export class SessionService {
       // are persisted below on their own passes — the summary reads the log, so it must not run
       // until the log is the log. `void`, because a turn is never held up for a nicety.
       if (ev.payload.status === "idle" && before.status !== "idle") {
+        // Where the provider's chain now stands, taken on the settle and nowhere else: this is the one
+        // moment the answer is complete (the turn's `result` has been mapped) and not yet overwritten
+        // (the next turn has not begun). Synchronous and first, ahead of every `void` below — one of
+        // those starts the next turn, and a cursor read after that would describe the wrong one.
+        this.noteTurnCursor(id, before);
         void this.d.summaries?.onSettled(id);
         /* The turn that was blocking the queue just ended — unless the USER ended it, in which case
          * the queue stays parked. Stop has to mean stop: a queued message that started a fresh turn
@@ -1029,6 +1229,12 @@ export class SessionService {
          * `void` for the same reason the summary is: this runs inside the adapter pump, and awaiting
          * a send here would hold the pump open across the next turn's first events. */
         if (!ev.payload.interrupted) void this.drainQueue(id).catch(() => {});
+        /* …and then the goal, if this session is pursuing one. AFTER the drain and never instead of
+           it: a message the user typed during the turn is the next turn, and the goal picks up
+           behind it (`GoalService.onSettled` sees the queue and stands down). `void` for the
+           reason above — this runs inside the adapter pump, and a continuation's own first events
+           must not be waited for from inside it. */
+        void this.d.goals?.onSettled(id, { interrupted: ev.payload.interrupted === true }).catch(() => {});
       }
     }
     if (PERSISTED_EVENT_TYPES.includes(ev.type)) {

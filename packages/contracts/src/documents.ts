@@ -45,6 +45,32 @@ export const isPreviewKind = (path: string): boolean => documentKindFor(path) ==
  * `*.slides.md` and `*.deck.md` are honoured here as an explicit opt-in that does not need a read —
  * which is what lets the picker show the right icon before opening anything.
  */
+/**
+ * Source files, opened in the code editor.
+ *
+ * An ALLOWLIST, not a fallback, and that is the whole design. This function is content-blind by
+ * contract — it runs on a directory listing where nothing has been read — so "anything I do not
+ * recognise is probably code" would open a `.zip` in a text editor. An unknown extension therefore
+ * stays `unsupported`, and the one place that CAN tell a text file from a binary draws that line
+ * with the bytes in hand: `readDocument(abs, { refuseBinary: true })` on the server's read path,
+ * which refuses a NUL byte as binary and refuses undecodable bytes as a file Realm would rewrite.
+ *
+ * `md`, `markdown`, `html`, `htm`, `tex`, `csv` and `tsv` are deliberately ABSENT. They are already
+ * `doc`, `html`, `latex` and `sheet` — the rich editor, the guide preview, the LaTeX view and the
+ * grid — and moving them here would turn every Markdown document in the app into a code buffer.
+ * That is a regression wearing a feature's clothes, not a feature.
+ */
+const CODE_EXT = new Set([
+  "js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx", "json", "jsonc", "json5", "webmanifest",
+  "mdx", "css", "scss", "less", "sass", "vue", "svelte", "xml", "svg", "xsd", "xsl", "plist",
+  "storyboard", "xib", "py", "pyi", "pyw", "sh", "bash", "zsh", "ksh", "fish", "command", "yaml",
+  "yml", "toml", "rs", "go", "c", "h", "cc", "cpp", "cxx", "hpp", "hh", "hxx", "ino", "java", "kt",
+  "kts", "scala", "sbt", "cs", "m", "mm", "dart", "swift", "rb", "rake", "gemspec", "php", "pl",
+  "pm", "lua", "r", "hs", "sql", "dockerfile", "ini", "cfg", "conf", "properties", "env",
+  "editorconfig", "gitconfig", "diff", "patch", "proto", "txt", "text", "log", "lock", "gitignore",
+  "gitattributes", "npmrc", "nvmrc", "prettierignore", "eslintignore", "dockerignore",
+]);
+
 export function documentKindFor(path: string): DocumentKind {
   const name = path.split("/").pop()?.toLowerCase() ?? "";
   const ext = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1) : "";
@@ -56,6 +82,10 @@ export function documentKindFor(path: string): DocumentKind {
   if (ext === "md" || ext === "markdown") {
     return /\.(slides|deck)\.(md|markdown)$/.test(name) ? "slides" : "doc";
   }
+  /* Last, immediately before the fallback. Mechanically the position is free — CODE_EXT is disjoint
+     from every set above — but last is the only position from which a reader can see at a glance
+     that this branch ADDS a case and changes no existing answer. */
+  if (CODE_EXT.has(ext)) return "code";
   return "unsupported";
 }
 
@@ -271,5 +301,11 @@ export function shouldSurfaceWrite(toolName: string, input: Record<string, unkno
   if (toolName !== "Write" && toolName !== "create_file") return null;
   const path = writtenPathOf(input);
   if (path === null) return null;
-  return documentKindFor(path) === "unsupported" ? null : path;
+  const kind = documentKindFor(path);
+  /* `code` is excluded alongside `unsupported`, and deliberately so even though Realm now HAS a code
+     editor to open it in. Surfacing is for the case where someone asked for a document and would
+     like to see it; an agent writing source files is the ordinary business of a coding tool, and a
+     tab per file would bury the session it came from under its own output. Opening one is a ⌘P away
+     when the user actually wants it — which is the difference between a document and a side effect. */
+  return kind === "unsupported" || kind === "code" ? null : path;
 }

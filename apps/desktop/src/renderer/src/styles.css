@@ -37,10 +37,12 @@
 .mcp-tool-name, .md code, .md-code-lang, .media-name, .media-time, .memory-doc, .mention-row-id,
 .msg-error pre, .pane-empty-path, .permission-details pre, .permission-tool code, .req-target,
 .sched-cron-input, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
-.sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-picker-row-id,
-.summary-fact .summary-row-name, .summary-file-path, .term-exit, .term-out, .terminal-hint-path,
+.font-installed-size, .sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-file-name code, .skill-picker-row-id,
+.summary-diff, .summary-fact .summary-row-name, .summary-file-path, .term-exit, .term-out, .terminal-hint-path,
 .theme-import textarea, .tool-body pre, .tool-stat, .tool-summary, .tool-well, .wt-path, button.md-path, kbd,
-.machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size {
+.machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
+.composer-queue-item .queue-position, .composer-queue-item .queue-attach, .terminal-dock-title,
+.sim-detail, .sb-chat-mono {
   letter-spacing: normal;
 }
 
@@ -154,9 +156,23 @@
      it is. 20 on a card about 72px tall is close to the signature's own proportion (36/96) without
      turning a two-line card into a lozenge. */
   --r-squircle-card: 20px;
+  /* The column's resting width. The shell overwrites this with the user's own number (see
+     sidebar-width.ts, which ships the same default); what is declared here is what a renderer that
+     never got that far paints, which is a different fact and is why both exist. */
   --sidebar-w: 280px; --prompter-w: 720px;
   /* The session summary's strip, read by the panel AND by the pane that makes room for it. */
   --summary-w: min(320px, 80vw);
+  /* The terminal's dock on that same strip. Wider than the summary's because its content is COLUMNS:
+     prose reflows into 320px, a shell's output wraps and stops being readable. `92vw` rather than
+     `80vw` so a narrow window still gives the shell most of what it has — at that width the dock is
+     floating over the transcript anyway, so there is nothing beside it to leave room for. */
+  --terminal-dock-w: min(560px, 92vw);
+  /* Which of those two the pane currently has to make room for. Declared here so the stylesheet
+     defines everything it reads, and REWRITTEN on the pane node by `useDockPinned` — the pane is the
+     panel's sibling, so the panel cannot hand it a width any other way. The summary's is the default
+     because it is the narrower of the two: a pane that mistakenly kept this value would leave too
+     little room rather than too much, which shows up as a visible overlap instead of a silent gap. */
+  --dock-w: var(--summary-w);
   /* The band that dissolves the transcript under the pane bar. Shorter than --fade-h's 68: the
      bottom band has a whole card to hide behind, this one only has to soften a line of text passing
      an edge, and a tall one would blur the newest message the reader is scrolling toward. */
@@ -227,7 +243,8 @@ kbd { font: 11px var(--font-mono); }
    page. It keeps the rounding, because the window's corners are rounded and a square column inside
    them shows through. The rule down its right stays gone: a change of surface is the boundary. */
 .sidebar {
-  width: var(--sidebar-w); flex: none; display: flex; flex-direction: column; min-height: 0;
+  /* relative for `.sb-resize`, which is placed against this column's own right edge. */
+  width: var(--sidebar-w); flex: none; position: relative; display: flex; flex-direction: column; min-height: 0;
   border-radius: var(--r-float) 0 0 var(--r-float); corner-shape: squircle;
   background: var(--sidebar-ground); -webkit-app-region: drag;
   /* §6's on-screen-movement rung, because that is what this is: the column leaves to the left and
@@ -238,7 +255,33 @@ kbd { font: 11px var(--font-mono); }
   transition: margin-inline-start var(--dur-move) var(--ease-in-out-strong), opacity var(--dur-base) ease;
 }
 .sidebar[data-collapsed] { margin-inline-start: calc(-1 * var(--sidebar-w)); opacity: 0; }
-.sidebar button, .sidebar input, .sidebar [data-swiper] { -webkit-app-region: no-drag; }
+.sidebar button, .sidebar input, .sidebar [data-swiper], .sb-resize { -webkit-app-region: no-drag; }
+
+/* ── The column's own edge, as a control ──
+   Nothing at rest. The seam here is `.main`'s border-left and it is 1px on purpose (see the note
+   there); a line drawn on this side to advertise the handle would double it for no state change.
+   The cursor is the affordance, which is what every sidebar on the platform does.
+
+   8px of hit area, all of it INSIDE the column. A handle that overhung into the panes the way
+   `.resize-handle`'s ::after does would have to out-stack them to stay grabbable — `.panel` is a
+   positioned element and paints after the sidebar — and lifting the whole sidebar over the pane host
+   to buy four pixels is a stacking change the rest of the shell would have to live with. Placed
+   rather than flowed, so the rows beside it lay out as though it were not there. */
+.sb-resize { position: absolute; inset-block: 0; inset-inline-end: 0; width: 8px;
+  cursor: col-resize; touch-action: none; }
+/* While it is being dragged, and while the keyboard has it — a control with a value the arrows move
+   has to say where it is. One line, on the sidebar's last pixel, in the accent: the same thing a
+   pane divider does under the pointer, at the app's one "you are here" colour. */
+.sb-resize[data-resizing]::after, .sb-resize:focus-visible::after {
+  content: ""; position: absolute; inset-block: 0; inset-inline-end: 0; width: 1px; background: var(--rl-accent); }
+/* The global focus ring would draw a 2px rectangle around an 8px-wide strip that paints nothing —
+   a box around empty space, in a place where the thing being operated on is the column beside it.
+   The line above is this control's focus state instead. */
+.sb-resize:focus-visible { outline: none; }
+/* The drag leaves the sidebar almost immediately — the pointer spends it over the panes, each of
+   which has its own cursor and its own text to select. Held on the document for the length of the
+   gesture, the way react-resizable-panels does it for the pane dividers. */
+:root[data-sidebar-resizing] * { cursor: col-resize !important; user-select: none !important; }
 /* The boundary, back as a line — on .main, because .main is the opaque side.
    "A change of surface is the boundary" held while the sidebar painted 82% of the window ground:
    near-opaque, and plainly a different surface from the panel beside it. The default is the floor
@@ -265,8 +308,13 @@ kbd { font: 11px var(--font-mono); }
 /* The traffic-light band, as a real row rather than .sb-top's old 40px of top padding: the toggle
    sits at its right edge, mirroring the lights at its left. Height + .sb-top's new padding sum to
    the 48px of head room the sidebar had before, so nothing below it moves. */
-.sb-head { flex: none; height: 40px; display: flex; align-items: center; justify-content: flex-end; padding: 0 10px 0 16px; }
-.sb-top { padding: 0 16px 8px; display: flex; flex-direction: column; gap: 8px; }
+.sb-head { flex: none; height: 40px; display: flex; align-items: center; justify-content: flex-end; gap: 2px; padding: 0 10px 0 16px; }
+/* The 8px at the top is the half of the head room `.sb-head` above does not carry: its comment says
+   the two sum to the 48px the sidebar had before the band became a real row, and at 0 they summed to
+   40 — so the space title sat flush under the traffic lights with nothing over it. It belongs here
+   rather than on `.space-header` because it is the COLUMN's head room: the title happens to be first
+   today, and was the search field yesterday. */
+.sb-top { padding: 8px 16px 8px; display: flex; flex-direction: column; gap: 8px; }
 /* Collapsed: the 280px column goes and nothing takes its place. The rail that used to stand in for it
    spent 38px of window HEIGHT, full width, for a strip whose entire content was one button — a
    permanent tax on every pane, paid so the traffic lights would not land on pane chrome. The lights
@@ -310,34 +358,38 @@ kbd { font: 11px var(--font-mono); }
 .sb-toggle { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px;
   border-radius: var(--r-ctl); corner-shape: squircle; color: var(--rl-text-faint); }
 .sb-toggle:hover { color: var(--rl-text-bright); background: var(--field); }
-/* Plan 9 W3 — BUI SidebarNav's chat-search field: field fill behind a hairline ring, 13/500,
-   ink-3 → ink-2 as the pointer arrives (the fill itself does not change; the field IS the state). */
-/* The search field is the prompter's little sibling: same surface, same ring, same curve — at its
-   own size. The corner is `height × --sq-ratio` rather than a number, because copying the composer's
-   36px onto a 30px control makes a pill, and copying `--r-ctl` makes it a plain button that happens
-   to sit above a squircle. The ratio is the thing that transfers. */
-.search {
-  --search-h: 34px;
-  margin-top: 10px;
-  display: flex; align-items: center; gap: 8px; width: 100%; height: var(--search-h); padding: 0 12px;
-  border-radius: calc(var(--search-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
-  background: var(--search-ground); box-shadow: var(--shadow-card); border: none; color: var(--rl-text-faint);
-  font: inherit; font-size: 13px; text-align: left; cursor: pointer;
-  transition: background var(--dur-hover) ease, color var(--dur-hover) ease, scale var(--dur-press) var(--ease-out-strong);
+/* Activity's button shares the collapse toggle's size and band, and needs the on-state the toggle
+   does not: the column is showing one lens or the other, and the glyph cannot say which. One rung
+   past hover, the same step `.icon-btn` takes, so "on" always reads as more than "under the
+   pointer". */
+.sb-toggle[aria-pressed="true"] { color: var(--rl-text-bright); background: var(--hover-2); }
+/* The unread count, at the bell's shoulder — the pill the destinations row carried, at the size a
+   26px button leaves for one. `overflow: visible` and negative offsets on purpose: a digit fitted
+   INSIDE the button would have to sit under the type floor to clear the glyph, and a badge that
+   overhangs its control is how every bell on this platform is drawn.
+   The colours are the row's, unchanged: orange on its own 14% tint, which is what "something is
+   waiting on you" reads as everywhere else in the app. The tint is thin by design, so it is painted
+   over `--rl-frame` rather than straight onto a see-through column — the pill in the nav had an
+   opaque row under it, and this one has the bell. The same opaque colour rings it, which is what
+   separates the chip from the glyph beneath the way `.strip-badge`'s border does. */
+.sb-bell { position: relative; overflow: visible; }
+.sb-badge {
+  position: absolute; top: -4px; right: -6px; min-width: 16px; height: 16px; padding: 0 4px;
+  display: grid; place-items: center; border-radius: 999px;
+  font-size: 11px; font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; line-height: 1;
+  color: var(--orange); background-color: var(--rl-frame);
+  background-image: linear-gradient(var(--orange-tint), var(--orange-tint));
+  box-shadow: 0 0 0 2px var(--rl-frame);
 }
-.search:active { scale: 0.98; }
-.search:hover { color: var(--rl-text-dim); }
-.search span { flex: 1; } .search kbd { opacity: .7; }
-
 .swiper { flex: 1; min-height: 0; overflow: clip; position: relative; }
 .swiper-track { display: flex; height: 100%; width: 100%; will-change: transform; }
 .space-page { position: relative; flex: 0 0 100%; min-width: 0; height: 100%; display: flex; flex-direction: column; padding: 4px 16px 8px; overflow: hidden;
   --fade-h: 44px;
   /* A shallower top band than the app's 40, and the gap under the workspace header follows it: the
-     list's padding is `band + 4`, so 40 put 44px of nothing between "Live" and the first session.
-     The band only has to be deep enough that a row cannot be caught half-dissolved under the header
-     — at 32px rows, 20 does that and 40 was buying a second row's worth of air for nothing. */
-  --fade-top-h: 20px; }
+     list's padding is `band + 4`, so 40 put 44px of nothing between "Live" and the first session and
+     20 still put 24px there. The band only has to soften a row sliding under the header, not clear a
+     row's height — at 32px rows, 12 does that, and everything past it was air. */
+  --fade-top-h: 12px; }
 /* A full band of bottom padding, not a fraction of one, for the reason the diff list needs the same:
    these are 32px rows of dense text, so a row that ends inside the ramp is a session you scrolled
    down to read and then cannot. Scrolled to the end, the last row sits entirely clear of the band and
@@ -368,12 +420,23 @@ kbd { font: 11px var(--font-mono); }
   mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top-h), #000 calc(100% - var(--fade-h)), transparent);
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top-h), #000 calc(100% - var(--fade-h)), transparent); }
 
-.space-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 0 8px; }
-.space-header h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 17px; font-weight: var(--fw-title); min-width: 0; letter-spacing: -0.01em; }
+/* No padding at all, in either direction. The header sits first in `.sb-top` now rather than above
+   the space's list: the 40px band over it is the traffic lights' row, and the distance down to the
+   search field is `.sb-top`'s own gap — so there is nothing here for the header itself to own. */
+.space-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.space-header h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 17px; font-weight: var(--fw-title); min-width: 0; flex: 0 1 auto; letter-spacing: -0.01em; }
 /* The one identity pixel (§5): the space colour lives here and in the strip glyph, nowhere else. */
 .space-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--rl-space); flex: none; }
 .space-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.space-header-actions { display: flex; align-items: center; gap: 2px; flex: none; }
+/* The row's yielding ORDER, stated rather than left to the layout. The space's name is the unbounded
+   user data here, so it is the last thing to give width up; beside it are two 28px glyphs that
+   cannot shrink at all and a pill carrying a name the profile chip at the foot of the column also
+   carries. So the PILL is what yields, and it ellipsizes. Left as `flex: none` the actions took
+   their full width first and a 200px column cut "Realm" down to two letters — the one string on
+   this row nothing else in the sidebar repeats. */
+.space-header-actions { display: flex; align-items: center; gap: 2px; flex: 0 4 auto; min-width: 0; }
+.space-header-actions .icon-btn { flex: none; }
+.space-header-actions .pill { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--inset); color: var(--ink-2); } /* W3: StatusPill neutral */
 .icon-btn { display: grid; place-items: center; width: 28px; --btn-h: 28px; height: var(--btn-h); border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; color: var(--rl-text-dim); }
 .icon-btn:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
@@ -409,6 +472,62 @@ kbd { font: 11px var(--font-mono); }
 .tile-title { font-size: 10px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); }
 .tile-rename { aspect-ratio: auto; grid-column: 1 / -1; padding: 0; }
 
+/* The call feed borrows the column's rows wholesale — `.item`, `.item-row`, `.group-label` — and owns
+   only what a call row has that a session row does not: a mono name, and a figure at the trailing
+   edge. `.activity-call` and `.activity-duration` are the sheet's own classes, so the two surfaces
+   cannot drift into two different ways of printing the same tool name.
+
+   The inset is `.space-page`'s, because this stands where that page stands: the feed is a sibling of
+   the swiper rather than a page inside it, so it inherited none of the 16px every other row in this
+   column sits inside and every row and the empty line sat flush against the window's own edge.
+   The heading of a run keeps its own top padding except at the very top, where `.space-body`'s
+   clearance under the fade is already the gap. */
+.sb-activity { padding-inline: 16px; }
+.sb-activity > div:first-child > .group-label { padding-top: 0; }
+.sb-activity .activity-call { flex: 1; min-width: 0; }
+/* The heading carries both facts the rows stop repeating: whose session, and which server. The
+   session is the unbounded half and takes the slack; the server's name is short and reserved, which
+   is the yielding order this row needs stated. */
+.sb-activity-head { display: flex; align-items: baseline; gap: 8px; }
+.sb-activity-session { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The chat feed: the sidebar's other lens, one row per conversation under a day heading.
+
+   A two-line row, which the sidebar otherwise avoids — every other row here is one line. It earns
+   the second because the title alone does not identify a chat: "Fix the login form" is a name three
+   different pieces of work will have, and the space, the folder and the branch are what tell them
+   apart. The row is still the sidebar's row (`.item-row`) with its box and its hover; this only adds
+   the stack inside it. */
+.sb-chat-row { align-items: flex-start; gap: 8px; padding-block: 6px; }
+.sb-chat-mark { margin-top: 1px; }
+.sb-chat-main { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+/* The context line. `min-width: 0` on the chips as well as the column, or a long branch name pushes
+   the row wider than the sidebar instead of ellipsizing inside it. */
+.sb-chat-sub { display: flex; gap: 6px; font-size: 11px; color: var(--rl-text-faint); min-width: 0; }
+.sb-chat-chip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.sb-chat-mono { font-family: var(--font-mono); font-size: 11px; }
+/* Fixed at the trailing edge and never allowed to shrink: it is the one figure on the row, and a
+   relative time that ellipsizes to "2 h…" is worse than no time at all. */
+.sb-chat-when { flex: none; font-size: 11px; color: var(--rl-text-faint); margin-top: 1px; }
+.sb-chat-day { padding-top: 10px; }
+/* A chat from another space is still reachable — clicking it switches — but it is not where you are,
+   and the row says so rather than pretending the whole feed is local. */
+.sb-chat-row[data-elsewhere] .sb-chat-chip:first-child { color: var(--rl-text-dim); }
+.sb-activity-server { flex: none; font-size: 11px; color: var(--rl-text-faint); }
+.sb-activity .activity-duration { flex: none; }
+.sb-activity .item-row:disabled { opacity: 1; color: var(--rl-text-faint); }
+/* Nothing to show is its own composition, not a sentence left where the rows would have been. It
+   centres in the column it has to itself, and it carries the one route that leads to a call
+   happening — which is what an empty surface owes the reader beyond the news that it is empty.
+   `.space-body`'s scroll and fade are dropped for this state: there is nothing under the band. */
+.sb-activity-blank { overflow: hidden; mask-image: none; -webkit-mask-image: none; padding-block: 0; }
+.sb-activity-empty { margin: auto 0; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 24px 12px; text-align: center; color: var(--rl-text-faint); }
+.sb-activity-empty-line { margin: 6px 0 0; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
+.sb-activity-empty-sub { margin: 0; font-size: 12px; line-height: 1.45; color: var(--rl-text-faint); text-wrap: balance; }
+/* A real button, the empty pane's own idiom: the one route out of an empty surface should not be
+   quieter than the sentence explaining it. */
+.sb-activity-empty .btn { margin-top: 10px; }
 .item-list { display: flex; flex-direction: column; gap: 1px; }
 .item { position: relative; display: flex; align-items: center; border-radius: var(--r-ctl); min-height: 32px; font-size: 14px; }
 .item:hover { background: var(--rl-hover); }
@@ -458,9 +577,26 @@ kbd { font: 11px var(--font-mono); }
 .rename { width: 100%; height: 28px; padding: 0 8px; border-radius: var(--r-chip); border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
 .space-empty { font-size: 12px; color: var(--rl-text-faint); padding: 4px 5px 8px; } /* A-L6 */
 /* Ara refresh §5: the row sits at the sidebar's top now, first row under the search field. */
-.new-item { flex: none; margin: 6px 0 8px; }
+.new-item { flex: none; margin: 6px 0 0; }
 .new-row { color: var(--rl-text-dim); width: 100%; border-radius: var(--r-ctl); corner-shape: squircle; min-height: 32px; }
 .new-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+/* The same row as `.new-row` in every respect that is painted: same height, same glyph, same ink,
+   same hover. It was 30px and 12.5px once, then the same size a rung quieter in tone — both attempts
+   to say "smaller occasion" in the row's appearance, and both read instead as a heading with a
+   sub-item under it. The pair is two ways to start a chat, which is a thing to pick between rather
+   than a hierarchy to descend, so nothing here ranks them; what separates them is the word and what
+   happens on the click.
+   The `-8px` cancels `.sb-top`'s gap for this one seam, so the two stack flush the way the
+   destinations below them do — one block of rows, not two rows with air between. It does NOT come
+   off the container, which would close the seam under the search field too. The 8px below is that
+   block's own separation from the destinations. */
+.quick-row { flex: none; width: 100%; margin: -8px 0 8px; min-height: 32px;
+  color: var(--rl-text-dim); border-radius: var(--r-ctl); corner-shape: squircle; }
+.quick-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+/* Lit while the window is up — the control that opened it says so and, pressed again, is where the
+   eye goes looking. It does not CLOSE from here: closing deletes, and a delete belongs on the thing
+   being deleted, not on the row that made it. */
+.quick-row[aria-pressed="true"] { background: var(--rl-active); color: var(--rl-text-bright); }
 
 .space-strip { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 12px 10px; }
 /* safe center: centered while it fits, but overflow aligns to start instead of clipping the left end
@@ -523,7 +659,13 @@ kbd { font: 11px var(--font-mono); }
    would otherwise run off the bottom edge with no way to reach its last items. */
 .menu { z-index: 100; min-width: 160px; max-height: min(60vh, calc(100vh - 24px)); overflow-y: auto; padding: 4px; display: flex; flex-direction: column;
   background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
-.menu [role="menuitem"], .menu [role="menuitemcheckbox"] { flex: none; text-align: left; padding: 7px 11px; border-radius: var(--r-chip); display: flex; align-items: center; gap: 8px; }
+/* 13/16, not the inherited 14/20. A menu is CHROME — the small-UI step, like the sidebar's rows and
+   the prompter's chips — and at body size every row came out 34px tall against the 30px of the item
+   rows behind it and the 28px chips of the control row that opens it. It also left each row's own
+   type in three sizes that did not agree: a 14px label beside an 11.5px value and an 11px shortcut
+   chip. The padding is untouched; the row is 30px because the line box is 16. */
+.menu [role="menuitem"], .menu [role="menuitemcheckbox"] { flex: none; text-align: left; padding: 7px 11px; border-radius: var(--r-chip); display: flex; align-items: center; gap: 8px;
+  font-size: 13px; line-height: 16px; }
 .menu [role="menuitem"]:hover:not(:disabled), .menu [role="menuitemcheckbox"]:hover:not(:disabled) { background: var(--hover); }
 /* Roving focus moves programmatically, which browsers don't always mark :focus-visible — use :focus. */
 .menu [role="menuitem"]:focus, .menu [role="menuitemcheckbox"]:focus { background: var(--hover); outline: none; }
@@ -535,7 +677,22 @@ kbd { font: 11px var(--font-mono); }
 .menu-label { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
 .menu-label > svg { flex: none; }
 .menu-sep { height: 1px; background: var(--rl-hairline); margin: 4px 2px; }
-.menu-kbd { margin-left: auto; padding-left: 18px; color: var(--rl-text-dim); }
+/* The shortcut chip. It used to be bare text held off the label by 18px of padding, which put the
+   glyphs on the same plane as the words and left every row's binding at a different x — the eye had
+   to re-find the column on each line. A filled chip gives the column an edge to hang on and says the
+   thing is a KEY rather than more of the sentence. `--hover-2` and the chip rung, the same fill the
+   model picker's ⌘-digit badge takes.
+   The UI font, not `kbd`'s mono — ⌘⇧\ has to sit centred in a chip beside a proportional label, and
+   a mono face's fixed advance widths only make the modifier glyphs drift inside it.
+   The ink stays on `--rl-text-dim` where the bare hint had it, and does NOT follow that badge down
+   to `--rl-text-faint`: a fill one rung up from the menu darkens what the glyphs are read against,
+   and faint on it measures 2.5:1 dark / 2.2:1 light in the built app — under AA both ways, where the
+   same ink clears it against the bare surface. A chip is a quieter SHAPE, not quieter text; the
+   moment it costs legibility it has stopped being the cleaner thing to do. */
+.menu-kbd { flex: none; margin-left: auto; padding: 1px 5px; border-radius: var(--r-chip);
+  background: var(--hover-2); color: var(--rl-text-dim); font: 11px var(--font-ui); letter-spacing: .02em; }
+/* A danger row tints its label, and a shortcut is not part of the warning — hold the chip neutral. */
+.menu [role="menuitem"].danger .menu-kbd { color: var(--rl-text-dim); }
 /* A consequence trailing an item's own label — "Cursor · runs Composer", "Codex — not installed".
    Dimmer than the label because it qualifies the choice rather than naming it. Menu-scoped: the
    model chip's own `.chip-effort` suffix is scoped to `.model-chip` and styles nothing out here. */
@@ -559,7 +716,11 @@ kbd { font: 11px var(--font-mono); }
    stays open until the button is pressed again — which is the whole point: the thing people do with
    this list is read it WHILE scrolling the transcript for the message that produced a file, and a
    dismiss-on-any-click popover cannot survive that. */
-.session-summary {
+/* Keyed on `.pane-dock` — the class every docked panel already wears — rather than enumerated by
+   panel name. The enumeration is how the terminal dock shipped with no surface, no inset, no corner
+   and no shadow: it carried `.pane-dock` and nothing styled that, so it read as a bare rectangle
+   hovering over the transcript. A fourth panel would have hit the same wall. */
+.pane-dock {
   z-index: 100; display: flex; flex-direction: column;
   background: var(--surface); color: var(--rl-text-bright);
   /* Inset from the pane on all four sides and rounded all the way round: this one IS a card over a
@@ -574,12 +735,35 @@ kbd { font: 11px var(--font-mono); }
    honest way to say "something else is using that strip now".
    The width is a ROOT token, not a property on the panel: the pane is the panel's sibling, not its
    ancestor, and a custom property set on the panel would never reach it. */
-.session-summary { width: var(--summary-w); }
-.session-pane[data-summary-pinned] { padding-right: calc(var(--summary-w) + var(--sidebar-inset) * 2); }
+.session-summary, .subagent-dock { width: var(--summary-w); }
+.terminal-dock { width: var(--terminal-dock-w); }
+/* One attribute for the whole strip, whichever panel is using it — `data-summary-pinned` would have
+   been a lie on a pane making room for a sub-agent. */
+/* `--dock-w` is written onto the pane by `useDockPinned` for whichever panel has the strip, because
+   the panels are no longer one width and the pane cannot read a property set on its own sibling. The
+   fallback keeps the rule honest if the attribute is ever set without the width. */
+.session-pane[data-dock-pinned] { padding-right: calc(var(--dock-w) + var(--sidebar-inset) * 2); }
 /* A floating panel is over the pane, so it wants the overlay's lift; a pinned one sits beside it in
    space the pane gave up, and a drop shadow there would draw a seam between two things that are not
    overlapping. */
-.session-summary[data-pinned] { box-shadow: var(--shadow-card); }
+.pane-dock[data-pinned] { box-shadow: var(--shadow-card); }
+
+/* The terminal on the strip. A full-height card, unlike the summary's content-height one: a shell's
+   height is not a function of what it has printed, and a dock that grew and shrank as output scrolled
+   would move the window the user is typing into. The bar is the panel's own, not the pane bar's —
+   this is a dialog now, and it says which session's shell it is. */
+/* Full height, unlike its two content-height neighbours: a shell's height is not a function of what
+   it has printed, and a dock that grew as output scrolled would move the window being typed into.
+   `overflow: hidden` is what makes the terminal's own background take the card's corners — without
+   it the pty paints a square straight over them. */
+.terminal-dock { height: calc(var(--dock-pane-h) - var(--sidebar-inset) * 2); overflow: hidden; }
+.terminal-dock-bar { flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 10px; }
+.terminal-dock-mark { flex: none; color: var(--rl-text-faint); }
+.terminal-dock-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; font-family: var(--font-mono); color: var(--rl-text-dim); }
+/* The terminal fills what the bar leaves. `min-height: 0` because xterm measures its own viewport
+   and a flex child that refuses to shrink would report a height the dock does not have. */
+.terminal-dock .terminal-pane { flex: 1; min-height: 0; }
 /* From the edge it docks to, so it reads as arriving from beside the pane rather than fading in
    over it. Enter only: the panel is removed on toggle, and an exit that had to be awaited would
    make the button feel unresponsive on the way out. */
@@ -588,25 +772,23 @@ kbd { font: 11px var(--font-mono); }
   flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 8px 8px 14px;
 }
 .summary-panel-head h3 { flex: 1; margin: 0; font-size: 13px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
-.session-summary { padding: 0 6px 8px; }
+.session-summary, .subagent-dock { padding: 0 6px 8px; }
 /* As tall as its content, and no taller than the pane it docks to.
    `--summary-pane-h` is the measured pane height, written by SessionSummary.tsx; the inset it has to
    leave at BOTH ends is the panel's own margin, so the arithmetic belongs here rather than in the
    component. The panel used to take the pane's height outright, which drew a column of empty surface
    the height of the window behind a summary of three rows. */
-.session-summary { max-height: calc(var(--summary-pane-h, 100vh) - var(--sidebar-inset) * 2); }
+.session-summary, .subagent-dock { max-height: calc(var(--dock-pane-h, 100vh) - var(--sidebar-inset) * 2); }
 /* The sections scroll; the head does not.
    `flex: 0 1 auto` on the WRAPPER, never `flex: 1`: a basis of zero would make the scroller claim
    whatever height the panel has, which is the full-height panel again by another route. At auto it
    is as tall as its rows, shrinks only once the panel has reached the cap above, and so scrolls only
    when the content genuinely does not fit.
-   The bands hang off the wrapper rather than off the panel — the same shape as `.page-scroll`, and
-   for the same reason: on the panel the top band would be drawn over the head, and a title that
-   arrives blurred reads as a rendering fault. */
-.summary-scroll-wrap { position: relative; display: flex; flex: 0 1 auto; min-height: 0;
-  --fade-h: 28px; --fade-top-h: 24px; --fade-ground: var(--surface); }
-.summary-scroll-wrap > .edge-fade { inset: auto 0 0 0; }
-.summary-scroll-wrap > .edge-fade[data-edge="top"] { inset: 0 0 auto 0; }
+   The wrapper carries the depths and the SCROLLER inside it carries the dissolve, which is the same
+   shape as `.page-scroll` and for the same reason: the panel's head is not in the scroller, so
+   nothing can dissolve a title. */
+.summary-scroll-wrap, .subagent-scroll-wrap { position: relative; display: flex; flex: 0 1 auto; min-height: 0;
+  --fade-h: 28px; --fade-top-h: 24px; }
 .summary-scroll { flex: 1; min-width: 0; overflow-y: auto; }
 /* What the session was about — the last thing asked, and the first line of the answer. The ask is
    quoted rather than styled as a heading: it is the user's own words, and the panel is reporting
@@ -618,14 +800,24 @@ kbd { font: 11px var(--font-mono); }
   font-size: 12px; line-height: 1.45; color: var(--rl-text-faint);
 }
 .summary-recap-answered { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--rl-text-bright); }
-/* Spend, at the top of the panel. The one fact that is true from the first turn, which is what
-   keeps the panel from opening onto nothing while the three lists are still empty. */
+/* Spend, the first row of Usage. The one fact that is true from the first turn, which is what keeps
+   the panel from opening onto nothing while the three lists are still empty — so it keeps the figure
+   scale it had when it stood on its own, above the plan rows that qualify it. */
 .summary-spend {
-  display: flex; align-items: baseline; gap: 8px; padding: 2px 8px 8px;
+  display: flex; align-items: baseline; gap: 8px; padding: 2px 8px 6px;
   font-size: 15px; font-weight: var(--fw-title); color: var(--rl-text-bright);
   font-variant-numeric: tabular-nums;
 }
 .summary-spend-turns { font-size: 11.5px; font-weight: var(--fw-medium); color: var(--rl-text-faint); }
+/* The working tree's two numbers. Mono and tabular like every other fact's value, and tinted on top
+   of the signs — a reader who cannot tell the hues apart still has the + and the −. */
+.summary-diff { display: flex; gap: 8px; font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+.summary-diff [data-tone="add"] { color: var(--rl-success); }
+.summary-diff [data-tone="del"] { color: var(--rl-danger); }
+/* The provider's verdict on a window, where it gave one. It colours the VALUE, not the row: a tinted
+   row would read as a warning about the whole session, and what is near a limit is the account. */
+.summary-row[data-tone="warning"] .summary-row-name { color: var(--rl-warning); }
+.summary-row[data-tone="danger"] .summary-row-name { color: var(--rl-danger); }
 /* Spacing separates the sections, not a rule. Each one already announces itself with a heading, and
    a hairline over the top of that says the same thing twice — which is the app-wide divider rule
    styles.test.ts pins. */
@@ -801,6 +993,83 @@ kbd { font: 11px var(--font-mono); }
 .skills-origin-label { padding: 0 0 4px; font-size: 11px; font-weight: var(--fw-title); letter-spacing: .04em;
   text-transform: uppercase; color: var(--rl-text-faint); }
 
+/* ── The skill viewer: one skill, read ────────────────────────────────────────────────────────────
+   A `SKILL.md` is a DOCUMENT — five hundred lines of reference material with fenced code in it — so
+   it takes the page's reading column, not a 420px sheet. It replaces the Library's list in place:
+   same pane, same head, and the rail carries the document's own headings where the tabs were, so
+   nothing on screen moves between the list and the skill but the contents. */
+
+/* The row's name is the door. Nothing else about the row changes — the name has always been the
+   thing a reader would click, and it is now a button that says so under the pointer. */
+.skill-open { padding: 0; border: none; background: none; text-align: left; cursor: pointer;
+  font: inherit; font-size: 13.5px; font-weight: var(--fw-label); color: var(--rl-text-bright);
+  transition: color var(--dur-hover) ease; }
+.skill-open:hover { color: var(--rl-accent); }
+
+/* Back to the list. `align-self` because `.page-head` aligns on the BASELINE and a glyph has none —
+   left to the baseline it sat below the title it belongs beside. */
+.page-back { flex: none; align-self: center; margin-left: -6px; }
+
+/* The document's headings, in the rail's column and on the rail's metrics. Capped to the body's own
+   height and scrolling inside that, so a skill with forty sections does not push the page taller
+   than the pane. */
+.skill-toc { max-height: 100%; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-width: none; }
+.skill-toc-link { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none;
+  transition: color var(--dur-hover) ease; }
+/* A sub-heading is indented and quieter — the shape of the document, not a second list of peers. */
+.skill-toc-link[data-level="2"] { padding-left: 22px; font-size: 12.5px; color: var(--rl-text-faint); }
+.skill-toc-link[data-level="2"]:hover { color: var(--rl-text-dim); }
+
+.skill-view { display: flex; flex-direction: column; gap: 20px; }
+.skill-head { display: flex; flex-direction: column; gap: 12px; }
+/* The description at READING weight. The list clamps it to two lines on purpose; this is the surface
+   where the clamp comes off, and it is the one sentence every agent decides on. */
+.skill-head-desc { margin: 0; font-size: 14px; line-height: 1.6; color: var(--rl-text-dim); text-wrap: pretty; }
+.skill-head-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+/* The switch NAMES its state here rather than carrying `aria-pressed`, which is the rule a toggle
+   follows in this app: one or the other, never both. */
+.skill-head-switch { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px;
+  color: var(--rl-text-dim); white-space: nowrap; cursor: pointer; }
+/* Which agents in this space are actually given it — a value in the facts grid, so it wears the
+   grid's own metrics and only the marks are its own. */
+.skill-fact-agents { display: flex; flex-wrap: wrap; gap: 2px 12px; }
+.skill-head-agent { display: inline-flex; align-items: center; gap: 5px; }
+
+/* The facts, on the row's own fill. A grid, not a table: five phrases whose own words say which they
+   are, where a header row over five cells would be the page restating its labels. */
+.skill-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px 20px; align-content: start;
+  margin: 0; padding: 12px 14px; border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-frame); }
+.skill-facts > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.skill-facts-wide { grid-column: 1 / -1; }
+.skill-facts dt { font-size: 11.5px; color: var(--rl-text-faint); }
+.skill-facts dd { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--rl-text-dim); overflow-wrap: anywhere; }
+
+/* The rendered document. `.md` carries the whole treatment — one markdown renderer in the app, its
+   fenced panels and callouts included; this only gives a page's headings the air a page needs, where
+   the transcript's are tuned for a message inside a column of messages. */
+.skill-doc h1 { margin-top: 22px; }
+.skill-doc h2 { margin-top: 18px; }
+.skill-doc > div > h1:first-child, .skill-doc > div > h2:first-child { margin-top: 0; }
+/* Anchored headings clear the column's own dissolve when the rail scrolls one into view. */
+.skill-doc h1, .skill-doc h2 { scroll-margin-top: 16px; }
+
+/* What is bundled beside the SKILL.md — the half of a skill that has never been visible in Realm.
+   Each opens in place: they are read in the course of reading the document above, and a pane per
+   reference file would be a pane per footnote. */
+.skill-files { display: flex; flex-direction: column; gap: 8px; }
+.skill-files-head { margin: 0; font-size: 13px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.skill-file-row { flex-direction: column; align-items: stretch; gap: 6px; }
+.skill-file-name { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: none; background: none;
+  font: inherit; text-align: left; cursor: pointer; color: var(--rl-text-bright);
+  transition: color var(--dur-hover) ease; }
+.skill-file-name[data-inert] { cursor: default; color: var(--rl-text-faint); }
+.skill-file-name code { font: 12px var(--font-mono); }
+.skill-file-name:not([data-inert]):hover { color: var(--rl-accent); }
+/* The caret turns on the app's one swap rung, like every other glyph that carries a state. */
+.skill-file-caret { flex: none; transition: transform var(--dur-swap) var(--ease-out-strong); }
+.skill-file-name[aria-expanded="true"] .skill-file-caret { transform: rotate(90deg); }
+.skill-file-body { min-width: 0; }
+
 /* ── Model picker (prompter): search, grouped model list, and a detail pane ── */
 /* Wide enough for two columns because the popover now answers three questions, not one: which model,
    what it is for and what it costs, and which harness runs it. 620px is the width at which the list
@@ -822,7 +1091,7 @@ kbd { font: 11px var(--font-mono); }
    hairline under the search is what separates them; a second cue was one too many. */
 /* The scroller's offset parent, so the two side bands hang off the strip rather than travelling
    with it — the same arrangement `.mp-list-wrap` makes for the list below. */
-.mp-jumps-wrap { position: relative; flex: none; --fade-w: 24px; --fade-ground: var(--surface); }
+.mp-jumps-wrap { position: relative; flex: none; --fade-w: 24px; }
 .mp-jumps { display: flex; align-items: center; gap: 4px; padding: 7px 12px;
   overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
 /* Nothing here is ever "on". A jump button is a door, not a state — it leaves the list exactly as it
@@ -842,16 +1111,14 @@ kbd { font: 11px var(--font-mono); }
    side by side under one border, and two different dissolve depths on one surface read as two
    materials. Declared once here, inherited by both wraps below. */
 .mp-body { display: flex; min-height: 0; max-height: min(52vh, 420px); align-items: stretch;
-  --fade-h: 28px; --fade-top-h: 28px; --fade-ground: var(--surface); }
+  --fade-h: 28px; --fade-top-h: 28px; }
 /* The list keeps its own scroll and a fixed share of the width, so highlighting a row can never
    reflow the column the eye is reading down. */
-/* The list and its two bands. The band is short (28px) and the list pads by the same, so the row
+/* The list and its dissolve. The band is short (28px) and the list pads by the same, so the row
    under one is still fully clickable — a fade that eats its own last row is a fade you have to
-   scroll past. `--fade-ground` because this list sits on the picker's surface, not on a pane. */
+   scroll past. */
 .mp-list-wrap { position: relative; width: 306px; flex: none; display: flex; min-height: 0;
   border-right: var(--hairline-w) solid var(--rl-hairline); }
-.mp-list-wrap > .edge-fade { inset: auto 0 0 0; }
-.mp-list-wrap > .edge-fade[data-edge="top"] { inset: 0 0 auto 0; }
 .mp-list { flex: 1; min-width: 0; overflow-y: auto; padding: 6px 6px 28px; scroll-padding: 28px 0; }
 .mp-group + .mp-group { margin-top: 6px; }
 /* Section headings for the harness groups: the quietest thing on the surface, because they label
@@ -891,16 +1158,22 @@ kbd { font: 11px var(--font-mono); }
 .mp-empty { padding: 14px 10px; text-align: center; font-size: 12px; color: var(--rl-text-dim); }
 
 /* The detail pane: what the highlighted model is for, what it costs, and how it would run. */
-.mp-detail { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 13px 14px; overflow: hidden; }
+/* The vertical padding is the SCROLLER's, not the column's (see `.mp-detail-body`) — only the side
+   inset and the strip under the footer belong to the box itself. */
+.mp-detail { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 0 14px 13px; overflow: hidden; }
 /* Only the prose and the stats scroll. The footer holds its place, so the button this pane exists to
    lead to is never the part that falls off the bottom edge. */
-/* The scroller's own relative box, so the bands sit at the BLURB's ends rather than the column's:
-   `.mp-detail` also holds the Effort strip and Use model, and a band pinned to its bottom would have
-   dissolved those instead of the text above them. */
+/* The scroller's own box, so the dissolve belongs to the BLURB rather than to the column: `.mp-detail`
+   also holds the Effort strip and Use model, and those must not go soft. */
 .mp-detail-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
-.mp-detail-wrap > .edge-fade { inset: auto 0 0 0; }
-.mp-detail-wrap > .edge-fade[data-edge="top"] { inset: 0 0 auto 0; }
-.mp-detail-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+/* The pane's top and bottom air lives HERE rather than on `.mp-detail`, and the footer sits flush
+   against the scroller rather than 10px below it. Text rests in exactly the same place it did, but
+   the scrolling box now runs edge to edge — from the search field's hairline down to the footer's —
+   so the bands at its ends have text under them to dissolve. Held off the box, they spent their
+   last third blurring the padding instead: the blurb stopped in mid-air a clear strip above the
+   hairline, which reads as a clipped column rather than as a column with more text in it. */
+.mp-detail-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;
+  padding: 13px 0 10px; }
 .mp-detail-head { display: flex; align-items: center; gap: 8px; }
 .mp-detail-head h3 { margin: 0; font-size: 14.5px; font-weight: var(--fw-title); letter-spacing: -.01em;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -926,7 +1199,7 @@ kbd { font: 11px var(--font-mono); }
    notes already use, so "answers arrive whole" reads the same way "will be ignored" does. */
 .mp-harness-limits { display: flex; align-items: flex-start; gap: 5px; margin: 0; font-size: 11px; line-height: 1.45; color: var(--rl-warning); }
 .mp-harness-limits svg { flex: none; margin-top: 2px; }
-.mp-detail-foot { flex: none; margin-top: 10px; padding-top: 10px; border-top: var(--hairline-w) solid var(--rl-hairline);
+.mp-detail-foot { flex: none; padding-top: 10px; border-top: var(--hairline-w) solid var(--rl-hairline);
   display: flex; flex-direction: column; gap: 7px; }
 /* The label sits ABOVE its control, not beside it. Alongside, the label ate a 71px gutter out of a
    ~250px pane and the segments spent what was left on five columns — "Ask each time" and "Accept
@@ -951,6 +1224,359 @@ kbd { font: 11px var(--font-mono); }
 .mp-use { align-self: flex-end; margin-top: 3px; padding: 6px 13px; border: 0; --btn-h: 30px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
   --fill: var(--rl-accent); background: var(--fill); color: var(--rl-accent-contrast); font: inherit; font-size: 12px; font-weight: var(--fw-label); cursor: pointer; }
 .mp-use:disabled { opacity: .45; cursor: default; }
+
+/* ── Easter eggs: the heavy efforts ──
+   Every rule here hangs off [data-eggs] or [data-sweep], so the switch in Settings ▸ App takes the
+   whole treatment away by taking one attribute away. Nothing below is ever the only thing saying
+   which level is selected — that is [aria-pressed], which is drawn the same with the eggs off.
+
+   The field covers the WHOLE strip rather than the one option, which is the thing that makes it read
+   as a state the control is in rather than a decoration on a pill. `:has()` is what lets the parent
+   know which of its children is hot, so there is no JavaScript in this at all.
+
+   Three layers, and they are chosen to beat against each other rather than to look smooth:
+
+     · two columns of bands at DIFFERENT widths and speeds, stepped rather than eased. `steps()` is
+       the whole character — a smooth slide reads as a gradient moving, and a jump every 180ms reads
+       as something alive. The two periods are coprime enough that the pattern never visibly repeats.
+     · a wash on ::before, smooth and much slower, in `plus-lighter` so where it crosses a bright
+       band the two ADD instead of one covering the other. That is what makes the bright parts look
+       like light rather than paint.
+     · a bloom on the strip's own shadow at Max only, breathing on its own period.
+
+   Hue is not free (theme/grain.ts's rule): both band layers are the live accent rotated inside the
+   same ±40° arc the decorative wash uses, so the field is the palette's own colour at every theme
+   rather than a purple somebody picked. */
+.model-picker[data-eggs] .mp-seg { position: relative; isolation: isolate; }
+/* The options sit above the field; the pressed one keeps its solid pill, which is what stays
+   readable while everything behind it moves. */
+.model-picker[data-eggs] .mp-seg-opt { position: relative; z-index: 1; }
+
+.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="high"]:hover) {
+  background-image: linear-gradient(100deg, transparent 30%,
+    oklch(from var(--accent) l c calc(h - 20) / .18) 50%, transparent 70%); }
+
+/* XHigh and Max share the machinery and differ in --heat, which drives every alpha below. A
+   treatment every level wore would not be about the level. */
+.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="xhigh"]:hover),
+.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="xhigh"][aria-pressed="true"]),
+.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"]:hover),
+.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"][aria-pressed="true"]) {
+  --heat: .5;
+  /* Chunky cells with wide dark gaps, and a crisp bright line every other cell. The proportions were
+     chosen by putting three candidates on screen in the real window and looking at them: a 50% duty
+     cycle at full chroma lit the whole strip and drowned the labels, and pulling the body down to
+     the ground's own lightness made it vanish entirely. This is the one that reads as cells of heat
+     with the labels still sitting on top of them. */
+  background-image:
+    repeating-linear-gradient(90deg, oklch(from var(--accent) calc(l - .14) c calc(h - 34) / calc(var(--heat) * .55)) 0 12px, transparent 12px 26px),
+    repeating-linear-gradient(90deg, transparent 0 14px, oklch(from var(--accent) calc(l + .2) c calc(h + 28) / calc(var(--heat) * .9)) 14px 17px);
+  background-size: 220% 100%, 170% 100%;
+  animation: eggs-bands 3.6s steps(20, end) infinite;
+}
+/* Every label stays readable while the field is on — the whole strip is lit, so the levels that are
+   not chosen must not be the price of it. This is the one thing the field is not allowed to spend. */
+.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="xhigh"]:hover) .mp-seg-opt,
+.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="xhigh"][aria-pressed="true"]) .mp-seg-opt,
+.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"]:hover) .mp-seg-opt,
+.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"][aria-pressed="true"]) .mp-seg-opt {
+  color: var(--rl-text-bright); text-shadow: 0 1px 2px oklch(from var(--page) l c h / .9); }
+.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"]:hover),
+.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"][aria-pressed="true"]) { --heat: 1; }
+/* One keyframe moving BOTH layers, because `background-position` is one property and two animations
+   on it would not compose — the later one would simply win. The two layers travel opposite ways at
+   unequal rates, which is the interference. */
+@keyframes eggs-bands {
+  from { background-position: 0 0, 0 0; }
+  to { background-position: -220% 0, 170% 0; }
+}
+
+/* The wash. Its own element so it can be smooth while the bands step, and `plus-lighter` so it adds
+   light to them instead of painting over them. */
+.model-picker[data-eggs] .mp-seg::before { content: none; }
+.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="xhigh"]:hover)::before,
+.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="xhigh"][aria-pressed="true"])::before,
+.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"]:hover)::before,
+.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"][aria-pressed="true"])::before {
+  content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  border-radius: inherit; corner-shape: inherit;
+  mix-blend-mode: plus-lighter;
+  background-image: linear-gradient(100deg, transparent 8%,
+    oklch(from var(--accent) calc(l + .12) c calc(h - 10) / calc(var(--heat) * .28)) 42%,
+    oklch(from var(--accent) calc(l + .06) c calc(h + 26) / calc(var(--heat) * .2)) 58%, transparent 88%);
+  background-size: 260% 100%;
+  animation: eggs-wash 1.4s linear infinite;
+}
+@keyframes eggs-wash {
+  from { background-position: 140% center; }
+  to { background-position: -60% center; }
+}
+
+/* Max alone gets the bloom, and it breathes rather than travelling — the one thing on the strip that
+   is not moving sideways, so the eye reads it as intensity rather than as another layer. */
+.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"]:hover),
+.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"][aria-pressed="true"]) {
+  animation: eggs-bands 3.6s steps(20, end) infinite, eggs-bloom 1.4s ease-in-out infinite alternate; }
+@keyframes eggs-bloom {
+  from { box-shadow: 0 0 0 0 oklch(from var(--accent) l c h / 0); }
+  to { box-shadow: 0 0 14px 1px oklch(from var(--accent) calc(l + .1) c h / .45); }
+}
+/* The chosen level's own label, lit. The pill stays solid underneath it — legibility is not what
+   this is allowed to spend. */
+.model-picker[data-eggs] .mp-seg-opt[data-effort="max"][aria-pressed="true"],
+.model-picker[data-eggs] .mp-seg-opt[data-effort="xhigh"][aria-pressed="true"] {
+  color: var(--rl-text-bright); text-shadow: 0 0 8px oklch(from var(--accent) calc(l + .15) c h / .7); }
+
+/* One pass across the chip when the session commits to a heavy effort; Max gets two. The popover is
+   already closing by then, which is the point — the control that changed is the one that answers. */
+.model-chip[data-sweep] {
+  background-image: linear-gradient(100deg, transparent 18%,
+    oklch(from var(--accent) l c calc(h - 34) / .45) 42%,
+    oklch(from var(--accent) l c calc(h + 30) / .5) 58%, transparent 82%);
+  background-size: 240% 100%;
+  animation: eggs-chip-sweep var(--dur-move) var(--ease-out-strong); }
+.model-chip[data-sweep="max"] { animation-iteration-count: 2; }
+@keyframes eggs-chip-sweep { from { background-position: 140% center; } to { background-position: -40% center; } }
+/* The global kill stops the animation but not the paint, and with no animation there is no
+   `animationend` to take the attribute off again — so the gradient would sit on the chip for the rest
+   of the session. Named here because the `*` rule above cannot reach a background. */
+@media (prefers-reduced-motion: reduce) {
+  .model-chip[data-sweep] { background-image: none; }
+  /* The field stays, parked. The bands are a repeating pattern, so they read perfectly well standing
+     still — what goes is the travel and the bloom. Drawing nothing here would make the heavy levels
+     identical to the light ones, which for this reader is a switch that did nothing. */
+  /* `!important`, and not for tidiness: the global kill above is `* { animation: none !important }`,
+     and `*` does not match a PSEUDO-ELEMENT. The wash lives on `::before`, so it sails straight
+     through the app-wide rule — and the rule that starts it carries a `:has()`, whose argument adds
+     its own specificity, so a plain override here loses to it as well. Measured: without this the
+     field kept travelling with reduced motion on. */
+  .model-picker[data-eggs] .mp-seg { animation: none !important; }
+  .model-picker[data-eggs] .mp-seg::before { animation: none !important; background-position: 50% center !important; }
+}
+
+/* ── Quiet: what the app stops doing when nobody is looking ──────────────────
+   Measured rather than reasoned about (`scripts/power-audit.mjs`, against the built app with an
+   agent streaming into it): every CSS animation stopped takes the window from about half a core PER
+   PANE to one percent of one. Almost all of the cost is decoration that never stops — the spinner's
+   forty dots and the status pings run for as long as an agent is working, which for someone who
+   leaves agents running is all day.
+
+   So it pauses, rather than being taken away. `animation-play-state` freezes an animation where it
+   stands and resumes it on the next frame after the attribute goes; nothing jumps, nothing restarts,
+   and a person who alt-tabs back sees the orb carry on from where it was.
+
+   The list is written out rather than being `*`, and it has to be: a blanket pause also catches the
+   animations that run ONCE to bring something in — `rl-msg-in`, `rl-fade-in` — and those begin at
+   `opacity: 0`. Freezing one at its first frame leaves the thing invisible until focus returns, so
+   an unfocused window showed an empty transcript while the agent talked into it. Everything named
+   below loops forever; add to it only things that do. The model picker's easter egg is not here on
+   purpose: it runs only under the pointer, and a hovered control in an unfocused window is nobody's
+   battery problem.
+
+   `data-quiet` is set for two reasons — the window is not focused, or Low power is on — and the
+   stylesheet treats them the same. The difference is only how long it lasts. */
+:root[data-quiet] .spinner-dot,
+:root[data-quiet] .shimmer-text,
+:root[data-quiet] .tool-group[data-working] .tool-group-summary,
+:root[data-quiet] .composer-thinking span,
+:root[data-quiet] .status-dot[data-status="circuit_open"],
+:root[data-quiet] .strip-badge[data-status="waiting_permission"],
+:root[data-quiet] .permission-dot,
+:root[data-quiet] .gen-glow,
+:root[data-quiet] .wash[data-grain] { animation-play-state: paused !important; }
+
+/* The ping is the exception to the pause: frozen mid-flight it leaves a static ring standing around
+   the dot at whatever radius it had reached, which reads as a rendering fault rather than as a state.
+   It is pure decoration on top of a dot that already carries the status, so it goes and comes back. */
+:root[data-quiet] .status-dot[data-status="running"]::after,
+:root[data-quiet] .status-dot[data-status="waiting_permission"]::after,
+:root[data-quiet] .status-dot[data-status="driving"]::after,
+:root[data-quiet] .status-dot[data-status="machine-booting"]::after { display: none; }
+
+/* The other thing that must NOT freeze: a transition the user is looking at mid-flight when the
+   window loses focus would stick half-open. Transitions are not animations, so they are unaffected
+   by the rules above — this comment is here so the next person does not "fix" that by adding them. */
+
+/* Low power used to go further than a pause, because it is a standing choice rather than a moment:
+   the fade bands stopped filtering their backdrop. There is nothing here for it to turn off any
+   more — the dissolve is a mask on the scroller and filters nothing on any frame, at any setting. */
+
+/* ── Simulator pane ──
+   The machine pane's treatment, on the machine pane's tokens, because it is the same kind of thing:
+   somebody else's screen, inset from the window so it reads as a picture rather than as the app's
+   own content. What differs is only what a phone is — tall, so the letterbox is wide rather than
+   short, and `place-items: center` is doing more work here than it does there. */
+.sim-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* No ground of its own, and that is where it parts company with the machine pane. A guest desktop
+   fills its box, so the fill under it is a letterbox — a few pixels at two edges. A PHONE is
+   portrait in a landscape pane, so the same fill is most of what you see.
+   And it does not match the pane it sits in, for a reason that is invisible in the token: measured
+   in the built app, `--rl-terminal-bg` resolves to `--rl-panel` — the pane's own colour — but `.main`
+   paints that colour at 86% over the macOS vibrancy material, and this painted it at full opacity on
+   top. Same grey, twice as dense: a slab the eye reads as a panel nobody asked for, with a dark
+   device standing in the middle of it.
+   The device is already a picture with its own silhouette and its own shadow; it does not need a
+   rectangle behind it to be separated from the pane.
+   The corner goes with the fill. `border-radius` and `corner-shape` were rounding the slab, and a
+   curve on a box that paints nothing is a declaration with no picture in it — which is also why
+   this no longer appears in the paint-worklet rule (styles.test.ts enforces the pair). */
+.sim-screen { position: relative; flex: 1; min-width: 0; min-height: 0; display: grid; place-items: center;
+  margin: var(--sidebar-inset);
+  /* Breathing room, not a guard any more: with no round corner to clear, this is what keeps the
+     device off the toolbar above it and the frame control below. */
+  padding: 12px;
+  /* Still earned: a device picture taller than the pane would otherwise spill into the bar. */
+  overflow: hidden;
+  /* It takes touches and keys, so it is a control — but the global focus ring around a whole pane is
+     a rectangle nobody needs to see. The picture's own outline says where focus is. */
+  outline: none; }
+.sim-picture { display: block; width: var(--sim-w); height: var(--sim-h); clip-path: var(--sim-clip, none);
+  box-shadow: var(--shadow-hairline); object-fit: fill;
+  /* The pointer drives the device; a drag that started here must not become a picture drag. */
+  -webkit-user-drag: none; user-select: none; }
+/* Focus, on whatever the outermost shape is. The picture's own corner is a CLIP PATH, and a
+   box-shadow is drawn from the border box — so a ring on the picture is a rectangle around a rounded
+   screen however round the screen looks. Bare, that is merely blunt; inside a frame it would be a
+   blue rectangle laid over the device. Framed, the ring goes on the frame, which has a real corner
+   of its own for it to follow. */
+.sim-screen:focus-visible .sim-picture { box-shadow: var(--shadow-hairline), 0 0 0 2px var(--rl-accent); }
+.sim-screen:focus-visible .sim-chassis[data-frame="drawn"] { box-shadow: 0 0 0 2px var(--rl-accent); }
+.sim-screen:focus-visible .sim-chassis[data-frame] .sim-picture { box-shadow: var(--shadow-hairline); }
+/* On device art the ring traces the ART's own silhouette. A box-shadow would be a rectangle around a
+   picture clipped to a phone's corner, and that rectangle's corners show through the frame's own
+   transparent ones — a blue L in each corner of a black iPhone. `drop-shadow` follows rendered
+   alpha, so it outlines the phone. */
+.sim-screen:focus-visible .sim-art { filter: drop-shadow(0 0 0 var(--rl-accent)) drop-shadow(0 0 2px var(--rl-accent)); }
+/* On the PANE's dim ink now, not the terminal ground's. `--rl-terminal-ink-dim` is white at 32%,
+   chosen to sit on `#1c1d1f`; with that ground gone this line reads against `--rl-panel` like every
+   other quiet sentence in the app, and should be the ink the app uses for one. */
+.sim-connecting { position: absolute; inset: auto 0 12px; margin: 0; text-align: center;
+  color: var(--rl-text-dim); font-size: 12px; pointer-events: none; }
+
+/* ── The frame ──
+   The stream is the screen and nothing else, so something has to stand in for the device around it,
+   and there are two answers. Where Realm ships a picture of the device it is a real one — the art in
+   `assets/devices`, with the stream laid into the hole in it. Where it does not — a watch, an
+   Android tablet, an old 16:9 phone — the frame is REALM: one of the app's own surfaces with the
+   picture inset into it. What neither of them is is a drawing of hardware: the brushed rail and its
+   volume nubs read as neither this app nor that device. No Dynamic Island is drawn either way — on a
+   modern phone the island is black pixels the system draws into the framebuffer, so it arrives
+   inside the picture.
+
+   One element wears all three states, because the picture inside it is an `<img>` on an MJPEG stream
+   and re-parenting one drops the connection. The frame is a data attribute; the node never moves.
+
+   Every measurement comes in from the pane, because all of them are functions of how much room the
+   picture got: the border is a fraction of the screen's short edge, and the outer corner is the
+   inner one PLUS the border, which is what makes the two arcs parallel (design.md's rule for nested
+   radii — the difference between a screen set into a surface and a rectangle rounded twice). */
+.sim-chassis { position: relative; display: block; }
+.sim-chassis[data-frame="drawn"] { padding: var(--sim-bezel);
+  border-radius: var(--sim-outer-r); corner-shape: squircle;
+  /* A LIFT off the pane's own ground rather than a surface off the neutral ladder, because this
+     pane's ground is dark in both faces (`--rl-terminal-bg`, which the terminal keeps dark on the
+     light face so xterm's white text survives). `--rl-raised` there is white, and a white slab of
+     frame around a phone was the loudest thing on the light screen — louder than the device. A
+     translucent white is the same quiet step above the ground in both modes. No border and no
+     shadow: the step IS the edge, and a resting object casts nothing. */
+  background: var(--overlay-lighten-300); }
+/* The device art, over its own screen. Positioned and turned from the pane, which is the only side
+   that knows how the device is being held; `transform-origin` is the corner the rotation is composed
+   about (`device-art.ts` does the arithmetic in the same frame of reference). */
+.sim-art { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none;
+  -webkit-user-drag: none; user-select: none; }
+
+/* ── The device's own elements, over its picture ──
+   The picture is one node to the page — every icon and row inside it is pixels — so this is the only
+   thing that makes what is ON the device addressable: one box per element of the accessibility tree,
+   positioned from the frames the DEVICE reports. It lies over the glass and takes the corner with
+   it, because an outline running past a rounded screen is an outline of something else. */
+.sim-glass { position: relative; display: block; }
+.sim-ax { position: absolute; inset: 0; pointer-events: none; }
+/* Every box IS a control — it taps the thing it outlines — so it takes pointer events back. */
+.sim-ax-box { position: absolute; display: block; padding: 0; pointer-events: auto;
+  border: var(--hairline-w) solid color-mix(in srgb, var(--rl-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--rl-accent) 7%, transparent);
+  border-radius: 3px; overflow: hidden; text-align: left;
+  transition: background-color var(--dur-hover) ease, border-color var(--dur-hover) ease; }
+.sim-ax-box:hover:not(:disabled) { background: color-mix(in srgb, var(--rl-accent) 22%, transparent); border-color: var(--rl-accent); }
+.sim-ax-box:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: 1px; }
+/* A disabled element is still worth SEEING — it is why the screen is not doing what you expected —
+   so it is drawn and cannot be tapped, rather than hidden. */
+.sim-ax-box:disabled { border-style: dashed; border-color: color-mix(in srgb, var(--rl-text-faint) 60%, transparent); background: transparent; }
+/* The label rides inside the box and disappears when there is no room for it, which on a dense
+   screen is most of them: a tooltip carries the full name, and forty overlapping captions would
+   hide the very thing they are naming. */
+/* 11px, the scale's own floor, and NOT a size chosen to make more of them fit: a box shorter than
+   the line is clipped to nothing, which is the right outcome on a dense screen — the ones large
+   enough to read a name in get one, and everything else is named by its tooltip and its accessible
+   name. Forty overlapping captions would hide the very thing they are naming. */
+.sim-ax-label { display: block; padding: 0 2px; overflow: hidden; white-space: nowrap;
+  font-size: 11px; line-height: 1.4; color: var(--rl-on-media); text-shadow: 0 0 3px rgb(0 0 0 / .8); }
+.sim-ax-bar { position: absolute; inset: auto 8px 8px; display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 5px 6px 5px 10px; pointer-events: auto;
+  border-radius: var(--r-ctl); corner-shape: squircle; background: var(--tooltip-bg); color: var(--tooltip-fg);
+  box-shadow: var(--shadow-raised); font-size: 11.5px; }
+.sim-ax-count { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── The frame's own controls ──
+   Under the device rather than in the pane bar, and that is the one deliberate exception to "a
+   pane's actions live in its bar": this changes what the PICTURE looks like, not what the device
+   does. Beside the buttons that press real hardware it would read as the same kind of thing. */
+/* ── Under the device ──
+   Two rows, and the split is the point: the device's own BUTTONS, then what the picture of it looks
+   like. Both were in the pane bar, which had grown to ten icons in one strip — and the bar is for
+   what the PANE does (take a picture of it, inspect it, stop streaming), not for what the phone
+   does. A phone's buttons belong with the phone. */
+.sim-hardware { flex: none; display: flex; justify-content: center; align-items: center; gap: 2px;
+  padding: 6px 0 0; }
+.sim-frame-bar { flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 6px var(--sidebar-inset) var(--sidebar-inset); }
+.sim-frames { display: flex; align-items: center; gap: 4px; padding: 4px;
+  border-radius: 999px; background: var(--rl-raised); box-shadow: var(--shadow-card); }
+/* `--fill`, not `background`: these carry `.btn`, and a painted control spends its `background` on
+   `paint(rl-squircle)` — so a state that reached for the background painted the resting fill in
+   every state, and the picked segment was marked by nothing at all. */
+.sim-frame-opt { --btn-h: 24px; height: var(--btn-h); padding: 0 10px; border: 0; border-radius: 999px;
+  --fill: transparent; color: var(--rl-text-dim); font-size: 11.5px; box-shadow: none; }
+.sim-frame-opt:hover { --fill: var(--rl-hover); color: var(--rl-text-bright); }
+.sim-frame-opt[aria-checked="true"] { --fill: var(--rl-accent); color: var(--rl-accent-contrast); }
+
+.sim-body { flex: 1; min-height: 0; overflow-y: auto; display: grid; place-items: center; padding: 24px; }
+.sim-rest { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 380px; }
+.sim-title { margin: 0; font-size: 18px; font-weight: var(--fw-title); letter-spacing: -0.01em; color: var(--rl-text-bright); }
+.sim-hint { margin: 0; font-size: 12px; line-height: 1.5; color: var(--rl-text-faint); }
+.sim-reason { margin: 0; font-size: 13px; line-height: 1.5; color: var(--rl-text-bright); }
+/* Mono, because it is what a command said — the same treatment `.machine-detail` gives the same
+   kind of text. */
+.sim-detail { margin: 0; font: 12px var(--font-mono); line-height: 1.5; color: var(--rl-text-dim);
+  white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Two toolchains on one Mac, so the list is grouped — and the heading only appears when there is
+   more than one group, because a lone "iOS" label over every device on a Mac with no Android SDK is
+   a heading that labels nothing. The group gap is larger than the row gap so the split reads as a
+   split rather than as an uneven list. */
+.sim-device-group + .sim-device-group { margin-top: 12px; }
+/* The mark sits ON the label's baseline row, not above it: `align-items: center` with the text's own
+   line box, so a 12px glyph and 11px uppercase read as one line rather than as a glyph with a
+   caption. The gap is 6px — the same one `.machine-route-marks` uses between a mark and what it
+   labels, because it is the same relationship. */
+.sim-group-label { display: flex; align-items: center; gap: 6px; padding: 0 2px 5px; font-size: 11px;
+  font-weight: var(--fw-title); letter-spacing: .06em; text-transform: uppercase; color: var(--rl-text-faint); }
+/* The glyph keeps its own colour and does not inherit the label's faint ink, which is the whole
+   point of drawing a logo rather than writing the word twice. Apple's mark declares no colour and
+   so still takes the label's, which is correct: black on this ground would be nothing. */
+.sim-group-label svg { flex: none; }
+.sim-devices { display: flex; flex-direction: column; gap: 4px; }
+.sim-device { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0;
+  padding: 8px 10px; border-radius: var(--r-ctl); corner-shape: squircle; border: var(--hairline-w) solid var(--rl-line);
+  background: var(--rl-panel); color: var(--rl-text-dim); text-align: left; }
+.sim-device:hover { background: var(--rl-hover); }
+.sim-device[data-on] { border-color: var(--rl-accent); color: var(--rl-text-bright); }
+.sim-device:disabled { opacity: .55; }
+.sim-device-name { font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
+.sim-device-facts { font-size: 11.5px; color: var(--rl-text-faint); }
+.sim-primary { align-self: flex-start; padding: 7px 14px; border: 0; border-radius: var(--r-ctl); corner-shape: squircle;
+  background: var(--rl-accent); color: var(--rl-accent-contrast); font-size: 13px; font-weight: var(--fw-label); }
 
 /* ── Space icon picker (SpacePage's General tab): trigger + tabbed popover ── */
 .icon-picker-trigger { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: var(--r-ctl);
@@ -1052,13 +1678,20 @@ kbd { font: 11px var(--font-mono); }
 .group-new:hover { background: var(--rl-hover); color: var(--rl-text-dim); }
 
 /* ── Main: full-bleed pane host (no topbar; pane headers carry the window drag) ── */
-.main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--rl-panel); }
+/* ONE translucent sheet for the whole pane area, painted here and nowhere else.
+   The window is transparent-backed over the macOS material (main/index.ts), and this is the layer
+   that decides how much of it the reader sees. It has to be exactly one layer: `.panel` and
+   `.session-pane` used to paint the same ground each, and three stacked copies of a 78% fill
+   compose to 99% — the material would be there in the token and absent on the screen. So the panes
+   below are transparent and this sheet is continuous under all of them, which is also what keeps a
+   split from showing its seams as a change of tone. */
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--pane-ground); }
 .panehost { flex: 1; min-height: 0; display: flex; -webkit-app-region: no-drag; }
 .panehost > * { flex: 1; min-width: 0; min-height: 0; }
 /* An inline-size container: the pane's own chrome (its bar, and every pane that queries below) sizes
    itself against the LEAF it fills, not the window — a pane can be a tenth of the host. */
 .panel { position: relative; display: flex; flex-direction: column; height: 100%; min-width: 0;
-  background: var(--rl-panel); overflow: hidden; container-type: inline-size; }
+  background: transparent; overflow: hidden; container-type: inline-size; }
 /* 16px left rail, aligned with the transcript and composer (V-S2).
 
    NO bottom seam. The line that used to be here was justified as a scroll seam — "content scrolls
@@ -1072,6 +1705,10 @@ kbd { font: 11px var(--font-mono); }
    was a boundary inside one. */
 .panel-bar { flex: none; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px 0 16px; font-size: 14px; -webkit-app-region: drag; }
 .panel-bar button, .panel-bar input { -webkit-app-region: no-drag; }
+/* An empty pane's bar: the same strip, with nothing in it but the trash pushed to the trailing edge.
+   `.panel-actions` carries no `margin-left: auto` of its own — it never needed one, because on a
+   populated bar the title before it takes the slack. There is no title here. */
+.panel-bar-empty .panel-actions { margin-left: auto; }
 /* Focused-pane mark (§5): the header icon lifted to ink, and the title brightened. */
 /* Focused pane: the title brightens instead of underlining — the ink bar read as decoration
    (and as a permanent oddity with a single pane), but focus must stay legible in a split. */
@@ -1101,6 +1738,15 @@ button.panel-title:hover { background: var(--rl-hover); }
    actions cluster keeps its place at the right. */
 @container (max-width: 380px) { .panel-meta { display: none; } }
 @container (max-width: 300px) { .panel-nav { display: none; } }
+/* The rung after those two, and the reason it is not a third `@container`: the actions do not
+   disappear, they MOVE — into the ⋯ menu that is already there — and CSS can hide a button but
+   cannot tell the menu which one it hid. So the budget is measured in JS instead
+   (components/pane-bar-fit.ts), against the same width these two rules read, and the constants there
+   are pinned to these numbers by styles.test.ts. What it protects is what they were protecting: the
+   title, which in a split is the only thing telling two sessions apart. */
+/* The summary panel's measuring point, left in the bar whether or not its button is (SessionSummary
+   .tsx). Zero-size and out of the a11y tree: it is a coordinate, not a control. */
+.panel-anchor { width: 0; height: 0; }
 /* Browser panes (W2.3): the header's actions are inline buttons, never a dropdown. The two-step
    delete confirm swaps the trash icon for a small labelled button in place. */
 .panel-actions .icon-btn.danger:hover { color: var(--rl-danger); }
@@ -1155,6 +1801,204 @@ button.panel-title:hover { background: var(--rl-hover); }
 .drop-zone[data-edge="top"] { inset: 6px 6px auto 6px; height: 32%; }
 .drop-zone[data-edge="bottom"] { inset: auto 6px 6px 6px; height: 32%; }
 .drop-zone[data-edge="center"] { inset: 34%; }
+
+/* ── App-level pages, over the workspace ──────────────────────────────────
+   Agents, Library, Connections, Notifications, Scheduled tasks, Settings, a space's Overview and a
+   profile. These were layout items: opening one split a pane, zoomed it and left a row in the
+   sidebar, so unzooming afterwards left four pages beside the session you were working in.
+
+   The overlay covers the PANE HOST and nothing else. The sidebar stays reachable on purpose — the
+   rows that open these pages live in it, and a cover that hid them would make the one control this
+   draws the only way out. It takes the window's own ground rather than a card's: this is a screen you
+   are on, not an object floating over one, so it has no inset, no corner and no shadow. ── */
+.page-overlay { position: fixed; z-index: 200; inset: 0 0 0 var(--sidebar-w, 0px);
+  display: flex; flex-direction: column; min-width: 0;
+  background: var(--rl-panel); outline: none;
+  animation: rl-page-in var(--dur-base) var(--ease-out-strong); }
+/* A rise and a fade, not a slide: the page replaces what was there rather than arriving from a
+   direction, and a horizontal move would imply it came from the sidebar it is not part of. */
+@keyframes rl-page-in { from { translate: 0 6px; opacity: 0; } to { translate: 0 0; opacity: 1; } }
+/* Collapsed, the sidebar is pulled off by its own negative margin and the page takes the width back. */
+.page-overlay[data-sidebar-collapsed] { inset: 0; }
+/* One bar, carrying what the overlay IS and the way out. The hairline is earned here — the page's
+   own scroller genuinely passes under it. */
+/* No rule under it. The bar holds the page's own name and the control that closes it — chrome FOR
+   the page, not a section beside it — and every page below it already opens with its own heading, so
+   the line was a second edge under a title that had one. The same reading that took the divider off
+   `.md-code-head` and the terminal dock's bar. */
+.page-overlay-bar { flex: none; display: flex; align-items: center; gap: 8px; min-height: 38px;
+  padding: 0 6px 0 14px; }
+.page-overlay-mark { flex: none; color: var(--rl-text-faint); }
+.page-overlay-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12.5px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
+.page-overlay-body { flex: 1; min-height: 0; min-width: 0; display: flex; }
+
+/* ── Quick chat: a session in a window instead of a pane ──────────────────────────────
+   A floating card over the whole app, dragged by its bar. It wears the FLOAT radius and the overlay
+   shadow because that is what it is — a window over a page — and it takes its own inset from nothing:
+   the position is absolute and the drag owns it, so a margin here would fight the arithmetic.
+
+   `position: fixed` and a z-index above the sheets' scrim is deliberate: the chat is not modal, and
+   it must stay usable while a sheet is up rather than being dimmed behind one. It sits BELOW the
+   anchored-popover rung (100) just as deliberately: the model picker, the mention picker and every
+   menu the prompter opens are portalled to the body like this window is, so above it they would be
+   siblings this window paints straight over — a model list opening behind the chat that opened it.
+   The rungs it has to clear are the scrims (40–60), and 70 clears them. What it cannot beat
+   is a native `WebContentsView`, which composites above every pixel the renderer draws — so where it
+   OPENS is chosen around the browser panes instead (`complementOf`, QuickChat.tsx). ── */
+.quick-chat { position: fixed; z-index: 70; display: flex; flex-direction: column; min-width: 0;
+  background: var(--surface); color: var(--rl-text-bright);
+  border-radius: var(--r-float); corner-shape: squircle; overflow: hidden;
+  box-shadow: 0 0 0 var(--hairline-w) var(--window-ring), var(--shadow-overlay);
+  transition: box-shadow var(--dur-hover) ease;
+  animation: rl-quick-chat-in var(--dur-base) var(--ease-out-strong); }
+/* The window's edge is the one line in this app that answers the pointer. It earns that: the window
+   floats free over whatever is behind it and can be dragged anywhere, so the border is what says
+   where it ends — and lighting it under the pointer is how a thing with no chrome of its own says
+   it is live and can be taken hold of. Stated ahead of `--shadow-overlay`'s own hairline rather than
+   instead of it: both rings are the same geometry, and the one listed first paints over the other. */
+.quick-chat:hover { box-shadow: 0 0 0 var(--hairline-w) var(--window-ring-hover), var(--shadow-overlay); }
+/* From the corner it opens in, and only a little: it is a small window arriving, not a sheet. */
+@keyframes rl-quick-chat-in { from { translate: 0 10px; scale: 0.98; opacity: 0; } to { translate: 0 0; scale: 1; opacity: 1; } }
+/* The bar IS the handle, so it takes the grab cursor and gives up text selection — a drag across a
+   title that highlighted the title behind the moving window would look like a broken drag. */
+.quick-chat-bar { flex: none; display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 4px 0 12px;
+  cursor: grab; user-select: none; -webkit-user-select: none; -webkit-app-region: no-drag; }
+.quick-chat-bar[data-dragging] { cursor: grabbing; }
+.quick-chat-mark { flex: none; }
+.quick-chat-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12.5px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
+/* The armed delete, in the row's own width. It states its target rather than turning the trash red
+   and hoping — "Delete this chat?" is the sentence design.md asks for before a destructive step. */
+.quick-chat-confirm { flex: none; color: var(--rl-danger); font-size: 12px; white-space: nowrap; }
+/* The empty state, centred in the space the transcript will take. Two lines: what this is, and the
+   one consequence worth knowing before you have typed into it rather than after. */
+.quick-chat-empty { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 6px;
+  margin: 0; padding: 0 24px; text-align: center; font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim); }
+.quick-chat-empty > span { font-size: 11.5px; color: var(--rl-text-faint); }
+/* The transcript takes what is left, and the prompter sits on the bottom edge. Neither is the pane's
+   size, so the two metrics that would otherwise be inherited from a full-width column are reset.
+
+/* The CLEARANCE, which this had none of. The dissolve takes the ends of the scroller, so content has
+   to be padded past them or it is read through one: at 4px the first message pinned to the top sat
+   inside a 40px ramp and arrived half dissolved — the reader's own words looking like a rendering
+   fault. The pane pays 44/72 for the same reason; this window is 380×520 and cannot spare that, so
+   it shortens the RAMPS first (the summary panel's precedent) and then clears what is left by a few
+   pixels. */
+.quick-chat .transcript { flex: 1; min-height: 0; padding: 30px 10px 34px; }
+.quick-chat .transcript-wrap { --fade-top-h: 24px; --fade-h: 28px; }
+.quick-chat .transcript-col { max-width: none; }
+/* The prompter spans the window. At 380px a card with its own side inset spends most of a line's
+   width on margin, and the window's own rounded corners already separate it from what is behind —
+   so the card gives up its inset and its corners and lets the WINDOW be its edge.
+
+   The dock's `width: min(--prompter-w, 100% - 48px)` is the 48px that has to go: it is a READING
+   measure, right for a card centred in a pane the width of a window and wrong for a card that IS
+   the window. The bottom margin goes with it for the same reason. */
+.quick-chat .composer-dock { width: 100%; margin: 0; padding: 0; }
+.quick-chat .composer { margin: 0; border-radius: 0; }
+:root[data-squircle] .quick-chat .composer { --sq-radius-top: 0px; --sq-radius-bottom: 0px; }
+/* The prompter draws NO edge of its own here — no ring, no seam, focused or not.
+ *
+ * A hairline earns its place where content passes under a fixed edge, and text does pass under this
+ * one. But the transcript already dissolves into it: the fade band blurs and washes the last lines
+ * to the window's own ground, so by the time anything reaches the card there is nothing left for a
+ * line to separate. Drawing one anyway ruled a window that is one continuous thing into two.
+ *
+ * Both paths have to say it, and each has to say it again for `:focus-within` — `.composer` and
+ * `:root[data-squircle] .composer` both brighten an edge on focus further down the file, and an
+ * equally weighted rule would lose to them and put the box back the moment the caret landed. */
+.quick-chat .composer,
+.quick-chat .composer:focus-within { box-shadow: none; }
+:root[data-squircle] .quick-chat .composer,
+:root[data-squircle] .quick-chat .composer:focus-within { --sq-ring-w: 0; box-shadow: none; }
+/* And the LIFT with it. On the painted path the card's shadow is a `drop-shadow` on a layer behind
+   it, which no `box-shadow: none` above can reach — it was still casting upward onto the transcript,
+   a dark line a pixel above the card that reads as exactly the divider this window is not to have.
+   A card resting on the window's own bottom edge is not floating over anything to cast one. */
+:root[data-squircle] .quick-chat .composer::before { filter: none; }
+/* One card, no tabs: the strips it would otherwise carry are switched off in TSX (`compact`), and
+   this is the corresponding geometry — the card has no strip above or below to leave room for. */
+.quick-chat .composer-input { max-height: 140px; }
+/* The sent bubble, on the window's own ground.
+ *
+ * `.msg-user` fills with `--rl-raised`, and this window IS `--rl-raised` — so the bubble that reads
+ * at 1.087:1 against a pane's canvas read at exactly 1.000 here. Not a subtle bubble: no bubble, with
+ * the user's own words arriving as unattributed prose at the right margin, which is what made the
+ * window look like it had lost half the conversation.
+ *
+ * The translucent lift is the token for precisely this case and says so where it is defined: a rung
+ * above WHATEVER surface it is laid on, kept as alpha for exactly the grounds an opaque ramp cannot
+ * follow. So the bubble steps off this window by the same amount it steps off a pane, in both faces
+ * — light has nothing above white to go to, and there the lift goes down instead.
+ *
+ * Both paths, because the painted one takes its fill from a custom property and would otherwise keep
+ * the invisible one.
+ */
+.quick-chat .msg-user { background: var(--rl-hover); }
+:root[data-squircle] .quick-chat .msg-user { --sq-fill: var(--rl-hover); }
+
+/* The window's middle: the transcript or the empty state, and nothing else the window is made of.
+   It is a positioning parent, which is its whole reason to exist — the drag glow hangs off THIS and
+   therefore cannot reach the prompter. */
+.quick-chat-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* A file dragged onto the window lights the pane's own glow — same wash, same blur, same stroke —
+   over the reading area alone.
+ *
+ * It used to span the window, which put an accent ring around the prompter as well: a drop target
+ * drawn around the card says the card takes the file, and it does not. Confining it to `.quick-chat-body`
+ * says the true thing and settles an old argument on the way. The glow had to pass UNDER the dock so
+ * its backdrop-filter never washed across the card (the bug `prompter-fade-live.mjs` catches), which
+ * hid the ring's bottom edge and both bottom corners — so the stroke had been split onto a second
+ * layer above the dock just to close the rectangle. A box that stops at the prompter has no card
+ * over any of its four sides: one layer again, wash and stroke together, and the bottom corners are
+ * simply drawn.
+ *
+ * The corner: a pane is square, so its glow picks a radius that merely looks right on it. This one
+ * keeps the window's own curve less its inset on all four corners — the bottom pair included, so the
+ * ring reads as a rounded rectangle resting above the prompter rather than a box cut off by it. */
+.quick-chat .session-drop {
+  inset: 6px; z-index: 3;
+  border-radius: calc(var(--r-float) - 6px);
+  display: grid; place-items: center;
+}
+/* Names the gesture in the middle of it. At 380px the glow on its own is a lit rectangle, and a
+   rectangle is not an instruction; the word is, and it is the only thing this layer says — what
+   actually happens is said by the attachment tile that lands in the prompter. On the accent, not in
+   it: the wash behind is already accent-tinted, and accent-on-accent is the one pairing here that
+   cannot be relied on to clear AA in both faces. */
+.quick-chat-drop-label {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 10px; border-radius: var(--r-chip); corner-shape: squircle;
+  background: var(--surface); color: var(--rl-text-bright);
+  font-size: 12px; font-weight: var(--fw-label); white-space: nowrap;
+  box-shadow: var(--shadow-card);
+}
+
+/* ── The sub-agent panel: one harness sub-agent, watched while it works ───────────────
+   The session pane's right-hand strip, shared with the summary — same card, same inset, same cap,
+   same enter. It is a glance you take and put away, not a column you size: a split would take width
+   from the transcript for as long as it was open, where this leaves on Escape and, where the pane is
+   wide enough, pins beside the transcript instead of over it. ── */
+.subagent-bar { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 4px 8px 8px; }
+.subagent-mark { flex: none; color: var(--rl-accent); }
+.subagent-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+/* Ticking while it runs and a word once it does not — a clock that goes on climbing after the agent
+   left would be reporting how long ago it finished as though it were still going. */
+.subagent-elapsed { flex: none; font-size: 11.5px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.subagent-elapsed[data-working] { color: var(--rl-text-dim); }
+.subagent-body { flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 2px 8px 8px; }
+.subagent-head { display: flex; align-items: baseline; gap: 8px; margin: 0 0 6px;
+  font-size: 11.5px; font-weight: var(--fw-label); color: var(--rl-text-faint); }
+.subagent-count { margin-left: auto; font-variant-numeric: tabular-nums; }
+/* The brief and the report are PROSE — what the parent wrote and what came back — on the app's one
+   markdown treatment, capped so neither buries the working between them. */
+.subagent-prose { font-size: 12.5px; color: var(--rl-text-dim); }
+.subagent-brief .subagent-prose, .subagent-report .subagent-prose { max-height: 200px; overflow-y: auto; overscroll-behavior: contain; }
+.subagent-report[data-error] .subagent-head { color: var(--rl-danger); }
+.subagent-steps { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.subagent-empty { margin: 0; font-size: 12px; line-height: 1.5; color: var(--rl-text-faint); }
 
 .terminal-pane { position: relative; flex: 1; min-width: 0; min-height: 0; padding: 12px 14px; background: var(--rl-terminal-bg); display: flex; color-scheme: dark; /* its interior is always dark, in both app modes — keeps xterm's own scrollbar dark too */ }
 .terminal-pane .xterm { height: 100%; }
@@ -1530,7 +2374,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 
 /* ── Session pane ──────────────────────────────────────────────────────── */
 /* A size container so the prompter's hero lift can be expressed in cqh (pane-height units). */
-.session-pane { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--rl-panel); container-type: size; }
+.session-pane { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: transparent; container-type: size; }
 /* Dropping a file anywhere on the pane. Inset from the panel edge rather than flush to it, so the
    glow reads as this pane's — in a four-way split a flush ring would run straight into its
    neighbour's and the two would look like one target.
@@ -1542,12 +2386,13 @@ button.panel-title:hover { background: var(--rl-hover); }
   border-radius: calc(var(--r-float) + 4px); corner-shape: squircle;
   box-shadow: inset 0 0 0 1.5px var(--rl-accent), inset 0 0 36px -6px var(--rl-accent);
   animation: rl-fade-in var(--dur-drag) linear; }
-/* The soft half, on its own layer because a backdrop-filter cannot be an inset shadow. The mask
-   lives HERE and never on the parent: a masked ancestor becomes a backdrop root, and its children
-   would then blur an empty backdrop — the same trap the transcript's fade band documents. */
+/* The soft half. It used to blur its backdrop as well; it cannot any more, and the reason is the
+   pane it is drawn on — a filter over a translucent surface filters the window's own transparency
+   and composites toward black, so the glow came out as a dark square with a ring around it. The
+   ring and the wash are what say "this pane takes the file", and they said it without the blur
+   under reduced transparency already. */
 .session-drop::before { content: ""; position: absolute; inset: 0; border-radius: inherit;
   background: color-mix(in srgb, var(--rl-accent) 12%, transparent);
-  backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
   mask-image: radial-gradient(farthest-side at 50% 50%, transparent 42%, #000 100%);
   -webkit-mask-image: radial-gradient(farthest-side at 50% 50%, transparent 42%, #000 100%); }
 /* The session's terminal drawer (W4): a split INSIDE the session pane, not a layout leaf. Its divider is
@@ -1585,10 +2430,6 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* MCP server status (W6) shares the same dot — "connected"/"circuit_open" are this domain's own words
    for "running"/"waiting on the user", so they get the same success/danger treatment. Connected is
    RESTING, though — the server is up, nothing is in flight — so it stays a plain dot. */
-
-/* MCP server status (W6) shares the same dot — "connected"/"circuit_open" are this domain's own words
-   for "running"/"waiting on the user", so they get the same success/danger treatment. Connected is
-   RESTING, though — the server is up, nothing is in flight — so it stays a plain dot. */
 .status-dot[data-status="connected"] { background: var(--rl-success); }
 .status-dot[data-status="circuit_open"] { background: var(--rl-danger); animation: rl-pulse 0.9s ease-in-out infinite; }
 @keyframes rl-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
@@ -1615,6 +2456,12 @@ button.panel-title:hover { background: var(--rl-hover); }
    distinction anyone makes at a glance, but success-slow against warning-fast is. waiting_permission
    is the one that needs a human, so it is the loudest in BOTH motion modes: fastest ping with motion,
    and without it the warning-toned halo still outranks the success-toned one. */
+/* The sidebar's dots do not ping. A running session shows a dot in its pane bar AND a row in the
+   sidebar, and both pinging is the same fact told twice — at the cost of a second forever-animating
+   element per session, which on a sidebar listing a day's work is most of the animations in the
+   window. The row still carries the colour, which is what says the session is running; the ping is
+   for the pane you are in. */
+.item-status::after { content: none; }
 .status-dot[data-status="running"]::after { --ring: var(--rl-success); --ring-rate: 1.8s; }
 .status-dot[data-status="waiting_permission"]::after { --ring: var(--rl-warning); --ring-rate: 0.9s; }
 .status-dot[data-status="driving"]::after { --ring: var(--rl-accent); --ring-rate: 0.9s; }
@@ -1623,7 +2470,6 @@ button.panel-title:hover { background: var(--rl-hover); }
    reaching a machine is something a person is waiting on. */
 .status-dot[data-status="machine-booting"] { background: var(--rl-accent); }
 .status-dot[data-status="machine-booting"]::after { --ring: var(--rl-accent); --ring-rate: 0.9s; }
-
 /* Ends at scale(1) rather than growing past the authored box: the halo the reduced-motion reader
    sees is the same 13px circle the ping resolves to, so the two forms are the same shape. */
 @keyframes rl-ping { from { transform: scale(.45); opacity: .85; } 70%, to { transform: scale(1); opacity: 0; } }
@@ -1646,7 +2492,15 @@ button.panel-title:hover { background: var(--rl-hover); }
 .spinner-dot { position: absolute; left: 50%; top: 50%; width: 2px; height: 2px; margin: -1px 0 0 -1px;
   border-radius: 50%; background: currentColor; animation: rl-orb-breathe 3.6s linear infinite both; }
 /* The pose table's percentages are uneven on purpose: the 19%/44%/69%/94% steps are the slow crawls,
-   the 25%/50%/75%/100% ones the bursts that snap between them. */
+   the 25%/50%/75%/100% ones the bursts that snap between them.
+
+   The transforms read their poses through `var()`, which means the compositor cannot take them and
+   the engine ticks all forty dots on the main thread. That was measured, on the suspicion that it
+   was the app's most expensive animation — it IS expensive, about 14% of a core per orb, but moving
+   the same poses to the Web Animations API as literal values measured exactly the same. The cost is
+   forty separately animated elements, not the indirection. So the tidy version stays, and what the
+   orb answers to instead is `:root[data-quiet]`: it runs while you are watching it and stops when
+   you are not. */
 @keyframes rl-orb-breathe {
   0%   { transform: scale(var(--orb-k)) translate(var(--g0x), var(--g0y)); opacity: var(--g0o); }
   19%  { transform: scale(var(--orb-k)) translate(var(--g1x), var(--g1y)); opacity: var(--g1o); }
@@ -1672,112 +2526,64 @@ button.panel-title:hover { background: var(--rl-hover); }
    16px before each new user turn. */
 .transcript-col { width: 100%; max-width: var(--prompter-w); margin-inline: auto; display: flex; flex-direction: column; gap: 8px; }
 
-/* Ara §4: text does not stop at the prompter, it passes under it. A scroller clipped at its own box
-   edge cuts glyphs in half; a progressive blur reads as depth. Two backdrop layers — a light blur
-   over the whole band, a heavier one plus the panel wash over the bottom — each behind a mask that
-   starts lower, so the blur RAMPS instead of stepping (one flat band would show its own top edge).
-   The masks live on the blurring layers themselves, never on their parent: a masked ancestor becomes
-   a backdrop root and its children would blur an empty backdrop. */
-/* Worn by both scrollers that dock a card at their bottom; --fade-h is the only difference, since a
-   dense file list needs a shorter ramp than prose to stop reading as a smudge. The scroller sets it
-   (see .diff-list-wrap) so the ramp and the bottom padding that clears it cannot drift apart. */
-/* Right inset = the 10px scrollbar below: the thumb is chrome, not content, and a thumb that
-   dissolved halfway down would read as a scrollbar that stops short. */
-/*
- * The edge fade — one primitive, every scroller.
+/* Ara §4: text does not stop at the prompter, it passes under it — and it does so by RUNNING OUT,
+   not by being painted over.
  *
- * `.edge-fade` is the shape: an absolutely-positioned band at one end of a scroll box, ignoring the
- * pointer, drawn as two layers. The near layer is a shallow blur right at the boundary; the far one
- * is a deeper blur under a wash to the surface colour. Text therefore softens BEFORE it reaches the
- * edge instead of hitting a band, which is the whole difference between a dissolve and a strip.
+ * The dissolve — one primitive, every scroller.
  *
- * Strength lives in tokens (`--fade-blur-near/-far`, `--fade-wash`) so "make the blurs subtler"
- * is one edit rather than eight, and so every fade in the app is provably the same strength.
+ * It is a `mask-image` on the scroller itself: over the last `--fade-h` the content's own alpha
+ * ramps to zero, and nothing at all is drawn on top. What that reveals is whatever was already
+ * behind the text — the window's material through a translucent pane, or the opaque page tone under
+ * reduced transparency — so the dissolve is right on every ground without being told which one it is
+ * on. This is the sidebar's list treatment (`.space-body`), now the app's only one.
  *
- * `--fade-h` sets the band's depth and `--fade-ground` the colour it washes to; a caller that sits
- * on a different surface sets the latter. `data-edge="top"` mirrors it, and `data-edge="start"/"end"`
- * turn it on its side for a strip that scrolls horizontally (depth from `--fade-w` there).
+ * It replaced two absolutely-positioned bands that blurred their backdrop and washed to a fixed
+ * tone. Both halves of that need an OPAQUE surface under them, and the panes are no longer opaque: a
+ * backdrop-filter over a translucent surface filters the window's own transparency and composites
+ * toward black, which renders as a dark smudge, and a wash to any fixed colour stripes the surface
+ * with a tone the material shows straight through. The bands also cost a second filtered pass per
+ * scrolled frame, which was most of what the transcript spent on the battery.
  *
- * The names `.transcript-fade`, `.transcript-fade-top` and `.diff-fade` are kept as aliases: they
- * are load-bearing in the panes and in the live checks, and renaming them would be churn with no
- * reader on the other side.
- */
-.edge-fade, .transcript-fade, .diff-fade, .transcript-fade-top {
-  position: absolute; inset: auto 10px 0 0; height: var(--fade-h, 68px); pointer-events: none; z-index: 1;
-}
-.edge-fade::before, .edge-fade::after,
-.transcript-fade::before, .transcript-fade::after,
-.diff-fade::before, .diff-fade::after,
-.transcript-fade-top::before, .transcript-fade-top::after { content: ""; position: absolute; inset: 0; }
-.edge-fade::before, .transcript-fade::before, .diff-fade::before {
-  backdrop-filter: blur(var(--fade-blur-near)); -webkit-backdrop-filter: blur(var(--fade-blur-near));
-  mask-image: linear-gradient(to bottom, transparent 0, #000 60%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 60%);
-}
-/* The wash ends fully opaque: the band's last pixels are pure ground, so whatever sits beyond it
-   has nothing left to cut off. */
-.edge-fade::after, .transcript-fade::after, .diff-fade::after {
-  backdrop-filter: blur(var(--fade-blur-far)); -webkit-backdrop-filter: blur(var(--fade-blur-far));
-  background: linear-gradient(to bottom, transparent 0, var(--fade-ground) var(--fade-wash));
-  mask-image: linear-gradient(to bottom, transparent 30%, #000 78%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 30%, #000 78%);
-}
-/* The same band at the TOP, mirrored. A pane bar has no hairline, so a line of text scrolling up to
-   it used to arrive at a hard cut; this dissolves it the way the bottom band dissolves a run into
-   the prompter. */
-.edge-fade[data-edge="top"], .transcript-fade-top { inset: 0 10px auto 0; height: var(--fade-top-h, 40px); }
-.edge-fade[data-edge="top"]::before, .transcript-fade-top::before {
-  backdrop-filter: blur(var(--fade-blur-near)); -webkit-backdrop-filter: blur(var(--fade-blur-near));
-  mask-image: linear-gradient(to top, transparent 0, #000 60%);
-  -webkit-mask-image: linear-gradient(to top, transparent 0, #000 60%);
-}
-.edge-fade[data-edge="top"]::after, .transcript-fade-top::after {
-  backdrop-filter: blur(var(--fade-blur-far)); -webkit-backdrop-filter: blur(var(--fade-blur-far));
-  background: linear-gradient(to top, transparent 0, var(--fade-ground) var(--fade-wash));
-  mask-image: linear-gradient(to top, transparent 30%, #000 78%);
-  -webkit-mask-image: linear-gradient(to top, transparent 30%, #000 78%);
-}
-/* The same band on its SIDE, for a strip that scrolls sideways. `--fade-w` rather than `--fade-h`
-   because the depth being set is a width now; everything else — the two layers, the near/far blurs,
-   the wash to the ground — is the vertical band's, read from the same tokens. A horizontal scroller
-   that dissolved by some other recipe would be a second material for one idea. */
-.edge-fade[data-edge="start"], .edge-fade[data-edge="end"] {
-  inset: 0 auto 0 0; width: var(--fade-w, 28px); height: auto;
-}
-.edge-fade[data-edge="end"] { inset: 0 0 0 auto; }
-.edge-fade[data-edge="start"]::before {
-  backdrop-filter: blur(var(--fade-blur-near)); -webkit-backdrop-filter: blur(var(--fade-blur-near));
-  mask-image: linear-gradient(to left, transparent 0, #000 60%);
-  -webkit-mask-image: linear-gradient(to left, transparent 0, #000 60%);
-}
-.edge-fade[data-edge="start"]::after {
-  backdrop-filter: blur(var(--fade-blur-far)); -webkit-backdrop-filter: blur(var(--fade-blur-far));
-  background: linear-gradient(to left, transparent 0, var(--fade-ground) var(--fade-wash));
-  mask-image: linear-gradient(to left, transparent 30%, #000 78%);
-  -webkit-mask-image: linear-gradient(to left, transparent 30%, #000 78%);
-}
-.edge-fade[data-edge="end"]::before {
-  backdrop-filter: blur(var(--fade-blur-near)); -webkit-backdrop-filter: blur(var(--fade-blur-near));
-  mask-image: linear-gradient(to right, transparent 0, #000 60%);
-  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 60%);
-}
-.edge-fade[data-edge="end"]::after {
-  backdrop-filter: blur(var(--fade-blur-far)); -webkit-backdrop-filter: blur(var(--fade-blur-far));
-  background: linear-gradient(to right, transparent 0, var(--fade-ground) var(--fade-wash));
-  mask-image: linear-gradient(to right, transparent 30%, #000 78%);
-  -webkit-mask-image: linear-gradient(to right, transparent 30%, #000 78%);
-}
+ * `--fade-h` and `--fade-top-h` set the two depths, `--fade-w` the side ones; a surface that wants a
+ * shallower band sets the token and the mask follows. `ScrollFades.tsx` writes `data-dissolve` when
+ * there is genuinely something under an end — a list that fits wears none — and leaves the attribute
+ * in place with no ends named so the depths can ANIMATE to and from zero. Removing the attribute
+ * instead would take the mask away in one frame, which is the pop the old bands' opacity transition
+ * existed to avoid.
+ *
+ * The depths are registered so they interpolate. An unregistered custom property computes to a token
+ * stream, and token streams do not animate — the same registration the painter's inputs need, and
+ * the same failure if it is skipped. */
+@property --dissolve-top { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --dissolve-bottom { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --dissolve-start { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --dissolve-end { syntax: "<length>"; inherits: false; initial-value: 0px; }
 
-.session-pane[data-composer="hero"] .transcript-fade,
-.session-pane[data-composer="hero"] .transcript-fade-top { display: none; }
-/* Asked for less translucency: keep the fade (it is what stops the hard cut), drop the blur. */
-@media (prefers-reduced-transparency: reduce) {
-  .edge-fade::before, .transcript-fade::before, .diff-fade::before, .transcript-fade-top::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
-  .edge-fade::after, .transcript-fade::after, .diff-fade::after, .transcript-fade-top::after { backdrop-filter: none; -webkit-backdrop-filter: none; }
-  /* The drop highlight, same treatment: the ring and its wash are what say "this pane takes the
-     file", and neither needs the blur to say it. */
-  .session-drop::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
+[data-dissolve] {
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--dissolve-top),
+    #000 calc(100% - var(--dissolve-bottom)), transparent);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--dissolve-top),
+    #000 calc(100% - var(--dissolve-bottom)), transparent);
+  transition: --dissolve-top var(--dur-fast) ease, --dissolve-bottom var(--dur-fast) ease;
 }
+[data-dissolve~="start"] { --dissolve-top: var(--fade-top-h, 40px); }
+[data-dissolve~="end"] { --dissolve-bottom: var(--fade-h, 68px); }
+
+/* The same on its side, for a strip that scrolls sideways. A horizontal scroller that dissolved by
+   some other recipe would be a second material for one idea. */
+[data-dissolve-x] {
+  mask-image: linear-gradient(to right, transparent 0, #000 var(--dissolve-start),
+    #000 calc(100% - var(--dissolve-end)), transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--dissolve-start),
+    #000 calc(100% - var(--dissolve-end)), transparent);
+  transition: --dissolve-start var(--dur-fast) ease, --dissolve-end var(--dur-fast) ease;
+}
+[data-dissolve-x~="start"] { --dissolve-start: var(--fade-w, 28px); }
+[data-dissolve-x~="end"] { --dissolve-end: var(--fade-w, 28px); }
+
+/* The thumb is held clear of the mask beside the scrollbar rules, where the reasoning about
+   Chromium's two scrollbar APIs already lives — see `[data-dissolve]` down there. */
+
 
 /* A column, always: a sent message is up to three stacked pieces — the attribution line, the
    attachment tiles, the bubble — each aligned to the transcript's right edge. */
@@ -1816,13 +2622,23 @@ a.msg-chip:hover { text-decoration: underline; text-underline-offset: 2px; }
 .msg-user-row[data-from] { gap: 3px; }
 .msg-user-row[data-from] .msg-user { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rl-accent) 30%, transparent); }
 .msg-user-from { font-size: 11px; font-weight: var(--fw-medium); color: var(--rl-text-faint); padding-right: 2px; }
+/* The goal's own turns: the attribution IS the control that opens them. Right-aligned with the rest
+   of the user column, and quiet — it is a label first and a disclosure second. */
+.msg-goal-turn { display: inline-flex; align-items: center; gap: 2px; }
+.msg-goal-turn:hover { color: var(--rl-text-dim); }
+.msg-goal-caret { transition: transform var(--dur-pop) var(--ease-out-strong); }
+.msg-goal-turn[aria-expanded="true"] .msg-goal-caret { transform: rotate(90deg); }
+/* Opened, the prompt is what the agent was handed — not the user's voice, so it is not a bubble. */
+.msg-goal-prompt { white-space: pre-wrap; color: var(--rl-text-dim); background: var(--rl-frame);
+  border-radius: var(--r-panel); corner-shape: squircle; padding: 10px 12px; font-size: 12.5px; line-height: 1.5; }
 /* Attached-file tiles, ABOVE the bubble (Plan 14 W5, revised): what was sent was a stack of files
    with a note under it. Inside the bubble they were subject to its pre-wrap whitespace rules and to
    its right-ragged text, and an attachment-only message had to grow an empty bubble to hold them. */
 .msg-user-files { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end;
   max-width: 85%; margin: 0; padding: 0; list-style: none; }
-.msg-user-files .attach-tile { width: 56px; height: 56px; }
-.msg-user-files .attach-art { border-radius: var(--r-row); }
+/* A sent attachment is the same tile, larger — and now the same corner too, in proportion. It had
+   its own flat `--r-row` radius, which is what made a file visibly change shape on send. */
+.msg-user-files .attach-tile { --attach-tile: 56px; }
 /* Ara refresh §4: assistant prose is plain — 15px/1.6, no card. */
 /* The message and everything the message owns — its media strip, its action bar — in one column, at
    the gap `.transcript-col` used to give them as siblings, so growing the wrapper moved nothing. */
@@ -1881,14 +2697,15 @@ a.msg-chip:hover { text-decoration: underline; text-underline-offset: 2px; }
    an absolute path in running text becomes a button that borrows that same styling, so the reader
    cannot tell which markup the agent happened to use — and should not have to.
 
-   Underlined on hover rather than tinted at rest: these sit INSIDE prose, often several to a
-   paragraph, and a paragraph where six phrases are accent-coloured is a paragraph nobody reads. The
-   pointer and the underline are the affordance; the tooltip says what a click does. */
+   Tinted on hover rather than at rest: these sit INSIDE prose, often several to a paragraph, and a
+   paragraph where six phrases are accent-coloured is a paragraph nobody reads. No underline — the
+   chip's own fill already reads as a target; the pointer and the tint are the affordance, and the
+   tooltip says what a click does. */
 button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: var(--r-chip);
   background: var(--rl-raised); color: inherit; vertical-align: baseline; }
-.md .md-path { cursor: pointer; text-decoration-color: transparent; text-underline-offset: 2px;
-  transition: color var(--dur-hover) ease, text-decoration-color var(--dur-hover) ease; }
-.md .md-path:hover { color: var(--rl-accent); text-decoration: underline; text-decoration-color: currentColor; }
+.md .md-path { cursor: pointer; text-decoration: none;
+  transition: color var(--dur-hover) ease; }
+.md .md-path:hover { color: var(--rl-accent); text-decoration: none; }
 .md .md-path:focus-visible { outline: 2px solid color-mix(in srgb, var(--rl-accent) 55%, transparent); outline-offset: 1px; }
 .md pre { margin: 6px 0 8px; padding: 10px 12px; border-radius: var(--r-ctl); background: var(--rl-frame); overflow-x: auto; }
 .md pre code { padding: 0; background: none; }
@@ -1943,7 +2760,11 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .msg-error pre { margin: 0; white-space: pre-wrap; font: 12px var(--font-mono); max-height: 240px; overflow: auto; }
 /* Plan 9 W2 — BUI LoadingState's shimmer label replaces the spinner+text pair; under
    prefers-reduced-motion the global animation kill leaves a static, readable gradient. */
-.msg-working { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
+/* The one system line that had no entrance at all: it was mounted by the status flipping to
+   running, fully opaque on the frame the flip landed. It fades in with the rest of them — the same
+   arrival, and the shimmer inside it starts under a label that is already there. */
+.msg-working { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: var(--fw-medium); color: var(--rl-text-dim);
+  animation: rl-fade-in var(--dur-slow) var(--ease-fade); }
 
 /* The delegated-runs dock: what this session is waiting on, between the log and the prompter. It
    sits on the transcript's own rails (the 680px column's 16px gutter) rather than the composer's
@@ -1984,7 +2805,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    the derived one) fades the new words in rather than swapping them under the reader. */
 .msg-transcript-summary { margin: 6px 0 0; font-size: 11.5px; font-style: italic; line-height: 1.5;
   color: var(--rl-text-faint); font-variant-numeric: tabular-nums;
-  animation: rl-msg-in var(--dur-enter) var(--ease-out-strong); }
+  animation: rl-fade-in var(--dur-slow) var(--ease-fade); }
 .new-msgs-pill { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; font-size: 12px;
   background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: var(--rl-shadow); }
 
@@ -2367,9 +3188,10 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* The dock carries geometry + position for BOTH states; the greeting hangs off it
    absolutely so the hero→docked move is a single transform transition (§6: 320ms, interruptible). */
 /* z-index: the hero transform below makes the dock a stacking context, which traps .composer's own
-   z-index inside it and drops the whole dock to layer 0 — under .transcript-fade (layer 1), whose
-   blur band then cut across the middle of the hero card. The dock outranks the fade instead: the
-   transcript passes UNDER the prompter, never over it. */
+   z-index inside it and drops the whole dock to layer 0 — under the transcript's old fade band
+   (layer 1), whose blur then cut across the middle of the hero card. The band is gone (the dissolve
+   is a mask on the scroller), but the dock keeps its layer: the transcript passes UNDER the
+   prompter, never over it, and that is a fact about the two elements rather than about the fade. */
 .composer-dock { position: relative; z-index: 2; flex: none; width: min(var(--prompter-w), 100% - 48px);
   margin: 8px auto max(12px, env(safe-area-inset-bottom));
   transition: transform var(--dur-move) var(--ease-in-out-strong); }
@@ -2383,12 +3205,31 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 }
 /* Two lines' worth of box, always: the line wraps as soon as the pane is narrow (or the space and
    the person both have long names), and a box that grew with it would move the greeting every time
-   a session opened in a thinner window. Fixed height, contents centred in it, so one line and two
-   sit in the same place and neither the card below nor the line above shifts. */
+   a session opened in a thinner window. One line and two therefore sit in the same place, and
+   neither the card below nor the line above shifts.
+   It is a FLOOR rather than a fixed height, because a third line has to go somewhere: at 30px the
+   longest greeting needed three lines under about a 400px pane, and a fixed box centred them, so
+   the spare line spilled 18px past each edge — over the 20px gap and into the top of the card. The
+   box is bottom-anchored and the whole dock is lifted by transform, so growing costs the card
+   nothing: the extra line goes upward into the transcript's empty half, which is where a hero
+   greeting has room to go. Two lines still measure exactly 2.3em, which is the part that had to
+   stay true. */
 .hero-greeting { position: absolute; bottom: calc(100% + 20px); left: 0; right: 0;
   display: flex; align-items: center; justify-content: center;
-  line-height: 1.15; height: 2.3em; text-align: center;
-  font-size: 30px; font-weight: var(--fw-title); letter-spacing: -0.02em; color: var(--rl-text-bright); text-wrap: balance; }
+  line-height: 1.15; min-height: 2.3em; text-align: center;
+  font-size: clamp(20px, 4.7cqi, 30px); font-weight: var(--fw-title); letter-spacing: -0.02em; color: var(--rl-text-bright); }
+/* The app's one display statement, and the only type in it that scales with the pane rather than
+   sitting on a rung. A pane is a column the user drags to whatever width the split leaves it, and
+   30px is sized for the width the prompter gets when it has the window — held at that size in a
+   third of it, the same sentence turns into four short stacks of words with the space's name alone
+   on the last. `cqi` is the SESSION PANE's inline size (it is the `container-type: size` box the
+   hero lift already measures against), not the viewport: two panes side by side each get the size
+   their own column earns. The ceiling keeps the wide case exactly as it was drawn; the floor is a
+   title rung, and stops a sliver of a pane from scaling the greeting down into body text. */
+/* min-width: 0 — the span is a flex ITEM, so its automatic minimum is its longest unbreakable run,
+   and a space named without spaces in it would push the line out past both edges of the pane rather
+   than wrap. With the floor lifted, `overflow-wrap` can do its job on the one word that needs it. */
+.hero-greeting > span { min-width: 0; text-align: center; text-wrap: balance; overflow-wrap: break-word; }
 .hero-greeting em { font-style: normal; }
 /* The greeting nods when its emphasised word is clicked (Composer.tsx sets the mark). Pivoting on
    the baseline, so the line dips on the ruler it sits on rather than swinging around its middle;
@@ -2438,12 +3279,6 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .composer[data-mode="plan"]:focus-within {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-warning) 60%, transparent), var(--shadow-card); }
 /* The chip that names the mode takes the same tone, so the card and its label are one statement. */
-.composer[data-mode="ask"] .ghost-chip[aria-label="Mode"],
-.composer[data-mode="ask"] .ghost-chip[aria-label="Mode"] .chip-brand { color: var(--rl-success); }
-.composer[data-mode="plan"] .ghost-chip[aria-label="Mode"],
-.composer[data-mode="plan"] .ghost-chip[aria-label="Mode"] .chip-brand { color: var(--rl-warning); }
-.composer[data-mode="ask"] .ghost-chip[aria-label="Mode"] { --fill: color-mix(in srgb, var(--rl-success) 12%, transparent); }
-.composer[data-mode="plan"] .ghost-chip[aria-label="Mode"] { --fill: color-mix(in srgb, var(--rl-warning) 12%, transparent); }
 /* The painted card reads its fill from a custom property, not from `background`, so the worklet path
    needs the same three tones or the tint would vanish the moment the squircle gate turns on. */
 :root[data-squircle] .composer[data-mode="ask"] {
@@ -2454,10 +3289,57 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   --sq-fill: color-mix(in srgb, var(--rl-warning) 6%, var(--surface));
   --sq-ring: color-mix(in srgb, var(--rl-warning) 34%, transparent); }
 :root[data-squircle] .composer[data-mode="plan"]:focus-within { --sq-ring: color-mix(in srgb, var(--rl-warning) 60%, transparent); }
+/* The provider's limit warning, above the queue: it is about whether the next message will be
+   served at all, which outranks what is already waiting to go. Wears the attachment note's shape
+   rather than a card — it is one sentence, and a bordered box for it would shout. */
+.composer-limit { display: flex; align-items: baseline; gap: 5px; margin: 0; padding: 10px 12px 0;
+  font-size: 11.5px; line-height: 1.45; color: var(--rl-warning); }
+.composer-limit[data-alert="exceeded"] { color: var(--rl-danger); }
+
+/* Row 0 — the queue: messages typed during a turn that are waiting for it to end. Above the
+   attachments because it is what happens NEXT, while the attachments belong to the message still
+   being typed. Quiet by default — a queue is a held intention, not an alert — and each row carries
+   its own send-now, which is the steering affordance in the one place it names what it delivers. */
+.composer-queue { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 10px 12px 0; list-style: none; }
+.composer-queue-item { display: flex; align-items: center; gap: 8px; min-width: 0;
+  padding: 5px 6px 5px 8px; border-radius: var(--r-chip);
+  background: var(--rl-hover); box-shadow: 0 0 0 var(--hairline-w) var(--rl-line); }
+/* The position, so a queue of three reads as an order rather than a set. Tabular so the digits sit
+   in one column as the queue grows past nine. */
+.composer-queue-item .queue-position { flex: none; min-width: 14px; font-family: var(--font-mono);
+  font-size: 11px; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
+.composer-queue-item .queue-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-size: 12px; color: var(--rl-text-dim); }
+.composer-queue-item .queue-attach { flex: none; display: flex; align-items: center; gap: 2px;
+  font-family: var(--font-mono); font-size: 11px; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
+.composer-queue-item .queue-send { flex: none; padding: 2px 7px; border: 0; border-radius: var(--r-chip);
+  background: transparent; color: var(--rl-text-dim); font-size: 11px; font-weight: var(--fw-label);
+  cursor: pointer; transition: background var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
+.composer-queue-item .queue-send:hover { background: var(--surface); color: var(--rl-text-bright); }
+.composer-queue-item .queue-drop { flex: none; display: flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; padding: 0; border: 0; border-radius: var(--r-chip); background: transparent;
+  color: var(--rl-text-faint); cursor: pointer; transition: background var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
+.composer-queue-item .queue-drop:hover { background: var(--surface); color: var(--rl-text-bright); }
+
 /* Row 1 — pending attachments (Ara refresh §3: the context chips left this row for the control row;
    attachments stay ABOVE the textarea inside the card), wrapping, because a chip row that clips is a
    chip row that hides a file the user thinks is going. */
 .composer-attachments { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; padding: 12px 16px 0; list-style: none; }
+/* The sessions a message points at. The attachment row's geometry exactly — same padding, same gap,
+   same place in the card — because they are the same kind of statement: things travelling with this
+   message that are not part of its text. */
+.composer-refs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; padding: 10px 16px 0; list-style: none; }
+.composer-ref { display: inline-flex; align-items: center; gap: 6px; max-width: 260px; min-width: 0;
+  padding: 4px 4px 4px 8px; --btn-h: 26px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
+  background: var(--field); box-shadow: var(--shadow-hairline); font-size: 12px; color: var(--rl-text-bright); }
+/* The agent's own mark in the agent's own colour — a session is recognised by which agent is running
+   it before anyone reads the title. `flex: none` so the title is what truncates, never the mark. */
+.composer-ref-mark { flex: none; }
+.composer-ref-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-ref-remove { display: grid; place-items: center; flex: none; width: 18px; height: 18px;
+  border: none; border-radius: var(--r-chip); corner-shape: squircle; background: none;
+  color: var(--rl-text-faint); cursor: pointer; transition: color var(--dur-hover) ease, background-color var(--dur-hover) ease; }
+.composer-ref-remove:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .composer-attach-item { display: contents; }
 /* Attachment tiles (composer + sent message). An attachment is SHOWN, not named: the tile is a
    square well holding either the real thumbnail (a data: URL minted in main — see the
@@ -2473,9 +3355,19 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    tile a direct flex item, while the transcript's <li> is an ordinary flex item and leaves it
    INLINE — where the width and height below are ignored, the square collapses, and `.attach-art`'s
    `inset: 0` collapses with it. That is how sent attachments came to render as a 0×0 box. */
-.attach-tile { position: relative; display: inline-block; width: 44px; height: 44px; flex: none; vertical-align: middle; }
+/* One size property, because the RADIUS is derived from it (`--sq-ratio-media`): with the 44 and the
+   56 written as literals in two places, the two tiles disagreed about their corner by a third — 30%
+   of the box here against 21% there — for no reason either rule stated. */
+.attach-tile { --attach-tile: 44px; position: relative; display: inline-block;
+  width: var(--attach-tile); height: var(--attach-tile); flex: none; vertical-align: middle; }
+/* The well. `corner-shape` joins the 103 other surfaces that declare it: a circular corner in this
+   Chromium, the real superellipse the moment Electron reaches 139 — and the whole app turns over at
+   once rather than this tile becoming the one that curves differently. `overflow: hidden` is what
+   makes the thumbnail take the corner too, which is the point for MEDIA: the glyph tiles would look
+   the same either way, an image would not. */
 .attach-art { position: absolute; inset: 0; display: grid; place-items: center;
-  border-radius: var(--r-ctl); background: var(--field); box-shadow: var(--shadow-hairline);
+  border-radius: calc(var(--attach-tile) * var(--sq-ratio-media)); corner-shape: squircle;
+  background: var(--field); box-shadow: var(--shadow-hairline);
   color: var(--rl-text-faint); overflow: hidden; }
 .attach-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
 /* The whole face of the tile is the open control, and it adds no box of its own: the well underneath
@@ -2488,11 +3380,28 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    place, and it would be a lie on the PDF that leaves for Preview. The mark lands only once main has
    confirmed the file, which is also when the lightbox becomes the branch that runs. */
 .attach-tile[data-media] .attach-open { cursor: zoom-in; }
-/* The type badge rides the bottom of the well; over a photo it needs its own scrim to stay legible. */
-.attach-ext { position: absolute; left: 0; right: 0; bottom: 0; padding: 1px 2px; text-align: center;
+/* The type badge rides the bottom of the well; over a photo it needs its own scrim to stay legible.
+ *
+ * The scrim RAMPS rather than filling a strip. A flat bar has a top edge, and that edge is a line
+ * across the picture at whatever height the badge happens to be — the thumbnail reads as two
+ * pictures stacked. A gradient has no edge to notice: it is dense under the letters and gone by the
+ * time it reaches anything worth seeing. The top padding is what buys the ramp its room; the text
+ * stays on the bottom edge, where it was.
+ *
+ * The same shape in both cases, because they are the same badge: over a picture it ramps to black
+ * (the picture is the same picture in both modes, so the scrim over it answers to the picture, not
+ * to the theme — `styles.test.ts` records that exemption), and over the empty well to the surface.
+ *
+ * And the letters carry the faintest halo of their own ink. Two colours of light meeting at an
+ * 8px glyph is what makes small type on a photograph read as pasted on; a glow in the type's own
+ * colour is the one that reads as the type being lit rather than laid over. */
+.attach-ext { position: absolute; left: 0; right: 0; bottom: 0; padding: 7px 2px 1px; text-align: center;
   font-size: 8px; line-height: 1.25; font-weight: var(--fw-title); letter-spacing: .02em; text-transform: uppercase;
-  color: var(--ink-2); background: color-mix(in srgb, var(--surface) 78%, transparent); }
-.attach-tile[data-image] .attach-ext { color: var(--rl-on-media); background: rgb(0 0 0 / .55); }
+  color: var(--ink-2);
+  background: linear-gradient(to top, color-mix(in srgb, var(--surface) 88%, transparent), transparent);
+  text-shadow: 0 0 4px color-mix(in srgb, currentColor 38%, transparent); }
+.attach-tile[data-image] .attach-ext { color: var(--rl-on-media);
+  background: linear-gradient(to top, rgb(0 0 0 / .72), rgb(0 0 0 / 0)); }
 /* A file the agent will simply discard must not look like one it will read (§2.4: colour = state). */
 .attach-tile[data-disposition="ignored"] .attach-art { color: var(--orange); background: var(--orange-tint);
   box-shadow: 0 0 0 var(--hairline-w) var(--orange); }
@@ -2514,7 +3423,9 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   opacity: 1; transform: translateX(-50%) translateY(0); }
 /* Remove rides the corner and only exists while the pointer is on the tile — at rest the tile is the
    file, not a control. It stays for keyboard focus, which has no hover to trade on. */
-.attach-remove { position: absolute; top: 2px; right: 2px; display: grid; place-items: center;
+/* 4px, not 2: the well's corner arc grew with `--sq-ratio-media`, and this 16px disc has to stay
+   INSIDE it — at the old inset its own circle escaped the curve and floated past the visible edge. */
+.attach-remove { position: absolute; top: 4px; right: 4px; display: grid; place-items: center;
   width: 16px; height: 16px; border-radius: 50%; color: var(--rl-on-media); background: rgb(0 0 0 / .62);
   box-shadow: var(--shadow-btn); opacity: 0; transition: opacity var(--dur-hover) ease; }
 .attach-tile:hover .attach-remove, .attach-remove:focus-visible { opacity: 1; }
@@ -2642,6 +3553,19 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .ch-marker { color: var(--rl-accent); }
 .ch-punct { color: var(--rl-text-faint); }
 .ch-code { color: var(--rl-text-bright); background: var(--inset); border-radius: 3px; }
+/* The `/name` opening the draft, when it names a real command.
+ *
+ * NOT the accent, and that is the whole colour decision: in this box the accent means "this run goes
+ * to the agent" — a link, a resolved `@mention`, a list marker the message will carry. A slash
+ * command is the one run that is never transmitted at all; it runs here, in the prompter, and the
+ * draft it is typed into is left alone. Giving it the accent would put it in the same visual class as
+ * the thing it is explicitly not (slash-commands.ts says so in as many words). Warning is spoken for
+ * by `mention-stale` — declared but broken — so the remaining semantic hue marks "acts locally".
+ *
+ * Colour and a wash, never weight: the mirror's glyphs sit under the textarea's own caret, and a
+ * bolder run here would slide them off it (see `.ch-link`'s note). The `/` stays visible — it is
+ * part of the command's name and part of what was typed. */
+.ch-slash { color: var(--rl-success); background: color-mix(in srgb, var(--rl-success) 12%, transparent); border-radius: 3px; }
 /* Hero (§2): the empty card reads as an invitation — ~56px of input before any growth. */
 .session-pane[data-composer="hero"] .composer-input { min-height: 56px; }
 /* Row 3 — control row (Ara refresh §3): 40px, hairline-free, 12px inline padding; "+" attach, then
@@ -2694,83 +3618,6 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    same box; it keeps the chip's own colour (§7: text-dim at rest) and never shrinks. */
 .ghost-chip .chip-brand { flex: none; }
 
-/* ── A chip GROUP: two buttons, one control ───────────────────────────────────
-   Permission mode and session mode are set from two different menus and stay two separate buttons —
-   two triggers, two popovers, two aria-labels. They are joined because they are read as one answer
-   to "what is this turn allowed to do", and a 4px gap made the reader do that joining themselves.
-
-   The group owns the shape and the segments give it up. That is not a stylistic choice: the paint
-   worklet takes `--sq-radius-top` and `--sq-radius-bottom` and has no per-corner input, so a chip
-   cannot be round on one side and square on the other under the painted regime. Clipping from the
-   OUTSIDE needs no such input — the segments paint plain rectangles and the group's own corner is
-   the only curve, which is also why the group carries `corner-shape` rather than any of them: the
-   declaration is inert in Chromium 138 like every other one in this file, and the day Electron
-   ships 139 the CLIP becomes a real superellipse and the whole group upgrades at once.
-
-   A hairline ring on each UNTINTED segment. These are GHOST chips: they rest transparent, and a
-   permission of "Accept edits" beside a mode of "Build" — the ordinary case, not an edge one — put
-   two labels on the card with no shape at all under them. Tinted, the fill says "control" and a ring
-   says nothing new, so Full access, Ask and Plan wear none on their side; untinted, the ring is the
-   only thing that does.
-
-   The ring belongs to the SEGMENT, drawn on an overlay (`::after`) rather than as an outline on the
-   group. The group's inward outline was the corner problem: a half-pixel stroke traced inside a
-   half-pixel-offset radius, over a clip anti-aliasing the same curve, and every corner came out a
-   thick dark arc. A border on an overlay with the group's own radius is one crisp stroke on one
-   curve, and it costs the group no height — an overlay adds nothing to the box, which keeps the
-   group level with the "+" beside it, and it cannot be clipped by `.composer-opts` the way an
-   outward outline was.
-
-   The divider follows from the ring rather than being a second decision: it is the leading
-   segment's own right edge. Two untinted segments therefore share one hairline at the seam (the
-   trailing ring drops its left edge, or the seam would be twice the weight of the rest), and where
-   a tint already changes colour at the seam the untinted neighbour's edge lands exactly on that
-   change. */
-.chip-group {
-  display: inline-flex; align-items: center; min-width: 0;
-  border-radius: var(--r-chip); corner-shape: squircle; overflow: hidden;
-}
-.chip-group > .ghost-chip { position: relative; }
-.chip-group > .ghost-chip::after {
-  content: ""; position: absolute; inset: 0; pointer-events: none;
-  border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-chip);
-}
-/* The corners the ring rounds are the group's: outer ones only, so two segments meet square. */
-.chip-group > .ghost-chip:not(:only-child):first-child::after { border-radius: var(--r-chip) 0 0 var(--r-chip); }
-.chip-group > .ghost-chip:not(:only-child):last-child::after { border-radius: 0 var(--r-chip) var(--r-chip) 0; }
-.chip-group > .ghost-chip + .ghost-chip::after { border-left: 0; }
-/* No ring on a tinted side. The fill already draws the control there, and a hairline over a
-   red or orange wash reads as a second, disagreeing edge. Mode's tint is set by the composer's
-   `data-mode` (see the rules above), so the ring follows the same selectors. */
-.chip-group > .ghost-chip[data-warning]::after,
-.composer[data-mode="ask"] .chip-group > .ghost-chip[aria-label="Mode"]::after,
-.composer[data-mode="plan"] .chip-group > .ghost-chip[aria-label="Mode"]::after { display: none; }
-/* A lone segment takes the group's corner rather than its own. Its painted superellipse at 13.44px
-   hugs the corner harder than a 10px circular clip does, so the two curves would cross and leave a
-   corner that is neither — and the group is the shape on screen, so the group's number wins. */
-.chip-group > .ghost-chip:only-child { border-radius: var(--r-chip); }
-/* The focus ring comes INSIDE, because the group hides its overflow. §"focus is always visible"
-   was being broken by the grouping itself: the global `:focus-visible` sits 1px outside the
-   control, an ancestor's `overflow: hidden` clips a descendant's outline, and a focused segment was
-   left showing a single blue stub on the one edge that happened to fall inside the group. */
-.chip-group > .ghost-chip:focus-visible { outline-offset: -2px; }
-/* Both chips are conditional (a session may offer neither), so the wrapper is always rendered and
-   hides itself rather than making the composer's JSX prove which of four combinations it is in. */
-.chip-group:empty { display: none; }
-/* The same `flex: none` the chips had as direct children of `.composer-opts`, restated because the
-   wrapper took them out of that rule's reach. It is load-bearing rather than tidy: the row's
-   overflow collapse (Composer.tsx) is `scrollWidth > clientWidth`, which only reports the truth
-   while nothing in the row can shrink. A chip that quietly narrowed instead would mean the
-   permission chip never folded into the model menu, and a squeezed pane would just ellipsize. */
-.chip-group > * { flex: none; }
-/* Square only where they MEET. A lone chip is not a group — it keeps the full radius it has
-   everywhere else in the row, so collapsing the permission chip does not restyle the mode chip. */
-.chip-group > .ghost-chip:not(:only-child) { border-radius: 0; }
-/* Nothing shrinks inside the group. §6 leaves full-width rows out of the press scale because a wide
-   surface shrinking reads as a glitch; a segment shrinking away from the neighbour it is flush
-   against is the same glitch, and here it would open a transparent sliver in the middle of a
-   control that is meant to read as one. */
-.chip-group > .ghost-chip:not(:only-child):active:not(:disabled) { transform: none; }
 .chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 /* The model chip's effort suffix — "Claude Fable 5 Max" with the Max a shade grayer. A sibling of
    chip-label (which truncates), never inside it, and never shrunk: the level should survive a
@@ -2824,6 +3671,31 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    the card, which paints over it (.composer holds z-index 1).
    In normal flow inside .composer-dock, so the hero→docked transform carries it and it grows UPWARD
    into the transcript: the prompter's own controls never leave the bottom edge they sit on. ── */
+/* ── The goal strip ──
+   The plan's tab, one rung up, and the same three-value margin for the same reason: it is another
+   tab behind the card, so its insets have to match or the band stops reading as one object. Its own
+   bottom corners are square because the strip below it — the plan, or the card itself — paints over
+   the edge.
+
+   Colour is state and nothing else (§3): a goal that stopped on a blocker wears the failure tone on
+   its dot alone, and the strip's own ground never changes. A strip that turned red would be the
+   loudest thing on the prompter for a state whose whole content is "waiting for you". */
+.composer-goal { display: flex; flex-direction: column; gap: 4px; min-width: 0;
+  margin: 0 10px -10px; padding: 9px 14px 18px; background: var(--rl-frame);
+  border-radius: var(--r-squircle) var(--r-squircle) 0 0; corner-shape: squircle; }
+.composer-goal-head { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 11.5px; }
+.composer-goal-label { font-weight: var(--fw-medium); color: var(--rl-text-dim); }
+.composer-goal-facts { color: var(--rl-text-faint); }
+/* Pushed to the edge, and quiet until the strip is under the pointer — the controls are for the
+   moment you want them, and three lit buttons over a sentence is a toolbar. */
+.composer-goal-actions { display: flex; align-items: center; gap: 1px; margin-left: auto; opacity: 0;
+  transition: opacity var(--dur-fast) ease; }
+.composer-goal:hover .composer-goal-actions, .composer-goal:focus-within .composer-goal-actions { opacity: 1; }
+/* Two lines, clamped. Enough to recognise a goal you set; the transcript holds the whole of it. */
+.composer-goal-objective { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--rl-text-bright);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.composer-goal-note { margin: 0; font-size: 11.5px; line-height: 1.45; color: var(--rl-text-faint); }
+
 .composer-todos { display: flex; flex-direction: column; min-width: 0;
   margin: 0 10px -10px; padding: 10px 14px 20px; background: var(--rl-frame);
   border-radius: var(--r-squircle) var(--r-squircle) 0 0; corner-shape: squircle; }
@@ -2842,6 +3714,46 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* Bounded, or a twenty-step plan eats the transcript it is supposed to sit above. `contain` because
    running off the end of the list must not carry the scroll into the log behind it. */
 .composer-todos .todo-list { margin-top: 8px; max-height: 248px; overflow-y: auto; overscroll-behavior: contain; }
+
+/* ── Agents strip: who is working, on the top tab of the prompter's band ──────────────
+   The plan strip's geometry exactly — same frame fill, same 10px side inset, the same 10px of
+   overlap sliding it behind whatever is below, the same collapse. It IS the same kind of object:
+   standing context about the run, pinned above the card so it cannot scroll away from a reader who
+   went back through the log. It was a loose list floating between the transcript and the prompter,
+   which is a third shape saying the same kind of thing as the two tabs directly under it.
+
+   The whole band reads down from the most live fact to the least — agents, plan, branch — so this
+   one keeps the top corners and the two below give theirs up (the joins are at the foot of this
+   block, drawn by whichever strip arrives underneath). ── */
+.composer-agents { display: flex; flex-direction: column; min-width: 0;
+  margin: 0 10px -10px; padding: 10px 14px 20px; background: var(--rl-frame);
+  border-radius: var(--r-squircle) var(--r-squircle) 0 0; corner-shape: squircle; }
+.composer-agents-head { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; font-size: 11.5px; }
+.composer-agents-mark { flex: none; color: var(--rl-accent); }
+/* The count is what the tab is FOR, so it reads at the head's weight; the clock beside it is
+   machine state and takes the mono face's figures without taking its size. */
+.composer-agents-count { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); }
+.composer-agents-elapsed { flex: none; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.composer-agents-caret { flex: none; margin-left: auto; color: var(--rl-text-faint);
+  transition: transform var(--dur-pop) var(--ease-out-strong); }
+.composer-agents[data-open] .composer-agents-caret { transform: rotate(90deg); }
+/* The house collapse (.tool-body-wrap): 0fr→1fr on a grid row animates to the height the content
+   actually wants, so any number of agents opens without being measured first. Margins that space
+   the list live INSIDE the clip, or they would survive the collapse as a gap under a shut tab. */
+.composer-agents-wrap { display: grid; grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur-base) var(--ease-in-out-strong); }
+.composer-agents[data-open] .composer-agents-wrap { grid-template-rows: 1fr; }
+.composer-agents-clip { overflow: hidden; min-height: 0; }
+/* Bounded for the plan strip's reason: a fan-out of twenty agents must not eat the transcript it is
+   supposed to sit above, and running off the end of the list must not carry the scroll into the log. */
+.composer-agents .delegation-list { margin: 8px 0 0; padding: 0; border: none; max-height: 208px;
+  overflow-y: auto; overscroll-behavior: contain; }
+/* The row whose agent the drawer is showing. It needs to be told apart from a HOVERED row, and the
+   active fill alone cannot do it — `--rl-active` and `--rl-hover` are one rung apart, so the two read
+   as the same state and the pointer decides which. The fill says "this one", and the mark going
+   accent is what says it is still true once the pointer has moved away. */
+.delegation-item[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); }
+.delegation-item[data-selected] > svg:first-child { color: var(--rl-accent); }
 
 /* ── Over-strip: the branch group, on a tab of its own above the card ─────────────────
    The to-do strip's geometry exactly — same frame fill, same 10px side inset, the same 10px of
@@ -2871,9 +3783,14 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .composer-overstrip .composer-git { --branch-reserved: 200px; }
 @container (max-width: 520px) { .composer-overstrip .composer-git { --branch-reserved: 120px; } }
 @container (max-width: 460px) { .composer-overstrip .composer-git { --branch-reserved: 48px; } }
-/* Two tabs, one band. With a plan above it the strips are stacked on the same fill, so the corners
-   belong to whichever is on top and this one goes square — drawn from the strip that arrives
-   underneath, never by reaching up into the planner to make room for itself. */
+/* Tabs stacked into one band. The corners belong to whichever is on TOP, and every strip below it
+   goes square — each drawn from the strip that arrives underneath, never by reaching up into the one
+   above to make room for itself. */
+.composer-agents + .composer-goal,
+.composer-agents + .composer-todos,
+.composer-goal + .composer-todos,
+.composer-agents + .composer-overstrip,
+.composer-goal + .composer-overstrip,
 .composer-todos + .composer-overstrip { border-radius: 0; }
 
 /* ── Under-strip (§4 + Plan 12 W1): machine label + workspace selector, one size quieter than the
@@ -2968,6 +3885,17 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* The "+" menu (Plan 12 W1): the in-place Connectors submenu's header rows and health dots. */
 .plus-submenu-label { display: inline-flex; align-items: center; gap: 6px; }
 .plus-submenu-label .plus-submenu-caret { color: var(--rl-text-faint); }
+/* The current value on a submenu row — the session's mode, which used to be a chip in the control
+   row. `margin-left: auto` pushes it and the caret to the trailing edge, so the row reads
+   "Mode … Build ›" rather than running the two words together. */
+.plus-submenu-value { display: inline-flex; align-items: center; gap: 4px; margin-left: auto;
+  color: var(--rl-text-faint); font-size: 11.5px; }
+.plus-submenu-label:has(.plus-submenu-value) { width: 100%; }
+/* The two read-only modes keep the tones they wore as a chip: the card behind the prompter already
+   tints for Plan and Ask, and a value that stayed grey here would be the one place the mode was
+   named without being coloured. Build is the neutral default and takes no tone. */
+.plus-submenu-value[data-mode="plan"] { color: var(--rl-warning); }
+.plus-submenu-value[data-mode="ask"] { color: var(--rl-success); }
 .connector-row { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
 .connector-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--rl-text-faint); }
 .connector-dot[data-tone="ok"] { background: var(--rl-success); }
@@ -3017,7 +3945,9 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 :root[data-squircle] .diff-review,
 :root[data-squircle] .composer,
 :root[data-squircle] .composer-drop-hint,
+:root[data-squircle] .composer-agents,
 :root[data-squircle] .composer-todos,
+:root[data-squircle] .composer-goal,
 :root[data-squircle] .composer-overstrip,
 :root[data-squircle] .composer-understrip,
 :root[data-squircle] .install-card,
@@ -3038,6 +3968,29 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   --sq-fill: var(--rl-terminal-bg);
   --sq-radius-top: var(--r-squircle-screen);
   --sq-radius-bottom: var(--r-squircle-screen);
+}
+/* Realm's own frame, for a device it ships no picture of. The one painted surface whose radius is
+   not a rung off the ladder:
+   it is the screen's own corner plus the border between them, so the pane hands it in as
+   `--sim-outer-r` and the curve here stays concentric with the superellipse the picture is clipped
+   to (`squircle-path.ts`, same exponent). Under the painter `border-radius` is 0, so the focus ring
+   has to move to `--sq-ring` — a box-shadow would be a blue rectangle around a rounded device. */
+:root[data-squircle] .sim-chassis[data-frame="drawn"] {
+  border-radius: 0;
+  background: paint(rl-squircle);
+  --sq-fill: var(--overlay-lighten-300);
+  --sq-radius-top: var(--sim-outer-r);
+  --sq-radius-bottom: var(--sim-outer-r);
+}
+:root[data-squircle] .sim-screen:focus-visible .sim-chassis[data-frame="drawn"] {
+  box-shadow: none; --sq-ring: var(--rl-accent); --sq-ring-w: 2px;
+}
+/* The frame's own two-option control. Painted like every other `.btn`, but a PILL: the list above
+   hands each button the control rung derived from `--btn-h`, and half the height is what keeps
+   these the shape of the pill they sit in. */
+:root[data-squircle] .sim-frame-opt {
+  --sq-radius-top: calc(var(--btn-h) / 2);
+  --sq-radius-bottom: calc(var(--btn-h) / 2);
 }
 /* The route cards. The fill moves to `--sq-fill` — `background` is spent on `paint()` — and each
    state below mirrors one `background` declaration above, in the same order, so the cascade that
@@ -3103,15 +4056,6 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
      30px control can take, so the squareness the eye was still reading was the CURVE's, not the
      number's — see --sq-n-ctl. */
   --sq-n: var(--sq-n-ctl);
-}
-/* The painted half of `.chip-group > .ghost-chip`: inside a group a chip paints a plain RECTANGLE,
-   because the group's clip is what rounds the outside. Without this the painter would round all
-   four of each segment's corners and the two would meet in a lens-shaped notch. */
-:root[data-squircle] .chip-group > .ghost-chip:not(:only-child) {
-  --sq-radius-top: 0px; --sq-radius-bottom: 0px;
-}
-:root[data-squircle] .chip-group > .ghost-chip:only-child {
-  --sq-radius-top: var(--r-chip); --sq-radius-bottom: var(--r-chip);
 }
 /* The button's shadow, split the way .palette's was: its two layers were a hairline ring and a 1px
    drop, and both were drawn on the border box — which is a square here. The ring goes to the
@@ -3187,6 +4131,34 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   --sq-fill: var(--surface); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
   box-shadow: none;
 }
+/* The attachment tile's well. An uploaded file is a picture the eye rests on rather than a row it
+   scans past, which is the test design.md sets for the signature curve — and it was declaring
+   `corner-shape: squircle` without being painted, so it rendered the plain rounded rect the
+   fallback draws. The radius is the media ratio of the tile's own size, which is what keeps a 44px
+   chip in the prompter and a 56px one in a message the same SHAPE rather than the same number.
+
+   The contents are clipped by `--attach-clip` (AttachmentTile.tsx) rather than by `overflow` and a
+   radius: under the painter the radius is 0, so the thumbnail and the type badge would clip to a
+   square over a painted superellipse. */
+:root[data-squircle] .attach-art {
+  border-radius: 0;
+  background: paint(rl-squircle);
+  --sq-fill: var(--field);
+  --sq-ring: var(--line);
+  --sq-ring-w: var(--hairline-w);
+  --sq-radius-top: calc(var(--attach-tile) * var(--sq-ratio-media));
+  --sq-radius-bottom: calc(var(--attach-tile) * var(--sq-ratio-media));
+  box-shadow: none;
+  clip-path: var(--attach-clip, none);
+}
+/* A file this agent will discard keeps saying so on the painted curve: the tint and the warning ring
+   move to the painter's own inputs, because `background` is spent on `paint()` and a box-shadow ring
+   would trace the square border box underneath it. */
+:root[data-squircle] .attach-tile[data-disposition="ignored"] .attach-art {
+  --sq-fill: var(--orange-tint); --sq-ring: var(--orange); --sq-ring-w: var(--hairline-w);
+  box-shadow: none;
+}
+
 /* Fill only — no ring, and no ::before lift. A code block is content INSIDE a message, not a card
    floating over the pane, and a shadow under one would lift it off the transcript it belongs to.
    `overflow: hidden` still clips a square, which costs nothing here: the only child is a `<pre>`
@@ -3199,17 +4171,6 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* Same treatment, one rung up the surface ladder: the review sits ON the diff pane rather than
    inside a message, so it takes the raised fill. */
 :root[data-squircle] .diff-review { --sq-fill: var(--rl-raised); box-shadow: none; }
-/* The search field, exactly as the composer is drawn — fill, ring and all — with its own radii. The
-   painted surfaces set `border-radius: 0`, so the ratio has to be restated here as the worklet's
-   own inputs or the curve would come back square. */
-:root[data-squircle] .search {
-  --sq-fill: var(--search-ground); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
-  --sq-radius-top: calc(var(--search-h) * var(--sq-ratio-ctl));
-  --sq-radius-bottom: calc(var(--search-h) * var(--sq-ratio-ctl));
-  --sq-n: var(--sq-n-ctl);
-  box-shadow: none;
-}
-:root[data-squircle] .search:hover { --sq-ring: var(--line-strong); }
 /* The typed field, drawn as the same object: same height, same radius, same exponent, so the two
    search bars in this app are one shape rather than two numbers that happen to be close. It was the
    only one of the pair the worklet did not draw, which is why the sidebar's read as a rounded rect
@@ -3251,14 +4212,69 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* The hint lies inset:0 over the card, so it takes the card's own radius or it would square off
    inside a rounded corner. No ring: the card underneath is already wearing the drop target's. */
 :root[data-squircle] .composer-drop-hint { --sq-fill: color-mix(in srgb, var(--rl-raised) 82%, transparent); }
-/* The to-do strip's bottom edge is hidden beneath the card, so only its top corners are drawn — the
-   under-strip's rule with the two radii swapped, and ringless for the same reason it is. */
-:root[data-squircle] .composer-todos { --sq-fill: var(--rl-frame); --sq-radius-bottom: 0px; }
-/* The over-strip is the same tab and takes the same rule; with a plan above it, it is the lower
-   half of one band and gives up its top corners too (the fallback's `border-radius: 0` is beside
-   the layout rule — under the gate the corner is the painter's, so the swap has to be as well). */
-:root[data-squircle] .composer-overstrip { --sq-fill: var(--rl-frame); --sq-radius-bottom: 0px; }
-:root[data-squircle] .composer-todos + .composer-overstrip { --sq-radius-top: 0px; }
+/* Every tab above the card is drawn by one rule: the frame fill, the card's ring, and a square
+   bottom edge, because whatever arrives underneath — the next tab, or the card itself on z-index 1
+   — paints over it. So what the ring actually draws on any of them is the band's top and sides.
+
+   The ring is the point. The band above the card and the under-strip below it are one object seen
+   twice — same fill, same corner, same 10px inset, mirrored — and edging only the lower one read as
+   a prompter with a bottom and no top. The over-strip was given the ring first; the goal, plan and
+   agents strips are the same tab, and whichever of them happens to be on top is the one the eye
+   meets, so the edge cannot belong to just one of the four. */
+:root[data-squircle] .composer-agents,
+:root[data-squircle] .composer-goal,
+:root[data-squircle] .composer-todos,
+:root[data-squircle] .composer-overstrip {
+  --sq-fill: var(--rl-frame); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
+  --sq-radius-bottom: 0px;
+}
+
+/* The mode reaches the whole band, not just the card.
+   `.composer[data-mode]` re-colours the card's ring — warning for plan, success for ask — and the
+   strips above it are the same object seen higher up: same fill, same inset, one continuous edge. Left
+   neutral they drew a `--card-ring` line up each side of a band whose bottom was warning-coloured, and
+   the join showed as a notch at either edge, exactly where the card's own top corners sit 10px inside
+   the strip. `:has(~ …)` because the strips are EARLIER siblings and the mode lives on the card: there
+   is no parent to hang it off, and copying the mode onto every strip in the renderer would be four more
+   props to keep in step. Spelled out rather than wrapped in `:is()` so each part is a selector on its
+   own, which is how the rest of this band is written and what styles.test.ts reads. */
+:root[data-squircle] .composer-agents:has(~ .composer[data-mode="plan"]),
+:root[data-squircle] .composer-goal:has(~ .composer[data-mode="plan"]),
+:root[data-squircle] .composer-todos:has(~ .composer[data-mode="plan"]),
+:root[data-squircle] .composer-overstrip:has(~ .composer[data-mode="plan"]) {
+  --sq-ring: color-mix(in srgb, var(--rl-warning) 34%, transparent);
+}
+:root[data-squircle] .composer-agents:has(~ .composer[data-mode="ask"]),
+:root[data-squircle] .composer-goal:has(~ .composer[data-mode="ask"]),
+:root[data-squircle] .composer-todos:has(~ .composer[data-mode="ask"]),
+:root[data-squircle] .composer-overstrip:has(~ .composer[data-mode="ask"]) {
+  --sq-ring: color-mix(in srgb, var(--rl-success) 34%, transparent);
+}
+/* The painter is gated; without it the same edge is a box-shadow, and it has to say the same thing. */
+.composer-agents:has(~ .composer[data-mode="plan"]),
+.composer-goal:has(~ .composer[data-mode="plan"]),
+.composer-todos:has(~ .composer[data-mode="plan"]),
+.composer-overstrip:has(~ .composer[data-mode="plan"]) {
+  box-shadow: 0 0 0 var(--hairline-w) color-mix(in srgb, var(--rl-warning) 34%, transparent);
+}
+.composer-agents:has(~ .composer[data-mode="ask"]),
+.composer-goal:has(~ .composer[data-mode="ask"]),
+.composer-todos:has(~ .composer[data-mode="ask"]),
+.composer-overstrip:has(~ .composer[data-mode="ask"]) {
+  box-shadow: 0 0 0 var(--hairline-w) color-mix(in srgb, var(--rl-success) 34%, transparent);
+}
+/* …but only the tab that IS the band's top keeps the ring and the corners. Every strip arriving
+   under another gives up both: a ring on a middle tab would trace a hairline straight across the
+   band where the two meet — a second seam inside one object, which is what design.md's hairline
+   rule exists to catch. Each join is drawn from the strip that arrives UNDERNEATH, never by a rule
+   reaching up into the one above (the fallback's `border-radius: 0` sits beside the layout rule —
+   under the gate the corner is the painter's, so the squaring has to be as well). */
+:root[data-squircle] .composer-agents + .composer-goal,
+:root[data-squircle] .composer-agents + .composer-todos,
+:root[data-squircle] .composer-goal + .composer-todos,
+:root[data-squircle] .composer-agents + .composer-overstrip,
+:root[data-squircle] .composer-goal + .composer-overstrip,
+:root[data-squircle] .composer-todos + .composer-overstrip { --sq-radius-top: 0px; --sq-ring-w: 0; }
 /* The under-strip's top edge is hidden beneath the card, so only its bottom corners are drawn. */
 :root[data-squircle] .composer-understrip {
   --sq-fill: var(--rl-frame); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
@@ -3305,6 +4321,11 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    the quieter field-label tone `.cli-field legend` gives a lone group. */
 .onboarding-cols legend { margin-bottom: 2px; font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
 .onboarding-note { margin: 0; font-size: 11.5px; line-height: 1.45; color: var(--rl-text-faint); }
+/* The same note, while the probe it describes is still running. A row rather than a paragraph, so
+   the orb sits ON the line with the sentence instead of above it, and centred on the text rather
+   than on the line box — a 12px orb against 11.5px text is the case where `baseline` would hang it
+   a pixel low. */
+.onboarding-note[data-busy] { display: flex; align-items: center; gap: 6px; }
 /* Denser than the settings idiom the row comes from: eight found agents is an ordinary machine,
    and at the settings pitch that is most of a window before the folder and the name. */
 .onboarding .cli-row { padding: 6px 10px; margin-top: 2px; }
@@ -3393,10 +4414,16 @@ select { appearance: none; padding-right: 22px;
   .lecture-list, .install-cmd code, .code-preview, .cli-job-output,
   /* documents */
   .documents-tabs, .documents-picker, .documents-rich-scroll, .documents-rich-surface, .documents-rich .tiptap, .documents-raw,
-  /* the prompter — only the pinned strip's copy of the list is bounded enough to scroll */
-  .composer-todos .todo-list,
+  /* the prompter — only the pinned strips' copies of the lists are bounded enough to scroll */
+  .composer-todos .todo-list, .composer-agents .delegation-list,
+  /* the sub-agent panel: the column itself, and the two prose panels it caps */
+  .subagent-body, .subagent-prose,
+  /* the Google Fonts browser's result list */
+  .font-results,
   /* a machine's resting bodies — the connect form, and the failure's own detail well */
-  .machine-body
+  .machine-body,
+  /* and a simulator's, which is the device picker and the same kind of failure well */
+  .sim-body
 ) { scrollbar-width: thin; }
 /* The sidebar's list is the one scroller that cannot take the standard properties, and it is worth
    the fork because two separate things go wrong without it.
@@ -3409,6 +4436,27 @@ select { appearance: none; padding-right: 22px;
    pseudo-elements are ignored the moment either standard property is set — `scrollbar-color` is
    inherited from :root, so it has to be given back explicitly here. Track margins match the mask's
    own two depths, so the thumb starts where the list stops dissolving and the two cannot drift. */
+/* Every masked scroller needs what `.space-body` needed, for the reason it needed it: a mask applies
+   to the element's WHOLE rendering, scrollbar included, so the thumb dissolves at exactly the two
+   places a scrollbar is most used. Only `::-webkit-scrollbar-track`'s margin can hold a thumb clear
+   of a region, and the pseudo-elements are ignored the moment either standard property is set — so
+   both are handed back here first. The track margins read the same two custom properties the mask
+   does, so the thumb starts where the content stops dissolving and the two cannot drift.
+
+   The bar is redrawn to what the standard properties were already producing: a 10px channel, the
+   line colour at rest, a step up under the pointer. `:hover` has to be restated because the root's
+   `scrollbar-color` hover step no longer reaches an element that has reclaimed the pseudo-elements. */
+[data-dissolve], [data-dissolve-x] { scrollbar-color: auto; scrollbar-width: auto; }
+[data-dissolve]::-webkit-scrollbar, [data-dissolve-x]::-webkit-scrollbar { width: 10px; height: 10px; }
+[data-dissolve]::-webkit-scrollbar-track { background: transparent; margin-block: var(--fade-top-h, 40px) var(--fade-h, 68px); }
+[data-dissolve-x]::-webkit-scrollbar-track { background: transparent; margin-inline: var(--fade-w, 28px); }
+[data-dissolve]::-webkit-scrollbar-thumb, [data-dissolve-x]::-webkit-scrollbar-thumb {
+  background: var(--rl-line); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
+[data-dissolve]:hover::-webkit-scrollbar-thumb, [data-dissolve-x]:hover::-webkit-scrollbar-thumb {
+  background: var(--rl-line-strong); background-clip: content-box; }
+
+/* The sidebar's column keeps its own, narrower bar: 11px of standard scrollbar reads as heavy in a
+   280px column. Everything else about it is the rule above. */
 .space-body { scrollbar-color: auto; scrollbar-width: auto; }
 .space-body::-webkit-scrollbar { width: 8px; }
 .space-body::-webkit-scrollbar-track { background: transparent; margin-block: var(--fade-top-h) var(--fade-h); }
@@ -3459,6 +4507,20 @@ select { appearance: none; padding-right: 22px;
    restored history animates nothing at all. */
 .transcript-col > [data-enter], .tool-group-steps > [data-enter] { animation: rl-msg-in var(--dur-enter) var(--ease-out-strong); }
 @keyframes rl-msg-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* …except for the lines that are the SYSTEM talking: the run receipt, the two seams, an error, the
+   closing summary, the live label while a turn is out. The rule above is tuned for a message the
+   reader is waiting on — a 6px rise on a strong ease-out, which is most of the way through in its
+   first three frames. That curve is honest about arrival for something with weight to land; under a
+   quiet grey line it reads as the text being stamped onto the column, a hard cut with a twitch
+   under it, which is exactly the complaint. These fade instead: no travel at all, over the slow rung
+   and on the one even curve in the table, so a notice nobody asked for appears rather than snaps.
+   Travel is the part to give up rather than the part to slow down — a 240ms rise on a line the eye
+   is not following is a distraction held twice as long, and these lines arrive mid-scroll while the
+   transcript is pinning itself to the bottom, where any movement of their own fights that. */
+.transcript-col > .msg-run[data-enter],
+.transcript-col > .msg-handoff[data-enter],
+.transcript-col > .msg-error[data-enter] { animation: rl-fade-in var(--dur-slow) var(--ease-fade); }
 
 /* §6 "do NOT animate": the command palette is a 100×/day action (Raycast rule) — it appears and
    disappears instantly, and neither it nor its scrim may grow an enter animation. Deliberately
@@ -3779,6 +4841,27 @@ select { appearance: none; padding-right: 22px;
 .mcp-form { padding: 10px 0 2px; margin-top: 8px; gap: 10px; }
 .mcp-auth-choice { display: flex; gap: 12px; font-size: 12px; color: var(--rl-text-dim); }
 .mcp-auth-choice label { display: flex; align-items: center; gap: 5px; }
+
+/* The execution sandbox's posture picker. A column rather than the row `.mcp-auth-choice` uses,
+   because each choice carries a sentence of consequence — "agents may write nowhere but…" — and a
+   radio whose detail wraps under the next radio is a detail attached to the wrong option.
+
+   Drawn the way `.env-row` is (frame fill, panel radius, squircle, no border) rather than with a
+   rule of its own: these are rows in a list of choices, and a bordered variant would be a second
+   visual language for the same thing. Selection is carried by the raised fill, not by an outline. */
+.sandbox-choice { display: flex; flex-direction: column; gap: 6px; }
+.sandbox-posture {
+  display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: baseline;
+  padding: 10px 12px; background: var(--rl-frame); border-radius: var(--r-panel);
+  corner-shape: squircle; cursor: pointer; }
+.sandbox-posture[data-selected] { background: var(--rl-raised); }
+.sandbox-posture input { grid-row: 1; }
+.sandbox-posture-name { grid-row: 1; font-size: 12.5px; }
+/* Under the name, not under the radio: the sentence belongs to the choice, and indenting it past the
+   control is what keeps three of them from reading as one paragraph. */
+.sandbox-posture-detail { grid-column: 2; font-size: 11.5px; line-height: 1.5; color: var(--rl-text-dim); }
+.sandbox-roots > ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 3px; }
+.sandbox-roots code { font-size: 11px; color: var(--rl-text-dim); }
 .mcp-secrets { gap: 6px; }
 .mcp-secret-row { display: flex; gap: 6px; }
 .mcp-secret-row input { flex: 1; min-width: 0; }
@@ -3913,6 +4996,38 @@ select { appearance: none; padding-right: 22px;
    the surface it lands on. So the sentence explaining the unreadable window is the one thing on it
    that stays readable. */
 .settings-hint[data-tone="warn"] { color: var(--orange); }
+
+/* ── The friend packs' unlock field ──
+   A text field and, once a word has landed, the groups it opened. No list of what is locked and no
+   count: the packs are named after the words that open them, so anything drawn here about a group
+   you have not unlocked would be a hint at somebody else's passphrase. */
+.settings-packs { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.settings-pack-field { display: flex; align-items: center; gap: 10px; }
+.settings-pack-field input { flex: 1; min-width: 0; padding: 7px 10px; border-radius: var(--r-ctl); corner-shape: squircle;
+  border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright);
+  font: inherit; font-size: 12.5px; }
+.settings-pack-field input:focus { outline: none; border-color: var(--rl-accent); }
+
+/* ── Who made this ──
+   Last thing on the last tab, above the fold of nothing. A rule rather than a surface: Settings is a
+   page of controls someone sits on all day, and wash-surfaces.test.ts holds it undecorated — so the
+   signature is a thing this row DOES, not a treatment the page wears. */
+.settings-attribution { display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+  margin-top: 30px; padding-top: 18px; border-top: var(--hairline-w) solid var(--rl-line); }
+.settings-signature { display: block; width: 150px; height: auto; color: var(--rl-text-faint); }
+.settings-attribution-line { margin: 0; font-size: 11px; color: var(--rl-text-faint); }
+.settings-attribution-line a { color: var(--rl-text-dim); text-underline-offset: 2px; }
+.settings-attribution-line a:hover { color: var(--rl-text-bright); }
+/* Ink at rest, written on hover: the strokes come up in the order he drew them, one 40ms step apart,
+   which is the stagger a composed entrance gets everywhere else. `backwards` holds a stroke at zero
+   through its own delay — without it every stroke would be visible for the wait and then blink.
+   They are filled outlines rather than centrelines, so stroke-dashoffset is not on the table; the
+   left-to-right order is what carries the reading, not the draw. Opacity is 1 whenever this is not
+   animating, which is also what someone with reduced motion sees. */
+.settings-attribution:hover .settings-signature path {
+  animation: eggs-ink var(--dur-slow) var(--ease-out-strong) backwards;
+  animation-delay: calc(var(--stroke, 0) * 40ms); }
+@keyframes eggs-ink { from { opacity: 0; } to { opacity: 1; } }
 
 /* Cards, not rows. The list used to be flush blocks of prose stacked with no separation — which on
    the Library page, where every skill carries three lines of description, is the "text splattered
@@ -4160,27 +5275,11 @@ select { appearance: none; padding-right: 22px;
    fully reachable — an item you have to scroll past to click is worse than a hard edge. */
 .page-scroll { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex;
   --fade-h: 34px; --fade-top-h: 24px; }
-/* The bands reach the column's CLIP edge, not `.page-scroll`'s box. The column bleeds 4px past the
-   box on three sides (the focus-ring room above), so a band flush with the box left a 4px strip
-   at the top where cards scrolled past sharp and unwashed, right under the page title — seen in
-   the running Library as a sliver of grid bleeding through. `--page-bleed` is the one number both
-   the column and the bands read. */
+/* The column bleeds 4px past `.page-scroll`'s box on three sides, for the focus-ring room above.
+   That is the column's own clip edge, and the dissolve is on the column, so the two cannot part
+   company the way a band pinned to the outer box did — it left a 4px strip at the top where cards
+   scrolled past sharp, right under the page title. */
 .page-scroll { --page-bleed: 4px; }
-.page-scroll > .edge-fade { inset: auto calc(-1 * var(--page-bleed)) 0; }
-.page-scroll > .edge-fade[data-edge="top"] { inset: calc(-1 * var(--page-bleed)) calc(-1 * var(--page-bleed)) auto; }
-/* Shown only when there is something under them (`ScrollFades`). An always-on band blurs the first
-   line of a list nobody has scrolled, which reads as a rendering fault rather than as depth — the
-   heading arrives smudged. The band says "there is more this way", so it appears when that is true. */
-.edge-fade { opacity: 0; transition: opacity var(--dur-fast) ease; }
-.edge-fade[data-on] { opacity: 1; }
-/* A control that lives INSIDE a faded column outranks the band, the same way `.composer-dock` outranks
-   the transcript's. A band gated on scroll still catches whatever is at the top of the column the
-   moment it moves, and in the Library that is the search field and the filter chips: scroll the grid
-   and the chips a user is reading go to a smudge — a rendering fault, not depth. Chrome never goes
-   soft (design.md). The bar still scrolls away with the column; it is only excused from being
-   BACKDROP, which is all it takes, since `.page-content` is a static box and a positioned child of it
-   with a z-index above the band's 1 sorts against the band in the same stacking context. */
-.page-filters, .skills-filter-row { position: relative; z-index: 2; }
 .page-content { flex: 1; min-width: 0; min-height: 0; max-width: 720px; overflow-y: auto;
   box-sizing: content-box; padding: var(--page-bleed) var(--page-bleed) 34px; margin: calc(-1 * var(--page-bleed)) calc(-1 * var(--page-bleed)) 0;
   scroll-padding: 24px 0 34px; }
@@ -4207,6 +5306,9 @@ select { appearance: none; padding-right: 22px;
   .page-rail { flex-direction: row; width: auto; min-width: 0; align-self: stretch; gap: 4px;
     overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
   .page-rail .settings-tab { white-space: nowrap; }
+  /* The contents rail's indent says "under the heading above" — a claim a horizontal strip cannot
+     make, where it only reads as uneven spacing between peers. */
+  .skill-toc-link[data-level="2"] { padding-left: 10px; }
   .page-content { max-width: none; padding-right: 0; }
   .profile-spaces { padding-inline: 16px; }
   /* The `1fr auto` row grid, stood up: the actions keep their own width and the path/name column
@@ -4369,10 +5471,10 @@ select { appearance: none; padding-right: 22px;
    search sits first and full width because it is the coarser instrument — a user with forty
    schedules types before they click — and the chips read as a segmented set below it. */
 .page-filters { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
-/* `--search-h`, and the same 34 the sidebar's `.search` sets, because the two ARE one control in two
-   places: the corner is a proportion of the height, so a field two pixels shorter than its sibling
-   wears a visibly different curve for no reason a user could name. Sharing the custom property is
-   what keeps them from drifting again. */
+/* The app's one search field: the Library's Files tab, the Skills tab, and every page filter that
+   types. `--search-h` stays a named property rather than a number in the rule — the corner is a
+   proportion of the height, so the two are one decision, and a copy of this control that set its
+   height alone would wear a visibly different curve for no reason a user could name. */
 .search-field {
   --search-h: 34px;
   width: 100%; min-width: 0; height: var(--search-h); padding: 0 12px;
@@ -4493,6 +5595,17 @@ select { appearance: none; padding-right: 22px;
 .space-title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 4px; margin: -2px -4px;
   border: none; border-radius: var(--r-chip); corner-shape: squircle; background: none; color: inherit; font: inherit; cursor: pointer; }
 .space-title:hover { background: var(--rl-hover); }
+/* The switcher's caret. Quiet until wanted — it sits next to a 17px title and must not compete with
+   it — and it brightens on hover like every other affordance in this column. `flex: none` because
+   the title beside it truncates: without it the caret is what gives way on a long space name, which
+   is the one part of the row that cannot afford to. */
+.space-switch { display: grid; place-items: center; flex: none; width: 20px; height: 20px; margin-left: 1px;
+  border: none; border-radius: var(--r-chip); corner-shape: squircle; background: none;
+  color: var(--rl-text-faint); cursor: pointer; transition: color var(--dur-hover) ease, background-color var(--dur-hover) ease; }
+.space-switch:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+/* Open, it stays lit: the menu it opened is somewhere else on screen (a portal), so this is the only
+   thing left saying which control produced it. */
+.space-switch[aria-expanded="true"] { color: var(--rl-text-bright); }
 
 /* ——— Plan 12 W4: sidebar destinations + scope groups. The destination rows sit between the New-session
    block and the space swiper — quiet 32px rows in the item-row idiom (text-dim, hover-brighten). The
@@ -4500,6 +5613,11 @@ select { appearance: none; padding-right: 22px;
 .sb-destinations { flex: none; display: flex; flex-direction: column; padding: 0 16px 6px; }
 .sb-destinations .dest-row { min-height: 32px; width: 100%; border-radius: var(--r-ctl); corner-shape: squircle; }
 .sb-destinations .dest-row:hover { color: var(--rl-text-bright); }
+/* Lit while its page is up. The page is an overlay with one way out of its own, so the row that
+   opened it is the other — and a control that carries the state has to show it (design.md: a lit
+   toggle says it and undoes it in the same click). Same active fill the sidebar's open item wears,
+   because it means the same thing: this is what you are looking at. */
+.sb-destinations .dest-row[data-on] { background: var(--rl-active); color: var(--rl-text-bright); }
 /* W5: the Notifications row's unread count — the StatusPill idiom, pushed to the row's far edge.
    The tone's status dot is suppressed: a number is not a state, and dot-plus-count reads as two
    signals where there is one. */
@@ -4547,6 +5665,12 @@ select { appearance: none; padding-right: 22px;
 .notif-empty-sub { margin: 0; font-size: 12.5px; color: var(--rl-text-faint); text-wrap: balance; }
 .notif-day { display: flex; flex-direction: column; margin-bottom: 20px; }
 .notif-day-label { margin: 0 0 8px; font-size: 11px; font-weight: var(--fw-title); color: var(--rl-text-faint); }
+/* The two sections that are not days. `Needs you` is the only heading on this page that names
+   something still waiting, so it is the only one in full text colour — the day labels stay faint
+   because a date is a divider, not a claim. A hairline under the pinned block separates the questions
+   from the log without a card, a tint or a border around them. */
+.notif-day[data-section="needs-you"] > .notif-day-label { color: var(--rl-text-bright); }
+.notif-day[data-section="needs-you"] { padding-bottom: 20px; border-bottom: var(--hairline-w) solid var(--rl-line); }
 .notif-cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 /* A card, not a row: separated by air and a surface rather than by a rule, which is what lets each
    one carry a body line without the list reading as a wall. */
@@ -4864,6 +5988,13 @@ select { appearance: none; padding-right: 22px;
   background: transparent; color: var(--rl-text-bright); font-family: var(--font-mono);
   font-size: 12.5px; line-height: 1.65; tab-size: 2;
 }
+
+/* The code editor's host. It carries a height for one specific reason: `code-theme.ts` sets the
+   CodeMirror editor to `height: 100%`, and 100% of an auto-height parent is zero — the editor would
+   mount, hold the right document, pass every jsdom test, and draw nothing. `min-height: 0` is the
+   usual grid-child rule, so a long file scrolls inside the pane instead of stretching it. No padding
+   here: CodeMirror owns its own gutter and content insets, and a second one would misalign them. */
+.documents-code { width: 100%; height: 100%; min-height: 0; }
 
 /* The open-a-file panel: a floating surface card over the editor, on the same shadow and the same
    entrance as every other popover in the app — not a flat strip welded under the tab bar. */
@@ -5345,6 +6476,53 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .theme-card-swatches span { width: 14px; height: 14px; border-radius: 999px; }
 .theme-card-name { font-size: 12px; font-weight: var(--fw-label); }
 
+/* ── Imported VS Code themes ──────────────────────────────────────────────
+   Under the grid, not in it. Importing is a thing you do once, and a card shaped like a palette that
+   is actually a file picker is a card that repaints nothing when pressed. Each import gets a LINE
+   because a card cannot say the two things an import owes you — where it came from, and how much of
+   it Realm had to work out. */
+/* `theme-vsc-*`, not `theme-import-*`: `.theme-import` is already the theme JSON textarea a few rules
+   below, and a second rule under that name is one the first one wins — which is exactly what
+   happened, and turned this row into a column. */
+.theme-vsc-list { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
+.theme-vsc { display: flex; align-items: center; gap: 8px; min-height: 26px; font-size: 12.5px; color: var(--rl-text-dim); }
+/* The NAME is the elastic column and everything after it packs right — one growing item and no auto
+   margins, rather than the two `margin-left: auto` this first had, which split the free space
+   between the note and the button and left neither on an edge (design.md says this in as many
+   words: one auto margin, or none plus a growing title; never two). */
+.theme-vsc-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
+/* What the file did not state, in the warning tone: it is a caveat about fidelity, not a fact about
+   the theme. */
+.theme-vsc-note { flex: none; font-size: 11px; color: var(--rl-warning); white-space: nowrap; }
+.theme-vsc .btn-quiet { flex: none; }
+.theme-vsc-add { align-self: flex-start; margin-top: 2px; }
+
+/* ── The font library ─────────────────────────────────────────────────────
+   Under the two font rows, not inside them: adding a family is a thing you do occasionally, and the
+   rows are a choice you make often. Each installed family is a LINE — name, size, remove — because a
+   card cannot carry the one fact that matters about a downloaded font, which is that it is on this
+   Mac and how much of it there is. */
+.font-library { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.font-installed { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.font-installed li { display: flex; align-items: center; gap: 8px; min-height: 26px; font-size: 12.5px; color: var(--rl-text-dim); }
+/* The name is set in its OWN family — the only honest preview of a typeface is the typeface — and it
+   is the row's elastic column, so everything after it packs right. */
+.font-installed-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; color: var(--rl-text-bright); }
+.font-installed-size { flex: none; font: 11px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
+.font-installed li .btn-quiet, .font-results li .btn-quiet { flex: none; }
+.font-library-toggle { align-self: flex-start; }
+/* The browser, open. Two thousand families reach it, twenty at a time — the search is the way
+   through a list that long, and a cap is what makes typing feel like it is doing something. */
+.font-browser { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding: 10px;
+  border-radius: var(--r-panel); background: var(--rl-frame); }
+.font-results { display: flex; flex-direction: column; gap: 1px; margin: 0; padding: 0; list-style: none;
+  max-height: 220px; overflow-y: auto; overscroll-behavior: contain; }
+.font-results li { display: flex; align-items: center; gap: 8px; min-height: 28px; font-size: 12.5px; }
+.font-result-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
+.font-result-cat { flex: none; font-size: 11px; color: var(--rl-text-faint); }
+
+
 /* The three seeds a palette can be edited on. A swatch and a hex per row: the OS colour picker
    cannot be typed into and a hex cannot be dragged, and both are how people actually arrive at a
    colour. Wraps rather than scrolls — this sits in a pane whose width is wherever the split is. */
@@ -5555,6 +6733,38 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .budget-projection { position: absolute; top: -2px; bottom: -2px; width: 2px; border-radius: 1px;
   background: var(--rl-text-dim); }
 .budget-line { margin: 0; font-size: 11.5px; color: var(--rl-text-dim); }
+/* Plan & limits — what the PROVIDER says is left, next to what the user budgeted. Same track idiom as
+   the budget meter above so the two read as one family, with one difference that is the whole point:
+   the state ramp is driven by the provider's own alert (`data-alert` on the account), never by a
+   percentage compared against a threshold picked here. */
+.plan-card { display: flex; flex-direction: column; gap: 14px; }
+.plan-account { --plan-hue: var(--rl-accent); display: flex; flex-direction: column; gap: 6px; }
+.plan-account[data-alert="approaching"] { --plan-hue: var(--rl-warning); }
+.plan-account[data-alert="exceeded"] { --plan-hue: var(--rl-danger); }
+.plan-account-head { display: flex; align-items: baseline; gap: 8px; }
+.plan-account-name { font-weight: var(--fw-label); color: var(--rl-text-bright); }
+.plan-account-tier { font-size: 11.5px; color: var(--rl-text-dim); }
+.plan-account-org { font-size: 11.5px; color: var(--rl-text-faint); }
+/* A grid, not a flex row: the labels, the bars and the reset times line up down the column, which is
+   what makes four windows comparable at a glance instead of four separate readings. */
+.plan-window { display: grid; grid-template-columns: 7.5rem 1fr 2.5rem auto; align-items: center;
+  gap: 10px; font-size: 11.5px; color: var(--rl-text-dim); }
+.plan-window-label { color: var(--rl-text-bright); }
+/* Only the window the provider actually named carries the tone. A row that took the account's colour
+   would say all four windows are in trouble when one is. */
+.plan-window:not([data-alerted]) { --plan-hue: var(--rl-accent); }
+.plan-track { position: relative; height: 8px; border-radius: var(--r-pill); overflow: hidden;
+  background: color-mix(in srgb, var(--plan-hue) 16%, transparent); }
+.plan-fill { height: 100%; border-radius: var(--r-pill); background: var(--plan-hue);
+  transition: width var(--dur-base) var(--ease-out-strong); }
+.plan-window-pct { font-variant-numeric: tabular-nums; text-align: right; color: var(--rl-text-bright); }
+/* A window the provider named without a number. Italic rather than a 0% bar, because the bar would be
+   a figure Realm invented about a limit it cannot see. */
+.plan-window-unknown { font-style: italic; color: var(--rl-text-faint); }
+.plan-window-reset { color: var(--rl-text-faint); white-space: nowrap; }
+.plan-note { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--rl-text-faint); }
+.plan-note-silent { padding-top: 2px; border-top: var(--hairline-w) solid var(--rl-line); }
+
 .budget-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
 .budget-input { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--rl-text-dim); }
 .budget-input input { width: 130px; height: 26px; padding: 0 8px; font: inherit; font-size: 12px;

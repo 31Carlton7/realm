@@ -11,13 +11,25 @@ describe("normalizeAddress", () => {
     expect(normalizeAddress("HTTPS://EXAMPLE.COM")).toBe("HTTPS://EXAMPLE.COM");
     expect(normalizeAddress("about:blank")).toBe("about:blank");
   });
-  it("prefixes https:// onto anything else — a non-URL fails honestly downstream", () => {
+  it("prefixes https:// onto host-shaped input", () => {
     expect(normalizeAddress("example.com")).toBe("https://example.com");
     expect(normalizeAddress("example.com/path?q=1")).toBe("https://example.com/path?q=1");
-    expect(normalizeAddress("not a url")).toBe("https://not a url");
-    // A scheme-shaped input is NOT honored: file:/javascript: never reach loadURL as themselves.
-    expect(normalizeAddress("javascript:alert(1)")).toBe("https://javascript:alert(1)");
-    expect(normalizeAddress("file:///etc/passwd")).toBe("https://file:///etc/passwd");
+    expect(normalizeAddress("example.com:8443/x")).toBe("https://example.com:8443/x");
+    expect(normalizeAddress("sub.example.co.uk")).toBe("https://sub.example.co.uk");
+    expect(normalizeAddress("192.168.1.5:8080")).toBe("https://192.168.1.5:8080");
+    expect(normalizeAddress("münchen.de")).toBe("https://münchen.de");
+  });
+  it("sends anything that is not host-shaped to the search engine", () => {
+    expect(normalizeAddress("not a url")).toBe("https://www.google.com/search?q=not%20a%20url");
+    expect(normalizeAddress("realm")).toBe("https://www.google.com/search?q=realm");
+    expect(normalizeAddress("3.14")).toBe("https://www.google.com/search?q=3.14");
+    expect(normalizeAddress("what is a WebContentsView?")).toBe(
+      "https://www.google.com/search?q=what%20is%20a%20WebContentsView%3F",
+    );
+    // A scheme-shaped input is NOT honored: file:/javascript: never reach loadURL as themselves,
+    // and no longer get https:// glued on to fail — they are searched like any other words.
+    expect(normalizeAddress("javascript:alert(1)")).toBe("https://www.google.com/search?q=javascript%3Aalert(1)");
+    expect(normalizeAddress("file:///etc/passwd")).toBe("https://www.google.com/search?q=file%3A%2F%2F%2Fetc%2Fpasswd");
   });
   it("loopback hosts get http:// (dev servers do not speak TLS)", () => {
     expect(normalizeAddress("localhost:5173")).toBe("http://localhost:5173");
@@ -26,6 +38,8 @@ describe("normalizeAddress", () => {
     expect(normalizeAddress("[::1]:3000")).toBe("http://[::1]:3000");
     // ...but a host merely containing "localhost" does not.
     expect(normalizeAddress("localhost.evil.com")).toBe("https://localhost.evil.com");
+    // A bare non-loopback word is a search, not an intranet guess.
+    expect(normalizeAddress("myserver")).toBe("https://www.google.com/search?q=myserver");
   });
   it("empty and whitespace-only input is nothing to load", () => {
     expect(normalizeAddress("")).toBeNull();

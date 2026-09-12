@@ -557,6 +557,54 @@ export const migrations: string[] = [
   // Nullable with no default and no backfill: every existing row has no headers, which is what
   // NULL means here and is also true.
   `ALTER TABLE machines ADD COLUMN headers_sealed TEXT;`,
+  // v28 — simulators: an Apple Simulator, shown and driven in a pane.
+  //
+  // `machines`' small sibling, and small for a reason that is about the thing rather than about
+  // effort. A machine can be anywhere, so its row carries an address, a transport and two sealed
+  // secrets; a simulator is always on this Mac, always reached over loopback, and the only durable
+  // fact about one is WHICH device the pane is pointed at.
+  //
+  // No status column, for `machines`' reason: a status is a fact about a process, and the streaming
+  // daemon does not survive a restart. No port column either — serve-sim picks its own and publishes
+  // it, so a number stored here would be a guess about somebody else's allocator.
+  //
+  // `udid` is nullable because the pane exists before the device is chosen: the session bar's button
+  // makes a row with no device, and the picker inside the pane is what fills it in. That is the same
+  // shape as a `machines` row with no endpoint yet.
+  `
+  CREATE TABLE simulators (
+    id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    name TEXT NOT NULL, udid TEXT,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE INDEX simulators_space ON simulators(space_id);
+  `,
+  // v29 — goal mode: an objective a session keeps working on across turns.
+  //
+  // One goal per session, which is why `session_id` IS the primary key rather than a column beside
+  // one. A second objective on the same thread would be two agents with one transcript, and the
+  // thing that makes goal mode safe — a single ceiling and a single "are we there yet" — has nothing
+  // to be about once there are two of them. Replacing a goal is an UPSERT here, deliberately: the
+  // old objective is finished with, and a history of abandoned objectives is a thing nobody asked
+  // for.
+  //
+  // `status` IS a column, which is the opposite of the call `machines` and `simulators` make one
+  // migration up. Their status is a fact about a process and no process survives a restart; this one
+  // is a fact about what the USER asked for, and forgetting it on relaunch would silently drop work
+  // somebody is waiting on. What Realm does NOT do is resume it by itself at boot — see the
+  // service's `parkOnBoot`, which turns an active goal into a paused one, because starting turns at
+  // launch is a surprise nobody consented to.
+  //
+  // `tokens_used` and `turns` are counters rather than a join over the event log. The log is where
+  // the truth about a turn lives, but a budget has to be checked on every settle and a scan of a
+  // session's events on each one is a cost that grows with the transcript.
+  `
+  CREATE TABLE session_goals (
+    session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    objective TEXT NOT NULL, status TEXT NOT NULL,
+    token_budget INTEGER, tokens_used INTEGER NOT NULL DEFAULT 0, turns INTEGER NOT NULL DEFAULT 0,
+    note TEXT, started_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE INDEX session_goals_status ON session_goals(status);
+  `,
   // v30 — terminal scrollback: what a shell printed, kept across a restart.
   //
   // A separate table and not a column on `terminals`, for two reasons that are both about the hot
@@ -594,4 +642,53 @@ export const migrations: string[] = [
   // simply have nothing to draw. Backfilling would assert that every session in the database has
   // been read to the end, which is the one thing nobody can know.
   `ALTER TABLE sessions ADD COLUMN seen_seq INTEGER NOT NULL DEFAULT 0;`,
+  // v32 — `simulators.platform`: which toolchain reaches this device, `ios` or `android`.
+  //
+  // Defaulted to `ios` rather than backfilled, and the default is the whole point: every row written
+  // before Android existed IS an iOS row, so the default is a statement of fact about the past
+  // rather than a guess about it. Nothing has to be rewritten and nothing can be got wrong.
+  //
+  // A column and not a lookup off `udid`'s shape. An Apple UDID and an AVD name are distinguishable
+  // today — one is a formatted GUID — and that is exactly the kind of inference that breaks silently
+  // the first time a vendor changes a format, on rows nobody is looking at.
+  `ALTER TABLE simulators ADD COLUMN platform TEXT NOT NULL DEFAULT 'ios';`,
+  // v33 — conversation rewind: where BOTH transcripts stood when a checkpoint was taken, and the fork
+  // a restore leaves armed for the session's next start.
+  //
+  // Five nullable columns, no defaults and no backfill, and the absence of a backfill is the whole
+  // point rather than laziness. A cursor invented for a row written before these columns existed would
+  // be a fabricated claim about where a provider conversation stood — precisely the claim this feature
+  // exists not to make. NULL reads as "not known", every read path treats it as "restore the files
+  // only", and `CheckpointSchema`'s matching `.default(null)` means a row written by the older build
+  // parses rather than failing on the first read after an upgrade.
+  //
+  // On `checkpoints`:
+  //  - `session_seq`     — Realm's own transcript position at capture: the newest stored event's seq.
+  //  - `provider_cursor` — opaque, adapter-defined, and written at the END of the turn this checkpoint
+  //                        fronted rather than at capture. It needs two uuids that are known at two
+  //                        different moments (the kept turn's last chain entry, and the discarded
+  //                        turn's prompt), so a row carries the complete pair or it carries nothing.
+  //                        Nulled again if the provider ever refuses that exact fork.
+  //
+  // On `sessions`:
+  //  - `provider_cursor`   — where the provider's chain stood after the last settled turn. This is the
+  //                          value the NEXT turn's checkpoint copies as its fork point.
+  //  - `rewind_fork_json`  — a restore's armed fork target, read by the next `ensureLive`. A column and
+  //                          not memory: a restore is refused while any handle in the checkout is live,
+  //                          so the arm is by construction consumed by a LATER process, and an in-memory
+  //                          one would be silently dropped by the first restart between the two.
+  //  - `rewind_refusal`    — the provider's refusal, kept verbatim. Evidence, not control flow: the
+  //                          fork column is cleared on a refusal and the checkpoint's cursor with it, so
+  //                          nothing can re-send a request the CLI has already answered deterministically.
+  //
+  // `ALTER TABLE ... ADD COLUMN` and not a table rebuild: these are five nullable columns on two tables
+  // with live foreign keys pointing at them, and a rebuild needs `foreign_keys` OFF, which is a no-op
+  // inside this migration's transaction (the same trap v5 documents).
+  `
+  ALTER TABLE checkpoints ADD COLUMN session_seq INTEGER;
+  ALTER TABLE checkpoints ADD COLUMN provider_cursor TEXT;
+  ALTER TABLE sessions ADD COLUMN provider_cursor TEXT;
+  ALTER TABLE sessions ADD COLUMN rewind_fork_json TEXT;
+  ALTER TABLE sessions ADD COLUMN rewind_refusal TEXT;
+  `,
 ];

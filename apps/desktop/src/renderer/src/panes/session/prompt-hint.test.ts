@@ -177,3 +177,52 @@ describe("what the agent WROTE decides what to offer next", () => {
       .toBe("Give me an example.");
   });
 });
+
+/**
+ * The model-written hint, and its precedence over the ladder above.
+ *
+ * The ladder is now the FLOOR rather than the only answer: it holds while the generated one is in
+ * flight, on every build with no generator, on a machine with no Claude CLI, and whenever the model
+ * declined to better it. Three rules decide which one the prompter shows, and all three matter.
+ */
+describe("the generated hint", () => {
+  const settled = [user("audit the mappers"), assistant("Three of them drop fields.")];
+
+  it("wins over the ladder, because a generic answer would have been declined instead", () => {
+    // The generator is briefed to answer NONE rather than write something vague, so a hint that
+    // exists at all has already cleared the floor — there is nothing here to compare it against.
+    expect(promptHint({ blocks: settled, gitInfo: git({ dirty: 3 }), status: "idle", inPlan: false,
+      generated: "Fix the three mappers that drop fields." }))
+      .toBe("Fix the three mappers that drop fields.");
+  });
+
+  it("falls back to the ladder when there is none — which is most turns", () => {
+    // The ladder's tool-free-answer rung, which is what this transcript actually reaches.
+    expect(promptHint({ blocks: settled, gitInfo: git({ dirty: 3 }), status: "idle", inPlan: false, generated: null }))
+      .toBe("Give me an example.");
+    // And with the argument omitted entirely, which is every caller that predates this.
+    expect(promptHint({ blocks: settled, gitInfo: git({ dirty: 3 }), status: "idle", inPlan: false }))
+      .toBe("Give me an example.");
+  });
+
+  /* The ordering that keeps ⇥ honest. A hint was written about the turn that had just ended; while a
+     NEW turn is running it is an answer to a question nobody is asking any more, and offering it
+     would put a stale sentence under a live transcript. */
+  it("is suppressed mid-turn, exactly as the derived one is", () => {
+    for (const status of ["running", "waiting_permission"] as const) {
+      expect(promptHint({ blocks: settled, gitInfo: git({ dirty: 3 }), status, inPlan: false,
+        generated: "Fix the three mappers that drop fields." }), status).toBeNull();
+    }
+  });
+
+  it("an empty string is not a hint — it falls through rather than blanking the placeholder", () => {
+    // The service never publishes one, but a truthiness check written as `!== null` would show an
+    // empty placeholder instead of "Ask anything", which reads as a broken box.
+    expect(promptHint({ blocks: settled, gitInfo: git({ dirty: 3 }), status: "idle", inPlan: false, generated: "" }))
+      .toBe("Give me an example.");
+  });
+
+  it("still declines when neither the model nor the ladder has anything", () => {
+    expect(promptHint({ blocks: [], gitInfo: git(), status: "idle", inPlan: false, generated: null })).toBeNull();
+  });
+});

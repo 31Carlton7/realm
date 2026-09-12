@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contrast, css, emitted, hexToOklch, luminance, oklchToHex } from "./oklch";
+import { contrast, css, emitted, hexToOklch, luminance, oklchToHex } from "./colour";
 
 /** These numbers are checkable against something outside this repo, which is the point of testing a
  *  colour space at all: an arithmetic slip in one matrix row produces colours that still look like

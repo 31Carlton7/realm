@@ -148,44 +148,67 @@ describe("focusing a pane", () => {
     expect(screen.getByRole("button", { name: "Rename Two" })).toBeInTheDocument();
   });
 
-  /* One control, both directions, and it says which way it is pointing by being lit — the treatment
-     the summary button already wears. THE mutant: drop `data-on` and the only thing left saying a
-     pane is focused is the absence of its siblings, which is exactly the gap the removed banner was
-     invented to fill. */
-  it("the pane bar's focus control is ONE toggle: it fills while focused, and its name flips", async () => {
+  /* The toolbar glyph is gone: it sat next to a ⋯ that already offered the same action one row
+     down, and two controls for one action is one too many in a bar this narrow. THE mutant: put it
+     back, and every pane bar spends a slot restating in a glyph what the menu says in words.
+
+     The browser bar is the exception — W2.3 forbids it a dropdown, so there is no row there for a
+     glyph to be a duplicate of, and it keeps the inline toggle. */
+  it("the pane bar carries no focus glyph — the ⋯ row is the whole control", async () => {
     const { store } = await mount("main");
     await twoPanes(store);
-    const off = screen.getByRole("button", { name: "Focus Two" });
-    expect(off.closest(".panel-bar")).not.toBeNull();
-    expect(off).not.toHaveAttribute("data-on");
-    fireEvent.click(off);
-    await waitFor(() => expect(store.getState().zoomedLeafId()).not.toBeNull());
-    const on = screen.getByRole("button", { name: "Unfocus Two" });
-    expect(on).toHaveAttribute("data-on");
-    // The same control flipped, not a second one that appeared beside it.
     expect(screen.queryByRole("button", { name: "Focus Two" })).toBeNull();
-    fireEvent.click(on);
-    await waitFor(() => expect(store.getState().zoomedLeafId()).toBeNull());
-    expect(screen.getByRole("button", { name: "Focus Two" })).not.toHaveAttribute("data-on");
+    const leafId = findLeafOfItem(store.getState().layout!, "i2")!.id;
+    await act(async () => { await store.getState().focusPaneFull(leafId); });
+    await waitFor(() => expect(store.getState().zoomedLeafId()).not.toBeNull());
+    // ...and still none once it IS focused, which is when a leftover glyph would flip to Unfocus.
+    expect(screen.queryByRole("button", { name: "Unfocus Two" })).toBeNull();
   });
 
-  it("the ⋯ menu still offers Focus, for the shortcut it prints beside it", async () => {
+  /* One row, both directions, and it says which way it is pointing by its NAME — the accessible
+     signal the lit glyph used to carry, now the only one. THE mutant: leave the row reading "Focus
+     pane" while the pane is focused, and the single route back out of a focus stops describing
+     itself. The ⌘⇧F beside it is asserted here because the row is now the only place it is printed. */
+  it("the ⋯ row is ONE toggle: Focus, then Unfocus, with ⌘⇧F beside it", async () => {
     const { store } = await mount("main");
     await twoPanes(store);
     fireEvent.click(screen.getByRole("button", { name: "Pane menu for Two" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /Focus pane/ }));
+    const focus = await screen.findByRole("menuitem", { name: /Focus pane/ });
+    expect(focus.querySelector(".menu-kbd")?.textContent).toBe("⌘⇧F");
+    fireEvent.click(focus);
     await waitFor(() => expect(store.getState().zoomedLeafId()).not.toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: "Pane menu for Two" }));
+    const unfocus = await screen.findByRole("menuitem", { name: /Unfocus pane/ });
+    // The same row flipped, not a second one that appeared beside it.
+    expect(screen.queryByRole("menuitem", { name: /^Focus pane/ })).toBeNull();
+    fireEvent.click(unfocus);
+    await waitFor(() => expect(store.getState().zoomedLeafId()).toBeNull());
+  });
+
+  /* THE mutant: drop the `icon` from the layout rows. Everything still works and the menu goes back
+     to a column of bare words, where Split right and Split down are told apart only by reading them
+     — which is what a pane menu opened mid-gesture is trying to avoid. Asserted across ALL the shared
+     rows, because a glyph on some of them and not the others is the ragged left edge `anyIcon`
+     reserves its slot to prevent. */
+  it("every shared row wears the glyph its action wears elsewhere in the app", async () => {
+    const { store } = await mount("main");
+    await twoPanes(store);
+    fireEvent.click(screen.getByRole("button", { name: "Pane menu for Two" }));
+    for (const name of [/Rename/, /Split right/, /Split down/, /Focus pane/, /^Close/, /^Delete/]) {
+      const row = await screen.findByRole("menuitem", { name });
+      expect(row.querySelector(".menu-icon > svg"), String(name)).not.toBeNull();
+    }
   });
 
   /* A group with one leaf renders the same focused or not, so the toggle would be a lit button with
      no visible effect — the dead chrome the pane bar bans. THE mutant: drop the `canFocus` gate in
      PaneHost and the app's most common shape, one pane full width, grows a control that does nothing
      a user can see. */
-  it("a solo pane gets no focus toggle at all — there is nothing for it to hide", async () => {
+  it("a solo pane gets no focus ROW at all — there is nothing for it to hide", async () => {
     const { store } = await mount("main");
     await act(async () => { await store.getState().openItem("i1"); });
     await waitFor(() => expect(screen.getByRole("button", { name: "Rename One" })).toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: "Focus One" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Pane menu for One" }));
     expect(screen.queryByRole("menuitem", { name: /Focus pane/ })).toBeNull();
   });

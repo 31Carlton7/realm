@@ -3,7 +3,7 @@ import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FALLBACK_AGENT, folderName, useApp } from "../state/store";
 import { agentAvailability, type AgentAvailability } from "../state/agent-availability";
-import { grainVars } from "../theme/grain";
+import { Spinner } from "./Spinner";
 import { useFileDrop } from "./use-file-drop";
 import { IconPicker } from "./IconPicker";
 
@@ -129,14 +129,22 @@ export function Onboarding() {
     if (busy) return;
     setBusy(true);
     run(async () => {
-      try { await completeOnboarding({ name: name.trim() || suggested, agentKind: agent, folder, icon, color }); }
-      finally { setBusy(false); }
+      try {
+        await completeOnboarding({ name: name.trim() || suggested, agentKind: agent, folder, icon, color });
+      } finally { setBusy(false); }
     });
   };
 
   return (
     <div className="onboarding-stage">
-      <section className="sheet onboarding wash" data-grain style={grainVars("onboarding")} aria-labelledby="onboarding-title">
+      {/* Plain. The card wore the decorative wash — an accent field anchored in its top band, with a
+          drifting grain over it — and it was the last surface in the app still wearing one: Settings
+          lost it because a tint over a form reads as bleed into the controls, Notifications because a
+          decorated ground under things asking for your attention competes with the attention. A first
+          run is the same case again and the sharpest of the three. It is the only screen in Realm
+          where nothing is familiar yet, so every gradient on it is one more thing to work out before
+          the two decisions it actually asks for. */}
+      <section className="sheet onboarding" aria-labelledby="onboarding-title">
         <form className="onboarding-form" onSubmit={(e) => { e.preventDefault(); submit(); }}>
           <div className="sheet-head"><h3 id="onboarding-title">Welcome to Realm</h3></div>
           <div className="sheet-body onboarding-body">
@@ -155,9 +163,19 @@ export function Onboarding() {
             <div className="onboarding-cols">
               {/* Native radios, not buttons with role="radio": arrow-key movement, one tab stop and the
                   checked state all come for free, which is most of "completable with a keyboard alone". */}
-              <fieldset className="field cli-field onboarding-col">
+              <fieldset className="field cli-field onboarding-col" aria-busy={!probed || undefined}>
                 <legend>Agent</legend>
-                {!probed && <p className="onboarding-note" aria-live="polite">Checking which agents are installed…</p>}
+                {/* The line said the right thing and looked like a caption: a static grey sentence over
+                    a list of thirteen agents that was already drawn, so the screen read as finished
+                    and wrong rather than as busy. The orb is the app's one loading indicator and the
+                    only thing here that MOVES, which is what separates "we are still looking" from
+                    "this is the answer". `aria-busy` says the same to a reader that cannot see it
+                    move, and it goes on the fieldset because the rows are what is provisional. */}
+                {!probed && (
+                  <p className="onboarding-note" data-busy aria-live="polite">
+                    <Spinner size={12} />Checking which agents are installed…
+                  </p>
+                )}
                 {probed && found.length === 0 && (
                   <p className="onboarding-note">None of these is installed yet. Pick one and Realm will show the install command.</p>
                 )}

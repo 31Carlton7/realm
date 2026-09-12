@@ -196,6 +196,19 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
   // no-overlay registration (there is nothing floating in those tests either).
   const store = useAppStoreMaybe();
 
+  /* A page open over the workspace hides every browser view — see `shouldShowView`. Read through the
+     NULLABLE store like everything else here (the unit tests render this pane with no provider, and
+     `useApp` would throw), and subscribed rather than polled so a change re-renders — which is what
+     lets the effect below push the new verdict to main. */
+  const pageOverlay = useSyncExternalStore(
+    useCallback((cb: () => void) => store?.subscribe(cb) ?? (() => {}), [store]),
+    useCallback(() => store?.getState().pageOverlay != null, [store]),
+  );
+  const overlayRef = useRef(pageOverlay);
+  overlayRef.current = pageOverlay;
+  /** The live bounds-sync, published by the effect below so a visibility change can poke it. */
+  const syncRef = useRef<(() => void) | null>(null);
+
   const url = state?.url ?? initialUrl ?? "";
   const hasUrl = url !== "";
   const { actions, driving } = useAgentWatch(store, browserId);
@@ -214,16 +227,22 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
       if (!created || disposed) return;
       const r = el.getBoundingClientRect();
       host.setBounds(browserId, { x: r.x, y: r.y, width: r.width, height: r.height }, window.devicePixelRatio,
-        shouldShowView({ paneVisible: visibleRef.current, dragging: flags.dragging, settled: flags.settled, hasUrl: flags.hasUrl }));
+        shouldShowView({ paneVisible: visibleRef.current, pageOverlay: overlayRef.current,
+          dragging: flags.dragging, settled: flags.settled, hasUrl: flags.hasUrl }));
       // W2's no-overlay registration: the rect the native view paints (or will paint — transient
       // hides like drags and the mount settle KEEP the rect registered, because the view returns to
       // exactly this rect and a surface placed "over" it during the blink would be covered the
       // moment it comes back). Cleared when the pane has no page or is in a hidden leaf.
+      /* The rect the view paints, for the no-overlay machinery. A drag or the mount settle KEEP the
+         rect (the view returns to it), but a page overlay does NOT: nothing is floating over the
+         host while a full-host page is up, and leaving a rect registered would have sheets opened
+         from that page dodging a view that is hidden. */
       store?.getState().setBrowserRect(item.id,
-        visibleRef.current && flags.hasUrl ? { x: r.x, y: r.y, width: r.width, height: r.height } : null);
+        visibleRef.current && !overlayRef.current && flags.hasUrl ? { x: r.x, y: r.y, width: r.width, height: r.height } : null);
     };
     let raf = 0;
     const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; sync(); }); };
+    syncRef.current = schedule;
 
     // Persist last committed url/title, debounced; the item title tracks the page server-side.
     let persistTimer: ReturnType<typeof setTimeout> | undefined;
@@ -285,6 +304,7 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
       disposed = true;
       offState();
       ro.disconnect();
+      syncRef.current = null;
       cancelAnimationFrame(raf);
       clearTimeout(settleTimer);
       clearTimeout(persistTimer);
@@ -307,6 +327,17 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
       });
     };
   }, [browserId, item.id, item.spaceId, store]);
+
+  /**
+   * Push a changed visibility verdict to main.
+   *
+   * The sync effect above deliberately does NOT depend on these — it owns the view's whole lifecycle
+   * (create, adopt, release) and re-running it on a visibility flip would tear the view down and
+   * rebuild it. But `sync` reads both through refs, so nothing told main when either changed: opening
+   * Settings over a browser left the native view painting over the page, and a pane moved into a
+   * hidden leaf would have done the same. One line, and it is the whole fix.
+   */
+  useEffect(() => { syncRef.current?.(); }, [visible, pageOverlay]);
 
   // An empty pane's natural target is the address bar (like a fresh browser tab).
   useEffect(() => {

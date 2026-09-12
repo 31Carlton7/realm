@@ -210,6 +210,13 @@
   --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
   --ease-link: cubic-bezier(0.16, 1, 0.3, 1);
+  /* The one curve here that is NOT strong, and deliberately. A strong ease-out is right for anything
+     that MOVES — it lands the travel early and settles — but on an opacity it is close to a step:
+     cubic-bezier(0.23, 1, 0.32, 1) is three quarters faded in the first fifth of its duration, so a
+     "180ms fade" is read as text appearing at once with a twitch under it. This spends the whole
+     duration on the ramp instead, which is what a fade with no travel behind it needs to register
+     as an arrival. For fades only; a curve this even applied to movement reads as sluggish. */
+  --ease-fade: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ── base (BUI interface hygiene; ground/color/font-size stay in styles.css) ── */
@@ -377,21 +384,14 @@ a {
   /* The prompter's corner as a PROPORTION of its own height — 36px on the 96px card, measured in a
      real window. A smaller control that wants the prompter's SHAPE multiplies its own height by
      this rather than copying 36, which on a 30px field would be a pill rather than a squircle. */
-  /* ── Edge fades ───────────────────────────────────────────────────────────────────────────────
-     The dissolve at the end of a scroller. Two layers: a shallow blur right at the edge and a
-     deeper one under the colour wash, so text softens BEFORE it reaches the boundary rather than
-     hitting a band.
-
-     Tuned down from 3/11/88%. At those values the band read as a frosted strip laid over the
-     content — a thing you notice, and the note said so. The point of the effect is that you do not
-     notice it: content should seem to run out rather than to pass under something. */
-  --fade-blur-near: 2px;
-  --fade-blur-far: 6px;
-  --fade-wash: 76%;
-  /* The colour a fade washes TO. Defaults to the pane ground; a scroller sitting on a different
-     surface (a popover, a card) overrides it locally. Declared here so the fade never resolves to
-     `inherit` on a surface that forgot to set it — which is what a var with no definition does. */
-  --fade-ground: var(--rl-panel);
+  /* ── Edge dissolves ───────────────────────────────────────────────────────────────────────────
+     How deep a scroller's content runs out at each end. The depths are all that is left of this:
+     the dissolve is a mask on the scroller now (styles.css, `[data-dissolve]`), so there is no blur
+     strength and no colour to wash to — a mask paints nothing, and what it reveals is whatever was
+     behind the text on that surface. The blurs it replaced could not survive the panes becoming
+     translucent, and they were never the reason it read well: the point of the effect is that you
+     do not notice it, and content that seems to RUN OUT is quieter than content that passes under
+     something. */
   /* How far the sidebar sits off the window's edges. Small: the point is that the surface is
      detached, not that it is floating in space. */
   --sidebar-inset: 8px;
@@ -417,6 +417,18 @@ a {
    * is left to win is the curve's, not the radius's, which is what --sq-n-ctl below is for.
    */
   --sq-ratio-ctl: 0.48;
+  /* The radius a squircular MEDIA WELL takes, against the 0.48 a control takes.
+   *
+   * A tile is not a control, and the ceiling argument above is why it needs its own number rather
+   * than reusing that one: 0.48 spends almost all the room a small box has, and on the circular
+   * fallback this Chromium still renders it would turn a 44px thumbnail into a disc. This leaves a
+   * real flat run — 8.8px an edge on the prompter's tile — which is the part that makes the corner
+   * read as a squared shape with a soft corner rather than as a circle that got clipped.
+   *
+   * It is also bounded from ABOVE by the remove button, which is a 16px disc sitting on the tile's
+   * top-right corner: past roughly 0.45 the button's own circle escapes the well's corner arc and
+   * floats outside the visible edge. Raising this means moving `.attach-remove` inward to match. */
+  --sq-ratio-media: 0.4;
   /* The superellipse exponent a painted CONTROL is drawn with, against the 4 the signature surfaces
    * keep (public/squircle-paint.js registers 4 as the initial value of --sq-n).
    *
@@ -483,6 +495,14 @@ a {
    * edge itself (--card-ring), leaving box-shadow only the lift. Every other card keeps the whole
    * stack, and there is still one place either half is written. */
   --card-ring: var(--overlay-lighten-400);
+  /* A floating WINDOW's own edge, resting and under the pointer — the quick chat today.
+   * Its own pair rather than the card ring: a card sits on a pane and takes most of its boundary
+   * from the surface step, where a window floats over whatever happens to be behind it and the line
+   * is the whole of the boundary on the side where the two grounds happen to match. And it is the
+   * one edge in the app that answers the POINTER, so it needs somewhere to go: the hover step has to
+   * be visible at a glance or the window looks inert. */
+  --window-ring: var(--overlay-lighten-600);
+  --window-ring-hover: var(--overlay-lighten-800);
   --shadow-card-lift: 0 1px 2px #00000033, 0 2px 6px #00000033;
   /* The same lift as a filter. A box-shadow is drawn from the border box, so on the squircle
      surfaces — whose border-radius is 0 because the curve is painted, not declared — it lands as a
@@ -523,6 +543,11 @@ a {
   --shadow-btn: 0 0 0 var(--hairline-w) var(--overlay-darken-300), 0 1px 2px #03071214;
   --btn-ring: var(--overlay-darken-300);
   --card-ring: #03071214;
+  /* Heavier steps than the dark face, not the mirrored ones: black on a near-white ground loses more
+     of itself than white on a near-black one, so the same rungs would land as no border and no
+     hover. Same correction the pane divider needed. */
+  --window-ring: var(--overlay-darken-400);
+  --window-ring-hover: var(--overlay-darken-600);
   --shadow-card-lift: 0 2px 4px 0 #0307120a;
   --shadow-card-lift-filter: drop-shadow(0 2px 4px #0307120a);
   --shadow-overlay-filter: drop-shadow(0 4px 6px #0307121f) drop-shadow(0 16px 32px #1c284024);
@@ -634,34 +659,45 @@ a {
 :root {
   --ground-alpha: 100%;
   --sidebar-ground: color-mix(in srgb, var(--page) var(--ground-alpha), transparent);
-  /* The ⌘K field's fill, thinned by the SAME amount as the ground under it.
+  /* The panes take the same material, over their OWN range.
    *
-   * It was solid `--surface`, which on a sidebar the user has made 45% see-through read as an
-   * opaque tile floating on a translucent column — the one element in there that had not been let
-   * in on the setting. Composed off `--ground-alpha` rather than given a number of its own so the
-   * two cannot drift: turn translucency off and this goes solid with everything else, and there is
-   * no second control to remember. It composites over the sidebar, not over the bare material, so
-   * at any setting it is still a step lighter than the column it sits on.
+   * One setting, two surfaces, because somebody who turns the window's translucency down is saying
+   * something about the window rather than about one column of it. But the two surfaces cannot
+   * take the same number: the sidebar holds short labels and the panes hold the reading, and a
+   * pane's ground is whatever the desktop behind the window happens to be.
    *
-   * Thinned further than the ground — `--search-alpha` of it — because a field at the ground's own
-   * opacity read as a solid tile on the column even with translucency on. It is a well the eye
-   * rests in, not a card; the ring and the placeholder carry it, and the fill only has to say
-   * "here". Still a fraction of `--ground-alpha`, so translucency off still takes it solid. */
-  --search-alpha: 0.55;
-  --search-ground: color-mix(in srgb, var(--surface) calc(var(--ground-alpha) * var(--search-alpha)), transparent);
+   * 86 is measured, not chosen (`pane-ground.test.ts` walks it). Composite each face's `--canvas`
+   * over a WHITE desktop and over a BLACK one — the two extremes every wallpaper sits between — and
+   * 86% opacity is the thinnest at which `--ink` still clears WCAG AA on all eighteen faces. Below
+   * that, body text on a light face over a dark desktop goes under 4.5:1, and body text is the one
+   * thing here that may never be a judgement call.
+   *
+   * So the slider's own range maps onto the pane's: 55 → 86 at the thin end, 100 → 100 at the other.
+   * Every position still moves both surfaces, the sidebar still goes as thin as it ever did, and the
+   * pane goes as thin as it can without putting the reading below the floor the palettes are
+   * derived against. The multiplier is (100 - 86) / (100 - 55).
+   *
+   * What this does NOT cover is the two quiet tiers: `--ink-2` and `--ink-3` ship with almost no
+   * headroom on some vendored palettes (one/light's hint tier is 2.41 against a 2.4 floor), so any
+   * translucency at all can cost them a fraction over a hostile desktop. The test names that set
+   * rather than hiding it, and it is a hint tier on a borrowed palette, not the reading. */
+  --pane-alpha: calc(86% + (var(--ground-alpha) - 55%) * 0.3111);
+  --pane-ground: color-mix(in srgb, var(--canvas) var(--pane-alpha), transparent);
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  /* Both, not just the column. The preference is about the WINDOW being see-through, and a field
-   * still showing the desktop through itself on an opaque sidebar answers it by half. */
-  :root { --sidebar-ground: var(--page); --search-ground: var(--surface); }
+  /* Every ground goes solid whatever the slider says — the preference is about the window being
+   * see-through, and it outranks a setting the user may have left on months ago. Both of them, not
+   * just the column: a pane still showing the desktop through itself beside an opaque sidebar
+   * answers the preference by half. */
+  :root { --sidebar-ground: var(--page); --pane-ground: var(--canvas); }
 }
 
 /* ══ DECORATIVE GRAIN ══════════════════════════════════════════════════════════
  * A calm surface may carry a soft field of the theme's own accent and, where there is room for it,
  * a film of grain. Both are decoration, and the app holds text to a contrast floor per role
  * (CONTRAST_FLOOR, packages/ui/src/themes.ts), so the numbers below are not taste — they are the
- * band inside which every ink tier on all seventeen faces still clears its floor. grain.test.ts
+ * band inside which every ink tier on all eighteen faces still clears its floor. grain.test.ts
  * walks the faces and proves it.
  *
  * The derivation leaves NO headroom: it places --ink-3 at exactly 2.400 against a 2.4 floor on six

@@ -39,6 +39,27 @@ describe("app store", () => {
     expect(store2.getState().activeSpaceId).toBe("s1");
   });
 
+  it("the eggs are off before boot has answered, and stay off unless the stored value is exactly true", async () => {
+    // Two defaults, and both have to be off. The literal is what the first frame renders from, so a
+    // `true` there flashes friend names and a gradient at someone who never asked — for as long as
+    // the settings read takes. The parse is the other one: anything but `true` is off, because an
+    // unreadable value is not consent.
+    const store = createAppStore(api);
+    expect(store.getState().easterEggs).toBe(false);
+    expect(store.getState().konamiUnlocked).toBe(false);
+    await store.getState().boot();
+    expect(store.getState().easterEggs).toBe(false);
+    for (const junk of ["true", 1, {}, null]) {
+      const s = createAppStore({ ...api, getSetting: async (k) => (k === "ui.easterEggs" || k === "ui.konamiUnlocked" ? junk : null) });
+      await s.getState().boot();
+      expect(s.getState().easterEggs, String(junk)).toBe(false);
+      expect(s.getState().konamiUnlocked, String(junk)).toBe(false);
+    }
+    const on = createAppStore({ ...api, getSetting: async (k) => (k === "ui.easterEggs" ? true : null) });
+    await on.getState().boot();
+    expect(on.getState().easterEggs).toBe(true);
+  });
+
   it("boot reads the theme pref; garbage falls back to system", async () => {
     const a = createAppStore({ ...api, getSetting: async (k) => (k === "ui.theme" ? "dark" : null) });
     await a.getState().boot(); expect(a.getState().themePref).toBe("dark");
@@ -2377,13 +2398,13 @@ describe("agent probe + the install card's terminal prefill (W4)", () => {
     expect(a.calls.filter((c) => c === "probeAgents:false")).toHaveLength(2);
   });
 
-  it("prefillTerminal opens the panel and TYPES the command — with no trailing newline, so nothing runs", async () => {
+  it("prefillTerminal opens the dock and TYPES the command — with no trailing newline, so nothing runs", async () => {
     const a = withSession();
     const store = createAppStore(a);
     await store.getState().boot();
     await store.getState().prefillTerminal("se1", "npm install -g @anthropic-ai/claude-code");
 
-    expect(store.getState().terminalPanel["se1"]).toEqual({ open: true, width: 38 });
+    expect(store.getState().sessionDock["se1"]).toEqual({ kind: "terminal" });
     expect(a.calls).toContain("openSessionTerminal:se1");
     const write = a.calls.find((c) => c.startsWith("prefillTerminal:"))!;
     expect(write).toBe("prefillTerminal:term-se1=npm install -g @anthropic-ai/claude-code");
@@ -2867,27 +2888,27 @@ describe("under-strip: environment rebinding + the '+' menu's connectors cache (
 
 /** Plan 12 W3: the space page — a `space-page` item whose refId is the SPACE id (diff-pane precedent). */
 describe("openSpacePage", () => {
-  it("creates ONE page per space, opens it into the layout, and dedups every later open", async () => {
+  it("shows the space's Overview over the workspace, taking no item and no pane", async () => {
     const api = fakeApi();
     const store = createAppStore(api);
     await store.getState().boot();
-    await store.getState().openSpacePage("s1");
-    const page = store.getState().items.find((i) => i.kind === "space-page")!;
-    expect(page).toMatchObject({ refId: "s1", spaceId: "s1", title: "Overview" });
-    expect(allItems(store.getState().layout!)).toContain(page.id);
-    // Second open — with a tab this time: no second item, but the tab still lands.
-    await store.getState().openSpacePage("s1", "connections");
-    expect(api.calls.filter((c) => c.startsWith("createItem:") && c.includes("space-page"))).toHaveLength(1);
-    expect(store.getState().items.filter((i) => i.kind === "space-page")).toHaveLength(1);
+    const layout = allItems(store.getState().layout!);
+    store.getState().openSpacePage("s1");
+    expect(store.getState().pageOverlay).toEqual({ kind: "space-page", refId: "s1", spaceId: "s1" });
+    // THE MUTANT, and the one that shipped: create an item and adopt it into the layout.
+    expect(api.calls.some((c) => c.startsWith("createItem:") && c.includes("space-page"))).toBe(false);
+    expect(allItems(store.getState().layout!)).toEqual(layout);
+    // A second open — with a tab this time — still lands the tab.
+    store.getState().openSpacePage("s1", "connections");
     expect(store.getState().spacePageTab.s1).toBe("connections");
   });
 
-  it("never adopts a page into the WRONG space's layout — a stale spaceId is a no-op", async () => {
+  it("never shows a page for the WRONG space — a stale spaceId is a no-op", async () => {
     const api = fakeApi();
     const store = createAppStore(api);
     await store.getState().boot(); // active: s1
-    await store.getState().openSpacePage("s2", "skills");
-    expect(store.getState().items.some((i) => i.kind === "space-page")).toBe(false);
+    store.getState().openSpacePage("s2", "skills");
+    expect(store.getState().pageOverlay).toBeNull();
     expect(api.calls.some((c) => c.startsWith("createItem:"))).toBe(false);
     // The tab preference still lands, so opening s2's page later starts where the caller asked.
     expect(store.getState().spacePageTab.s2).toBe("skills");
@@ -2904,174 +2925,147 @@ describe("openSpacePage", () => {
 
 /** Plan 12 W4: the sidebar destinations — `library-page`/`connections-page` items whose refId is the
  *  kind's well-known sentinel (PAGE_REF_IDS) and whose spaceId is the vantage the page reads from. */
-describe("openDestinationPage", () => {
-  it("creates ONE Library page in the active space, opens it, and dedups every later open (named mutant: two Library panes)", async () => {
-    const api = fakeApi();
-    const store = createAppStore(api);
-    await store.getState().boot(); // active: s1
-    await store.getState().openDestinationPage("library-page");
-    const page = store.getState().items.find((i) => i.kind === "library-page")!;
-    expect(page).toMatchObject({ spaceId: "s1", title: "Library", refId: PAGE_REF_IDS["library-page"] });
-    expect(allItems(store.getState().layout!)).toContain(page.id);
-    await store.getState().openDestinationPage("library-page");
-    expect(api.calls.filter((c) => c.startsWith("createItem:") && c.includes("library-page"))).toHaveLength(1);
-    expect(store.getState().items.filter((i) => i.kind === "library-page")).toHaveLength(1);
+describe("app-level pages are an OVERLAY, not a pane", () => {
+  /* The complaint this answers, in the user's own words: opening Agents, Library, Connections,
+     Notifications, Scheduled tasks or Settings "shouldn't add to the sidebar at all" and shouldn't
+     "interrupt the user's actual session split panes". They used to be layout items with sentinel
+     refIds — each one split a pane, zoomed it, and left a row in the Open list, so unzooming
+     afterwards left four pages sitting beside the session you were working in. */
+
+  it("takes no item, no layout leaf and no sidebar row", async () => {
+    const store = createAppStore(fakeApi());
+    await store.getState().boot();
+    const itemsBefore = store.getState().items.length;
+    const layoutBefore = allItems(store.getState().layout!);
+
+    store.getState().openDestinationPage("library-page");
+
+    expect(store.getState().pageOverlay).toEqual({
+      kind: "library-page", refId: PAGE_REF_IDS["library-page"], spaceId: store.getState().activeSpaceId,
+    });
+    // THE MUTANT, and the one that shipped: create an item and adopt it.
+    expect(store.getState().items).toHaveLength(itemsBefore);
+    expect(allItems(store.getState().layout!)).toEqual(layoutBefore);
   });
 
-  it("Library and Connections are separate pages — opening one never satisfies the other's dedup", async () => {
-    const api = fakeApi();
-    const store = createAppStore(api);
+  it("leaves the workspace exactly as it was, however many pages are opened", async () => {
+    const store = createAppStore(fakeApi());
     await store.getState().boot();
-    await store.getState().openDestinationPage("library-page");
-    await store.getState().openDestinationPage("connections-page");
-    const kinds = store.getState().items.map((i) => i.kind);
-    expect(kinds.filter((k) => k === "library-page")).toHaveLength(1);
-    expect(kinds.filter((k) => k === "connections-page")).toHaveLength(1);
-    expect(store.getState().items.find((i) => i.kind === "connections-page")).toMatchObject({ title: "Connections", refId: PAGE_REF_IDS["connections-page"] });
-  });
-
-  it("with no active space (mid-boot) it is a no-op rather than an item with nowhere to live", async () => {
-    const api = fakeApi({ spaces: [] });
-    const store = createAppStore(api);
-    await store.getState().boot();
-    await store.getState().openDestinationPage("library-page");
-    expect(api.calls.some((c) => c.startsWith("createItem:"))).toBe(false);
-  });
-
-  it("THE homing mutant: a `here` placement MOVES an open page into the focused pane, where a plain open goes to it", async () => {
-    const api = fakeApi();
-    const store = createAppStore(api);
-    await store.getState().boot();
-    await store.getState().openDestinationPage("library-page");
-    const page = store.getState().items.find((i) => i.kind === "library-page")!;
-    const home = store.getState().focusedLeafId!;
     await store.getState().splitFocused("row");
-    const other = store.getState().focusedLeafId!;
-    expect(other).not.toBe(home);
+    const layout = allItems(store.getState().layout!);
+    const focused = store.getState().focusedLeafId;
 
-    // Plain: one page per space, so this is "go there" — the focus moves to the pane, not the pane
-    // to the focus, and the empty half of the split stays empty.
-    await store.getState().openDestinationPage("library-page");
-    expect(store.getState().focusedLeafId).toBe(home);
-    expect(findLeafOfItem(store.getState().layout!, page.id)!.id).toBe(home);
-
-    store.getState().focusLeaf(other);
-    await store.getState().openDestinationPage("library-page", "here");
-    expect(findLeafOfItem(store.getState().layout!, page.id)!.id).toBe(other);
-    // Still one page: a placement is about WHERE it lands, never about how many there are.
-    expect(store.getState().items.filter((i) => i.kind === "library-page")).toHaveLength(1);
+    for (const kind of ["agents-page", "library-page", "connections-page", "notifications-page", "schedules-page", "settings-page"] as const) {
+      store.getState().openDestinationPage(kind);
+    }
+    expect(allItems(store.getState().layout!)).toEqual(layout);
+    expect(store.getState().focusedLeafId).toBe(focused);
+    expect(store.getState().items.some((i) => i.kind.endsWith("-page"))).toBe(false);
   });
 
-  it("takes a pane of its OWN rather than evicting the session in the focused one, and zooms it", async () => {
-    // The complaint this answers: reaching Settings cost you whatever session was focused. An app
-    // tool splits off instead, so the arrangement survives — and then zooms, because a settings form
-    // in half a split is worse than useless. The two named mutants: dropping the `beside` flag (the
-    // session's item leaves the layout), and dropping the zoom (the page arrives at half width).
-    const api = fakeApi();
-    const store = createAppStore(api);
+  it("shows ONE at a time — the second replaces the first rather than stacking", async () => {
+    const store = createAppStore(fakeApi());
     await store.getState().boot();
-    const working = store.getState().items[0]!; // the space's seeded terminal
-    await store.getState().openItem(working.id);
-    const workingLeaf = store.getState().focusedLeafId!;
-
-    await store.getState().openDestinationPage("settings-page");
-    const page = store.getState().items.find((i) => i.kind === "settings-page")!;
-    const pageLeaf = findLeafOfItem(store.getState().layout!, page.id)!;
-    expect(pageLeaf.id).not.toBe(workingLeaf);
-    // The pane the user was in is still there, still holding what it held.
-    expect(itemIdOfLeaf(store.getState().layout!, workingLeaf)).toBe(working.id);
-    expect(store.getState().zoomedLeafId()).toBe(pageLeaf.id);
-    expect(store.getState().focusedLeafId).toBe(pageLeaf.id);
+    store.getState().openDestinationPage("library-page");
+    store.getState().openDestinationPage("settings-page");
+    expect(store.getState().pageOverlay!.kind).toBe("settings-page");
   });
 
-  it("with nothing else open it does not zoom — a lone pane looks the same either way", async () => {
-    // Zooming a one-leaf group buys nothing and grows an "Unfocus" control offering to return the
-    // user to the arrangement they are already looking at.
-    const api = fakeApi();
-    const store = createAppStore(api);
+  it("closes to nothing, and leaves nothing behind", async () => {
+    const store = createAppStore(fakeApi());
     await store.getState().boot();
-    await store.getState().openDestinationPage("library-page");
-    expect(store.getState().zoomedLeafId()).toBeNull();
+    store.getState().openDestinationPage("settings-page");
+    store.getState().closePageOverlay();
+    expect(store.getState().pageOverlay).toBeNull();
+    expect(store.getState().items.some((i) => i.kind === "settings-page")).toBe(false);
   });
 
-  it("opening a session afterwards drops the zoom, so the click is not swallowed by the page filling the window", async () => {
-    // A zoomed group renders only its zoomed leaf, so without this the sidebar click would move the
-    // focus behind the Settings page and the screen would not change at all. The named mutant:
-    // leaving `revealing` out of openItem's "go there" branch.
-    const api = fakeApi();
-    const store = createAppStore(api);
+  it("does nothing at all before a space is active", async () => {
+    // The page reads FROM a space — its scope groups are computed from one — so there is nothing to
+    // show yet, and a page over an empty workspace would have no vantage to render.
+    const store = createAppStore(fakeApi({ spaces: [] }));
     await store.getState().boot();
-    const working = store.getState().items[0]!;
-    await store.getState().openItem(working.id);
-    const workingLeaf = store.getState().focusedLeafId!;
-    await store.getState().openDestinationPage("connections-page");
-    expect(store.getState().zoomedLeafId()).not.toBeNull();
-
-    await store.getState().openItem(working.id);
-    expect(store.getState().focusedLeafId).toBe(workingLeaf);
-    expect(store.getState().zoomedLeafId()).toBeNull();
+    store.getState().openDestinationPage("library-page");
+    expect(store.getState().pageOverlay).toBeNull();
   });
 
-  it("⌥-click still means THIS pane, and does not then fill the window over the top of it", async () => {
-    const api = fakeApi();
-    const store = createAppStore(api);
+  it("a space's Overview and a profile ride the same slot", async () => {
+    // One overlay, whatever kind of page is in it: two slots would be two pages able to cover each
+    // other, which is the pane problem again in a smaller box.
+    const store = createAppStore(fakeApi());
     await store.getState().boot();
-    const working = store.getState().items[0]!;
-    await store.getState().openItem(working.id);
-    const home = store.getState().focusedLeafId!;
-    await store.getState().splitFocused("row");
-    const other = store.getState().focusedLeafId!;
-    await store.getState().openDestinationPage("library-page", "here");
-    const page = store.getState().items.find((i) => i.kind === "library-page")!;
-    expect(findLeafOfItem(store.getState().layout!, page.id)!.id).toBe(other);
-    expect(store.getState().zoomedLeafId()).toBeNull();
-    expect(itemIdOfLeaf(store.getState().layout!, home)).toBe(working.id);
+    const spaceId = store.getState().activeSpaceId!;
+    store.getState().openSpacePage(spaceId);
+    expect(store.getState().pageOverlay).toEqual({ kind: "space-page", refId: spaceId, spaceId });
+    store.getState().openProfilePage();
+    expect(store.getState().pageOverlay!.kind).toBe("profile-page");
+    expect(store.getState().items.some((i) => i.kind === "space-page")).toBe(false);
   });
 
-  it("destinationPageElsewhere is the gate both surfaces read — false whenever the placement would change nothing", async () => {
-    const api = fakeApi();
-    const store = createAppStore(api);
+  it("an opener still carries its tab, whether or not the page is already up", async () => {
+    const store = createAppStore(fakeApi());
     await store.getState().boot();
-    expect(store.getState().destinationPageElsewhere("library-page")).toBe(false); // no page: a plain open already lands here
-    await store.getState().openDestinationPage("library-page");
-    expect(store.getState().destinationPageElsewhere("library-page")).toBe(false); // the page IS the focused pane
-    await store.getState().splitFocused("row");
-    expect(store.getState().destinationPageElsewhere("library-page")).toBe(true);  // now it is somewhere to be brought FROM
-    const page = store.getState().items.find((i) => i.kind === "library-page")!;
-    await store.getState().closeFromLayout(page.id);
-    // The item outlives its pane; with no pane holding it, both placements open one.
-    expect(store.getState().items.some((i) => i.id === page.id)).toBe(true);
-    expect(store.getState().destinationPageElsewhere("library-page")).toBe(false);
+    const spaceId = store.getState().activeSpaceId!;
+    store.getState().openSpacePage(spaceId, "memory");
+    expect(store.getState().spacePageTab[spaceId]).toBe("memory");
+    store.getState().openSpacePage(spaceId, "connections");
+    expect(store.getState().spacePageTab[spaceId]).toBe("connections");
   });
 });
 
+
 describe("openProfilePage (Plan 14 W2)", () => {
-  it("creates ONE profile page in the active space with the sentinel refId, and dedups later opens", async () => {
+  it("shows the profile over the active space, taking no item and no pane", async () => {
     const api = fakeApi();
     const store = createAppStore(api);
     await store.getState().boot(); // active: s1 (profile p1)
-    await store.getState().openProfilePage();
-    const page = store.getState().items.find((i) => i.kind === "profile-page")!;
-    expect(page).toMatchObject({ spaceId: "s1", title: "Profile", refId: PAGE_REF_IDS["profile-page"] });
-    expect(allItems(store.getState().layout!)).toContain(page.id);
-    await store.getState().openProfilePage();
-    expect(api.calls.filter((c) => c.startsWith("createItem:") && c.includes("profile-page"))).toHaveLength(1);
-    expect(store.getState().items.filter((i) => i.kind === "profile-page")).toHaveLength(1);
+    store.getState().openProfilePage();
+    expect(store.getState().pageOverlay).toEqual({
+      kind: "profile-page", refId: PAGE_REF_IDS["profile-page"], spaceId: "s1",
+    });
+    expect(api.calls.some((c) => c.startsWith("createItem:") && c.includes("profile-page"))).toBe(false);
+    expect(store.getState().items.some((i) => i.kind === "profile-page")).toBe(false);
   });
 
   it("lands on the asked-for section, keyed by the ACTIVE space's profile", async () => {
     const store = createAppStore(fakeApi());
     await store.getState().boot(); // s1 → p1
-    await store.getState().openProfilePage("memory");
+    store.getState().openProfilePage("memory");
     expect(store.getState().profilePageTab.p1).toBe("memory");
     expect(store.getState().profilePageTab.p2).toBeUndefined();
   });
 
-  it("with no active space (mid-boot) it is a no-op rather than an item with nowhere to live", async () => {
+  it("a row opened in the workspace takes the page off it — otherwise the click changes nothing on screen", async () => {
+    /* The page covers the pane host, so before this the sidebar row moved the layout and the focus
+       underneath an opaque cover: nothing changed on screen and the keyboard ended up in a pane
+       nobody could see. THE MUTANT: drop the reveal from `openItem` and this session is focused
+       behind Settings. */
+    const store = createAppStore(fakeApi());
+    await store.getState().boot();
+    const item = store.getState().items[0]!; // the fake space's one row
+    store.getState().openDestinationPage("settings-page");
+    expect(store.getState().pageOverlay!.kind).toBe("settings-page");
+    await store.getState().openItem(item.id);
+    expect(store.getState().pageOverlay).toBeNull();
+  });
+
+  it("…but a quiet open does not: a pane arriving beside you is no reason to close what you are reading", async () => {
+    /* `openItemBesideQuiet` is the agent's own path — a document written beside you, a pane that
+       must not steal the caret. It moves no focus, so there is nothing behind the page to reveal. */
+    const store = createAppStore(fakeApi());
+    await store.getState().boot();
+    const item = store.getState().items[0]!;
+    store.getState().openDestinationPage("settings-page");
+    await store.getState().openItemBesideQuiet(item.id);
+    expect(store.getState().pageOverlay!.kind).toBe("settings-page");
+  });
+
+  it("with no active space (mid-boot) it is a no-op rather than a page with no vantage", async () => {
     const api = fakeApi({ spaces: [] });
     const store = createAppStore(api);
     await store.getState().boot();
-    await store.getState().openProfilePage();
+    store.getState().openProfilePage();
+    expect(store.getState().pageOverlay).toBeNull();
     expect(api.calls.some((c) => c.startsWith("createItem:"))).toBe(false);
   });
 });
@@ -3235,5 +3229,93 @@ describe("what changed while you were away", () => {
     store.getState().applySessionEvent({ seq: 5, sessionId: "other", ephemeral: false,
       event: { type: "assistant_text", ts: 2001, payload: { messageId: "m10", text: "x" } } } as never);
     expect(api.calls.some((c) => c.startsWith("markSessionSeen:other"))).toBe(false);
+  });
+});
+
+describe("what the app does when nobody is looking", () => {
+  it("remembers Low power across launches — it is a standing choice, not a mood", async () => {
+    const api = fakeApi();
+    const store = createAppStore(api);
+    await store.getState().boot();
+    expect(store.getState().lowPower).toBe(false); // the motion is part of how the app reads
+    await store.getState().setLowPower(true);
+    expect(api.calls).toContain("setSetting:ui.lowPower=true");
+
+    const again = createAppStore(fakeApi({ settings: { "ui.lowPower": true } }));
+    await again.getState().boot();
+    expect(again.getState().lowPower).toBe(true);
+  });
+
+  it("the window's focus is a state change only when it CHANGES", async () => {
+    /* `focus` and `blur` both fire more than once for one switch — the window, then the page — and a
+       write per event is a re-render of the whole app per event, which is the opposite of the point. */
+    const store = createAppStore(fakeApi());
+    await store.getState().boot();
+    expect(store.getState().windowActive).toBe(true);
+    let renders = 0;
+    const stop = store.subscribe(() => { renders++; });
+    store.getState().setWindowActive(true);
+    store.getState().setWindowActive(true);
+    expect(renders).toBe(0);
+    store.getState().setWindowActive(false);
+    expect(renders).toBe(1);
+    expect(store.getState().windowActive).toBe(false);
+    stop();
+  });
+});
+
+describe("pointing a draft at another session", () => {
+  const ref = (id: string, title = "The other one") => ({ sessionId: id, title, agent: "claude" });
+
+  it("holds the reference beside the draft, never in it", async () => {
+    /* The whole reason this is not a chip: an icon inside a painted run moves every glyph after it
+       (`draft-format.ts`). So the draft text must be untouched by adding one. */
+    const store = createAppStore(fakeApi()); await store.getState().boot();
+    store.getState().setDraft("se1", "look at this");
+    expect(store.getState().addSessionRef("se1", ref("se2"))).toBe("ok");
+    expect(store.getState().drafts.se1).toBe("look at this");
+    expect(store.getState().draftSessionRefs.se1).toEqual([ref("se2")]);
+  });
+
+  it("refuses to point a session at itself", async () => {
+    // `agent_ask` on your own id blocks on yourself, and the agent already has this transcript.
+    const store = createAppStore(fakeApi()); await store.getState().boot();
+    expect(store.getState().addSessionRef("se1", ref("se1"))).toBe("self");
+    expect(store.getState().draftSessionRefs.se1 ?? []).toEqual([]);
+  });
+
+  it("refuses a duplicate rather than listing one session twice", async () => {
+    const store = createAppStore(fakeApi()); await store.getState().boot();
+    store.getState().addSessionRef("se1", ref("se2"));
+    expect(store.getState().addSessionRef("se1", ref("se2", "renamed since"))).toBe("duplicate");
+    expect(store.getState().draftSessionRefs.se1).toHaveLength(1);
+  });
+
+  it("refuses the ninth HERE, not at the wire", async () => {
+    /* The schema caps at the same number. Refusing only there leaves a composer that looked fine and
+       a message that bounces on send, with the user holding something they cannot post. */
+    const store = createAppStore(fakeApi()); await store.getState().boot();
+    for (let i = 0; i < 8; i++) expect(store.getState().addSessionRef("se1", ref(`s${i}`))).toBe("ok");
+    expect(store.getState().addSessionRef("se1", ref("s9"))).toBe("full");
+  });
+
+  it("removes one by id", async () => {
+    const store = createAppStore(fakeApi()); await store.getState().boot();
+    store.getState().addSessionRef("se1", ref("se2"));
+    store.getState().addSessionRef("se1", ref("se3"));
+    store.getState().removeSessionRef("se1", "se2");
+    expect(store.getState().draftSessionRefs.se1!.map((r) => r.sessionId)).toEqual(["se3"]);
+  });
+
+  it("sends them with the message and then clears them", async () => {
+    // The sidecar's whole point. The mutant: sending the text and leaving the references behind, so
+    // the next message silently points at the same sessions again.
+    const api = fakeApi();
+    const st = createAppStore(api); await st.getState().boot();
+    st.getState().addSessionRef("se1", ref("se2"));
+    await st.getState().sendMessage("se1", "compare notes");
+    // It REACHED the wire — the id is the whole payload, and without this the pill is decoration.
+    expect(api.sent.at(-1)!).toMatchObject({ text: "compare notes", sessionRefs: [ref("se2")] });
+    expect(st.getState().draftSessionRefs.se1).toEqual([]);
   });
 });

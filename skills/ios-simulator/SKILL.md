@@ -1,19 +1,25 @@
 ---
 name: ios-simulator
-description: Mirror a booted Apple Simulator into a Realm browser pane with serve-sim, read its accessibility tree, and drive it — tap elements by label, type, gestures, hardware buttons, rotation, camera and permissions. Use when the task needs to see or interact with an iOS/iPadOS/watchOS app, check a SwiftUI screen outside Xcode, or capture proof of what an app actually renders.
+description: Open an Apple Simulator in a Realm pane, read its accessibility tree, and drive it — tap elements by label, type, gestures, hardware buttons, rotation, camera and permissions. Use when the task needs to see or interact with an iOS/iPadOS/watchOS app, check a SwiftUI screen outside Xcode, or capture proof of what an app actually renders.
 ---
 
 # Driving an Apple Simulator from a Realm pane
 
-`serve-sim` captures a booted simulator's framebuffer (direct IOSurface, zero-copy) and serves it as a
-web page. Realm already renders web pages in panes, so the simulator becomes an ordinary browser pane
-the user can watch — no simulator pane, no `simctl` screenshot polling.
+`serve-sim` captures a booted simulator's framebuffer (direct IOSurface, zero-copy) and serves it over
+loopback. Realm has a **simulator pane** of its own that streams it: the session bar's phone button
+opens one, its empty state lists this Mac's devices, and picking one boots the device, starts
+`serve-sim` and shows the screen. A person can tap and type in that pane directly.
+
+**Prefer the pane when a human is watching** — it is one button, and it adopts a stream that is
+already running rather than starting a second one. What follows is the same thing done from a shell,
+which is what you want when nobody asked for a pane, when the device has to be driven
+deterministically, or when you need `/ax`.
 
 Three surfaces, and keeping them straight is most of the skill: the **pane** shows a human what is
 happening, `/ax` is how you **know** what is on screen, and the `serve-sim` CLI is how you **drive**
-the device. Input never goes through the pane.
+the device. Input never goes through the pane's picture.
 
-## Start it
+## Start it, from a shell
 
 1. **Pick a UDID.** `xcrun simctl list devices available` — never guess, and never target "booted"
    when more than one is up.
@@ -31,7 +37,10 @@ the device. Input never goes through the pane.
    # {"running":true,"url":"http://127.0.0.1:3200", ... ,"device":"<udid>","pid":17016}
    ```
 
-5. **Open `url` with `browser_open`.** From here it is a normal pane.
+5. **Show it, if a human wants to watch.** The simulator button in a session's pane bar opens
+   Realm's own pane, which finds the stream you just started and shows it. `browser_open` on `url`
+   still works and gives you serve-sim's own web UI instead — its tools panel and DevTools live
+   there, and nowhere else.
 
 ## Verify before reporting
 
@@ -68,6 +77,13 @@ is unsupported.
 
 Two channels, and each has a job:
 
+- **Realm's own pane** — its bar carries Home, the volume pair, the side button, rotate and stop,
+  and a **Device settings** menu that reaches everything `serve-sim ui` can set (appearance, Liquid
+  Glass, colour filter, text size, Reduce Motion, Increase Contrast, Reduce Transparency, layout
+  borders, VoiceOver) plus the CoreAnimation debug overlays, a memory warning and the Action button.
+  The menu reads its values off the device each time it opens, so it agrees with `serve-sim ui
+  status`. Under the device is the frame picker — a chassis and its finish, which is decoration and
+  changes nothing about the device.
 - **The preview UI's own controls** — `browser_snapshot` lists them, `browser_act` clicks them by ref:
   `Home`, `Screenshot`, `Rotate device`, `Show accessibility overlay`, `Open tools panel`,
   `Open WebKit DevTools`, plus hardware `Action` / `Volume Up` / `Volume Down` / `Power`. These are
@@ -82,8 +98,13 @@ Two channels, and each has a job:
   npx --yes serve-sim@latest gesture '<json>' -d <udid> # swipes, pinches
   ```
 
-  Also available: `camera` (inject a synthetic feed), `permissions`, `ui`, `memory-warning`,
-  `ca-debug`, `event-log`.
+  Also available: `camera` (inject a synthetic feed), `permissions`, `event-log` — and `ui`,
+  `memory-warning` and `ca-debug`, which the pane's Device settings menu now drives, so prefer the
+  pane for those when a human is watching.
+
+  `ui` takes its values from its own table; hand it one it rejects and it prints the accepted set,
+  which is how `SIMULATOR_UI_OPTIONS` in `packages/contracts/src/simulator.ts` was written. Do not
+  guess at `text-size`'s twelve content-size categories.
 
 **Tap the element, not a guess.** Take the target's `frame` from `/ax` and convert its centre against
 `screen`:
@@ -98,20 +119,37 @@ button appeared, the heading is the new screen. The video stream can lag a trans
 screenshot taken straight after a tap may still show the old screen while the tap has already landed.
 Screenshots are for showing the user; `/ax` is for knowing.
 
-## What the pane cannot see
+## What the pane can and cannot see
 
 **The device screen is one DOM node.** `browser_snapshot` reports it as a single `generic ""` box;
-every icon, row and control inside it is pixels as far as the page is concerned.
+every icon, row and control inside it is pixels as far as the page is concerned. So Realm's element
+picker over a phone resolves to "the simulator" and nothing finer — there are no element chips for
+anything on the device, and you must never claim to have clicked a named control "by ref" when what
+you sent was a coordinate.
 
-So: **there are no element chips for anything on the device.** Realm's element picker resolves the DOM
-node under the pointer, and over the phone that node is the whole screen — picking gives the user a
-chip meaning "the simulator", not "the General row". Do not tell the user they can pick device
-elements into the prompter, and never claim to have clicked a named control "by ref" when what you
-sent was a coordinate.
+**The pane's Elements toggle is the answer to that.** It reads the same `/ax` tree and draws a box
+per element over the picture, each named by what the DEVICE calls it, each a control that taps the
+middle of the real thing. A human can point at "General" and hit it; the tree is re-read on demand,
+because it is a snapshot of a screen that moves. Use it when a person is watching. Use `/ax` and the
+CLI when you need to know rather than to show.
 
-This is a limit of the *pane*, not of what you can know: `/ax` above gives you labels, roles and
-frames for everything on screen. Address the device through the tree and the CLI; use the pane to
-show a human what is happening.
+The route is `/helper/<udid>/ax`, and what it answers with is a NESTED array of nodes —
+`{ AXLabel, AXValue, AXUniqueId, enabled, frame, type, children }`, frames in POINTS. The flat
+`{screen, elements}` body described above is an older shape; the unscoped `/ax` on this build answers
+with an SSE keepalive and no tree at all, which reads as "no elements" rather than as "wrong route".
+
+## What else the pane does now
+
+- **Screenshot** — `simctl io screenshot` at the device's full resolution, into the space's own
+  `simulator/` folder, revealed in Finder. Not opened in the documents pane: that caps its reads at
+  2 MB and a phone screenshot is three or four.
+- **Apps** — every installed app (`simctl listapps`, the user's own first), and per app: launch,
+  grant/revoke/reset any of the sixteen permissions, and inject a camera feed.
+- **Drop a file on the device** — a `.app` or `.ipa` installs, a picture or video lands in Photos.
+- **Camera injection needs a NATIVE app, and Safari will not do.** The feed is injected by swizzling
+  AVFoundation inside the process that is launched; WebKit captures in its own process, so a page
+  calling `getUserMedia` in the simulator's Safari fails with `OverconstrainedError` however the
+  injector was started. Measured, not assumed. Point it at the app under test.
 
 ## Stop it
 

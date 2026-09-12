@@ -77,12 +77,12 @@ describe("the jump strip names the list's own separators", () => {
     expect(jump("Cursor").querySelector("[data-brand='cursor']")).not.toBeNull();
   });
 
-  it("dissolves at both ends with the app's own fade, turned on its side", () => {
+  it("dissolves at both ends with the app's own dissolve, turned on its side", () => {
     mount();
-    const bands = [...bar().parentElement!.querySelectorAll(".edge-fade")].map((b) => b.getAttribute("data-edge"));
-    // Gated bands, not bare spans: `.edge-fade` is opacity-0 until `data-on` says there is something
-    // under it, so a hand-written pair (as the model list carried) paints nothing at all, ever.
-    expect(bands).toEqual(["start", "end"]);
+    // The strip's own mask, gated: `data-dissolve-x` names the ends that have something past them,
+    // and a hand-written pair of bands (as the model list once carried) painted nothing at all.
+    expect(bar()).toHaveAttribute("data-dissolve-x");
+    expect(bar().parentElement!.querySelector(".edge-fade")).toBeNull();
   });
 
   it("dissolves the model blurb at both ends too, inside its own box", () => {
@@ -95,13 +95,12 @@ describe("the jump strip names the list's own separators", () => {
        the Effort strip and Use model, so a band pinned to its bottom would dissolve those controls
        instead of the text above them — the mutant that still looks plausible in a diff. */
     const wrap = document.querySelector(".mp-detail-wrap");
-    expect(wrap, "the blurb needs its own relative box for the bands to sit in").not.toBeNull();
-    const bands = [...wrap!.querySelectorAll(":scope > .edge-fade")].map((b) => b.getAttribute("data-edge"));
-    expect(bands).toEqual(["top", null]);
-    // And the scroller is its sibling, not its parent: a band inside the box it fades travels with
-    // the content and dissolves the middle of the blurb.
-    expect(wrap!.querySelector(":scope > .mp-detail-body")).not.toBeNull();
-    expect(document.querySelector(".mp-detail-body .edge-fade")).toBeNull();
+    expect(wrap, "the blurb needs its own box, so the dissolve belongs to it").not.toBeNull();
+    // The BLURB carries the mask, not the column: `.mp-detail` also holds the Effort strip and Use
+    // model, and a dissolve on it would take those controls instead of the text above them.
+    expect(wrap!.querySelector(":scope > .mp-detail-body")).toHaveAttribute("data-dissolve");
+    expect(document.querySelector(".mp-detail")).not.toHaveAttribute("data-dissolve");
+    expect(document.querySelector(".edge-fade")).toBeNull();
   });
 
   it("states the band's depth once, on the row that owns both columns", () => {
@@ -110,7 +109,7 @@ describe("the jump strip names the list's own separators", () => {
     const css = readFileSync(repoFile("apps/desktop/src/renderer/src/styles.css"), "utf8");
     const body = /\.mp-body \{([^}]*)\}/.exec(css)?.[1] ?? "";
     expect(body).toMatch(/--fade-h:/);
-    expect(body).toMatch(/--fade-ground:/);
+    expect(body).toMatch(/--fade-top-h:/);
     const listWrap = /\.mp-list-wrap \{([^}]*)\}/.exec(css)?.[1] ?? "";
     expect(listWrap, "the column must inherit the depth, not restate it").not.toMatch(/--fade-h:/);
   });

@@ -17,11 +17,6 @@ const page = (kind: "settings-page" | "notifications-page") =>
   item(`w-${kind}`, "s1", { kind, title: kind, refId: PAGE_REF_IDS[kind] });
 
 const GEOMETRY = ["--grain-hue", "--grain-x", "--grain-y", "--grain-spread"];
-const washed = (el: HTMLElement) => {
-  expect(el.classList.contains("wash"), el.className).toBe(true);
-  for (const name of GEOMETRY) expect(el.style.getPropertyValue(name), name).not.toBe("");
-  return el;
-};
 
 describe("which surfaces wear the decorative wash", () => {
   it("Notifications is plain too — it was the last page wearing the field, and it wore it worst", async () => {
@@ -46,10 +41,21 @@ describe("which surfaces wear the decorative wash", () => {
     for (const name of GEOMETRY) expect(root.style.getPropertyValue(name), name).toBe("");
   });
 
-  it("the first-run card takes the grain too, because a --surface ground can pay for it", async () => {
+  it("the first-run card is plain too — and it was the last surface in the app wearing one", async () => {
+    /* The third and last of them, and the sharpest case of the same argument. Settings lost the wash
+       because a tint over a form reads as bleed into the controls; Notifications because a decorated
+       ground under things asking for your attention competes with the attention. A first run is both
+       at once: it is the only screen in Realm where nothing is familiar yet, so every gradient on it
+       is one more thing to work out before the two decisions it actually asks for.
+
+       The named mutant is `className="sheet onboarding wash" data-grain` coming back. Nothing in the
+       app wears `.wash` now — the rules and `theme/grain.ts` are still here and still tested, and
+       this is the test that says nobody is using them. */
     await mount(<Onboarding />);
-    const card = washed(screen.getByLabelText("Welcome to Realm"));
-    expect(card.hasAttribute("data-grain")).toBe(true);
+    const card = screen.getByLabelText("Welcome to Realm");
+    expect(card.classList.contains("wash")).toBe(false);
+    expect(card.hasAttribute("data-grain")).toBe(false);
+    for (const name of GEOMETRY) expect(card.style.getPropertyValue(name), name).toBe("");
   });
 
   it("leaves every other sheet plain — a surface that exists to ask one question is not decorated", async () => {
@@ -59,21 +65,8 @@ describe("which surfaces wear the decorative wash", () => {
     expect(dialog.style.getPropertyValue("--grain-hue")).toBe("");
   });
 
-  it("gives two surfaces open together two different fields", async () => {
-    const { container } = await mount(<><NotificationsPage item={page("notifications-page")} visible /><Onboarding /></>);
-    const a = GEOMETRY.map((n) => container.querySelector<HTMLElement>(".notifications-page-pane")!.style.getPropertyValue(n)).join();
-    const b = GEOMETRY.map((n) => screen.getByLabelText("Welcome to Realm").style.getPropertyValue(n)).join();
-    expect(a).not.toBe(b);
-  });
-
-  it("holds the field still across a re-render, so nothing reshuffles under the reader", async () => {
-    const store = createAppStore(fakeApi({ spaces: [], items: {} }));
-    await store.getState().boot();
-    const ui = <StoreContext.Provider value={store}><NotificationsPage item={page("notifications-page")} visible /></StoreContext.Provider>;
-    const { container, rerender } = render(ui);
-    const read = () => GEOMETRY.map((n) => container.querySelector<HTMLElement>(".notifications-page-pane")!.style.getPropertyValue(n)).join();
-    const before = read();
-    rerender(ui);
-    expect(read()).toBe(before);
-  });
+  /* The two tests that used to sit here compared one washed surface against another and held one
+     still across a re-render. Both read their geometry off surfaces that no longer carry any, so
+     both had quietly become assertions that "" is "" — and `theme/grain.test.ts` tests `grainVars`
+     itself, which is where the per-surface seed and its stability actually live. */
 });

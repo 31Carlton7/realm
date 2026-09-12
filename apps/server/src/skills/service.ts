@@ -1,12 +1,15 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join } from "node:path";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AGENT_SKILL_SUPPORT, ItemScopeSchema, LEGACY_SPACE_SCOPE, SkillIdSchema, type AgentKind, type ItemScope, type Skill } from "@realm/contracts";
+import {
+  AGENT_SKILL_SUPPORT, ItemScopeSchema, LEGACY_SPACE_SCOPE, SKILL_TEXT_MAX, SKILL_TREE_DEPTH, SKILL_TREE_MAX, SkillIdSchema,
+  isReadableSkillFile, type AgentKind, type ItemScope, type Skill, type SkillDetail, type SkillResource,
+} from "@realm/contracts";
 import { scan, scanRoots as buildScanRoots, tildify, type Discovered, type ScanRoot } from "./discovery";
 import type { SkillsInjection } from "@realm/adapters";
 import { RpcError } from "../store/rows";
 import type { SettingsStore } from "../store/settings";
-import { parseFrontmatter } from "./frontmatter";
+import { parseFrontmatter, parseSkillDocument } from "./frontmatter";
 
 /** Realm's library lives here and nowhere else. Nothing is ever written into `~/.claude`, `~/.codex`,
  *  `~/.cursor` or `~/.agents` — see `SkillsInjection` for the two per-invocation routes that replace it. */
@@ -241,6 +244,98 @@ export class SkillsService {
       // discovered elsewhere is off unless enabled. See `externalEnabledKey` for why they differ.
       .map((e) => this.read(e, e.origin.kind === "library" ? !disabled.has(e.id) : external.has(e.id), scopes[e.id] ?? LEGACY_SPACE_SCOPE));
     return { root: this.root, skills };
+  }
+
+  /**
+   * One skill, whole: the row, its document, its frontmatter and the files bundled beside it.
+   *
+   * The row comes from `list` rather than from a second scan of its own, so the viewer's switch,
+   * scope and origin are the SAME facts the panel's row showed. Two scans could disagree about
+   * whether a skill is on, and a page that contradicts the list it was opened from is worse than a
+   * page that is one call slower.
+   *
+   * An INVALID skill still opens. It is the one Realm has the most to say about — the reason is on
+   * the row already, and the raw file underneath it is how the user finds out what is wrong with it.
+   */
+  detail(spaceId: string, id: string): SkillDetail {
+    const skill = this.locate(spaceId, id);
+    const dir = dirname(skill.path);
+    let text = "";
+    try { text = readFileSync(skill.path, "utf8"); } catch { /* an unreadable SKILL.md is `valid: false` already */ }
+    const doc = parseSkillDocument(text);
+    // No frontmatter fence at all: the whole file is the document. That is not a skill, and `valid`
+    // already says so — but showing the file is how the author sees the fence they forgot.
+    const body = doc ? doc.body : text;
+    return {
+      skill,
+      body: body.slice(0, SKILL_TEXT_MAX),
+      frontmatter: doc?.frontmatter ?? {},
+      resources: this.resources(dir),
+      truncated: body.length > SKILL_TEXT_MAX,
+    };
+  }
+
+  /**
+   * One file bundled beside a `SKILL.md`.
+   *
+   * `rel` is resolved against the skill's directory and then checked through `realpath` on BOTH
+   * sides: the directory may itself be a symlink (every skill Realm stages for an agent is), and a
+   * `rel` of `../../.ssh/id_rsa` resolves perfectly well without it. The check is on the real paths
+   * or it is not a check.
+   */
+  readFile(spaceId: string, id: string, rel: string): { text: string; truncated: boolean } {
+    const skill = this.locate(spaceId, id);
+    const dir = dirname(skill.path);
+    let root: string, abs: string;
+    try { root = realpathSync(dir); abs = realpathSync(resolve(dir, rel)); }
+    catch { throw new RpcError("NOT_FOUND", `no file at ${rel} in skill "${id}"`); }
+    if (abs !== root && !abs.startsWith(root + sep)) throw new RpcError("BAD_PATH", `${rel} is outside skill "${id}"`);
+    let st;
+    try { st = statSync(abs); } catch { throw new RpcError("NOT_FOUND", `no file at ${rel} in skill "${id}"`); }
+    if (!st.isFile()) throw new RpcError("BAD_PATH", `${rel} is not a file`);
+    let text: string;
+    try { text = readFileSync(abs, "utf8"); } catch { throw new RpcError("NOT_FOUND", `could not read ${rel}`); }
+    return { text: text.slice(0, SKILL_TEXT_MAX), truncated: text.length > SKILL_TEXT_MAX };
+  }
+
+  /** The skill `id` names for `spaceId`, or a NOT_FOUND that says which of the two was wrong. Goes
+   *  through `list` so scope reach is checked exactly once, where it is already decided. */
+  private locate(spaceId: string, id: string): Skill {
+    const found = this.list(spaceId).skills.find((s) => s.id === id);
+    if (!found) throw new RpcError("NOT_FOUND", `skill "${id}" is not in this space's skills`);
+    return found;
+  }
+
+  /**
+   * Everything in a skill's directory but `SKILL.md` itself, depth-first by path.
+   *
+   * Bounded in both directions (`SKILL_TREE_DEPTH`, `SKILL_TREE_MAX`) because this walks a directory
+   * Realm does not own: a user who points a scan root at their home directory should get a long list
+   * and a fast answer, not a walk of the filesystem. Dot-files are skipped — a skill's `.git` is not
+   * part of the skill — and every failure produces fewer entries, never an exception.
+   */
+  private resources(dir: string): SkillResource[] {
+    const out: SkillResource[] = [];
+    const walk = (sub: string, depth: number): void => {
+      if (depth > SKILL_TREE_DEPTH || out.length >= SKILL_TREE_MAX) return;
+      let names: string[];
+      try { names = readdirSync(join(dir, sub)).filter((n) => !n.startsWith(".")).sort(); }
+      catch { return; }
+      for (const name of names) {
+        if (out.length >= SKILL_TREE_MAX) return;
+        const rel = sub ? `${sub}/${name}` : name;
+        if (rel === "SKILL.md") continue;
+        // `stat`, not `lstat`: a symlinked reference file is a reference file, and the read below
+        // resolves it the same way.
+        let st;
+        try { st = statSync(join(dir, rel)); } catch { continue; }
+        if (st.isDirectory()) { walk(rel, depth + 1); continue; }
+        if (!st.isFile()) continue;
+        out.push({ rel, size: st.size, readable: isReadableSkillFile(name) && st.size <= SKILL_TEXT_MAX });
+      }
+    };
+    walk("", 0);
+    return out;
   }
 
   /**

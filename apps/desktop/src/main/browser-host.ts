@@ -12,9 +12,35 @@ export type BrowserViewState = {
   id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean;
 };
 
-/** Address-bar input → a loadable URL. https is the default scheme; a non-URL just gets `https://`
- *  prefixed and may fail honestly (search fallback is out of scope for W1). The one pragmatic
- *  exception: loopback hosts get `http://` — dev servers do not speak TLS. Null = nothing to load. */
+/** A search query → the search URL it runs. Google, because that is what the address bar promises
+ *  when the input is plainly not a host. */
+export function searchUrl(query: string): string {
+  return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+}
+
+/**
+ * Is this the host part of something the user meant as an address, rather than words to search?
+ * The bar is one field for two intents, so the split has to be decided from the text alone:
+ * a bracketed IPv6 literal, a dotted quad, or a dotted name whose last label is letters — anything
+ * else (spaces, a bare word, `3.14`, a `file:`/`javascript:` scheme) is a query.
+ */
+function looksLikeHost(host: string): boolean {
+  if (host.startsWith("[")) return host.includes("]"); // IPv6 literal, port or not
+  const parts = host.split(":");
+  const name = parts[0] ?? "";
+  if (parts.length > 2) return false;
+  if (parts.length === 2 && !/^\d+$/.test(parts[1] ?? "")) return false;
+  if (name === "" || /[\s@\\]/.test(name)) return false;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(name)) return true;
+  const labels = name.split(".");
+  if (labels.length < 2 || labels.some((l) => l === "")) return false;
+  return /^\p{L}{2,}$/u.test(labels[labels.length - 1] ?? "");
+}
+
+/** Address-bar input → a loadable URL. https is the default scheme for anything host-shaped; input
+ *  that is not host-shaped is a search, and goes to `searchUrl` rather than being prefixed into a
+ *  URL that can only fail. The one pragmatic exception: loopback hosts get `http://` — dev servers
+ *  do not speak TLS. Null = nothing to load. */
 export function normalizeAddress(input: string): string | null {
   const s = input.trim();
   if (s === "") return null;
@@ -23,6 +49,7 @@ export function normalizeAddress(input: string): string | null {
   const host = s.replace(/^\/*/, "").split(/[/?#]/)[0] ?? "";
   const bare = host.split(":")[0]?.toLowerCase() ?? "";
   if (bare === "localhost" || bare === "127.0.0.1" || bare === "[::1]" || host.startsWith("[::1]")) return `http://${s}`;
+  if (!looksLikeHost(host)) return searchUrl(s);
   return `https://${s}`;
 }
 

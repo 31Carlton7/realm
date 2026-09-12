@@ -118,7 +118,7 @@ describe("sub-agents the HARNESS is running", () => {
     const store = createAppStore(api); await store.getState().boot();
     store.setState({ sessionStatus: { se1: "running" }, transcripts: { se1: { lastSeq: 0, t: reduceAll(events) } } });
     await store.getState().openItem("i9");
-    return render(<StoreContext.Provider value={store}><SessionPane item={ITEMS.s1[0]!} visible /></StoreContext.Provider>);
+    return { store, ...render(<StoreContext.Provider value={store}><SessionPane item={ITEMS.s1[0]!} visible /></StoreContext.Provider>) };
   }
 
   it("shows a card for in-flight Task calls, which have no session behind them", async () => {
@@ -127,18 +127,29 @@ describe("sub-agents the HARNESS is running", () => {
     expect(dockText()).toEqual(["audit the mapper", "check the tests"]);
   });
 
-  it("points at the tool card rather than at a pane — that is where the run's own calls land", async () => {
+  it("opens the sub-agent's panel — there is no pane to jump to, but there is work to watch", async () => {
     /* There is no session behind a harness sub-agent, so a jump to a pane would be a button that
-       cannot work. There IS somewhere to look: the tool card in the transcript, which fills with the
-       run's nested calls as they arrive. The row scrolls to it and opens it. */
-    await mountWith(task("t1", "audit the mapper"));
+       cannot work. There IS something to watch: every call it makes lands in this transcript under
+       its launching call, and the drawer is where those are read. */
+    const { store } = await mountWith(task("t1", "audit the mapper"));
     await waitFor(() => expect(dockText()).toEqual(["audit the mapper"]));
     expect(screen.getAllByText("in the agent")).toHaveLength(1);
-    const card = document.querySelector('[data-tool-use-id="t1"]')!;
-    const toggle = card.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(screen.getByRole("button", { name: "Show audit the mapper in the transcript" }));
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Watch audit the mapper" }));
+    expect(store.getState().sessionDock.se1).toEqual({ kind: "subagent", toolUseId: "t1" });
+    expect(await screen.findByRole("dialog", { name: "Sub-agent: audit the mapper" })).toBeInTheDocument();
+  });
+
+  it("the row is the control that closes it too — a lit control says the state and undoes it", async () => {
+    const { store } = await mountWith(task("t1", "audit the mapper"));
+    await waitFor(() => expect(dockText()).toEqual(["audit the mapper"]));
+    // Re-queried each time: opening the drawer re-parents the whole pane body into a split, so a
+    // node held from before the click is a detached one.
+    const row = () => screen.getByRole("button", { name: "Watch audit the mapper" });
+    fireEvent.click(row());
+    expect(row()).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(row());
+    expect(store.getState().sessionDock.se1).toBeUndefined();
+    expect(screen.queryByRole("dialog", { name: /Sub-agent/ })).toBeNull();
   });
 
   it("names a Workflow by the name in its own script", async () => {
@@ -153,7 +164,7 @@ describe("sub-agents the HARNESS is running", () => {
 
   it("drops one the moment its result lands", async () => {
     await mountWith([...task("t1", "audit the mapper", true)]);
-    expect(document.querySelector(".delegation-dock")).toBeNull();
+    expect(document.querySelector(".composer-agents")).toBeNull();
   });
 
   it("counts a Task alongside a real delegated run, in one card", async () => {

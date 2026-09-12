@@ -43,7 +43,10 @@ Realm is:
 - **Quietly technical.** Use exact terms and useful state. Avoid theater about AI.
 - **Durable.** Persisted layouts, transcripts, documents, and checkpoints should feel dependable.
 - **Mac-native, not ornamental.** Respect platform geometry, focus, menus, and density without
-  imitating Finder chrome or adding decorative translucency.
+  imitating Finder chrome. The window's translucency is platform material, not decoration: it is the
+  same `NSVisualEffectView` a Finder or Notes window sits on, it answers Reduce Transparency, and it
+  is bounded by what the text on it can survive. Glass laid over an app's own surfaces is the thing
+  to refuse.
 
 The memorable Realm move is the workspace itself: several kinds of work share one pane grammar and
 one saved spatial context.
@@ -170,21 +173,30 @@ Rules:
 - Green, orange, and red communicate state. Never use them as decorative brand colors.
 - Images and screenshots get a one-device-pixel inset outline: pure white at low opacity on dark
   surfaces, pure black at low opacity on light surfaces.
-- Never put a backdrop blur over a translucent window surface such as the sidebar. A filter blurs
-  the window's own transparency and composites toward black, so the band reads as a dark smudge.
-  Dissolve a scrolling edge on such a surface by masking the scroller itself, which paints nothing.
+- Never put a backdrop blur over a translucent window surface. A filter blurs the window's own
+  transparency and composites toward black, so the band reads as a dark smudge. Since the panes show
+  the window's material too, that now means every surface in the app: a scrolling edge is dissolved
+  by masking the SCROLLER, which paints nothing, and what it reveals is whatever was always behind
+  the text. A wash to a fixed tone is wrong there for the same reason — it stripes a translucent
+  surface with a colour the material shows straight through.
+- Translucency is not free and is not uniform. What shows through a pane is the desktop, which nobody
+  chose, so the alpha is derived from the type it has to carry rather than picked by eye: the sidebar
+  holds labels and goes to 55%, a pane holds the reading and stops where body text would cross WCAG
+  AA over the worst desktop. One control moves both, each over its own range (`pane-ground.test.ts`).
+  A claim about what the material does to contrast is a real screen capture, never a CDP screenshot —
+  the material is not in the DOM.
 - A dissolve belongs to the SCROLLER, not to the layout band that happens to contain it. A fade
   positioned on a parent that also holds navigation is drawn over that navigation: the settings tab
   strip arrived smeared and half-legible the moment the column under it was scrolled, and at every
   width, because the rail is a column beside the content wide and a row above it narrow. The test is
   the hairline's test again — is the thing under the band content that scrolls past a fixed edge, or
   chrome that stays? Chrome never goes soft.
-- Chrome that lives INSIDE a faded scroller outranks the band rather than passing under it. Keeping
-  the fade off the layout band only saves the chrome beside the column; a search field and its filter
-  chips sit in the column, and a band gated on scroll takes them the moment the list moves — the
-  Library's chips arrived as a smudge, which reads as a broken render, not as depth. A backdrop blur
-  takes whatever is painted beneath it, so lift the control above the band (the prompter already
-  outranks the transcript's for the same reason). It still scrolls away; it just does so legibly.
+- Chrome that lives INSIDE a scroller dissolves with it, and nothing can lift it out: a mask applies
+  to everything the element paints, whatever its stacking order. That is survivable because a mask
+  takes alpha rather than detail — a filter bar scrolling into the dissolve keeps its edges and reads
+  as a control leaving, where the blur this replaced destroyed them and read as a broken render. So
+  chrome that must stay legible while the content moves belongs OUTSIDE the scroller, and a z-index
+  on a control inside one is a claim the browser ignores.
 - A decorative colour wash belongs on a surface a person passes through, such as first run or a
   feed. A page of controls someone sits on all day stays plain.
 
@@ -373,6 +385,12 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - Do not animate content merely because it scrolled into view.
 - Do not add parallax, auto-scrolling marquees, simulated typing, or decorative pulsing.
 - Respect reduced-motion and reduced-transparency preferences.
+- Playful motion is the one exception to the rule above it, and it is fenced. It ships only behind
+  the easter-eggs switch, which defaults off, so the rules in this section still describe what Realm
+  does out of the box. It never carries information a person would otherwise have to read from it, it
+  respects reduced motion like everything else, and any hue it paints is derived from the live accent
+  rather than chosen — the palette's other hues already mean something. Amplitude is calibrated to the
+  hero greeting's nod, not to what the effect could do.
 
 ## Spaces, panes, and navigation
 

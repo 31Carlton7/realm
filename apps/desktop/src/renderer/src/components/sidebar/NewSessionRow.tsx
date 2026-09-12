@@ -15,10 +15,13 @@ import { REALM_NEW_SESSION_TYPE } from "../drag-types";
  */
 export function NewSessionRow() {
   const newSessionInstant = useApp((s) => s.newSessionInstant);
+  const openQuickChat = useApp((s) => s.openQuickChat);
+  const quickChatOpen = useApp((s) => s.quickChat !== null);
   const agent = useApp((s) => s.lastAgentKind ?? FALLBACK_AGENT);
   const run = useApp((s) => s.run);
   const [dragging, setDragging] = useState(false);
   return (
+    <>
     <div className="new-item" draggable data-dragging={dragging || undefined}
       onDragStart={(e) => {
         e.dataTransfer.setData(REALM_NEW_SESSION_TYPE, "new-session");
@@ -29,5 +32,18 @@ export function NewSessionRow() {
       <button className="item-row new-row" aria-label="New session" title={`New ${AGENT_META[agent].label} session (⌘N)`}
         onClick={() => run(() => newSessionInstant())}><Icon name="edit" size={16} /><span>New session</span></button>
     </div>
+      {/* OUTSIDE the draggable wrapper, which is not a detail: dragging that wrapper means "put a new
+          session in this pane", and a quick chat is the one session that has no pane to be put in.
+          Inside it, every press on this row that moved a pixel would have created something else. */}
+      {/* Its EQUAL, and drawn as one: same height, same ink, stacked flush against it. The two are
+          the same verb aimed at different occasions — a session takes a pane and rearranges the
+          workspace, which is right when the answer is the work; a quick chat floats over whatever is
+          already there, which is right when the answer is a paragraph you wanted without putting
+          anything down. That is a thing to pick between, not a hierarchy to descend, and the row
+          that was drawn a rung quieter to say so read as a sub-item of the one above it instead. */}
+      <button className="item-row quick-row" aria-label="Quick chat" aria-pressed={quickChatOpen}
+        title="A small chat window over your work — no pane, and closing it deletes the chat"
+        onClick={() => run(() => openQuickChat())}><Icon name="session" size={16} /><span>Quick chat</span></button>
+    </>
   );
 }

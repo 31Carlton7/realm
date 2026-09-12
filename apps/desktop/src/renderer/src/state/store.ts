@@ -1,14 +1,17 @@
-import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip } from "@realm/contracts";
+import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef } from "@realm/contracts";
+import { destinationTarget, pageItemId } from "./page-item";
+import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sources";
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
-  allItems, closeItem as layoutClose, emptyLayout, equalizeSplit as layoutEqualize, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, modeWireValue, sessionModeOf,
+  allItems, closeItem as layoutClose, closeLeaf as layoutCloseLeaf, emptyLayout, equalizeSplit as layoutEqualize, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, modeWireValue, sessionModeOf,
   lectureWrapUpPrompt, localDateStamp, sessionEvent,
   activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveGroup as groupsMove, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
-  type AgentKind, type Attachment, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type Profile, type Project, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageSummary,
+  parseScriptCommandId, DEFAULT_KEYBINDINGS,
+  type AgentKind, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -17,11 +20,12 @@ import { CUE_BY_CATEGORY, cueVolume, type CueName } from "./cues";
 import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_SELECTION, clampContrast, clampGroundAlpha,
   isOverridden, parseFontPref, type FontPref,
   isThemeName, overrideKey, parseThemeOverrides, themeModes,
-  type Mode, type ThemeName, type ThemeOverride, type ThemeOverrides, type ThemeSelection } from "@realm/ui";
+  type Mode, type ThemeName, type ThemeOverride, type ThemeOverrides, type ThemeSelection, setCustomThemes, type ThemeDef }  from "@realm/ui";
 import type { ThemePref } from "../theme/useTheme";
 import { emptyTranscript, lastUserMessage, reduceTranscript, type Rating, type Transcript } from "../panes/session/transcript-model";
 import { exportFileName, exportSessionMarkdown } from "../panes/session/export-session";
 import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browser/browser-client";
+import { SIDEBAR_WIDTH, clampSidebarWidth } from "../components/sidebar/sidebar-width";
 
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
 export type UpdateSpaceInput = { id: string; name?: string; icon?: string; color?: string; profileId?: string };
@@ -143,6 +147,15 @@ export type Api = {
   /** `machines.create` — row + item, with no address yet (Plan 25 W3). The connect flow is the
    *  pane's own body rather than a sheet, so the pane has to exist before there is an address. */
   createMachine(spaceId: string, name: string): Promise<{ machineId: string; itemId: string }>;
+  createSimulator(spaceId: string, name: string): Promise<{ simulatorId: string; itemId: string }>;
+  goalGet(sessionId: string): Promise<{ goal: Goal | null }>;
+  eggsList(): Promise<{ packs: UnlockedEggPack[] }>;
+  eggsUnlock(passphrase: string): Promise<{ pack: UnlockedEggPack | null }>;
+  eggsForget(id: string): Promise<void>;
+  goalStart(sessionId: string, objective: string, tokenBudget: number | null): Promise<{ goal: Goal }>;
+  goalSet(sessionId: string, status: GoalStatus, note: string | null): Promise<{ goal: Goal }>;
+  goalResume(sessionId: string): Promise<{ goal: Goal }>;
+  goalClear(sessionId: string): Promise<void>;
   /** Plan 17 W1. `environmentId` omitted roots the workspace at the space's primary checkout. */
   createDocuments(spaceId: string, environmentId?: string): Promise<{ documentsId: string; itemId: string }>;
   getDocuments(documentsId: string): Promise<DocumentWorkspace>;
@@ -202,17 +215,81 @@ export type Api = {
   deleteIconAsset(id: string): Promise<void>;
   listSessions(spaceId: string): Promise<Session[]>;
   /** Every session across every space (sessionId→spaceId map for cross-space badges). */
-  listAllSessions(): Promise<Session[]>;
+  /** `null` = every profile. The chat feed passes the active one; callers resolving a session by id
+   *  pass null. Scoped by the server's space→profile join, never by a filter here. */
+  listAllSessions(profileId?: string | null): Promise<Session[]>;
   getSession(id: string): Promise<Session>;
   createSession(input: CreateSessionInput): Promise<{ session: Session; itemId: string }>;
+  /** A session with NO item row, and so in no list anywhere — the quick chat's shape. Its own method
+   *  rather than a flag on `createSession`, because the two differ in what they RETURN: everything
+   *  else gets an item and goes on to place it, and this has none to place. */
+  createUnlistedSession(input: CreateSessionInput): Promise<{ session: Session }>;
+  /** `sessions.delete` — the row, its transcript and its pty. The one route for a session with no
+   *  item to delete through. */
+  deleteSession(id: string): Promise<void>;
   /** `sessions.fork` (Plan 16 W3): a new worktree restored to the checkpoint + a new session carrying
    *  the ancestor transcript as text. The ancestor is untouched. */
   forkSession(checkpointId: string, agentKind?: AgentKind): Promise<{ session: Session; itemId: string; environment: Environment }>;
   /** `skills.list` for a space: the library folder and every skill in it, valid or not — the mention
    *  picker (W4) reads the skills, the settings panel (W5) also shows the root and the invalid rows. */
   listSkills(spaceId: string): Promise<{ root: string; skills: Skill[] }>;
+  /** `commands.list` — a space's user-defined slash commands. `spaceId` is nullable so the palette can
+   *  ask outside a session, which drops the space folder's `commands/` and keeps the rest. */
+  /** `scripts.run` — run a space's named shell command in a terminal, by its `script.<id>.run` id. */
+  /** `scripts.list` — a space's named shell commands. */
+  /** `project.grep` / `project.files`: search the checkout an environment points at, as opposed to
+   *  `search.query`, which searches Realm's own records. */
+  projectGrep(cwd: string, query: string, limit?: number): Promise<ProjectGrepResult>;
+  projectFiles(cwd: string, query: string, limit?: number): Promise<ProjectFilesResult>;
+  listScripts(spaceId: string): Promise<{ scripts: Script[] }>;
+  /** `scripts.save` — create (null id) or update in place. Update keeps the id AND the position,
+   *  which is what keeps a `script.<id>.run` binding attached across a rename. */
+  saveScript(spaceId: string, script: ScriptInput): Promise<Script>;
+  /** `scripts.remove` — the row only. A keybindings.json rule naming it is left alone; ScriptsPanel
+   *  warns at the point of removal instead. */
+  removeScript(spaceId: string, id: string): Promise<void>;
+  /** `scripts.reorder` — the whole order, by id. */
+  reorderScripts(spaceId: string, ids: string[]): Promise<{ scripts: Script[] }>;
+  /** `keybindings.get` — also the seed-and-merge path. A non-null `error` means the file could not be
+   *  used as written, `rules` is Realm's defaults, and the file on disk is untouched. */
+  /** `sandbox.get` — this space's execution-sandbox state: its posture, whether that came from the
+   *  default, the resolved policy, and whether Seatbelt can be applied on this Mac at all. */
+  getSandbox(spaceId: string): Promise<SandboxState>;
+  /** `sandbox.set` — `null` clears the override and puts the space back on the default. Answers with
+   *  the space's whole new state, so a caller never follows a write with a read. */
+  setSandbox(spaceId: string, prefs: ExecutionSandboxPrefs | null): Promise<SandboxState>;
+  getKeybindings(): Promise<KeybindingsFile>;
+  /** `keybindings.set` — replaces the file. Order IS precedence; the server never sorts or dedupes. */
+  writeKeybindings(rules: Keybinding[]): Promise<KeybindingsFile>;
+  resetKeybindings(): Promise<KeybindingsFile>;
+  runScript(spaceId: string, commandId: string): Promise<{ terminalId: string; itemId: string; cwd: string }>;
+  listCommands(spaceId: string | null): Promise<{ root: string; commands: UserCommand[] }>;
+  /** `commands.expand` — one command's template against what was typed after it. `missing` names the
+   *  placeholders nothing was typed for; they are left STANDING in `text` so the draft shows them. */
+  expandCommand(spaceId: string | null, name: string, args: string): Promise<{ command: UserCommand; text: string; missing: string[] }>;
+  /** `themes.list` — the imported VS Code themes and the folder they live in. */
+  listThemes(): Promise<{ root: string; themes: StoredTheme[] }>;
+  /** The native picker for a `.json`/`.jsonc` colour theme; null when cancelled. */
+  pickThemeFile(): Promise<string | null>;
+  /** `themes.import` — translate the file at `path` and keep it. */
+  importTheme(path: string): Promise<StoredTheme>;
+  /** `themes.remove` */
+  removeTheme(id: string): Promise<void>;
+  /** `fonts.installed` — families downloaded into `~/Realm/fonts`. */
+  listInstalledFonts(): Promise<{ root: string; fonts: InstalledFont[] }>;
+  /** `fonts.catalog` — what Google Fonts offers. */
+  fontCatalog(): Promise<{ fonts: CatalogFont[] }>;
+  /** `fonts.install` / `fonts.remove` / `fonts.faces` */
+  installFont(family: string): Promise<InstalledFont>;
+  removeFont(family: string): Promise<void>;
+  fontFaces(family: string): Promise<{ faces: { weight: number; base64: string }[] }>;
   /** `skills.sources` — the directories the scan reads for this space, and what each contributed. */
   listSkillSources(spaceId: string): Promise<{ sources: SkillSource[] }>;
+  /** `skills.read` — one skill whole, for the Library's skill viewer: the row, the `SKILL.md`
+   *  document, its frontmatter and the files bundled beside it. */
+  readSkill(spaceId: string, id: string): Promise<SkillDetail>;
+  /** `skills.readFile` — one bundled file's text, by its path relative to the skill's directory. */
+  readSkillFile(spaceId: string, id: string, rel: string): Promise<{ text: string; truncated: boolean }>;
   /** `skills.addScanRoot` / `skills.removeScanRoot` — the user's own extra directories. Machine-global. */
   addSkillScanRoot(path: string): Promise<void>;
   removeSkillScanRoot(path: string): Promise<void>;
@@ -236,8 +313,16 @@ export type Api = {
   memorySources(sessionId: string): Promise<MemorySources>;
   /** `mentions` are the skill ids the draft's `@`-tokens were recognised as; the server re-validates
    *  and resolves them so a raw `@name` never reaches an agent (contracts/mentions.ts). */
-  sendMessage(id: string, text: string, attachments: Attachment[], mentions: string[], elements?: ElementChip[]): Promise<void>;
+  sendMessage(id: string, text: string, attachments: Attachment[], mentions: string[], elements?: ElementChip[], delivery?: "auto" | "queue" | "steer", sessionRefs?: SessionRef[]): Promise<void>;
   interruptSession(id: string): Promise<void>;
+  /** `sessions.dequeue` — drop a queued message before its turn comes. */
+  dequeuePrompt(id: string, queuedId: string): Promise<void>;
+  /** `sessions.releaseQueued` — send one queued message now. Server-side by id, so the mentions and
+   *  element chips it was composed with survive; see `QueuedPrompt`. */
+  releaseQueuedPrompt(id: string, queuedId: string): Promise<void>;
+  sessionQueue(id: string): Promise<QueuedPrompt[]>;
+  /** `limits.get` — every provider's plan quota as last reported. */
+  planLimits(): Promise<PlanLimits[]>;
   recordFeedback(id: string, messageId: string, rating: Rating | null): Promise<void>;
   respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: Record<string, string>): Promise<void>;
   setSessionOptions(id: string, o: SessionOptions): Promise<Session>;
@@ -505,6 +590,10 @@ export const patchKey = (cwd: string, path: string, staged: boolean) => `${cwd}\
 export type SubmitKey = "enter" | "cmdEnter";
 
 export const PERSIST_DEBOUNCE_MS = 300;
+/** Which question the command palette is asking. One surface, three narrowings: ⌘K searches Realm's
+ *  own records, ⌘P the checkout's file names, ⌘⇧F the checkout's contents. */
+export type PaletteMode = "all" | "files" | "grep";
+
 export const SETTING_ACTIVE_SPACE = "ui.activeSpaceId";
 export const SETTING_THEME = "ui.theme";
 /** The palette, one key per face — a second axis from `ui.theme`'s light/dark: that says which mode,
@@ -530,12 +619,28 @@ const SETTING_GROUND_ALPHA = "ui.groundAlpha";
 /** Agent of the most recent session the user created or switched to — what "+"/⌘N reach for next. */
 export const SETTING_LAST_AGENT = "ui.lastAgentKind";
 const SETTING_SWIPE_INVERT = "ui.swipeInvert";
+/** Whether the app keeps its decorative motion off for good. See `lowPower`. */
+const SETTING_LOW_POWER = "ui.lowPower";
 const SETTING_SUBMIT_KEY = "ui.submitKey";
+/** Whether the playful bits are allowed to run at all. Off unless the stored value is exactly
+ *  `true`: a key nobody could read is not a request to be surprised. */
+const SETTING_EASTER_EGGS = "ui.easterEggs";
+/** Set once the konami sequence has been entered, and never unset. Separate from the switch above
+ *  because turning the eggs back off hides the ones not yet found — it does not take back one that
+ *  already was. */
+const SETTING_KONAMI_UNLOCKED = "ui.konamiUnlocked";
 /** Whether the sidebar is collapsed to the top rail. Persisted so a collapsed window stays
- *  collapsed across launches — the whole point of collapsing is reclaiming the 280px for good. */
+ *  collapsed across launches — the whole point of collapsing is reclaiming the column for good. */
 const SETTING_SIDEBAR_COLLAPSED = "ui.sidebarCollapsed";
+/** How wide the sidebar column is, in pixels. Its own key rather than a field on the one above: the
+ *  two answer different questions, and a width remembered through a collapse is what makes bringing
+ *  the sidebar back restore the column the user had rather than the one Realm ships. */
+const SETTING_SIDEBAR_WIDTH = "ui.sidebarWidth";
 /** Per-session terminal-panel state (open + width), keyed by session id. */
 export const SETTING_TERMINAL_PANEL = "ui.terminalPanel";
+/** The quick chat: which session it is, and where its window sits. One key, because the two are only
+ *  ever read together — a position with no conversation to put in it is nothing. */
+export const SETTING_QUICK_CHAT = "ui.quickChat";
 export const EVENTS_PAGE = 1000;
 /** Activity's page size — matches `mcp.calls.list`'s own default, so "fewer than a page came back"
  *  (the "Load more" hide condition) means the same thing on both sides of the wire. */
@@ -567,7 +672,13 @@ export function parseTerminalPanels(raw: unknown): Record<string, TerminalPanel>
 
 /** The space page's tab rail (Plan 12 W3). "connections" is what the retired sheet called "mcp" —
  *  openers that used `tab: "mcp"` (the plus-menu's "Manage connections…") map to it. */
-export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "sessions" | "tasks" | "history";
+/**
+ * What a session pane's right-hand strip is showing. One union rather than two flags, because the
+ * strip is one place: see `sessionDock`.
+ */
+export type SessionDock = { kind: "summary" } | { kind: "subagent"; toolUseId: string } | { kind: "terminal" };
+
+export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "scripts" | "sandbox" | "sessions" | "tasks" | "history";
 /** The profile page's rail (Plan 14 W2). */
 export type ProfilePageTab = "skills" | "connections" | "memory";
 
@@ -616,6 +727,19 @@ export type AppState = {
    *  moved background gets the same surface ladder and the same contrast correction a vendored one
    *  does, rather than a raw value written past the machinery. */
   themeOverrides: ThemeOverrides;
+  /** Themes imported from VS Code colour files (`themes.list`), and the folder they live in. Held so
+   *  the picker can offer them; `setCustomThemes` is what makes their names actually resolve. */
+  customThemes: StoredTheme[];
+  themesRoot: string;
+  /** Google Fonts families downloaded into `~/Realm/fonts`, and the folder itself. */
+  installedFonts: InstalledFont[];
+  fontsRoot: string;
+  /** Families installed on this Mac (`queryLocalFonts`). Empty where the API is missing or refused —
+   *  an extra source of choices, never a dependency of the picker. */
+  localFonts: string[];
+  /** The Google Fonts catalog, fetched only when the picker asks for it: it is two thousand entries
+   *  and a 2.7MB download, and most launches never open that list. Null = not asked yet. */
+  fontCatalog: CatalogFont[] | null;
   /** The ink ramp's spread. Floored by the derivation at every setting, so this is a preference and
    *  never a legibility risk. */
   contrast: number;
@@ -629,10 +753,53 @@ export type AppState = {
   groundAlpha: number;
   /** Invert the two-finger swipe direction (default: fingers-left → next space, like Arc/Spaces). */
   swipeInvert: boolean;
+  /**
+   * Keep the decorative motion off, always.
+   *
+   * Measured, not guessed (`apps/desktop/scripts/power-audit.mjs`): with every CSS animation stopped
+   * the window costs about 1% of a core, and with them running it costs half of one PER PANE — most
+   * of it the spinner orb's forty dots and the status pings, which never stop while an agent is
+   * working. On a laptop away from power that is the difference the battery actually feels.
+   *
+   * Off by default. The motion is part of how the app reads, and a person who wants it back should
+   * not have to find out it was taken away.
+   */
+  lowPower: boolean;
+  /**
+   * Whether the window has the user's attention right now.
+   *
+   * Not a preference — the window's own focus, tracked so that decorative motion can stop while
+   * nobody is looking at it. An agent working for an hour while its person is in Xcode used to cost
+   * the same as one being watched.
+   */
+  windowActive: boolean;
+  /** Whether the playful bits run. Top-level rather than inside `settingsPrefs` for the reason the
+   *  notification switches are: the transcript and the model picker read it on every render, and
+   *  `settingsPrefs` stays null until someone opens Settings. */
+  easterEggs: boolean;
+  /** Whether the konami palette has been earned. Survives `easterEggs` going back off. */
+  konamiUnlocked: boolean;
+  /** The friend packs this Realm has been given the words for. Empty for everyone who has not been
+   *  told one, which is everyone by default — the packs ship sealed. */
+  eggPacks: UnlockedEggPack[];
   submitKey: SubmitKey;
+  /** What a message typed during a running turn does. Top-level rather than inside `settingsPrefs`
+   *  for the reason the notification switches are: the prompter reads it on every keystroke, and
+   *  `settingsPrefs` stays null until someone opens Settings. */
+  midTurnMode: MidTurnMode;
   /** Sidebar hidden, its toggle moved to the top rail. The toggle is rendered in BOTH states —
    *  a collapse with no way back is a trap — which is why this is one boolean and not a mode. */
   sidebarCollapsed: boolean;
+  /** The column's width in pixels, inside SIDEBAR_WIDTH's range. Top-level because the shell paints
+   *  it and the handle inside the sidebar writes it — the same rule that put `swipeInvert` here. */
+  sidebarWidth: number;
+  /** Which list the sidebar's body is showing: the space's own items, or the gateway's call log.
+   *
+   *  Store-held rather than local to the column because `applyMcpCall` reads it — a live call has to
+   *  know whether anything is looking at the feed. NOT persisted, deliberately: it is a lens you flip
+   *  while watching something, like the archived shelf's disclosure, and one that survived a restart
+   *  would be a preference nobody asked for. */
+  sidebarView: "space" | "activity";
   items: Item[];
   /** The active space's pane groups — several named split arrangements, exactly one of them active.
    *  Null only before a space is selected. This is the source of truth; `layout` mirrors it. */
@@ -682,6 +849,10 @@ export type AppState = {
   error: string | null;
   /** Socket health, mirrored from RpcClient.onStatusChange. "reconnecting" shows the banner. */
   connectionState: "connected" | "reconnecting";
+  /** The user's keymap as the server last reported it, or Realm's defaults until it answers. Held
+   *  here rather than in `App` alone because anything that PRINTS a shortcut has to read the same
+   *  list the handler reads — a hardcoded `⌘T` in a menu becomes a lie the moment someone rebinds it. */
+  keybindings: readonly Keybinding[];
   paletteOpen: boolean;
   /** The space overview (⌘⇧Space): every space across every profile, sectioned. Its own flag rather
    *  than a `Sheet`, for the same reason `paletteOpen` is — it must toggle from its own hotkey while
@@ -703,6 +874,12 @@ export type AppState = {
   /** Live machine state by machineId (Plan 25 W3), from `machine.status`. Absent means `off`, which
    *  is the only thing that is true about a machine nobody has connected to. */
   machineState: Record<string, MachineState>;
+  /** The goal each session is pursuing, by session id, from `goal.changed`. Absent means none, which
+   *  is every session until someone runs `/goal`. */
+  goals: Record<string, Goal>;
+  /** Live simulator state by simulatorId, from `simulator.status`. Absent means `off` — a pane
+   *  nobody has pointed at a device yet, which is what the session bar's button makes. */
+  simulatorState: Record<string, SimulatorState>;
   /** Which machines are currently swallowing Realm's own shortcuts (Plan 25 W3). Absent is off,
    *  which is the default and the answer for every machine nobody has turned it on for. Renderer
    *  state, never persisted: a grab is about the keyboard in front of you right now. */
@@ -722,6 +899,13 @@ export type AppState = {
   /** Statuses across spaces: seeded by refreshAllSessions, kept current by session.status broadcasts
    *  (which fire for every space) — entries survive space switches. */
   sessionStatus: Record<string, SessionStatus>;
+  /** Messages waiting for a session's current turn to end, oldest first, from `session.queue`. The
+   *  key is dropped when a queue empties, so a session with nothing waiting holds nothing here. */
+  sessionQueues: Record<string, QueuedPrompt[]>;
+  /** What each provider last said about the account's plan quota, one row per agent kind. Seeded by
+   *  `refreshPlanLimits` and kept current by `limits.changed`. Empty until the first read: a row
+   *  invented here would be a quota figure nobody reported. */
+  planLimits: PlanLimits[];
   /** sessionId → spaceId for EVERY known session. session.status broadcasts carry only a sessionId;
    *  this map is what lets an inactive space's strip button wear its badge. */
   sessionSpace: Record<string, string>;
@@ -816,12 +1000,24 @@ export type AppState = {
    *  as long as its token survives in the text, so deleting a chip forgets what it named. The draft
    *  itself stays a plain string — a chip is paint over a token, not a node. */
   draftElements: Record<string, ElementChip[]>;
+  /** Other sessions this draft points at. A sidecar like `draftElements`, but with NO token in the
+   *  text: a reference is a pill beside the box, because an icon inside a painted run would move
+   *  every glyph after it (`draft-format.ts`). */
+  draftSessionRefs: Record<string, SessionRef[]>;
   /** Per session: the link chips a draft holds (`@[ENG-123]` standing for a Linear URL), keyed the
    *  way `draftElements` is and kept alive by the same rule. Expanded to markdown links at send. */
   draftLinks: Record<string, LinkChip[]>;
   /** The skills library by space id (`skills.list`) — what the mention picker offers. Refreshed when a
    *  skills-capable session opens and on `skills.changed`. */
   spaceSkills: Record<string, Skill[]>;
+  /** A space's user-defined slash commands, keyed by space id. Every file found, including the
+   *  invalid and shadowed ones — the picker filters to the runnable ones itself, because a settings
+   *  panel that wants to explain why `/foo` stopped working needs the rows the picker discards. */
+  spaceCommands: Record<string, UserCommand[]>;
+  /** A space's project scripts, keyed by space id. Held in the renderer — rather than asked for when a
+   *  key is pressed — because the keybinding hook has to decide whether to swallow a keystroke
+   *  SYNCHRONOUSLY, and `preventDefault` after an await is a no-op. */
+  spaceScripts: Record<string, Script[]>;
   /** Per-space scan sources, for the skills panel's "where these come from" section. */
   spaceSkillSources: Record<string, SkillSource[]>;
   /** Where the library lives on disk (`skills.list` root) — the settings panel's "drop a folder here"
@@ -902,6 +1098,61 @@ export type AppState = {
   terminalPanel: Record<string, TerminalPanel>;
   /** sessionId → the terminal id backing its panel; filled by the first openSessionTerminal. */
   sessionTerminals: Record<string, string>;
+  /**
+   * What is docked to a session pane's right-hand strip — its summary, or one harness sub-agent by
+   * its launching call's `toolUseId`. Absent means nothing is.
+   *
+   * ONE slot, because there is one strip. The summary and the sub-agent panel are two contents for
+   * one place, and holding their open states separately is how two panels come to be drawn over each
+   * other: each measures the same edge and each claims it.
+   *
+   * In memory only, unlike `terminalPanel`. Both of these are things you look at while working and
+   * then stop looking at; restoring one across a relaunch would reopen a panel onto an agent that
+   * finished last night, which is the same empty-panel failure a pane KIND for this would have had.
+   */
+  sessionDock: Record<string, SessionDock | undefined>;
+  /**
+   * The quick chat's session. Null when there is none.
+   *
+   * Created UNLISTED — no item row, and so no place in the sidebar, the pinned grid, the command
+   * palette, the Library or any layout. It belongs to the app rather than to a space's list of work,
+   * which is why it also stays up as you move between spaces: the window is the only place it is
+   * ever shown, and switching spaces is not a reason to lose sight of it.
+   *
+   * It still RUNS somewhere — an agent needs a working directory — so the row carries the space it
+   * was made in. That is a fact about where its commands land, not about which list it appears in.
+   */
+  /**
+   * The app-level page showing over the workspace, if any — Agents, Library, Connections,
+   * Notifications, Scheduled tasks, Settings, a space's Overview, or a profile.
+   *
+   * An OVERLAY, not a layout item, and that is the whole of what these pages are now. They used to be
+   * real items with sentinel refIds: opening one split a pane, zoomed it, and left a row in the
+   * sidebar's Open list — so reading your notifications rearranged the workspace, and unzooming
+   * afterwards left four pages side by side with the session you were actually working in. None of
+   * that is what "show me my settings" asks for.
+   *
+   * The page components are unchanged: the overlay synthesises the `Item` they take (`pageItemOf`),
+   * because what they need from one is a kind, a refId and the space to read from — never a row.
+   */
+  pageOverlay: { kind: Item["kind"]; refId: string; spaceId: string } | null;
+  /** Which simulator panes are showing the device's accessibility tree over the picture. Per pane
+   *  and in memory: an inspector is a thing you open to answer a question and close again, and one
+   *  that came back after a relaunch would be chrome nobody asked for. */
+  simulatorElements: Record<string, boolean>;
+  quickChat: { sessionId: string } | null;
+  /**
+   * Where the quick chat's window sits, as its top-left in viewport pixels — null until it has been
+   * dragged, which is what puts it in the bottom-right corner.
+   *
+   * Outlives the chat itself on purpose: closing removes the conversation, not the place on screen
+   * the user put the window. Reopening in a corner they had already moved away from would be the
+   * app forgetting something it plainly watched them decide.
+   *
+   * Persisted with the session id (`SETTING_QUICK_CHAT`), so a relaunch finds both the conversation
+   * and the corner it was left in.
+   */
+  quickChatPos: { x: number; y: number } | null;
   /** `system.info.machineName` (Plan 12 W1) — the under-strip's machine label. Display only: Realm runs
    *  agents on this Mac and no other, so there is no selector to back. "" until boot's fetch answers
    *  (the strip renders nothing rather than a wrong name). */
@@ -953,6 +1204,16 @@ export type AppState = {
    *  openers land on a section ("Edit in profile" on an MCP row lands on Connections; the memory
    *  row's on Memory) whether or not the page is already open. */
   profilePageTab: Record<string, ProfilePageTab>;
+  /**
+   * The skill the Library page is READING, per space — null (or absent) means it is showing its tabs.
+   *
+   * Store state rather than the Library page's own, and for the reason the profile page's tab is:
+   * a skill row is a door on three surfaces (the Library's own list, the space page's Skills tab,
+   * the profile page's), and the two that are not the Library reach the viewer by naming the skill
+   * here and then opening the page — the same two-step `openProfilePage` uses. A skill must not open
+   * one way from one list and another from the next.
+   */
+  librarySkill: Record<string, string | null>;
   /** The last `mcp.tools.list` error per server id, `null` once a refresh succeeds. A RESULT, not an
    *  exception (see the Api doc comment) — kept apart from `error` so it renders inline on the row that
    *  caused it instead of stealing the app's one error banner. */
@@ -992,6 +1253,22 @@ export type AppState = {
   reorderSpaces(ids: string[]): Promise<void>;
   setThemePref(pref: ThemePref): Promise<void>;
   setThemeName(mode: Mode, name: ThemeName): Promise<void>;
+  /** Re-read the imported themes and publish them to the palette registry. */
+  refreshCustomThemes(): Promise<void>;
+  /** Pick a VS Code colour theme file and import it; returns the id so the caller can select it. */
+  importThemeFile(): Promise<string | null>;
+  /** Forget an imported theme. A face still naming it falls back to `realm`. */
+  removeCustomTheme(id: string): Promise<void>;
+  /** Re-read the downloaded families and publish their `@font-face` rules to the document. */
+  refreshFonts(): Promise<void>;
+  /** Read the families installed on this Mac. Cheap, and only worth doing when a picker opens. */
+  refreshLocalFonts(): Promise<void>;
+  /** Fetch the Google Fonts catalog, once per launch. */
+  refreshFontCatalog(): Promise<void>;
+  /** Download a family and publish it. */
+  installFont(family: string): Promise<void>;
+  /** Remove a downloaded family, moving any role that was wearing it back to the bundled face. */
+  removeFont(family: string): Promise<void>;
   /** Merges into the palette's existing edits; an undefined role clears that one. */
   setThemeOverride(name: ThemeName, mode: Mode, patch: ThemeOverride & { syntax?: Partial<Record<string, string>> }): Promise<void>;
   resetThemeOverride(name: ThemeName, mode: Mode): Promise<void>;
@@ -999,8 +1276,23 @@ export type AppState = {
   setFonts(patch: Partial<FontPref>): Promise<void>;
   setGroundAlpha(pct: number): Promise<void>;
   setSwipeInvert(v: boolean): Promise<void>;
+  setLowPower(v: boolean): Promise<void>;
+  /** The window gained or lost focus. Called by App's own listeners; nothing else writes it. */
+  setWindowActive(v: boolean): void;
+  setEasterEggs(v: boolean): Promise<void>;
+  refreshEggPacks(): Promise<void>;
+  unlockEggPack(passphrase: string): Promise<UnlockedEggPack | null>;
+  forgetEggPack(id: string): Promise<void>;
+  /** Record that the konami sequence landed. One way: there is no relocking. */
+  unlockKonami(): Promise<void>;
   /** Flip the sidebar between full column and top rail, and persist it. */
   toggleSidebar(): Promise<void>;
+  /** Show the space's items or the call feed. Turning the feed ON clears any narrowing the sheet
+   *  left behind — a filter nobody can see in this column would silently hide rows — and leaves the
+   *  reading to the feed itself. */
+  setSidebarView(view: "space" | "activity"): void;
+  /** Set the sidebar's width, clamped to SIDEBAR_WIDTH and persisted on a debounce. */
+  setSidebarWidth(px: number): Promise<void>;
   setSubmitKey(v: SubmitKey): Promise<void>;
   refreshSpaces(): Promise<void>;
   refreshItems(): Promise<void>;
@@ -1040,6 +1332,8 @@ export type AppState = {
   newBrowser(targetLeafId?: string | null, beside?: boolean): Promise<void>;
   /** Opens a machine pane BESIDE the caller, with the connect flow ready — see `newBrowser`. */
   newMachine(targetLeafId?: string | null, beside?: boolean): Promise<void>;
+  /** A simulator pane, opened beside. Which device it shows is chosen inside the pane. */
+  newSimulator(targetLeafId?: string | null, beside?: boolean): Promise<void>;
   updateItem(input: UpdateItemInput): Promise<void>;
   /** Shelve (or restore) a row. Archiving closes the pane first — a hidden row whose pane is still on
    *  screen is the one state the sidebar could not explain — so this is `updateItem` plus that close,
@@ -1058,6 +1352,8 @@ export type AppState = {
   openItemBesideQuiet(itemId: string): Promise<void>;
   /** Layout-only close: the item leaves the layout but keeps existing (SPACE group). Never deletes. */
   closeFromLayout(itemId: string): Promise<void>;
+  /** Drop an empty pane out of the layout. Keyed by LEAF, because an empty pane has no item. */
+  closeEmptyPane(leafId: string): Promise<void>;
   /** Destructive: closes from the layout, deletes the item server-side (kills ptys), and drops local
    *  terminal/session state. */
   deleteItem(itemId: string): Promise<void>;
@@ -1123,7 +1419,7 @@ export type AppState = {
   /** On the reconnecting→connected edge, runs a boot-lite refresh (spaces/items/sessions) and catches
    *  every open transcript up from its lastSeq — the events missed while the socket was down. */
   applyConnectionState(state: "connected" | "reconnecting"): void;
-  setPaletteOpen(open: boolean): void;
+
   setSpacesOpen(open: boolean): void;
   openSheet(sheet: Sheet): void;
   closeSheet(): void;
@@ -1134,6 +1430,16 @@ export type AppState = {
   applyBrowserAction(p: { browserId: string; text: string; ok: boolean; ts: number }): void;
   applyBrowserDriving(p: { browserId: string; driving: boolean }): void;
   applyMachineState(s: MachineState): void;
+  applySimulatorState(s: SimulatorState): void;
+  applyGoalChanged(p: { sessionId: string; goal: Goal | null }): void;
+  /** Read this session's goal from the server, for a pane that just mounted. */
+  refreshGoal(sessionId: string): Promise<void>;
+  /** Start pursuing an objective on this session. The objective is also its first turn. */
+  startGoal(sessionId: string, objective: string, tokenBudget?: number | null): Promise<void>;
+  /** Pause, abandon — or, from the agent's side, complete and blocked. */
+  setGoalStatus(sessionId: string, status: GoalStatus, note?: string | null): Promise<void>;
+  resumeGoal(sessionId: string): Promise<void>;
+  clearGoal(sessionId: string): Promise<void>;
   setMachineGrab(machineId: string, on: boolean): void;
   applyMachineImageProgress(p: MachineImageProgress): void;
   setMachineScale(machineId: string, mode: "fit" | "actual"): void;
@@ -1143,7 +1449,7 @@ export type AppState = {
   /** Every session in the profile, as rows — what the Agents page lists. Fetched on demand rather
    *  than held in state: the store keeps rows for the spaces that are open, and a page that wants
    *  all of them asks the server, which already has them in one query. */
-  listAllSessions(): Promise<Session[]>;
+  listAllSessions(profileId?: string | null): Promise<Session[]>;
   /** Put a waiting_permission session's pane in front of the user — switching space if needed — which
    *  is what surfaces its card, since Transcript autofocuses the first pending permission of a focused
    *  pane. With no argument it chooses one (the active space first); a permission notification passes
@@ -1163,6 +1469,12 @@ export type AppState = {
    *  called directly only where a caller must see the stream's current text without waiting. */
   flushSessionDeltas(): void;
   applySessionStatus(sessionId: string, status: SessionStatus): void;
+  applySessionQueue(sessionId: string, queued: QueuedPrompt[]): void;
+  applyPlanLimits(limits: PlanLimits[]): void;
+  refreshPlanLimits(): Promise<void>;
+  refreshSessionQueue(sessionId: string): Promise<void>;
+  dequeuePrompt(sessionId: string, queuedId: string): Promise<void>;
+  releaseQueuedPrompt(sessionId: string, queuedId: string): Promise<void>;
   /** Create a session in the active space, open its item, and open its transcript. When `edge` is
    *  supplied with a target leaf, use the same split placement as an existing-item drag. */
   newSession(input: Omit<CreateSessionInput, "spaceId">, targetLeafId?: string | null, edge?: DropEdge): Promise<void>;
@@ -1276,6 +1588,9 @@ export type AppState = {
    *  the chip went in under, so the browser pane can name what it just sent — or null when the draft
    *  is already carrying `MAX_ELEMENT_CHIPS`. */
   addElementChip(sessionId: string, element: BrowserPickedElement): string | null;
+  /** Point this draft at another session. Answers why it refused, so the pane can say so. */
+  addSessionRef(sessionId: string, ref: SessionRef): "ok" | "self" | "duplicate" | "full";
+  removeSessionRef(sessionId: string, refId: string): void;
   /** Register a pasted link as a chip and hand back the chip, or null for a URL Realm cannot name
    *  (`describeLink`) — in which case the paste goes through as text. The composer inserts the
    *  token at its caret; this only owns the sidecar, which is why it does not touch the draft. */
@@ -1285,6 +1600,45 @@ export type AppState = {
   connectApp(spaceId: string, connectorId: string, client?: { clientId: string; clientSecret?: string }): Promise<{ authUrl: string }>;
   /** Fetch a space's skills library into `spaceSkills` (session open, `skills.changed`). */
   refreshSkills(spaceId: string): Promise<void>;
+  /** Fetch a space's user-defined slash commands into `spaceCommands` (session open). */
+  refreshCommands(spaceId: string): Promise<void>;
+  /** Expand one user command's template against what was typed after it. Straight through to the
+   *  server, which owns the placeholder rules — the renderer must not grow a second copy of them. */
+  expandCommand(spaceId: string, name: string, args: string): Promise<{ text: string; missing: string[] }>;
+  /** Fetch a space's project scripts into `spaceScripts` (session open, `scripts.changed`). */
+  refreshScripts(spaceId: string): Promise<void>;
+  /* The execution sandbox, straight through to the server. No slice: nothing outside the settings
+     panel reads it, and the policy is recomputed from the machine's own layout on every read, so a
+     cached copy would be a second answer that can disagree with the one a spawn actually uses. */
+  getSandbox(spaceId: string): Promise<SandboxState>;
+  setSandbox(spaceId: string, prefs: ExecutionSandboxPrefs | null): Promise<SandboxState>;
+  /** The active space's primary checkout — what ⌘P and ⌘⇧F search. Null before environments land,
+   *  which is a case the palette must say something about rather than showing an empty list. */
+  projectCwd(): string | null;
+  searchProjectFiles(query: string): Promise<ProjectFilesResult | null>;
+  searchProjectText(query: string): Promise<ProjectGrepResult | null>;
+  /** Which question the palette is asking. ⌘K is "all"; ⌘P and ⌘⇧F open the same surface narrowed. */
+  paletteMode: PaletteMode;
+  setPaletteOpen(open: boolean, mode?: PaletteMode): void;
+  setKeybindings(rules: readonly Keybinding[]): void;
+  /* Each of these re-reads the space's scripts afterwards, and the refresh is load-bearing rather
+     than cosmetic: `spaceScripts` is what `ownsScriptCommand` reads SYNCHRONOUSLY when a keystroke
+     arrives, so a stale copy is a bound key that does nothing (or worse, one that runs a script the
+     user just deleted). */
+  saveScript(spaceId: string, script: ScriptInput): Promise<void>;
+  removeScript(spaceId: string, id: string): Promise<void>;
+  reorderScripts(spaceId: string, ids: string[]): Promise<void>;
+  /** Whether the active space defines the script this `script.<id>.run` id names. Synchronous on
+   *  purpose: the keybinding hook must decide whether to swallow the keystroke before it returns. */
+  ownsScriptCommand(commandId: string): boolean;
+  /** Run a project script by its `script.<id>.run` command id, in the active space, and adopt the
+   *  terminal it opens. Returns false when this space defines no such script. */
+  runScriptCommand(commandId: string): Promise<boolean>;
+  /** One skill, whole — the Library's skill viewer. A pass-through: the document is what the viewer
+   *  is showing right now, not app state a second surface could want, so nothing is cached. */
+  readSkill(spaceId: string, id: string): Promise<SkillDetail>;
+  /** One file bundled beside a `SKILL.md`, on the same terms. */
+  readSkillFile(spaceId: string, id: string, rel: string): Promise<{ text: string; truncated: boolean }>;
   /** Fetch the scan sources into `spaceSkillSources`. Separate from `refreshSkills` because the panel
    *  wants it and the composer never does — a session open should not pay for it. */
   refreshSkillSources(spaceId: string): Promise<void>;
@@ -1343,6 +1697,21 @@ export type AppState = {
   ensureSessionTerminal(sessionId: string): Promise<void>;
   /** Panel width (% of the session pane) from a resize drag; persisted with a trailing debounce. */
   setTerminalPanelWidth(sessionId: string, width: number): void;
+  /** Dock something to this session pane's right-hand strip, replacing whatever was there. Passing
+   *  what is already docked closes it, so one call serves every toggle that opens this strip. */
+  toggleSessionDock(sessionId: string, dock: SessionDock): void;
+  /** Undock. Nothing is destroyed — a sub-agent goes on working and its calls go on landing in the
+   *  transcript; this closes a view of them. */
+  closeSessionDock(sessionId: string): void;
+  /** Open the quick chat, making its session if there is not one already. A second call is a no-op:
+   *  there is one quick chat, and a button that stacked windows would be a way to lose one. */
+  openQuickChat(): Promise<void>;
+  /** Close it, which DELETES the session — the window is the only place it was ever shown, so
+   *  leaving the row behind would be leaving litter nobody asked to keep. */
+  closeQuickChat(): Promise<void>;
+  /** Where the window sits, from a drag. Clamped by the window itself, which is the only thing that
+   *  knows how big it is. */
+  setQuickChatPos(pos: { x: number; y: number }): void;
   refreshGitInfo(cwd: string): Promise<void>;
   /** Re-read one checkout's changed-file list. Also refreshes `gitInfo` for it, so the prompter's
    *  chips and the diff pane can never disagree about the same tree. */
@@ -1420,24 +1789,34 @@ export type AppState = {
   /** Open the space's PAGE (Plan 12 W3) — a `space-page` item whose refId is the space id, one per
    *  space (the diff pane's dedup precedent). `tab` lands the page on a section — the plus-menu's
    *  "Manage connections…" passes "connections"; omitted keeps whatever tab the page last showed. */
-  openSpacePage(spaceId: string, tab?: SpacePageTab): Promise<void>;
+  openSpacePage(spaceId: string, tab?: SpacePageTab): void;
   /** The page's tab, per space — see `spacePageTab`. */
   setSpacePageTab(spaceId: string, tab: SpacePageTab): void;
   /** Open (or focus) the ACTIVE space's profile page (Plan 14 W2) — a `profile-page` destination item
    *  (sentinel refId; the page derives its profile live from the item's space). `tab` lands the page
    *  on a section — the retargeted "Edit in profile" affordances pass one. */
-  openProfilePage(tab?: ProfilePageTab): Promise<void>;
+  openProfilePage(tab?: ProfilePageTab): void;
   /** The profile page's tab, per profile — see `profilePageTab`. */
   setProfilePageTab(profileId: string, tab: ProfilePageTab): void;
+  /** Which skill the Library page is reading, for `spaceId` — see `librarySkill`. Null closes it. */
+  setLibrarySkill(spaceId: string, id: string | null): void;
+  /** Open the Library on one skill's page, from a list that is not the Library's own. The same
+   *  two-step `openProfilePage` uses: name the destination, then go there. */
+  openSkillPage(id: string): Promise<void>;
   /** Open (or focus) a sidebar destination page (Plan 12 W4: Library, Connections) in the ACTIVE
    *  space's layout. One page item per space, deduped by KIND — the refId is the kind's well-known
    *  sentinel (`PAGE_REF_IDS`), and the item's `spaceId` is the vantage its scope groups read from.
    *  Returns the page item's id — null only when there is no active space to put it in — which is what
    *  a caller needs to then address something INSIDE the page it just opened. */
-  openDestinationPage(kind: DestinationPageKind, placement?: DestinationPlacement): Promise<string | null>;
-  /** True when `kind`'s page is open in a pane that is not the focused one: the only case in which a
-   *  `here` placement does something the plain click does not. */
-  destinationPageElsewhere(kind: DestinationPageKind): boolean;
+  /** Show or hide the device's accessibility tree over a simulator's picture. */
+  toggleSimulatorElements(simulatorId: string): void;
+  /** The native file picker, for the surfaces that need a PATH rather than an attachment — the
+   *  simulator's camera feed is a file on this Mac, not something to attach to a message. */
+  pickFiles(): Promise<PickedAttachment[]>;
+  /** Show an app-level page over the workspace. An OVERLAY, not a layout item — see `pageOverlay`. */
+  openDestinationPage(kind: DestinationPageKind): void;
+  /** Put the page overlay away. */
+  closePageOverlay(): void;
   /** Read both Settings-page preference keys into `settingsPrefs` (Plan 12 W6). Junk in a row —
    *  an unknown category, a mode PERMISSION_MODES doesn't name — is dropped/defaulted here, once,
    *  so the page never renders a state the server would not honor. */
@@ -1461,6 +1840,7 @@ export type AppState = {
    *  consumed server-side at `sessions.create`. The bypass confirm lives in the page, not here:
    *  by the time this runs the user has already said it twice. */
   setDefaultPermissionMode(mode: string): Promise<void>;
+  setMidTurnMode(mode: MidTurnMode): Promise<void>;
   /** Re-run the main-process TCC probe (prompt-free by construction) into `tccRows`. */
   refreshTcc(): Promise<void>;
   /** Load the enrolled sign-ins and the store's own state (encryption available, Touch ID usable). */
@@ -1786,6 +2166,32 @@ const isSubmitKey = (x: unknown): x is SubmitKey => x === "enter" || x === "cmdE
 /** One face's palette, from its own key or from the single selection an older build stored. A
  *  palette is only accepted for a face it HAS: the legacy key can name a dark-only palette, and
  *  putting that in the light slot would leave the window with no light palette to fall back from. */
+/**
+ * An imported theme as the palette registry wants it.
+ *
+ * A `StoredTheme` is one FACE — a VS Code theme states one — so the other slot is null, and
+ * `themeModes` then offers it only to the face it actually has. That is the same contract the
+ * one-faced vendored palettes are under (Monokai has no light face), so nothing downstream has to
+ * learn a second rule for imports.
+ */
+const themeDefOf = (t: StoredTheme): ThemeDef => ({
+  name: t.id,
+  label: t.label,
+  // Provenance, in the same slot a vendored palette states its upstream — an imported theme's
+  // upstream is the file it was translated from, and the picker shows it for the same reason.
+  credit: `Imported from ${t.source.file.split("/").pop() ?? t.source.file}`,
+  blurb: t.source.derived.length === 0
+    ? "Imported from a VS Code colour theme."
+    : `Imported from a VS Code colour theme. ${t.source.derived.length} of the thirteen colours were not stated in the file and were worked out from the rest.`,
+  dark: t.mode === "dark" ? t.seed : null,
+  light: t.mode === "light" ? t.seed : null,
+});
+
+/** The item kinds that used to be pages in the layout. Pruned on boot — see `prunePageItems`. */
+const PAGE_ITEM_KINDS: ReadonlySet<Item["kind"]> = new Set<Item["kind"]>([
+  ...(Object.keys(PAGE_REF_IDS) as Item["kind"][]), "space-page",
+]);
+
 const storedPalette = (stored: unknown, legacy: unknown, mode: Mode): ThemeName => {
   const name = isThemeName(stored) ? stored : isThemeName(legacy) ? legacy : "realm";
   return themeModes(name).includes(mode) ? name : "realm";
@@ -1862,7 +2268,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       // space switch mid-sheet must not cement the snap). Only the ACTIVE group is ever snapped, so
       // substituting the saved tree back into it leaves every other group's arrangement alone.
       const persistable = sheetSnap && sheetSnap.spaceId === activeSpaceId ? setActiveLayout(groups, sheetSnap.saved) : groups;
-      const saved = await api.setGroups(activeSpaceId, persistable);
+      // Focus rides along in the SAME call as the layout it was captured against. The ITEM, not the
+      // leaf: a leaf id is a fact about one arrangement, and the same pane rebuilt into a new split
+      // gets a new leaf, so a stored leaf id would restore focus to nothing the first time anybody
+      // moved a divider.
+      const saved = await api.setGroups(activeSpaceId, persistable, itemIdOfLeaf(get().layout, get().focusedLeafId));
       // Keep the cached Space current so a later selectSpace seeds from the newest groups.
       set({ spaces: get().spaces.map((x) => (x.id === saved.id ? saved : x)) });
     };
@@ -1881,6 +2291,49 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       if (panelTimer) clearTimeout(panelTimer);
       panelTimer = setTimeout(() => { panelTimer = null; get().run(persistPanels); }, PERSIST_DEBOUNCE_MS);
     };
+    /** The quick chat's session and window position, on the panel map's own debounce shape: opening
+     *  and closing write straight through (one deliberate act each), a drag writes every frame. */
+    let quickTimer: ReturnType<typeof setTimeout> | null = null;
+    const persistQuickChat = async () => {
+      if (quickTimer) { clearTimeout(quickTimer); quickTimer = null; }
+      const qc = get().quickChat; const pos = get().quickChatPos;
+      // The position is kept even with no chat: closing removes the conversation, not the corner the
+      // user put the window in.
+      await api.setSetting(SETTING_QUICK_CHAT, { sessionId: qc?.sessionId ?? null, pos });
+    };
+    const scheduleQuickChatPersist = () => {
+      if (quickTimer) clearTimeout(quickTimer);
+      quickTimer = setTimeout(() => { quickTimer = null; get().run(persistQuickChat); }, PERSIST_DEBOUNCE_MS);
+    };
+    /**
+     * Bring back the quick chat a previous run left open.
+     *
+     * The session is CONFIRMED to still exist before the window is restored. A stored id can outlive
+     * its row — the space it ran in was deleted, the session was deleted from elsewhere — and a
+     * window opened onto a session that is gone is a window with a prompter that cannot send.
+     */
+    const restoreQuickChat = async (raw: unknown) => {
+      const v = raw && typeof raw === "object" ? raw as { sessionId?: unknown; pos?: unknown } : null;
+      const pos = v?.pos && typeof v.pos === "object"
+        && typeof (v.pos as { x?: unknown }).x === "number" && typeof (v.pos as { y?: unknown }).y === "number"
+        ? v.pos as { x: number; y: number } : null;
+      set({ quickChatPos: pos });
+      const id = typeof v?.sessionId === "string" ? v.sessionId : null;
+      if (!id) return;
+      const session = await api.getSession(id).catch(() => null);
+      if (!session) { set({ quickChat: null }); await persistQuickChat(); return; }
+      set({ sessions: { ...get().sessions, [session.id]: session }, sessionStatus: { ...get().sessionStatus, [session.id]: session.status },
+        sessionSpace: { ...get().sessionSpace, [session.id]: session.spaceId }, quickChat: { sessionId: session.id } });
+      await get().openSession(session.id);
+    };
+    /** `refreshSessions` REBUILDS `sessions` from the active space's list, so the quick chat's row —
+     *  which may belong to another space entirely — has to be put back afterwards or the window loses
+     *  the session it is showing on every space switch. */
+    const keepQuickChatSession = (next: Record<string, Session>): Record<string, Session> => {
+      const id = get().quickChat?.sessionId;
+      const held = id ? get().sessions[id] : undefined;
+      return id && held && !next[id] ? { ...next, [id]: held } : next;
+    };
     const panelOf = (id: string): TerminalPanel => get().terminalPanel[id] ?? { open: false, width: TERMINAL_PANEL_WIDTH };
     const setPanel = (id: string, p: TerminalPanel) => set({ terminalPanel: { ...get().terminalPanel, [id]: p } });
     /** Sessions with an openSessionTerminal call in flight — StrictMode double-mounts and a toggle
@@ -1898,9 +2351,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     /** Flush a pending debounced persist before the active space changes (persist reads the current space). */
     const flushPersist = async () => {
       if (panelTimer) await persistPanels();
+      if (quickTimer) await persistQuickChat();
       if (persistTimer) await persist();
     };
     const isSpace = (sid: string) => get().activeSpaceId === sid;
+    /** Whether anything is looking at the gateway's call log — the sheet, or the sidebar's feed.
+     *
+     *  Four readers ask: both fetches' supersession guards, and the live-call gate. It is one
+     *  function because it went from one surface to two, and all four had spelled the single surface
+     *  out for themselves — so the feed would have shown the rows it was opened with and then gone
+     *  quietly stale, which is the one failure a feed cannot have. A third surface adds a term. */
+    const watchingCalls = () => get().sheet?.kind === "activity" || get().sidebarView === "activity";
     const mergeSpace = (s: Space) => set({ spaces: get().spaces.map((x) => (x.id === s.id ? s : x)) });
     const mergeSession = (s: Session) => set({ sessions: { ...get().sessions, [s.id]: s }, sessionStatus: { ...get().sessionStatus, [s.id]: s.status } });
     /** Re-read one run's attempt log. Every run write opens or closes an attempt, so a panel left
@@ -2140,6 +2601,21 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       if (leaf) await get().focusPaneFull(leaf.id);
     };
 
+    /**
+     * Take the page off the workspace.
+     *
+     * A page — Agents, Library, Connections, Notifications, Scheduled tasks, Settings, a space's
+     * Overview — covers the pane host. So a click on a sidebar row while one is up moved the focus
+     * and the layout underneath and changed nothing the user could see: the row read as a click that
+     * missed, and the keyboard ended up in a pane behind an opaque cover.
+     *
+     * The rule is focus, not who asked: every path that MOVES FOCUS into a pane reveals the pane it
+     * just focused. `openItemBesideQuiet` — the agent's quiet opens, a document written beside you —
+     * deliberately does not move focus, and does not call this: a pane appearing off to the side is
+     * not a reason to close what someone is reading.
+     */
+    const revealPanes = () => { if (get().pageOverlay) set({ pageOverlay: null }); };
+
     const adoptItem = async (sid: string, itemId: string, targetLeafId: string | null, beside = false, edge?: DropEdge) => {
       const seq = ++itemsFetchSeq;
       const items = await api.listItems(sid);
@@ -2151,21 +2627,22 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     };
 
     let groundAlphaTimer: ReturnType<typeof setTimeout> | null = null;
+    let sidebarWidthTimer: ReturnType<typeof setTimeout> | null = null;
     let contrastTimer: ReturnType<typeof setTimeout> | null = null;
 
     return {
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, easterEggs: false, konamiUnlocked: false, submitKey: "enter", midTurnMode: "queue", sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
+      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
-      paletteOpen: false, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, machineState: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
+      keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
-      spacePageTab: {}, profilePageTab: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
+      spacePageTab: {}, profilePageTab: {}, librarySkill: {}, mcpPanelSpaceId: null,
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
-      terminalPanel: {}, sessionTerminals: {},
+      terminalPanel: {}, sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null,
       machineName: "", userName: "", detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
@@ -2178,10 +2655,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, swipeInvert, submitKey, sidebarCollapsed, lastAgent, panels, system] = await Promise.all([
+        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, swipeInvert, lowPower, submitKey, sidebarCollapsed, sidebarWidth, lastAgent, eggs, konami, panels, quick, system] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME),
-          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_LAST_AGENT),
+          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_LAST_AGENT),
+          api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
           api.getSetting(SETTING_TERMINAL_PANEL),
+          api.getSetting(SETTING_QUICK_CHAT),
           // Labels, not dependencies: a failure here must not take boot down with it — the strip
           // simply shows no machine name, and the greeting no name.
           api.systemInfo().catch(() => ({ machineName: "", userName: "", detachedSince: null })),
@@ -2189,7 +2668,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const agent = AgentKindSchema.safeParse(lastAgent);
         set({ profiles, themePref: isThemePref(theme) ? theme : "system", themeNames: { light: storedPalette(light, legacyName, "light"), dark: storedPalette(dark, legacyName, "dark") },
           themeOverrides: parseThemeOverrides(overrides), contrast: typeof contrast === "number" ? clampContrast(contrast) : CONTRAST_RANGE.default, fonts: parseFontPref(fonts),
-          groundAlpha: typeof groundAlpha === "number" ? clampGroundAlpha(groundAlpha) : DEFAULT_GROUND_ALPHA, swipeInvert: swipeInvert === true,
+          groundAlpha: typeof groundAlpha === "number" ? clampGroundAlpha(groundAlpha) : DEFAULT_GROUND_ALPHA, swipeInvert: swipeInvert === true, lowPower: lowPower === true,
           submitKey: isSubmitKey(submitKey) ? submitKey : "enter", sidebarCollapsed: sidebarCollapsed === true,
           sidebarWidth: typeof sidebarWidth === "number" ? clampSidebarWidth(sidebarWidth) : SIDEBAR_WIDTH.default,
           lastAgentKind: agent.success ? agent.data : null,
@@ -2197,22 +2676,31 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           terminalPanel: parseTerminalPanels(panels), machineName: system.machineName, userName: system.userName, detachedSince: system.detachedSince });
         // AppShell is already mounted during boot: keep spaces unpublished until each saved custom
         // icon can resolve, rather than visibly rendering its folder fallback first.
+        /* Before the spaces are published, and so before the first painted frame: `applyTheme`
+           resolves a palette name through the registry, and a saved selection naming an imported
+           theme would otherwise fall back to `realm` for one frame and then repaint. */
+await get().refreshCustomThemes().catch(() => {});
+        // Same reason, same place: a preference naming a downloaded family needs its `@font-face` in
+        // the document before the first paint that reads `--font-ui`.
+        await get().refreshFonts().catch(() => {});
         await hydrateSpaceIcons(spaces);
         set({ spaces });
         const target = spaces.find((s) => s.id === saved) ?? spaces[0];
         if (target) await get().selectSpace(target.id);
         // Cross-space badges need every session's space + status, not just the active space's.
         await get().refreshAllSessions();
+        await restoreQuickChat(quick);
         // The desktop switch, read BEFORE the count lands because the badge push honors it — and read
         // at boot at all because the first broadcast can arrive long before anyone opens Settings.
         // A failed read keeps the default-on answer: a preference nobody could read is not a
         // preference to switch the feature off.
-        const [desktop, sound, volume, imessage, slackWebhook] = await Promise.all([
+        const [desktop, sound, volume, imessage, slackWebhook, midTurn] = await Promise.all([
           api.getSetting(NOTIFICATIONS_DESKTOP_KEY).catch(() => null),
           api.getSetting(NOTIFICATIONS_SOUND_KEY).catch(() => null),
           api.getSetting(NOTIFICATIONS_SOUND_VOLUME_KEY).catch(() => null),
           api.getSetting(NOTIFICATIONS_IMESSAGE_KEY).catch(() => null),
           api.getSetting(NOTIFICATIONS_SLACK_WEBHOOK_KEY).catch(() => null),
+          api.getSetting(MID_TURN_MODE_KEY).catch(() => null),
         ]);
         // Read separately and defaulted the OTHER way: a preference nobody could read must not switch
         // scrollback ON, because what it keeps is whatever a shell printed.
@@ -2220,7 +2708,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ terminalHistory: terminalHistory === true });
         const str = (v: unknown) => (typeof v === "string" ? v : "");
         set({ desktopNotifications: desktop !== false, soundCues: sound !== false, soundVolume: cueVolume(volume),
-          notificationRelay: { imessage: str(imessage), slackWebhook: str(slackWebhook) } });
+          notificationRelay: { imessage: str(imessage), slackWebhook: str(slackWebhook) }, midTurnMode: resolveMidTurnMode(midTurn) });
         // The sidebar's unread pill needs the count before the page is ever opened. One row, not a
         // page — the count rides every list result. A badge, not a dependency: a failure here must
         // not take boot down with it.
@@ -2242,7 +2730,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // Diffs and patches go with the space: they are keyed by checkout path, and every pane that
         // could show one belongs to the space being left. Keeping them would mean a diff pane opening
         // on stale hunks from before the switch.
-        set(writeGroups(seedGroups(space), { activeSpaceId: id, focusedLeafId: null, items: [], projects: [], environments: {}, sessions: {}, error: null,
+        // `sessions` is emptied because it holds the space being LEFT — except for the quick chat's
+        // row, which belongs to no space's list and whose window stays up across the switch.
+        set(writeGroups(seedGroups(space), { activeSpaceId: id, focusedLeafId: null, items: [], projects: [], environments: {}, sessions: keepQuickChatSession({}), error: null,
           sheetSnap: null, // a snap belongs to the layout being left; that layout persisted UNsnapped
           diffs: {}, diffLoading: {}, patches: {} }));
         get().run(() => api.setSetting(SETTING_ACTIVE_SPACE, id));
@@ -2288,6 +2778,18 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const seq = ++itemsFetchSeq;
         const items = await api.listItems(sid);
         if (!isSpace(sid) || seq !== itemsFetchSeq) return; // space changed, or a newer fetch owns the truth
+        /* App-level pages used to be layout ITEMS, and a home upgraded from that version still holds
+           one per page it ever opened. They are pruned HERE rather than once at boot because `items`
+           only ever holds the ACTIVE space's — a boot-time sweep would clear one space and leave
+           every other one carrying its own until someone visited it. Their refIds are sentinels with
+           nothing behind them, so this costs nothing (design.md: "there is nothing behind the item to
+           lose"). */
+        const stalePages = items.filter((i) => PAGE_ITEM_KINDS.has(i.kind));
+        if (stalePages.length > 0) {
+          for (const it of stalePages) await api.deleteItem(it.id).catch(() => {});
+          if (!isSpace(sid) || seq !== itemsFetchSeq) return;
+          return void await get().refreshItems();
+        }
         // Prune across every group, not just the one on screen: a deleted item must stop being open
         // in the arrangements the user is not currently looking at too, or switching to one would
         // render a pane for something that no longer exists.
@@ -2382,6 +2884,59 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ themeNames: { ...get().themeNames, [mode]: name } });
         await api.setSetting(SETTING_THEME_NAME[mode], name);
       },
+      async refreshCustomThemes() {
+        const { root, themes } = await api.listThemes();
+        /* Published to `@realm/ui`'s registry BEFORE the store, because `applyTheme` resolves a name
+           through it: setting the state first would re-render the window with a palette whose name
+           does not resolve yet, which paints one frame of Realm's own colours over the theme. */
+        setCustomThemes(themes.map(themeDefOf));
+        set({ customThemes: themes, themesRoot: root });
+      },
+      async importThemeFile() {
+        const path = await api.pickThemeFile();
+        if (!path) return null;
+        const theme = await api.importTheme(path);
+        await get().refreshCustomThemes();
+        return theme.id;
+      },
+      async refreshFonts() {
+        const { root, fonts } = await api.listInstalledFonts();
+        /* Published BEFORE the state, for `refreshCustomThemes`'s reason: a preference naming a
+           family whose `@font-face` is not in the document yet paints one frame in the fallback. */
+        publishFontFaces(await loadInstalledFaces(fonts, (family) => api.fontFaces(family)));
+        set({ installedFonts: fonts, fontsRoot: root });
+      },
+      async refreshLocalFonts() { set({ localFonts: await localFamilies() }); },
+      async refreshFontCatalog() {
+        if (get().fontCatalog) return; // two thousand entries and a 2.7MB fetch — once per launch
+        const { fonts } = await api.fontCatalog();
+        set({ fontCatalog: fonts });
+      },
+      async installFont(family) {
+        await api.installFont(family);
+        await get().refreshFonts();
+      },
+      async removeFont(family) {
+        await api.removeFont(family);
+        /* A role still wearing it is moved off HERE, not left to fall back at paint time: the stack
+           would quietly land on the system face while the SETTING went on naming a family whose
+           files are gone — the state that survives a restart and confuses everyone. */
+        const f = get().fonts;
+        const next = { ...f, ...(f.ui === family ? { ui: "bundled" as const } : {}), ...(f.code === family ? { code: "bundled" as const } : {}) };
+        if (next.ui !== f.ui || next.code !== f.code) await get().setFonts(next);
+        await get().refreshFonts();
+      },
+      async removeCustomTheme(id) {
+        await api.removeTheme(id);
+        /* A face still naming it is moved off it HERE rather than left to fall back at paint time:
+           `paletteFor` would quietly answer `realm` for a name that no longer resolves, and the
+           picker would go on showing a selected card for a theme that is gone. */
+        const names = get().themeNames;
+        for (const mode of ["dark", "light"] as const) {
+          if (names[mode] === id) await get().setThemeName(mode, "realm");
+        }
+        await get().refreshCustomThemes();
+      },
       async setThemeOverride(name, mode, patch) {
         const key = overrideKey(name, mode);
         const prev = get().themeOverrides[key] ?? {};
@@ -2437,10 +2992,65 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ swipeInvert: v });
         await api.setSetting(SETTING_SWIPE_INVERT, v);
       },
+      async setLowPower(v) {
+        set({ lowPower: v });
+        await api.setSetting(SETTING_LOW_POWER, v);
+      },
+      setWindowActive(v) {
+        // Guarded: focus and blur both fire more than once for one switch (the window, then the
+        // page), and a state write per event would be a re-render per event.
+        if (get().windowActive !== v) set({ windowActive: v });
+      },
+      async refreshEggPacks() {
+        const { packs } = await api.eggsList();
+        set({ eggPacks: packs });
+      },
+      /** Try a word. Returns the group it opened, or null — which is what the field says back. */
+      async unlockEggPack(passphrase) {
+        const { pack } = await api.eggsUnlock(passphrase);
+        if (pack) set({ eggPacks: [...get().eggPacks.filter((p) => p.id !== pack.id), pack] });
+        return pack;
+      },
+      async forgetEggPack(id) {
+        await api.eggsForget(id);
+        set({ eggPacks: get().eggPacks.filter((p) => p.id !== id) });
+      },
+      async setEasterEggs(v) {
+        set({ easterEggs: v });
+        await api.setSetting(SETTING_EASTER_EGGS, v);
+      },
+      async unlockKonami() {
+        if (get().konamiUnlocked) return;
+        set({ konamiUnlocked: true });
+        // The only sound Realm makes that no notification asked for. It obeys the same switch the
+        // notification cues do: someone who turned sound off meant all of it.
+        if (get().soundCues) api.playCue("chime", get().soundVolume);
+        await api.setSetting(SETTING_KONAMI_UNLOCKED, true);
+      },
       async toggleSidebar() {
         const next = !get().sidebarCollapsed;
         set({ sidebarCollapsed: next });
         await api.setSetting(SETTING_SIDEBAR_COLLAPSED, next);
+      },
+      setSidebarView(view) {
+        if (get().sidebarView === view) return;
+        // openActivity's reset, without the sheet or its fetch: the feed reads the log when it
+        // mounts, so doing it here as well would be two round trips per flip of the lens.
+        set(view === "activity" ? { sidebarView: view, mcpCallsFilter: {}, mcpCalls: [], mcpCallsHasMore: false } : { sidebarView: view });
+      },
+      async setSidebarWidth(px) {
+        // Clamped before it is stored rather than only before it is painted, for the reason
+        // setGroundAlpha is: an out-of-range value from an older build, or from the settings file by
+        // hand, must not be what the next boot reads back.
+        const next = clampSidebarWidth(px);
+        if (next === get().sidebarWidth) return;
+        set({ sidebarWidth: next });
+        // The column follows the pointer, so this runs on every move of a drag. Same debounce the
+        // layout persist and the transparency slider use, and through `run` for the same reason:
+        // the write lands long after the caller's promise settled, so a failure has nowhere else to
+        // surface.
+        if (sidebarWidthTimer) clearTimeout(sidebarWidthTimer);
+        sidebarWidthTimer = setTimeout(() => { sidebarWidthTimer = null; get().run(() => api.setSetting(SETTING_SIDEBAR_WIDTH, next)); }, PERSIST_DEBOUNCE_MS);
       },
       async setSubmitKey(v) {
         set({ submitKey: v });
@@ -2477,6 +3087,18 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const { itemId } = await api.createTerminal(sid);
         await adoptItem(sid, itemId, targetLeafId);
       },
+      ownsScriptCommand(commandId) {
+        const sid = get().activeSpaceId; if (!sid) return false;
+        const id = parseScriptCommandId(commandId); if (id === null) return false;
+        return (get().spaceScripts[sid] ?? []).some((sc) => sc.id === id);
+      },
+      async runScriptCommand(commandId) {
+        const sid = get().activeSpaceId; if (!sid) return false;
+        if (!get().ownsScriptCommand(commandId)) return false;
+        const { itemId } = await api.runScript(sid, commandId);
+        await adoptItem(sid, itemId, null);
+        return true;
+      },
       /**
        * `beside` splits rather than replaces. A browser opened from a session's pane bar is a place
        * to look at something WHILE the session works — evicting the session to show it is the exact
@@ -2493,6 +3115,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async newMachine(targetLeafId = null, beside = false) {
         const sid = get().activeSpaceId; if (!sid) return;
         const { itemId } = await api.createMachine(sid, "New machine");
+        await adoptItem(sid, itemId, targetLeafId, beside);
+      },
+      /** Beside, for `newMachine`'s reason: a simulator is something to watch WHILE the session
+       *  works on the app running inside it. */
+      async newSimulator(targetLeafId = null, beside = false) {
+        const sid = get().activeSpaceId; if (!sid) return;
+        const { itemId } = await api.createSimulator(sid, "Simulator");
         await adoptItem(sid, itemId, targetLeafId, beside);
       },
       async updateItem(input) {
@@ -2520,6 +3149,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
        *  answer — and eviction destroys an agent's browser view mid-task (close is final for browsers).
        *  If the focused leaf is empty, filling it is fine; otherwise split right and open there. */
       async openItemBeside(itemId) {
+        revealPanes();
         detached(itemId); // the pane may be open in another group; it moves here rather than duplicating
         const current = get().layout ?? emptyLayout();
         const focused = get().focusedLeafId;
@@ -2560,6 +3190,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await persist();
       },
       async openItem(itemId, leafId = null) {
+        revealPanes(); // the row was clicked to be looked at — see `revealPanes`
         // Activation without an explicit target (sidebar row, palette, pinned grid) of an item that is
         // already open means "go there": focus its pane, touch nothing, persist nothing. When the pane
         // lives in ANOTHER group, "go there" means going to that group — switching the arrangement and
@@ -2616,6 +3247,24 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // stale items, and a server hiccup there must not manufacture sessions.
         if (allItems(layout).length === 0) await get().newSessionInstant();
       },
+      /**
+       * Drop a deliberately-empty pane out of the layout.
+       *
+       * Separate from `closeFromLayout`, which is keyed by ITEM: an empty leaf has no item to look it
+       * up by, and every branch of that function — the browser view, the other-group detach, the
+       * fresh-prompter rescue — is about an item that was open. None of it applies to an empty box.
+       *
+       * No `newSessionInstant` rescue either, and that asymmetry is deliberate: closing the last
+       * pane with something IN it lands you in a fresh prompter, because you were working. Dropping
+       * the last empty box would then immediately put another box back, and the control would read
+       * as broken. `closeLeaf` keeps one empty leaf when the tree would otherwise vanish, which is
+       * the honest floor.
+       */
+      async closeEmptyPane(leafId) {
+        const layout = layoutCloseLeaf(get().layout ?? emptyLayout(), leafId);
+        set(writeLayout(layout, { focusedLeafId: focusIn(layout) }));
+        await persist();
+      },
       async deleteItem(itemId) {
         await get().closeFromLayout(itemId);
         // The old destructive close, minus the layout removal handled above.
@@ -2650,12 +3299,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           const { [it.refId]: _st, ...sessionStatus } = get().sessionStatus; const { [it.refId]: _se, ...sessions } = get().sessions;
           const { [it.refId]: _dr, ...drafts } = get().drafts; const { [it.refId]: _sp, ...sessionSpace } = get().sessionSpace;
           const { [it.refId]: _tp, ...terminalPanel } = get().terminalPanel; const { [it.refId]: _tid, ...sessionTerminals } = get().sessionTerminals;
+          const { [it.refId]: _dk, ...sessionDock } = get().sessionDock;
           const { [it.refId]: _pr, ...planReturn } = get().planReturn;
           const { [it.refId]: _at, ...pendingAttachments } = get().pendingAttachments;
           const { [it.refId]: _dm, ...draftMentions } = get().draftMentions; // part of the draft, dropped with it
           const { [it.refId]: _de, ...draftElements } = get().draftElements; // likewise
+          const { [it.refId]: _dsr, ...draftSessionRefs } = get().draftSessionRefs; // likewise
           const { [it.refId]: _dl, ...draftLinks } = get().draftLinks;
-          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftLinks, planReturn, sessionSpace, terminalPanel, sessionTerminals });
+          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, planReturn, sessionSpace, terminalPanel, sessionTerminals, sessionDock });
           if (termId || _tp) get().run(persistPanels); // the panel map just lost an entry
         }
       },
@@ -2671,6 +3322,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // Self-drop: the item already occupies the target leaf. Splitting would first close the item
         // (pruning that very leaf) and teleport it to the far side; replacing is a no-op anyway.
         if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)?.id === leafId) return;
+        revealPanes(); // after the self-drop check: that one moves nothing, so it reveals nothing
         if (edge === "center") return get().openItem(itemId, leafId);
         detached(itemId); // dropped from another group: it moves here rather than being open twice
         const dir = edge === "left" || edge === "right" ? "row" : "col";
@@ -2811,7 +3463,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         }
       },
       // One overlay slot (U-M4/V-F5): sheets and the palette never stack — opening either closes the other.
-      setPaletteOpen(open) { set(open ? { paletteOpen: true, spacesOpen: false, sheet: null, ...restoreSnap() } : { paletteOpen: false }); },
+      setKeybindings(rules) { set({ keybindings: rules }); },
+      async saveScript(spaceId, script) { await api.saveScript(spaceId, script); await get().refreshScripts(spaceId); },
+      async removeScript(spaceId, id) { await api.removeScript(spaceId, id); await get().refreshScripts(spaceId); },
+      async reorderScripts(spaceId, ids) { await api.reorderScripts(spaceId, ids); await get().refreshScripts(spaceId); },
+      setPaletteOpen(open, mode = "all") { set(open ? { paletteOpen: true, paletteMode: mode, spacesOpen: false, sheet: null, ...restoreSnap() } : { paletteOpen: false, paletteMode: "all" }); },
       // Same one-slot rule the palette and the sheets keep: two overlays are never on screen at once.
       setSpacesOpen(open) { set(open ? { spacesOpen: true, paletteOpen: false, sheet: null, ...restoreSnap() } : { spacesOpen: false }); },
       openSheet(sheet) { set({ sheet, paletteOpen: false, spacesOpen: false, ...maybeSnapForSheet() }); },
@@ -2863,6 +3519,52 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const { [machineId]: _g, ...rest } = cur;
         set({ machineGrab: rest });
       },
+      applyGoalChanged({ sessionId, goal }) {
+        const cur = get().goals;
+        if (!goal) {
+          if (!(sessionId in cur)) return;
+          const { [sessionId]: _gone, ...rest } = cur;
+          set({ goals: rest });
+          return;
+        }
+        const prev = cur[sessionId];
+        // The no-churn guard the other live maps have: a settle publishes the turn count, and a
+        // prompter strip must not re-render for a figure that did not move.
+        if (prev && prev.status === goal.status && prev.objective === goal.objective && prev.turns === goal.turns
+          && prev.tokensUsed === goal.tokensUsed && prev.tokenBudget === goal.tokenBudget && prev.note === goal.note) return;
+        set({ goals: { ...cur, [sessionId]: goal } });
+      },
+      async refreshGoal(sessionId) {
+        // A pane mounting onto a session whose goal was set last week has missed every event that
+        // ever carried it — the same seeding the simulator pane does, for the same reason.
+        const { goal } = await api.goalGet(sessionId);
+        get().applyGoalChanged({ sessionId, goal });
+      },
+      async startGoal(sessionId, objective, tokenBudget = null) {
+        const { goal } = await api.goalStart(sessionId, objective, tokenBudget);
+        get().applyGoalChanged({ sessionId, goal });
+      },
+      async setGoalStatus(sessionId, status, note = null) {
+        const { goal } = await api.goalSet(sessionId, status, note);
+        get().applyGoalChanged({ sessionId, goal });
+      },
+      async resumeGoal(sessionId) {
+        const { goal } = await api.goalResume(sessionId);
+        get().applyGoalChanged({ sessionId, goal });
+      },
+      async clearGoal(sessionId) {
+        await api.goalClear(sessionId);
+        get().applyGoalChanged({ sessionId, goal: null });
+      },
+      applySimulatorState(next) {
+        const cur = get().simulatorState[next.simulatorId];
+        // `machine.status`' no-churn guard: an identical state is not a reason to repaint a pane
+        // that is already showing a live stream.
+        if (cur && cur.status === next.status && cur.streamUrl === next.streamUrl && cur.wsUrl === next.wsUrl
+          && cur.error === next.error && cur.screen?.width === next.screen?.width
+          && cur.screen?.height === next.screen?.height && cur.screen?.orientation === next.screen?.orientation) return;
+        set({ simulatorState: { ...get().simulatorState, [next.simulatorId]: next } });
+      },
       applyMachineState(next) {
         const cur = get().machineState[next.machineId];
         if (cur && cur.status === next.status && cur.wsUrl === next.wsUrl && cur.width === next.width
@@ -2885,9 +3587,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const sessionSpace = { ...get().sessionSpace };
         for (const [id, st] of Object.entries(get().sessionStatus)) if (!(id in get().sessions)) sessionStatus[id] = st;
         for (const s of list) { sessions[s.id] = s; sessionStatus[s.id] = s.status; sessionSpace[s.id] = s.spaceId; }
-        set({ sessions, sessionStatus, sessionSpace });
+        set({ sessions: keepQuickChatSession(sessions), sessionStatus, sessionSpace });
       },
-      listAllSessions() { return api.listAllSessions(); },
+      listAllSessions(profileId = null) { return api.listAllSessions(profileId); },
       async refreshAllSessions() {
         const all = await api.listAllSessions();
         // The list is the truth for existence and mapping; server-persisted statuses are fresh (they
@@ -2938,6 +3640,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           // @-mention picker reads. Skipped for Cursor/fake sessions: no picker, no fetch.
           const opened = get().sessions[id];
           if (opened && AGENT_SKILL_SUPPORT[opened.agentKind] === "injected") get().run(() => get().refreshSkills(opened.spaceId));
+        /* Unconditional, unlike skills: a user command expands to TEXT in the draft, so it works the
+           same for every agent kind — there is no injection the agent has to support. */
+        if (opened) get().run(() => get().refreshCommands(opened.spaceId));
+        if (opened) get().run(() => get().refreshScripts(opened.spaceId));
           // The rule's position, read from the mark as it was BEFORE this open, and only when there
           // is something on both sides of it: a session opened for the first time (`seenSeq` 0) has
           // missed nothing, and one already caught up has nothing to divide.
@@ -3001,6 +3707,24 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // A turn just finished (or died): the working tree likely changed, so refresh git context.
         if (prev !== status && (status === "idle" || status === "error")) refreshGitFor(sessionId);
       },
+      applyPlanLimits(limits) { set({ planLimits: limits }); },
+      async refreshPlanLimits() { set({ planLimits: await api.planLimits() }); },
+      applySessionQueue(sessionId, queued) {
+        // An empty queue drops its key rather than storing `[]`: the prompter asks "is anything
+        // waiting", and one shape for "no" is fewer than two.
+        const rest = { ...get().sessionQueues };
+        if (queued.length === 0) delete rest[sessionId]; else rest[sessionId] = queued;
+        set({ sessionQueues: rest });
+      },
+      async refreshSessionQueue(sessionId) {
+        get().applySessionQueue(sessionId, await api.sessionQueue(sessionId));
+      },
+      async dequeuePrompt(sessionId, queuedId) {
+        await api.dequeuePrompt(sessionId, queuedId);
+      },
+      async releaseQueuedPrompt(sessionId, queuedId) {
+        await api.releaseQueuedPrompt(sessionId, queuedId);
+      },
       async newSession(input, targetLeafId = null, edge) {
         const sid = get().activeSpaceId; if (!sid) return;
         const { session, itemId } = await api.createSession({ ...input, spaceId: sid });
@@ -3040,7 +3764,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const elements = keepLiveChips(text, get().draftElements[id] ?? []);
         // The agent gets the link, not the chip: a markdown link its connection to that app can open.
         const wire = expandLinkChips(text, get().draftLinks[id] ?? []);
-        await api.sendMessage(id, wire, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements);
+        // Read here, synchronously, for the reason the two sidecars above are: the prompter clears
+        // the draft behind this call and the references go with it.
+        const refs = get().draftSessionRefs[id] ?? [];
+        await api.sendMessage(id, wire, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, refs);
+        if (refs.length) set({ draftSessionRefs: { ...get().draftSessionRefs, [id]: [] } });
         // Only AFTER the send lands, and only the ones that went: a rejected send that also emptied the
         // chip row would leave the user with no record of what they had attached, and a file dragged in
         // while the request was in flight was never part of this message.
@@ -3076,13 +3804,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (isSpace(source.spaceId)) mergeSession(session);
         // Send FIRST, clear after: a rejected send must leave the draft in the composer (run
         // surfaces the reason), exactly as a failed normal send would.
-        await api.sendMessage(session.id, text, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements);
+        await api.sendMessage(session.id, text, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, get().draftSessionRefs[sessionId] ?? []);
         const sent = new Set(pending.map((a) => a.path));
         const left = (get().pendingAttachments[sessionId] ?? []).filter((a) => !sent.has(a.path));
         set({
           drafts: { ...get().drafts, [sessionId]: "" },
           draftMentions: { ...get().draftMentions, [sessionId]: [] },
           draftElements: { ...get().draftElements, [sessionId]: [] },
+          draftSessionRefs: { ...get().draftSessionRefs, [sessionId]: [] },
           pendingAttachments: { ...get().pendingAttachments, [sessionId]: left },
         });
         // The new pane arrives beside, quietly. Items are refetched first (the server created the
@@ -3394,9 +4123,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await api.setSetting(SETTING_LAST_AGENT, kind);
       },
       async prefillTerminal(sessionId, command) {
-        if (!panelOf(sessionId).open) {
-          setPanel(sessionId, { ...panelOf(sessionId), open: true });
-          await persistPanels();
+        // Open, never toggle: this is reached from a button that means "show me the terminal with
+        // this in it", and routing it through `toggleSessionDock` would CLOSE an already-open one.
+        if (get().sessionDock[sessionId]?.kind !== "terminal") {
+          set({ sessionDock: { ...get().sessionDock, [sessionId]: { kind: "terminal" } } });
         }
         await get().ensureSessionTerminal(sessionId);
         const terminalId = get().sessionTerminals[sessionId];
@@ -3443,6 +4173,22 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (client) await api.setMcpOauthClient(server.id, { ...client, relay: c.oauth === "app" });
         return get().startMcpOauth(server.id);
       },
+      addSessionRef(sessionId, ref) {
+        // Pointing a session at ITSELF is the one case that is never a mistake worth honouring: the
+        // agent already has this transcript, and `agent_ask` on your own id blocks on yourself.
+        if (ref.sessionId === sessionId) return "self";
+        const refs = get().draftSessionRefs[sessionId] ?? [];
+        if (refs.some((r) => r.sessionId === ref.sessionId)) return "duplicate";
+        // Refused here as well as at the wire, for `addElementChip`'s reason: a ninth reference that
+        // looked fine and then bounced on send leaves a message that cannot be posted.
+        if (refs.length >= MAX_SESSION_REFS) return "full";
+        set({ draftSessionRefs: { ...get().draftSessionRefs, [sessionId]: [...refs, ref] } });
+        return "ok";
+      },
+      removeSessionRef(sessionId, refId) {
+        const refs = get().draftSessionRefs[sessionId] ?? [];
+        set({ draftSessionRefs: { ...get().draftSessionRefs, [sessionId]: refs.filter((r) => r.sessionId !== refId) } });
+      },
       addElementChip(sessionId, element) {
         const draft = get().drafts[sessionId] ?? "";
         const chips = get().draftElements[sessionId] ?? [];
@@ -3462,6 +4208,28 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const { root, skills } = await api.listSkills(spaceId);
         set({ spaceSkills: { ...get().spaceSkills, [spaceId]: skills }, skillsRoot: root });
       },
+      async refreshCommands(spaceId) {
+        const { commands } = await api.listCommands(spaceId);
+        set({ spaceCommands: { ...get().spaceCommands, [spaceId]: commands } });
+      },
+      expandCommand: (spaceId, name, args) => api.expandCommand(spaceId, name, args),
+      getSandbox: (spaceId) => api.getSandbox(spaceId),
+      setSandbox: (spaceId, prefs) => api.setSandbox(spaceId, prefs),
+      async refreshScripts(spaceId) {
+        const { scripts } = await api.listScripts(spaceId);
+        set({ spaceScripts: { ...get().spaceScripts, [spaceId]: scripts } });
+      },
+      projectCwd: () => Object.values(get().environments).find((e) => e.kind === "primary")?.path ?? null,
+      async searchProjectFiles(query) {
+        const cwd = get().projectCwd(); if (!cwd) return null;
+        return api.projectFiles(cwd, query);
+      },
+      async searchProjectText(query) {
+        const cwd = get().projectCwd(); if (!cwd) return null;
+        return api.projectGrep(cwd, query);
+      },
+      readSkill: (spaceId, id) => api.readSkill(spaceId, id),
+      readSkillFile: (spaceId, id, rel) => api.readSkillFile(spaceId, id, rel),
       async refreshSkillSources(spaceId) {
         const { sources } = await api.listSkillSources(spaceId);
         set({ spaceSkillSources: { ...get().spaceSkillSources, [spaceId]: sources } });
@@ -3610,6 +4378,54 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         setPanel(sessionId, next);
         await persistPanels();
         if (next.open) await get().ensureSessionTerminal(sessionId);
+      },
+      async openQuickChat() {
+        if (get().quickChat) return;
+        const sid = get().activeSpaceId; if (!sid) return;
+        const agentKind = get().lastAgentKind ?? FALLBACK_AGENT;
+        /* `unlisted`: no item row, so no sidebar entry, no pinned tile, no palette hit, no Library
+           row and no pane. The window is the only place this conversation is ever shown — which is
+           also why it is not confined to the space it happens to run in. */
+        const { session } = await api.createUnlistedSession({ agentKind, spaceId: sid });
+        rememberAgent(agentKind);
+        // Unconditional, unlike every other create: the quick chat outlives the active space, so its
+        // row has to be in `sessions` whichever space is current (see `keepQuickChatSession`).
+        set({ sessions: { ...get().sessions, [session.id]: session }, sessionStatus: { ...get().sessionStatus, [session.id]: session.status },
+          sessionSpace: { ...get().sessionSpace, [session.id]: session.spaceId }, quickChat: { sessionId: session.id } });
+        await get().openSession(session.id);
+        await persistQuickChat();
+      },
+      async closeQuickChat() {
+        const qc = get().quickChat;
+        if (!qc) return;
+        // Cleared FIRST so the window goes at once. The delete is a round trip, and a window that sat
+        // there waiting for it would look like a close that had not worked.
+        set({ quickChat: null });
+        dropTranscript(qc.sessionId);
+        const { [qc.sessionId]: _s, ...sessions } = get().sessions;
+        const { [qc.sessionId]: _st, ...sessionStatus } = get().sessionStatus;
+        const { [qc.sessionId]: _sp, ...sessionSpace } = get().sessionSpace;
+        const { [qc.sessionId]: _d, ...drafts } = get().drafts;
+        const { [qc.sessionId]: _a, ...pendingAttachments } = get().pendingAttachments;
+        set({ sessions, sessionStatus, sessionSpace, drafts, pendingAttachments });
+        await persistQuickChat();
+        // There is no item to delete THROUGH — an unlisted session has none — so this is the route.
+        await api.deleteSession(qc.sessionId);
+      },
+      setQuickChatPos(pos) { set({ quickChatPos: pos }); scheduleQuickChatPersist(); },
+      toggleSessionDock(sessionId, dock) {
+        const cur = get().sessionDock[sessionId];
+        // Same thing again closes it — which is what makes the opener a toggle without every opener
+        // having to hold its own idea of whether it is the one currently showing.
+        if (cur && cur.kind === dock.kind && (cur.kind !== "subagent" || cur.toolUseId === (dock as { toolUseId: string }).toolUseId)) {
+          get().closeSessionDock(sessionId);
+          return;
+        }
+        set({ sessionDock: { ...get().sessionDock, [sessionId]: dock } });
+      },
+      closeSessionDock(sessionId) {
+        const { [sessionId]: _gone, ...rest } = get().sessionDock;
+        set({ sessionDock: rest });
       },
       setTerminalPanelWidth(sessionId, width) {
         const cur = panelOf(sessionId);
@@ -3801,99 +4617,61 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const { [sessionId]: _idle, ...rest } = get().delegatedRuns;
         set({ delegatedRuns: running.length === 0 ? rest : { ...rest, [sessionId]: running } });
       },
-      async openSpacePage(spaceId, tab) {
-        // The tab lands even when the page item already exists — "Manage connections…" on an
-        // already-open page must still end up on Connections.
+      openSpacePage(spaceId, tab) {
+        // The tab lands even when the page is already up — "Manage connections…" on an open page
+        // must still end up on Connections.
         if (tab) get().setSpacePageTab(spaceId, tab);
-        // Page items live in the layout of the space they describe; every opener is active-space
-        // scoped (gear, header, palette, session pane), so a mismatch means the space changed
-        // under the click — do nothing rather than adopt an item into the wrong layout.
+        /* A space's Overview describes ONE space, so it opens over that space and only while it is
+           active: every opener is active-space scoped (gear, header, palette, session pane), and a
+           mismatch means the space changed under the click. */
         if (get().activeSpaceId !== spaceId) return;
-        // One page per space, the diff pane's dedup precedent: a second open goes to the pane that
-        // already exists rather than accumulating identical pages.
-        const existing = get().items.find((i) => i.kind === "space-page" && i.refId === spaceId);
-        if (existing) { await get().openItem(existing.id); return; }
-        // Title is static ("Overview"), never the space name: the page header renders the live name,
-        // and a snapshot in the item row would go stale on rename.
-        const created = await api.createItem(spaceId, "space-page", "Overview", spaceId);
-        await adoptItem(spaceId, created.id, null);
+        set({ pageOverlay: { kind: "space-page", refId: spaceId, spaceId } });
       },
-      async openDestinationPage(kind, placement = "reuse") {
-        // The page lives in the ACTIVE space's layout — that space is the vantage its scope groups
-        // ("This space" / "From <profile>" / "Everywhere") are computed from. No active space
-        // (mid-boot) → no-op, openSpacePage's guard.
+      openDestinationPage(kind) {
+        /* The page lives over the ACTIVE space — that space is the vantage its scope groups
+           ("This space" / "From <profile>" / "Everywhere") are computed from. No active space
+           (mid-boot) → no-op, as it always was. */
         const spaceId = get().activeSpaceId;
-        if (!spaceId) return null;
-        /* An app tool is not a session, and the plain activation says so twice: it takes a leaf of its
-           OWN rather than evicting whatever the focused pane was holding, and then it zooms.
-
-           The eviction was the real complaint. Settings, Library, Notifications and Connections are
-           app-level pages a person dips into and leaves, and reaching one used to cost them the
-           session that happened to be focused — the arrangement they were working in was spent to
-           read a preference. Splitting instead preserves it, and zooming means the page still gets
-           the whole window while it is being read, which is what these pages actually want: a
-           settings form in a third of a three-way split is worse than useless.
-
-           Unzoom (⌃⌘F / the pane's own control) puts the workspace back exactly as it was, so the
-           split the page arrived in is a place to return to rather than a state to clean up.
-
-           ⌥-click is untouched and deliberately does NOT zoom: "put it here" is the user naming a
-           pane, and filling the window immediately afterwards would contradict the instruction they
-           just gave. */
-        const zoomOwnPane = placement !== "here";
-        // One page per space, deduped by KIND (`items` only ever holds the active space's items).
-        // The named W4 mutant: a second click accumulating a second Library pane.
-        const existing = get().items.find((i) => i.kind === kind);
-        if (existing) {
-          // Naming the focused leaf is what makes openItem MOVE the pane; passing null is what makes it
-          // home to wherever the pane already sits. With nothing focused there is no "here" to mean, so
-          // the null falls through to homing on its own rather than needing a second branch.
-          await get().openItem(existing.id, placement === "here" ? get().focusedLeafId : null);
-          if (zoomOwnPane) await zoomItemPane(existing.id);
-          return existing.id;
-        }
-        // Static title (the page header owns the live copy); refId is the kind's well-known sentinel —
-        // there is no row behind these pages, and identity is really the kind (see PAGE_REF_IDS).
-        const created = await api.createItem(spaceId, kind, DESTINATION_PAGE_TITLES[kind], PAGE_REF_IDS[kind]);
-        await adoptItem(spaceId, created.id, placement === "here" ? get().focusedLeafId : null, zoomOwnPane);
-        if (zoomOwnPane) await zoomItemPane(created.id);
-        return created.id;
-      },
-      destinationPageElsewhere(kind) {
-        const it = get().items.find((i) => i.kind === kind);
-        if (!it) return false; // no page yet — a plain click already creates it in the focused pane
-        const gs = get().groups;
-        if (!gs) {
-          const leaf = findLeafOfItem(get().layout ?? emptyLayout(), it.id);
-          return leaf !== null && leaf.id !== get().focusedLeafId;
-        }
-        const holder = groupOfItem(gs, it.id);
-        if (!holder) return false; // the item exists but no pane holds it: both placements would open one
-        // A page held by a group that is not on screen is elsewhere by the strongest reading — the plain
-        // click swaps the whole arrangement to reach it.
-        if (holder.id !== gs.activeGroupId) return true;
-        return findLeafOfItem(holder.layout, it.id)?.id !== get().focusedLeafId;
+        if (!spaceId) return;
+        set({ pageOverlay: destinationTarget(kind, spaceId) });
       },
       setSpacePageTab(spaceId, tab) { set({ spacePageTab: { ...get().spacePageTab, [spaceId]: tab } }); },
-      async openProfilePage(tab) {
+      openProfilePage(tab) {
         // The tab is keyed by PROFILE — resolved from the active space, the same vantage the page
-        // itself renders from, so the section the opener lands on is the section the page shows.
+        // renders from, so the section the opener lands on is the section the page shows.
         const spaceId = get().activeSpaceId;
         const space = get().spaces.find((x) => x.id === spaceId);
-        if (!space) return;
+        if (!space || !spaceId) return;
         if (tab) get().setProfilePageTab(space.profileId, tab);
-        await get().openDestinationPage("profile-page");
+        set({ pageOverlay: { kind: "profile-page", refId: PAGE_REF_IDS["profile-page"], spaceId } });
+      },
+      /** Put it away. Nothing is destroyed — a page has no object under it, which is why it can be a
+       *  view in the first place. */
+      closePageOverlay() { set({ pageOverlay: null }); },
+      pickFiles() { return api.pickFiles(); },
+      toggleSimulatorElements(simulatorId) {
+        const on = get().simulatorElements[simulatorId] === true;
+        set({ simulatorElements: { ...get().simulatorElements, [simulatorId]: !on } });
       },
       setProfilePageTab(profileId, tab) { set({ profilePageTab: { ...get().profilePageTab, [profileId]: tab } }); },
+      setLibrarySkill(spaceId, id) { set({ librarySkill: { ...get().librarySkill, [spaceId]: id } }); },
+      async openSkillPage(id) {
+        // Keyed by the ACTIVE space, which is the space whose Library page `openDestinationPage`
+        // will open and the vantage that page reads its skills from.
+        const spaceId = get().activeSpaceId;
+        if (!spaceId) return;
+        get().setLibrarySkill(spaceId, id);
+        await get().openDestinationPage("library-page");
+      },
       async refreshSettingsPrefs() {
-        const [rawDisabled, rawMode, rawDesktop, rawSound, rawVolume] = await Promise.all([
+        const [rawDisabled, rawMode, rawDesktop, rawSound, rawVolume, rawMidTurn] = await Promise.all([
           api.getSetting(NOTIFICATIONS_DISABLED_KEY), api.getSetting(DEFAULT_PERMISSION_MODE_KEY), api.getSetting(NOTIFICATIONS_DESKTOP_KEY),
-          api.getSetting(NOTIFICATIONS_SOUND_KEY), api.getSetting(NOTIFICATIONS_SOUND_VOLUME_KEY),
+          api.getSetting(NOTIFICATIONS_SOUND_KEY), api.getSetting(NOTIFICATIONS_SOUND_VOLUME_KEY), api.getSetting(MID_TURN_MODE_KEY),
         ]);
         const disabledCategories = (Array.isArray(rawDisabled) ? rawDisabled : [])
           .filter((c): c is NotificationCategory => (NOTIFICATION_CATEGORIES as readonly string[]).includes(c as string));
         const defaultPermissionMode = PERMISSION_MODES.some((m) => m.id === rawMode) ? (rawMode as string) : "default";
-        set({ settingsPrefs: { disabledCategories, defaultPermissionMode }, desktopNotifications: rawDesktop !== false,
+        set({ settingsPrefs: { disabledCategories, defaultPermissionMode }, midTurnMode: resolveMidTurnMode(rawMidTurn), desktopNotifications: rawDesktop !== false,
           soundCues: rawSound !== false, soundVolume: cueVolume(rawVolume) });
       },
       async refreshModelFavorites() {
@@ -3954,6 +4732,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const prefs = get().settingsPrefs; if (!prefs) return;
         await api.setSetting(DEFAULT_PERMISSION_MODE_KEY, mode);
         set({ settingsPrefs: { ...prefs, defaultPermissionMode: mode } });
+      },
+      async setMidTurnMode(mode) {
+        await api.setSetting(MID_TURN_MODE_KEY, mode);
+        set({ midTurnMode: mode });
       },
       async refreshTcc() { set({ tccRows: await api.tccProbe() }); },
       async refreshCredentials() {
@@ -4123,8 +4905,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // the feed row IS the thing the notification is about, so the click lands on the page with the
         // row selected: selectNotification is the in-page click's own path, which is what makes this
         // landing a stop on the pane's trail rather than a jump the arrows cannot retrace.
-        const pageItemId = await get().openDestinationPage("notifications-page");
-        if (pageItemId) await get().selectNotification(pageItemId, n.id);
+        /* The feed row IS the thing this notification is about, so the page comes up with the row
+           selected. The id is the overlay's synthetic item id — `pageItemOf`'s — because that is what
+           the page keys its selection by. */
+        get().openDestinationPage("notifications-page");
+        if (get().pageOverlay) await get().selectNotification(pageItemId("notifications-page", PAGE_REF_IDS["notifications-page"]), n.id);
       },
       async activateDesktopNotification(id) {
         // Main hands back an id and nothing else. The feed may never have been loaded — a toast is
@@ -4179,9 +4964,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
        * read" for the feed. `openNotificationTarget` still marks on the way past, because ACTING on
        * a notification — jumping to the session it names — genuinely is consuming it.
        */
-      async selectNotification(pageItemId, id) {
+      async selectNotification(_pageItemId, id) {
         set({ notificationsSelectedId: id });
-        get().navigateInPane(pageItemId, id);
+        /* No pane-trail write any more. The feed is an OVERLAY rather than a layout item, so there is
+           no leaf whose back/forward arrows could retrace "the list" and "the list with this row
+           open" — the trail it used to write was keyed by an item id that is now in no pane, which
+           would be a history nothing could ever navigate. */
         /* Opening a row IS having seen it.
          *
          * This went away for a version, on the reasoning that a row opened by accident should not be
@@ -4324,8 +5112,20 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ checkpointPreview: null, checkpointAckStale: false, restoreResult: result });
         // The tree was rewritten and a `pre-restore` checkpoint now exists: both views are stale.
         const sheet = get().sheet;
-        await get().refreshCheckpoints(result.environmentId, sheet?.kind === "checkpoints" ? sheet.sessionId : null);
+        const sessionId = sheet?.kind === "checkpoints" ? sheet.sessionId : null;
+        await get().refreshCheckpoints(result.environmentId, sessionId);
         if (result.path in get().diffs) await get().refreshDiff(result.path);
+        /* A rewind cut the server's transcript back; this client is still holding the turns it cut.
+           The cached entry has to be DROPPED rather than refetched, because `openSession` pages
+           forward from `lastSeq` — and after a truncation that mark is ahead of the server, so an
+           incremental fetch returns nothing and the undone turns stay on screen looking like the
+           restore did not work. Clearing it first makes the reopen re-derive from seq 0. */
+        if (result.conversationRewound && sessionId) {
+          const { [sessionId]: _dropped, ...rest } = get().transcripts;
+          const { [sessionId]: _mark, ...marks } = get().newSinceSeq;
+          set({ transcripts: rest, newSinceSeq: marks });
+          await get().openSession(sessionId);
+        }
       },
       async refreshMcpServers(spaceId) {
         // Providers ride along (W4): the Connections surface renders both, and a provider toggled in
@@ -4417,10 +5217,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // than mutating it in place, so two chip clicks in quick succession never share a reference.
         const want = get().mcpCallsFilter;
         const { calls } = await api.mcpCallsList({ ...want, limit: MCP_CALLS_PAGE });
-        // The sheet may have closed, or a later filter change may have already started its own fetch,
-        // while this one was in flight — a slow response landing after the fact must not clobber
-        // whatever the CURRENT filter's fetch put there (or is still waiting to put there).
-        if (get().sheet?.kind !== "activity" || get().mcpCallsFilter !== want) return;
+        // Every activity surface may have closed, or a later filter change may have already started
+        // its own fetch, while this one was in flight — a slow response landing after the fact must
+        // not clobber whatever the CURRENT filter's fetch put there (or is still waiting to).
+        if (!watchingCalls() || get().mcpCallsFilter !== want) return;
         set({ mcpCalls: calls, mcpCallsHasMore: calls.length === MCP_CALLS_PAGE });
       },
       async loadMoreMcpCalls() {
@@ -4428,7 +5228,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (!last) return; // nothing loaded yet — Load more has nothing to page after
         const want = get().mcpCallsFilter; // same supersession guard as refreshMcpCalls, same reason
         const { calls } = await api.mcpCallsList({ ...want, before: { ts: last.ts, id: last.id }, limit: MCP_CALLS_PAGE });
-        if (get().sheet?.kind !== "activity" || get().mcpCallsFilter !== want) return;
+        if (!watchingCalls() || get().mcpCallsFilter !== want) return;
         set({ mcpCalls: [...get().mcpCalls, ...calls], mcpCallsHasMore: calls.length === MCP_CALLS_PAGE });
       },
       async setMcpCallsFilter(patch) {
@@ -4441,9 +5241,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await get().refreshMcpCalls();
       },
       applyMcpCall(call) {
-        // Nothing is collecting while the sheet is shut — the next openActivity re-fetches anyway, so
-        // growing this array for a view nobody has open is work for nothing (mirrors checkpoints.changed).
-        if (get().sheet?.kind !== "activity") return;
+        // Nothing is collecting while no activity surface is open — whichever opens next re-fetches
+        // anyway, so growing this array for a view nobody has is work for nothing (mirrors
+        // checkpoints.changed). Both surfaces count: the sheet is the full log, the sidebar's feed is
+        // the same rows in the column, and a feed that stopped updating would be the worse bug.
+        if (!watchingCalls()) return;
         if (get().mcpCalls.some((c) => c.id === call.id)) return; // the event can repeat (binding rule 6)
         const { sessionId, serverId } = get().mcpCallsFilter;
         if (sessionId && call.sessionId !== sessionId) return;

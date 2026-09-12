@@ -160,3 +160,86 @@ export function skillSupportNote(kind: AgentKind): string {
     ? `${label} gets this space's enabled skills, and only those — including any you switch on from your own installed directories.`
     : `${label} cannot be given a skills directory, so it will not see these skills.`;
 }
+
+/**
+ * How much text `skills.read` and `skills.readFile` will carry.
+ *
+ * A `SKILL.md` is prose someone wrote to be read, so the cap is generous — but it is a file on a
+ * disk Realm does not own, and a viewer that tries to render a 40MB stray file in the same directory
+ * would take the window down with it. Over the cap the text is cut and SAID to be cut, never
+ * silently shortened.
+ */
+export const SKILL_TEXT_MAX = 400_000;
+
+/** How deep, and how wide, the resource walk goes. A skill is a directory of a handful of files; a
+ *  directory that is not one is not worth enumerating exhaustively to find that out. */
+export const SKILL_TREE_DEPTH = 4;
+export const SKILL_TREE_MAX = 300;
+
+/**
+ * One file bundled beside `SKILL.md` — a reference document, a script, an asset.
+ *
+ * These are the half of a skill that never appears in a list: `references/palette.md` and
+ * `scripts/render.py` are what the SKILL.md's own prose keeps pointing at, and a viewer that shows
+ * the prose without them shows half the skill.
+ */
+export const SkillResourceSchema = z.object({
+  /** Path relative to the skill's own directory, `/`-separated. */
+  rel: z.string(),
+  size: z.number().int().nonnegative(),
+  /** Whether `skills.readFile` will return its text. False for a binary and for anything over
+   *  `SKILL_TEXT_MAX`, and the viewer then names the file rather than offering to open it. */
+  readable: z.boolean(),
+});
+export type SkillResource = z.infer<typeof SkillResourceSchema>;
+
+/**
+ * Everything the skill viewer shows about one skill: the row, the document, and what is beside it.
+ *
+ * The `skill` is carried whole rather than re-derived, so the viewer's switch, scope and origin are
+ * the SAME facts the list row showed — one `skills.list` answer, read twice, never two scans that
+ * could disagree about whether a skill is on.
+ */
+export const SkillDetailSchema = z.object({
+  skill: SkillSchema,
+  /** `SKILL.md` with its frontmatter block removed — the document an agent is actually handed.
+   *  Empty when the file could not be read, which is the same fact `skill.valid` already carries. */
+  body: z.string(),
+  /** Every top-level frontmatter key the reader made sense of, `name` and `description` included.
+   *  Realm reads two of them; a skill's author may have written `license`, `version`,
+   *  `allowed-tools`, and the viewer is the one place those are worth showing. */
+  frontmatter: z.record(z.string(), z.string()),
+  /** Everything else in the skill's directory, depth-first by path. `SKILL.md` itself is not listed —
+   *  it is `body` above, not an attachment to itself. */
+  resources: z.array(SkillResourceSchema),
+  /** True when `body` was cut at `SKILL_TEXT_MAX`. */
+  truncated: z.boolean(),
+});
+export type SkillDetail = z.infer<typeof SkillDetailSchema>;
+
+/**
+ * Extensions the viewer will show as text. Everything else is named and not opened.
+ *
+ * A closed list rather than a sniff: the question is not "is this file valid UTF-8" (a PNG often is
+ * not, and a `.wasm` sometimes is) but "would a person have written this to be read". A skill's
+ * bundled files are documents, scripts and data, and those are the extensions they carry.
+ */
+const TEXT_EXTS = new Set([
+  "md", "markdown", "txt", "rst", "adoc", "org",
+  "json", "jsonc", "yaml", "yml", "toml", "ini", "cfg", "conf", "env", "properties",
+  "js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts", "py", "rb", "go", "rs", "java", "kt", "swift",
+  "c", "h", "cc", "cpp", "hpp", "cs", "php", "lua", "pl", "r", "jl", "sql", "graphql", "gql",
+  "sh", "bash", "zsh", "fish", "ps1", "bat",
+  "html", "htm", "xml", "svg", "css", "scss", "sass", "less",
+  "csv", "tsv", "diff", "patch", "log", "gitignore", "editorconfig",
+]);
+
+/** Whether a bundled file is one the viewer can show. Extensionless files with a known name
+ *  (`Makefile`, `Dockerfile`, `LICENSE`) are text too — they are exactly the ones a skill's `scripts/`
+ *  directory carries without a suffix. */
+export function isReadableSkillFile(name: string): boolean {
+  const base = name.split("/").pop() ?? name;
+  const dot = base.lastIndexOf(".");
+  if (dot <= 0) return /^(?:makefile|dockerfile|license|licence|readme|notice|changelog|justfile|procfile)$/i.test(base);
+  return TEXT_EXTS.has(base.slice(dot + 1).toLowerCase());
+}

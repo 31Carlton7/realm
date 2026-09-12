@@ -9,8 +9,10 @@ import type { SpacesStore } from "../store/spaces";
 import type { TerminalHistoryStore, TerminalsStore } from "../store/terminals";
 import type { SettingsStore } from "../store/settings";
 import { Scrollback, type ScrollbackCursor, type ScrollbackRead } from "./scrollback";
-import { NotFoundError } from "../store/rows";
+import { NotFoundError, RpcError } from "../store/rows";
 import { portEnv } from "../workspace/ports";
+import type { ExecutionSandboxService } from "../sandbox/service";
+import { sandboxWrapFor, type SpawnWrap } from "../sandbox/spawn-wrap";
 import { TerminalManager } from "./manager";
 
 /**
@@ -20,6 +22,16 @@ import { TerminalManager } from "./manager";
 /** How often the in-memory buffer is written to disk, when the setting is on. A SIGKILL loses at most
  *  this much; anything shorter would be paying SQLite for output nobody has asked for yet. */
 export const HISTORY_FLUSH_MS = 5_000;
+
+/**
+ * Did the execution sandbox refuse this spawn?
+ *
+ * Matched on the `SANDBOX_` code prefix rather than on an error class, because the codes are the
+ * contract (`EXECUTION_SANDBOX_ERROR_CODES`) and a new one added there must be covered here without
+ * anyone remembering to come back. `instanceof RpcError` as well as the prefix, so an ordinary Error
+ * whose message merely mentions a sandbox is not mistaken for one.
+ */
+export const isSandboxRefusal = (e: unknown): boolean => e instanceof RpcError && e.code.startsWith("SANDBOX_");
 
 export class TerminalService {
   readonly manager: TerminalManager;
@@ -32,6 +44,9 @@ export class TerminalService {
   constructor(private d: {
     db: Db; rpc: RpcServer; spaces: SpacesStore; items: ItemsStore; terminals: TerminalsStore;
     environments: EnvironmentsStore; history?: TerminalHistoryStore; settings?: SettingsStore;
+    /** The space's Seatbelt policy, applied at `pty.spawn`. Optional so a harness built without it
+     *  spawns exactly what Realm spawned before this feature existed. */
+    sandbox?: ExecutionSandboxService;
     /** Injected so a test can drive the flush rather than wait for it. */
     setInterval?: (fn: () => void, ms: number) => ReturnType<typeof setInterval>;
   }) {
@@ -112,7 +127,18 @@ export class TerminalService {
    */
   private envFor(spaceId: string, cwd: string): Record<string, string> {
     const env = this.d.environments.findByPath(spaceId, cwd);
-    return env ? portEnv(env) : {};
+    // `REALM_SANDBOX`/`REALM_SANDBOX_NETWORK` ride along beside the port block. They are a
+    // STATEMENT, not a control — nothing reads them back — so that "why did this write fail" has a
+    // visible cause in the shell it failed in rather than only in Settings.
+    return { ...(env ? portEnv(env) : {}), ...this.d.sandbox?.env(spaceId) };
+  }
+
+  /** The Seatbelt wrapper a shell in this space is spawned through, or `undefined` when it has no
+   *  sandbox. No `extraWritableRoots`: a terminal's cwd is a directory of the space, and the space's
+   *  checkouts are already writable — unlike a session, which can be pointed at a folder Realm has
+   *  not catalogued. See `sandboxWrapFor` for why `undefined` and not an identity function. */
+  private wrapFor(spaceId: string): SpawnWrap | undefined {
+    return sandboxWrapFor(this.d.sandbox, { spaceId });
   }
 
   /** Boot: respawn a pty for every persisted terminal row. Rows whose cwd vanished or whose spawn fails
@@ -130,11 +156,22 @@ export class TerminalService {
         // Before `create`, always: a shell can print its prompt before that call returns, and a chunk
         // appended to no ring is a chunk that never happened.
         this.scrollback.newRun(row.id, newId(), { cols, rows }, kept ? { data: kept.data, cols: kept.cols, rows: kept.rows } : null);
-        this.manager.create({ id: row.id, cwd: row.cwd, shell: row.shell, cols, rows, env: this.envFor(row.spaceId, row.cwd) });
+        this.manager.create({ id: row.id, cwd: row.cwd, shell: row.shell, cols, rows, env: this.envFor(row.spaceId, row.cwd), wrap: this.wrapFor(row.spaceId) });
         restored.push(row.id);
       } catch (e) {
         console.error(`[terminals] not restoring ${row.id}: ${e instanceof Error ? e.message : String(e)}`);
         this.scrollback.forget(row.id);
+        // A sandbox refusal is TEMPORARY and it is not about this row. `sandbox-exec` gone on this
+        // boot, or a posture the user is about to change, would otherwise reach the delete below
+        // and take EVERY persisted terminal in every space with it — the whole feature's worst
+        // failure mode, and one that looks like data loss rather than like a refusal. So the row
+        // stays, un-restored: the pane draws as not running, and the next boot (or the next
+        // `terminals.create`) tries again.
+        //
+        // Narrow on purpose. Everything else — a cwd that no longer exists, a shell that will not
+        // start — is a fact about THIS row that will not change by waiting, and keeps the pruning
+        // behaviour it has always had.
+        if (isSandboxRefusal(e)) continue;
         this.d.terminals.delete(row.id);
       }
     }
@@ -155,7 +192,7 @@ export class TerminalService {
       itemId = this.d.items.create({ spaceId: p.spaceId, kind: "terminal", title: basename(cwd) || "Terminal", refId: terminalId }).id;
       // Before `create`, for `restoreAll`'s reason: the shell can print before the call returns.
       this.scrollback.newRun(terminalId, newId(), { cols: p.cols, rows: p.rows }, null);
-      this.manager.create({ id: terminalId, cwd, cols: p.cols, rows: p.rows, shell, env: this.envFor(p.spaceId, cwd) });
+      this.manager.create({ id: terminalId, cwd, cols: p.cols, rows: p.rows, shell, env: this.envFor(p.spaceId, cwd), wrap: this.wrapFor(p.spaceId) });
       this.d.db.exec("COMMIT");
     } catch (e) {
       this.d.db.exec("ROLLBACK");

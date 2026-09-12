@@ -366,6 +366,10 @@ export class AcpAdapter implements AgentAdapter {
           args: spec.args,
           cwd: opts.cwd,
           env: { ...spec.env, ...opts.env },
+          // Realm's sandbox, straight through. An ACP session owns its own child, so the policy of
+          // the space it belongs to is the only one this process ever needs to hold — which is what
+          // makes ACP agents wrappable and Codex (one shared process) not.
+          wrap: opts.wrap,
           onNotification: ({ method, params }) => {
             if (method !== "session/update" || replaying) return;
             for (const e of mapper.map(obj(params).update)) events.push(e);

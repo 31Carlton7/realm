@@ -1,12 +1,14 @@
 /** The type faces, as a preference.
  *
- *  What is NOT here: every font installed on the machine. Enumerating those needs a main-process hop
- *  (or `queryLocalFonts`, which is permission-gated and Chromium-only), and the list it returns is
- *  mostly faces this UI cannot use — Realm's chrome is laid out against a four-step weight scale and
- *  tabular figures, and a display face picked out of a list of four hundred silently loses both. The
- *  honest offer is the faces the app ships, which are guaranteed to be there and to have the axes the
- *  layout leans on, plus a genuine system stack for someone who would rather the app looked like the
- *  rest of their machine.
+ *  Three kinds of answer now: the faces the app ships, a genuine system stack, and ANY family — one
+ *  installed on this Mac (`queryLocalFonts`, which Electron answers with some seven hundred) or one
+ *  fetched from Google Fonts and kept in `~/Realm/fonts`.
+ *
+ *  This used to offer only the first two, and the argument for that is worth keeping because it is
+ *  still true rather than wrong: Realm's chrome is laid out against a four-step weight scale and
+ *  tabular figures, and a display face picked out of a list of seven hundred has neither. What
+ *  changed is who decides. The caveat belongs on screen, next to the control, where someone choosing
+ *  a face can read it — not in a list that refuses to show them their own fonts.
  *
  *  Weight is offered for the UI face and not for code, and that asymmetry is a fact about the
  *  stylesheet rather than a judgement: every mono surface in styles.css sets its font with the `font:`
@@ -16,7 +18,16 @@
  *  control shifts that scale and the hierarchy it draws survives intact. */
 
 export type FontRole = "ui" | "code";
-export type FontId = "bundled" | "system";
+/**
+ * `bundled`, `system`, or a family NAME.
+ *
+ * A bare string rather than a tagged union, and deliberately: this is persisted in a settings row
+ * that predates families, so widening the type has to leave every stored `"bundled"` and `"system"`
+ * meaning exactly what it meant. Anything that is not one of the two reserved words is a family, and
+ * `fontVars` quotes it into the stack in front of the role's own fallbacks — so a family that fails
+ * to load lands on the same thing "System default" would have picked.
+ */
+export type FontId = "bundled" | "system" | (string & {});
 export type FontWeight = "regular" | "medium";
 
 export type FontFace = {
@@ -54,7 +65,13 @@ export type FontPref = { ui: FontId; uiWeight: FontWeight; code: FontId };
 
 export const DEFAULT_FONTS: FontPref = { ui: "bundled", uiWeight: "regular", code: "bundled" };
 
-const isFontId = (x: unknown): x is FontId => x === "bundled" || x === "system";
+/** A family name that can go in a CSS stack without escaping games: letters, digits, spaces and the
+ *  punctuation real family names use. A name outside this is dropped rather than quoted, because the
+ *  one thing a font preference must never do is write a broken `font-family` and leave a window with
+ *  no text in it. */
+const FAMILY = /^[\w][\w .'+-]{0,62}$/;
+const isFontId = (x: unknown): x is FontId =>
+  x === "bundled" || x === "system" || (typeof x === "string" && FAMILY.test(x));
 const isFontWeight = (x: unknown): x is FontWeight => x === "regular" || x === "medium";
 
 /** Read back off a user-editable settings row, field by field. An unknown family would resolve to
@@ -72,8 +89,20 @@ export function parseFontPref(raw: unknown): FontPref {
 
 export const FONT_VARS = ["--font-ui", "--font-mono", "--fw-shift"] as const;
 
-const stack = (role: FontRole, id: FontId): string =>
-  (FONT_FACES[role].find((f) => f.id === id) ?? FONT_FACES[role][0]!).stack;
+/** The fallbacks each role lands on — the "System default" stack, which is what a family that fails
+ *  to load should degrade to rather than to nothing. */
+const FALLBACK: Record<FontRole, string> = {
+  ui: FONT_FACES.ui[1]!.stack,
+  code: FONT_FACES.code[1]!.stack,
+};
+
+const stack = (role: FontRole, id: FontId): string => {
+  const known = FONT_FACES[role].find((f) => f.id === id);
+  if (known) return known.stack;
+  // A family: quoted, in front of the role's own fallbacks. `FAMILY` has already refused anything
+  // that could break out of the quotes.
+  return FAMILY.test(id) ? `"${id}", ${FALLBACK[role]}` : FALLBACK[role];
+};
 
 /** The three properties a font preference writes. The default writes them too rather than clearing
  *  them: unlike a palette, these are not a second skin over a hand-tuned one — the stylesheet's own

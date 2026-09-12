@@ -1,7 +1,13 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
+import { forgetAllScroll } from "./panes/scroll-memory";
 afterEach(cleanup);
+
+// The scroll marks are module-level by design — they have to outlive the unmount a space switch
+// causes (panes/scroll-memory.ts) — which means they also outlive a test. Cleared here so that one
+// test's reading position can never decide the next one's first paint.
+afterEach(forgetAllScroll);
 
 // jsdom has no ResizeObserver, and every anchored surface (`useAnchoredPopover`) now constructs one
 // to re-place itself when its content changes height. An inert default: jsdom reports no layout, so

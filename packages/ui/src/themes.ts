@@ -1,4 +1,6 @@
-import { contrast, css, emitted, hexToOklch, luminance, parseOklch, type Oklch } from "./oklch";
+import { contrast, css, emitted, hexToOklch, luminance, parseOklch, type Oklch, type SyntaxSeed, type ThemeSeed } from "@realm/contracts";
+
+export type { SyntaxSeed, ThemeSeed } from "@realm/contracts";
 import type { Mode } from "./theme";
 
 /** Custom themes.
@@ -28,40 +30,6 @@ import type { Mode } from "./theme";
  *  a seed to clear the floor routes around that guarantee: it clears silently, at whatever distance
  *  from the published colour it took, and the budget never gets to object. The one seed here that
  *  upstream's own value cannot carry is named where it is written. */
-export type SyntaxSeed = {
-  /** Comments and doc tags. The one syntax colour allowed to sit near the ground. */
-  comment: string;
-  /** Keywords, storage, literals, HTML tag names. */
-  keyword: string;
-  /** Strings, regexes, and the additions in a diff. */
-  string: string;
-  /** Numbers, symbols, links, template holes. */
-  number: string;
-  /** The name being DEFINED: functions, classes, sections, `#id` selectors. */
-  title: string;
-  /** Types, built-ins and parameters. */
-  type: string;
-  /** Attributes, properties, `.class` selectors. */
-  attr: string;
-};
-
-export type ThemeSeed = {
-  /** The window ground. The whole surface ladder is this colour at other lightnesses, so its HUE and
-   *  CHROMA are what make a theme's greys look like that theme's greys rather than Realm's. */
-  bg: string;
-  /** Primary UI ink — chrome, not code. Deliberately brighter than an editor's foreground in most of
-   *  these themes: `--ink-2` derives from it and lands on the editor foreground of its own accord. */
-  ink: string;
-  /** The one hue the app uses for itself: primary buttons, focus rings, links, carets, active ticks. */
-  accent: string;
-  /** State colours. A theme states them because "green means it worked" has to survive a repaint,
-   *  and every one of these palettes has its own green. */
-  green: string;
-  orange: string;
-  red: string;
-  syntax: SyntaxSeed;
-};
-
 export type ThemeDef = {
   name: ThemeName;
   label: string;
@@ -74,8 +42,14 @@ export type ThemeDef = {
   light: ThemeSeed | null;
 };
 
-export type ThemeName = "realm" | "one" | "monokai" | "dracula" | "nord" | "solarized" | "gruvbox"
-  | "catppuccin" | "github" | "rosepine";
+/** The vendored palettes, named. */
+export type BuiltinThemeName = "realm" | "one" | "monokai" | "dracula" | "nord" | "solarized" | "gruvbox"
+  | "catppuccin" | "github" | "rosepine" | "phosphor";
+
+/** A palette's id. The union is kept for the autocomplete and the exhaustiveness it buys on the
+ *  vendored set, and widened to any string because an IMPORTED theme's id is whatever its file was
+ *  called — see `setCustomThemes`. `isThemeName` is what actually decides whether one resolves. */
+export type ThemeName = BuiltinThemeName | (string & {});
 
 /* ── how a seed becomes a palette ──────────────────────────────────────────────
  * Every constant below was MEASURED off the shipped palette in theme/tokens.css, so a derived theme
@@ -505,7 +479,7 @@ export const isOverridden = (o: ThemeOverride | undefined): boolean =>
  *  someone who never chose a theme. The moment Realm IS edited it needs a ground to move, and
  *  `REALM_SEED` is that ground, read back out of the stylesheet the default is. */
 export function seedFor(name: ThemeName, mode: Mode, override: ThemeOverride = {}): ThemeSeed | null {
-  const def = THEMES.find((t) => t.name === name);
+  const def = allThemes().find((t) => t.name === name);
   const stated = (mode === "dark" ? def?.dark : def?.light) ?? null;
   const base = stated ?? (name === "realm" ? REALM_SEED[mode] : null);
   if (!base || (!stated && !isOverridden(override))) return null;
@@ -516,7 +490,7 @@ export function seedFor(name: ThemeName, mode: Mode, override: ThemeOverride = {
  *  tokens.css, whose two blocks the mode attribute already flips. */
 export function themeModes(name: ThemeName): Mode[] {
   if (name === "realm") return ["dark", "light"];
-  const def = THEMES.find((t) => t.name === name);
+  const def = allThemes().find((t) => t.name === name);
   return [...(def?.dark ? (["dark"] as const) : []), ...(def?.light ? (["light"] as const) : [])];
 }
 
@@ -586,8 +560,37 @@ export function themeSwatches(name: ThemeName, mode: Mode): [string, string, str
   return [s["--page"]!, s["--surface"]!, s["--accent"]!, s["--syn-string"]!, s["--ink-3"]!];
 }
 
+/**
+ * Themes imported at runtime — a VS Code file read into a seed (`vscode-theme.ts`) — on top of the
+ * vendored table above.
+ *
+ * A registry rather than a parameter threaded through `seedFor`, `themeModes`, `themeSwatches`,
+ * `isThemeName` and `applyTheme`, and the reason is that `THEMES` is already exactly this: a
+ * module-level list of what themes exist. An imported theme is the same kind of fact, learned later.
+ * Threading a second list through every signature would be carrying "the table is incomplete"
+ * through the whole API rather than completing the table.
+ *
+ * Derivation stays pure: `deriveVars` still takes a seed and returns a palette, and nothing here
+ * changes what a given seed produces. What the registry changes is only which NAMES resolve to one.
+ */
+let customThemes: readonly ThemeDef[] = [];
+
+/** Replace the imported set. The app calls this once on boot and again whenever the themes folder
+ *  changes; it is a replace rather than a merge so a theme deleted on disk stops resolving. */
+export function setCustomThemes(defs: readonly ThemeDef[]): void {
+  customThemes = defs;
+}
+
+/** Everything a name may resolve to: the vendored palettes, then the imported ones. Imports come
+ *  last so a file that names itself `monokai` cannot shadow the vendored Monokai — an import is
+ *  additive, and silently replacing a shipped palette is not something a file drop should be able
+ *  to do. */
+export function allThemes(): readonly ThemeDef[] {
+  return customThemes.length === 0 ? THEMES : [...THEMES, ...customThemes.filter((c) => !THEMES.some((t) => t.name === c.name))];
+}
+
 export function isThemeName(x: unknown): x is ThemeName {
-  return typeof x === "string" && THEMES.some((t) => t.name === x);
+  return typeof x === "string" && allThemes().some((t) => t.name === x);
 }
 
 export const THEMES: readonly ThemeDef[] = [
@@ -779,5 +782,34 @@ export const THEMES: readonly ThemeDef[] = [
       green: "#56949f", orange: "#ea9d34", red: "#b4637a",
       syntax: { comment: "#9893a5", keyword: "#286983", string: "#ea9d34", number: "#907aa9", title: "#d7827e", type: "#56949f", attr: "#797593" },
     },
+  },
+  {
+    /* Phosphor — not a port of anything, and the only palette here with no upstream to credit. It is
+     * what a konami code should pay out: a P1 phosphor CRT, the green a terminal glowed before
+     * terminals had colours.
+     *
+     * Dark only, and not for the reason Monokai is. A phosphor tube emits light on a black tube face;
+     * there is no light face to port, and a pale-green-on-white version would be a different idea
+     * wearing the same name.
+     *
+     * The tube face is not black, though, and the reason is the decorative wash: `--grain-wash-l` is
+     * pinned at .17 precisely because it sits below every dark ground, so a ground darker than that
+     * would be LIFTED by a layer that is meant to move hue and nothing else. The first draft of this
+     * seed was #0a130d, which put --page at L .175 — under GitHub's .176, the darkest the band was
+     * measured against — and grain-contrast.test.ts read the lift straight back off the ink.
+     *
+     * `red` and `orange` stay off the green axis on purpose. Every other hue here bends toward the
+     * phosphor, but those two carry meaning — failure, and a warning — and a red that had been pulled
+     * green to match the theme would be a red that stopped reading as one. */
+    name: "phosphor",
+    label: "Phosphor",
+    credit: null,
+    blurb: "The green a terminal glowed before terminals had colours. Dark only.",
+    dark: {
+      bg: "#111e15", ink: "#c9f7d8", accent: "#3dfb86",
+      green: "#4ade80", orange: "#f5b942", red: "#ff6b6b",
+      syntax: { comment: "#4e7a5f", keyword: "#7dffb0", string: "#a8f0c0", number: "#f5b942", title: "#3dfb86", type: "#5eead4", attr: "#86efac" },
+    },
+    light: null,
   },
 ];

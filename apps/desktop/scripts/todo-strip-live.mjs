@@ -43,7 +43,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Area of a quadrant of |x|ⁿ + |y|ⁿ = 1 as a fraction of the unit square — the same two curves
  *  squircle-live.mjs tells apart: n = 2 is the arc a border-radius draws, n = 4 the worklet's. */
-const CIRCLE = Math.PI / 4, SQUIRCLE = 0.874;
+/* Area of a quadrant of |x|ⁿ + |y|ⁿ = 1 as a fraction of the unit square: Γ(1+1/n)²/Γ(1+2/n). The
+   0.874 that stood here was a measurement taken through an off-by-one anchor, not the geometry —
+   see the same correction in `squircle-live.mjs`, which is where the two readings were walked back
+   onto their curves. */
+const CIRCLE = Math.PI / 4, SQUIRCLE = 0.927;
 const TOL = (SQUIRCLE - CIRCLE) / 2;
 const near = (v, target) => typeof v === "number" && Math.abs(v - target) < TOL;
 
@@ -162,8 +166,20 @@ window.__live = window.__live ?? {
     if (Math.abs(inside - outside) < 3) return { error: "fill and ground are indistinguishable", inside, outside };
     const mid = (inside + outside) / 2;
     const isFill = (x, y) => (inside > outside ? s.lum(x, y) > mid : s.lum(x, y) < mid);
-    const x0 = Math.floor(box.left);
-    const y0 = Math.floor(corner === "bl" ? box.bottom - R : box.top);
+    /* Anchored by WALKING in from the ground rather than by flooring the rect: a laid-out box lands
+       on a fractional coordinate often enough that rounding puts the R×R square a pixel off the
+       shape, which costs about 0.05 of the area — a third of the distance between the two curves
+       this is trying to tell apart. squircle-live.mjs carries the long version of this note. */
+    const near = corner === "bl" ? box.bottom - R + 0.5 : box.top + R - 0.5;
+    let x0 = Math.round(box.left);
+    for (let v = Math.round(box.left) - 4; v <= box.left + R; v++) { if (isFill(v + 0.5, near)) { x0 = v; break; } }
+    let edgeY = corner === "bl" ? Math.round(box.bottom) : Math.round(box.top);
+    if (corner === "bl") {
+      for (let v = Math.round(box.bottom) + 4; v >= box.bottom - R; v--) { if (isFill(box.left + R - 0.5, v + 0.5)) { edgeY = v; break; } }
+    } else {
+      for (let v = Math.round(box.top) - 4; v <= box.top + R; v++) { if (isFill(box.left + R - 0.5, v + 0.5)) { edgeY = v; break; } }
+    }
+    const y0 = corner === "bl" ? edgeY - R + 1 : edgeY;
     let filled = 0;
     for (let dy = 0; dy < R; dy++) for (let dx = 0; dx < R; dx++) if (isFill(x0 + dx + 0.5, y0 + dy + 0.5)) filled++;
     return { fraction: +(filled / (R * R)).toFixed(3), R, inside: Math.round(inside), outside: Math.round(outside) };
@@ -354,38 +370,37 @@ async function main() {
   await evalIn(c, `(() => { document.documentElement.style.removeProperty("--card-ring"); return true; })()`);
   await sleep(250);
 
-  // ── nothing paints over it (the .composer-dock stacking trap) ───────────
-  /* Forced visible and given real height, because at rest the band may not reach the strip at all —
-     which would make an identical pair prove nothing. */
+  // ── nothing dissolves it along with the transcript ──────────────────────
+  /* The strip sits in the dock, above the transcript's bottom ramp. When the dissolve was a painted
+     band this was a stacking question and the band had to be forced over the pair to ask it; it is
+     a mask on the scroller now, so the question is whether the strip is inside the masked box. It is
+     not — it is the scroller's sibling — and the mutant is the same one the prompter's own check
+     uses: a mask on the pane, which holds both. */
   await evalIn(c, `__live.freeze(true)`);
   await sleep(300);
-  /* Moved ONTO the pair, not merely made taller. The band is anchored to the transcript's bottom and
-     grows upward, so at any height it stops where the dock begins and never overlaps the strip at
-     all — and a comparison of two shots it could not have touched passes whatever the z-order is.
-     Its bottom edge is pushed past the card's so the whole pair is underneath it. */
-  const covered = await evalIn(c, `(() => {
-    const f = document.querySelector(".transcript-fade");
-    const s = document.querySelector(".composer-todos").getBoundingClientRect();
-    const b = document.querySelector(".composer").getBoundingClientRect();
-    const w = document.querySelector(".transcript-wrap").getBoundingClientRect();
-    const h = Math.ceil(b.bottom - s.top) + 80;
-    f.style.display = "block"; f.style.bottom = "auto"; f.style.height = h + "px";
-    f.style.top = Math.floor(s.top - w.top - 40) + "px";
-    f.style.setProperty("--fade-h", h + "px");
-    const r = f.getBoundingClientRect();
-    return { fade: [Math.round(r.top), Math.round(r.bottom)], pair: [Math.round(s.top), Math.round(b.bottom)] }; })()`);
+  const masked = await evalIn(c, `(() => {
+    const out = [];
+    for (let el = document.querySelector(".composer-todos"); el; el = el.parentElement) {
+      if (getComputedStyle(el).maskImage !== "none") out.push(el.className || el.tagName);
+    }
+    return out; })()`);
+  check("no box the strip sits in is masked, so the dissolve cannot reach it", masked.length === 0, masked);
+  const beforeMask = await clipOf(c);
+  await evalIn(c, `(() => {
+    const st = document.createElement("style"); st.id = "mutant-mask";
+    // Deep enough to actually reach the strip: a ramp over the pane's last 200px only catches the
+    // top of it at an alpha near 1, which moves too few pixels to tell from a repaint.
+    st.textContent = ".session-pane { mask-image: linear-gradient(to bottom, #000 20%, transparent 70%); }";
+    document.head.appendChild(st); return true; })()`);
   await sleep(400);
-  const withFade = await clipOf(c);
-  check("the band was actually moved over the whole pair, so the comparison below can fail",
-    covered.fade[0] <= covered.pair[0] && covered.fade[1] >= covered.pair[1], covered);
-  await evalIn(c, `(() => { document.querySelector(".transcript-fade").remove(); return true; })()`);
-  await sleep(400);
-  const withoutFade = await clipOf(c);
-  /* TOL absorbs the grain's own redraw; the SHARE is what carries the claim. A band painting over
-     the pair rewrites most of the rectangle, not a scattering of it. */
-  const bandMoved = await evalIn(c, `__live.diff(${JSON.stringify(withFade)}, ${JSON.stringify(withoutFade)}, 8)`);
-  check("the transcript's fade band passes UNDER the strip — the dock still outranks it",
-    bandMoved.fraction !== undefined && bandMoved.fraction < 0.02, bandMoved);
+  const underMask = await clipOf(c);
+  await evalIn(c, `(() => { document.getElementById("mutant-mask").remove(); return true; })()`);
+  await sleep(300);
+  /* TOL absorbs the grain's own redraw; the SHARE is what carries the claim. A dissolve reaching the
+     pair rewrites most of the rectangle, not a scattering of it. */
+  const maskMoved = await evalIn(c, `__live.diff(${JSON.stringify(beforeMask)}, ${JSON.stringify(underMask)}, 8)`);
+  check("and the mutant reproduces what that would look like, so the check above means something",
+    maskMoved.fraction !== undefined && maskMoved.fraction > 0.02, maskMoved);
   await evalIn(c, `__live.freeze(false)`);
 
   // ── items arriving grow the strip upward and stop; the card holds still ──

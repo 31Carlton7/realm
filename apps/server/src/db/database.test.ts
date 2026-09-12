@@ -363,6 +363,9 @@ function v8McpFixture(path: string): { serverId: string } {
   db.exec("CREATE TABLE IF NOT EXISTS session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL)");
   db.exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL)");
   db.exec("CREATE TABLE IF NOT EXISTS spaces (id TEXT PRIMARY KEY, layout_json TEXT)");
+  // v33 ALTERs `checkpoints`, which a v8 home has had since v7 — the same under-specification the
+  // `session_events` stub above ran into, found by the first migration to touch this table.
+  db.exec("CREATE TABLE IF NOT EXISTS checkpoints (id TEXT PRIMARY KEY)");
   for (const v of [1, 2, 3, 4, 5, 6, 7, 8]) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   db.prepare("INSERT INTO mcp_servers (id, name, transport, command, args_json, url, secrets_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .run("srv1", "airtable", "stdio", "/usr/bin/node", '["/abs/s.mjs"]', "", '{"AIRTABLE_API_KEY":"pat-x"}', 1, 1);
@@ -658,5 +661,132 @@ describe("migration v25 — the Library's file index", () => {
     db.prepare("DELETE FROM sessions WHERE id = 'se1'").run();
     expect((db.prepare("SELECT COUNT(*) AS n FROM artifacts").get() as { n: number }).n).toBe(0);
     db.close();
+  });
+});
+
+/**
+ * The v32 shapes of the two tables v33 touches, hand-written — the same discipline as V3_SCHEMA,
+ * V4_SCHEMA and V8_MCP_SERVERS above, and load-bearing for the same reason: a fixture derived by
+ * replaying `migrations[0..31]` would agree with any in-place edit of an already-shipped migration,
+ * including folding v33's five columns into an earlier entry, which is precisely the mistake these
+ * fixtures exist to catch.
+ *
+ * `sessions` carries every column it had accumulated by v32 (v3's base, less v5's dropped `cwd`, plus
+ * v4's terminal_item_id, v5's environment_id, v14's dispatch pair, v26's fast_mode and v31's seen_seq)
+ * in the order the ALTERs appended them, because that IS what a real home's table looks like.
+ *
+ * `spaces`, `environments` and `items` are STUBS, the V8_MCP_SERVERS compromise: v33 reads no column of
+ * any of them, but `sessions`' foreign keys have to point at something for a row to be insertable, and
+ * their real shapes are exercised by the v4/v5 fixtures above.
+ */
+const V32_REWIND_SCHEMA = `
+CREATE TABLE spaces (id TEXT PRIMARY KEY);
+CREATE TABLE environments (id TEXT PRIMARY KEY);
+CREATE TABLE items (id TEXT PRIMARY KEY);
+CREATE TABLE sessions (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE, project_id TEXT,
+  agent_kind TEXT NOT NULL, model TEXT, effort TEXT, permission_mode TEXT NOT NULL DEFAULT 'default',
+  status TEXT NOT NULL, provider_session_id TEXT, title TEXT NOT NULL, last_event_seq INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  terminal_item_id TEXT REFERENCES items(id) ON DELETE SET NULL,
+  environment_id TEXT REFERENCES environments(id),
+  dispatched_by_kind TEXT, dispatched_by_session_id TEXT,
+  fast_mode INTEGER NOT NULL DEFAULT 0, seen_seq INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE checkpoints (
+  id TEXT PRIMARY KEY,
+  environment_id TEXT NOT NULL REFERENCES environments(id) ON DELETE CASCADE,
+  session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL,
+  label TEXT NOT NULL,
+  ref TEXT NOT NULL,
+  commit_sha TEXT NOT NULL,
+  worktree_tree TEXT NOT NULL,
+  index_tree TEXT NOT NULL,
+  head_sha TEXT,
+  head_ref TEXT,
+  created_at INTEGER NOT NULL);
+CREATE INDEX checkpoints_environment ON checkpoints(environment_id, created_at DESC);
+CREATE INDEX checkpoints_session ON checkpoints(session_id, created_at DESC);
+`;
+
+/** A v32 home with a Claude session that has already run, and two checkpoints of its turns. */
+function v32Fixture(path: string): void {
+  const db = new DatabaseSync(path);
+  db.exec("PRAGMA foreign_keys = ON;");
+  db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+  db.exec(V32_REWIND_SCHEMA);
+  for (let v = 1; v <= 32; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  db.prepare("INSERT INTO spaces (id) VALUES ('sp1')").run();
+  db.prepare("INSERT INTO environments (id) VALUES ('env1')").run();
+  db.prepare(`INSERT INTO sessions (id, space_id, project_id, agent_kind, model, effort, permission_mode, status,
+    provider_session_id, title, last_event_seq, created_at, updated_at, terminal_item_id, environment_id,
+    dispatched_by_kind, dispatched_by_session_id, fast_mode, seen_seq)
+    VALUES ('se1','sp1',NULL,'claude',NULL,NULL,'default','idle','prov-1','Old session',9,1,1,NULL,'env1',NULL,NULL,0,4)`).run();
+  const cp = db.prepare(`INSERT INTO checkpoints (id, environment_id, session_id, kind, label, ref, commit_sha,
+    worktree_tree, index_tree, head_sha, head_ref, created_at) VALUES (?, 'env1', 'se1', 'turn', ?, ?, ?, 't1', 't2', 'h1', 'refs/heads/main', ?)`);
+  cp.run("cp1", "first turn", "refs/realm/checkpoints/env1/cp1", "c1", 10);
+  cp.run("cp2", "second turn", "refs/realm/checkpoints/env1/cp2", "c2", 20);
+  db.close();
+}
+
+describe("migration v33 — conversation rewind", () => {
+  const migrated = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    v32Fixture(p);
+    return { p, db: openDatabase(p) };
+  };
+
+  it("is appended, not folded into v32: a v32 home reaches the end of the chain and gains all five columns", () => {
+    const { db } = migrated();
+    // If v33's statements had been merged into an earlier entry, a database already stamped 32 would
+    // never see them — the loop starts at MAX(version). This is the assertion that catches that.
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBeGreaterThan(32);
+    const cps = (db.prepare("PRAGMA table_info(checkpoints)").all() as { name: string }[]).map((c) => c.name);
+    expect(cps).toEqual(expect.arrayContaining(["session_seq", "provider_cursor"]));
+    const sess = (db.prepare("PRAGMA table_info(sessions)").all() as { name: string }[]).map((c) => c.name);
+    expect(sess).toEqual(expect.arrayContaining(["provider_cursor", "rewind_fork_json", "rewind_refusal"]));
+    db.close();
+  });
+
+  it("backfills NOTHING: every existing checkpoint and session comes out with NULL cursors", () => {
+    /* The whole point of the migration, and the one mutant worth naming: a backfill that set
+       `session_seq` to the session's `last_event_seq` would look harmless and would be a fabricated
+       claim — it would assert that a checkpoint taken months ago sat at today's transcript position,
+       and a restore would then truncate to the wrong place. NULL means "not known", and not known is
+       the truth for every row written before these columns existed. */
+    const { db } = migrated();
+    const rows = db.prepare("SELECT id, session_seq, provider_cursor FROM checkpoints ORDER BY id").all() as { id: string; session_seq: number | null; provider_cursor: string | null }[];
+    expect(rows).toEqual([
+      { id: "cp1", session_seq: null, provider_cursor: null },
+      { id: "cp2", session_seq: null, provider_cursor: null },
+    ]);
+    const s = db.prepare("SELECT provider_cursor, rewind_fork_json, rewind_refusal FROM sessions WHERE id = 'se1'").get() as Record<string, unknown>;
+    expect(s).toEqual({ provider_cursor: null, rewind_fork_json: null, rewind_refusal: null });
+    db.close();
+  });
+
+  it("leaves every other column of the rows it altered exactly as it found them", () => {
+    const { db } = migrated();
+    expect(db.prepare("SELECT label, commit_sha, head_ref, created_at FROM checkpoints WHERE id = 'cp2'").get())
+      .toEqual({ label: "second turn", commit_sha: "c2", head_ref: "refs/heads/main", created_at: 20 });
+    expect(db.prepare("SELECT title, last_event_seq, seen_seq, provider_session_id FROM sessions WHERE id = 'se1'").get())
+      .toEqual({ title: "Old session", last_event_seq: 9, seen_seq: 4, provider_session_id: "prov-1" });
+    db.close();
+  });
+
+  it("is idempotent: reopening twice more neither re-runs the ALTERs nor disturbs a cursor written since", () => {
+    const { p, db } = migrated();
+    // A cursor written by the running app after the upgrade. A re-run of the migration would throw
+    // "duplicate column"; a migration rewritten as a backfill would quietly reset this to NULL.
+    db.prepare("UPDATE checkpoints SET session_seq = 12, provider_cursor = ? WHERE id = 'cp2'")
+      .run('{"session":"prov-1","at":"u-end","dropsTurn":"u-prompt"}');
+    db.close();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    const again = openDatabase(p);
+    expect(again.prepare("SELECT session_seq, provider_cursor FROM checkpoints WHERE id = 'cp2'").get())
+      .toEqual({ session_seq: 12, provider_cursor: '{"session":"prov-1","at":"u-end","dropsTurn":"u-prompt"}' });
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    again.close();
   });
 });

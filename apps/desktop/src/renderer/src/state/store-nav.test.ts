@@ -101,39 +101,28 @@ describe("store — per-pane back/forward", () => {
     expect(store.getState().paneHistory[leaf]?.entries.map((e) => e.itemId) ?? []).not.toContain("i1");
   });
 
-  it("records a notification selection as a stop, and the arrows retrace the reading", async () => {
+  it("selecting a notification no longer writes a pane trail — the feed is not a pane", async () => {
+    /* Two tests used to live here: one that a selection was a STOP on the pane's back/forward trail
+       and one that re-selecting the same row was not. Both were about a feed that was a layout item.
+       It is an overlay now, so there is no leaf whose arrows could retrace "the list" and "the list
+       with this row open" — and a trail keyed by an item id that is in no pane would be a history
+       nothing could navigate. What survives is the selection itself. */
     const { store } = await boot({
-      items: { s1: [item("np", "s1", { kind: "notifications-page", title: "Notifications", refId: "00000000000000000000000003" })] },
       notifications: [notification("n1", { title: "one" }), notification("n2", { title: "two", createdAt: 100 })],
     });
     const leaf = focused(store);
-    await store.getState().openItem("np", leaf);
+    const before = store.getState().paneHistory[leaf]?.entries.length ?? 0;
     await store.getState().refreshNotifications();
 
-    await store.getState().selectNotification("np", "n1");
-    await store.getState().selectNotification("np", "n2");
+    store.getState().openDestinationPage("notifications-page");
+    await store.getState().selectNotification("page:notifications-page:00000000000000000000000003", "n1");
+    expect(store.getState().notificationsSelectedId).toBe("n1");
+    await store.getState().selectNotification("page:notifications-page:00000000000000000000000003", "n2");
     expect(store.getState().notificationsSelectedId).toBe("n2");
 
-    await store.getState().stepPaneNav(leaf, -1);
-    expect(store.getState().notificationsSelectedId).toBe("n1"); // the in-pane view came back too
-    await store.getState().stepPaneNav(leaf, -1);
-    expect(store.getState().notificationsSelectedId).toBeNull(); // …all the way to the bare list
-    await store.getState().stepPaneNav(leaf, 1);
-    expect(store.getState().notificationsSelectedId).toBe("n1");
-  });
-
-  it("re-selecting the row you are already reading is not a stop", async () => {
-    const { store } = await boot({
-      items: { s1: [item("np", "s1", { kind: "notifications-page", title: "Notifications", refId: "00000000000000000000000003" })] },
-      notifications: [notification("n1", { title: "one" })],
-    });
-    const leaf = focused(store);
-    await store.getState().openItem("np", leaf);
-    await store.getState().refreshNotifications();
-    await store.getState().selectNotification("np", "n1");
-    const depth = store.getState().paneHistory[leaf]!.entries.length;
-    await store.getState().selectNotification("np", "n1");
-    expect(store.getState().paneHistory[leaf]!.entries).toHaveLength(depth);
+    // THE MUTANT: go on calling `navigateInPane`. The focused pane's trail would grow a stop per row
+    // read, and its arrows would step through a history that points at nothing.
+    expect(store.getState().paneHistory[leaf]?.entries.length ?? 0).toBe(before);
   });
 
   it("retracing does not re-mark rows read — read state is stamped by opening, not by the arrows", async () => {

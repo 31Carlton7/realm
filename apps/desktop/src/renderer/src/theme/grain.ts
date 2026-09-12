@@ -7,7 +7,7 @@ import type { CSSProperties } from "react";
  *  something. The only degree of freedom is an offset from the theme's OWN accent, inside an arc
  *  narrow enough that the result still reads as the palette on screen. Lightness and chroma are not
  *  drawn at all — they are pinned in tokens.css to the band that leaves every ink tier above its
- *  contrast floor, and are why this is safe on all seventeen faces.
+ *  contrast floor, and are why this is safe on all eighteen faces.
  *
  *  Seeded once per launch, keyed by surface: two surfaces on screen together should not be the same
  *  picture, and one surface must not repaint itself on every React render. A launch is also the

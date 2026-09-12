@@ -6,8 +6,9 @@ import {
 } from "@realm/contracts";
 import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED,
   THEMES, contrastMisses, deriveVars, exportTheme, importTheme, isHexColour, isOverridden, overrideKey,
-  paletteFor, seedFor, themeModes, themeSwatches,
-  type FontId, type FontWeight, type Mode, type ThemeName, type ThemeOverride, type ThemeSeed } from "@realm/ui";
+  allThemes, paletteFor, seedFor, themeModes, themeSwatches,
+  type FontId, type FontRole, type FontWeight, type Mode, type ThemeName, type ThemeOverride } from "@realm/ui";
+import type { ThemeSeed } from "@realm/contracts";
 import { useEffect, useReducer, useRef, useState, type CSSProperties } from "react";
 import { Sheet } from "../../components/Sheet";
 import { Spinner } from "../../components/Spinner";
@@ -18,10 +19,12 @@ import { hasWindowMaterial, useResolvedMode, type ThemePref } from "../../theme/
 import { ImportPanel } from "../../components/settings/ImportPanel";
 import { UsagePanel } from "./usage/UsagePanel";
 import { FailoverPanel } from "./FailoverPanel";
+import { Signature } from "./Signature";
+import { KeybindingsPanel } from "../../components/settings/KeybindingsPanel";
 
-type SettingsTab = "engines" | "usage" | "app" | "signins" | "import" | "permissions";
+type SettingsTab = "engines" | "usage" | "app" | "keys" | "signins" | "import" | "permissions";
 const TABS: { id: SettingsTab; label: string }[] = [
-  { id: "engines", label: "Engines" }, { id: "usage", label: "Usage" }, { id: "app", label: "App" },
+  { id: "engines", label: "Engines" }, { id: "usage", label: "Usage" }, { id: "app", label: "App" }, { id: "keys", label: "Keys" },
   { id: "signins", label: "Sign-ins" }, { id: "import", label: "Import" }, { id: "permissions", label: "Permissions" },
 ];
 
@@ -68,6 +71,7 @@ export function SettingsPage(_props: PaneProps) {
           {tab === "engines" && <EnginesTab />}
           {tab === "usage" && <UsagePanel />}
           {tab === "app" && <AppTab />}
+          {tab === "keys" && <KeybindingsPanel />}
           {tab === "signins" && <SignInsTab />}
           {tab === "import" && <ImportPanel />}
           {tab === "permissions" && <PermissionsTab />}
@@ -356,6 +360,12 @@ const SUBMIT_KEY_CHOICES: { pref: SubmitKey; label: string }[] = [
   { pref: "enter", label: "Enter" }, { pref: "cmdEnter", label: "⌘/Ctrl+Enter" },
 ];
 
+/** Named for what happens to the MESSAGE, not for the mechanism: "steer" is the word the adapters and
+ *  `AGENT_MIDTURN_DELIVERY` use, and it says nothing to someone who has not read them. */
+const MID_TURN_CHOICES: { mode: MidTurnMode; label: string }[] = [
+  { mode: "queue", label: "Waits its turn" }, { mode: "steer", label: "Sends now" },
+];
+
 /** Human words for W5's notification categories, default-on. The sentence is the row's `title` now:
  *  nine of them stacked under nine labels they mostly restated was the bulk of this tab's reading. */
 const CATEGORY_COPY: Record<NotificationCategory, { label: string; desc: string }> = {
@@ -422,9 +432,192 @@ function CodePreview({ vars }: { vars: Record<string, string> }) {
  *  The cards and their disclosure, without a row around them: the live face is a row of the
  *  Appearance group and the other face is a disclosure inside one, and a `.settings-row` nested in a
  *  `.settings-row` would paint a second surface on top of the first. */
+/**
+ * Importing a VS Code colour theme, and what is already imported.
+ *
+ * Under the grid rather than in it: importing is a thing you do once, and a card shaped like a
+ * palette that is actually a file picker would be a card that repaints nothing when you press it.
+ *
+ * Each imported theme gets a line rather than only a card, because a card cannot say the two things
+ * an import owes you — where it came from, and how much of it Realm had to work out. A theme whose
+ * file stated three of the thirteen colours looks like a theme until you notice it is mostly Realm.
+ */
+function ImportedThemes({ face }: { face: Mode }) {
+  const themes = useApp((s) => s.customThemes);
+  const importThemeFile = useApp((s) => s.importThemeFile);
+  const removeCustomTheme = useApp((s) => s.removeCustomTheme);
+  const setThemeName = useApp((s) => s.setThemeName);
+  const run = useApp((s) => s.run);
+  // Only the ones with THIS face. A dark import has nothing to offer the light slot, and listing it
+  // under a grid that cannot select it would be a row that does nothing.
+  const mine = themes.filter((t) => t.mode === face);
+  return (
+    <div className="theme-vsc-list">
+      {mine.map((t) => (
+        <div key={t.id} className="theme-vsc">
+          <span className="theme-vsc-name">{t.label}</span>
+          {/* What the file did not say. Silent when it said everything, because a note that appears
+              every time is a note nobody reads by the third import. */}
+          {t.source.derived.length > 0 && (
+            <span className="theme-vsc-note" title={`Not stated in the file: ${t.source.derived.join(", ")}`}>
+              {t.source.derived.length} of 13 worked out
+            </span>
+          )}
+          <button type="button" className="btn-quiet" aria-label={`Remove ${t.label}`}
+            onClick={() => run(() => removeCustomTheme(t.id))}>Remove</button>
+        </div>
+      ))}
+      <button type="button" className="btn-quiet theme-vsc-add"
+        onClick={() => run(async () => {
+          const id = await importThemeFile();
+          // Selected on arrival, for the face it actually has: importing a theme and then having to
+          // find it in the grid is two steps where the first one already said what you wanted.
+          if (id) await setThemeName(face, id);
+        })}>
+        Import a VS Code theme…
+      </button>
+    </div>
+  );
+}
+
+/**
+ * A face for one role: the bundled family, a system stack, anything installed on this Mac, and
+ * anything downloaded from Google Fonts.
+ *
+ * Grouped, because the four sources answer different questions and a flat list of seven hundred
+ * families answers none of them. The two Realm ships lead, because they are the ones guaranteed to
+ * have the axes the chrome is drawn against.
+ *
+ * The CODE role is offered only monospace families out of the Google catalog, and every local family
+ * regardless — the OS list carries no category, and refusing to show someone a font they have
+ * installed because Realm cannot tell what kind it is would be guessing at their expense.
+ */
+function FontSelect({ role, value, onPick }: { role: FontRole; value: FontId; onPick: (id: FontId) => void }) {
+  const installed = useApp((s) => s.installedFonts);
+  const local = useApp((s) => s.localFonts);
+  const refreshLocalFonts = useApp((s) => s.refreshLocalFonts);
+  const run = useApp((s) => s.run);
+  // Read when the control mounts, not at boot: it is a permissioned call for a list most launches
+  // never look at.
+  useEffect(() => { if (local.length === 0) run(() => refreshLocalFonts()); }, [local.length, refreshLocalFonts, run]);
+  /* A family that is no longer on offer — uninstalled from the Mac since it was chosen, or a theme
+     file edited by hand. Without a matching option the select renders BLANK, which tells the reader
+     their font setting is empty when it is not: the stack still names that family and still falls
+     through to the fallback behind it. So it gets an option of its own that says what happened. */
+  const known = value === "bundled" || value === "system"
+    || installed.some((f) => f.family === value) || local.includes(value);
+  return (
+    <select aria-label={role === "ui" ? "UI font" : "Code font"} value={value}
+      onChange={(e) => onPick(e.target.value)}>
+      {FONT_FACES[role].map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+      {!known && <option value={value}>{value} — not installed</option>}
+      {installed.length > 0 && (
+        <optgroup label="From Google Fonts">
+          {installed.map((f) => <option key={f.family} value={f.family}>{f.family}</option>)}
+        </optgroup>
+      )}
+      {local.length > 0 && (
+        <optgroup label="On this Mac">
+          {local.map((f) => <option key={f} value={f}>{f}</option>)}
+        </optgroup>
+      )}
+    </select>
+  );
+}
+
+/**
+ * Getting a family from Google Fonts, and what has already been got.
+ *
+ * It DOWNLOADS rather than linking, and the row says so, because that is the fact a person needs:
+ * the font is on this Mac afterwards and the app never asks Google about it again. An app that
+ * re-fetched its own typeface every launch would have no text the first time you opened it on a
+ * plane, and would be telling Google when you open your editor.
+ *
+ * The catalog is fetched when this is first opened rather than at boot — two thousand entries and a
+ * 2.7MB download, for a list most launches never look at.
+ */
+function FontLibrary() {
+  const installed = useApp((s) => s.installedFonts);
+  const catalog = useApp((s) => s.fontCatalog);
+  const refreshFontCatalog = useApp((s) => s.refreshFontCatalog);
+  const installFont = useApp((s) => s.installFont);
+  const removeFont = useApp((s) => s.removeFont);
+  const run = useApp((s) => s.run);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  useEffect(() => { if (open && !catalog) run(() => refreshFontCatalog()); }, [open, catalog, refreshFontCatalog, run]);
+
+  const have = new Set(installed.map((f) => f.family));
+  const q = query.trim().toLowerCase();
+  /* Capped at twenty. The catalog is two thousand families and a select of all of them is a list
+     nobody scrolls — the search is the way through it, and a cap is what makes typing feel like it
+     is doing something. */
+  const shown = (catalog ?? []).filter((f) => !have.has(f.family) && (!q || f.family.toLowerCase().includes(q))).slice(0, 20);
+
+  return (
+    <div className="font-library">
+      {installed.length > 0 && (
+        <ul className="font-installed">
+          {installed.map((f) => (
+            <li key={f.family}>
+              {/* Set IN the family it names — the only honest preview of a typeface is the typeface. */}
+              <span className="font-installed-name" style={{ fontFamily: `"${f.family}", var(--font-ui)` }}>{f.family}</span>
+              <span className="font-installed-size">{Math.round(f.bytes / 1024)} KB</span>
+              <button type="button" className="btn-quiet" aria-label={`Remove ${f.family}`}
+                onClick={() => run(() => removeFont(f.family))}>Remove</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <button type="button" className="btn-quiet font-library-toggle" aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}>
+        {open ? "Close" : "Add a font from Google Fonts…"}
+      </button>
+      {open && (
+        <div className="font-browser">
+          <input className="search-field" type="search" aria-label="Search Google Fonts"
+            placeholder={catalog ? `Search ${catalog.length} families…` : "Loading the catalogue…"}
+            value={query} onChange={(e) => setQuery(e.target.value)} />
+          {catalog === null ? <p className="env-empty">Fetching the list from Google…</p> : shown.length === 0 ? (
+            <p className="env-empty">{q ? "No family matches that." : "Everything here is already installed."}</p>
+          ) : (
+            <ul className="font-results">
+              {shown.map((f) => (
+                <li key={f.family}>
+                  <span className="font-result-name">{f.family}</span>
+                  <span className="font-result-cat">{f.category}</span>
+                  <button type="button" className="btn-quiet" disabled={busy !== null}
+                    onClick={() => run(async () => {
+                      setBusy(f.family);
+                      try { await installFont(f.family); } finally { setBusy(null); }
+                    })}>{busy === f.family ? "Downloading…" : "Add"}</button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {/* The one fact that is not obvious and that the whole design turns on. */}
+          <p className="settings-hint">Realm downloads the files once and keeps them on this Mac. Nothing is fetched from Google afterwards.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The palette the konami sequence pays out, and the only one the grid ever withholds. */
+const LOCKED_PALETTE: ThemeName = "phosphor";
+
 function PaletteChoices({ face, selected, onSelect }:
   { face: Mode; selected: ThemeName; onSelect: (name: ThemeName) => void }) {
-  const offered = THEMES.filter((t) => themeModes(t.name).includes(face));
+  const konamiUnlocked = useApp((s) => s.konamiUnlocked);
+  // Hidden rather than disabled: a locked card in the grid would advertise that something is missing
+  // and turn the whole thing into a puzzle with a visible answer slot.
+  /* `allThemes()` rather than `THEMES`: an imported VS Code theme is a palette like any other once
+     it has been translated, and the grid is where you choose a palette. It is read through the store
+     so the grid re-renders when one is imported — the registry itself is module state and would not
+     notify anyone. */
+  useApp((s) => s.customThemes);
+  const offered = allThemes().filter((t) => themeModes(t.name).includes(face) && (t.name !== LOCKED_PALETTE || konamiUnlocked));
   const palette = offered.find((t) => t.name === selected) ?? THEMES[0]!;
   // The preview is of the palette AS EDITED, at the contrast in force — a preview of something other
   // than what the window will do is worse than no preview.
@@ -448,6 +641,7 @@ function PaletteChoices({ face, selected, onSelect }:
           );
         })}
       </fieldset>
+      <ImportedThemes face={face} />
       {/* The blurb, the code preview and the three seed fields are all answers to "what does this
           palette actually look like in use" — a question you ask once, while choosing, and never
           again. Open, they were two screens of chrome per face, on a tab whose other six settings
@@ -531,7 +725,7 @@ function ThemeOverrideEditor({ name, face }: { name: ThemeName; face: Mode }) {
         // A paste box rather than a button that reads the clipboard: a rejection has to be shown
         // beside the thing that was rejected, and reaching for the clipboard on a click is a
         // permission prompt in exchange for one saved keystroke.
-        <div className="theme-import">
+        <div className="theme-vsc">
           <textarea aria-label="Theme to import" spellCheck={false} rows={4}
             placeholder={`{ "realmTheme": 1, "name": …, "mode": "${face}", "seed": { … } }`}
             onChange={() => setRejected(null)} ref={paste} />
@@ -589,6 +783,12 @@ function AppTab() {
   const relay = useApp((s) => s.notificationRelay);
   const setNotificationRelay = useApp((s) => s.setNotificationRelay);
   const setDefaultPermissionMode = useApp((s) => s.setDefaultPermissionMode);
+  const setMidTurnMode = useApp((s) => s.setMidTurnMode);
+  const midTurnMode = useApp((s) => s.midTurnMode);
+  const easterEggs = useApp((s) => s.easterEggs);
+  const lowPower = useApp((s) => s.lowPower);
+  const setLowPower = useApp((s) => s.setLowPower);
+  const setEasterEggs = useApp((s) => s.setEasterEggs);
   const run = useApp((s) => s.run);
   useEffect(() => { void run(() => refreshSettingsPrefs()); }, [run, refreshSettingsPrefs]);
   // bypassPermissions must never be a one-click slip, HERE least of all — this is every future
@@ -678,14 +878,14 @@ function AppTab() {
 
         <div className="settings-row">
           <div className="settings-row-main">
-            <span className="settings-row-name">Translucent sidebar</span>
+            <span className="settings-row-name">Window translucency</span>
             {/* Off macOS the control is inert, and a disabled control with no reason beside it is the
                 one case where the sentence has to stay on the page: there is nothing else to explain
                 why this row does nothing. On a Mac the same explanation is a title, because the
                 control works and reads correctly without it. */}
             {!material && (
               <span className="settings-row-desc">
-                {`${PLATFORM_NAMES[window.realm?.platform ?? ""] ?? "This platform"} has no window material — there is nothing behind the sidebar to reveal. The setting is kept and applies on a Mac.`}
+                {`${PLATFORM_NAMES[window.realm?.platform ?? ""] ?? "This platform"} has no window material — there is nothing behind the window to reveal. The setting is kept and applies on a Mac.`}
               </span>
             )}
           </div>
@@ -699,9 +899,9 @@ function AppTab() {
               one place the two meet. step 1, not a coarser grid: the range spans an odd number of
               points, so any step above 1 leaves one of its two ends unreachable. */}
           <div className="slider-row" title={material
-            ? "The sidebar is the one surface thin enough to show the desktop behind the window. Panes stay opaque on purpose: at any setting where a pane looked translucent, text on it would fall below the contrast every theme here is held to. Realm also follows the system's Reduce Transparency setting — with it on the sidebar is opaque whatever this says, and your value comes back when you turn it off."
+            ? "The sidebar and the panes both show the desktop behind the window, each as thinly as its own text allows: the sidebar holds labels and goes furthest, a pane holds the reading and stops where body text would fall below the contrast every theme here is held to. Realm also follows the system's Reduce Transparency setting — with it on both surfaces are opaque whatever this says, and your value comes back when you turn it off."
             : undefined}>
-            <input type="checkbox" role="switch" className="switch" aria-label="Translucent sidebar"
+            <input type="checkbox" role="switch" className="switch" aria-label="Window translucency"
               disabled={!material} checked={translucent}
               onChange={(e) => run(() => setGroundAlpha(e.target.checked ? DEFAULT_GROUND_ALPHA : GROUND_ALPHA_RANGE.max))} />
             <Slider aria-label="Background transparency" disabled={!material || !translucent}
@@ -720,15 +920,8 @@ function AppTab() {
       <div className="settings-group">
         <div className="settings-row">
           <div className="settings-row-main"><span className="settings-row-name">UI font</span></div>
-          {/* Two families, not four hundred. Enumerating installed fonts needs a main-process hop and
-              returns mostly faces this layout cannot use — the chrome is set against a four-step weight
-              ladder and tabular figures, and a display face picked out of a long list loses both
-              silently. The bundled faces are guaranteed to be present and to have those axes; the
-              system stack is for someone who would rather Realm looked like the rest of their machine. */}
           <div className="font-row">
-            <select aria-label="UI font" value={fonts.ui} onChange={(e) => run(() => setFonts({ ui: e.target.value as FontId }))}>
-              {FONT_FACES.ui.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
-            </select>
+            <FontSelect role="ui" value={fonts.ui} onPick={(id) => run(() => setFonts({ ui: id }))} />
             <select aria-label="UI font weight" value={fonts.uiWeight}
               onChange={(e) => run(() => setFonts({ uiWeight: e.target.value as FontWeight }))}>
               {FONT_WEIGHTS.map((w) => <option key={w.id} value={w.id}>{w.label}</option>)}
@@ -738,9 +931,7 @@ function AppTab() {
         <div className="settings-row">
           <div className="settings-row-main"><span className="settings-row-name">Code font</span></div>
           <div className="font-row" title="Code, diffs, terminals and keyboard hints. Open terminals change face with this setting; their font size does not follow it.">
-            <select aria-label="Code font" value={fonts.code} onChange={(e) => run(() => setFonts({ code: e.target.value as FontId }))}>
-              {FONT_FACES.code.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
-            </select>
+            <FontSelect role="code" value={fonts.code} onPick={(id) => run(() => setFonts({ code: id }))} />
           </div>
         </div>
       </div>
@@ -749,6 +940,7 @@ function AppTab() {
           surface sets its font with the `font:` shorthand, which resets weight by definition, so a
           code weight would mean editing fifty-odd rules or hiding a weight inside a family name. */}
       <p className="settings-hint">Weight follows the app's own scale here.</p>
+      <FontLibrary />
 
       <h3 className="settings-head">Sessions</h3>
       <div className="settings-group">
@@ -764,6 +956,26 @@ function AppTab() {
               </label>
             ))}
           </fieldset>
+        </div>
+        <div className="settings-row" data-stack>
+          <div className="settings-row-main"><span className="settings-row-name">A message typed while a turn is running</span></div>
+          <>
+              <fieldset className="settings-tabs" aria-label="Mid-turn prompts">
+                {MID_TURN_CHOICES.map((c) => (
+                  <label key={c.mode} className="settings-tab" data-selected={midTurnMode === c.mode || undefined}>
+                    <input type="radio" name="settings-mid-turn" value={c.mode} checked={midTurnMode === c.mode}
+                      onChange={() => run(() => setMidTurnMode(c.mode))} />
+                    {c.label}
+                  </label>
+                ))}
+              </fieldset>
+              <p className="settings-hint">
+                Codex takes a steered message into the turn it is already running. Every other agent
+                has its turn stopped to take it, which aborts the tool call in flight and denies any
+                permission prompt waiting. A queued message goes out when the turn ends — or now, from
+                its row above the prompter.
+              </p>
+          </>
         </div>
         <div className="settings-row" data-stack>
           <div className="settings-row-main"><span className="settings-row-name">New sessions start in</span></div>
@@ -895,6 +1107,127 @@ function AppTab() {
 
       <h3 className="settings-head">Updates</h3>
       <UpdatesField />
+
+      <h3 className="settings-head">Power</h3>
+      <ul className="settings-list">
+        <li className="settings-row" title="Realm already stops its animations while its window is in the background. This keeps them off while you are looking at it too, and stops the transcript's dissolve from blurring what passes under it. Nothing about what an agent does changes.">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Low power</span>
+            <span className="settings-row-detail">Keep the motion off, and the dissolve unblurred</span>
+          </div>
+          <input type="checkbox" role="switch" className="switch" aria-label="Low power"
+            checked={lowPower}
+            onChange={(e) => run(() => setLowPower(e.target.checked))} />
+        </li>
+      </ul>
+      {/* The number is the point: a claim about battery that does not say how much is a claim nobody
+          can check. It is measured by `scripts/power-audit.mjs` against the built app. */}
+      <p className="settings-hint">
+        Realm stops animating whenever its window loses focus, which is most of the time an agent is
+        working. This switch keeps it off while the window is in front too — about half a core per
+        pane, on the machine it was measured on.
+      </p>
+
+      <h3 className="settings-head">Easter eggs</h3>
+      <ul className="settings-list">
+        <li className="settings-row" title="Run labels that name the people Carlton works with, a gradient on the heavier models, and one thing you have to find.">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Let Realm mess around</span>
+          </div>
+          <input type="checkbox" role="switch" className="switch" aria-label="Let Realm mess around"
+            checked={easterEggs}
+            onChange={(e) => run(() => setEasterEggs(e.target.checked))} />
+        </li>
+      </ul>
+      {/* Deliberately vague. Listing them here is the one thing that would spend them. */}
+      <p className="settings-hint">Off by default. None of it changes what an agent does.</p>
+      <FriendPacks />
+
+      <Attribution />
+    </div>
+  );
+}
+
+/**
+ * The friend packs: a word, and the groups it has opened.
+ *
+ * The field says what it is for and nothing about what exists. There is no list of locked groups, no
+ * count, and no "close, try again" — a wrong word gets the same nothing as a word for a group that
+ * was never written. That is not coyness for its own sake: the packs are named after the words that
+ * open them, so anything this told you about the ones you have not unlocked would be a hint at
+ * somebody else's passphrase.
+ *
+ * Only shown while the eggs are ON. The switch above is the consent boundary for the whole feature,
+ * and a passphrase box under a switch someone left off is a puzzle they did not opt into.
+ */
+function FriendPacks() {
+  const eggs = useApp((s) => s.easterEggs);
+  const packs = useApp((s) => s.eggPacks);
+  const unlockEggPack = useApp((s) => s.unlockEggPack);
+  const forgetEggPack = useApp((s) => s.forgetEggPack);
+  const refreshEggPacks = useApp((s) => s.refreshEggPacks);
+  const run = useApp((s) => s.run);
+  const [word, setWord] = useState("");
+  const [state, setState] = useState<"idle" | "trying" | "wrong">("idle");
+  useEffect(() => { void run(() => refreshEggPacks()); }, [run, refreshEggPacks]);
+  if (!eggs) return null;
+
+  const submit = async () => {
+    const typed = word.trim();
+    if (!typed || state === "trying") return;
+    setState("trying");
+    // Through `run` like every other action, but the ANSWER is drawn here: a wrong word is not an
+    // error the error bar should carry, it is a thing the field says.
+    const pack = await unlockEggPack(typed).catch(() => null);
+    if (pack) { setWord(""); setState("idle"); return; }
+    setState("wrong");
+  };
+
+  return (
+    <div className="settings-packs">
+      <label className="settings-pack-field">
+        <span className="settings-row-name">If someone gave you a word</span>
+        <input type="text" value={word} spellCheck={false} autoComplete="off"
+          aria-label="Friend group passphrase"
+          placeholder="type it here"
+          onChange={(e) => { setWord(e.target.value); if (state === "wrong") setState("idle"); }}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void submit(); } }} />
+      </label>
+      {/* One line, and it never says how close you were. */}
+      {state === "wrong" && <p className="settings-hint" role="status">Nothing opens with that.</p>}
+      {packs.length > 0 && (
+        <ul className="settings-list">
+          {packs.map((p) => (
+            <li key={p.id} className="settings-row">
+              <div className="settings-row-main">
+                <span className="settings-row-name">{p.group}</span>
+                <span className="settings-row-desc">{p.labels.length} lines, in the working labels</span>
+              </div>
+              {/* Forgetting drops the word, not the pack: the same word opens it again. */}
+              <button type="button" className="btn btn-quiet" onClick={() => run(() => forgetEggPack(p.id))}>Forget</button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Who made this, at the bottom of the last tab.
+ *
+ * Outside the easter-egg switch on purpose: authorship is not a joke, and a credit you have to
+ * enable is not a credit. The signature is the playful part, and it is a behaviour of this row
+ * rather than a treatment on the page — Settings is a page of controls someone sits on all day, and
+ * `wash-surfaces.test.tsx` holds it plain.
+ */
+function Attribution() {
+  return (
+    <div className="settings-attribution">
+      <Signature />
+      <p className="settings-attribution-line">
+        Made by <a href="https://x.com/31Carlton7" target="_blank" rel="noreferrer">Carlton Aikins</a>
+      </p>
     </div>
   );
 }

@@ -48,6 +48,10 @@ export type StdioJsonRpcOptions = {
   args: string[];
   cwd: string;
   env?: Record<string, string>;
+  /** Realm's execution sandbox, applied to `{command, args}` at the spawn and nowhere else — see
+   *  `StartOptions.wrap` in ../types. It may throw, and the throw is left to reach the constructor's
+   *  caller: a child that could not be confined must not be started unconfined. */
+  wrap?: (command: string, args: string[]) => { command: string; args: string[] };
   onNotification: (n: JsonRpcNotification) => void;
   /** MUST be answered with respond()/respondError() — an unanswered server request stalls the agent's turn forever. */
   onServerRequest: (r: JsonRpcServerRequest) => void;
@@ -78,7 +82,10 @@ export class StdioJsonRpc {
 
   constructor(private o: StdioJsonRpcOptions, deps: { spawn?: typeof nodeSpawn } = {}) {
     const spawnFn = deps.spawn ?? nodeSpawn;
-    this.child = spawnFn(o.command, o.args, { cwd: o.cwd, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, ...o.env } });
+    // Deliberately NOT inside a try: `wrap` throwing means the sandbox could not be applied, and the
+    // constructor must fail rather than fall through to an unconfined `spawnFn(o.command, ...)`.
+    const spawned = o.wrap ? o.wrap(o.command, o.args) : { command: o.command, args: o.args };
+    this.child = spawnFn(spawned.command, spawned.args, { cwd: o.cwd, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, ...o.env } });
     this.child.stdout?.setEncoding("utf8");
     this.child.stderr?.setEncoding("utf8");
     this.child.stdout?.on("data", (c: string) => this.onStdout(c));

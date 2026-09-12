@@ -58,3 +58,16 @@ describe("the hero greeting nods back", () => {
     expect(line).toHaveAttribute("data-nod");
   });
 });
+
+describe("the greeting is one run of text", () => {
+  it("puts the whole sentence in a single child, so flex does not eat the space before the name", async () => {
+    // The box is a flex container. Rendering each run as its own child makes each one an anonymous
+    // flex item, and an item's leading and trailing spaces collapse away — "…working on inRealm?".
+    const line = await mountHero();
+    expect(line.childNodes).toHaveLength(1);
+    const span = line.firstChild as HTMLElement;
+    expect(span.tagName).toBe("SPAN");
+    expect(span.querySelector("em")).toBeInTheDocument();
+    expect(span.textContent).toMatch(/ \S+\?$|\. *$/);
+  });
+});

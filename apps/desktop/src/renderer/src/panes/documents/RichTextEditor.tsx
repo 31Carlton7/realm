@@ -4,6 +4,7 @@ import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import { Icon } from "@realm/ui";
 import { RawBlock, TABLE_EXTENSIONS, parseMarkdown, serializeMarkdown } from "./markdown-model";
+import { useScrollMemory } from "../scroll-memory";
 
 /**
  * The WYSIWYG half of the docs editor (Plan 17 W2). Markdown in, markdown out; the file on disk stays
@@ -17,7 +18,13 @@ import { RawBlock, TABLE_EXTENSIONS, parseMarkdown, serializeMarkdown } from "./
  * (measured at 72% of lines on this repo's own docs). Replacing the document with the parsed nodes
  * themselves keeps identity intact, so only edited blocks are ever re-serialized.
  */
-export function RichTextEditor({ text, onChange }: { text: string; onChange: (markdown: string) => void }) {
+export function RichTextEditor({ text, onChange, scrollKey = null }: {
+  text: string; onChange: (markdown: string) => void;
+  /** What this column is, for the scroll memory that survives a space switch (scroll-memory.ts).
+   *  Null opts out — the read-only mounts have no reader to put back. */
+  scrollKey?: string | null;
+}) {
+  const scroll = useScrollMemory(scrollKey);
   /** Set while this component is writing the document, so programmatic changes are not read as edits. */
   const applying = useRef(false);
   /** The last markdown this editor produced, to recognise its own value coming back down as a prop. */
@@ -69,7 +76,10 @@ export function RichTextEditor({ text, onChange }: { text: string; onChange: (ma
           in an 860px pane). The scroll lives on the wrapper rather than on ProseMirror so that the
           editor's own selection and caret handling never fight a scroll container it does not know
           about. */}
-      <EditorContent editor={editor} className="documents-rich-scroll" />
+      {/* The ref is the scroll memory's, and it lands on the same wrapper for the same reason the
+          class does: that div is what scrolls. It attaches while the div is still EMPTY — ProseMirror
+          appends into it a beat later — which is exactly the case the hook's settle loop exists for. */}
+      <EditorContent editor={editor} className="documents-rich-scroll" ref={scroll} />
     </div>
   );
 }

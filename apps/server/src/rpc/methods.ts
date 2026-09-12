@@ -21,6 +21,11 @@ import type { ModelCatalogService } from "../models/catalog";
 import type { CliService } from "../cli/service";
 import { specFor, updateSpecFor, type CliInstaller } from "../cli/install";
 import type { SkillsService } from "../skills/service";
+import type { UserCommandsService } from "../commands/service";
+import type { ScriptService } from "../scripts/service";
+import type { KeybindingsService } from "../keybindings/service";
+import type { ThemesService } from "../themes/service";
+import type { FontsService } from "../fonts/service";
 import type { McpService } from "../mcp/service";
 import type { ComputerAppAllowlist } from "../computer/allowlist";
 import type { BrowserPermissionBroker } from "../browsers/permissions";
@@ -33,6 +38,10 @@ import type { MemoryService } from "../memory/service";
 import type { TerminalService } from "../terminals/service";
 import type { BrowserService } from "../browsers/service";
 import type { MachineService } from "../machines/service";
+import type { SimulatorService } from "../simulators/service";
+import type { GoalService } from "../goals/service";
+import type { EggService } from "../eggs/service";
+import { eggSecretBox } from "../eggs/service";
 import { machineSecretBox } from "../machines/secret";
 import { CATALOG_ABSENT_NOTE } from "../machines/catalog-data";
 import type { DocumentService } from "../documents/service";
@@ -54,9 +63,11 @@ import type { LectureService } from "../school/lectures";
 import type { PlynnService } from "../school/plynn";
 import type { GitInfoService } from "../workspace/git-info";
 import type { GitDiffService } from "../workspace/git-diff";
+import type { ProjectSearchService } from "../workspace/grep";
 import type { GitWriteService } from "../workspace/git-write";
 import type { ShipsStore } from "../store/ships";
 import type { PortAllocator } from "../workspace/ports";
+import type { ExecutionSandboxService } from "../sandbox/service";
 import { NotFoundError, RpcError } from "../store/rows";
 
 /** Parsed (post-default) params, i.e. what the handler actually receives. */
@@ -68,7 +79,7 @@ export type Deps = {
   /** Called once when `daemon.drain` is accepted. `createApp` starts the quiescence watcher here —
    *  the watcher owns the clock and the close, this owns the refusals. */
   onDrain?: () => void;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; machines: MachineService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService;
   planLimits: PlanLimitsService;
   delegation: DelegationEngine;
@@ -128,6 +139,8 @@ export function registerMethods(d: Deps): void {
   reg("workspace.gitInfo", (p) => d.gitInfo.get(p.cwd));
   reg("workspace.diff", (p) => d.gitDiff.summary(p.cwd));
   reg("workspace.fileDiff", (p) => d.gitDiff.file(p.cwd, p.path, p.staged));
+  reg("project.grep", (p) => d.projectSearch.grep(p.cwd, p.query, { limit: p.limit }));
+  reg("project.files", (p) => d.projectSearch.files(p.cwd, p.query, p.limit));
   // Realm just changed this working tree, so the numbers `workspace.gitInfo` is holding for it are
   // wrong. Invalidating here (rather than trusting the 3s TTL) is what makes the composer's chips
   // and the diff pane agree the moment an action finishes.
@@ -177,7 +190,7 @@ export function registerMethods(d: Deps): void {
   reg("spaces.delete", async (p) => {
     // Machines first: their rows go with the space by ON DELETE CASCADE, but a live socket to
     // somebody else's Mac does not, and a leaked connection is worse than a leaked row.
-    if (d.spaces.get(p.id)) { d.machines.closeAllInSpace(p.id); d.terminals.closeAllInSpace(p.id); await d.sessions.deleteAllInSpace(p.id); }
+    if (d.spaces.get(p.id)) { d.machines.closeAllInSpace(p.id); d.simulators.closeAllInSpace(p.id); d.terminals.closeAllInSpace(p.id); await d.sessions.deleteAllInSpace(p.id); }
     d.spaces.delete(p.id);
     rpc.broadcast("spaces.changed", {});
     return { ok: true as const };
@@ -189,6 +202,17 @@ export function registerMethods(d: Deps): void {
   reg("iconAssets.upload", (p) => d.iconGeneration.upload(p.profileId, p.path));
   reg("iconAssets.delete", (p) => { d.iconAssets.delete(p.id); return { ok: true as const }; });
 
+  // Imported VS Code themes. `list` never throws on a bad file — one unreadable theme is one theme,
+  // not the whole folder — so the only failure a client can see here is an import it just asked for.
+  reg("themes.list", () => ({ root: d.themes.root, themes: d.themes.list() }));
+  reg("themes.import", (p) => { const t = d.themes.import(p.path); rpc.broadcast("themes.changed", {}); return t; });
+  reg("themes.remove", (p) => { d.themes.remove(p.id); rpc.broadcast("themes.changed", {}); return { ok: true as const }; });
+  // Google Fonts. `catalog` and `install` reach the network; everything else is the local folder.
+  reg("fonts.installed", () => ({ root: d.fonts.root, fonts: d.fonts.list() }));
+  reg("fonts.catalog", async () => ({ fonts: await d.fonts.catalog() }));
+  reg("fonts.install", async (p) => { const f = await d.fonts.install(p.family); rpc.broadcast("fonts.changed", {}); return f; });
+  reg("fonts.remove", (p) => { d.fonts.remove(p.family); rpc.broadcast("fonts.changed", {}); return { ok: true as const }; });
+  reg("fonts.faces", (p) => ({ faces: d.fonts.faces(p.family) }));
   reg("settings.get", (p) => ({ value: d.settings.get(p.key) }));
   reg("settings.set", (p) => {
     d.settings.set(p.key, p.value);
@@ -197,6 +221,14 @@ export function registerMethods(d: Deps): void {
     if (p.key === TERMINALS_HISTORY_KEY && p.value !== true) d.terminals.purgeHistory();
     return { ok: true as const };
   });
+
+  /* The execution sandbox. Nothing is restarted by a write here — see the note on `sandbox.get` in
+     rpc.ts: Seatbelt is applied at exec, so a change reaches the next spawn and a live session keeps
+     what it booted with. `set` answers with `state` rather than with what was stored, because the
+     resolved policy and the availability verdict are what the picker draws and neither is in the row. */
+  reg("sandbox.get", (p) => d.sandbox.state(p.spaceId));
+  reg("sandbox.set", (p) => { d.sandbox.setSpacePrefs(p.spaceId, p.prefs); return d.sandbox.state(p.spaceId); });
+  reg("sandbox.setDefaults", (p) => d.sandbox.setDefaults(p.prefs));
 
   // Both check the space exists: the enabled set is keyed by space id, so a typo would silently read and
   // write preferences for a space that is not there rather than saying so.
@@ -243,6 +275,48 @@ export function registerMethods(d: Deps): void {
   // the same "tell them all" rule promote/demote already follows, for the same reason.
   reg("skills.addScanRoot", (p) => { d.skills.addScanRoot(p.path); skillsScopeChanged(); return { ok: true as const }; });
   reg("skills.removeScanRoot", (p) => { d.skills.removeScanRoot(p.path); skillsScopeChanged(); return { ok: true as const }; });
+
+  // The space is checked only when one was named: `spaceId: null` is the palette asking outside a
+  // session, which is a smaller list and not an error.
+  const commandSpace = (spaceId: string | null): string | null => {
+    if (spaceId !== null && !d.spaces.get(spaceId)) throw new NotFoundError("space", spaceId);
+    return spaceId;
+  };
+  reg("commands.list", (p) => d.userCommands.list(commandSpace(p.spaceId)));
+  reg("commands.expand", (p) => d.userCommands.expand(commandSpace(p.spaceId), p.name, p.args));
+  reg("commands.sources", (p) => ({ sources: d.userCommands.sources(commandSpace(p.spaceId)) }));
+
+  // Every one of these checks the space exists first, for the reason the skills pair does: the blob
+  // is keyed by space id, so a typo would read and write another space's scripts rather than saying so.
+  const scriptSpace = (spaceId: string): string => {
+    if (!d.spaces.get(spaceId)) throw new NotFoundError("space", spaceId);
+    return spaceId;
+  };
+  reg("scripts.list", (p) => ({ scripts: d.scripts.list(scriptSpace(p.spaceId)) }));
+  reg("scripts.save", (p) => {
+    const saved = d.scripts.save(scriptSpace(p.spaceId), p.script);
+    rpc.broadcast("scripts.changed", { spaceId: p.spaceId });
+    return saved;
+  });
+  reg("scripts.remove", (p) => {
+    d.scripts.remove(scriptSpace(p.spaceId), p.id);
+    rpc.broadcast("scripts.changed", { spaceId: p.spaceId });
+    return { ok: true as const };
+  });
+  reg("scripts.reorder", (p) => {
+    const scripts = d.scripts.reorder(scriptSpace(p.spaceId), p.ids);
+    rpc.broadcast("scripts.changed", { spaceId: p.spaceId });
+    return { scripts };
+  });
+  // No broadcast: running a script changes no script. The terminal it opens announces itself through
+  // `items.changed`, which TerminalService.open already sends.
+  reg("scripts.run", (p) => d.scripts.runCommand(scriptSpace(p.spaceId), p.commandId));
+
+  // The user's keymap. `get` is also the seed/merge path, so every client asking what the bindings
+  // are is the moment the file is brought up to date — there is no install step to miss.
+  reg("keybindings.get", () => d.keybindings.read());
+  reg("keybindings.set", (p) => { const f = d.keybindings.write(p.rules); rpc.broadcast("keybindings.changed", {}); return f; });
+  reg("keybindings.reset", () => { const f = d.keybindings.reset(); rpc.broadcast("keybindings.changed", {}); return f; });
 
   // Every one of these checks the space exists first, for the same reason the skills pair does: the
   // enable set is keyed by space id, so a typo would silently read and write preferences for a space
@@ -518,6 +592,7 @@ export function registerMethods(d: Deps): void {
     if (it?.kind === "terminal") { d.terminals.close(it.refId); return { ok: true as const }; } // closes pty + row + item, broadcasts
     if (it?.kind === "browser") { d.browsers.close(it.refId); return { ok: true as const }; } // deletes row + item, broadcasts
     if (it?.kind === "machine") { d.machines.close(it.refId); return { ok: true as const }; } // disconnects + row + item, broadcasts
+    if (it?.kind === "simulator") { d.simulators.close(it.refId); return { ok: true as const }; } // drops the row + item; the stream is not ours to kill
     if (it?.kind === "documents") { d.documents.close(it.refId); return { ok: true as const }; } // deletes row + item, broadcasts
     if (it?.kind === "session") { await d.sessions.delete(it.refId); return { ok: true as const }; } // disposes handle + row + item, broadcasts
     d.items.delete(p.id);
@@ -568,6 +643,36 @@ export function registerMethods(d: Deps): void {
   reg("machines.stop", (p) => ({ state: d.machines.stop(p.machineId) }));
   reg("machines.endpoint", (p) => ({ state: d.machines.stateOf(p.machineId) }));
   reg("machines.close", (p) => { d.machines.close(p.machineId); return { ok: true as const }; });
+
+  reg("simulators.create", (p) => {
+    const r = d.simulators.create({ spaceId: p.spaceId, name: p.name, udid: p.udid });
+    return r;
+  });
+  reg("simulators.devices", async () => ({ devices: await d.simulators.devices(), available: await d.simulators.available() }));
+  reg("simulators.list", (p) => ({ simulators: d.simulators.list(p.spaceId), states: d.simulators.states(p.spaceId) }));
+  reg("simulators.get", (p) => ({ simulator: d.simulators.get(p.simulatorId), state: d.simulators.stateOf(p.simulatorId) }));
+  reg("simulators.start", (p) => ({ state: d.simulators.start(p.simulatorId, p.udid, p.platform) }));
+  reg("simulators.stop", async (p) => ({ state: await d.simulators.stop(p.simulatorId) }));
+  reg("simulators.close", (p) => { d.simulators.close(p.simulatorId); return { ok: true as const }; });
+  reg("simulators.ui", async (p) => ({ ui: await d.simulators.ui(p.simulatorId) }));
+  reg("simulators.setUi", (p) => d.simulators.setUi(p.simulatorId, p.option, p.value));
+  reg("simulators.poke", (p) => d.simulators.poke(p.simulatorId, p.poke));
+  reg("simulators.ax", async (p) => ({ tree: await d.simulators.ax(p.simulatorId) }));
+  reg("simulators.apps", async (p) => ({ apps: await d.simulators.apps(p.simulatorId) }));
+  reg("simulators.screenshot", (p) => d.simulators.screenshot(p.simulatorId));
+  reg("simulators.webcams", async () => ({ webcams: await d.simulators.webcams() }));
+  reg("simulators.events", async (p) => ({ events: await d.simulators.events(p.simulatorId, p.limit) }));
+  reg("simulators.act", (p) => d.simulators.act(p.simulatorId, p.act));
+
+  reg("goals.get", (p) => ({ goal: d.goals.get(p.sessionId) }));
+  reg("goals.start", async (p) => ({ goal: await d.goals.start(p.sessionId, p.objective, p.tokenBudget) }));
+  reg("goals.set", (p) => ({ goal: d.goals.set(p.sessionId, p.status, p.note) }));
+  reg("goals.resume", async (p) => ({ goal: await d.goals.resume(p.sessionId) }));
+  reg("goals.clear", (p) => { d.goals.clear(p.sessionId); return { ok: true as const }; });
+
+  reg("eggs.list", () => ({ packs: d.eggs.unlocked() }));
+  reg("eggs.unlock", (p) => ({ pack: d.eggs.unlock(p.passphrase) }));
+  reg("eggs.forget", (p) => { d.eggs.forget(p.id); return { ok: true as const }; });
 
   /* What this Mac can offer. The connect flow leaves the local-VM route out ENTIRELY when qemu is
      unavailable rather than offering it disabled — design.md, "where the owner has said nothing,
@@ -669,6 +774,14 @@ export function registerMethods(d: Deps): void {
     void d.browserBridge.call("machineKey", {})
       .then((r) => { machineSecretBox.setKey(typeof (r as { key?: unknown })?.key === "string" ? (r as { key: string }).key : null); })
       .catch(() => { /* no key: a machine that needs a password says so instead of storing one */ });
+    /* …and the `eggs` key, which remembers a friend group's word between launches. Its own domain
+       and its own key, like the two above: `secret-box` mixes the domain in as AAD, so a blob from
+       here could not be opened as a machine password even by accident. No key means the word is
+       remembered in the clear — see `eggSecretBox.seal` for why that is the right trade here and
+       the wrong one for a machine password. */
+    void d.browserBridge.call("eggsKey", {})
+      .then((r) => { eggSecretBox.setKey(typeof (r as { key?: unknown })?.key === "string" ? (r as { key: string }).key : null); })
+      .catch(() => {});
     return { ok: true as const };
   });
   reg("browserHost.result", (p) => { d.browserBridge.handleResult(p); return { ok: true as const }; });
@@ -754,13 +867,13 @@ export function registerMethods(d: Deps): void {
     return d.graphify.update(p.spaceId);
   });
   reg("sessions.list", (p) => d.sessions.list(p.spaceId));
-  reg("sessions.listAll", () => d.sessions.listAll());
+  reg("sessions.listAll", (p) => d.sessions.listAll(p.profileId));
   reg("sessions.markSeen", (p) => { d.sessions.markSeen(p.id, p.seq); return { ok: true as const }; });
   reg("sessions.get", (p) => d.sessions.get(p.id));
   // `userDispatched` (W2's ⌘⇧↩) maps to the ONE origin a client may claim; the agent origins are
   // recorded by the server-side tools that create those children, never over RPC.
   reg("sessions.create", (p) => { refuseWhileDraining("start a session"); return d.sessions.create({ ...p, dispatchedBy: p.userDispatched ? { kind: "user-dispatch", sessionId: null } : null }); });
-  reg("sessions.send", async (p) => { await d.sessions.send(p.id, { text: p.text, attachments: p.attachments, mentions: p.mentions, elements: p.elements }, p.delivery); return { ok: true as const }; });
+  reg("sessions.send", async (p) => { await d.sessions.send(p.id, { text: p.text, attachments: p.attachments, mentions: p.mentions, elements: p.elements, sessionRefs: p.sessionRefs }, p.delivery); return { ok: true as const }; });
   reg("sessions.dequeue", async (p) => { d.sessions.dequeue(p.id, p.queuedId); return { ok: true as const }; });
   reg("limits.get", async () => ({ limits: d.planLimits.list() }));
   reg("sessions.releaseQueued", async (p) => { await d.sessions.releaseQueued(p.id, p.queuedId); return { ok: true as const }; });

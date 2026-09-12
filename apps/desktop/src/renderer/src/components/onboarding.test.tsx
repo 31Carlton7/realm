@@ -42,11 +42,25 @@ describe("first-run onboarding (W4)", () => {
     const api = fakeApi({ spaces: [], items: {} });
     api.delays["probeAgents"] = 50;
     const store = createAppStore(api); await store.getState().boot();
-    render(<StoreContext.Provider value={store}><Onboarding /></StoreContext.Provider>);
+    const { container } = render(<StoreContext.Provider value={store}><Onboarding /></StoreContext.Provider>);
     expect(screen.getByText(/Checking which agents are installed/)).toBeInTheDocument();
     expect(screen.queryByText("Checking…")).toBeNull();
     // Every agent is listed plainly meanwhile — an empty list would read as "none found".
     for (const k of SELECTABLE_AGENT_KINDS) expect(screen.getByText(AGENT_META[k].label)).toBeInTheDocument();
+
+    /* …and the sentence has the app's spinner ON it. THE mutant is the state this screen shipped in:
+       a static grey line above thirteen agents that are already drawn reads as a caption under a
+       finished list, not as a wait — the rows are there, so the only thing that can say "these are
+       provisional" is something moving. The fieldset carries `aria-busy` for the reader who cannot
+       see it move. Both must clear together when the probe lands, or the screen claims to be
+       working forever. */
+    const fieldset = () => container.querySelector("fieldset.cli-field");
+    expect(container.querySelector(".onboarding-note[data-busy] .spinner"), "no spinner on the checking line").toBeTruthy();
+    expect(fieldset()).toHaveAttribute("aria-busy", "true");
+
+    await waitFor(() => expect(screen.queryByText(/Checking which agents are installed/)).toBeNull());
+    expect(container.querySelector(".spinner"), "the spinner outlived the probe").toBeNull();
+    expect(fieldset()).not.toHaveAttribute("aria-busy");
   });
 
   it("shows every agent, with a hint, when none was found at all", async () => {

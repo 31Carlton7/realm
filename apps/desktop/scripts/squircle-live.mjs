@@ -9,9 +9,9 @@
  * The claim is geometric and falsifiable. Inside the R×R square at a card's corner, the fraction of
  * area the card's own fill covers is fixed by the curve:
  *   - a circular arc, which is all `border-radius` can draw   → π/4 ≈ 0.785
- *   - the superellipse |x/R|⁴ + |y/R|⁴ = 1 the worklet draws  → ≈ 0.874
+ *   - the superellipse |x/R|⁴ + |y/R|⁴ = 1 the worklet draws  → ≈ 0.927
  * The corner is therefore classified by COUNTING pixels rather than by reading one of them, and the
- * two answers are 11% of the corner square apart.
+ * two answers are 14% of the corner square apart.
  *
  * Its mutant is the gate: strip `data-squircle` and the same measurement has to fall back to π/4,
  * because the stylesheet's fallback is a plain `border-radius`. If it does not, this is measuring
@@ -40,9 +40,13 @@ const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-squircle-live-"));
 let electron = null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** Area of a quadrant of |x|ⁿ + |y|ⁿ = 1 as a fraction of the unit square: n = 2 is the circle a
- *  border-radius draws, n = 4 the squircle the worklet draws. */
-const CIRCLE = Math.PI / 4, SQUIRCLE = 0.874;
+/** Area of a quadrant of |x|ⁿ + |y|ⁿ = 1 as a fraction of the unit square: ∫₀¹(1-xⁿ)^(1/n)dx, which
+ *  is Γ(1+1/n)²/Γ(1+2/n). n = 2 is the circle a border-radius draws, n = 4 the squircle the worklet
+ *  draws. The 0.874 that stood here was a MEASUREMENT, and a biased one: the corner square used to be
+ *  anchored by flooring the element's rect, which lands a pixel off whenever layout puts the box on a
+ *  fractional coordinate and costs about 0.05 of the area. cornerFill walks to the edge now, and both
+ *  readings came back onto their geometry — the fallback to π/4 within a thousandth. */
+const CIRCLE = Math.PI / 4, SQUIRCLE = 0.927;
 /** Half the gap between them. Anything nearer one than the other is that curve. */
 const TOL = (SQUIRCLE - CIRCLE) / 2;
 
@@ -145,8 +149,14 @@ window.__live = window.__live ?? {
     if (R < 8) return { error: "radius too small to measure", R };
     /* Reference tones sampled from THIS screenshot rather than from a token value, so the test holds
        in either mode and survives a repaint of the palette. */
-    const inset = R + 8;
-    const inside = s.tone(box.left + inset, box.top + inset, box.right - inset, box.bottom - inset);
+    /* The fill is read from a band hugging the EDGE being measured, past the corner and inside the
+       padding, rather than from the middle of the element. The middle only works on something big
+       and empty: a 56px attachment tile is narrower than the R + 8 inset that rect used to take, so
+       the sample inverted and tone returned a median of nothing, and a one-line bubble is mostly
+       glyphs, so the median came back as ink and the fill/ground comparison ran backwards. */
+    const bx0 = box.left + R + 2, bx1 = Math.min(box.right - 2, box.left + 3 * R);
+    const by = corner === "bl" ? box.bottom - 4.5 : box.top + 1.5;
+    const inside = s.tone(bx0, by, Math.max(bx1, bx0 + 4), by + 3);
     /* Diagonally outside the corner under test. For a bottom corner that is BELOW the element — read
        above it and the sample lands on whatever the element is tucked under, which for the
        under-strip is the prompter's own fill. */
@@ -157,10 +167,24 @@ window.__live = window.__live ?? {
        which leaves the area estimate unbiased. */
     const mid = (inside + outside) / 2;
     const isFill = (x, y) => (inside > outside ? s.lum(x, y) > mid : s.lum(x, y) < mid);
-    /* Anchored to the first device pixel the card actually touches — a laid-out box lands on a
-       fractional coordinate often enough that taking box.left/top raw walks the window off by one. */
-    const x0 = Math.floor(box.left);
-    const y0 = Math.floor(corner === "bl" ? box.bottom - R : box.top);
+    /* Anchored to the first device pixel the card actually touches, found by walking IN from the
+       ground rather than by rounding box.left. A laid-out box lands on a fractional coordinate often
+       enough — and a one-pixel border added anywhere above the element moves it — that flooring the
+       rect puts the R×R square one pixel off the shape and takes ~0.05 off the area. That much is
+       the whole distance between a superellipse and a circle, so the reading has to come from the
+       edge itself. The walks run along the corner square's INNER edges, where every shape is flush
+       against the box, and they come from outside so that a strip or a line of text inside the
+       element cannot be mistaken for the boundary. */
+    const near = corner === "bl" ? box.bottom - R + 0.5 : box.top + R - 0.5;
+    let x0 = Math.round(box.left);
+    for (let v = Math.round(box.left) - 4; v <= box.left + R; v++) { if (isFill(v + 0.5, near)) { x0 = v; break; } }
+    let edgeY = corner === "bl" ? Math.round(box.bottom) : Math.round(box.top);
+    if (corner === "bl") {
+      for (let v = Math.round(box.bottom) + 4; v >= box.bottom - R; v--) { if (isFill(box.left + R - 0.5, v + 0.5)) { edgeY = v; break; } }
+    } else {
+      for (let v = Math.round(box.top) - 4; v <= box.top + R; v++) { if (isFill(box.left + R - 0.5, v + 0.5)) { edgeY = v; break; } }
+    }
+    const y0 = corner === "bl" ? edgeY - R + 1 : edgeY;
     let filled = 0;
     for (let dy = 0; dy < R; dy++) for (let dx = 0; dx < R; dx++) {
       if (isFill(x0 + dx + 0.5, y0 + dy + 0.5)) filled++;
@@ -372,6 +396,55 @@ async function main() {
   check("the sent message's corner is painted too — it fills more than the fallback's arc",
     !bubbleOn.error && !bubbleOff.error && bubbleOn.fraction > bubbleOff.fraction + 0.03,
     { gateOn: bubbleOn.fraction ?? bubbleOn, gateOff: bubbleOff.fraction ?? bubbleOff, R: bubbleOn.R });
+
+  /* ── an uploaded file's tile ─────────────────────────────────────────────
+     The well the thumbnail sits in is painted like everything else, and it carries a trap the other
+     surfaces do not: under the painter `border-radius` is 0, so the `overflow: hidden` that keeps a
+     picture inside the tile would clip it to a SQUARE over a painted curve. The well therefore also
+     wears a `clip-path` cut from the same superellipse, and this measures the result rather than the
+     mechanism — a `.txt` has no thumbnail, so what is in the corner is the well's own flat fill. */
+  const note = path.join(scratch, "attachment.txt");
+  fs.writeFileSync(note, "a file to look at the corner of\n");
+  await api.call("sessions.send", { id: sessions[0].id, text: "with a file",
+    attachments: [{ path: note, mime: "text/plain", name: "attachment.txt", size: 32 }], mentions: [] });
+  await until(() => evalIn(c, `!!document.querySelector('.msg-user-files .attach-art')`), 20000, "an attachment tile");
+  await sleep(500);
+  /* The well is `--field` on the pane's ground and the two are about one luminance step apart, which
+     is under this measurement's floor — so the fill is forced white for the shot. That changes the
+     colour and nothing else: the silhouette still comes from the same painter with the same radius,
+     and the gate-off leg gets the same treatment through `background` because an unpainted tile does
+     not read `--sq-fill`. */
+  /* One property at a time rather than cssText: the clip the component sets is an inline custom
+     property too, and wiping the whole attribute takes it with it. The children go as well — a 56px
+     well has room for the corner or for the icon and the type badge, not for both plus a reading of
+     the flat fill between them. */
+  const paintTile = (prop, value) => `(() => { const el = document.querySelector('.msg-user-files .attach-art');
+    ${value ? `el.style.setProperty("${prop}", "${value}")` : `el.style.removeProperty("${prop}")`};
+    for (const kid of el.children) kid.style.visibility = ${value ? `"hidden"` : `""`};
+    return true; })()`;
+  await evalIn(c, paintTile("--sq-fill", "#ffffff"));
+  await sleep(250);
+  const tileOn = await evalIn(c, `__live.cornerFill(${JSON.stringify(await shotOf(c))}, ".msg-user-files .attach-art", "tl")`);
+  await evalIn(c, `(() => { document.documentElement.removeAttribute("data-squircle"); return true; })()`);
+  await evalIn(c, paintTile("background", "#ffffff"));
+  await sleep(300);
+  const tileOff = await evalIn(c, `__live.cornerFill(${JSON.stringify(await shotOf(c))}, ".msg-user-files .attach-art", "tl")`);
+  await evalIn(c, `(() => { document.documentElement.setAttribute("data-squircle", ""); return true; })()`);
+  await evalIn(c, paintTile("--sq-fill"));
+  await evalIn(c, paintTile("background"));
+  await sleep(250);
+  check("an uploaded file's tile is painted too, and its clip follows the same curve",
+    !tileOn.error && !tileOff.error && tileOn.fraction > tileOff.fraction + 0.05 && tileOff.fraction < CIRCLE + TOL,
+    { gateOn: tileOn.fraction ?? tileOn, gateOff: tileOff.fraction ?? tileOff, R: tileOn.R });
+  /* And the clip is the trap: without it `overflow: hidden` cuts the badge and any thumbnail to a
+     square over the painted curve, which shows up as the tile's own corner reappearing as a right
+     angle in the ink. Read the mechanism here — the pixel above cannot separate the two layers. */
+  const tileClip = await evalIn(c, `(() => {
+    const cs = getComputedStyle(document.querySelector('.msg-user-files .attach-art'));
+    return { clip: cs.clipPath.slice(0, 24), radius: cs.borderTopLeftRadius, overflow: cs.overflow };
+  })()`);
+  check("and the well clips to that curve rather than to its (now zero) border-radius",
+    tileClip.clip.startsWith("path(") && parseFloat(tileClip.radius) === 0, tileClip);
   api.close();
 
   await evalIn(c, `(() => {

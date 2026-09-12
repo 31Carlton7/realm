@@ -7,6 +7,7 @@ import { PanelBar } from "../../components/PanelBar";
 import { TerminalHub, setTerminalHubForTests, type HubTransport, type TerminalLike } from "../terminal-hub";
 import { SessionMeta, SessionPane } from "./SessionPane";
 import { reduceAll } from "./transcript-model";
+import { EGG_RUN_LABELS, runLabelFor } from "./run-label";
 import { Markdown, renderMarkdown } from "./Markdown";
 import { toolSummary } from "./tool-summary";
 import { exited } from "../../components/popover-exit.test-fakes";
@@ -428,6 +429,36 @@ describe("SessionPane", () => {
     expect(screen.getByText("/a/b.ts")).toBeInTheDocument();
   });
 
+  it("carries the easter-egg switch to the two places in the pane that can wear it", async () => {
+    // THE unwired-flag mutant: leave `easterEggs` on the store and never read it here. Every unit
+    // below this passes — the label function takes the flag, the picker takes the prop — and the
+    // switch in Settings does nothing at all.
+    const started = 1_756_900_000_000; // a start time the second roll lands a friend's name on
+    const { store } = await mount("running", reduceAll([]));
+    await act(async () => {
+      store.setState({ easterEggs: true, transcripts: { se1: { lastSeq: 0, t: { ...reduceAll([]), run: { startedAt: started, waitedMs: 0, waitingSince: null } } } } });
+    });
+    const named = runLabelFor(started, undefined, true);
+    expect(EGG_RUN_LABELS).toContain(named);
+    expect(document.querySelector(".msg-working")!.textContent).toBe(`${named.present}…`);
+    // And the gradient's one attribute: every rule for it hangs off this, so its absence is the
+    // whole feature's absence.
+    openPicker();
+    expect(document.querySelector(".model-picker")).toHaveAttribute("data-eggs");
+  });
+
+  it("says nothing unusual with the switch off, which is what everyone gets by default", async () => {
+    const started = 1_756_900_000_000;
+    const { store } = await mount("running", reduceAll([]));
+    await act(async () => {
+      store.setState({ transcripts: { se1: { lastSeq: 0, t: { ...reduceAll([]), run: { startedAt: started, waitedMs: 0, waitingSince: null } } } } });
+    });
+    expect(store.getState().easterEggs).toBe(false);
+    expect(document.querySelector(".msg-working")!.textContent).toBe(`${runLabelFor(started).present}…`);
+    openPicker();
+    expect(document.querySelector(".model-picker")).not.toHaveAttribute("data-eggs");
+  });
+
   it("offers the composer permission picker only for agents whose permission model Realm controls", async () => {
     const codex = await mountKind("codex");
     expect(screen.getByRole("button", { name: "Permission mode" })).toBeInTheDocument();
@@ -573,7 +604,10 @@ describe("the prompter wears its mode", () => {
   it("says the mode in WORDS too — the colour is never the only telling", async () => {
     const { store } = await mountFresh();
     act(() => store.setState({ sessions: { ...store.getState().sessions, se1: { ...store.getState().sessions.se1!, permissionMode: "plan" } } }));
-    expect(screen.getByRole("button", { name: "Mode" })).toHaveTextContent("Plan");
+    // In the "+" menu now rather than on the row. The card's tint is still the ambient signal; this
+    // is the place the mode is spelled out, and the only place Build — which has no tint — is.
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    expect(screen.getByRole("menuitem", { name: /Mode/ })).toHaveTextContent("Plan");
   });
 });
 
@@ -689,8 +723,8 @@ describe("composer context row (git chips)", () => {
 });
 
 describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
-  it("left group runs '+' · permission · mode, in that DOM order and nothing else", async () => {
-    // The user's row: attach leads, the Ask/Build chips sit against it. The branch group moved off
+  it("left group runs '+' · permission, in that DOM order and nothing else", async () => {
+    // The user's row: attach leads, the permission chip sits against it. The branch group moved off
     // it, onto a strip of its own above the card; the cwd, environment and effort chips are gone
     // outright. An extra child here is a regression.
     const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle", agentKind: "claude" })] });
@@ -701,17 +735,16 @@ describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
     const opts = document.querySelector(".composer-opts")!;
     const children = Array.from(opts.children);
     expect(children[0]).toBe(screen.getByRole("button", { name: "Add" })); // the "+" — now a menu (Plan 12 W1)
-    // The permission and mode chips are drawn as ONE control now, so the row holds a group rather
-    // than two chips. They are still two buttons with two menus — that is the whole point of the
-    // grouping, and the assertions below are what would catch a "simplification" into one.
-    const group = children[1] as HTMLElement;
-    expect(group).toHaveClass("chip-group");
+    /* One chip, not a group. The session mode moved into the "+" menu, and with it the reason these
+       two were drawn as a segmented control — so the permission chip is a direct child of the row
+       wearing the same corner every other chip in it has. An extra child, or a re-introduced
+       wrapper, is what this catches. */
+    expect(children[1]).toBe(screen.getByRole("button", { name: "Permission mode" }));
     expect(children).toHaveLength(2);
-    const segments = Array.from(group.children);
-    expect(segments[0]).toBe(screen.getByRole("button", { name: "Permission mode" }));
-    expect(segments[1]).toBe(screen.getByRole("button", { name: "Mode" }));
-    expect(segments).toHaveLength(2);
-    for (const seg of segments) expect(seg).toHaveAttribute("aria-haspopup", "menu");
+    expect(children[1]).not.toHaveClass("chip-group");
+    expect(document.querySelector(".chip-group")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Mode" })).toBeNull();
+    for (const c of children) expect(c).toHaveAttribute("aria-haspopup", "menu");
     // The branch group is off the row and above the card, on its own strip.
     expect(document.querySelector(".composer-overstrip .composer-git")).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Effort" })).toBeNull();
@@ -936,21 +969,45 @@ async function mountKindFresh(agentKind: "codex" | "acp:cursor") {
   return mountFresh({ agentKind });
 }
 
-describe("prompter mode chip (Build / Plan)", () => {
-  const modeChip = () => screen.getByRole("button", { name: "Mode" });
+/* The mode moved off the control row into the "+" menu, so every interaction below is two steps:
+   open the menu, step into Mode, pick. The mode's SEMANTICS are untouched — parking the permission
+   on the way into Plan, restoring it on the way out, the per-agent gating — which is why these tests
+   were redirected rather than rewritten. */
+const plusButton = () => screen.getByRole("button", { name: "Add" });
+/**
+ * The menu's Mode row, with the menu left OPEN — for asserting what it says.
+ *
+ * The open is conditional and the find is async because of §6's exit window: a dismissed popover
+ * stays mounted for `EXIT_MS` and the button stays `aria-expanded` through it (popover-exit's own
+ * note), so an unconditional click lands as a CLOSE on anything that read the row a moment earlier.
+ */
+const openModeRow = async () => {
+  const btn = plusButton();
+  if (btn.getAttribute("aria-expanded") !== "true") fireEvent.click(btn);
+  return await screen.findByRole("menuitem", { name: /Mode/ });
+};
+/** …and closed again, waiting out the exit so a following interaction starts from a shut menu. */
+const readMode = async () => {
+  const text = (await openModeRow()).textContent ?? "";
+  fireEvent.keyDown(window, { key: "Escape" });
+  await exited();
+  return text;
+};
+
+describe("prompter mode, in the \"+\" menu (Build / Plan)", () => {
   const permissionChip = () => screen.queryByRole("button", { name: "Permission mode" });
   const setMode = async (label: "Build" | "Plan") => {
-    await exited();
-    fireEvent.click(modeChip());
+    fireEvent.click(await openModeRow());
     fireEvent.click(screen.getByRole("menuitemcheckbox", { name: label }));
+    await exited();
   };
 
   it("starts on Build and moves the session onto the plan permission mode", async () => {
     const { store } = await mountFresh();
-    expect(modeChip()).toHaveTextContent("Build");
+    expect(await readMode()).toContain("Build");
     await setMode("Plan");
     await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("plan"));
-    expect(modeChip()).toHaveTextContent("Plan");
+    expect(await readMode()).toContain("Plan");
   });
 
   it("returning to Build restores the permission the user was on, not `default`", async () => {
@@ -1001,12 +1058,15 @@ describe("prompter mode chip (Build / Plan)", () => {
   it("is hidden for an agent with no plan mode, and shown for the ones that have it", async () => {
     // Cursor: ACP mode ids are agent-defined and Realm's are never transmitted, so a Plan chip there
     // would be a button that changes nothing.
+    /* The row itself is always there — it is where the mode is READ, and a session always has one.
+       What the agent's capability decides is whether it OPENS: a Cursor session pre-handshake has
+       nothing to switch to, so the row is a static value rather than a submenu leading nowhere. */
     const cursor = await mountKindFresh("acp:cursor");
-    expect(screen.queryByRole("button", { name: "Mode" })).toBeNull();
+    expect(await openModeRow()).toBeDisabled();
     cursor.unmount();
     // Codex: codexPolicyFor("plan") really does start the thread read-only under untrusted approvals.
     await mountKindFresh("codex");
-    expect(screen.getByRole("button", { name: "Mode" })).toBeInTheDocument();
+    expect(await openModeRow()).not.toBeDisabled();
   });
 });
 
@@ -1076,25 +1136,26 @@ describe("ACP mode chip — per-session modes (Plan 14 W3)", () => {
     return { api, store, ...r };
   }
 
-  it("renders a DISABLED chip while a started session's handshake is still pending", async () => {
-    // The materialize-honestly window: events exist, no init yet. A static label, not a button —
+  it("renders a DISABLED row while a started session's handshake is still pending", async () => {
+    // The materialize-honestly window: events exist, no init yet. A static value, not a submenu —
     // offering Plan before the agent has named its modes would be a guess.
     await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] })]);
-    expect(screen.queryByRole("button", { name: "Mode" })).toBeNull();
-    const waiting = document.querySelector('.ghost-chip[data-static][title="Waiting for the agent\'s modes"]');
-    expect(waiting).not.toBeNull();
-    expect(waiting).toHaveTextContent("Build");
+    const row = await openModeRow();
+    expect(row).toBeDisabled();
+    expect(row.title).toBe("Waiting for the agent's modes");
+    expect(row).toHaveTextContent("Build");
   });
 
   it("enables the chip once the init event carries a plan-equivalent, described in the agent's own words", async () => {
     await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] }), initEvent(CURSOR_MODES)]);
-    const chip = screen.getByRole("button", { name: "Mode" });
-    expect(chip).toHaveTextContent("Build");
-    expect(chip.title).toContain("Cursor's own Plan mode");
-    expect(chip.title).toContain("Read-only mode for planning and designing before implementation");
-    // Cursor advertises `ask` in the same handshake, so the chip describes that too — from Build the
+    const row = await openModeRow();
+    expect(row).not.toBeDisabled();
+    expect(row).toHaveTextContent("Build");
+    expect(row.title).toContain("Cursor's own Plan mode");
+    expect(row.title).toContain("Read-only mode for planning and designing before implementation");
+    // Cursor advertises `ask` in the same handshake, so the row describes that too — from Build the
     // title is what the user reads before choosing.
-    expect(chip.title).toContain("Cursor's own Ask mode");
+    expect(row.title).toContain("Cursor's own Ask mode");
     expect(document.querySelector('.ghost-chip[data-static][title="Waiting for the agent\'s modes"]')).toBeNull();
   });
 
@@ -1109,14 +1170,15 @@ describe("ACP mode chip — per-session modes (Plan 14 W3)", () => {
   it("offers Ask alone when the agent advertises `ask` but no plan-equivalent", async () => {
     await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] }),
       initEvent([{ id: "agent", name: "Agent", description: "d" }, { id: "ask", name: "Ask", description: "Q&A mode - no edits or command execution" }])]);
-    const chip = screen.getByRole("button", { name: "Mode" });
-    // The mutant: gating the whole chip on `canPlan`. An agent that offers only Ask would show no
-    // mode control at all, and its one read-only mode would be unreachable.
-    expect(chip).toHaveTextContent("Build");
-    expect(chip.title).toContain("Cursor's own Ask mode");
-    expect(chip.title).toContain("no edits or command execution");
-    fireEvent.click(chip);
-    // …and the menu offers exactly Build and Ask: Plan has nothing to map onto here.
+    const row = await openModeRow();
+    // The mutant: gating the row's submenu on `canPlan`. An agent that offers only Ask would be left
+    // with a static value, and its one read-only mode would be unreachable.
+    expect(row).not.toBeDisabled();
+    expect(row).toHaveTextContent("Build");
+    expect(row.title).toContain("Cursor's own Ask mode");
+    expect(row.title).toContain("no edits or command execution");
+    fireEvent.click(row);
+    // …and the submenu offers exactly Build and Ask: Plan has nothing to map onto here.
     expect(screen.getAllByRole("menuitemcheckbox").map((r) => r.textContent)).toEqual(["Build", "Ask"]);
   });
 
@@ -1130,13 +1192,13 @@ describe("ACP mode chip — per-session modes (Plan 14 W3)", () => {
     // Cursor's Plan is its own mode: there is no chosen permission to preserve, so nothing is parked
     // and Build returns the row to its resting default.
     const { store } = await mountCursor([sessionEvent("user_message", { text: "go", attachments: [] }), initEvent(CURSOR_MODES)]);
-    fireEvent.click(screen.getByRole("button", { name: "Mode" }));
+    fireEvent.click(await openModeRow());
     fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Plan" }));
     await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("plan"));
     expect(store.getState().planReturn.se1).toBeUndefined(); // no park for an agent with no permission axis
-    expect(screen.getByRole("button", { name: "Mode" })).toHaveTextContent("Plan");
     await exited();
-    fireEvent.click(screen.getByRole("button", { name: "Mode" }));
+    expect(await readMode()).toContain("Plan");
+    fireEvent.click(await openModeRow());
     fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Build" }));
     await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("default"));
   });
@@ -1691,18 +1753,19 @@ function fakeHub() {
   return new TerminalHub(transport, () => ({ term, fit: { fit() {} } }));
 }
 
-describe("the session's terminal drawer (W4)", () => {
+describe("the session's terminal dock (W4)", () => {
   beforeEach(() => { vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} }); });
   afterEach(() => { setTerminalHubForTests(null); vi.unstubAllGlobals(); });
 
   const sessionItem = item("i9", "s1", { kind: "session", refId: "se1", title: "Fake agent session" });
 
   /** The pane AND its header, which is where the toggle lives (PanelBar renders per-kind actions). */
-  async function mountPane(panel?: { open: boolean; width: number }) {
+  async function mountPane(open = false) {
     setTerminalHubForTests(fakeHub());
     const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle" })] });
     const store = createAppStore(api); await store.getState().boot();
-    store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } }, ...(panel ? { terminalPanel: { se1: panel } } : {}) });
+    store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } },
+      ...(open ? { sessionDock: { se1: { kind: "terminal" as const } } } : {}) });
     const r = render(
       <StoreContext.Provider value={store}>
         <PanelBar item={sessionItem} leafId="l1" onSplit={() => {}} onClose={() => {}} />
@@ -1714,6 +1777,18 @@ describe("the session's terminal drawer (W4)", () => {
 
   const toggle = () => screen.getByRole("button", { name: /(Show|Hide) terminal for Fake agent session/ });
 
+  it("offers a simulator beside the machine, and opening one asks the server for a pane", async () => {
+    /* The cluster's newest member. Deliberately ungated, exactly like the machine and browser
+       buttons beside it: a simulator is a place you go rather than a view of this session's
+       checkout, and hiding the button on a Mac without Xcode would hide the feature from the only
+       people who could act on it — the pane's own body says what is missing instead. */
+    const { api } = await mountPane();
+    const button = screen.getByRole("button", { name: "Open a simulator beside Fake agent session" });
+    expect(screen.getByRole("button", { name: "Connect a machine beside Fake agent session" })).toBeInTheDocument();
+    fireEvent.click(button);
+    await waitFor(() => expect(api.calls).toContain("createSimulator:s1"));
+  });
+
   it("is absent until the header toggle is pressed — mounting a session never spawns a shell", async () => {
     const { api, store } = await mountPane();
     expect(document.querySelector(".terminal-pane")).toBeNull();
@@ -1724,37 +1799,31 @@ describe("the session's terminal drawer (W4)", () => {
     await waitFor(() => expect(document.querySelector(".terminal-pane")).not.toBeNull());
     expect(api.calls).toContain("openSessionTerminal:se1");
     expect(toggle()).toHaveAttribute("aria-pressed", "true");
-    expect(store.getState().terminalPanel["se1"]).toEqual({ open: true, width: 38 });
-    // The drawer is INTERNAL to the session pane: the transcript is still right there beside it.
-    expect(document.querySelector(".session-split .session-pane")).not.toBeNull();
+    expect(store.getState().sessionDock["se1"]).toEqual({ kind: "terminal" });
+    // It opens on the pane's dock strip as a dialog — the transcript is beside it, not cut in half
+    // by a divider, which is what the split did and what this replaced.
+    expect(screen.getByRole("dialog", { name: /Terminal for/ })).toBeInTheDocument();
+    expect(document.querySelector(".session-split")).toBeNull();
   });
 
-  it("reopening a session whose drawer was left open restores it, at its persisted width", async () => {
-    await mountPane({ open: true, width: 44 });
-    await waitFor(() => expect(document.querySelector(".terminal-pane")).not.toBeNull());
-    const panels = [...document.querySelectorAll(".session-split > [data-panel]")];
-    expect(panels).toHaveLength(2);
-    expect(panels[1]).toHaveStyle({ flexGrow: "44" }); // 38% is only the FIRST-open default
+  /* The drawer used to come back open, at a dragged width, because both facts were persisted under
+     `ui.terminalPanel`. The dock carries neither: it is a panel you open when you want it, like the
+     summary beside it, and a shell that reopened itself on every relaunch was the split's habit
+     rather than a promise anyone asked for. The pty is what survives — see the next test. */
+  it("does not reopen itself on mount: showing the terminal is a fresh decision", async () => {
+    const { store } = await mountPane();
+    expect(store.getState().sessionDock["se1"]).toBeUndefined();
+    expect(screen.queryByRole("dialog", { name: /Terminal for/ })).toBeNull();
+    expect(document.querySelector(".terminal-pane")).toBeNull();
   });
 
   it("hiding it removes the view but keeps the terminal — nothing is disposed", async () => {
-    const { api, store } = await mountPane({ open: true, width: 38 });
+    const { api, store } = await mountPane(true);
     await waitFor(() => expect(store.getState().sessionTerminals["se1"]).toBe("term-se1"));
     fireEvent.click(toggle());
     await waitFor(() => expect(document.querySelector(".terminal-pane")).toBeNull());
     expect(api.disposed).toEqual([]);
     expect(store.getState().sessionTerminals["se1"]).toBe("term-se1");
-  });
-
-  it("double-clicking the drawer divider restores the default width; the store follows", async () => {
-    const { store } = await mountPane({ open: true, width: 72 }); // dragged wide in a previous run
-    await waitFor(() => expect(document.querySelector(".terminal-pane")).not.toBeNull());
-    const panels = [...document.querySelectorAll(".session-split > [data-panel]")];
-    expect(panels[1]).toHaveStyle({ flexGrow: "72" });
-
-    fireEvent.doubleClick(document.querySelector(".session-split .resize-handle")!);
-    // This split is not born equal — "original" here is the drawer's default width, not 50/50.
-    await waitFor(() => expect(store.getState().terminalPanel["se1"]!.width).toBe(38));
   });
 
   it("a terminal item's header has no such toggle — only sessions own one", () => {
@@ -2112,9 +2181,23 @@ describe("prompter attachments", () => {
     expect(api.calls.filter((c) => c.startsWith("saveTempAttachment"))).toHaveLength(0);
   });
 
-  it("a drag that carries no files is left alone — Realm drags its own sidebar rows onto panes", async () => {
+  it("lights for one of Realm's OWN items too, which now means something else entirely", async () => {
+    /* Changed deliberately. This used to assert the prompter ignored an item drag, on the grounds
+       that Realm drags its own sidebar rows onto panes and those had to pass through. The prompter
+       now claims them, because dropping a session here points the draft at it.
+
+       The cost is real and is the thing to weigh if this is ever revisited: a session dropped on the
+       PROMPTER no longer reaches the pane behind it, so moving a session into a group by dropping it
+       on that strip of the pane does not work any more. Everywhere else in the pane still does. */
     await mountFor("codex");
     fireEvent.dragEnter(composer(), { dataTransfer: { files: [], items: [], types: ["application/x-realm-item"] } });
+    expect(composer()).toHaveAttribute("data-dropping");
+  });
+
+  it("a drag that is neither files nor one of Realm's items is still left alone", async () => {
+    // Text dragged from another app, say. Neither hook owns it and the card must not light.
+    await mountFor("codex");
+    fireEvent.dragEnter(composer(), { dataTransfer: { files: [], items: [], types: ["text/plain"] } });
     expect(composer()).not.toHaveAttribute("data-dropping");
   });
 
@@ -2364,13 +2447,45 @@ describe("the '+' menu (Plan 12 W1)", () => {
     openPlus();
     const menu = screen.getByRole("menu", { name: "Add" });
     expect(within(menu).queryByText(/plugin/i)).toBeNull();
-    // And the full expected set, in order: files, folder, skills, connectors.
+    // And the full expected set, in order: files, folder, skills, then the three that are properties
+    // of THIS session rather than of this message — a goal, the mode, and last the space's own
+    // connectors. Mode joined the menu when it left the control row.
     const labels = within(menu).getAllByRole("menuitem").map((b) => b.textContent);
     expect(labels[0]).toContain("Add files…");
     expect(labels[0]).toContain("⌘U"); // the shortcut label rides the item
     expect(labels[1]).toContain("Add folder…");
     expect(labels[2]).toContain("Skills");
-    expect(labels[3]).toContain("Connectors");
+    expect(labels[3]).toContain("Set a goal…");
+    expect(labels[4]).toContain("Mode");
+    expect(labels[4]).toContain("Build"); // the row carries the current value
+    expect(labels[5]).toContain("Connectors");
+  });
+
+  /* The goal row ARMS the box rather than opening anything: the objective is the argument, and
+     `/goal` with nothing after it has nothing to pursue. Anything already typed becomes that
+     objective instead of being thrown away, which is the one way this differs from picking the
+     command out of the `/` list. */
+  it("Set a goal… puts the draft behind /goal rather than starting an empty one", async () => {
+    const { api, store } = await mountPlus();
+    /* The menu holds an exit for §6's length, and it stays `open` through it — so a second press
+       inside that window reads as a CLOSE. Waiting for it to go is what makes "open it again" mean
+       that, here and in every other test that visits this menu twice. */
+    const armGoal = async () => {
+      await waitFor(() => expect(screen.queryByRole("menu", { name: "Add" })).toBeNull());
+      openPlus();
+      const menu = await screen.findByRole("menu", { name: "Add" });
+      fireEvent.click(within(menu).getByText("Set a goal…"));
+    };
+    await armGoal();
+    await waitFor(() => expect(store.getState().drafts["se1"]).toBe("/goal "));
+    expect(api.calls.filter((c) => c.startsWith("goalStart:"))).toHaveLength(0);
+
+    store.getState().setDraft("se1", "ship the release notes");
+    await armGoal();
+    await waitFor(() => expect(store.getState().drafts["se1"]).toBe("/goal ship the release notes"));
+    // Twice does not nest: the draft is already the call it would build.
+    await armGoal();
+    await waitFor(() => expect(store.getState().drafts["se1"]).toBe("/goal ship the release notes"));
   });
 
   it("Add folder… runs the existing project-link flow", async () => {
@@ -2500,7 +2615,7 @@ describe("the '+' menu — Connectors (Plan 12 W1)", () => {
     const menu = await openConnectors();
     await waitFor(() => expect(within(menu).queryByText("No connectors enabled in this space")).not.toBeNull());
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Manage connections…" }));
-    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "space-page" && i.refId === "s1")).toBe(true));
+    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("space-page"));
     expect(store.getState().spacePageTab.s1).toBe("connections");
   });
 

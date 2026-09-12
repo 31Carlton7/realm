@@ -3,12 +3,27 @@ import WebSocket from "ws";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { createApp, type App } from "../app";
+import { openDatabase, type Db } from "../db/database";
+import { RpcServer } from "../rpc/server";
+import { ExecutionSandboxService } from "../sandbox/service";
+import { ItemsStore } from "../store/items";
+import { ProfilesStore } from "../store/profiles";
+import { EnvironmentsStore } from "../store/environments";
+import { SettingsStore } from "../store/settings";
+import { SpacesStore } from "../store/spaces";
+import { RpcError } from "../store/rows";
 import { TerminalHistoryStore, TerminalsStore } from "../store/terminals";
 import { TERMINALS_HISTORY_KEY } from "@realm/contracts";
 import { waitFor } from "../test-utils";
+import { TerminalManager } from "./manager";
+import { TerminalService, isSandboxRefusal } from "./service";
 
 const apps: App[] = [];
-afterEach(async () => { for (const a of apps.splice(0)) await a.close().catch(() => {}); });
+const dbs: Db[] = [];
+afterEach(async () => {
+  for (const a of apps.splice(0)) await a.close().catch(() => {});
+  for (const db of dbs.splice(0)) db.close();
+});
 
 async function client(port: number) {
   const ws = await new Promise<WebSocket>((res, rej) => { const w = new WebSocket(`ws://127.0.0.1:${port}`); w.once("open", () => res(w)); w.once("error", rej); });
@@ -180,5 +195,120 @@ describe("terminal port blocks", () => {
     // Nothing before the cursor comes back as history either — the client still has it on screen.
     expect(caught.history).toBeNull();
     c2.close();
+  });
+});
+/**
+ * A sandbox refusal must not delete a terminal.
+ *
+ * `restoreAll`'s catch prunes the row for a spawn it could not repeat — a cwd the user deleted, a
+ * shell that is gone. A `SANDBOX_*` throw reaching that same catch would prune EVERY persisted
+ * terminal in every space, on one boot, because `sandbox-exec` was missing or a posture was set.
+ * That is the worst failure this change can produce and it looks like data loss rather than like a
+ * refusal, so it is tested on its own, at the unit the decision lives in.
+ */
+describe("restoreAll and a refusing sandbox", () => {
+  /** A real service whose probe says the mechanism is unavailable — so `wrap` throws
+   *  SANDBOX_UNAVAILABLE for any posture but `off`, which is the live failure this guards. */
+  const refusingSandbox = (db: Db, home: string) => {
+    const s = new ExecutionSandboxService({
+      settings: new SettingsStore(db), environments: new EnvironmentsStore(db),
+      home, tmpDir: join(home, "tmp"), realmHome: home, platform: "darwin",
+      probe: () => ({ available: false, error: "sandbox_unavailable", detail: "/usr/bin/sandbox-exec is missing or not executable." }),
+    });
+    s.setDefaults({ posture: "workspace-write", network: true });
+    return s;
+  };
+
+  const harness = (makeSandbox?: (db: Db, home: string) => ExecutionSandboxService) => {
+    const home = tempDir("realm-term-sandbox-");
+    const db = openDatabase(join(home, "realm.db"));
+    dbs.push(db);
+    const profile = new ProfilesStore(db).create({ name: "P", icon: "x", color: "#000" });
+    const spaces = new SpacesStore(db, home);
+    const space = spaces.create({ profileId: profile.id, name: "Work", icon: "folder" });
+    const terminals = new TerminalsStore(db);
+    const svc = new TerminalService({
+      db, rpc: new RpcServer(), spaces, items: new ItemsStore(db), terminals,
+      environments: new EnvironmentsStore(db), settings: new SettingsStore(db),
+      sandbox: makeSandbox?.(db, home),
+      // The flush timer is noise here and would hold the process open; nothing in these tests flushes.
+      setInterval: () => ({ unref() {} }) as unknown as ReturnType<typeof setInterval>,
+    });
+    // A row whose cwd exists, so the ONLY thing that can fail is the spawn itself.
+    terminals.insert({ id: "t_keepme", spaceId: space.id, cwd: home, shell: "/bin/sh" });
+    return { home, db, space, terminals, svc };
+  };
+
+  it("keeps the row and leaves it un-restored when the sandbox refuses the spawn", () => {
+    const h = harness(refusingSandbox);
+    expect(h.svc.restoreAll()).toEqual([]);
+    // MUTANT: drop the `isSandboxRefusal` guard from restoreAll's catch and this row — and every
+    // other terminal the user had open — is gone after one boot with no sandbox on the machine.
+    expect(h.terminals.get("t_keepme")).not.toBeNull();
+    expect(h.svc.has("t_keepme")).toBe(false);
+    h.svc.closeAll();
+  });
+
+  it("still prunes the row for every other kind of failure", () => {
+    const h = harness();
+    // A cwd the user deleted: a fact about THIS row that waiting will not change.
+    h.terminals.insert({ id: "t_gone", spaceId: h.space.id, cwd: join(h.home, "not-here"), shell: "/bin/sh" });
+    const restored = h.svc.restoreAll();
+    expect(restored).toContain("t_keepme"); // the good row still comes back
+    expect(h.terminals.get("t_gone")).toBeNull();
+    h.svc.closeAll();
+  });
+
+  it("tells a sandbox refusal apart from an ordinary error carrying the word sandbox", () => {
+    // The predicate itself, because the catch above cannot show the difference between a code match
+    // and a message match. MUTANT: match on the message and a `git` failure mentioning a sandbox
+    // keeps a row that should have been pruned.
+    expect(isSandboxRefusal(new RpcError("SANDBOX_UNAVAILABLE", "no"))).toBe(true);
+    expect(isSandboxRefusal(new RpcError("SANDBOX_POLICY_INVALID", "no"))).toBe(true);
+    expect(isSandboxRefusal(new RpcError("NOT_FOUND", "SANDBOX_UNAVAILABLE"))).toBe(false);
+    expect(isSandboxRefusal(new Error("SANDBOX_UNAVAILABLE"))).toBe(false);
+  });
+});
+
+/**
+ * What a terminal is actually spawned with — the promise this change makes to a user who has not
+ * opted in, asserted on the argv rather than on a posture name.
+ */
+describe("the argv a terminal is spawned with", () => {
+  it("hands the sandbox exactly the shell and arguments that were about to be spawned", async () => {
+    const seen: { command: string; args: string[] }[] = [];
+    const tm = new TerminalManager({ onData: () => {}, onExit: () => {} });
+    const { id, shell } = tm.create({
+      cwd: process.cwd(), cols: 80, rows: 24, shell: "/bin/sh",
+      wrap: (command, args) => { seen.push({ command, args }); return { command, args }; },
+    });
+    // The unwrapped argv, byte for byte: this is what `pty.spawn` received before this feature and
+    // what `sandboxCommand` returns unchanged for a posture of `off` (see spawn.test.ts).
+    expect(seen).toEqual([{ command: "/bin/sh", args: ["-l"] }]);
+    // …and the row still stores the SHELL, so restoreAll re-wraps rather than double-wrapping.
+    expect(shell).toBe("/bin/sh");
+    tm.close(id);
+  });
+
+  it("spawns what the wrap returned, not what it was handed", async () => {
+    // The mutant this kills: accept `wrap` and ignore it. `env` execs the shell with an extra
+    // variable set, so a pty that came from the ORIGINAL argv prints nothing for it.
+    const chunks: string[] = [];
+    const tm = new TerminalManager({ onData: (_id, d) => chunks.push(d), onExit: () => {} });
+    const { id } = tm.create({
+      cwd: process.cwd(), cols: 80, rows: 24, shell: "/bin/sh",
+      wrap: (command, args) => ({ command: "/usr/bin/env", args: ["REALM_WRAPPED=yes", command, ...args] }),
+    });
+    tm.write(id, "echo WRAP=$REALM_WRAPPED\n");
+    await waitFor(() => chunks.join("").includes("WRAP=yes"));
+    tm.close(id);
+  });
+
+  it("lets a wrap's throw out instead of spawning the shell unconfined", () => {
+    const tm = new TerminalManager({ onData: () => {}, onExit: () => {} });
+    expect(() => tm.create({
+      cwd: process.cwd(), cols: 80, rows: 24, shell: "/bin/sh",
+      wrap: () => { throw new RpcError("SANDBOX_UNAVAILABLE", "no sandbox-exec on this machine"); },
+    })).toThrow(/no sandbox-exec/);
   });
 });

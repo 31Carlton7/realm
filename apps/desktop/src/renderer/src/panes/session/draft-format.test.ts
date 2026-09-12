@@ -17,8 +17,9 @@ describe("highlightSegments — the mirror paints the draft, never a version of 
       "trailing newline\n", "\n\n", "  - indented @mac https://x.dev/a?b=1 end",
       "*", "**", "``", "@", "- ", "https://",
       '@[button "Sign in"]', 'a @[div#hero] b', "@[", "@[]", '@[link https://x.dev] tail', "@[a\nb]",
+      "/goal", "/goal ship it", "/", "//", "/goal\n/goal", "not /goal", "/usr/local/bin", "/GOAL",
     ]) {
-      expect(rejoin(highlightSegments(text, ["mac"])), JSON.stringify(text)).toBe(text);
+      expect(rejoin(highlightSegments(text, ["mac"], [], ["goal"])), JSON.stringify(text)).toBe(text);
     }
   });
 
@@ -333,5 +334,67 @@ describe("deleteChipAt", () => {
   it("does nothing to a token the mirror did not paint as a chip", () => {
     const code = "`@[button]`";
     expect(deleteChipAt(spans(code), code, code.length - 1, -1)).toBeNull();
+  });
+});
+
+/**
+ * The `/name` run.
+ *
+ * Gated on the command EXISTING, which is the whole design: a slash is a path separator, a division
+ * sign and half of every URL, so colouring anything slash-shaped would promise an action for `/usr`
+ * and `and/or`. The gate is the same `slashQueryAt` the picker uses, so a coloured run and the
+ * popover under it can never disagree about what the token is.
+ */
+describe("highlightSegments — slash commands", () => {
+  const cmds = ["goal", "plan", "export"];
+
+  it("paints the command opening the draft", () => {
+    expect(painted(highlightSegments("/goal", [], [], cmds))).toEqual([["slash", "/goal"]]);
+  });
+
+  it("paints only the token, leaving its argument as ordinary message text", () => {
+    // `/goal ship the release notes` — the objective is the user's own words and is not a command.
+    expect(painted(highlightSegments("/goal ship the release notes", [], [], cmds)))
+      .toEqual([["slash", "/goal"]]);
+  });
+
+  /* The named mutant: dropping the "does this command exist" check. Every one of these is a message
+     somebody would plausibly type, and each would light up as an action that is not going to happen. */
+  it("leaves a slash that names no command completely alone", () => {
+    for (const text of ["/usr/local/bin", "/or", "/nope run it", "/", "//", "/123"]) {
+      expect(painted(highlightSegments(text, [], [], cmds)), text).toEqual([]);
+    }
+  });
+
+  /* Position 0 only, matching `slashQueryAt`'s own gate — otherwise a path mid-sentence would light
+     up, which is the case that gate exists for. */
+  it("only paints a command that OPENS the draft", () => {
+    expect(painted(highlightSegments("run /goal now", [], [], cmds))).toEqual([]);
+    expect(painted(highlightSegments(" /goal", [], [], cmds))).toEqual([]);
+    expect(painted(highlightSegments("\n/goal", [], [], cmds))).toEqual([]);
+  });
+
+  it("matches the command case-insensitively, because the box does not shout back", () => {
+    expect(painted(highlightSegments("/GOAL", [], [], cmds))).toEqual([["slash", "/GOAL"]]);
+  });
+
+  it("paints nothing when the session has no commands yet", () => {
+    // The ordinary state mid-load. Colouring on an empty list would mean colouring nothing; the risk
+    // is the reverse — a default that coloured anything slash-shaped while the list was absent.
+    expect(painted(highlightSegments("/goal", [], []))).toEqual([]);
+  });
+
+  it("does not stop a half-typed command being ordinary text", () => {
+    // `/goa` is not a command yet. The picker under the box is already saying what it could become,
+    // and colouring a prefix would claim an action that does not exist at that keystroke.
+    expect(painted(highlightSegments("/goa", [], [], cmds))).toEqual([]);
+  });
+
+  it("leaves the rest of the draft's runs alone around it", () => {
+    expect(painted(highlightSegments("/goal see https://x.dev/a and @mac", ["mac"], [], cmds))).toEqual([
+      ["slash", "/goal"],
+      ["link", "https://x.dev/a"],
+      ["mention", "@mac"],
+    ]);
   });
 });

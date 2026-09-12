@@ -29,9 +29,18 @@ export const forkContextKey = (sessionId: string): string => `fork.context:${ses
  *
  * Plain speech turns only (user/assistant text — tool chatter is bulk, not context), fenced with a
  * backtick run longer than any in the content so transcript text can never break out of the block.
- * The header states the one hard truth of this feature: the provider conversation CANNOT be rewound
- * (`AGENT_CONVERSATION_REWIND` is false for every adapter Realm ships), so this is a workspace fork
- * with context carried as text — the same sentence the UI shows.
+ * The header states the one hard truth of this feature: the provider conversation is not rewound INTO
+ * this new session, so it is a workspace fork with context carried as text — the same sentence the UI
+ * shows.
+ *
+ * That sentence used to rest on `AGENT_CONVERSATION_REWIND` being false for every adapter, and that
+ * footing is gone: Claude has a truncating resume now, and `checkpoints.restore` uses it. The sentence
+ * survives because it was always about THIS operation. A truncating resume forks the chain of the
+ * session it NAMES, and a fork makes a new Realm session with no provider session id at all — so
+ * carrying the ancestor's conversation across would mean a second Realm session resuming the ancestor's
+ * provider session, leaving two transcripts pointed at one chain lineage with no account of what either
+ * of them subsequently means. That is a feature to design, not a line to change, and until it exists
+ * "could not be rewound" is what is true of a fork.
  */
 export function buildForkContext(input: {
   ancestorTitle: string; checkpointLabel: string;

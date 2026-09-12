@@ -17,7 +17,7 @@ import { relTime } from "./CommandPalette";
  * for that case — an accepted conflation, since the gateway's own clock is ms-resolution and a "0ms"
  * label would be indistinguishable noise either way.
  */
-function formatCallDuration(ms: number): string {
+export function formatCallDuration(ms: number): string {
   if (ms <= 0) return "—";
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
@@ -29,7 +29,7 @@ function formatCallDuration(ms: number): string {
  * `serverName: ""` with `tool` already holding the full namespaced string, so prefixing it again would
  * double it up into `__realserver__tool`.
  */
-function callLabel(call: McpCall): string {
+export function callLabel(call: McpCall): string {
   return call.serverName ? `${call.serverName}__${call.tool}` : call.tool;
 }
 
@@ -54,7 +54,7 @@ const TRUNCATED_ID_LEN = 8;
  * has nothing to resolve against here. Falling back to a truncated id rather than hiding the row is the
  * accepted v1 gap named in the plan — a full session browser is out of scope for a call log.
  */
-function sessionLabel(sessionId: string, sessions: Record<string, Session>): string {
+export function sessionLabel(sessionId: string, sessions: Record<string, Session>): string {
   return sessions[sessionId]?.title ?? `${sessionId.slice(0, TRUNCATED_ID_LEN)}…`;
 }
 

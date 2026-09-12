@@ -38,6 +38,27 @@ export const RUN_LABELS: readonly RunLabel[] = [
 ];
 
 /**
+ * The labels the easter-egg switch adds, on top of whatever an unlocked friend pack brings.
+ *
+ * A separate list rather than more entries in `RUN_LABELS`, because the two are picked differently:
+ * lengthening the pool above would renumber it, and the settled line is recomputed from the event
+ * log rather than stored, so every past run in the transcript would take a new verb the moment the
+ * switch moved. These are drawn on a second roll that leaves the first one's answer alone.
+ *
+ * NO NAMES HERE, and that is the rule rather than an accident. The lines that name real people live
+ * in the sealed packs (`egg-pack.ts`) and arrive at runtime from a group that typed its own word —
+ * Realm is open source, and somebody's friends' nicknames are not Realm's to publish. What is left
+ * in the clear is what anyone would find funny without knowing anyone.
+ */
+export const EGG_RUN_LABELS: readonly RunLabel[] = [
+  { present: "Scheming", past: "Schemed" },
+  { present: "Plotting", past: "Plotted" },
+  { present: "Conspiring", past: "Conspired" },
+  { present: "Getting a second opinion", past: "Got a second opinion" },
+  { present: "Consulting the group chat", past: "Consulted the group chat" },
+];
+
+/**
  * The label for a run, keyed on the millisecond it started.
  *
  * Deterministic, not random. A `Math.random()` here would re-roll on every re-render — and a
@@ -56,12 +77,23 @@ export const RUN_LABELS: readonly RunLabel[] = [
  */
 export const PLAN_RUN_LABEL: RunLabel = { present: "Planning", past: "Planned" };
 
-export function runLabelFor(startedAt: number, mode?: string): RunLabel {
+export function runLabelFor(startedAt: number, mode?: string, eggs = false, packLabels: readonly RunLabel[] = []): RunLabel {
   if (mode === "plan") return PLAN_RUN_LABEL;
   // xorshift-multiply (splittable-hash shape): ms timestamps one prompt apart differ only in their
   // low bits, and taking those modulo the list length directly would walk the list in order.
   let h = Math.trunc(startedAt) >>> 0;
   h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0;
   h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0;
-  return RUN_LABELS[((h ^ (h >>> 16)) >>> 0) % RUN_LABELS.length]!;
+  const spread = (h ^ (h >>> 16)) >>> 0;
+  // A third round rather than a slice of the second: the bits `spread` already spent on choosing the
+  // verb are not independent of it, and reusing them would tie which runs get a friend to which
+  // verb they would otherwise have had.
+  const egg = Math.imul(spread ^ (spread >>> 16), 0x45d9f3b) >>> 0;
+  /* One run in four, so a name stays a thing you notice rather than the way the app talks.
+     An unlocked pack's lines join the pool rather than replacing it — a group that unlocked one
+     should still see the house jokes, and a pool that swapped wholesale would make "did you unlock
+     it?" a question you answer by counting. */
+  const pool = packLabels.length ? [...EGG_RUN_LABELS, ...packLabels] : EGG_RUN_LABELS;
+  if (eggs && egg % 4 === 0) return pool[(egg >>> 2) % pool.length]!;
+  return RUN_LABELS[spread % RUN_LABELS.length]!;
 }

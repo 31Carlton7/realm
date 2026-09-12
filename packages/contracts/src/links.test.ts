@@ -35,6 +35,25 @@ describe("describeLink", () => {
     expect(describeLink("https://app.notion.com/p/caikins/Meeting-3d5f2fa921c480e4b615ce56419c21f5?source=copy_link")).toMatchObject({ service: "notion", label: "Meeting" });
   });
 
+  /* Both hosts, because half the X links in circulation still say twitter.com, and the author rather
+     than the id, because nineteen digits is exactly what a chip exists to replace. */
+  it("names an X post by its author and a profile by its handle, on either host", () => {
+    expect(describeLink("https://x.com/paulg/status/1839291043128172544")).toMatchObject({ service: "x", label: "Post by @paulg" });
+    expect(describeLink("https://twitter.com/paulg/status/1839291043128172544")).toMatchObject({ service: "x", label: "Post by @paulg" });
+    expect(describeLink("https://x.com/paulg")).toMatchObject({ service: "x", label: "@paulg" });
+    expect(describeLink("https://x.com/i/status/1839291043128172544")).toMatchObject({ service: "x", label: "Post on X" });
+  });
+
+  /* The app's own sections share the profile's shape, and `@home` would be a chip naming a person
+     who does not exist. */
+  it("does not read an X section as a person", () => {
+    for (const url of ["https://x.com/home", "https://x.com/explore", "https://x.com/messages", "https://x.com/settings/account", "https://x.com/search?q=realm", "https://x.com/i"]) {
+      expect(describeLink(url), url).toBeNull();
+    }
+    expect(describeLink("https://x.com/paulg/likes")).toBeNull(); // a tab, not a post
+    expect(describeLink("https://x.com")).toBeNull();
+  });
+
   it("refuses what it cannot name — a wrong chip is worse than a URL", () => {
     expect(describeLink("https://example.com/anything")).toBeNull();
     expect(describeLink("https://slack.com/pricing")).toBeNull();

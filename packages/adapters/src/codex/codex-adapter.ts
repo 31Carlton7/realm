@@ -120,6 +120,31 @@ export function codexMcpConfig(servers: readonly McpServerConfig[]): Bag | undef
   return { mcp_servers: Object.fromEntries(entries) };
 }
 
+/**
+ * Codex cannot be sandboxed by Realm in this release, and this is the refusal that says so.
+ *
+ * **Why.** `CodexAdapter` refcounts ONE `codex app-server` process across every Realm session
+ * (`acquire`/`release`, and the whole reason `processCount` is asserted never to exceed one). A
+ * Seatbelt policy is applied by `sandbox-exec` at exec, to a process, for its lifetime — so one
+ * shared process can hold exactly one policy. A Work space on `workspace-write` and a School space
+ * on `read-only` cannot both be served by it, and the first session to start would silently decide
+ * the confinement of every session that joined afterwards.
+ *
+ * **Why refuse rather than run unsandboxed.** Running anyway is the one outcome this feature exists
+ * to prevent: a user who set a posture in Settings would be told they had a sandbox and not have
+ * one. The way out is visible, stored, and the user's own — set that space's posture to `off`, at
+ * which point they know Codex is unconfined because they said so.
+ *
+ * **The eventual fix**, stated so the next person does not re-derive it: key the shared connection
+ * by a fingerprint of the resolved policy instead of having one, so `conn` becomes
+ * `Map<policyFingerprint, Promise<CodexConnection>>` and sessions share a process only with sessions
+ * whose confinement is identical. The refcount, `extraRoots` and `release` all become per-entry. The
+ * cost is up to one `codex app-server` per distinct policy rather than one per machine, which is the
+ * honest price and is why it is a change and not a patch.
+ */
+export const CODEX_SANDBOX_REFUSAL =
+  "Codex sessions cannot run sandboxed yet. Realm shares one `codex app-server` process across every Codex session, and a macOS sandbox policy is fixed to a process when it starts — so one process cannot hold two spaces' policies. Set this space's sandbox to \"No sandbox\" in Settings to run Codex here, or use a different agent.";
+
 /** `thread/start` rejects a stale login here, long after `initialize` and `codex login status` both said fine. */
 function bootFailureMessage(e: unknown): string {
   if (e instanceof JsonRpcCallError && obj(e.data).action === "relogin") {
@@ -321,6 +346,16 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   start(opts: StartOptions): AgentHandle {
+    // Before anything is acquired, allocated or queued: a Codex session in a sandboxed space does
+    // not start. `wrap` is only ever supplied for a non-`off` posture (SessionService omits it
+    // otherwise), so its mere presence is the question being answered — this adapter has nowhere to
+    // apply it, and an adapter that silently ignored a `wrap` would be running the thing the user
+    // asked to be confined. See CODEX_SANDBOX_REFUSAL for why, and for the shape of the fix.
+    //
+    // A throw rather than an error event: `start` is called synchronously from
+    // `SessionService.ensureLive`, and a throw is what makes the failure reach the caller that asked
+    // for the session instead of arriving later as a dead handle nobody is watching yet.
+    if (opts.wrap) throw new Error(CODEX_SANDBOX_REFUSAL);
     const events = new AsyncQueue<SessionEvent>();
     const mapper = createCodexMapper();
     const pending = new Map<string, { id: JsonRpcId; decisions: unknown[] }>();

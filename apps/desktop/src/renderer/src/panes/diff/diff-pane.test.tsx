@@ -59,13 +59,13 @@ describe("DiffPane", () => {
     expect(within(rowFor("README.md")).getByText("?")).toBeInTheDocument();
   });
 
-  it("hangs the fade beside the scroller, never inside it", async () => {
+  it("dissolves the scroller itself, rather than standing a band beside it", async () => {
     const { container } = await mount();
-    const fade = container.querySelector(".diff-fade")!;
-    // The mutant this kills: nesting the fade in .diff-list to "tidy up" the markup, which both
-    // blanks its backdrop-filter (see DiffPane) and scrolls it away with the rows.
-    expect(fade.parentElement).toHaveClass("diff-list-wrap");
-    expect(container.querySelector(".diff-list .diff-fade")).toBeNull();
+    // The dissolve is a mask ON the list (`useDissolve`), so what there is to check is that the list
+    // is the element carrying it and that no band was left behind beside it. The mutant this kills
+    // is the old shape returning: a sibling that paints, which over a translucent pane is a smudge.
+    await waitFor(() => expect(container.querySelector(".diff-list")).toHaveAttribute("data-dissolve"));
+    expect(container.querySelector(".diff-fade")).toBeNull();
   });
 
   it("fetches a file's patch only when the row is expanded", async () => {

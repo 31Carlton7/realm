@@ -12,14 +12,19 @@ import { useElapsed } from "./use-elapsed";
 const ASKED_META = { icon: "session", label: "Asked a question (agent_ask)" };
 
 /**
- * The agents this session has in flight, docked between its transcript and its prompter.
+ * The agents this session has in flight, on a tab attached to the top of its prompter.
  *
  * A delegated child has always been a real session with a pane of its own, but the parent's
  * transcript said nothing at all while it worked — the child's report arrives as one MCP tool result
  * at the very end, so for however long the child ran the parent showed a shimmer and no reason for
  * it. This is the reason, and the way over to it.
  *
- * Docked rather than a pane of its own, deliberately. The engine's registry lives in the server's
+ * It wears the PLAN strip's geometry (`.composer-todos`) rather than a shape of its own, because it
+ * is the same kind of object: standing context about the run, pinned to the prompter so it cannot
+ * scroll away from a reader who went back to re-read something. Two answers to "what is happening
+ * right now" drawn two different ways is two things to learn; one band of tabs above the card is one.
+ *
+ * A tab rather than a pane of its own, deliberately. The engine's registry lives in the server's
  * memory and dies with the process, while a pane is a layout leaf that persists — a pane kind for
  * this would leave an empty panel behind from a run that finished yesterday, and would keep pointing
  * at a session after the layout had moved on from it. Living inside the delegating session's pane IS
@@ -48,7 +53,7 @@ const SUBAGENT_TOOLS = new Set(["Task", "Agent", "Workflow"]);
  * as this list could tell. `background` is set by the adapter, off the harness's own launch text and
  * completion notification, and it is the only honest signal for the mode.
  */
-function stillWorking(b: Extract<Block, { kind: "tool" }>): boolean {
+export function stillWorking(b: Extract<Block, { kind: "tool" }>): boolean {
   if (b.background !== undefined) return b.background === "running";
   return SUBAGENT_TOOLS.has(b.name) && b.result === null;
 }
@@ -66,7 +71,7 @@ function stillWorking(b: Extract<Block, { kind: "tool" }>): boolean {
  * were asked, but no jump — there is no pane to jump to. Pretending otherwise would be a button that
  * cannot work.
  */
-function harnessSubagents(blocks: readonly Block[]): { id: string; label: string; startedAt: number }[] {
+export function harnessSubagents(blocks: readonly Block[]): { id: string; label: string; startedAt: number }[] {
   return blocks
     .filter((b): b is Extract<Block, { kind: "tool" }> =>
       b.kind === "tool" && stillWorking(b)
@@ -87,7 +92,7 @@ function harnessSubagents(blocks: readonly Block[]): { id: string; label: string
 
 /** What to call an in-flight sub-agent run. A Workflow names itself in its script's `meta`, which is
  *  the only place its name exists — so it is dug out rather than left as "Sub-agent". */
-function labelOf(input: Record<string, unknown>): string {
+export function labelOf(input: Record<string, unknown>): string {
   const direct = input.description ?? input.name;
   if (typeof direct === "string" && direct.trim()) return direct.trim();
   const script = typeof input.script === "string" ? input.script : "";
@@ -110,23 +115,6 @@ export function DelegatedRuns({ sessionId }: { sessionId: string }) {
   return <Dock sessionId={sessionId} running={running ?? NO_RUNS} harness={inHarness} />;
 }
 
-/**
- * Scroll the transcript to a tool card and open it.
- *
- * By DOM rather than through the store, because a tool card's open/closed state is component-local
- * (ToolCard owns it, so a card keeps its state as the transcript re-renders around it) and there is
- * no store field to set. `click()` on the row's own button is the same gesture a user would make.
- */
-function revealToolCard(toolUseId: string): void {
-  const card = document.querySelector<HTMLElement>(`[data-tool-use-id="${CSS.escape(toolUseId)}"]`);
-  if (!card) return;
-  // Optional-called: jsdom has no `scrollIntoView`, and a throw here would take the OPEN with it —
-  // the part that matters. Scrolling is the nicety; showing the card is the job.
-  card.scrollIntoView?.({ block: "center", behavior: "smooth" });
-  const toggle = card.querySelector<HTMLButtonElement>("button[aria-expanded]");
-  if (toggle && toggle.getAttribute("aria-expanded") === "false") toggle.click();
-}
-
 const NO_BLOCKS: readonly Block[] = [];
 const NO_RUNS: readonly DelegatedRun[] = [];
 
@@ -143,8 +131,11 @@ function Dock({ sessionId, running, harness }: {
   const items = useApp((s) => s.items);
   const openItemBeside = useApp((s) => s.openItemBeside);
   const revealSession = useApp((s) => s.revealSession);
+  const docked = useApp((s) => s.sessionDock[sessionId]);
+  const toggleSessionDock = useApp((s) => s.toggleSessionDock);
   const run = useApp((s) => s.run);
   const [open, setOpen] = useState(true);
+  const watched = docked?.kind === "subagent" ? docked.toolUseId : null;
   const rows = [...running].sort((a, b) => a.startedAt - b.startedAt);
   const total = rows.length + harness.length;
   // The oldest thing in flight, whichever kind it is — the header's clock is "how long has this
@@ -167,62 +158,68 @@ function Dock({ sessionId, running, harness }: {
   };
 
   return (
-    <div className="delegation-dock">
+    /* The plan strip's tab, not a list of its own: same fill, same inset, same collapse. `data-open`
+       is what the stylesheet keys the caret and the clip on, exactly as `.composer-todos` does. */
+    <div className="composer-agents" data-open={open || undefined}>
       {/* "running", not "waiting on": an `agent_start` the parent deliberately backgrounded is in
           this list too, and that parent is not blocked on anything. Everything here has an
           unsettled drain, which is precisely what "still running" means. */}
-      <button type="button" className="delegation-row" aria-expanded={open} onClick={() => setOpen((o) => !o)}
+      <button type="button" className="composer-agents-head" aria-expanded={open} onClick={() => setOpen((o) => !o)}
         aria-label={`${count} in flight for ${title}`}>
-        <Icon name="bot" size={12} />
-        <span className="delegation-summary">{count} running</span>
-        <span className="delegation-elapsed">{formatDuration(elapsed)}</span>
-        <Icon name="chevronRight" size={12} className="tool-chevron" />
+        <Icon name="bot" size={12} className="composer-agents-mark" />
+        <span className="composer-agents-count">{count} running</span>
+        <span className="composer-agents-elapsed">{formatDuration(elapsed)}</span>
+        <Icon name="chevronRight" size={12} className="composer-agents-caret" />
       </button>
-      {open && (
-        <ul className="delegation-list">
-          {rows.map((r) => {
-            const child = sessions[r.sessionId];
-            const status = sessionStatus[r.sessionId] ?? child?.status;
-            // The Tasks lens's own vocabulary for how a session came to exist, so a delegated child
-            // is named the same here as it is there. A child whose row has not landed yet (the
-            // session and the run are announced separately) still gets its origin from the run.
-            const meta = r.owned ? ORIGIN_META[child?.dispatchedBy?.kind ?? "agent_run"] : ASKED_META;
-            return (
-              <li key={r.sessionId}>
-                <button type="button" className="delegation-item" title={meta.label}
-                  aria-label={`${child?.title ?? "Starting"} — ${meta.label}`} onClick={() => jump(r.sessionId)}>
-                  <Icon name={meta.icon} size={14} />
-                  {/* The row lands before the session row does often enough to matter: `agent_run`
-                      registers the run and only then sends the child its first message. */}
-                  <span className="delegation-title">{child?.title ?? "Starting…"}</span>
-                  {/* `detached` is the difference between "this session is blocked until you finish"
-                      and "go at your own pace" — the parent kept working after agent_start. */}
-                  {r.detached && <span className="delegation-dim">not collected yet</span>}
-                  <span className="delegation-dim">{formatDuration(now - r.startedAt)}</span>
-                  {status && <span className="status-dot item-status" data-status={status} title={SESSION_STATUS_LABEL[status]} />}
+      <div className="composer-agents-wrap">
+        <div className="composer-agents-clip" inert={!open || undefined}>
+          <ul className="delegation-list">
+            {rows.map((r) => {
+              const child = sessions[r.sessionId];
+              const status = sessionStatus[r.sessionId] ?? child?.status;
+              // The Tasks lens's own vocabulary for how a session came to exist, so a delegated child
+              // is named the same here as it is there. A child whose row has not landed yet (the
+              // session and the run are announced separately) still gets its origin from the run.
+              const meta = r.owned ? ORIGIN_META[child?.dispatchedBy?.kind ?? "agent_run"] : ASKED_META;
+              return (
+                <li key={r.sessionId}>
+                  {/* A delegated child is a whole session — a transcript, a composer, permissions of
+                      its own — so it opens as the pane it already has, beside this one. The panel
+                      below would be a lesser copy of a thing that exists. */}
+                  <button type="button" className="delegation-item" title={meta.label}
+                    aria-label={`${child?.title ?? "Starting"} — ${meta.label}`} onClick={() => jump(r.sessionId)}>
+                    <Icon name={meta.icon} size={14} />
+                    {/* The row lands before the session row does often enough to matter: `agent_run`
+                        registers the run and only then sends the child its first message. */}
+                    <span className="delegation-title">{child?.title ?? "Starting…"}</span>
+                    {/* `detached` is the difference between "this session is blocked until you finish"
+                        and "go at your own pace" — the parent kept working after agent_start. */}
+                    {r.detached && <span className="delegation-dim">not collected yet</span>}
+                    <span className="delegation-dim">{formatDuration(now - r.startedAt)}</span>
+                    {status && <span className="status-dot item-status" data-status={status} title={SESSION_STATUS_LABEL[status]} />}
+                  </button>
+                </li>
+              );
+            })}
+            {/* The harness's own sub-agents. No session behind one of these and so no status dot —
+                but there IS something to watch: the calls it makes arrive in this transcript nested
+                under its launching call, and that is a sub-agent's whole working life. The row opens
+                them on the panel docked to this pane's right edge. */}
+            {harness.map((h) => (
+              <li key={h.id}>
+                <button type="button" className="delegation-item" data-selected={watched === h.id || undefined}
+                  aria-label={`Watch ${h.label}`} aria-pressed={watched === h.id}
+                  onClick={() => toggleSessionDock(sessionId, { kind: "subagent", toolUseId: h.id })}>
+                  <Icon name="bot" size={14} />
+                  <span className="delegation-title">{h.label}</span>
+                  <span className="delegation-dim">in the agent</span>
+                  <span className="delegation-dim">{formatDuration(Math.max(0, now - h.startedAt))}</span>
                 </button>
               </li>
-            );
-          })}
-          {/* The harness's own sub-agents, after the runs that have panes. No jump and no status dot:
-              there is no session behind one of these, and a control that could only no-op is worse
-              than none. The elapsed clock is the honest part — it is what "still running" means. */}
-          {harness.map((h) => (
-            <li key={h.id}>
-              {/* It CAN be looked at, just not in a pane: the tool card in the transcript is where
-                  this run's own calls appear as they land, so the row scrolls to it and opens it.
-                  A jump to a pane would be a button that cannot work — there is no session here. */}
-              <button type="button" className="delegation-item" aria-label={`Show ${h.label} in the transcript`}
-                onClick={() => revealToolCard(h.id)}>
-                <Icon name="bot" size={14} />
-                <span className="delegation-title">{h.label}</span>
-                <span className="delegation-dim">in the agent</span>
-                <span className="delegation-dim">{formatDuration(Math.max(0, now - h.startedAt))}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+            ))}
+          </ul>
+        </div>
+      </div>
     </div>
   );
 }

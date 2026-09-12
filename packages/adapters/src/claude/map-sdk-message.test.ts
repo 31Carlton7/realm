@@ -218,4 +218,110 @@ describe("map-sdk-message", () => {
       expect(createSdkMapper().map(userMsg as never).map((e) => e.type)).toEqual(["tool_result"]);
     });
   });
+  /**
+   * The chain cursor — the two uuids a truncating resume needs (`Options.resumeSessionAt` and
+   * `Options.resumeDropsTurn`). Everything here is about which frames count as CHAIN entries, because a
+   * fork point naming a frame that is not one is a position the resume cannot find.
+   */
+  describe("chain cursor", () => {
+    type Block = Record<string, unknown>;
+    /** The shared `asst` helper above pins one uuid for every message; a cursor test has to be able to
+     *  tell two chain entries apart, so this one names its own. */
+    const assistant = (uuid: string, content: Block[], parent: string | null = null) =>
+      ({ type: "assistant", session_id: "s", parent_tool_use_id: parent, uuid, message: { id: "msg_1", type: "message", role: "assistant", model: "m", content, stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } } });
+    const user = (uuid: string, content: string | Block[], extra: Record<string, unknown> = {}) =>
+      ({ type: "user", session_id: "s", parent_tool_use_id: null, uuid, message: { role: "user", content }, ...extra });
+    const done = (uuid = "res") =>
+      ({ type: "result", subtype: "success", session_id: "s", uuid, is_error: false, num_turns: 1, total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1 } });
+
+    it("reports nothing until a turn has settled", () => {
+      const m = createSdkMapper();
+      m.map(user("p1", "go") as never);
+      m.map(assistant("a1", [{ type: "text", text: "ok" }]) as never);
+      // Mid-turn the answer is not merely incomplete, it is about a turn that has not happened.
+      expect(m.chain()).toEqual({ promptUuid: null, endUuid: null });
+    });
+
+    it("names the turn's prompt and its LAST chain entry", () => {
+      const m = createSdkMapper();
+      m.map(user("p1", "go") as never);
+      m.map(assistant("a1", [{ type: "text", text: "ok" }]) as never);
+      m.map(done() as never);
+      expect(m.chain()).toEqual({ promptUuid: "p1", endUuid: "a1" });
+    });
+
+    it("forks at the tool_result carrier when that is the turn's last entry, not at the last assistant uuid", () => {
+      /* The named mutant: tracking only `assistant` frames. The SDK's own guidance is to fork at the
+         kept turn's LAST entry whatever it is — an end-turn tool session finishes on a tool_result
+         carrier with no trailing assistant message, and a fork at the assistant uuid leaves that
+         carrier in the discarded range, which the validator deliberately refuses. */
+      const m = createSdkMapper();
+      m.map(user("p1", "go") as never);
+      m.map(assistant("a1", [{ type: "tool_use", id: "t1", name: "Read", input: {} }]) as never);
+      m.map(user("r1", [{ type: "tool_result", tool_use_id: "t1", content: "file" }]) as never);
+      m.map(done() as never);
+      expect(m.chain()).toEqual({ promptUuid: "p1", endUuid: "r1" });
+    });
+
+    it("does not mistake a tool_result carrier for the turn's prompt", () => {
+      // A tool_result rides on a user-role entry too. Naming one as `dropsTurn` would declare the
+      // wrong turn, which the CLI answers with a refusal — a permanently unusable cursor.
+      const m = createSdkMapper();
+      m.map(user("r1", [{ type: "tool_result", tool_use_id: "t1", content: "x" }]) as never);
+      m.map(done() as never);
+      expect(m.chain()).toEqual({ promptUuid: null, endUuid: "r1" });
+    });
+
+    it("keeps the FIRST prompt of a turn, so a message absorbed mid-turn makes the guard fire", () => {
+      /* Not an arbitrary tie-break. A second prompt inside one turn is exactly the case
+         `resumeDropsTurn` exists to refuse: declaring the first means the absorbed message falls in the
+         discarded range and the CLI says no, which is the outcome that protects it. Declaring the
+         second would name a turn the fork point does not sit in front of. */
+      const m = createSdkMapper();
+      m.map(user("p1", "go") as never);
+      m.map(user("p2", "and also this") as never);
+      m.map(assistant("a1", [{ type: "text", text: "ok" }]) as never);
+      m.map(done() as never);
+      expect(m.chain().promptUuid).toBe("p1");
+    });
+
+    it("ignores frames that are not chain entries: system, stream events and subagent output", () => {
+      const m = createSdkMapper();
+      m.map(user("p1", "go") as never);
+      m.map({ type: "system", subtype: "init", session_id: "s", model: "m", tools: [], cwd: "/w", uuid: "sys" } as never);
+      m.map({ type: "stream_event", session_id: "s", parent_tool_use_id: null, uuid: "stream", event: { type: "message_start", message: { id: "msg_1", content: [] } } } as never);
+      m.map(assistant("sub-a", [{ type: "text", text: "inner" }], "toolu_parent") as never);
+      m.map({ ...user("sub-r", [{ type: "tool_result", tool_use_id: "t9", content: "x" }]), parent_tool_use_id: "toolu_parent" } as never);
+      m.map(assistant("a1", [{ type: "text", text: "ok" }]) as never);
+      m.map(done() as never);
+      expect(m.chain()).toEqual({ promptUuid: "p1", endUuid: "a1" });
+    });
+
+    it("freezes each turn's cursor at its result and starts the next one empty", () => {
+      /* The consumer reads on the SETTLE, which the adapter emits after mapping `result`. Without the
+         freeze the slots would either be cleared (nulls for a turn that really had a cursor) or still
+         live (the next turn's prompt paired with the last turn's end). */
+      const m = createSdkMapper();
+      m.map(user("p1", "one") as never);
+      m.map(assistant("a1", [{ type: "text", text: "a" }]) as never);
+      m.map(done("res1") as never);
+      const first = m.chain();
+      expect(first).toEqual({ promptUuid: "p1", endUuid: "a1" });
+      m.map(user("p2", "two") as never);
+      expect(m.chain()).toEqual(first); // the next turn's prompt has not overwritten the settled pair
+      m.map(assistant("a2", [{ type: "text", text: "b" }]) as never);
+      m.map(done("res2") as never);
+      expect(m.chain()).toEqual({ promptUuid: "p2", endUuid: "a2" });
+    });
+
+    it("skips a transcript-only append as a prompt: it starts no turn", () => {
+      // `shouldQuery: false` entries persist as bare user entries and query nothing. Declaring one as
+      // the dropped turn would name a turn that does not exist — but it IS a chain entry, so it can
+      // still be the fork point.
+      const m = createSdkMapper();
+      m.map(user("append", "noted", { shouldQuery: false }) as never);
+      m.map(done() as never);
+      expect(m.chain()).toEqual({ promptUuid: null, endUuid: "append" });
+    });
+  });
 });

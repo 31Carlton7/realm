@@ -1,6 +1,6 @@
 import { AGENT_META, AGENT_NOTES, DEFAULT_MODEL_LABEL, formatContext, formatPrice, type AgentKind, type ModelInfo } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ScrollFades, ScrollFadesX } from "../../components/ScrollFades";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
@@ -35,7 +35,11 @@ const MAX_SHORTCUTS = 9;
 /** Controls the control row could not fit (Ara refresh §3): when the prompter's left group overflows,
  *  the permission chip collapses into this menu as labelled option groups instead of wrapping the
  *  row. Items mirror the chips' own menu items exactly — same labels, same handlers. */
-export type OverflowGroup = { label: string; items: { label: string; checked?: boolean; onSelect: () => void }[] };
+export type OverflowGroup = { label: string; items: { label: string; checked?: boolean; onSelect: () => void;
+  /** The effort id behind this button, on the effort group only. Carried rather than re-derived from
+   *  the label or the index so the easter-egg gradient can name the level it escalates for without
+   *  depending on `EFFORT_LEVELS` staying in its current order. */
+  effort?: string }[] };
 
 /** Display form of an effort level: capitalised, with `xhigh` as "XHigh" — the id's two morphemes
  *  each get their cap, and no hyphen is invented that the CLIs never print. One formatter for the
@@ -86,7 +90,40 @@ export function fastModeNote(f: FastMode): string | null {
   return `Not running: ${FAST_REASON[f.reason ?? "unknown"] ?? f.reason ?? "the harness did not say why"}.`;
 }
 
-export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite, onPick, effortItems, overflow, fast }: {
+/** The levels the gradient answers to. Below these it stays out of the way entirely — a treatment
+ *  every option wore would say nothing about the one that was picked. */
+const HEAVY_EFFORTS = new Set(["xhigh", "max"]);
+
+/**
+ * Light the chip up when the session commits to one of the heavy efforts.
+ *
+ * Watches the effort the session actually holds rather than firing from the button's click, because
+ * picking one closes the popover: the control that changed outlives the control that changed it.
+ * Stateless in the same way the hero greeting's nod is — the mark goes on, the `animationend` that
+ * the browser is about to fire takes it off, and nothing is left to clean up. Under reduced motion no
+ * animation runs and no `animationend` ever arrives, so the attribute stays put for the rest of the
+ * session; styles.css paints nothing for it in that case rather than leaving a gradient stranded on
+ * the chip.
+ */
+function useEffortSweep(ref: RefObject<HTMLButtonElement | null>, effort: string | null, eggs: boolean) {
+  const previous = useRef(effort);
+  useEffect(() => {
+    const changed = previous.current !== effort;
+    previous.current = effort;
+    const chip = ref.current;
+    if (!changed || !eggs || !effort || !HEAVY_EFFORTS.has(effort) || !chip) return;
+    // Removing and re-adding in one frame would replay nothing: the browser only sees the value the
+    // attribute holds at the end of it. Reading a layout property forces the removal to land first.
+    chip.removeAttribute("data-sweep");
+    void chip.offsetWidth;
+    chip.setAttribute("data-sweep", effort);
+    const done = () => chip.removeAttribute("data-sweep");
+    chip.addEventListener("animationend", done, { once: true });
+    return () => chip.removeEventListener("animationend", done);
+  }, [ref, effort, eggs]);
+}
+
+export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite, onPick, effortItems, overflow, fast, eggs = false }: {
   kind: AgentKind;
   model: string | null;
   /** The session's effort level — the chip's gray suffix. `null` (unset) shows nothing at all. */
@@ -106,12 +143,15 @@ export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite,
    *  guess is a control whose only outcome is a refusal. */
   fast?: FastMode;
   overflow?: OverflowGroup[];
+  /** Whether the easter eggs are on. Gates the heavy-effort gradient and nothing else here. */
+  eggs?: boolean;
 }) {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   // A model id the current agent does not list (a stale row, or a model retired since) still deserves
   // its name shown rather than being silently replaced by the default label.
   const label = rows.find((r) => r.selected)?.label ?? model ?? DEFAULT_MODEL_LABEL[kind];
+  useEffortSweep(btn, effort, eggs);
 
   return (
     <>
@@ -132,12 +172,12 @@ export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite,
         <Icon name="chevronDown" size={12} className="chip-caret" />
       </button>
       {open && <ModelPopover rows={rows} info={info} anchorRef={btn} onClose={() => setOpen(false)} onPick={onPick}
-        onToggleFavorite={onToggleFavorite} effortItems={effortItems} overflow={overflow} fast={fast} />}
+        onToggleFavorite={onToggleFavorite} effortItems={effortItems} overflow={overflow} fast={fast} eggs={eggs} />}
     </>
   );
 }
 
-function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite, effortItems, overflow, fast }: {
+function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite, effortItems, overflow, fast, eggs }: {
   rows: ModelRow[];
   info: Record<string, ModelInfo>;
   anchorRef: React.RefObject<HTMLButtonElement | null>;
@@ -146,6 +186,7 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
   effortItems: OverflowGroup["items"];
   fast?: FastMode;
   overflow?: OverflowGroup[];
+  eggs?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   /* Right-aligned, opening leftward from the chip. The chip lives at the RIGHT end of the prompter's
@@ -260,7 +301,7 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
     <div ref={ref} className="model-picker" aria-label="Model picker" role="dialog"
       style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999,
         visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "bottom right" }}
-      data-closing={closing || undefined} inert={closing}>
+      data-closing={closing || undefined} data-eggs={eggs || undefined} inert={closing}>
       <div className="mp-search">
         <Icon name="search" size={14} />
         {/* Autofocused because the picker opens for typing — the same bargain the command palette
@@ -354,7 +395,7 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
         {activeRow && route && (
           <ModelDetail row={activeRow} route={route} info={info}
             onRoute={(h) => setRoutes({ ...routes, [activeRow.id]: h })}
-            onUse={() => pick(activeRow, route)} effortItems={effortItems} overflow={overflow} fast={fast} onClose={close} />
+            onUse={() => pick(activeRow, route)} effortItems={effortItems} overflow={overflow} fast={fast} eggs={eggs} onClose={close} />
         )}
       </div>
     </div>,
@@ -374,10 +415,10 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
  * no catalog entry at all, and a picker that hid them or invented a price would be worse than one
  * that shows the sentence and stops.
  */
-function ModelDetail({ row, route, info, onRoute, onUse, effortItems, overflow, fast, onClose }: {
+function ModelDetail({ row, route, info, onRoute, onUse, effortItems, overflow, fast, eggs, onClose }: {
   row: ModelRow; route: AgentKind; info: Record<string, ModelInfo>;
   onRoute: (h: AgentKind) => void; onUse: () => void;
-  effortItems: OverflowGroup["items"]; overflow?: OverflowGroup[]; fast?: FastMode; onClose: () => void;
+  effortItems: OverflowGroup["items"]; overflow?: OverflowGroup[]; fast?: FastMode; eggs?: boolean; onClose: () => void;
 }) {
   const { note, catalog } = modelDetail(row, info);
   const harness = AGENT_NOTES[route];
@@ -386,8 +427,9 @@ function ModelDetail({ row, route, info, onRoute, onUse, effortItems, overflow, 
     <div className="mp-detail" aria-live="polite">
       {/* Everything the model has to SAY scrolls; the two controls below it never do. A long blurb
           on a small window used to push "Use model" past the popover's edge — the one control the
-          whole pane exists to lead to. */}
-      {/* Both ends dissolve, the same way the list beside them does. This column hard-clipped at both
+          whole pane exists to lead to.
+
+          Both ends dissolve, the same way the list beside them does. This column hard-clipped at both
           edges: a blurb taller than the box was cut mid-line under the harness strip, and cut again
           against the Effort divider, which reads as a rendering fault rather than as more text. The
           bands are opacity-gated on there being something under them, so an unscrolled blurb is not
@@ -444,6 +486,7 @@ function ModelDetail({ row, route, info, onRoute, onUse, effortItems, overflow, 
             <div className="mp-seg">
               {g.items.map((it, i) => (
                 <button key={i} type="button" className="mp-seg-opt" aria-pressed={!!it.checked}
+                  data-effort={it.effort}
                   onClick={() => { it.onSelect(); onClose(); }}>{it.label}</button>
               ))}
             </div>

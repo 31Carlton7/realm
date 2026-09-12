@@ -69,8 +69,10 @@ export function Carousel({ features }: { features: Feature[] }) {
         })}
       </figure>
 
-      {/* Caption and controls share a row rather than stacking: on a 900px screen the stacked
-          version cost the screenshot ninety pixels of height, and the screenshot is the page. */}
+      {/* Caption and controls share a row rather than stacking: on a 900px screen the stacked version
+          cost the screenshot ninety pixels of height, and the screenshot is the page. The row keeps
+          its `sm` — a phone held sideways is as short as a laptop and wants that height just as
+          much. What could not stay at `sm` is the DOT RAIL beside it; see below. */}
       <div className="flex shrink-0 flex-col gap-5 sm:flex-row sm:items-end sm:justify-between sm:gap-10">
         <figcaption className="max-w-[40rem]">
           <h2 className="text-[clamp(1.15rem,2.2vw,1.5rem)] leading-[1.2] font-[560] tracking-[-0.025em] text-ink">
@@ -79,10 +81,23 @@ export function Carousel({ features }: { features: Feature[] }) {
           <p className="mt-2 text-[15px] leading-[1.55] text-ink-2">{active.blurb}</p>
         </figcaption>
 
-        <div className="flex shrink-0 items-center gap-3">
+        {/* Below `lg` this row is the two arrows and the count, spread to the edges a thumb reaches.
+            The dot rail is the whole of what went wrong and the only thing that leaves: sixteen dots
+            want ~350px, which is most of a 375px phone before either arrow is drawn. It ran off the
+            right of a page that CLIPS rather than scrolls, taking Next and the count with it and
+            leaving the carousel navigable in one direction only — and on an iPad in portrait, where
+            there was width enough not to overflow, it took that width from the caption instead: one
+            word per line for twenty lines, beside a screenshot shrunk to make room for it.
+            The count says what the rail says in a tenth of the width, which is why it is what stays.
+            It is also the only piece here a thumb cannot already do by swiping. */}
+        <div className="flex shrink-0 items-center justify-between gap-3 sm:justify-start">
           <Step direction="previous" onClick={() => go(index - 1)} />
 
-          <div role="tablist" aria-label="Features" className="flex items-center gap-1.5 px-1">
+          <div
+            role="tablist"
+            aria-label="Features"
+            className="hidden items-center gap-1.5 px-1 lg:flex"
+          >
             {features.map((feature, position) => (
               <button
                 key={feature.slug}
@@ -102,11 +117,13 @@ export function Carousel({ features }: { features: Feature[] }) {
             ))}
           </div>
 
-          <Step direction="next" onClick={() => go(index + 1)} />
-
-          <p className="ml-1 min-w-[4rem] font-mono text-[12px] tabular-nums text-ink-3">
+          {/* Between the arrows on a phone, after them on a desktop where the rail is doing this
+              job — DOM order is the mobile one, and `sm:order-1` puts it back at the end. */}
+          <p className="font-mono text-[12px] tabular-nums text-ink-3 lg:order-1 lg:ml-1 lg:min-w-[4rem]">
             {index + 1} / {count}
           </p>
+
+          <Step direction="next" onClick={() => go(index + 1)} />
         </div>
       </div>
     </div>

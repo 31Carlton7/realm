@@ -235,21 +235,26 @@ describe("store — the desktop (OS) hop", () => {
       notifications: [notification("h1", { category: "mcp_health", sessionId: null, refId: "srv1", title: "srv1 stopped answering", actedAt: null })],
     });
     await store.getState().activateDesktopNotification("h1");
-    const page = store.getState().items.find((i) => i.kind === "notifications-page");
-    expect(page).toBeTruthy();
-    expect(allItems(store.getState().layout!)).toContain(page!.id);
+    // The feed comes up OVER the workspace with the row selected — no item, no pane, no split.
+    expect(store.getState().pageOverlay?.kind).toBe("notifications-page");
+    expect(store.getState().items.some((i) => i.kind === "notifications-page")).toBe(false);
     expect(store.getState().notificationsSelectedId).toBe("h1");
     expect(api.calls).toContain("markNotificationsRead:h1");
   });
 
-  it("…and that landing is a STOP on the pane's trail, so the arrows retrace it like an in-page click", async () => {
+  it("…and that landing leaves the workspace alone — no pane taken, no trail written", async () => {
+    /* This used to assert the opposite half of the same behaviour: the landing was a STOP on the
+       pane's back/forward trail, because the feed was a layout item. It is an overlay now, so there
+       is no leaf whose arrows could retrace it — and the trail it used to write was keyed by an item
+       id that would now be in no pane at all. What is left to hold is that opening the feed from a
+       toast costs the user nothing they had arranged. */
     const { store } = await boot({ notifications: [notification("b1", { category: "budget", sessionId: null, refId: "2026-09:0.8" })] });
+    const leaf = store.getState().focusedLeafId;
+    const layout = allItems(store.getState().layout!);
     await store.getState().activateDesktopNotification("b1");
-    const leaf = store.getState().focusedLeafId!;
-    await store.getState().stepPaneNav(leaf, -1);
-    expect(store.getState().notificationsSelectedId).toBeNull(); // back to the bare list
-    await store.getState().stepPaneNav(leaf, 1);
     expect(store.getState().notificationsSelectedId).toBe("b1");
+    expect(store.getState().focusedLeafId).toBe(leaf);
+    expect(allItems(store.getState().layout!)).toEqual(layout);
   });
 
   it("a session row whose pane no longer exists falls back to the feed rather than a space switch that opens nothing", async () => {
@@ -267,20 +272,22 @@ describe("store — the desktop (OS) hop", () => {
   it("THE read-after-the-jump mutant: the row is stamped read BEFORE the app goes anywhere", async () => {
     const { api, store } = await boot({ notifications: [notification("a1", { category: "agent_probe", sessionId: null, refId: "claude" })] });
     await store.getState().activateDesktopNotification("a1");
-    // The row is read because the user clicked it, not because the landing below turned out to be
-    // reachable — so the read lands before the page the jump has to create.
-    const order = api.calls.filter((c) => c === "markNotificationsRead:a1" || c.startsWith("createItem:"));
-    expect(order).toHaveLength(2);
-    expect(order[0]).toBe("markNotificationsRead:a1");
+    /* The row is read because the user clicked it, not because the landing turned out to be
+       reachable — so the read lands first, before anything is shown. The page is an overlay now and
+       creates no item, so the ordering is read against the selection the landing performs. */
+    expect(api.calls).toContain("markNotificationsRead:a1");
+    expect(store.getState().pageOverlay?.kind).toBe("notifications-page");
+    expect(store.getState().notificationsSelectedId).toBe("a1");
   });
 
   it("…and a row whose feed page is ALREADY open is selected in it, rather than opening a second one", async () => {
     const { store } = await boot({
       notifications: [notification("h2", { category: "mcp_health", sessionId: null, refId: "srv2", actedAt: null })],
     });
-    await store.getState().openDestinationPage("notifications-page");
+    store.getState().openDestinationPage("notifications-page");
     await store.getState().activateDesktopNotification("h2");
-    expect(store.getState().items.filter((i) => i.kind === "notifications-page")).toHaveLength(1);
+    // One overlay, by construction: there is a single slot, so a second open cannot stack.
+    expect(store.getState().pageOverlay?.kind).toBe("notifications-page");
     expect(store.getState().notificationsSelectedId).toBe("h2");
   });
 });

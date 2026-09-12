@@ -4,13 +4,15 @@ import type { Environment } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../state/store";
 import { checkpoint, fakeApi, preview, session } from "../state/store.test-fakes";
 import { CheckpointsSheet, relativeTime, restoreSentence } from "./CheckpointsSheet";
+import { emptyTranscript } from "../panes/session/transcript-model";
 
 const PATH = "/tmp/worktrees/s1/fix-login";
 const env: Environment = { id: "env1", spaceId: "s1", path: PATH, branch: "realm/fix-login", kind: "worktree", portBlockStart: 41020, createdAt: 0, updatedAt: 0 };
 
-async function open(opts: { checkpoints?: ReturnType<typeof checkpoint>[]; previews?: Record<string, ReturnType<typeof preview>>; sessionId?: string | null } = {}) {
+async function open(opts: { checkpoints?: ReturnType<typeof checkpoint>[]; previews?: Record<string, ReturnType<typeof preview>>; sessionId?: string | null; sessions?: ReturnType<typeof session>[] } = {}) {
   const api = fakeApi({
     environments: { s1: [env] },
+    ...(opts.sessions ? { sessions: opts.sessions } : {}),
     checkpoints: { env1: opts.checkpoints ?? [checkpoint("cp1", "env1", { label: "Add the login form", createdAt: Date.now() - 120_000 })] },
     checkpointPreview: opts.previews ?? { cp1: preview("cp1", "env1", { path: PATH, label: "Add the login form" }) },
   });
@@ -58,11 +60,23 @@ describe("CheckpointsSheet", () => {
     expect(screen.getByRole("button", { name: "Restore and overwrite" })).toBeEnabled();
   });
 
-  /** The honesty requirement: no adapter can rewind a conversation, so the sheet must not imply one. */
+  /** The honesty requirement, in the case where a rewind is NOT on offer — a non-Claude session, a
+   *  checkpoint with no recorded cursor, or a provider conversation that has moved on. The sheet must
+   *  not imply a rewind it cannot perform. */
   it("says plainly that the agent keeps its memory of those turns", async () => {
     await open({ previews: { cp1: preview("cp1", "env1", { filesChanged: 2 }) } });
     fireEvent.click(screen.getByRole("button", { name: "Restore" }));
     await waitFor(() => expect(screen.getByText(/Files only — the agent keeps its memory/)).toBeInTheDocument());
+  });
+
+  /** The other half, which the old copy denied was possible at all. THE MUTANT: render the negative
+   *  sentence unconditionally — the sheet would then under-promise on exactly the restores that do
+   *  rewind, which is the same dishonesty in the opposite direction. */
+  it("says the conversation rewinds too when this checkpoint can carry it", async () => {
+    await open({ previews: { cp1: preview("cp1", "env1", { filesChanged: 2, rewindsConversation: true }) } });
+    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+    await waitFor(() => expect(screen.getByText(/The conversation rewinds too/)).toBeInTheDocument());
+    expect(screen.queryByText(/Files only/)).toBeNull();
   });
 
   it("says the branch will not move, and why, when it cannot", async () => {
@@ -213,5 +227,44 @@ describe("Fork from here (Plan 16 W3)", () => {
     await waitFor(() => expect(api.calls).toContain("forkSession:cp1:codex"));
     const forked = api.data.sessions.find((x) => x.dispatchedBy?.kind === "fork")!;
     expect(forked.agentKind).toBe("codex");
+  });
+});
+
+/**
+ * The client half of a conversation rewind. The server truncates its own transcript; this window is
+ * still holding the turns it cut, and `openSession` pages FORWARD from `lastSeq` — so unless the
+ * cached entry is dropped first, the undone turns stay on screen and the restore looks broken.
+ */
+describe("a rewound restore repairs the transcript this window is holding", () => {
+  const withSession = (rewinds: boolean) => ({
+    sessionId: "se1",
+    sessions: [session("se1", "s1", { title: "Login work", environmentId: "env1", cwd: PATH })],
+    previews: { cp1: preview("cp1", "env1", { path: PATH, label: "Add the login form", filesChanged: 1, rewindsConversation: rewinds }) },
+  });
+  /** A transcript this client already paged to seq 99 — the state a truncation invalidates. */
+  const holdTranscript = (store: { setState: (p: object) => void }) =>
+    store.setState({ transcripts: { se1: { lastSeq: 99, t: emptyTranscript() } } });
+
+  it("drops the cached transcript and re-reads it from the start", async () => {
+    const { store, api } = await open(withSession(true));
+    holdTranscript(store);
+    // Arm the confirmation first: `confirmRestoreCheckpoint` refuses outright without a shown preview
+    // to compare against, so calling it cold would pass this test for the wrong reason.
+    await store.getState().askRestoreCheckpoint("cp1");
+    await store.getState().confirmRestoreCheckpoint("cp1");
+    /* THE MUTANT: reopen without clearing. `sessionEvents` would be asked for everything after seq
+       99 — nothing — and the stale tail would survive the restore that was supposed to undo it. */
+    expect(api.calls).toContain("sessionEvents:se1:0");
+  });
+
+  it("leaves the transcript alone when only the files were restored", async () => {
+    const { store, api } = await open(withSession(false));
+    holdTranscript(store);
+    await store.getState().askRestoreCheckpoint("cp1");
+    await store.getState().confirmRestoreCheckpoint("cp1");
+    // Proof the restore really ran, so the assertion below is about the rewind and not about nothing.
+    expect(store.getState().restoreResult?.conversationRewound).toBe(false);
+    expect(api.calls.some((c) => c.startsWith("sessionEvents:se1"))).toBe(false);
+    expect(store.getState().transcripts.se1?.lastSeq).toBe(99);
   });
 });

@@ -7,7 +7,7 @@ import type { Block, Transcript as TranscriptModel } from "./transcript-model";
 afterEach(() => cleanup());
 
 const model = (blocks: Block[]): TranscriptModel =>
-  ({ blocks, run: null, pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, feedback: {}, summary: null });
+  ({ blocks, run: null, pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, feedback: {}, summary: null, promptHint: null });
 
 const assistant = (text: string, streaming: boolean, messageId = "m1"): Block =>
   ({ kind: "assistant", messageId, text, streaming, ts: 1 });

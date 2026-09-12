@@ -391,20 +391,20 @@ describe("App tab", () => {
     // other control on the same row contradicting it.
     vi.stubGlobal("realm", { platform: "darwin" });
     const { store } = await openApp();
-    const sw = screen.getByRole("switch", { name: "Translucent sidebar" });
+    const sw = screen.getByRole("switch", { name: "Window translucency" });
     const slider = screen.getByRole("slider", { name: "Background transparency" });
     expect(sw).toBeChecked();               // the default is translucent
     fireEvent.click(sw);
     await waitFor(() => expect(store.getState().groundAlpha).toBe(100));
-    expect(screen.getByRole("switch", { name: "Translucent sidebar" })).not.toBeChecked();
+    expect(screen.getByRole("switch", { name: "Window translucency" })).not.toBeChecked();
     // Off means opaque, and the amount is inert rather than showing a value nothing is using.
     expect(screen.getByRole("slider", { name: "Background transparency" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("switch", { name: "Translucent sidebar" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Window translucency" }));
     await waitFor(() => expect(store.getState().groundAlpha).toBe(DEFAULT_GROUND_ALPHA));
     // Dragging the amount to fully opaque turns the switch off, because that IS off.
     fireEvent.change(slider, { target: { value: "55" } });
     await waitFor(() => expect(store.getState().groundAlpha).toBe(100));
-    expect(screen.getByRole("switch", { name: "Translucent sidebar" })).not.toBeChecked();
+    expect(screen.getByRole("switch", { name: "Window translucency" })).not.toBeChecked();
   });
 
   it("background transparency runs the way its label reads and persists the ground's opacity", async () => {
@@ -583,12 +583,146 @@ describe("App tab", () => {
     expect(ignored.textContent).not.toContain("Claude,  Codex");
   });
 
+  const SWITCH = "Let Realm mess around";
+
+  it("the eggs are off until someone asks for them, and the switch writes its own key", async () => {
+    // THE default-on mutant: `easterEggs: true` in the initial state, or a hydration that reads an
+    // absent key as on. The house style is what someone gets before they have said anything, and a
+    // machine that names Carlton's friends at a stranger's first prompt has decided for them.
+    const { api, store } = await openApp();
+    expect(store.getState().easterEggs).toBe(false);
+    const sw = screen.getByRole("switch", { name: SWITCH });
+    expect(sw).not.toBeChecked();
+    fireEvent.click(sw);
+    await waitFor(() => expect(api.data.settings["ui.easterEggs"]).toBe(true));
+    expect(store.getState().easterEggs).toBe(true);
+    // Nothing else moves: the unlock is earned, not granted by the switch.
+    expect(api.data.settings["ui.konamiUnlocked"]).toBeUndefined();
+    expect(store.getState().konamiUnlocked).toBe(false);
+  });
+
+  it("a stored ON renders on, and turning it off writes false rather than forgetting the key", async () => {
+    const { api, store } = await openApp({ settings: { "ui.easterEggs": true } });
+    expect(store.getState().easterEggs).toBe(true);
+    const sw = screen.getByRole("switch", { name: SWITCH });
+    expect(sw).toBeChecked();
+    fireEvent.click(sw);
+    await waitFor(() => expect(api.data.settings["ui.easterEggs"]).toBe(false));
+  });
+
+  it("keeps the konami palette out of the grid until it has been found", async () => {
+    // THE ungated mutant: list all of THEMES. The one egg that has to be looked for would be sitting
+    // in the theme picker, named, three clicks from anyone who opened Settings.
+    await openApp({ settings: { "ui.easterEggs": true } });
+    expect(row("Dark").queryByRole("radio", { name: "Phosphor" })).toBeNull();
+    cleanup();
+    await openApp({ settings: { "ui.konamiUnlocked": true } });
+    expect(row("Dark").getByRole("radio", { name: "Phosphor" })).toBeInTheDocument();
+    // Dark only — it has no light face, and the light row must not offer a card it cannot preview.
+    expect(row("Light").queryByRole("radio", { name: "Phosphor" })).toBeNull();
+  });
+
+  const PACK = { id: "p1", group: "The Group", labels: [{ present: "Asking Alice", past: "Asked Alice" }], greetings: [] };
+
+  it("asks for a word only once the eggs are on, and says nothing about what exists", async () => {
+    /* The field is under the switch because the switch is the consent boundary for the whole
+       feature — a passphrase box under a switch someone left off is a puzzle they did not opt into.
+       And there is no list of locked groups and no count: the packs are NAMED after the words that
+       open them, so anything drawn here about a group you have not unlocked is a hint at somebody
+       else's passphrase. */
+    const { store } = await openApp({ eggPacks: [PACK], eggWords: { p1: "open-me" } });
+    expect(screen.queryByRole("textbox", { name: "Friend group passphrase" })).toBeNull();
+    fireEvent.click(screen.getByRole("switch", { name: "Let Realm mess around" }));
+    await waitFor(() => expect(store.getState().easterEggs).toBe(true));
+    const field = await screen.findByRole("textbox", { name: "Friend group passphrase" });
+    expect(screen.queryByText("The Group")).toBeNull();
+    expect(document.body.textContent).not.toMatch(/\b1 (group|pack)\b/);
+
+    fireEvent.change(field, { target: { value: "not-the-word" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    // One line back, and it never says how close you were.
+    expect(await screen.findByText("Nothing opens with that.")).toBeInTheDocument();
+    expect(screen.queryByText("The Group")).toBeNull();
+  });
+
+  it("a word that fits opens its group, names it, and offers a way to forget it", async () => {
+    const { api, store } = await openApp({ eggPacks: [PACK], eggWords: { p1: "open-me" }, settings: { "ui.easterEggs": true } });
+    const field = await screen.findByRole("textbox", { name: "Friend group passphrase" });
+    fireEvent.change(field, { target: { value: "open-me" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(store.getState().eggPacks.map((p) => p.group)).toEqual(["The Group"]));
+    expect(await screen.findByText("The Group")).toBeInTheDocument();
+    // The field clears: the word has been spent, and leaving it on screen invites a second try.
+    expect((field as HTMLInputElement).value).toBe("");
+
+    fireEvent.click(screen.getByRole("button", { name: "Forget" }));
+    await waitFor(() => expect(api.calls).toContain("eggsForget:p1"));
+    expect(store.getState().eggPacks).toEqual([]);
+  });
+
+  it("credits its author whether or not the eggs are on, and says where to find him", async () => {
+    // Authorship is not one of the jokes. A credit you have to enable is not a credit.
+    const { container } = await openApp();
+    const link = screen.getByRole("link", { name: "Carlton Aikins" });
+    expect(link).toHaveAttribute("href", "https://x.com/31Carlton7");
+    // main/index.ts hands an https: target to the OS browser and denies the window, so the link
+    // needs no IPC — but it does need the target, or it navigates the app's own window to x.com.
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noreferrer");
+    // The ink is a behaviour of this row, never a treatment on the page's ground: it is decoration
+    // by any reading, and wash-surfaces.test.tsx holds Settings undecorated.
+    const credit = container.querySelector(".settings-attribution") as HTMLElement;
+    expect(credit.querySelector("svg.settings-signature")).not.toBeNull();
+    expect(credit.querySelector("svg")).toHaveAttribute("aria-hidden");
+  });
+
   it("junk under either key degrades safely: unknown categories dropped, an unlisted mode renders as Ask each time", async () => {
     await openApp({ settings: { [NOTIFICATIONS_DISABLED_KEY]: ["nonsense", "permission"], [DEFAULT_PERMISSION_MODE_KEY]: "plan" } });
     expect(await screen.findByRole("switch", { name: "Permission requests" })).not.toBeChecked();
     // "plan" is a mode axis, not a permission — the server would refuse it, so the page must not show
     // it. "ask" is the same, and is why the `default` rung is no longer LABELLED "Ask".
     expect(screen.getByRole("radio", { name: "Ask each time" })).toBeChecked();
+  });
+});
+
+describe("App tab → mid-turn prompts", () => {
+  const openApp = async () => {
+    const mounted = await mount();
+    fireEvent.click(screen.getByRole("radio", { name: "App" }));
+    return mounted;
+  };
+
+  it("defaults to waiting its turn, which is the rung that interrupts nothing", async () => {
+    await openApp();
+    await waitFor(() => expect(screen.getByRole("radio", { name: "Waits its turn" })).toBeChecked());
+    expect(screen.getByRole("radio", { name: "Sends now" })).not.toBeChecked();
+  });
+
+  it("choosing sends-now writes the setting and holds", async () => {
+    const { store, api } = await openApp();
+    await waitFor(() => expect(screen.getByRole("radio", { name: "Waits its turn" })).toBeChecked());
+    fireEvent.click(screen.getByRole("radio", { name: "Sends now" }));
+    await waitFor(() => expect(store.getState().midTurnMode).toBe("steer"));
+    expect(api.calls).toContain(`setSetting:${MID_TURN_MODE_KEY}=steer`);
+    expect(screen.getByRole("radio", { name: "Sends now" })).toBeChecked();
+  });
+
+  /* The setting reads as free until it says otherwise, and on every kind but Codex it is not: the
+   * hint is the only place the interrupt's cost is named before someone turns it on. */
+  it("names what steering costs, per agent, beside the choice", async () => {
+    await openApp();
+    const hint = await screen.findByText(/Codex takes a steered message/);
+    expect(hint.textContent).toContain("aborts the tool call in flight");
+    expect(hint.textContent).toContain("denies any permission prompt waiting");
+  });
+
+  it("a stored value the app does not recognise reads as waiting its turn", async () => {
+    const api = fakeApi({ agentProbe: probe, settings: { [MID_TURN_MODE_KEY]: "yolo" } });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    render(<StoreContext.Provider value={store}><SettingsPage item={pageItem} visible /></StoreContext.Provider>);
+    fireEvent.click(screen.getByRole("radio", { name: "App" }));
+    await waitFor(() => expect(screen.getByRole("radio", { name: "Waits its turn" })).toBeChecked());
   });
 });
 

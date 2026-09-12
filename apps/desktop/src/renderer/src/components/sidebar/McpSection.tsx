@@ -214,7 +214,7 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
             the banner-wearing inline form survives as the fallback behind "Edit here…" — the same
             form, opened AS the profile's, for when leaving the tab mid-thought isn't worth it. */}
         {inherited && !editing && (
-          <button type="button" className="btn-quiet" onClick={() => run(() => openProfilePage("connections"))}>Edit in profile</button>
+          <button type="button" className="btn-quiet" onClick={() => openProfilePage("connections")}>Edit in profile</button>
         )}
         <button type="button" className="btn-quiet" onClick={() => setEditing((v) => !v)}>
           {editing ? "Close" : inherited ? "Edit here…" : "Edit"}

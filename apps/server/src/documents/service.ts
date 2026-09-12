@@ -242,10 +242,21 @@ export class DocumentService {
     return entries;
   }
 
+  /**
+   * One file's text, for an editor to hold.
+   *
+   * This is the one read that refuses a file whose bytes are not text. `documentKindFor` is pure and
+   * extension-driven — it has to be, since it runs on a directory listing where nothing has been read
+   * — so it can say `.png` is not a document but it cannot say whether `notes.txt` is a note or a
+   * renamed zip. Only the read has the bytes, so the distinction is drawn here: a NUL byte is a
+   * binary and a decode failure is a file Realm would rewrite on save, and both are refused with a
+   * sentence that says which. The alternative is a pane full of U+FFFD and a save that destroys the
+   * file it opened.
+   */
   async read(documentsId: string, path: string): Promise<{ text: string; hash: string }> {
     const ws = this.get(documentsId);
     const abs = resolveInRoot(this.rootOf(ws), path);
-    const r = await readDocument(abs);
+    const r = await readDocument(abs, { refuseBinary: true });
     // Reading is what a tab opening does, so it is also the moment the watcher must learn this file's
     // current content — otherwise the first outside edit is compared against nothing.
     this.watcher.noteWrite(abs, r.hash);

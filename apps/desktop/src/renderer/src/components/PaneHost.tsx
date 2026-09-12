@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState, type DragEvent as ReactDragEvent
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelGroupHandle } from "react-resizable-panels";
 import { findLeaf, firstLeaf, type Item, type Layout, type LayoutSplit } from "@realm/contracts";
 import type { DropEdge } from "../state/store";
+import { Icon } from "@realm/ui";
 import { PanelBar } from "./PanelBar";
 import { PaneFor } from "../panes/registry";
 import { isRealmPaneDrag, REALM_ITEM_TYPE, REALM_NEW_SESSION_TYPE } from "./drag-types";
@@ -19,6 +20,8 @@ export type PaneHostProps = {
   onUnzoom?: () => void;
   /** Layout-only close: the item leaves the layout but keeps existing (SPACE group). */
   onClose: (itemId: string) => void;
+  /** Drop an EMPTY pane out of the layout. Keyed by leaf, because there is no item to key on. */
+  onCloseEmpty?: (leafId: string) => void;
   onSplit: (leafId: string, dir: "row" | "col") => void;
   onResize?: (splitId: string, sizes: number[]) => void;
   /** Double-click on a divider: put every child of that split back on equal shares. */
@@ -134,6 +137,29 @@ export function PaneHost(p: PaneHostProps) {
           {item && <PanelBar item={item} leafId={n.id} onSplit={(dir) => p.onSplit(n.id, dir)} onClose={() => p.onClose(item.id)}
             zoomed={n.id === p.zoomedLeafId}
             onZoom={canFocus && p.onZoom ? () => p.onZoom!(n.id) : undefined} onUnzoom={canFocus ? p.onUnzoom : undefined} />}
+          {/* An empty pane gets a bar of its own — a title-less strip whose only control is the trash
+              that drops the box. It had no bar at all, which left ⌘W as the one way to be rid of it
+              and no way to discover that: the pane said "open something from the sidebar" and gave
+              no answer to "and if I do not want to".
+
+              The trash rather than the ×, and the difference is the design language's own (design.md):
+              a × lifts an open thing out of the layout and leaves it in the space, and there is
+              nothing here to leave. Nothing is deleted either — which is why it takes no confirm,
+              unlike the trash on a page or a terminal.
+
+              A direct child of `.panel`, which is what lets the traffic-light padding reach it
+              (`.panel[data-first-leaf] > .panel-bar`) when this empty pane is the first leaf and the
+              sidebar is collapsed. That attribute lives on the panel, not on the bar. */}
+          {!item && p.onCloseEmpty && (
+            <div className="panel-bar panel-bar-empty">
+              <span className="panel-actions">
+                <button className="icon-btn" aria-label="Close this empty pane"
+                  title="Close this pane (⌘W)" onClick={() => p.onCloseEmpty!(n.id)}>
+                  <Icon name="trash" size={14} />
+                </button>
+              </span>
+            </div>
+          )}
           <div className="panel-body">
             {!item && <div className="pane-placeholder muted">Open something from the sidebar.</div>}
             {/* Keyed by item.id: openItem's primary gesture replaces a leaf's item in place, and this

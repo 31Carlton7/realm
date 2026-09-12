@@ -7,6 +7,7 @@ import { MemoryPanel } from "../../components/settings/MemoryPanel";
 import { SkillsPanel } from "../../components/settings/SkillsPanel";
 import { ScopeGroups } from "../../components/scoped/ScopeGroups";
 import { LibraryFiles } from "./LibraryFiles";
+import { SkillViewer } from "./SkillViewer";
 import type { PaneProps } from "../registry";
 
 /* Files leads. Skills and memory are what you INSTALL into a space and change rarely; files are
@@ -35,18 +36,42 @@ export function LibraryPage({ item }: PaneProps) {
   const spaceId = item.spaceId;
   const space = useApp((s) => s.spaces.find((x) => x.id === spaceId));
   const [tab, setTab] = useState<LibraryTab>("files");
+  /* The skill being READ, if any. Store state rather than the tab's kind, because the space page's
+     and the profile page's Skills lists open a skill by naming it here and then opening this page —
+     one skill viewer, reached the same way from all three lists. Opening one replaces the page's
+     body rather than taking a pane: a `SKILL.md` is reading, and design.md gives reading the
+     available width, not a 420px sheet. */
+  const openSkill = useApp((s) => s.librarySkill[spaceId] ?? null);
+  const setLibrarySkill = useApp((s) => s.setLibrarySkill);
+  const skills = useApp((s) => s.spaceSkills[spaceId]);
+  const openName = openSkill === null ? null : skills?.find((sk) => sk.id === openSkill)?.name ?? openSkill;
+  /* Back lands on Skills whatever the tab was, because Skills IS the list this page shows a skill
+     from — and a skill opened from the space page would otherwise close onto Files, a tab the user
+     never chose. */
+  const closeSkill = () => { setLibrarySkill(spaceId, null); setTab("skills"); };
 
   if (!space) return <div className="pane-placeholder muted">This page's space no longer exists.</div>;
 
   return (
     <div className="page library-page-pane">
       <header className="page-head">
-        <div className="page-title"><h1>Library</h1></div>
+        {/* Reading a skill, the head is the skill's — its name is the h1, and the way back to the list
+            is the control immediately left of it. A second "Library" title above a skill's name would
+            be two headings for one page, and the back button already says where back goes. */}
+        {openSkill !== null && (
+          <button type="button" className="icon-btn page-back" aria-label="Back to skills" onClick={closeSkill}>
+            <Icon name="chevronLeft" size={14} />
+          </button>
+        )}
+        <div className="page-title"><h1>{openName ?? "Library"}</h1></div>
         {/* The vantage, kept. It used to live in the sub-title paragraph, and that paragraph went —
             but WHICH space a scope-grouped page is seen from is a fact about what it is showing, not
             decoration, and it is the only place that fact appears. */}
         <span className="page-vantage">{space.name}</span>
       </header>
+      {openSkill !== null ? (
+        <SkillViewer spaceId={spaceId} id={openSkill} onBack={closeSkill} />
+      ) : (
       <div className="page-body">
         <fieldset className="page-rail">
           <legend className="visually-hidden">Library section</legend>
@@ -61,10 +86,11 @@ export function LibraryPage({ item }: PaneProps) {
             column: a band on the body would be drawn over the rail above it. */}
         <PageScroll>
           {tab === "files" && <LibraryFiles spaceId={spaceId} />}
-          {tab === "skills" && <SkillsPanel spaceId={spaceId} />}
+          {tab === "skills" && <SkillsPanel spaceId={spaceId} onOpen={(id) => setLibrarySkill(spaceId, id)} />}
           {tab === "memory" && <LibraryMemoryTab spaceId={spaceId} />}
         </PageScroll>
       </div>
+      )}
     </div>
   );
 }
@@ -139,7 +165,7 @@ function ProfileMemoryRow({ spaceId, profile }: { spaceId: string; profile: Prof
       {/* Plan 14 W2: the defining scope has a real page now, so "Edit in profile" JUMPS there
           (primary); the banner-wearing inline editor below stays as the fallback behind "Edit here…". */}
       {!editing && (
-        <button type="button" className="btn-quiet scope-move" onClick={() => run(() => openProfilePage("memory"))}>Edit in profile…</button>
+        <button type="button" className="btn-quiet scope-move" onClick={() => openProfilePage("memory")}>Edit in profile…</button>
       )}
       <button type="button" className="btn-quiet scope-move" onClick={toggleEditor}>{editing ? "Close" : "Edit here…"}</button>
       <input type="checkbox" role="switch" className="switch" aria-label={`${name} memory in this space`}

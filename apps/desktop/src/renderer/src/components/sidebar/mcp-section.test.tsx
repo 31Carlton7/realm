@@ -252,7 +252,7 @@ describe("scoped server groups (W4)", () => {
     const { store } = await mount({ mcpServers: scopedServers() });
     const row = (await screen.findByText("shared")).closest(".mcp-row") as HTMLElement;
     fireEvent.click(within(row).getByRole("button", { name: "Edit in profile" }));
-    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "profile-page")).toBe(true));
+    await waitFor(() => expect((store.getState().pageOverlay?.kind === "profile-page")).toBe(true));
     expect(store.getState().profilePageTab.p1).toBe("connections");
     // A jump, not the inline editor: no form opened in the row.
     expect(within(row).queryByRole("textbox", { name: "Server name" })).toBeNull();

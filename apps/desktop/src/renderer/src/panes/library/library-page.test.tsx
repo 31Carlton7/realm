@@ -76,7 +76,7 @@ describe("the Library page (Plan 12 W4)", () => {
     const { store } = await mount();
     fireEvent.click(screen.getByRole("radio", { name: "Memory" }));
     fireEvent.click(await screen.findByRole("button", { name: "Edit in profile…" }));
-    await waitFor(() => expect(store.getState().items.some((i) => i.kind === "profile-page")).toBe(true));
+    await waitFor(() => expect((store.getState().pageOverlay?.kind === "profile-page")).toBe(true));
     expect(store.getState().profilePageTab.p1).toBe("memory");
     // A jump, not the inline editor.
     expect(screen.queryByRole("textbox", { name: "Work memory document" })).toBeNull();

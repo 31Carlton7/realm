@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../../state/store";
 import { BreakdownBars, BudgetMeter, Legend, Sparkline, StackedColumns, seriesColor } from "./Charts";
 import { ActivityCalendar } from "./ActivityCalendar";
+import { PlanCard } from "./PlanCard";
 
 /**
  * Settings → Usage: what the agents did, what it cost, and how that sits against a budget.
@@ -38,6 +39,7 @@ const DIMENSION_LABEL: Record<UsageDimension, string> = {
 export function UsagePanel() {
   const run = useApp((s) => s.run);
   const usageSummary = useApp((s) => s.usageSummary);
+  const refreshPlanLimits = useApp((s) => s.refreshPlanLimits);
   const setUsageBudget = useApp((s) => s.setUsageBudget);
   const spaces = useApp((s) => s.spaces);
   const activeSpaceId = useApp((s) => s.activeSpaceId);
@@ -79,6 +81,10 @@ export function UsagePanel() {
   }, [usageSummary, window, scope]);
 
   useEffect(() => { void run(load); }, [run, load]);
+  /* The plan quota, read once when the tab opens. Live changes arrive on `limits.changed`, so this is
+     only the panel catching up on what providers reported before anyone looked. Deliberately not part
+     of `load` above: that one re-runs on every range and scope change, and a plan quota has neither. */
+  useEffect(() => { void run(refreshPlanLimits); }, [run, refreshPlanLimits]);
 
   const rows = data?.breakdowns[dimension] ?? [];
   const value = (t: { costUsd: number; inputTokens: number; outputTokens: number }) =>
@@ -168,6 +174,10 @@ function UsageBody({ data, metric, dimension, setDimension, rows, value, format,
       </section>
 
       <BudgetCard data={data} onSave={onSaveBudget} />
+
+      {/* After the budget, because the two answer different owners' questions in the right order:
+          the budget is the ceiling the USER set, the plan is the ceiling the PROVIDER sets. */}
+      <PlanCard />
 
       {/* Outside the filter row's scope on purpose — see ActivityCalendar. Placed after the budget so
           the page reads money first, then rhythm: the tiles and the meter answer "what is this

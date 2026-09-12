@@ -10,6 +10,10 @@ export * from "./attachments";
 export * from "./media";
 export * from "./scoping";
 export * from "./skills";
+export * from "./commands";
+export * from "./scripts";
+export * from "./keybindings";
+export * from "./project-search";
 export * from "./mentions";
 export * from "./mcp";
 export * from "./memory";
@@ -48,5 +52,11 @@ export * from "./connectors";
 export * from "./machine";
 export * from "./simulator";
 export * from "./goal";
+export * from "./egg-pack";
 export * from "./sandbox";
+/* A different feature that shares a word — the Seatbelt policy an agent or shell is SPAWNED under,
+   not a VNC endpoint somewhere else. Every name in it is `ExecutionSandbox*`/`EXECUTION_SANDBOX_*`
+   precisely so the two can sit in one barrel without either one shadowing the other. */
+export * from "./execution-sandbox";
 export * from "./keysym";
+export * from "./session-refs";

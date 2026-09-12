@@ -283,6 +283,16 @@ export class SecretStore {
     try { return this.key("machine").toString("base64"); } catch { return null; }
   }
 
+  /** The `eggs` key: what remembers a friend group's word between launches.
+   *
+   *  Null degrades the way oauth's does rather than the way machine's does — the word is remembered
+   *  in the clear instead of not at all. What it unlocks is a joke about somebody's friends, and the
+   *  alternative is asking them to type it at every launch forever. */
+  exportEggsKey(): string | null {
+    if (!this.available) return null;
+    try { return this.key("eggs").toString("base64"); } catch { return null; }
+  }
+
   /* ------------------------------------ file ------------------------------------ */
 
   private key(domain: SecretDomain): Buffer {
@@ -335,26 +345,36 @@ export class SecretStore {
              launch after an update, because a feature nobody had used yet wanted a third key.
              Minted and folded in beside the other two instead — the existing keys are untouched, so
              nothing sealed under them stops opening. */
-          let machine: Buffer = Buffer.from(String(json.machine ?? ""), "base64");
-          if (machine.length !== SECRET_KEY_BYTES) {
-            machine = newSecretKey();
-            file.keyring = this.d.safeStorage
-              .encryptString(JSON.stringify({ ...json, machine: machine.toString("base64") }))
-              .toString("base64");
+          /* `machine` and `eggs` were both added after this keyring's shape was settled, and both
+             are folded in the same way and for the reason above: a missing domain is a key to mint,
+             never a corrupt keyring to discard. */
+          const added: Record<string, string> = {};
+          const fold = (name: "machine" | "eggs"): Buffer => {
+            const existing = Buffer.from(String(json[name] ?? ""), "base64");
+            if (existing.length === SECRET_KEY_BYTES) return existing;
+            const minted = newSecretKey();
+            added[name] = minted.toString("base64");
+            return minted;
+          };
+          const machine = fold("machine");
+          const eggs = fold("eggs");
+          if (Object.keys(added).length > 0) {
+            file.keyring = this.d.safeStorage.encryptString(JSON.stringify({ ...json, ...added })).toString("base64");
             this.file = file;
             this.save();
           }
-          return { oauth, credential, machine };
+          return { oauth, credential, machine, eggs };
         }
       } catch { /* falls through to a fresh keyring */ }
       file.credentials = [];
     }
-    const keys = { oauth: newSecretKey(), credential: newSecretKey(), machine: newSecretKey() };
+    const keys = { oauth: newSecretKey(), credential: newSecretKey(), machine: newSecretKey(), eggs: newSecretKey() };
     file.keyring = this.d.safeStorage
       .encryptString(JSON.stringify({
         oauth: keys.oauth.toString("base64"),
         credential: keys.credential.toString("base64"),
         machine: keys.machine.toString("base64"),
+        eggs: keys.eggs.toString("base64"),
       }))
       .toString("base64");
     this.file = file;

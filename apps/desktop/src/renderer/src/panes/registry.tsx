@@ -2,8 +2,9 @@ import type { Item } from "@realm/contracts";
 import type { MenuItem } from "../components/Menu";
 import type { ComponentType, JSX } from "react";
 import { PlaceholderPane } from "./PlaceholderPane";
-import { SessionMeta, SessionPanelActions } from "./session/SessionPane";
+import { SessionMeta, SessionPanelActions, useSessionMenuItems } from "./session/SessionPane";
 import { MachineMeta, MachinePanelActions, useMachineMenuItems } from "./machine/MachineBar";
+import { SimulatorMeta, SimulatorPanelActions } from "./simulator/SimulatorBar";
 import { TerminalMeta } from "./TerminalMeta";
 
 /** `focused`: the pane sits in the focused leaf (keyboard target — e.g. permission autofocus). */
@@ -19,13 +20,23 @@ export function PaneFor(props: PaneProps) {
 export const paneMeta: Partial<Record<Item["kind"], (p: { item: Item }) => JSX.Element | null>> = {
   session: SessionMeta, // model label + status dot + cost, moved out of SessionPane's old header
   machine: MachineMeta,  // the state word, and the guest's live resolution in mono (Plan 25 W3)
+  simulator: SimulatorMeta, // the same pair for a device: what the stream is doing, and its resolution
   terminal: TerminalMeta, // "Replayed" or "Not running", and nothing at all while the pane is live
 };
 
-/** Optional per-kind icon buttons in the PanelBar's action cluster, left of the ⋯ menu. */
-export const paneActions: Partial<Record<Item["kind"], (p: { item: Item }) => JSX.Element | null>> = {
+/**
+ * Optional per-kind icon buttons in the PanelBar's action cluster, left of the ⋯ menu.
+ *
+ * `keep` is how many of them the bar still has room to DRAW (components/pane-bar-fit.ts). The kind
+ * renders that many and hands the rest to its own `usePaneMenuItems` below, which is why both take
+ * the same number: one budget, two halves of one cluster, and no way for them to disagree about
+ * where a given action currently is. A kind whose bar has no ⋯ to overflow into — the browser's —
+ * is given `Infinity` by PanelBar and keeps every button.
+ */
+export const paneActions: Partial<Record<Item["kind"], (p: { item: Item; keep: number }) => JSX.Element | null>> = {
   session: SessionPanelActions, // branch/diff + the session's own terminal drawer (Ara refresh §6)
   machine: MachinePanelActions, // one lit toggle: connected or not (Plan 25 W3)
+  simulator: SimulatorPanelActions, // the device's hardware buttons, and the stream's off switch
 };
 
 /**
@@ -42,7 +53,12 @@ export const paneActions: Partial<Record<Item["kind"], (p: { item: Item }) => JS
  * `PanelBar` stays kind-agnostic, which is its whole point: a pane bar is the same bar everywhere,
  * and a machine-shaped `if` in it would be the start of the opposite.
  */
-export function usePaneMenuItems(item: Item): MenuItem[] {
-  const machine = useMachineMenuItems(item);
+export function usePaneMenuItems(item: Item, keep: number): MenuItem[] {
+  /* Both hooks, every time, in a fixed order — see the note above. `keep` reaches them because the
+     rows an action contributes depend on whether its BUTTON is still in the bar: the overflow is
+     the same cluster, continued, not a second copy of it. */
+  const session = useSessionMenuItems(item, keep);
+  const machine = useMachineMenuItems(item, keep);
+  if (item.kind === "session") return session;
   return item.kind === "machine" ? machine : [];
 }

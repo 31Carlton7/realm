@@ -16,9 +16,22 @@ export function transcriptForSummary(events: readonly StoredSessionEvent[]): str
 
 /** Event types that say nothing a summary would repeat: the meter, the session's own state, and the
  *  summaries themselves. */
-const NOT_SUMMARY_WORTHY = new Set<SessionEvent["type"]>(["status", "usage", "summary", "feedback", "assistant_delta"]);
+const NOT_SUMMARY_WORTHY = new Set<SessionEvent["type"]>([
+  "status", "usage", "summary", "prompt_hint", "feedback", "assistant_delta", "rate_limit",
+]);
 
-export type SummaryGenerator = (input: { asked: string; transcript: string; facts: string }) => Promise<string>;
+/**
+ * How long a session stays quiet before its recap is written.
+ *
+ * Chosen against two opposing costs rather than picked round: long enough that a back-and-forth —
+ * settle, read, reply — buys one recap instead of one per turn, and short enough that the hint lands
+ * while the reader is still on the transcript. Past about four seconds the swap starts happening
+ * under a hand that is already reaching for ⇥, which is the one thing the hint must not do.
+ */
+export const RECAP_DEBOUNCE_MS = 2_500;
+
+export type RecapGenerator = (input: { asked: string; transcript: string; facts: string })
+  => Promise<{ summary: string; hint: string | null }>;
 
 export type SummaryServiceDeps = {
   /** Every persisted event for a session, ascending. */
@@ -28,15 +41,36 @@ export type SummaryServiceDeps = {
   /** Persist + broadcast, exactly as any other event on the rail. */
   publish: (sessionId: string, event: SessionEvent) => void;
   /** Omitted on any build that must not make a billed call — tests, live-check scripts. */
-  generate?: SummaryGenerator;
+  generate?: RecapGenerator;
   /** Whether the machine can actually run one. Checked BEFORE the call so a user with no Claude CLI
    *  installed pays nothing and sees the derived line, rather than a failed call per settled turn. */
   available?: () => boolean | Promise<boolean>;
   onError?: (message: string) => void;
+  /**
+   * How long a session must stay idle before its recap is written. 0 runs inline.
+   *
+   * The gate this closes: a recap fires on EVERY settle, so a rapid back-and-forth pays for one per
+   * exchange — each superseded seconds later by the next, and none of them read. Waiting for the
+   * session to actually go quiet spends once for the exchange instead of once per turn.
+   *
+   * The cost is that the model-written hint arrives LATE: the prompter shows the deterministic one
+   * first and swaps when this lands. That is the same way the summary has always arrived, but the
+   * hint is a target for ⇥ — so this wants to be short enough that the swap happens while the reader
+   * is still on the transcript, not while their hand is on the key.
+   */
+  debounceMs?: number;
+  /** Whether the session is idle RIGHT NOW, asked when the timer fires rather than when it is set: a
+   *  new turn started during the wait means this settle's recap is about to be superseded anyway. */
+  isIdle?: (sessionId: string) => boolean;
 };
 
 /**
- * Writes the model's account of a session, once per settled turn.
+ * Writes the model's account of a session AND the prompter's next-move hint, once per settled turn.
+ *
+ * One call for both, because the inputs are identical: a second `query()` on the same settle read the
+ * same transcript again to answer a second short question. The coupling that buys is real and stated
+ * here rather than discovered — a failed call now costs both fields, so a session falls back to the
+ * derived summary line and the deterministic hint together.
  *
  * Gated four ways before it spends anything, because this fires on EVERY settle and a summary is a
  * nicety attached to the ordinary case:
@@ -58,11 +92,43 @@ export class SessionSummaryService {
   private inFlight = new Set<string>();
   /** Latched off once the machine says it cannot run one. */
   private disabled = false;
+  /** One pending write per session, re-armed by each settle. */
+  private pending = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(private d: SummaryServiceDeps) {}
 
-  /** Fire-and-forget. Returns a promise only so tests can await it; callers `void` this. */
+  /** Drop every pending write. Called on shutdown: a timer holding the process open after close is
+   *  the difference between a suite that exits and one that hangs. */
+  close(): void {
+    for (const t of this.pending.values()) clearTimeout(t);
+    this.pending.clear();
+  }
+
+  /**
+   * Fire-and-forget. Returns a promise only so tests can await it; callers `void` this.
+   *
+   * Re-arms rather than queues: a second settle inside the window replaces the first, so an exchange
+   * of six turns buys one recap and not six. With no `debounceMs` this runs inline, which is what
+   * every test and live check does.
+   */
   async onSettled(sessionId: string): Promise<void> {
+    const wait = this.d.debounceMs ?? 0;
+    if (wait <= 0) return this.write(sessionId);
+    const armed = this.pending.get(sessionId);
+    if (armed) clearTimeout(armed);
+    const timer = setTimeout(() => {
+      this.pending.delete(sessionId);
+      // A turn that started during the wait will settle on its own and re-arm this; writing now
+      // would pay for a recap of a transcript that is still being added to.
+      if (this.d.isIdle && !this.d.isIdle(sessionId)) return;
+      void this.write(sessionId).catch(() => {});
+    }, wait);
+    // A recap is a nicety: it must never be the reason the process stays alive.
+    timer.unref?.();
+    this.pending.set(sessionId, timer);
+  }
+
+  private async write(sessionId: string): Promise<void> {
     if (this.disabled || !this.d.generate || this.inFlight.has(sessionId)) return;
     const events = this.d.listEvents(sessionId);
     if (events.length === 0) return;
@@ -87,15 +153,21 @@ export class SessionSummaryService {
 
     this.inFlight.add(sessionId);
     try {
-      const text = await this.d.generate({
+      const recap = await this.d.generate({
         asked: facts.asked,
         transcript: transcriptForSummary(events),
         facts: factLines(facts),
       });
-      if (text.trim()) this.d.publish(sessionId, sessionEvent("summary", { text: text.trim(), throughSeq }));
+      if (recap.summary.trim()) this.d.publish(sessionId, sessionEvent("summary", { text: recap.summary.trim(), throughSeq }));
+      /* The prompter's hint rides the SAME answer — one call reads the transcript once and fills both
+         fields. Two events rather than one, because they are consumed in different places and have
+         different lifetimes: a summary stands until a newer one replaces it, and a hint is dropped
+         the moment the user sends anything (see the transcript reducer). A declined hint is null and
+         simply writes no event, which is what leaves the prompter on its deterministic ladder. */
+      if (recap.hint?.trim()) this.d.publish(sessionId, sessionEvent("prompt_hint", { text: recap.hint.trim(), throughSeq }));
     } catch (e) {
       // One line, once — not once per settled turn on a machine that will never answer.
-      this.d.onError?.(`[summary] ${e instanceof Error ? e.message : String(e)}`);
+      this.d.onError?.(`[recap] ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       this.inFlight.delete(sessionId);
     }

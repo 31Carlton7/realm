@@ -3,7 +3,6 @@ import { Icon } from "@realm/ui";
 import { allItems, type Item, type PaneGroup, type SpaceGroups } from "@realm/contracts";
 import { useApp, useAppStore, useProfileSpaces } from "../../state/store";
 import { createDragSwipe, type SwipePhase, type SwipeUpdate } from "../../state/gesture";
-import { SpaceHeader } from "./SpaceHeader";
 import { PinnedGrid } from "./PinnedGrid";
 import { ItemList } from "./ItemList";
 
@@ -159,9 +158,10 @@ export function SpaceSwiper() {
     <div className="swiper" data-swiper ref={hostRef} onWheel={onWheel}
       onPointerEnter={() => { hoverRef.current = true; }} onPointerLeave={() => { hoverRef.current = false; }}>
       <div className="swiper-track" ref={trackRef} style={{ transform: base(index) }}>
+        {/* A page is its ROWS. The space's name heads the whole column now (Sidebar.tsx) — one per
+            page was one "Space menu" button per space, all with the same accessible name. */}
         {spaces.map((sp) => (
           <div key={sp.id} className="space-page" data-space-page={sp.id} aria-hidden={sp.id !== activeSpaceId || undefined} inert={sp.id !== activeSpaceId || undefined}>
-            <SpaceHeader space={sp} />
             {sp.id === activeSpaceId ? <ActiveSpaceBody /> : leaving?.id === sp.id ? <SpaceBody items={leaving.items} groups={leaving.groups} /> : null}
           </div>
         ))}

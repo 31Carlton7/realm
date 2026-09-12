@@ -11,6 +11,11 @@ const P = {
     text: z.string(),
     attachments: z.array(z.object({ path: z.string(), mime: z.string() })),
     from: z.object({ sessionId: z.string(), title: z.string() }).optional(),
+    /** This turn was written by the session's own goal rather than typed by anyone — a continuation,
+     *  or the handover a spent budget asks for. Absent on everything a person sent, including the
+     *  objective itself, which the user really did write. The transcript attributes it for `from`'s
+     *  reason: a reader must never come away believing they typed it. */
+    goal: z.enum(["continuation", "budget"]).optional(),
   }),
   assistant_text: z.object({ messageId: z.string(), text: z.string() }),
   assistant_delta: z.object({ messageId: z.string(), delta: z.string() }),
@@ -63,6 +68,20 @@ const P = {
    * a moment and will be wrong by the time anyone re-reads the log. The server folds it into
    * per-agent state instead, where the newest reading simply replaces the last.
    */
+  /**
+   * The next-move suggestion the prompter offers as its hint text, written by a model once per
+   * settled turn (`PromptHintService`).
+   *
+   * Persisted, and `throughSeq` is why: a hint is about the turn that just ended, so reopening a
+   * session should find the same suggestion rather than pay for it again — and an out-of-order
+   * arrival must not overwrite a newer one. The renderer drops it the moment the user sends
+   * anything, because at that point it is a suggestion about a turn that is no longer the last one.
+   *
+   * Absence is ordinary, not a failure: no generator, no Claude CLI, nothing worth suggesting, or a
+   * call that failed all land here as "no event", and the prompter falls back to the deterministic
+   * ladder in `prompt-hint.ts`.
+   */
+  prompt_hint: z.object({ text: z.string(), throughSeq: z.number().int() }),
   rate_limit: z.object({
     subscriptionType: z.string().nullable(),
     organization: z.string().nullable(),
@@ -283,6 +302,7 @@ export const SessionEventSchema = z.discriminatedUnion("type", [
   variant("feedback"),
   variant("summary"),
   variant("rate_limit"),
+  variant("prompt_hint"),
 ]);
 
 export type SessionEvent = z.infer<typeof SessionEventSchema>;
@@ -294,7 +314,7 @@ export function sessionEvent<T extends SessionEventType>(type: T, payload: Sessi
 }
 
 /** Event types the server persists; the rest (assistant_delta) are ephemeral. */
-export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff", "compacted", "context_reset", "summary"];
+export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff", "compacted", "context_reset", "summary", "prompt_hint"];
 
 export const StoredSessionEventSchema = z.object({ seq: z.number().int(), sessionId: z.string(), event: SessionEventSchema });
 export type StoredSessionEvent = { seq: number; sessionId: string; event: SessionEvent };

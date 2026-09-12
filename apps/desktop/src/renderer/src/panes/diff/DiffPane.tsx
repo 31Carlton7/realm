@@ -1,7 +1,8 @@
 import type { DiffFile, FileDiff, ReviewResult, ShipResult } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { relativeTime } from "../../components/CheckpointsSheet";
+import { useDissolve } from "../../components/ScrollFades";
 import { Markdown } from "../session/Markdown";
 import { patchKey, useApp } from "../../state/store";
 import type { PaneProps } from "../registry";
@@ -232,6 +233,11 @@ export function DiffPane({ item }: PaneProps) {
   const refreshReview = useApp((s) => s.refreshReview);
   const run = useApp((s) => s.run);
 
+  /* The list dissolves into the commit box below it rather than being cut off at it. Up here with
+     the other hooks, not beside the markup it belongs to: three early returns follow. */
+  const fileList = useRef<HTMLDivElement>(null);
+  useDissolve(fileList);
+
   useEffect(() => { if (cwd) run(() => refreshDiff(cwd)); }, [cwd, refreshDiff, run]);
   // The persisted verdict (W3): fetched per ENVIRONMENT — a reload lands back on whatever the last
   // review said, until a new review, a dismissal, or a ship clears it.
@@ -252,7 +258,6 @@ export function DiffPane({ item }: PaneProps) {
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); doShip(true); }
   };
-
   return (
     <div className="diff-pane">
       <div className="diff-head">
@@ -276,14 +281,11 @@ export function DiffPane({ item }: PaneProps) {
       )}
 
       <div className="diff-list-wrap">
-        <div className="diff-list">
+        <div className="diff-list" ref={fileList}>
           {files.length === 0
             ? <div className="diff-empty">Nothing has changed in this checkout since the last commit.</div>
             : files.map((f) => <FileRow key={f.path} cwd={cwd} file={f} />)}
         </div>
-        {/* A sibling of the scroller, never a child: nested, its backdrop-filter would sample the
-            scroller's own clipped content and blur nothing. */}
-        <div className="diff-fade" aria-hidden="true" />
       </div>
 
       {review && <ReviewSection environmentId={environmentId} review={review} />}

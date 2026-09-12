@@ -25,9 +25,25 @@ describe("documentKindFor", () => {
 
   it("answers unsupported for binaries and extensionless files", () => {
     expect(documentKindFor("image.png")).toBe("unsupported");
+    // Extensionless, so nothing to match on. `Makefile` and `Dockerfile` are genuinely editable text
+    // and this is the honest limit of an extension-only table, not a judgement that they are not code.
     expect(documentKindFor("Makefile")).toBe("unsupported");
-    // A dotfile is name-only; its leading dot must not read as an extension.
-    expect(documentKindFor(".gitignore")).toBe("unsupported");
+    expect(documentKindFor("archive.zip")).toBe("unsupported");
+  });
+
+  it("answers code for source files, and leaves the rich-text kinds where they were", () => {
+    expect(documentKindFor("src/app.tsx")).toBe("code");
+    expect(documentKindFor("main.py")).toBe("code");
+    expect(documentKindFor("Cargo.toml")).toBe("code");
+    // A dotfile's name lands in the extension slot, which is how `.gitignore` finds an editor at all.
+    expect(documentKindFor(".gitignore")).toBe("code");
+    /* THE MUTANT: add `md`, `html` or `csv` to CODE_EXT. Each already has an editor a user relies on,
+       and moving one here turns every Markdown document in the app into a code buffer — a regression
+       wearing a feature's clothes. */
+    expect(documentKindFor("notes.md")).toBe("doc");
+    expect(documentKindFor("page.html")).toBe("html");
+    expect(documentKindFor("rows.csv")).toBe("sheet");
+    expect(documentKindFor("paper.tex")).toBe("latex");
   });
 
   it("answers preview for the formats macOS can render and Realm cannot edit", () => {
@@ -213,9 +229,10 @@ describe("surfacing a document an agent wrote", () => {
     expect(shouldSurfaceWrite("Write", { file_path: "/w/budget.csv" })).toBe("/w/budget.csv");
   });
 
-  it("ignores a kind the pane cannot render", () => {
-    // Opening a `.ts` in a documents pane puts source code behind a rich-text editor, and a `.zip`
-    // opens nothing at all. The pane is for documents; this is the line that keeps it that way.
+  it("ignores source code and anything the pane cannot render", () => {
+    /* A `.zip` opens nothing at all. A `.ts` now HAS an editor — and is still not surfaced, because
+       an agent writing source files is the ordinary business of a coding tool and a tab per file
+       would bury the session under its own output. See `shouldSurfaceWrite`. */
     expect(shouldSurfaceWrite("Write", { file_path: "/w/index.ts" })).toBeNull();
     expect(shouldSurfaceWrite("Write", { file_path: "/w/bundle.zip" })).toBeNull();
   });

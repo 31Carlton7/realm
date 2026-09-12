@@ -12,14 +12,27 @@ export class TerminalManager {
   private lastDataAt = new Map<string, number>();
   constructor(private cb: TerminalCallbacks, private now: () => number = Date.now) {}
 
-  create(opts: { id?: string; cwd: string; cols: number; rows: number; shell?: string; env?: Record<string, string> }): { id: string; shell: string } {
+  create(opts: {
+    id?: string; cwd: string; cols: number; rows: number; shell?: string; env?: Record<string, string>;
+    /**
+     * Last look at the argv before it becomes a process — the execution sandbox's hook (see
+     * `TerminalService.wrapFor`). Given the shell and its arguments, it returns what to spawn
+     * instead, which for a sandboxed space is `sandbox-exec` with the shell behind a `--`.
+     *
+     * It **may throw**, and a throw must reach the caller: that is the fail-closed gate, and
+     * swallowing it here would spawn an unconfined shell in a space whose Settings say otherwise.
+     * Absent means spawn exactly what this function has always spawned.
+     */
+    wrap?: (command: string, args: string[]) => { command: string; args: string[] };
+  }): { id: string; shell: string } {
     const id = opts.id ?? newId();
     const shell = opts.shell ?? process.env.SHELL ?? "/bin/zsh";
     // Login shell (`-l`): a non-login zsh never reads /etc/zprofile, so path_helper's PATH (and the
     // user's ~/.zprofile additions) are missing — visible in a packaged app, where the inherited env
     // is launchd's, not a terminal's. bash/zsh/fish/sh all accept -l; Windows shells do not.
     const args = process.platform === "win32" ? [] : ["-l"];
-    const p = pty.spawn(shell, args, {
+    const spawned = opts.wrap ? opts.wrap(shell, args) : { command: shell, args };
+    const p = pty.spawn(spawned.command, spawned.args, {
       name: "xterm-256color", cwd: opts.cwd, cols: clamp(opts.cols, 2, MAX_COLS), rows: clamp(opts.rows, 1, MAX_ROWS),
       env: { ...process.env, ...opts.env, TERM_PROGRAM: "Realm" } as Record<string, string>,
     });
@@ -35,6 +48,9 @@ export class TerminalManager {
     // Seed from spawn, not from first output: a shell that has not printed *yet* is the one case a
     // prefill must wait for, and an unset timestamp would read as "quiet since the epoch".
     this.lastDataAt.set(id, this.now());
+    // The LOGICAL shell, not `spawned.command`. The caller stores this in the terminals row, and a
+    // row that said `/usr/bin/sandbox-exec` would come back from `restoreAll` doubly wrapped — and
+    // would keep the old policy frozen into the DB after the user changed it.
     return { id, shell };
   }
   has(id: string): boolean { return this.terms.has(id); }
