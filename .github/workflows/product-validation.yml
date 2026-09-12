@@ -1,0 +1,27 @@
+name: Product validation
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sidebar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Gesture behavior
+        run: node scripts/validate-sidebar.mjs gesture
+      - name: Rendered evidence gate
+        if: always()
+        run: node scripts/validate-sidebar.mjs visual
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sidebar-validation-${{ github.event.pull_request.head.sha || github.sha }}
+          path: .validation/
+          if-no-files-found: error

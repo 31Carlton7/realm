@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "tabellio-validation/v0.2",
+  "id": "realm-sidebar-validation",
+  "failFast": false,
+  "requireEntireCheckpoint": false,
+  "acceptance": {
+    "id": "sidebar-swipe-intent",
+    "source": "docs/dev/sidebar-validation.md",
+    "risk": "low",
+    "outcomes": [
+      "A single space remains stationary",
+      "Multiple spaces require deliberate horizontal input"
+    ],
+    "invariants": [
+      "Vertical scrolling and intentional space switching remain usable"
+    ],
+    "forbiddenOutcomes": [
+      "Accidental horizontal drift",
+      "Unverified rendered behavior reported as passed"
+    ],
+    "requiredValidatorTypes": [
+      "workflow",
+      "visual"
+    ]
+  },
+  "validators": [
+    {
+      "id": "sidebar-gesture",
+      "type": "workflow",
+      "argv": [
+        "node",
+        "scripts/validate-sidebar.mjs",
+        "gesture"
+      ],
+      "cwd": ".",
+      "timeoutMs": 150000,
+      "required": true,
+      "evidence": {
+        "path": ".validation/gesture.json"
+      },
+      "policy": {
+        "metricThresholds": [],
+        "maxCostUsd": null,
+        "requireCostTelemetry": false
+      }
+    },
+    {
+      "id": "sidebar-visual",
+      "type": "visual",
+      "argv": [
+        "node",
+        "scripts/validate-sidebar.mjs",
+        "visual"
+      ],
+      "cwd": ".",
+      "timeoutMs": 10000,
+      "required": true,
+      "evidence": {
+        "path": ".validation/visual.json"
+      },
+      "policy": {
+        "metricThresholds": [],
+        "maxCostUsd": null,
+        "requireCostTelemetry": false
+      }
+    }
+  ]
+}

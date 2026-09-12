@@ -43,6 +43,7 @@ export function createDragSwipe(opts: { width: number; commitFraction?: number; 
   let shown = 0;             // rubber-adjusted offset actually shown
   let locked = false;        // after a commit / during momentum: swallow deltas
   let dragging = false;
+  let pendingX = 0;
   let lastCommitDir: "next" | "prev" | null = null;
   let fingersDown = false;   // only meaningful with native phases
   let hasPhases = false;     // once we've seen any phase, timers stop deciding
@@ -50,7 +51,7 @@ export function createDragSwipe(opts: { width: number; commitFraction?: number; 
   let lastBounds: SwipeBounds = { canPrev: true, canNext: true };
   let samples: Array<{ dx: number; ts: number }> = [];
 
-  const reset = () => { acc = 0; shown = 0; locked = false; dragging = false; samples = []; };
+  const reset = () => { acc = 0; shown = 0; locked = false; dragging = false; pendingX = 0; samples = []; };
 
   /** Mean px/ms over the last 100ms. The first sample in the window contributes its *timestamp*, not
    *  its delta: that delta was travelled before the window opened, and counting it against zero
@@ -87,6 +88,11 @@ export function createDragSwipe(opts: { width: number; commitFraction?: number; 
   return {
     wheel(dx: number, dy: number, ts: number, bounds: SwipeBounds): SwipeUpdate {
       lastBounds = bounds;
+      if (!bounds.canPrev && !bounds.canNext) {
+        const displaced = shown !== 0;
+        reset();
+        return displaced ? { type: "settle" } : { type: "ignore" };
+      }
       if (!hasPhases && ts - lastTs > idleMs) reset(); // fallback: long gap = new gesture
       lastTs = ts;
       if (locked) {
@@ -96,9 +102,14 @@ export function createDragSwipe(opts: { width: number; commitFraction?: number; 
         else return { type: "ignore" };
       }
       if (hasPhases && !fingersDown) return { type: "ignore" }; // stray delta after lift (e.g. momentum) — never displaces
-      if (!dragging && Math.abs(dy) > Math.abs(dx)) return { type: "ignore" }; // vertical scroll
-      dragging = true;
-      acc += dx;
+      if (!dragging) {
+        // Require horizontal intent before moving content, not merely before committing a page.
+        if (Math.abs(dx) <= Math.abs(dy) * 1.5) { pendingX = 0; return { type: "ignore" }; }
+        pendingX += dx;
+        if (Math.abs(pendingX) < 6) return { type: "ignore" };
+        dragging = true;
+        acc = pendingX;
+      } else acc += dx;
       samples.push({ dx, ts });
 
       const wall = (acc > 0 && !bounds.canNext) || (acc < 0 && !bounds.canPrev);
@@ -121,7 +132,7 @@ export function createDragSwipe(opts: { width: number; commitFraction?: number; 
       lastTs = ts;
       switch (p) {
         case "began":
-          fingersDown = true; locked = false; acc = 0; shown = 0; dragging = false; samples = [];
+          fingersDown = true; reset();
           return { type: "ignore" };
         case "changed":
           return { type: "ignore" };
