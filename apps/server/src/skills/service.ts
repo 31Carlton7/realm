@@ -80,7 +80,7 @@ export function bundledSkillsDir(): string | null {
 export class SkillsService {
   readonly root: string;
   constructor(private d: {
-    home: string; settings: SettingsStore; bundledDir?: string | null;
+    home: string; userHome?: string; codexHome?: string; settings: SettingsStore; bundledDir?: string | null;
     /** W2: space → profile, for scope resolution. Optional like `McpService.scopes`: unwired, every
      *  space reads as profile-less, profile-scoped skills apply nowhere, pre-scoping skills everywhere. */
     scopes?: { profileIdOf(spaceId: string): string | null };
@@ -112,7 +112,7 @@ export class SkillsService {
   /** Every skill directory visible to this space, deduped by realpath. Enumerated fresh each call. */
   private discover(spaceId: string | null): { entries: Discovered[]; roots: ScanRoot[] } {
     const projectDir = spaceId ? this.d.spaces?.folderPathOf(spaceId) ?? null : null;
-    const roots = buildScanRoots({ home: this.d.home, libraryRoot: this.root, projectDir, extraRoots: this.scanRoots() });
+    const roots = buildScanRoots({ home: this.d.userHome ?? this.d.home, codexHome: this.d.codexHome, libraryRoot: this.root, projectDir, extraRoots: this.scanRoots() });
     return { entries: scan(roots), roots };
   }
 

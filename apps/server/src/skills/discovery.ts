@@ -110,11 +110,11 @@ export function pluginRoots(home: string): ScanRoot[] {
  * and symlinked into `~/.agents/skills` is the library's, with the library's id and the library's
  * writability, rather than appearing twice.
  */
-export function scanRoots(d: { home: string; libraryRoot: string; projectDir?: string | null; extraRoots?: string[] }): ScanRoot[] {
+export function scanRoots(d: { home: string; codexHome?: string; libraryRoot: string; projectDir?: string | null; extraRoots?: string[] }): ScanRoot[] {
   const roots: ScanRoot[] = [{ kind: "library", key: "library", label: "Realm library", path: d.libraryRoot }];
 
   for (const { key, rel } of USER_DIRS) {
-    const path = join(d.home, rel);
+    const path = key === "codex" && d.codexHome ? join(d.codexHome, "skills") : join(d.home, rel);
     if (isDir(path)) roots.push({ kind: "user", key, label: tildify(path, d.home), path });
   }
 

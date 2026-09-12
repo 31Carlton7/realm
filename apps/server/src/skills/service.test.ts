@@ -33,6 +33,20 @@ const ids = (spaceId = SPACE) => service.list(spaceId).skills.map((s) => s.id);
 const byId = (id: string, spaceId = SPACE) => service.list(spaceId).skills.find((s) => s.id === id)!;
 const staged = (inj: { root: string }) => readdirSync(inj.root).sort();
 
+it("discovers user and overridden Codex roots independently of Realm's library", () => {
+  const userHome = join(home, "User");
+  const codexHome = join(home, "SelectedCodex");
+  skill(join(userHome, ".agents", "skills"), "shared");
+  skill(join(codexHome, "skills"), "native");
+  skill(join(userHome, ".codex", "skills"), "wrong-codex");
+  service = new SkillsService({ home, userHome, codexHome, settings, bundledDir: bundled });
+  expect(ids()).toContain("agents.shared");
+  expect(ids()).toContain("codex.native");
+  expect(ids()).not.toContain("codex.wrong-codex");
+  expect(service.root).toBe(join(home, "skills"));
+  expect(byId("codex.native").enabled).toBe(false);
+});
+
 describe("SkillsService.list", () => {
   it("is empty, not an error, before the library directory exists", () => {
     expect(service.list(SPACE)).toEqual({ root: skillsRoot(home), skills: [] });

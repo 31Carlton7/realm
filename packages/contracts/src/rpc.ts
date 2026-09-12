@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CodexSetupScanSchema } from "./codex-setup";
 import type { CliJobStart, CliStatus } from "./cli";
 import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, IconAssetSchema, DocumentWorkspaceSchema, DocumentEntrySchema, DocumentKindSchema } from "./entities";
 
@@ -286,6 +287,10 @@ const CliJobStartSchema = z.object({
 
 /** Method registry: params + result schemas. Server validates params; client types results. */
 export const Methods = {
+  "codexSetup.scan": {
+    params: z.object({ cwd: z.string().min(1), codexHome: z.string().min(1).optional(), extraSkillRoots: z.array(z.string().min(1)).max(32).default([]) }),
+    result: CodexSetupScanSchema,
+  },
   "profiles.list":   { params: z.object({}), result: z.array(ProfileSchema) },
   "profiles.create": { params: z.object({ name: z.string().min(1), icon: z.string().default("user"), color: z.string().default("#6b7280") }), result: ProfileSchema },
   "profiles.update": { params: z.object({ id: IdSchema, name: z.string().min(1).optional(), icon: z.string().optional(), color: z.string().optional(), sortOrder: z.number().int().optional() }), result: ProfileSchema },

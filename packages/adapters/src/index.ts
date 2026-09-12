@@ -12,4 +12,5 @@ export { CodexConnection, type ThreadListener } from "./codex/connection";
 export { createCodexMapper } from "./codex/map-codex";
 export { CodexAdapter, pickCodexDecision, codexPolicyFor } from "./codex/codex-adapter";
 export { probeCodex } from "./codex/probe";
+export { inspectCodexSetup } from "./codex/setup";
 export { AcpAdapter, pickAcpOption, type AcpAgentSpec } from "./acp/acp-adapter";

@@ -1,4 +1,6 @@
 import { agentBin } from "./cli/bins";
+import { homedir } from "node:os";
+import { CodexSetupService } from "./setup/service";
 import { CliService } from "./cli/service";
 import { CliInstaller } from "./cli/install";
 import { openDatabase, type Db } from "./db/database";
@@ -277,7 +279,7 @@ export function defaultAdapters(): AdapterRegistry {
 
 /** `claudeDir` overrides where MemoryService reads user-level Claude files (`~/.claude` otherwise) —
  *  for tests and live checks, which must never depend on (or expose) the real user's memory files. */
-export async function createApp(opts: { home: string; port: number; adapters?: AdapterRegistry; claudeDir?: string;
+export async function createApp(opts: { home: string; port: number; adapters?: AdapterRegistry; claudeDir?: string; userHome?: string; codexHome?: string;
   /** W5 test/live-check knobs for the browser-agent registry: `fallbackKind` (default claude) is the
    *  child agent when the parent's kind has no skills-injection route; `timeouts` shrinks the settle
    *  budget so suites don't wait minutes. Production callers pass neither. */
@@ -363,7 +365,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   };
   // Repo-shipped skills reach the user's library here, once each, before any session can be started.
   const skills = new SkillsService({
-    home: opts.home, settings, scopes: scopeSeam,
+    home: opts.home, userHome: opts.userHome ?? homedir(), codexHome: opts.codexHome ?? process.env.CODEX_HOME, settings, scopes: scopeSeam,
     // The space's own folder, for its project-level skill directories. A space whose folder is gone
     // reads as project-less rather than failing the scan — the rest of the roots are still valid.
     spaces: { folderPathOf: (spaceId: string): string | null => spaces.get(spaceId)?.folderPath ?? null },
@@ -656,6 +658,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // Two shell-outs for two labels: asked for together so boot waits once, not twice.
   const [machine, user] = await Promise.all([machineName(), userFirstName()]);
   registerMethods({
+    codexSetup: new CodexSetupService({ realmHome: opts.home, userHome: opts.userHome, codexHome: opts.codexHome }),
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
     profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, browserPermissions: browserBroker, cli, cliInstaller,
     iconAssets, iconGeneration,
