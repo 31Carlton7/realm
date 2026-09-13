@@ -458,14 +458,16 @@ export class CodexAdapter implements AgentAdapter {
         // back (it no longer waits for a boot that may never settle), so the ref is returned here instead.
         if (disposed) { await releaseOnce(); return; }
         conn = c;
-        const { approvalPolicy, sandbox } = codexPolicyFor(opts.permissionMode);
+      const policy: Partial<ReturnType<typeof codexPolicyFor>> = opts.permissionMode === undefined ? {} : codexPolicyFor(opts.permissionMode);
+const approvalPolicy = opts.approvalPolicy ?? policy.approvalPolicy;
+const sandbox = opts.sandbox ?? policy.sandbox;
         const config = codexMcpConfig(opts.mcpServers);
         // `opts.effort` is deliberately dropped: Codex takes reasoning effort per turn, not per thread, and
         // Realm has no per-turn effort control yet. Claude passes it through; this asymmetry is intentional.
         const common = {
           cwd: opts.cwd,
-          approvalPolicy,
-          sandbox, // a SandboxMode STRING here; the structured object is turn/start's `sandboxPolicy` (§8 gotcha 5)
+          ...(approvalPolicy ? { approvalPolicy } : {}),
+          ...(sandbox ? { sandbox } : {}), // a SandboxMode STRING here; the structured object is turn/start's `sandboxPolicy` (§8 gotcha 5)
           ...(opts.model ? { model: opts.model } : {}),
           ...(config ? { config } : {}),
         };

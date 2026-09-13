@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementContext, scanMentions, sessionEvent, stripMentionAts, type AgentKind, type ElementChip, type Environment, type Session, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
+import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, CodexSetupBindingSchema, DEFAULT_PERMISSION_MODE_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementContext, scanMentions, sessionEvent, stripMentionAts, type AgentKind, type ElementChip, type Environment, type Session, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
 import type { AdapterRegistry, AgentHandle, PermissionDecision, ProbeResult, SkillMention, UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -734,7 +734,20 @@ export class SessionService {
     const systemContext = joined.length > 0 ? joined : undefined;
     let handle: AgentHandle;
     try {
-      handle = adapter.start({ cwd: s.cwd, model: s.model, effort: s.effort, permissionMode: s.permissionMode, fastMode: s.fastMode, mcpServers, resume: s.providerSessionId,
+      const profileId = this.d.spaces.get(s.spaceId)?.profileId;
+      const binding = profileId ? CodexSetupBindingSchema.safeParse(this.d.settings.get(`codexSetup.binding:${profileId}`)) : null;
+      const bindingData = binding?.success ? binding.data : null;
+      const inherited = s.agentKind === "codex" ? bindingData?.overrides ?? null : null;
+      const explicitPermission = s.permissionMode !== "default";
+      const launch = inherited ? {
+        model: s.model ?? inherited.model ?? null,
+        effort: s.effort ?? inherited.reasoning ?? null,
+        permissionMode: explicitPermission ? s.permissionMode : undefined,
+        approvalPolicy: explicitPermission ? undefined : inherited.approvalPolicy ?? undefined,
+        sandbox: explicitPermission ? undefined : inherited.sandbox ?? undefined,
+      } : { model: s.model, effort: s.effort, permissionMode: s.permissionMode };
+      if (inherited) this.d.settings.set(`codexSetup.launch:${s.id}`, { profileId, receiptId: bindingData!.receiptId, model: launch.model, effort: launch.effort, permissionMode: launch.permissionMode ?? null, approvalPolicy: launch.approvalPolicy ?? null, sandbox: launch.sandbox ?? null, resumed: Boolean(s.providerSessionId), recordedAt: Date.now() });
+      handle = adapter.start({ cwd: s.cwd, ...launch, fastMode: s.fastMode, mcpServers, resume: s.providerSessionId,
         skills,
         systemContext,
         env: env ? portEnv(env) : {},

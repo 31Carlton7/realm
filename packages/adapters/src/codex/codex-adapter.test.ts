@@ -353,10 +353,18 @@ describe("CodexAdapter", () => {
     const { handle, evs } = await booted({ model: "reflect" });
     const params = JSON.parse(of(evs, "init")[0]!.payload.model) as Record<string, unknown>;
     expect(params.config).toBeUndefined();
+    expect(params).not.toHaveProperty("approvalPolicy");
+    expect(params).not.toHaveProperty("sandbox");
     const plain = await booted();
     expect(of(plain.evs, "init")[0]!.payload.model).toBe("gpt-5.2"); // fixture default: no model was sent
     await handle.dispose();
     await plain.handle.dispose();
+  });
+
+  it("passes explicit native policy overrides without Realm remapping", async () => {
+    const { handle, evs } = await booted({ model: "reflect", approvalPolicy: "never", sandbox: "danger-full-access" });
+    expect(JSON.parse(of(evs, "init")[0]!.payload.model)).toMatchObject({ approvalPolicy: "never", sandbox: "danger-full-access" });
+    await handle.dispose();
   });
 
   it("passes mcp servers through config.mcp_servers", async () => {

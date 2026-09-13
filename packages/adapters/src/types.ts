@@ -42,7 +42,10 @@ export type StartOptions = {
   cwd: string;
   model?: string | null;
   effort?: string | null;
-  permissionMode?: string;
+permissionMode?: string;
+/** Native Codex policy overrides. Omitted values keep Codex's own config. */
+approvalPolicy?: string;
+sandbox?: string;
   /** The session has ASKED for fast mode. Only `claude` acts on it; every other adapter ignores it,
    *  and none of them is obliged to report back — the honest answer for an engine with no such
    *  concept is silence, which the prompter reads as "no switch to offer". */
