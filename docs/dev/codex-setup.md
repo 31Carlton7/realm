@@ -5,7 +5,14 @@ authoritative. Apply rechecks the preview fingerprint, writes only Realm setting
 receipt. Rollback restores the prior binding only while the current value still matches that receipt;
 later user edits produce a conflict. Launch precedence is session, space, profile, then Codex. Existing
 threads retain their recorded immutable settings; incompatible drift is recorded as “New session required.”
-Refresh and connection UI remain pending.
+Refresh and rendered UI validation remain pending.
+
+The settings candidate adds a dedicated **Codex setup** tab beside Import. Reference lock: preserve
+the existing Settings rail, form fields, source rows, button hierarchy, and system theme behavior;
+reuse Import's preview language and status patterns. Reject a parallel settings shell, credential
+fields, hidden unavailable states, or treating a definition count as a successful connection. Required
+captures are empty, error, preview, connected, stale-preview, and rollback-conflict states in light and
+dark mode at the desktop's narrow and standard widths.
 
 Discovery must use the operating-system home and `CODEX_HOME` independently of Realm's data home.
 Native configuration, skills, and hook metadata are read through app-server inspection methods.
