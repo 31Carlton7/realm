@@ -33,12 +33,11 @@ export function Destinations() {
           space page because it is a DESTINATION — somewhere you go to see what is armed — and
           because its runs outlive whichever session was open when they were set up. */}
       <DestRow kind="schedules-page" label="Scheduled tasks" />
-      {/* Settings moved here off the space strip's left slot: it is an app-level page like the four
-          above it, and the strip is a rail about spaces — the gear was the only thing in it that
-          wasn't one, and it cost the strip a slot it needed. Ungated like its neighbours, because
-          `openDestinationPage` already no-ops with no active space; a disabled row is what this nav
-          bans. */}
-      <DestRow kind="settings-page" label="Settings" icon="settings" />
+      {/* Settings is NOT a row here. It came off the space strip's left slot into this nav and went
+          back out again: the four rows above are places you go to look at your work, and how the app
+          itself is set up is not one of them — it is the account's business, which is the profile
+          button at the foot of the column (SpaceStrip's `ProfileChip`, where it already lived and
+          still does). A row for it here was a second door in the busiest part of the sidebar. */}
       {/* Seam (Plan 14 W5, deliberately unbuilt): when Plan 13's Tasks lens lands, its row goes here
           with a running-tasks count pill on the Notifications pattern above — server-derived count,
           rendered only when non-zero. Not stubbed now: a row for a page that does not exist yet is
@@ -57,7 +56,7 @@ export function Destinations() {
  */
 function DestRow({ kind, label, icon, children }: {
   kind: DestinationPageKind; label: string;
-  /** Defaults to the kind's own icon; Settings wears the gear it wore in the space strip. */
+  /** Defaults to the kind's own icon; Agents wears the bot rather than its page glyph. */
   icon?: ComponentProps<typeof Icon>["name"];
   children?: ReactNode;
 }) {

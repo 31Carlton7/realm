@@ -91,6 +91,15 @@ describe("the plan card", () => {
     expect(await screen.findByText(/out_of_credits/)).toBeInTheDocument();
   });
 
+  it("never names an agent nobody can run", async () => {
+    /* `fake` is a real AgentKind — it is the harness the suite drives — and the service answers for
+       every kind there is, so the silent line read "…, Hermes, Fake — their protocols do not report
+       one." A card that lists a test double as one of your agents is a card you stop believing. */
+    await mount([row({ agentKind: "claude", windows: [win("five_hour", "5-hour", 12)] }), row({ agentKind: "fake" })]);
+    await screen.findByText(/5-hour/);
+    expect(screen.queryByText(/Fake/)).toBeNull();
+  });
+
   /* Twelve stacked "does not report" rows would be the tiny grey copy the guidelines reject, and the
    * fact is identical for all of them — so it is one sentence naming them. */
   it("collapses every non-reporting provider into one line naming them", async () => {

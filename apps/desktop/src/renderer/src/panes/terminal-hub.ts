@@ -1,6 +1,6 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import type { EventName, EventPayload, MethodName, MethodParams, MethodResult } from "@realm/contracts";
+import { TERMINALS_CURSOR_BLINK_DEFAULT, type EventName, type EventPayload, type MethodName, type MethodParams, type MethodResult } from "@realm/contracts";
 import { rpc } from "../rpc/client";
 import { TerminalBuffer } from "./terminal-buffer";
 import { replayString, terminalStateWord, type TerminalStateWord } from "./terminal-replay";
@@ -14,9 +14,10 @@ export type TerminalLike = {
   onData(fn: (data: string) => void): { dispose(): void };
   onResize(fn: (size: { cols: number; rows: number }) => void): { dispose(): void };
   readonly cols: number; readonly rows: number;
-  /** xterm's live options bag. Optional because the only thing the hub writes back into it is the
-   *  code face, and a fake that does not care about fonts should not have to carry one. */
-  options?: { fontFamily?: string };
+  /** xterm's live options bag. Optional because the only things the hub writes back into it are the
+   *  code face and whether the cursor blinks, and a fake that cares about neither should not have to
+   *  carry one. */
+  options?: { fontFamily?: string; cursorBlink?: boolean };
 };
 export type FitLike = { fit(): void };
 export type TerminalFactory = () => { term: TerminalLike; fit: FitLike };
@@ -55,6 +56,9 @@ export function terminalFont(doc: Document = document): string {
 }
 
 const defaultFactory: TerminalFactory = () => {
+  /* `cursorBlink` is the hub's to set — it is a preference, and the hub is what knows the current
+     answer for a terminal opened at any moment. Constructed on, then corrected in `acquire`, so a
+     terminal opened while the switch is off never blinks even once. */
   const term = new Terminal({ cursorBlink: true, fontSize: 13, fontFamily: terminalFont(), theme: { background: terminalBackground() }, allowProposedApi: true });
   const fit = new FitAddon(); term.loadAddon(fit);
   return { term, fit };
@@ -87,6 +91,9 @@ export class TerminalHub {
   private catchingUp = new Map<string, { runId: string; seq: number; data: string }[]>();
   /** Terminals whose pane is currently showing a replayed screen and nothing since. */
   private replayed = new Set<string>();
+  /** Whether a terminal's cursor blinks (Settings ▸ App). Held here rather than read at construction
+   *  because it has to reach the terminals that are ALREADY open — see `setCursorBlink`. */
+  private cursorBlink = TERMINALS_CURSOR_BLINK_DEFAULT;
   private notRunning = new Set<string>();
   private stateListeners = new Set<(terminalId: string) => void>();
   /** Terminals that have produced any output (data, exit banner, dead-terminal notice) — drives the
@@ -233,6 +240,7 @@ export class TerminalHub {
     const existing = this.entries.get(terminalId);
     if (existing) return existing;
     const { term, fit } = this.factory();
+    if (term.options) term.options.cursorBlink = this.cursorBlink;
     const host = this.doc.createElement("div");
     host.className = "terminal-host";
     const buf = this.buffer(terminalId);
@@ -301,6 +309,16 @@ export class TerminalHub {
    *  on the next terminal is a setting the user tries, sees nothing from, and moves on from. Each
    *  one is re-fit afterwards because the cell size is measured off the face: changing it without
    *  re-measuring leaves the grid the wrong shape and the pty resized to a lie. */
+  /** The cursor-blink preference, pushed into every live terminal and remembered for the next one.
+   *
+   *  Live, for `refreshFont`'s reason: a setting that only reaches terminals opened afterwards is a
+   *  setting the user tries, sees nothing from, and gives up on. No re-fit — unlike the face, a
+   *  blinking cursor is not part of the cell metrics. */
+  setCursorBlink(on: boolean) {
+    this.cursorBlink = on;
+    for (const e of this.entries.values()) if (e.term.options) e.term.options.cursorBlink = on;
+  }
+
   refreshFont() {
     const font = terminalFont(this.doc);
     for (const e of this.entries.values()) {

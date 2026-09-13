@@ -1,5 +1,5 @@
 import {
-  AGENT_META, planLabel, planUnavailableNote, reportsPlanLimits, windowsByUrgency,
+  AGENT_META, SELECTABLE_AGENT_KINDS, planLabel, planUnavailableNote, reportsPlanLimits, windowsByUrgency,
   type AgentKind, type PlanLimits, type PlanWindow,
 } from "@realm/contracts";
 import { useApp } from "../../../state/store";
@@ -70,11 +70,17 @@ function AccountCard({ row }: { row: PlanLimits }) {
   );
 }
 
+/** The kinds a person can actually run, as a set. `AgentKind` also carries `fake` — the harness the
+ *  suite drives — and the service answers for every kind there is, so without this the card told
+ *  everyone that "Fake" does not report plan limits. */
+const RUNNABLE = new Set<string>(SELECTABLE_AGENT_KINDS);
+
 export function PlanCard() {
   const limits = useApp((s) => s.planLimits);
 
-  const reporting = limits.filter((r) => reportsPlanLimits(r.agentKind as AgentKind));
-  const silent = limits.filter((r) => !reportsPlanLimits(r.agentKind as AgentKind));
+  const rows = limits.filter((r) => RUNNABLE.has(r.agentKind));
+  const reporting = rows.filter((r) => reportsPlanLimits(r.agentKind as AgentKind));
+  const silent = rows.filter((r) => !reportsPlanLimits(r.agentKind as AgentKind));
 
   return (
     <section className="settings-card plan-card" aria-labelledby="plan-card-head">

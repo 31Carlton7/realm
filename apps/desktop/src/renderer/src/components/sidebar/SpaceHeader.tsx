@@ -8,7 +8,7 @@ import { useResolvedMode, type ThemePref } from "../../theme/useTheme";
 const MODES: { pref: ThemePref; label: string }[] = [{ pref: "system", label: "System" }, { pref: "light", label: "Light" }, { pref: "dark", label: "Dark" }];
 
 /**
- * The column's heading: which space you are in, whose profile it belongs to, and its menu.
+ * The column's heading: which space you are in, and its menu.
  *
  * It reads the ACTIVE space itself rather than taking one, because it heads the sidebar now instead
  * of riding inside each page of the swiper — there is one of these, for wherever you currently are.
@@ -19,7 +19,6 @@ export function SpaceHeader() {
   const space = useApp((s) => s.activeSpace());
   const spaces = useApp((s) => s.spaces);
   const selectSpace = useApp((s) => s.selectSpace);
-  const profile = useApp((s) => s.profiles.find((p) => p.id === space?.profileId));
   const themePref = useApp((s) => s.themePref);
   const setThemePref = useApp((s) => s.setThemePref);
   const themeNames = useApp((s) => s.themeNames);
@@ -27,7 +26,6 @@ export function SpaceHeader() {
   const swipeInvert = useApp((s) => s.swipeInvert);
   const setSwipeInvert = useApp((s) => s.setSwipeInvert);
   const openSpacePage = useApp((s) => s.openSpacePage);
-  const openProfilePage = useApp((s) => s.openProfilePage);
   const setPaletteOpen = useApp((s) => s.setPaletteOpen);
   const newTerminal = useApp((s) => s.newTerminal);
   const newSessionInWorktree = useApp((s) => s.newSessionInWorktree);
@@ -72,9 +70,11 @@ export function SpaceHeader() {
         }))} />
       )}
       <div className="space-header-actions">
-        {/* The pill NAMES the profile, so it opens the profile page (Plan 14 W2) — it used to be a
-            second door to the space page, which the title button beside it already is. */}
-        {profile && <button className="pill" title="Open profile" onClick={() => openProfilePage()}>{profile.name}</button>}
+        {/* No profile pill. It named the profile and opened its page, and it cost the head row the
+            width that the space's own name needed — a four-letter space ellipsized to "Rea…" beside a
+            pill reading "Work". The profile is named by the chip at the foot of the column (its icon,
+            its colour, its menu) and managed in Settings ▸ Profile, which is where the rest of "how
+            this app is set up for me" already lives. */}
         {/* Search, as a glyph. It was a full-width button reading "Search… ⌘K" under this row: a
             control the height of a field, standing in for a palette that is one keystroke away and
             that most people reach by that keystroke. The glyph keeps the click for anyone who wants

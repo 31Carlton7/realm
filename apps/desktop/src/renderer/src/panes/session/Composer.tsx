@@ -23,9 +23,10 @@ import { SessionUsage } from "./SessionUsage";
 import type { Usage } from "./transcript-model";
 import type { Todo } from "./rich/tool-view";
 
-// ~10 lines of 15px/1.55 plus the vertical padding (Ara refresh §1 raises the input to 15px; §4:
-// autogrows to 10 lines). Matches .composer-input's max-height in styles.css.
-const MAX_ROWS_PX = 254;
+// ~7 lines of 15px/1.55 plus the vertical padding. Matches .composer-input's max-height in
+// styles.css — the textarea autogrows to this and scrolls past it, and the two numbers disagreeing
+// is a prompter that grows past its own cap and then jumps back.
+export const MAX_ROWS_PX = 186;
 
 /** Stable default for the `usage` prop — a fresh object per render would make the under-strip's ring
  *  re-render on every keystroke for no change. No `contextTokens`, so it draws no ring at all. */

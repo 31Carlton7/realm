@@ -1811,7 +1811,13 @@ button.panel-title:hover { background: var(--rl-hover); }
    rows that open these pages live in it, and a cover that hid them would make the one control this
    draws the only way out. It takes the window's own ground rather than a card's: this is a screen you
    are on, not an object floating over one, so it has no inset, no corner and no shadow. ── */
-.page-overlay { position: fixed; z-index: 200; inset: 0 0 0 var(--sidebar-w, 0px);
+/* z-index 35, which is UNDER every floating thing in the app and over everything inside the pane
+   host (the tallest of which is the session's usage panel at 30). It was 200 — above the lot — and
+   that quietly broke four things at once, because a page is not a floating object: quick chat opened
+   behind Settings, ⌘K opened behind it, a sheet raised from a page landed under the page that raised
+   it, and any menu portalled out of a page's own body was painted over by that page. A page is a
+   SCREEN — the bottom of the overlay stack, not the top. */
+.page-overlay { position: fixed; z-index: 35; inset: 0 0 0 var(--sidebar-w, 0px);
   display: flex; flex-direction: column; min-width: 0;
   background: var(--rl-panel); outline: none;
   animation: rl-page-in var(--dur-base) var(--ease-out-strong); }
@@ -1843,7 +1849,8 @@ button.panel-title:hover { background: var(--rl-hover); }
    anchored-popover rung (100) just as deliberately: the model picker, the mention picker and every
    menu the prompter opens are portalled to the body like this window is, so above it they would be
    siblings this window paints straight over — a model list opening behind the chat that opened it.
-   The rungs it has to clear are the scrims (40–60), and 70 clears them. What it cannot beat
+   The rungs it has to clear are the app-level pages (35) and the scrims (40–60), and 70 clears them.
+   What it cannot beat
    is a native `WebContentsView`, which composites above every pixel the renderer draws — so where it
    OPENS is chosen around the browser panes instead (`complementOf`, QuickChat.tsx). ── */
 .quick-chat { position: fixed; z-index: 70; display: flex; flex-direction: column; min-width: 0;
@@ -3324,7 +3331,9 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* Row 1 — pending attachments (Ara refresh §3: the context chips left this row for the control row;
    attachments stay ABOVE the textarea inside the card), wrapping, because a chip row that clips is a
    chip row that hides a file the user thinks is going. */
-.composer-attachments { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; padding: 12px 16px 0; list-style: none; }
+/* The row of what is going with the message. It has real bottom padding now: the chips sat directly
+   on the first line of the draft, and a picture touching a sentence reads as part of it. */
+.composer-attachments { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; padding: 12px 16px 10px; list-style: none; }
 /* The sessions a message points at. The attachment row's geometry exactly — same padding, same gap,
    same place in the card — because they are the same kind of statement: things travelling with this
    message that are not part of its text. */
@@ -3440,20 +3449,30 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 
 /* Row 2 — input: 15px/1.55 (Ara refresh §1: placeholder and prose read at 15), 16px inline padding
-   (§2), grows to ~10 lines (matches MAX_ROWS_PX in Composer.tsx). */
+   (§2), grows to ~7 lines and then scrolls (matches MAX_ROWS_PX in Composer.tsx). Ten lines was a
+   third of a short window before anything else in the dock was counted — the strips, the model row
+   and the transcript it is supposed to leave visible. */
 /* Row 2 — the prompter's rich-text editor. Two layers, one control: `.composer-highlight` paints the
    coloured runs and `.composer-input` (transparent text) keeps the caret, the selection, undo, IME and
    every key handler. A contenteditable would own the text instead, and the draft — which the store,
    the mention scan and all three agent wires read as a plain string — would stop being the truth.
    The mirror is absolutely positioned so it never enters the autogrow measurement the textarea drives. */
-.composer-editor { position: relative; display: flex; flex-direction: column; min-width: 0; }
+.composer-editor { position: relative; display: flex; flex-direction: column; min-width: 0;
+  /* Both ends dissolve. Past the cap the draft scrolls, and a hard edge put half a line of text
+     against the attachment chips above it and against the model row below — which reads as a
+     rendering fault rather than as more text. A MASK, not a backdrop-filtered band: design.md's rule
+     for a scrolling edge on a surface like this one, and the band would have had to be painted over
+     the chips it is dissolving under. The stops are the text box's own padding (14px at the top,
+     10px at the bottom), so a draft that fits is not touched at all — the fade lives entirely in the
+     margin above and below the glyphs, and only bites once something is scrolled under it. */
+  mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 10px), transparent 100%); }
 /* EVERY metric here must equal .composer-input's below — font, size, line-height, padding, wrapping —
    or the painted glyphs slide off the caret sitting above them. `pre-wrap` + `break-word` is exactly
    the UA's own textarea wrapping. Runs may change colour, background and underline, and nothing else. */
 .composer-highlight { position: absolute; inset: 0; overflow: hidden; pointer-events: none;
-  font: inherit; font-size: 15px; line-height: 1.55; padding: 14px 16px 6px;
+  font: inherit; font-size: 15px; line-height: 1.55; padding: 14px 16px 10px;
   white-space: pre-wrap; overflow-wrap: break-word; color: var(--rl-text-bright); }
-.composer-input { border: none; outline: none; resize: none; background: transparent; color: transparent; font: inherit; font-size: 15px; line-height: 1.55; padding: 14px 16px 6px; min-height: 44px; max-height: 254px; caret-color: var(--rl-accent); position: relative; z-index: 1; }
+.composer-input { border: none; outline: none; resize: none; background: transparent; color: transparent; font: inherit; font-size: 15px; line-height: 1.55; padding: 14px 16px 10px; min-height: 44px; max-height: 186px; caret-color: var(--rl-accent); position: relative; z-index: 1; }
 /* The glyphs are the mirror's job. `-webkit-text-fill-color` is what actually hides them in Chromium;
    `color` alone still paints the text on some platforms. The placeholder has to opt back IN, since it
    has no mirror behind it — the mirror is empty in exactly the state the placeholder shows. */
@@ -3465,7 +3484,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    on purpose: pressing ⇥ is the gesture, and a click here must still just place the caret. */
 .composer-hint { position: absolute; inset: 0; overflow: hidden; pointer-events: none;
   display: flex; align-items: baseline; gap: 8px;
-  font: inherit; font-size: 15px; line-height: 1.55; padding: 14px 16px 6px; color: var(--rl-text-faint); }
+  font: inherit; font-size: 15px; line-height: 1.55; padding: 14px 16px 10px; color: var(--rl-text-faint); }
 .composer-hint-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-hint kbd { flex: none; padding: 1px 5px; border: var(--hairline-w) solid var(--rl-line-strong); border-radius: var(--r-chip); color: var(--rl-text-faint); }
 /* No scrollbar past the 10-line cap: a classic (non-overlay) scrollbar takes width from the textarea's

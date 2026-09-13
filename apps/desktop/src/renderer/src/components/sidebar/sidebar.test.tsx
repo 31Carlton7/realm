@@ -373,14 +373,16 @@ describe("Arc sidebar", () => {
     expect(pages[0]!.hasAttribute("inert")).toBe(true);
   });
 
-  it("the profile pill opens the PROFILE page (Plan 14 W2) and + opens the new-space sheet", async () => {
+  it("the head row names the SPACE and nothing else — no profile pill, no Settings row", async () => {
+    /* Both were doors that cost the column its scarcest space. The pill spelled the profile out
+       beside the space's own name and squeezed it to "Rea…"; Settings held a line of the destination
+       nav for something that is not a place you go to look at your work. Each is one control away:
+       the profile chip at the foot of the column names the profile and opens both. */
     const { store } = await mount();
-    fireEvent.click(screen.getByRole("button", { name: "Work" }));
-    // The pill names the profile, so it opens the profile page — the space page keeps its own two
-    // doors (the title row and the menu's Open space, tested below).
-    await waitFor(() => expect((store.getState().pageOverlay?.kind === "profile-page")).toBe(true));
-    expect((store.getState().pageOverlay?.kind === "space-page")).toBe(false);
-    expect(store.getState().sheet).toBeNull();
+    expect(screen.queryByRole("button", { name: "Work" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Settings" })).toBeNull();
+    // …and the space's own name is still its own button, which is the row's actual subject.
+    expect(screen.getByRole("button", { name: "Versed" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "New space" }));
     expect(store.getState().sheet).toEqual({ kind: "new-space" });
   });

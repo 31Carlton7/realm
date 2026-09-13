@@ -2,7 +2,7 @@ import { PageScroll } from "../../components/ScrollFades";
 import {
   AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, NOTIFICATION_CATEGORIES,
-  PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, type NotificationCategory,
+  PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, type NotificationCategory,
 } from "@realm/contracts";
 import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED,
   THEMES, contrastMisses, deriveVars, exportTheme, importTheme, isHexColour, isOverridden, overrideKey,
@@ -775,6 +775,8 @@ function AppTab() {
   const desktopNotifications = useApp((s) => s.desktopNotifications);
   const terminalHistory = useApp((s) => s.terminalHistory);
   const setTerminalHistory = useApp((s) => s.setTerminalHistory);
+  const terminalCursorBlink = useApp((s) => s.terminalCursorBlink);
+  const setTerminalCursorBlink = useApp((s) => s.setTerminalCursorBlink);
   const setDesktopNotifications = useApp((s) => s.setDesktopNotifications);
   const soundCues = useApp((s) => s.soundCues);
   const soundVolume = useApp((s) => s.soundVolume);
@@ -1024,6 +1026,15 @@ function AppTab() {
           <input type="checkbox" role="switch" className="switch" aria-label={TERMINALS_HISTORY_COPY.label}
             checked={terminalHistory}
             onChange={(e) => run(() => setTerminalHistory(e.target.checked))} />
+        </li>
+        <li className="settings-row">
+          <div className="settings-row-main">
+            <span className="settings-row-name">{TERMINALS_CURSOR_BLINK_COPY.label}</span>
+            <span className="settings-row-desc">{TERMINALS_CURSOR_BLINK_COPY.detail}</span>
+          </div>
+          <input type="checkbox" role="switch" className="switch" aria-label={TERMINALS_CURSOR_BLINK_COPY.label}
+            checked={terminalCursorBlink}
+            onChange={(e) => run(() => setTerminalCursorBlink(e.target.checked))} />
         </li>
       </ul>
 

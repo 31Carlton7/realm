@@ -144,11 +144,11 @@ describe("SpaceStrip profile scoping", () => {
      the two pages that belong to neither a space nor a session are asked for here: what this Mac is
      connected to, and how Realm itself is set up. They open the same overlay the destination rows
      open — one page, one way in, whichever door was used. */
-  it("the profile menu opens Connections and Settings, each wearing its own glyph", async () => {
+  it("the profile menu opens Connections, Profile and Settings, each wearing its own glyph", async () => {
     const { store } = await mount();
     fireEvent.click(screen.getByRole("button", { name: "Profile: Work" }));
     const menu = await screen.findByRole("menu", { name: "Profiles" });
-    for (const name of ["Connections", "Settings"]) {
+    for (const name of ["Connections", "Profile", "Settings"]) {
       expect(within(menu).getByRole("menuitem", { name }).querySelector(".menu-icon svg")).not.toBeNull();
     }
     // Every row reserves the slot once any row asks for one, so the profiles carry their own marks
@@ -163,5 +163,12 @@ describe("SpaceStrip profile scoping", () => {
     fireEvent.click(screen.getByRole("button", { name: "Profile: Work" }));
     fireEvent.click(within(await screen.findByRole("menu", { name: "Profiles" })).getByRole("menuitem", { name: "Connections" }));
     await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("connections-page"));
+
+    /* The profile's own page. Its old door was a pill in the space header naming the profile; that
+       pill is gone, and this chip — which is the profile, in its colour — is where it went. */
+    await exited();
+    fireEvent.click(screen.getByRole("button", { name: "Profile: Work" }));
+    fireEvent.click(within(await screen.findByRole("menu", { name: "Profiles" })).getByRole("menuitem", { name: "Profile" }));
+    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("profile-page"));
   });
 });

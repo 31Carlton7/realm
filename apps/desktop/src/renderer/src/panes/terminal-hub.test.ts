@@ -347,6 +347,23 @@ describe("the code face reaches a terminal that is already open", () => {
     document.documentElement.style.removeProperty("--font-mono");
   });
 
+  it("pushes the cursor-blink preference into live terminals, and into the next one opened", () => {
+    /* Same mutant as the face below, and the same reason it matters: xterm takes `cursorBlink` at
+       construction, so a preference that only reached the NEXT terminal is one the user watches do
+       nothing to the terminal they were looking at. The second half — a terminal acquired AFTER the
+       switch — is the half a live push alone would miss. */
+    const { hub, terms } = setup();
+    hub.acquire("a");
+    hub.acquire("b");
+    hub.setCursorBlink(false);
+    expect(terms.map((t) => t.options!.cursorBlink)).toEqual([false, false]);
+
+    hub.acquire("c");
+    expect(terms.at(-1)!.options!.cursorBlink).toBe(false);
+    hub.setCursorBlink(true);
+    expect(terms.map((t) => t.options!.cursorBlink)).toEqual([true, true, true]);
+  });
+
   it("pushes a changed face into every live terminal and re-fits the opened ones", () => {
     // xterm reads its font once, at construction. THE next-terminal-only mutant: leave it there. The
     // setting appears to do nothing to the terminal in front of you, which is the terminal you were

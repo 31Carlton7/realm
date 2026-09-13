@@ -5,6 +5,7 @@ import { actionsThatFit } from "./components/pane-bar-fit";
 import { REALM_SEED, deriveVars } from "@realm/ui";
 import { oklchToHex } from "@realm/contracts";
 import { PICTURE_RADIUS, SCREEN_INSET, SCREEN_PAD, SCREEN_RADIUS } from "./panes/machine/fit";
+import { MAX_ROWS_PX } from "./panes/session/Composer";
 
 /** §6's motion table and its "do NOT animate" list are enforceable only against the stylesheet
  *  itself — jsdom has no layout, no compositor and no CSSOM for a raw file, so nothing else in the
@@ -633,10 +634,40 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(link, "the link rule must come after the one it overrides").toBeGreaterThan(generic);
   });
 
+  it("the prompter's cap is one number, and both ends of the draft dissolve at it", () => {
+    /* The textarea autogrows in JS and stops at a max-height in CSS. Two numbers for one cap is a
+       prompter that grows a line past its own ceiling and snaps back, so the stylesheet is asserted
+       against the constant the component measures with rather than against a literal.
+
+       The mask is what makes the cap survivable: past it the draft scrolls, and a hard edge put half
+       a line against the attachment chips above and the model row below. Its stops are the text
+       box's own padding, so a draft that fits is never touched. */
+    const input = bodiesFor(".composer-input").join(" ");
+    expect(input).toContain(`max-height: ${MAX_ROWS_PX}px`);
+    const editor = bodiesFor(".composer-editor").join(" ");
+    expect(editor).toContain("mask-image: linear-gradient(to bottom, transparent 0, #000 14px");
+    // The top stop equals the text box's top padding, or the fade eats the first line while it fits.
+    expect(input).toContain("padding: 14px 16px 10px");
+  });
+
+  it("an app-level page is the BOTTOM of the overlay stack, not the top", () => {
+    /* THE BUG this pins, which was four bugs wearing one number: the page overlay sat at z-index 200,
+       above every floating surface in the app. Quick chat opened behind Settings, ⌘K opened behind
+       it, a sheet raised from a page landed under the page that raised it, and a menu portalled out
+       of a page's own body was painted over by that page. A page is a screen — it covers the pane
+       host and yields to everything that floats over a screen. */
+    const rung = (sel: string) => Number(/z-index:\s*(\d+)/.exec(bodiesFor(sel).join(" "))?.[1]);
+    const page = rung(".page-overlay");
+    expect(page).toBeGreaterThan(rung(".session-usage-panel")); // …and over the tallest thing in a pane
+    for (const above of [".sheet-backdrop", ".palette-backdrop", ".spaces-backdrop", ".media-lightbox", ".quick-chat", ".menu"]) {
+      expect(rung(above), `${above} must float over a page`).toBeGreaterThan(page);
+    }
+  });
+
   it("the highlight mirror matches the textarea's text metrics exactly", () => {
     const mirror = bodiesFor(".composer-highlight").join(" ");
     const input = bodiesFor(".composer-input").join(" ");
-    for (const decl of ["font: inherit", "font-size: 15px", "line-height: 1.55", "padding: 14px 16px 6px"]) {
+    for (const decl of ["font: inherit", "font-size: 15px", "line-height: 1.55", "padding: 14px 16px 10px"]) {
       expect(mirror, decl).toContain(decl);
       expect(input, decl).toContain(decl);
     }
@@ -662,7 +693,7 @@ describe("Ara refresh §3/§4 geometry", () => {
   it("the prompt hint sits in the input's own text box, on one line", () => {
     const body = bodiesFor(".composer-hint").join(" ");
     const input = bodiesFor(".composer-input").join(" ");
-    for (const decl of ["font: inherit", "font-size: 15px", "line-height: 1.55", "padding: 14px 16px 6px"]) {
+    for (const decl of ["font: inherit", "font-size: 15px", "line-height: 1.55", "padding: 14px 16px 10px"]) {
       expect(body, decl).toContain(decl);
       expect(input, decl).toContain(decl);
     }

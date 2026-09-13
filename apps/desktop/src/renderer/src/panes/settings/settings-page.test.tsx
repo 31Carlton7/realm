@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_GROUND_ALPHA, GROUND_ALPHA_RANGE } from "@realm/ui";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { AGENT_CLI_COMMANDS, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, TERMINALS_HISTORY_COPY, TERMINALS_HISTORY_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, PAGE_REF_IDS } from "@realm/contracts";
+import { AGENT_CLI_COMMANDS, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_HISTORY_COPY, TERMINALS_HISTORY_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, PAGE_REF_IDS } from "@realm/contracts";
 import { engineVersionLabel, SettingsPage } from "./SettingsPage";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, macRow, notification, type FakeData } from "../../state/store.test-fakes";
@@ -1173,5 +1173,20 @@ describe("terminal scrollback", () => {
     fireEvent.click(sw);
     await waitFor(() => expect(store.getState().terminalHistory).toBe(true));
     expect(api.calls).toContain(`setSetting:${TERMINALS_HISTORY_KEY}=true`);
+  });
+
+  it("the cursor blinks until you say otherwise, and the switch says which cursor", async () => {
+    /* The one thing in the app that animates forever, and there was no way to stop it. Defaulted ON
+       because that is what every terminal on this Mac draws — and named for the TERMINAL's cursor,
+       because the prompter's caret is the platform's and Chromium cannot be told to hold it still
+       until `caret-animation` (139; this app is on 138). A switch that claimed both would lie. */
+    const { store, api } = await mount();
+    fireEvent.click(screen.getByRole("radio", { name: "App" }));
+    const sw = screen.getByRole("switch", { name: TERMINALS_CURSOR_BLINK_COPY.label });
+    expect(sw).toBeChecked();
+
+    fireEvent.click(sw);
+    await waitFor(() => expect(store.getState().terminalCursorBlink).toBe(false));
+    expect(api.calls).toContain(`setSetting:${TERMINALS_CURSOR_BLINK_KEY}=false`);
   });
 });

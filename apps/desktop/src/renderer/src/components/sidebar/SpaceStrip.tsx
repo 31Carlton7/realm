@@ -100,6 +100,7 @@ function ProfileChip() {
   const selectProfile = useApp((s) => s.selectProfile);
   const setSpacesOpen = useApp((s) => s.setSpacesOpen);
   const openDestinationPage = useApp((s) => s.openDestinationPage);
+  const openProfilePage = useApp((s) => s.openProfilePage);
   const run = useApp((s) => s.run);
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -136,6 +137,10 @@ function ProfileChip() {
              this chip — the one control in the column whose subject is the account rather than the
              work — is where they are asked for. Same pages, same overlay, same glyphs as the rows. */
           { label: "Connections", icon: <Icon name="connections-page" size={16} />, onSelect: () => openDestinationPage("connections-page") },
+          /* The profile's own page. It used to be opened by a pill naming the profile in the space
+             header, which is gone — the head row needed that width for the space's name — so the door
+             is here, on the one control in the column whose subject is the profile. */
+          { label: "Profile", icon: <Icon name="profile-page" size={16} />, onSelect: () => openProfilePage() },
           { label: "Settings", icon: <Icon name="settings" size={16} />, onSelect: () => openDestinationPage("settings-page") },
         ]} />
       )}

@@ -121,11 +121,15 @@ function ThemeBridge() {
   const contrast = useApp((s) => s.contrast);
   const fonts = useApp((s) => s.fonts);
   const groundAlpha = useApp((s) => s.groundAlpha);
+  const cursorBlink = useApp((s) => s.terminalCursorBlink);
   useApplyTheme({ color, pref, themes, overrides, contrast, fonts, groundAlpha });
   // xterm reads its font once, at construction, so a terminal already on screen would keep the old
   // face. A plain effect, not a layout one: it has to run AFTER useApplyTheme has written
   // --font-mono, because the hub reads the computed value off :root.
   useEffect(() => { getTerminalHub().refreshFont(); }, [fonts]);
+  // Whether that cursor blinks is the same story: xterm takes it at construction, and a preference
+  // that only reached the NEXT terminal is one nobody believes they changed.
+  useEffect(() => { getTerminalHub().setCursorBlink(cursorBlink); }, [cursorBlink]);
   // Same shape, same reason (Plan 25 W1): main draws the agent's action ring, cursor and
   // controlled-screen frame INSIDE the page, where none of Realm's CSS reaches, so the accent has to
   // be pushed to it. Read off the live document rather than derived from the store, because the

@@ -18,3 +18,24 @@ export const TERMINALS_HISTORY_COPY = {
   label: "Keep terminal scrollback",
   detail: "Realm stores what your terminals printed so a pane comes back with its output after a restart. Terminal output is whatever your shell printed — including anything a command echoed. Turning this off deletes what has been kept.",
 } as const;
+
+/**
+ * Whether a terminal's cursor blinks.
+ *
+ * On by default, because a blinking block is what every terminal emulator on this Mac draws and it
+ * is how you find the caret in a wall of output. It is also the one piece of the app that animates
+ * forever, which is exactly why it needs a switch: a blink in the corner of the eye is the kind of
+ * motion that stops being information and starts being a distraction, and design.md's reduced-motion
+ * rule cannot help here — this is xterm's own timer, not a CSS animation.
+ *
+ * Scope is honest and narrow: the TERMINAL's cursor. The prompter's caret is the platform's, and
+ * Chromium exposes no way to stop it blinking until `caret-animation` lands (139; this app ships on
+ * 138), so a switch claiming to cover it would be a switch that lies about half of what it names.
+ */
+export const TERMINALS_CURSOR_BLINK_KEY = "terminals.cursorBlink";
+export const TERMINALS_CURSOR_BLINK_DEFAULT = true;
+
+export const TERMINALS_CURSOR_BLINK_COPY = {
+  label: "Blink the terminal cursor",
+  detail: "The block cursor in a terminal pane pulses so it is findable in a screen of output. Turn it off for a cursor that sits still.",
+} as const;

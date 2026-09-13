@@ -46,9 +46,9 @@ describe("app-level pages over the workspace", () => {
 
   it("closes on the TRASH, because a page has nothing under it to keep", async () => {
     const { store } = await mount();
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    const dialog = await screen.findByRole("dialog", { name: "Settings" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Close Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Connections" }));
+    const dialog = await screen.findByRole("dialog", { name: "Connections" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close Connections" }));
     await waitFor(() => expect(overlay()).toBeNull());
     expect(store.getState().pageOverlay).toBeNull();
   });
