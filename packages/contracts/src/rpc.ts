@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CodexSetupBindingSchema, CodexSetupScanSchema } from "./codex-setup";
+import { CodexSetupBindingSchema, CodexSetupOverridesSchema, CodexSetupScanSchema } from "./codex-setup";
 import type { CliJobStart, CliStatus } from "./cli";
 import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, IconAssetSchema, DocumentWorkspaceSchema, DocumentEntrySchema, DocumentKindSchema } from "./entities";
 
@@ -293,6 +293,7 @@ export const Methods = {
   },
   "codexSetup.apply": { params: z.object({ profileId: IdSchema, scan: z.object({ cwd: z.string().min(1), codexHome: z.string().min(1).optional(), extraSkillRoots: z.array(z.string().min(1)).max(32).default([]), fingerprint: z.string().min(1) }), overrides: CodexSetupBindingSchema.shape.overrides.optional() }), result: CodexSetupBindingSchema },
   "codexSetup.rollback": { params: z.object({ profileId: IdSchema, receiptId: z.string().min(1) }), result: z.object({ rolledBack: z.boolean(), conflict: z.boolean() }) },
+  "codexSetup.setSpaceOverrides": { params: z.object({ spaceId: IdSchema, overrides: CodexSetupOverridesSchema }), result: z.object({ ok: z.literal(true) }) },
   "profiles.list":   { params: z.object({}), result: z.array(ProfileSchema) },
   "profiles.create": { params: z.object({ name: z.string().min(1), icon: z.string().default("user"), color: z.string().default("#6b7280") }), result: ProfileSchema },
   "profiles.update": { params: z.object({ id: IdSchema, name: z.string().min(1).optional(), icon: z.string().optional(), color: z.string().optional(), sortOrder: z.number().int().optional() }), result: ProfileSchema },

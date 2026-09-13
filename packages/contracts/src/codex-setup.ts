@@ -22,6 +22,7 @@ export const CodexSetupScanSchema = z.object({
   warnings: z.array(z.string()),
 });
 export type CodexSetupScan = z.infer<typeof CodexSetupScanSchema>;
-export const CodexSetupBindingSchema = z.object({ profileId: z.string(), receiptId: z.string(), codexHome: z.string(), extraSkillRoots: z.array(z.string()), overrides: z.object({ model: z.string().nullable().optional(), provider: z.string().nullable().optional(), reasoning: z.string().nullable().optional(), approvalPolicy: z.string().nullable().optional(), sandbox: z.string().nullable().optional() }), fingerprint: z.string(), appliedAt: z.number() });
+export const CodexSetupOverridesSchema = z.object({ model: z.string().nullable().optional(), provider: z.string().nullable().optional(), reasoning: z.string().nullable().optional(), approvalPolicy: z.string().nullable().optional(), sandbox: z.string().nullable().optional() });
+export const CodexSetupBindingSchema = z.object({ profileId: z.string(), receiptId: z.string(), codexHome: z.string(), extraSkillRoots: z.array(z.string()), overrides: CodexSetupOverridesSchema, fingerprint: z.string(), appliedAt: z.number() });
 export type CodexSetupBinding = z.infer<typeof CodexSetupBindingSchema>;
 export const CodexSetupReceiptSchema = z.object({ receiptId: z.string(), applied: CodexSetupBindingSchema, previous: CodexSetupBindingSchema.nullable() });

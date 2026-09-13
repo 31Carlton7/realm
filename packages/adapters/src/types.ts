@@ -41,6 +41,7 @@ export type SkillsInjection = {
 export type StartOptions = {
   cwd: string;
   model?: string | null;
+  modelProvider?: string | null;
   effort?: string | null;
 permissionMode?: string;
 /** Native Codex policy overrides. Omitted values keep Codex's own config. */
@@ -90,7 +91,7 @@ export interface AgentHandle {
    *  question surface ignore it and answer the plain allow/deny they always did. */
   respondPermission(requestId: string, decision: PermissionDecision, answers?: Record<string, string>): void;
   interrupt(): Promise<void>;
-  setOptions(opts: { model?: string; permissionMode?: string; fastMode?: boolean }): Promise<void>;
+  setOptions(opts: { model?: string; effort?: string; permissionMode?: string; fastMode?: boolean }): Promise<void>;
   dispose(): Promise<void>;
 }
 

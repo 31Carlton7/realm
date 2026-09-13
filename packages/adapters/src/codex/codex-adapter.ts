@@ -383,6 +383,7 @@ export class CodexAdapter implements AgentAdapter {
      *  row because it moves mid-session: `setOptions` flips it and the very next `turn/start` carries
      *  it, which is more than Codex offers for `model` or the approval policy. */
     let fastMode = opts.fastMode === true;
+    let effort = opts.effort;
     /** Whether a turn of THIS thread has ever asked for the tier. `serviceTier` is sticky on the
      *  thread once set, so switching off has to say `null` — but only then: a session that never
      *  touched it must not reset a tier the user's own Codex config may have chosen. */
@@ -469,6 +470,7 @@ const sandbox = opts.sandbox ?? policy.sandbox;
           ...(approvalPolicy ? { approvalPolicy } : {}),
           ...(sandbox ? { sandbox } : {}), // a SandboxMode STRING here; the structured object is turn/start's `sandboxPolicy` (§8 gotcha 5)
           ...(opts.model ? { model: opts.model } : {}),
+          ...(opts.modelProvider ? { modelProvider: opts.modelProvider } : {}),
           ...(config ? { config } : {}),
         };
         // Bounded: neither call has a protocol-level deadline, and a child that spawns and then answers
@@ -565,8 +567,9 @@ const sandbox = opts.sandbox ?? policy.sandbox;
           }
           const started = obj(await conn.request("turn/start", {
             threadId,
-            input,
-            additionalContext: realmAdditionalContext,
+          input,
+          additionalContext: realmAdditionalContext,
+          ...(effort ? { effort } : {}),
             // Fast mode is a per-turn parameter Codex writes back onto the thread (it echoes as
             // `thread/settings/updated.threadSettings.serviceTier`, which is what the mapper reports).
             // Verified live on 0.153.4: `"priority"` is the tier the catalog names Fast; `null` clears it.
@@ -594,6 +597,7 @@ const sandbox = opts.sandbox ?? policy.sandbox;
       setOptions: async (o) => {
         // Unlike the two below, this one takes effect on the next turn: the tier rides on `turn/start`.
         if (o.fastMode !== undefined) fastMode = o.fastMode;
+        if (o.effort !== undefined) effort = o.effort;
         const parts = [o.model === undefined ? null : `model=${o.model}`, o.permissionMode === undefined ? null : `permissionMode=${o.permissionMode}`].filter(Boolean);
         if (parts.length === 0) return;
         opts.onLog?.(`[codex] ${parts.join(" ")} recorded; codex fixes these at thread start, so it applies the next time this session starts`);

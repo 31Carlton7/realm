@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { accessSync, constants, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { inspectCodexSetup } from "@realm/adapters";
-import { CodexSetupBindingSchema, CodexSetupReceiptSchema, CodexSetupScanSchema, type CodexSetupBinding, type CodexSetupScan } from "@realm/contracts";
+import { CodexSetupBindingSchema, CodexSetupOverridesSchema, CodexSetupReceiptSchema, CodexSetupScanSchema, type CodexSetupBinding, type CodexSetupScan } from "@realm/contracts";
 import { scan } from "../skills/discovery";
 import { parseFrontmatter } from "../skills/frontmatter";
 import { RpcError } from "../store/rows";
@@ -15,7 +15,7 @@ const sameBinding = (a: CodexSetupBinding, b: Omit<CodexSetupBinding, "receiptId
 
 /** Read-only inventory. Deliberately has no settings/database or filesystem-write dependency. */
 export class CodexSetupService {
-  constructor(private d: { realmHome: string; userHome?: string; codexHome?: string; inspect?: typeof inspectCodexSetup; settings?: { get(key: string): unknown; set(key: string, value: unknown): void; transaction<T>(work: () => T): T }; profileExists?: (id: string) => boolean }) {}
+  constructor(private d: { realmHome: string; userHome?: string; codexHome?: string; inspect?: typeof inspectCodexSetup; settings?: { get(key: string): unknown; set(key: string, value: unknown): void; transaction<T>(work: () => T): T }; profileExists?: (id: string) => boolean; spaceProfileId?: (id: string) => string | null }) {}
   private key(profileId: string) { return `codexSetup.binding:${profileId}`; }
   private receiptKey(profileId: string, receiptId: string) { return `codexSetup.receipt:${profileId}:${receiptId}`; }
 
@@ -107,5 +107,14 @@ export class CodexSetupService {
       this.d.settings!.set(this.receiptKey(profileId, receiptId), null);
       return { rolledBack: true, conflict: false };
     });
+  }
+
+  setSpaceOverrides(spaceId: string, overrides: unknown): { ok: true } {
+    if (!this.d.settings) throw new RpcError("INTERNAL", "Setup bindings are unavailable");
+    const profileId = this.d.spaceProfileId?.(spaceId);
+    if (!profileId) throw new RpcError("NOT_FOUND", `space ${spaceId} not found`);
+    if (!CodexSetupBindingSchema.safeParse(this.d.settings.get(this.key(profileId))).success) throw new RpcError("NOT_CONNECTED", "Space profile has no connected Codex setup");
+    this.d.settings.set(`codexSetup.overrides:space:${spaceId}`, CodexSetupOverridesSchema.parse(overrides));
+    return { ok: true };
   }
 }

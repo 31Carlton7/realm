@@ -362,8 +362,16 @@ describe("CodexAdapter", () => {
   });
 
   it("passes explicit native policy overrides without Realm remapping", async () => {
-    const { handle, evs } = await booted({ model: "reflect", approvalPolicy: "never", sandbox: "danger-full-access" });
-    expect(JSON.parse(of(evs, "init")[0]!.payload.model)).toMatchObject({ approvalPolicy: "never", sandbox: "danger-full-access" });
+    const { handle, evs } = await booted({ model: "reflect", modelProvider: "proxy", approvalPolicy: "never", sandbox: "danger-full-access" });
+    expect(JSON.parse(of(evs, "init")[0]!.payload.model)).toMatchObject({ modelProvider: "proxy", approvalPolicy: "never", sandbox: "danger-full-access" });
+    await handle.dispose();
+  });
+
+  it("passes reasoning effort on each turn", async () => {
+    const { handle, evs } = await booted({ effort: "high" });
+    await handle.send({ text: "TURN_PARAMS", attachments: [] });
+    await waitFor(() => expect(texts(evs)).toHaveLength(1));
+    expect(JSON.parse(texts(evs)[0]!)).toMatchObject({ effort: "high" });
     await handle.dispose();
   });
 
