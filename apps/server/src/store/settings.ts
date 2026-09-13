@@ -20,4 +20,10 @@ export class SettingsStore {
     this.db.prepare("INSERT INTO settings (key, value_json) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json")
       .run(key, JSON.stringify(value));
   }
+
+  transaction<T>(work: () => T): T {
+    this.db.exec("BEGIN IMMEDIATE");
+    try { const result = work(); this.db.exec("COMMIT"); return result; }
+    catch (error) { this.db.exec("ROLLBACK"); throw error; }
+  }
 }

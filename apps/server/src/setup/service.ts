@@ -1,17 +1,23 @@
 import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { accessSync, constants, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { inspectCodexSetup } from "@realm/adapters";
-import { CodexSetupBindingSchema, CodexSetupScanSchema, type CodexSetupBinding, type CodexSetupScan } from "@realm/contracts";
+import { CodexSetupBindingSchema, CodexSetupReceiptSchema, CodexSetupScanSchema, type CodexSetupBinding, type CodexSetupScan } from "@realm/contracts";
 import { scan } from "../skills/discovery";
 import { parseFrontmatter } from "../skills/frontmatter";
 import { RpcError } from "../store/rows";
 
+const sameBinding = (a: CodexSetupBinding, b: Omit<CodexSetupBinding, "receiptId" | "appliedAt">) =>
+  a.profileId === b.profileId && a.codexHome === b.codexHome && a.fingerprint === b.fingerprint &&
+  JSON.stringify(a.extraSkillRoots) === JSON.stringify(b.extraSkillRoots) && JSON.stringify(a.overrides) === JSON.stringify(b.overrides);
+
 /** Read-only inventory. Deliberately has no settings/database or filesystem-write dependency. */
 export class CodexSetupService {
-  constructor(private d: { realmHome: string; userHome?: string; codexHome?: string; inspect?: typeof inspectCodexSetup; settings?: { get(key: string): unknown; set(key: string, value: unknown): void }; profileExists?: (id: string) => boolean }) {}
+  constructor(private d: { realmHome: string; userHome?: string; codexHome?: string; inspect?: typeof inspectCodexSetup; settings?: { get(key: string): unknown; set(key: string, value: unknown): void; transaction<T>(work: () => T): T }; profileExists?: (id: string) => boolean }) {}
   private key(profileId: string) { return `codexSetup.binding:${profileId}`; }
+  private receiptKey(profileId: string, receiptId: string) { return `codexSetup.receipt:${profileId}:${receiptId}`; }
 
   async scan(input: { cwd: string; codexHome?: string; extraSkillRoots?: string[] }): Promise<CodexSetupScan> {
     const user = this.d.userHome ?? homedir();
@@ -75,19 +81,31 @@ export class CodexSetupService {
 
   async apply(input: { profileId: string; scan: { cwd: string; codexHome?: string; extraSkillRoots?: string[]; fingerprint: string }; overrides?: CodexSetupBinding["overrides"] }): Promise<CodexSetupBinding> {
     if (!this.d.settings) throw new RpcError("INTERNAL", "Setup bindings are unavailable");
-    if (this.d.profileExists && !this.d.profileExists(input.profileId)) throw new RpcError("NOT_FOUND", `profile ${input.profileId} not found`);
     const current = await this.scan(input.scan);
     if (current.fingerprint !== input.scan.fingerprint) throw new RpcError("STALE_PREVIEW", "Codex setup changed since preview");
-    const binding: CodexSetupBinding = { profileId: input.profileId, codexHome: current.homes.codex, extraSkillRoots: input.scan.extraSkillRoots ?? [], overrides: input.overrides ?? {}, fingerprint: current.fingerprint, appliedAt: Date.now() };
-    this.d.settings.set(this.key(input.profileId), binding);
-    return binding;
+    const prior = CodexSetupBindingSchema.safeParse(this.d.settings.get(this.key(input.profileId)));
+    const desired = { profileId: input.profileId, codexHome: current.homes.codex, extraSkillRoots: input.scan.extraSkillRoots ?? [], overrides: input.overrides ?? {}, fingerprint: current.fingerprint };
+    if (prior.success && sameBinding(prior.data, desired)) return prior.data;
+    const binding: CodexSetupBinding = { ...desired, receiptId: randomUUID(), appliedAt: Date.now() };
+    return this.d.settings.transaction(() => {
+      if (this.d.profileExists && !this.d.profileExists(input.profileId)) throw new RpcError("NOT_FOUND", `profile ${input.profileId} not found`);
+      this.d.settings!.set(this.receiptKey(input.profileId, binding.receiptId), { receiptId: binding.receiptId, applied: binding, previous: prior.success ? prior.data : null });
+      this.d.settings!.set(this.key(input.profileId), binding);
+      return binding;
+    });
   }
 
-  rollback(profileId: string): { rolledBack: boolean; conflict: boolean } {
+  rollback(profileId: string, receiptId: string): { rolledBack: boolean; conflict: boolean } {
     if (!this.d.settings) throw new RpcError("INTERNAL", "Setup bindings are unavailable");
-    const binding = CodexSetupBindingSchema.safeParse(this.d.settings.get(this.key(profileId)));
-    if (!binding.success) return { rolledBack: false, conflict: false };
-    this.d.settings.set(this.key(profileId), null);
-    return { rolledBack: true, conflict: false };
+    return this.d.settings.transaction(() => {
+      const receipt = CodexSetupReceiptSchema.safeParse(this.d.settings!.get(this.receiptKey(profileId, receiptId)));
+      if (!receipt.success) return { rolledBack: false, conflict: false };
+      const current = this.d.settings!.get(this.key(profileId));
+      const binding = CodexSetupBindingSchema.safeParse(current);
+      if (!binding.success || !sameBinding(binding.data, receipt.data.applied) || binding.data.receiptId !== receiptId || binding.data.appliedAt !== receipt.data.applied.appliedAt) return { rolledBack: false, conflict: true };
+      this.d.settings!.set(this.key(profileId), receipt.data.previous);
+      this.d.settings!.set(this.receiptKey(profileId, receiptId), null);
+      return { rolledBack: true, conflict: false };
+    });
   }
 }

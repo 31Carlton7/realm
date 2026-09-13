@@ -1,13 +1,13 @@
 {
   "schemaVersion": "tabellio-validation/v0.2",
-  "id": "realm-codex-setup-discovery",
+  "id": "realm-codex-setup-core",
   "failFast": false,
   "requireEntireCheckpoint": false,
   "acceptance": {
-    "id": "codex-setup-discovery",
+    "id": "codex-setup-core",
     "source": "docs/dev/codex-setup.md",
     "risk": "medium",
-    "outcomes": ["Discover canonical Codex sources without changing them", "Separate OS, Codex, and Realm homes", "Return only non-secret metadata and explicit unavailable states"],
+    "outcomes": ["Discover canonical Codex sources without changing them", "Separate OS, Codex, and Realm homes", "Return only non-secret metadata and explicit unavailable states", "Persist idempotent profile bindings with stale-preview rejection", "Rollback only importer-owned state and report later-edit conflicts"],
     "invariants": ["No model turns, authentication flows, or history import during discovery"],
     "forbiddenOutcomes": ["Secret-bearing configuration returned to the renderer", "Unavailable runtime reported as configured", "Skill contents copied or rewritten"],
     "requiredValidatorTypes": ["workflow"]
@@ -18,7 +18,7 @@
     "cwd": ".", "timeoutMs": 180000, "required": true, "evidence": null,
     "policy": { "metricThresholds": [], "maxCostUsd": null, "requireCostTelemetry": false }
   }, {
-    "id": "codex-setup-discovery", "type": "workflow",
+    "id": "codex-setup-core", "type": "workflow",
     "argv": ["node", "scripts/validate-codex-setup.mjs"], "cwd": ".", "timeoutMs": 150000,
     "required": true, "evidence": { "path": ".validation/codex-setup.json" },
     "policy": { "metricThresholds": [], "maxCostUsd": null, "requireCostTelemetry": false }

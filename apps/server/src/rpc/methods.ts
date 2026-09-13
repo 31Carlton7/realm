@@ -70,7 +70,7 @@ export function registerMethods(d: Deps): void {
 
   reg("codexSetup.scan", (p) => d.codexSetup.scan(p));
   reg("codexSetup.apply", (p) => d.codexSetup.apply(p));
-  reg("codexSetup.rollback", (p) => d.codexSetup.rollback(p.profileId));
+  reg("codexSetup.rollback", (p) => d.codexSetup.rollback(p.profileId, p.receiptId));
 
   reg("system.info", () => ({ realmHome: d.home, version: d.version, machineName: d.machineName, userName: d.userName }));
 

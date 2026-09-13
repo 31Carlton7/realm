@@ -28,4 +28,11 @@ describe("SettingsStore", () => {
     s.set("computer.allowedApps:sp1", ["com.apple.TextEdit", 7, null, "com.apple.mail"]);
     expect(s.getIds("computer.allowedApps:sp1")).toEqual(["com.apple.TextEdit", "com.apple.mail"]);
   });
+
+  it("rolls back a failed transaction", () => {
+    const db = openDatabase(join(tempDir("realm-"), "realm.db"));
+    const s = new SettingsStore(db);
+    expect(() => s.transaction(() => { s.set("one", 1); throw new Error("stop"); })).toThrow("stop");
+    expect(s.get("one")).toBeNull();
+  });
 });
