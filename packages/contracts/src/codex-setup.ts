@@ -26,3 +26,5 @@ export const CodexSetupOverridesSchema = z.object({ model: z.string().nullable()
 export const CodexSetupBindingSchema = z.object({ profileId: z.string(), receiptId: z.string(), codexHome: z.string(), extraSkillRoots: z.array(z.string()), overrides: CodexSetupOverridesSchema, fingerprint: z.string(), appliedAt: z.number() });
 export type CodexSetupBinding = z.infer<typeof CodexSetupBindingSchema>;
 export const CodexSetupReceiptSchema = z.object({ receiptId: z.string(), applied: CodexSetupBindingSchema, previous: CodexSetupBindingSchema.nullable() });
+const CodexSetupOriginSchema = z.enum(["session", "space", "profile", "codex"]);
+export const CodexSetupLaunchSchema = z.object({ profileId: z.string(), receiptId: z.string(), model: z.string().nullable(), modelProvider: z.string().nullable().default(null), effort: z.string().nullable(), permissionMode: z.string().nullable(), approvalPolicy: z.string().nullable(), sandbox: z.string().nullable(), origins: z.object({ model: CodexSetupOriginSchema, provider: CodexSetupOriginSchema.default("codex"), effort: CodexSetupOriginSchema, policy: CodexSetupOriginSchema }), resumed: z.boolean(), recordedAt: z.number() });

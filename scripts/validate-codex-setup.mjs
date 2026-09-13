@@ -9,7 +9,7 @@ writeFileSync(".validation/codex-setup.log", `${result.stdout ?? ""}\n${result.s
 writeFileSync(".validation/codex-setup-head.json", JSON.stringify({ head, status }, null, 2));
 writeFileSync(".validation/codex-setup.json", JSON.stringify({
   schemaVersion: "tabellio-validator-evidence/v0.1", validatorId: "codex-setup-core", status,
-  summary: `Discovery, source boundaries, and binding transaction checks: ${status}. This is not full setup or rendered UI validation.`,
+  summary: `Discovery, binding transactions, launch inheritance, and resume checks: ${status}. This is not full setup or rendered UI validation.`,
   metrics: [], cost: { telemetry: "not_applicable", usd: null, modelCalls: null, toolCalls: null }, artifacts: [],
 }, null, 2));
 console.log(JSON.stringify({ head, status }));

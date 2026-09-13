@@ -1,9 +1,11 @@
 # Codex setup connection
 
-This includes read-only discovery plus profile-scoped bindings and explicit overrides. Codex remains
+This includes read-only discovery, profile bindings, space overrides, and launch-time inheritance. Codex remains
 authoritative. Apply rechecks the preview fingerprint, writes only Realm settings, and produces a
 receipt. Rollback restores the prior binding only while the current value still matches that receipt;
-later user edits produce a conflict. Profile inheritance, refresh, and connection UI remain pending.
+later user edits produce a conflict. Launch precedence is session, space, profile, then Codex. Existing
+threads retain their recorded immutable settings; incompatible drift is recorded as “New session required.”
+Refresh and connection UI remain pending.
 
 Discovery must use the operating-system home and `CODEX_HOME` independently of Realm's data home.
 Native configuration, skills, and hook metadata are read through app-server inspection methods.
@@ -13,5 +15,5 @@ metadata is returned. A successful configuration read is not an authentication o
 Run `pnpm --filter @realm/server... install --frozen-lockfile --ignore-scripts`, then
 `node scripts/validate-codex-setup.mjs`. This public-dependency test lane does not require the desktop's
 private icon package. Every validator invocation writes candidate identity, result, and logs under
-`.validation/`. The manifest covers discovery and binding transactions; passing it does not establish
-profile inheritance, full desktop parity, or rendered UI readiness.
+`.validation/`. The manifest covers discovery, binding transactions, inheritance, and resume handling;
+passing it does not establish refresh, full desktop parity, or rendered UI readiness.

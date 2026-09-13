@@ -18,7 +18,8 @@ describe("Codex setup launch inheritance", () => {
     const starts: StartOptions[] = [];
     const fake = new FakeAdapter({ script: [] });
     const codex: AgentAdapter = { kind: "codex", probe: async () => ({ kind: "codex", available: true, version: "test", loggedIn: true, reason: null }), start: (opts) => { starts.push(opts); return fake.start(opts); } };
-    app = await createApp({ home: tempDir("realm-"), port: 0, adapters: { codex } });
+    const home = tempDir("realm-");
+    app = await createApp({ home, port: 0, adapters: { codex } });
     const client = await callClient(app.port);
     const profile = (await client.call("profiles.create", { name: "Codex" })).result;
     const space = (await client.call("spaces.create", { profileId: profile.id, name: "Work" })).result;
@@ -37,6 +38,15 @@ describe("Codex setup launch inheritance", () => {
     const cleared = (await client.call("sessions.create", { spaceId: space.id, agentKind: "codex" })).result.session;
     await client.call("sessions.send", { id: cleared.id, text: "go" });
     expect(starts[2]).toMatchObject({ model: "profile-model" });
+    await client.call("codexSetup.setSpaceOverrides", { spaceId: space.id, overrides: { model: "changed-model" } });
+    app.db.prepare("UPDATE sessions SET provider_session_id = 'existing-thread' WHERE id = ?").run(session.id);
     client.close();
+    await app.close();
+    app = await createApp({ home, port: 0, adapters: { codex } });
+    const resumed = await callClient(app.port);
+    await resumed.call("sessions.send", { id: session.id, text: "resume" });
+    expect(starts[3]).toMatchObject({ model: "space-model" });
+    expect((await resumed.call("settings.get", { key: `codexSetup.resumeConflict:${session.id}` })).result.value).toMatchObject({ message: "New session required" });
+    resumed.close();
   });
 });
