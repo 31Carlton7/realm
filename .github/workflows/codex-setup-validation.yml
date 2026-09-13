@@ -23,3 +23,20 @@ jobs:
           name: codex-setup-${{ github.event.pull_request.head.sha || github.sha }}
           path: .validation/
           if-no-files-found: error
+  rendered-ui:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/validate-codex-setup-ui.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: codex-setup-ui-${{ github.event.pull_request.head.sha || github.sha }}
+          path: .validation/
+          if-no-files-found: error

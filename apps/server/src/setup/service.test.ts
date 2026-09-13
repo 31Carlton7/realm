@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CodexSetupRuntime } from "@realm/contracts";
@@ -26,6 +26,7 @@ describe("CodexSetupService.scan", () => {
     expect(readdirSync(realm)).toEqual([]);
     expect(readFileSync(join(codex, "config.toml"), "utf8")).toBe(before);
     expect(result.sources).toContainEqual({ path: join(codex, "memories"), kind: "memory", state: "missing" });
+    utimesSync(join(codex, "config.toml"), new Date(), new Date(Date.now() + 1_000));
     expect((await service.scan({ cwd })).fingerprint).toBe(result.fingerprint);
   });
   it("honors an explicitly selected Codex home and rejects relative directories", async () => {

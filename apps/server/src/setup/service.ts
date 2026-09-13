@@ -38,7 +38,9 @@ export class CodexSetupService {
         canonical = realpathSync(path);
         const s = statSync(canonical);
         accessSync(canonical, constants.R_OK);
-        stamps.push([canonical, s.mtimeMs, s.size]);
+        stamps.push(s.isFile()
+          ? [canonical, createHash("sha256").update(readFileSync(canonical)).digest("hex")]
+          : [canonical, s.mtimeMs, s.size]);
       } catch (e) { state = (e as NodeJS.ErrnoException).code === "ENOENT" ? "missing" : "unreadable"; }
       if (!seen.has(canonical)) { sources.push({ path: canonical, kind, state }); seen.add(canonical); }
       return canonical;
