@@ -323,7 +323,7 @@ export class CodexAdapter implements AgentAdapter {
   start(opts: StartOptions): AgentHandle {
     const events = new AsyncQueue<SessionEvent>();
     const mapper = createCodexMapper();
-    const pending = new Map<string, { id: JsonRpcId; decisions: unknown[] }>();
+    const pending = new Map<string, { id: JsonRpcId; decisions: unknown[]; questions?: Map<string, string> }>();
     let conn: CodexConnection | null = null;
     let threadId: string | null = null;
     let activeTurnId: string | null = null;
@@ -351,11 +351,18 @@ export class CodexAdapter implements AgentAdapter {
       await this.release();
     };
 
-    const respond = (requestId: string, decision: PermissionDecision) => {
+    const respond = (requestId: string, decision: PermissionDecision, answers?: Record<string, string>) => {
       const p = pending.get(requestId);
       if (!p) return;
       pending.delete(requestId);
-      conn?.respond(p.id, { decision: pickCodexDecision(decision, p.decisions) });
+      if (p.questions) {
+        const response: Record<string, { answers: string[] }> = {};
+        if (decision !== "deny") for (const [question, id] of p.questions) {
+          const answer = answers?.[question];
+          if (answer) response[id] = { answers: [answer] };
+        }
+        conn?.respond(p.id, { answers: response });
+      } else conn?.respond(p.id, { decision: pickCodexDecision(decision, p.decisions) });
       events.push(sessionEvent("permission_response", { requestId, decision }));
       // Several tools can be waiting at once (parallel tool calls): the status only comes back when the last
       // one is answered. An approval only exists inside a live turn, so that status is always `running`; the
@@ -422,6 +429,17 @@ export class CodexAdapter implements AgentAdapter {
         for (const e of mapper.map(method, params)) events.push(e);
       },
       onServerRequest: (id, method, params) => {
+        const p = obj(params);
+        if (method === "item/tool/requestUserInput") {
+          const raw = Array.isArray(p.questions) ? p.questions : [];
+          const questions = raw.map(obj).filter((q) => typeof q.id === "string" && typeof q.question === "string");
+          if (questions.length !== raw.length || questions.length === 0) { opts.onLog?.("[codex] refusing malformed item/tool/requestUserInput"); conn?.respondError(id, -32602, "invalid request_user_input questions"); return; }
+          const requestId = String(id);
+          if (pending.size === 0) events.push(sessionEvent("status", { status: "waiting_permission" }));
+          pending.set(requestId, { id, decisions: [], questions: new Map(questions.map((q) => [str(q.question), str(q.id)])) });
+          events.push(sessionEvent("permission_request", { requestId, toolName: "AskUserQuestion", title: "Input requested", input: { questions: questions.map((q) => ({ question: str(q.question), header: str(q.header), multiSelect: false, allowOther: q.isOther === true, secret: q.isSecret === true, options: Array.isArray(q.options) ? q.options.map(obj).filter((o) => typeof o.label === "string").map((o) => ({ label: str(o.label), description: str(o.description) })) : [] })) }, suggestions: [] }));
+          return;
+        }
         const approval = APPROVAL_METHODS[method];
         if (!approval) {
           // Every server request must be answered or the turn stalls forever (protocol reference §9).
@@ -429,7 +447,6 @@ export class CodexAdapter implements AgentAdapter {
           conn?.respondError(id, -32601, `realm does not support ${method}`);
           return;
         }
-        const p = obj(params);
         const requestId = String(id);
         const input = approval.toolName === "exec_command"
           ? { command: str(p.command), cwd: str(p.cwd) }

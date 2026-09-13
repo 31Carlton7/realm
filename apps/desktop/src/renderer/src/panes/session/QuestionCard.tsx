@@ -2,7 +2,7 @@ import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { PendingPermission } from "./transcript-model";
 
-export type Question = { question: string; header: string; options: { label: string; description?: string }[]; multiSelect: boolean };
+export type Question = { question: string; header: string; options: { label: string; description?: string }[]; multiSelect: boolean; allowOther: boolean; secret: boolean };
 
 /** AskUserQuestion arrives on the permission channel like any other tool, but it is not a permission —
  *  it is a question, and rendering it as Allow/Allow always/Deny buries the actual choices inside a JSON
@@ -15,8 +15,8 @@ export function parseQuestions(toolName: string, input: Record<string, unknown>)
   const out: Question[] = [];
   for (const q of raw) {
     if (!q || typeof q !== "object") return null;
-    const { question, header, options, multiSelect } = q as Record<string, unknown>;
-    if (typeof question !== "string" || !Array.isArray(options) || options.length === 0) return null;
+    const { question, header, options, multiSelect, allowOther, secret } = q as Record<string, unknown>;
+    if (typeof question !== "string" || !Array.isArray(options)) return null;
     const opts: Question["options"] = [];
     for (const o of options) {
       if (!o || typeof o !== "object") return null;
@@ -24,7 +24,7 @@ export function parseQuestions(toolName: string, input: Record<string, unknown>)
       if (typeof label !== "string") return null;
       opts.push({ label, ...(typeof description === "string" && description ? { description } : {}) });
     }
-    out.push({ question, header: typeof header === "string" ? header : "", options: opts, multiSelect: multiSelect === true });
+    out.push({ question, header: typeof header === "string" ? header : "", options: opts, multiSelect: multiSelect === true, allowOther: allowOther !== false, secret: secret === true });
   }
   return out;
 }
@@ -55,7 +55,7 @@ export function QuestionCard({ questions, onAnswer, onSkip, autoFocus = false, e
   const otherInput = useRef<HTMLInputElement>(null);
 
   const q = questions[page]!;
-  const rowCount = q.options.length + 1; // options + the free-text row
+  const rowCount = q.options.length + Number(q.allowOther);
   useEffect(() => { if (autoFocus) rows.current[0]?.focus(); }, [autoFocus]);
   // Every question starts clean: a new page's selection must not inherit the previous page's row.
   useEffect(() => { setSelected(0); setPicked([]); setOthering(false); setOtherText(""); }, [page]);
@@ -87,7 +87,7 @@ export function QuestionCard({ questions, onAnswer, onSkip, autoFocus = false, e
     rows.current[next]?.focus();
   };
   const takeSelected = () => {
-    if (selected === q.options.length) { setOthering(true); return; }
+    if (q.allowOther && selected === q.options.length) { setOthering(true); return; }
     choose(selected);
   };
 
@@ -142,10 +142,10 @@ export function QuestionCard({ questions, onAnswer, onSkip, autoFocus = false, e
           </button>
         ))}
 
-        {othering ? (
+        {q.allowOther && (othering ? (
           <div className="question-option question-other-edit">
             <kbd className="question-num"><Icon name="edit" size={12} /></kbd>
-            <input ref={otherInput} className="question-other-input" value={otherText} placeholder="Type your answer…"
+            <input ref={otherInput} className="question-other-input" type={q.secret ? "password" : "text"} value={otherText} placeholder="Type your answer…"
               aria-label="Your answer" onChange={(e) => setOtherText(e.target.value)} />
             <button className="btn primary question-other-submit" disabled={!otherText.trim()} onClick={() => commit(otherText.trim())}>Answer</button>
           </div>
@@ -158,7 +158,7 @@ export function QuestionCard({ questions, onAnswer, onSkip, autoFocus = false, e
             <span className="question-skip" role="button" tabIndex={-1}
               onClick={(e) => { e.stopPropagation(); skipQuestion(); }}>Skip</span>
           </button>
-        )}
+        ))}
       </div>
 
       <div className="question-footer">

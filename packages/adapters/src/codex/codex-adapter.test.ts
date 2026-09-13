@@ -483,6 +483,29 @@ describe("CodexAdapter", () => {
     await handle.dispose();
   });
 
+  it("bridges native requestUserInput questions and returns Codex's answer shape", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "QUESTION", attachments: [] });
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    const req = of(evs, "permission_request")[0]!.payload;
+    expect(req).toMatchObject({
+      toolName: "AskUserQuestion",
+      input: { questions: [{ question: "Pick?", header: "Mode", multiSelect: false, allowOther: true, secret: false, options: [{ label: "A", description: "first" }] }] },
+    });
+
+    handle.respondPermission(req.requestId, "allow", { "Pick?": "A" });
+    await waitFor(() => expect(texts(evs)).toEqual(['{"answers":{"choice":{"answers":["A"]}}}']));
+    await handle.dispose();
+  });
+
+  it("rejects malformed requestUserInput questions instead of stalling the turn", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "BADQUESTION", attachments: [] });
+    await waitFor(() => expect(texts(evs)).toEqual(["refused: -32602"]));
+    expect(types(evs)).not.toContain("permission_request");
+    await handle.dispose();
+  });
+
   it("answers an unknown server request with -32601 instead of stalling the turn", async () => {
     const logs: string[] = [];
     const { handle, evs } = await booted({ onLog: (l) => logs.push(l) });
@@ -490,7 +513,7 @@ describe("CodexAdapter", () => {
     // The fixture only finishes the turn once its odd request is answered.
     await waitFor(() => expect(texts(evs)).toEqual(["refused: -32601"]));
     expect(types(evs)).not.toContain("permission_request");
-    expect(logs.some((l) => l.includes("item/tool/requestUserInput"))).toBe(true);
+    expect(logs.some((l) => l.includes("item/tool/unsupportedOddball"))).toBe(true);
     await handle.dispose();
   });
 
