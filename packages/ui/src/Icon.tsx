@@ -7,7 +7,7 @@ import {
   SentIcon, StopIcon, SparklesIcon, ArrowDown01Icon, ArrowDown02Icon, ArrowUp02Icon, CheckmarkCircle02Icon, CancelCircleIcon,
   Alert02Icon, BotIcon, Wrench01Icon, CodeIcon, IdeaIcon, Copy01Icon, Attachment01Icon, Image01Icon,
   Task01Icon, GitBranchIcon, GitCompareIcon, GitCommitIcon, GitPullRequestIcon, LaptopIcon, PlugSocketIcon,
-  Layout2ColumnIcon, Layout2RowIcon, BookOpen01Icon, Notification02Icon, Download04Icon,
+  LayoutTwoColumnIcon as Layout2ColumnIcon, LayoutTwoRowIcon as Layout2RowIcon, BookOpen01Icon, Notification02Icon, Download04Icon,
   // Space icon picker's "Default" section (SPACE_ICONS, packages/contracts/src/presets.ts) — every
   // name there must have a matching key below.
   Rocket01Icon, StarIcon, Book01Icon, Camera01Icon, MusicNote01Icon, Shield01Icon, Flag01Icon, Coffee01Icon, Target01Icon, Compass01Icon,
@@ -25,7 +25,7 @@ import {
   InformationCircleIcon,
   // Hermes Agent's own mark, in this set's hand — see `caduceus` below.
   CaduceusIcon,
-} from "@hugeicons-pro/core-stroke-standard";
+} from "@hugeicons/core-free-icons";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
 
 export const icons = {
