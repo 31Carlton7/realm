@@ -69,6 +69,8 @@ export function registerMethods(d: Deps): void {
     rpc.register(name, Methods[name].params, async (p) => fn(p as Params<M>));
 
   reg("codexSetup.scan", (p) => d.codexSetup.scan(p));
+  reg("codexSetup.apply", (p) => d.codexSetup.apply(p));
+  reg("codexSetup.rollback", (p) => d.codexSetup.rollback(p.profileId));
 
   reg("system.info", () => ({ realmHome: d.home, version: d.version, machineName: d.machineName, userName: d.userName }));
 

@@ -3,14 +3,15 @@ import { homedir } from "node:os";
 import { accessSync, constants, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { inspectCodexSetup } from "@realm/adapters";
-import { CodexSetupScanSchema, type CodexSetupScan } from "@realm/contracts";
+import { CodexSetupBindingSchema, CodexSetupScanSchema, type CodexSetupBinding, type CodexSetupScan } from "@realm/contracts";
 import { scan } from "../skills/discovery";
 import { parseFrontmatter } from "../skills/frontmatter";
 import { RpcError } from "../store/rows";
 
 /** Read-only inventory. Deliberately has no settings/database or filesystem-write dependency. */
 export class CodexSetupService {
-  constructor(private d: { realmHome: string; userHome?: string; codexHome?: string; inspect?: typeof inspectCodexSetup }) {}
+  constructor(private d: { realmHome: string; userHome?: string; codexHome?: string; inspect?: typeof inspectCodexSetup; settings?: { get(key: string): unknown; set(key: string, value: unknown): void }; profileExists?: (id: string) => boolean }) {}
+  private key(profileId: string) { return `codexSetup.binding:${profileId}`; }
 
   async scan(input: { cwd: string; codexHome?: string; extraSkillRoots?: string[] }): Promise<CodexSetupScan> {
     const user = this.d.userHome ?? homedir();
@@ -70,5 +71,23 @@ export class CodexSetupService {
     const inventory = { cwd, homes: { user, codex, realm: this.d.realmHome }, runtime, sources, warnings };
     const fingerprint = createHash("sha256").update(JSON.stringify([inventory, stamps])).digest("hex");
     return CodexSetupScanSchema.parse({ ...inventory, fingerprint });
+  }
+
+  async apply(input: { profileId: string; scan: { cwd: string; codexHome?: string; extraSkillRoots?: string[]; fingerprint: string }; overrides?: CodexSetupBinding["overrides"] }): Promise<CodexSetupBinding> {
+    if (!this.d.settings) throw new RpcError("INTERNAL", "Setup bindings are unavailable");
+    if (this.d.profileExists && !this.d.profileExists(input.profileId)) throw new RpcError("NOT_FOUND", `profile ${input.profileId} not found`);
+    const current = await this.scan(input.scan);
+    if (current.fingerprint !== input.scan.fingerprint) throw new RpcError("STALE_PREVIEW", "Codex setup changed since preview");
+    const binding: CodexSetupBinding = { profileId: input.profileId, codexHome: current.homes.codex, extraSkillRoots: input.scan.extraSkillRoots ?? [], overrides: input.overrides ?? {}, fingerprint: current.fingerprint, appliedAt: Date.now() };
+    this.d.settings.set(this.key(input.profileId), binding);
+    return binding;
+  }
+
+  rollback(profileId: string): { rolledBack: boolean; conflict: boolean } {
+    if (!this.d.settings) throw new RpcError("INTERNAL", "Setup bindings are unavailable");
+    const binding = CodexSetupBindingSchema.safeParse(this.d.settings.get(this.key(profileId)));
+    if (!binding.success) return { rolledBack: false, conflict: false };
+    this.d.settings.set(this.key(profileId), null);
+    return { rolledBack: true, conflict: false };
   }
 }

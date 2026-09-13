@@ -658,7 +658,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // Two shell-outs for two labels: asked for together so boot waits once, not twice.
   const [machine, user] = await Promise.all([machineName(), userFirstName()]);
   registerMethods({
-    codexSetup: new CodexSetupService({ realmHome: opts.home, userHome: opts.userHome, codexHome: opts.codexHome }),
+    codexSetup: new CodexSetupService({ realmHome: opts.home, userHome: opts.userHome, codexHome: opts.codexHome, settings, profileExists: (id) => profiles.get(id) !== null }),
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
     profiles, spaces, projects, environments, envService, items, settings, skills, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, browserPermissions: browserBroker, cli, cliInstaller,
     iconAssets, iconGeneration,

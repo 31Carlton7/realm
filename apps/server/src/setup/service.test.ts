@@ -61,4 +61,16 @@ describe("CodexSetupService.scan", () => {
     expect(result.warnings).toHaveLength(1);
     expect(JSON.stringify(result)).not.toContain("SECRET");
   });
+  it("applies idempotent profile binding and rejects stale preview", async () => {
+    const values = new Map<string, unknown>();
+    const settings = { get: (key: string) => values.get(key) ?? null, set: (key: string, value: unknown) => values.set(key, value) };
+    const inspect = vi.fn(async () => runtime());
+    const service = new CodexSetupService({ realmHome: realm, userHome: user, codexHome: codex, inspect, settings, profileExists: () => true });
+    const preview = await service.scan({ cwd });
+    const binding = await service.apply({ profileId: "profile", scan: { cwd, fingerprint: preview.fingerprint }, overrides: { approvalPolicy: "never" } });
+    expect(binding.overrides.approvalPolicy).toBe("never");
+    await expect(service.apply({ profileId: "profile", scan: { cwd, fingerprint: "stale" } })).rejects.toThrow("changed");
+    expect(service.rollback("profile")).toEqual({ rolledBack: true, conflict: false });
+    expect(values.get("codexSetup.binding:profile")).toBeNull();
+  });
 });
