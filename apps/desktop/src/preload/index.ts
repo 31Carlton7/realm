@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
+import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
 import type { BlockedDownload, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, BrowserPickedElement, MediaFile } from "@realm/contracts";
 import type { TccRow } from "../main/tcc";
 import type { MacAccessStatus } from "../main/mac-access";
@@ -15,6 +15,12 @@ contextBridge.exposeInMainWorld("realm", {
    *  loopback, which a WebSocket dial from any web page can reach — CORS does not apply to it — so
    *  without this the renderer is not the only thing that can call `sessions.create`. */
   token: arg("realm-token") ?? "",
+  /** The window's page zoom (⌘+/⌘−/⌘0, Chromium's own through the View menu). 1 at 100%.
+   *
+   *  A getter rather than a subscription because Chromium fires no zoom event, and a value rather
+   *  than something derived in the renderer because it cannot be: `devicePixelRatio` is the display's
+   *  scale TIMES the zoom, and a 2× display at 100% reports what a 1× display at 200% does. */
+  zoomFactor: (): number => webFrame.getZoomFactor(),
   /** Which OS this is, for the one preference that only exists on one of them: macOS is the only
    *  platform where the window has a material behind it, so the sidebar's transparency has nothing
    *  to reveal anywhere else (main/index.ts gives Windows and Linux an opaque backgroundColor). */

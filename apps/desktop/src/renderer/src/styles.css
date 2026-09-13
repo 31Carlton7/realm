@@ -159,7 +159,18 @@
   /* The column's resting width. The shell overwrites this with the user's own number (see
      sidebar-width.ts, which ships the same default); what is declared here is what a renderer that
      never got that far paints, which is a different fact and is why both exist. */
-  --sidebar-w: 280px; --prompter-w: 720px;
+  --sidebar-w: 280px;
+  /* The prompter's column — and, because they are one rail, the transcript's.
+     720px at 100% zoom, and it gives up width FASTER than the zoom already takes it. A px length
+     shrinks in exact proportion when you press ⌘−, which means it keeps the same share of the window
+     at every zoom: zooming out to fit more of the work on screen bought nothing back from the
+     prompter, which is what this multiply fixes. Squared, in effect — at 80% the column is 80% of
+     576px on screen rather than of 720.
+     The floor is a reading measure, not a taste: 480px of 15px text is about 55 characters, the
+     bottom of design.md's band, and past it the column stops being a column. The ceiling is today's
+     number, so zooming IN changes nothing — the dock's own `100% - 48px` already owns the case where
+     the pane is narrower than the column. `--zoom` is 1 until `theme/zoom.ts` says otherwise. */
+  --prompter-w: clamp(480px, calc(720px * var(--zoom, 1)), 720px);
   /* The session summary's strip, read by the panel AND by the pane that makes room for it. */
   --summary-w: min(320px, 80vw);
   /* The terminal's dock on that same strip. Wider than the summary's because its content is COLUMNS:
@@ -2561,6 +2572,11 @@ button.panel-title:hover { background: var(--rl-hover); }
  * The depths are registered so they interpolate. An unregistered custom property computes to a token
  * stream, and token streams do not animate — the same registration the painter's inputs need, and
  * the same failure if it is skipped. */
+/* The page zoom, written by `theme/zoom.ts`. Registered so it has a TYPED initial value: unregistered
+   and unset, `calc(720px * var(--zoom))` is invalid at computed-value time and takes `--prompter-w`
+   with it — a renderer with no preload bridge (a test, a browser) would have no prompter column at
+   all. Inherited, because it is a fact about the window rather than about one box. */
+@property --zoom { syntax: "<number>"; inherits: true; initial-value: 1; }
 @property --dissolve-top { syntax: "<length>"; inherits: false; initial-value: 0px; }
 @property --dissolve-bottom { syntax: "<length>"; inherits: false; initial-value: 0px; }
 @property --dissolve-start { syntax: "<length>"; inherits: false; initial-value: 0px; }

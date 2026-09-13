@@ -634,6 +634,24 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(link, "the link rule must come after the one it overrides").toBeGreaterThan(generic);
   });
 
+  it("the prompter's column gives up MORE width than the zoom already takes", () => {
+    /* ⌘− scales every px, so a px column keeps the same share of the window at every zoom — zooming
+       out to fit more of the work on screen bought nothing back from the prompter. Multiplying by
+       the factor is what makes it give ground: at 80% the column is 80% of 576px on screen rather
+       than of 720. THE MUTANT is a bare `720px`, which is what this was and which looks correct in
+       every screenshot taken at 100%.
+
+       The floor is a reading measure (480px of 15px text ≈ 55 characters) and the ceiling is today's
+       number, so zoom IN is unchanged. `--zoom` must be registered with an initial value: unset and
+       unregistered, the calc is invalid at computed-value time and the column has no width at all in
+       a renderer with no preload bridge. */
+    const root = bodiesFor(":root").join(" ");
+    expect(root).toContain("--prompter-w: clamp(480px, calc(720px * var(--zoom, 1)), 720px)");
+    const registered = RULES.some((r) => r.selectors.some((sel) => /@property\s+--zoom/.test(sel)));
+    expect(registered, "--zoom needs an @property with an initial value").toBe(true);
+    expect(bodiesFor("@property --zoom").join(" ")).toContain("initial-value: 1");
+  });
+
   it("the prompter's cap is one number, and both ends of the draft dissolve at it", () => {
     /* The textarea autogrows in JS and stops at a max-height in CSS. Two numbers for one cap is a
        prompter that grows a line past its own ceiling and snaps back, so the stylesheet is asserted
@@ -875,6 +893,11 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     const defined = new Set([
       ...[...css.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]!),
       ...[...tokens.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]!),
+      /* A registered property with an `initial-value` is defined too, and defined more strongly than
+         a declaration: it has a type, so it resolves before any rule runs and cannot be invalid at
+         computed-value time. `--zoom` is the case — written from `theme/zoom.ts`, and its registration
+         is what keeps `--prompter-w` a width in a renderer that never writes it. */
+      ...[...css.matchAll(/@property\s+(--[a-z0-9-]+)\s*\{[^}]*initial-value\s*:/g)].map((m) => m[1]!),
       // Defined elsewhere, legitimately: Tailwind's own theme (`@import "tailwindcss"`), the
       // shadow-plugin scale, react-datasheet-grid's stylesheet, and the stagger index the
       // suggestion chips set inline in TSX.

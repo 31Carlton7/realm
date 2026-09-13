@@ -1,8 +1,15 @@
 /**
  * Live check for the hero prompter's stacking order (run with: node apps/desktop/scripts/prompter-fade-live.mjs)
  *
- * Boots the REAL app on a scratch REALM_HOME and proves one thing a jsdom test cannot see, because
- * it needs real compositing: the transcript's dissolve must never reach the prompter.
+ * Boots the REAL app on a scratch REALM_HOME and proves two things a jsdom test cannot see.
+ *
+ * First, real compositing: the transcript's dissolve must never reach the prompter.
+ *
+ * Second, the page zoom (§ at the end). `--prompter-w` multiplies by `--zoom` so the column gives up
+ * more width than ⌘− already takes from it, and every link in that chain is outside the suite —
+ * `webFrame.getZoomFactor()` through the preload, a `resize` that Chromium fires for a zoom change
+ * and documents nowhere, and a `clamp()` no jsdom computes. The zoom is applied the way the View
+ * menu applies it (`webContents.setZoomFactor`), from the wrapper below.
  *
  * The bug it pins has been the same bug twice, through two different mechanisms. It was a blur band
  * on layer 1 and a hero `transform` that trapped the dock's z-index below it, which blurred a
@@ -111,11 +118,24 @@ async function main() {
   }
 
   const wrapper = path.join(scratch, "wrapper.mjs");
+  /* The wrapper watches a file for a zoom factor and applies it to every window. `setZoomFactor` is
+     exactly what the View menu's zoomIn/zoomOut roles call, and it is only reachable from MAIN —
+     CDP has no page-zoom command, and the renderer is given no setter. */
+  const zoomFile = path.join(scratch, "zoom");
   fs.writeFileSync(wrapper, [
-    'import { app } from "electron";',
+    'import { app, BrowserWindow } from "electron";',
+    "import fs from \"node:fs\";",
     'app.setPath("userData", process.env.LIVE_USER_DATA);',
     "await import(process.env.LIVE_MAIN);",
+    "let applied = null;",
+    "setInterval(() => {",
+    "  const want = fs.readFileSync(process.env.LIVE_ZOOM_FILE, \"utf8\").trim();",
+    "  if (!want || want === applied) return;",
+    "  applied = want;",
+    "  for (const w of BrowserWindow.getAllWindows()) w.webContents.setZoomFactor(Number(want));",
+    "}, 200);",
   ].join("\n"));
+  fs.writeFileSync(zoomFile, "");
   const electronBin = process.platform === "darwin"
     ? path.join(repoRoot, "node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron")
     : path.join(repoRoot, "apps/desktop/node_modules/.bin/electron");
@@ -128,6 +148,7 @@ async function main() {
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"),
       LIVE_USER_DATA: path.join(scratch, "userData"),
       LIVE_MAIN: path.join(repoRoot, "apps/desktop/out/main/index.js"),
+      LIVE_ZOOM_FILE: zoomFile,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -240,6 +261,48 @@ async function main() {
     fs.writeFileSync(out, Buffer.from(data, "base64"));
     console.log(`SCREENSHOT ${tag} ${out}`);
   }
+
+  // ── The prompter's column against the page zoom ──────────────────────────
+  /* The metrics override has to go first: it pins the viewport in CSS pixels, and a pinned viewport
+     is one that does not change when the zoom does — which is the very event this section is about. */
+  await c.send("Emulation.clearDeviceMetricsOverride");
+  await sleep(400);
+
+  const column = () => evalIn(c, `(() => {
+    const dock = document.querySelector(".composer-dock");
+    return {
+      zoom: getComputedStyle(document.documentElement).getPropertyValue("--zoom").trim(),
+      bridge: typeof window.realm?.zoomFactor === "function" ? window.realm.zoomFactor() : null,
+      width: Math.round(dock.getBoundingClientRect().width),
+    };
+  })()`);
+
+  const at100 = await column();
+  /* The bridge is the link with nothing behind it if it breaks: no preload getter, no zoom, and the
+     column silently stays the width it has always been — which looks correct in every screenshot. */
+  check("the renderer can read the window's zoom", at100.bridge === 1, at100);
+  check("and it is on the root as a number the stylesheet multiplies by", at100.zoom === "1", at100);
+
+  fs.writeFileSync(zoomFile, "0.8");
+  const at80 = await until(async () => {
+    const c80 = await column();
+    return c80.zoom === "0.8" ? c80 : null;
+  }, 8000, "the zoom reaching the stylesheet").catch(() => null);
+  check("⌘− reaches the stylesheet, which means `resize` is a signal for a zoom change", at80 !== null, at80);
+
+  if (at80) {
+    /* The point of the whole thing. A px column shrinks in exact proportion with the zoom, which
+       leaves it the same SHARE of the window at every level — zooming out to fit more of the work on
+       screen bought nothing back from the prompter. Multiplying by the factor is what makes it give
+       ground: 720 → 576 CSS px at 80%, which is 461 device pixels where a plain px column would
+       still be drawing 576. THE MUTANT is a bare `--prompter-w: 720px`, and it passes every check
+       above this line. */
+    check("the column gives up MORE than the zoom already took",
+      at80.width < at100.width - 100 && Math.abs(at80.width - 576) <= 4,
+      { at100: at100.width, at80: at80.width, device: Math.round(at80.width * 0.8) });
+  }
+  fs.writeFileSync(zoomFile, "1");
+  await sleep(600);
 
   const errs = c.events.filter((e) => !e.includes("Autofill"));
   check("no renderer console errors", errs.length === 0, errs.slice(0, 5));

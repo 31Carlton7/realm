@@ -8,6 +8,10 @@ interface Window {
     port: number; home: string;
     /** The RPC token from the preload, sent as the `realm.<token>` subprotocol on every dial. */
     token: string;
+    /** The window's page zoom, 1 at 100% (`webFrame.getZoomFactor`). Optional like every other
+     *  bridge: jsdom has none, and a renderer without it reads as 100%, which is what the app
+     *  assumed before anything asked. */
+    zoomFactor?(): number;
     /** A session picked from the menu-bar item while the window was closed. */
     onOpenSession(cb: (target: { sessionId: string; spaceId: string | null }) => void): () => void;
     /** Quit Realm and stop every agent. Confirms in main when anything is working. */

@@ -27,6 +27,7 @@ import { liveApi } from "./state/live-api";
 import { rpc } from "./rpc/client";
 import { emptyLayout } from "@realm/contracts";
 import { useApplyTheme } from "./theme/useTheme";
+import { useZoom } from "./theme/zoom";
 import "./panes";
 
 /**
@@ -122,6 +123,10 @@ function ThemeBridge() {
   const fonts = useApp((s) => s.fonts);
   const groundAlpha = useApp((s) => s.groundAlpha);
   const cursorBlink = useApp((s) => s.terminalCursorBlink);
+  /* The page zoom, onto `:root` as a number the stylesheet multiplies by. Chromium already scales
+     every px when you press ⌘−; what this buys is the surfaces that should give up MORE than their
+     share when you do — the prompter's column, today. */
+  useZoom();
   useApplyTheme({ color, pref, themes, overrides, contrast, fonts, groundAlpha });
   // xterm reads its font once, at construction, so a terminal already on screen would keep the old
   // face. A plain effect, not a layout one: it has to run AFTER useApplyTheme has written
