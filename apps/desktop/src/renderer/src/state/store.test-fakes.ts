@@ -999,6 +999,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     codexSetupScan: async () => { calls.push("codexSetupScan"); return data.codexSetupScan; },
     codexSetupApply: async (input) => { calls.push(`codexSetupApply:${input.profileId}:${input.overrides?.model ?? "inherit"}`); const binding = { profileId: input.profileId, receiptId: "receipt", codexHome: data.codexSetupScan.homes.codex, extraSkillRoots: input.scan.extraSkillRoots ?? [], overrides: input.overrides ?? {}, fingerprint: input.scan.fingerprint, appliedAt: 1 }; data.codexSetupBinding = binding; return binding; },
     codexSetupRollback: async (_profileId, receiptId) => { calls.push(`codexSetupRollback:${receiptId}`); data.codexSetupBinding = null; return { rolledBack: true, conflict: false }; },
+    codexSetupGetBinding: async (profileId) => { calls.push(`codexSetupGetBinding:${profileId}`); return data.codexSetupBinding; },
+    codexSetupRefresh: async (profileId) => { calls.push(`codexSetupRefresh:${profileId}`); const current = data.codexSetupBinding!; const binding = { ...current, receiptId: "refreshed", fingerprint: data.codexSetupScan.fingerprint }; data.codexSetupBinding = binding; return { changed: current.fingerprint !== binding.fingerprint, previousFingerprint: current.fingerprint, binding, scan: data.codexSetupScan }; },
+    codexSetupDisconnect: async (_profileId, receiptId) => { calls.push(`codexSetupDisconnect:${receiptId}`); data.codexSetupBinding = null; return { disconnected: true, conflict: false }; },
     importApply: async (selection) => {
       calls.push(`importApply:${(selection.sessions ?? []).length}|${(selection.memories ?? []).length}|${(selection.skills ?? []).length}`);
       importApplied.push(selection);

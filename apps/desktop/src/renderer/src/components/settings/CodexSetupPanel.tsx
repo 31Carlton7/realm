@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CodexSetupBinding, CodexSetupScan } from "@realm/contracts";
 import { useApp } from "../../state/store";
 
@@ -7,7 +7,9 @@ export function CodexSetupPanel() {
   const spaces = useApp((s) => s.spaces);
   const scanSetup = useApp((s) => s.codexSetupScan);
   const applySetup = useApp((s) => s.codexSetupApply);
-  const rollbackSetup = useApp((s) => s.codexSetupRollback);
+  const getBinding = useApp((s) => s.codexSetupGetBinding);
+  const refreshSetup = useApp((s) => s.codexSetupRefresh);
+  const disconnectSetup = useApp((s) => s.codexSetupDisconnect);
   const run = useApp((s) => s.run);
   const [profileId, setProfileId] = useState(profiles[0]?.id ?? "");
   const [rootsText, setRootsText] = useState("");
@@ -25,6 +27,7 @@ export function CodexSetupPanel() {
     ...(model.trim() ? { model: model.trim() } : {}), ...(provider.trim() ? { provider: provider.trim() } : {}), ...(reasoning ? { reasoning } : {}),
     ...(policy === "workspace" ? { approvalPolicy: "on-request", sandbox: "workspace-write" } : policy === "full" ? { approvalPolicy: "never", sandbox: "danger-full-access" } : policy === "readonly" ? { approvalPolicy: "never", sandbox: "read-only" } : {}),
   }), [model, provider, reasoning, policy]);
+  useEffect(() => { if (profileId) void run(async () => setBinding(await getBinding(profileId))); }, [getBinding, profileId, run]);
 
   const preview = async () => {
     if (!cwd) return;
@@ -44,10 +47,17 @@ export function CodexSetupPanel() {
     if (!binding) return;
     setBusy("rollback"); setMessage(null);
     try {
-      const result = await rollbackSetup(binding.profileId, binding.receiptId);
+      const result = await disconnectSetup(binding.profileId, binding.receiptId);
       if (result.conflict) setMessage("Realm overrides changed later. Disconnect stopped to preserve those edits.");
-      else { setBinding(null); setMessage(result.rolledBack ? "Realm binding removed. Codex files were unchanged." : "Binding was already removed."); }
+      else { setBinding(null); setMessage(result.disconnected ? "Realm binding removed. Codex files were unchanged." : "Binding was already removed."); }
     } finally { setBusy(null); }
+  };
+  const refresh = async () => {
+    if (!binding || !cwd) return;
+    setBusy("scan"); setMessage(null);
+    try { const result = await refreshSetup(binding.profileId, cwd); setBinding(result.binding); setScan(result.scan); setMessage(result.changed ? "Setup refreshed. New sessions use the updated sources; running sessions keep their launch context." : "Codex sources are current."); }
+    catch { setMessage("Refresh could not complete. Existing binding and sessions were preserved."); }
+    finally { setBusy(null); }
   };
 
   return (
@@ -81,6 +91,7 @@ export function CodexSetupPanel() {
         {scan.warnings.map((warning) => <p key={warning} className="settings-hint">{warning}</p>)}
         <div className="field import-actions">
           <button type="button" className="btn primary" disabled={busy !== null || Boolean(binding)} onClick={() => run(connect)}>{busy === "apply" ? "Connecting…" : binding ? "Connected" : "Connect setup"}</button>
+          {binding && <button type="button" className="btn" disabled={busy !== null} onClick={() => run(refresh)}>{busy === "scan" ? "Refreshing…" : "Refresh"}</button>}
           {binding && <button type="button" className="btn" disabled={busy !== null} onClick={() => run(disconnect)}>{busy === "rollback" ? "Disconnecting…" : "Disconnect"}</button>}
         </div>
       </>}

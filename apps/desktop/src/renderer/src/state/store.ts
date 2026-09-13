@@ -281,6 +281,9 @@ export type Api = {
   codexSetupScan(input: { cwd: string; extraSkillRoots?: string[] }): Promise<CodexSetupScan>;
   codexSetupApply(input: { profileId: string; scan: { cwd: string; extraSkillRoots?: string[]; fingerprint: string }; overrides?: CodexSetupBinding["overrides"] }): Promise<CodexSetupBinding>;
   codexSetupRollback(profileId: string, receiptId: string): Promise<{ rolledBack: boolean; conflict: boolean }>;
+  codexSetupGetBinding(profileId: string): Promise<CodexSetupBinding | null>;
+  codexSetupRefresh(profileId: string, cwd: string): Promise<{ changed: boolean; previousFingerprint: string; binding: CodexSetupBinding; scan: CodexSetupScan }>;
+  codexSetupDisconnect(profileId: string, receiptId: string): Promise<{ disconnected: boolean; conflict: boolean }>;
   /** `import.apply` — the only writer. Takes the targets the USER settled on in the preview, which
    *  is why the panel passes them back explicitly instead of letting the server re-match. */
   importApply(selection: ImportApplyParams): Promise<ImportResult>;
@@ -1215,6 +1218,9 @@ export type AppState = {
   codexSetupScan(input: { cwd: string; extraSkillRoots?: string[] }): Promise<CodexSetupScan>;
   codexSetupApply(input: { profileId: string; scan: { cwd: string; extraSkillRoots?: string[]; fingerprint: string }; overrides?: CodexSetupBinding["overrides"] }): Promise<CodexSetupBinding>;
   codexSetupRollback(profileId: string, receiptId: string): Promise<{ rolledBack: boolean; conflict: boolean }>;
+  codexSetupGetBinding(profileId: string): Promise<CodexSetupBinding | null>;
+  codexSetupRefresh(profileId: string, cwd: string): Promise<{ changed: boolean; previousFingerprint: string; binding: CodexSetupBinding; scan: CodexSetupScan }>;
+  codexSetupDisconnect(profileId: string, receiptId: string): Promise<{ disconnected: boolean; conflict: boolean }>;
   /** Apply a selection, then refresh the surfaces it may have changed (spaces, items and the skills
    *  library all move under an import) so the sidebar reflects it without a reconnect. */
   importApply(selection: ImportApplyParams): Promise<ImportResult>;
@@ -3175,6 +3181,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       codexSetupScan(input) { return api.codexSetupScan(input); },
       codexSetupApply(input) { return api.codexSetupApply(input); },
       codexSetupRollback(profileId, receiptId) { return api.codexSetupRollback(profileId, receiptId); },
+      codexSetupGetBinding(profileId) { return api.codexSetupGetBinding(profileId); },
+      codexSetupRefresh(profileId, cwd) { return api.codexSetupRefresh(profileId, cwd); },
+      codexSetupDisconnect(profileId, receiptId) { return api.codexSetupDisconnect(profileId, receiptId); },
       async importApply(selection) {
         const result = await api.importApply(selection);
         // An import can create spaces, sessions and items, and can add library skills that reach

@@ -7,7 +7,7 @@
     "id": "codex-setup-core",
     "source": "docs/dev/codex-setup.md",
     "risk": "medium",
-    "outcomes": ["Discover canonical Codex sources without changing them", "Separate OS, Codex, and Realm homes", "Return only non-secret metadata and explicit unavailable states", "Persist idempotent profile bindings with stale-preview rejection", "Rollback only importer-owned state and report later-edit conflicts", "Resolve session, space, profile, and Codex precedence at launch", "Preserve resumed thread settings and report incompatible drift as New session required"],
+    "outcomes": ["Discover canonical Codex sources without changing them", "Separate OS, Codex, and Realm homes", "Return only non-secret metadata and explicit unavailable states", "Persist idempotent profile bindings with stale-preview rejection", "Rollback only importer-owned state and report later-edit conflicts", "Resolve session, space, profile, and Codex precedence at launch", "Preserve resumed thread settings and report incompatible drift as New session required", "Refresh linked sources without changing overrides or restarting sessions", "Disconnect only the current Realm-owned binding and preserve later conflicting edits"],
     "invariants": ["No model turns, authentication flows, or history import during discovery", "Unset overrides retain Codex-native model, provider, reasoning, and permission settings", "Existing provider threads are never silently forked or rewritten"],
     "forbiddenOutcomes": ["Secret-bearing configuration returned to the renderer", "Unavailable runtime reported as configured", "Skill contents copied or rewritten"],
     "requiredValidatorTypes": ["workflow", "visual"]

@@ -15,7 +15,7 @@ const sameBinding = (a: CodexSetupBinding, b: Omit<CodexSetupBinding, "receiptId
 
 /** Read-only inventory. Deliberately has no settings/database or filesystem-write dependency. */
 export class CodexSetupService {
-  constructor(private d: { realmHome: string; userHome?: string; codexHome?: string; inspect?: typeof inspectCodexSetup; settings?: { get(key: string): unknown; set(key: string, value: unknown): void; transaction<T>(work: () => T): T }; profileExists?: (id: string) => boolean; spaceProfileId?: (id: string) => string | null }) {}
+  constructor(private d: { realmHome: string; userHome?: string; codexHome?: string; inspect?: typeof inspectCodexSetup; settings?: { get(key: string): unknown; set(key: string, value: unknown): void; transaction<T>(work: () => T): T }; profileExists?: (id: string) => boolean; spaceProfileId?: (id: string) => string | null; spaceIdsForProfile?: (id: string) => string[] }) {}
   private key(profileId: string) { return `codexSetup.binding:${profileId}`; }
   private receiptKey(profileId: string, receiptId: string) { return `codexSetup.receipt:${profileId}:${receiptId}`; }
 
@@ -116,5 +116,32 @@ export class CodexSetupService {
     if (!CodexSetupBindingSchema.safeParse(this.d.settings.get(this.key(profileId))).success) throw new RpcError("NOT_CONNECTED", "Space profile has no connected Codex setup");
     this.d.settings.set(`codexSetup.overrides:space:${spaceId}`, CodexSetupOverridesSchema.parse(overrides));
     return { ok: true };
+  }
+
+  getBinding(profileId: string): CodexSetupBinding | null {
+    if (!this.d.settings) throw new RpcError("INTERNAL", "Setup bindings are unavailable");
+    const binding = CodexSetupBindingSchema.safeParse(this.d.settings.get(this.key(profileId)));
+    return binding.success ? binding.data : null;
+  }
+
+  async refresh(profileId: string, cwd: string) {
+    const previous = this.getBinding(profileId);
+    if (!previous) throw new RpcError("NOT_CONNECTED", "Profile has no connected Codex setup");
+    const scan = await this.scan({ cwd, codexHome: previous.codexHome, extraSkillRoots: previous.extraSkillRoots });
+    if (scan.fingerprint === previous.fingerprint) return { changed: false, previousFingerprint: previous.fingerprint, binding: previous, scan };
+    const binding = await this.apply({ profileId, scan: { cwd, codexHome: previous.codexHome, extraSkillRoots: previous.extraSkillRoots, fingerprint: scan.fingerprint }, overrides: previous.overrides });
+    return { changed: true, previousFingerprint: previous.fingerprint, binding, scan };
+  }
+
+  disconnect(profileId: string, receiptId: string): { disconnected: boolean; conflict: boolean } {
+    if (!this.d.settings) throw new RpcError("INTERNAL", "Setup bindings are unavailable");
+    return this.d.settings.transaction(() => {
+      const current = CodexSetupBindingSchema.safeParse(this.d.settings!.get(this.key(profileId)));
+      if (!current.success) return { disconnected: false, conflict: false };
+      if (current.data.receiptId !== receiptId) return { disconnected: false, conflict: true };
+      this.d.settings!.set(this.key(profileId), null);
+      for (const spaceId of this.d.spaceIdsForProfile?.(profileId) ?? []) this.d.settings!.set(`codexSetup.overrides:space:${spaceId}`, null);
+      return { disconnected: true, conflict: false };
+    });
   }
 }

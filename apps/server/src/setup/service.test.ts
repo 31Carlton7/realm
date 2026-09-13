@@ -77,4 +77,20 @@ describe("CodexSetupService.scan", () => {
     expect(service.rollback("profile", binding.receiptId)).toEqual({ rolledBack: true, conflict: false });
     expect(values.get("codexSetup.binding:profile")).toBeNull();
   });
+  it("refreshes drift without changing overrides and disconnects only the current receipt", async () => {
+    const values = new Map<string, unknown>();
+    const settings = { get: (key: string) => values.get(key) ?? null, set: (key: string, value: unknown) => values.set(key, value), transaction: <T>(work: () => T) => work() };
+    const service = new CodexSetupService({ realmHome: realm, userHome: user, codexHome: codex, inspect: async () => runtime(), settings, profileExists: () => true, spaceIdsForProfile: () => ["space"] });
+    const preview = await service.scan({ cwd });
+    const original = await service.apply({ profileId: "profile", scan: { cwd, fingerprint: preview.fingerprint }, overrides: { model: "chosen" } });
+    writeFileSync(join(codex, "config.toml"), 'model = "changed"\n');
+    const refreshed = await service.refresh("profile", cwd);
+    expect(refreshed).toMatchObject({ changed: true, previousFingerprint: original.fingerprint, binding: { overrides: { model: "chosen" } } });
+    expect(refreshed.binding.receiptId).not.toBe(original.receiptId);
+    values.set("codexSetup.overrides:space:space", { reasoning: "high" });
+    expect(service.disconnect("profile", original.receiptId)).toEqual({ disconnected: false, conflict: true });
+    expect(service.disconnect("profile", refreshed.binding.receiptId)).toEqual({ disconnected: true, conflict: false });
+    expect(values.get("codexSetup.binding:profile")).toBeNull();
+    expect(values.get("codexSetup.overrides:space:space")).toBeNull();
+  });
 });

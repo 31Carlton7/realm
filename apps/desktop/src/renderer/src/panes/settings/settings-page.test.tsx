@@ -57,6 +57,10 @@ describe("the Settings page (Plan 12 W6)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Connect setup" }));
     await waitFor(() => expect(api.calls).toContain("codexSetupApply:p1:gpt-custom"));
     expect(await screen.findByText("Codex setup connected.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(api.calls).toContain("codexSetupRefresh:p1"));
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+    await waitFor(() => expect(api.calls).toContain("codexSetupDisconnect:refreshed"));
   });
 
   it("the tabs ARE the page's rail, which is what widens the page's measure to hold them", async () => {

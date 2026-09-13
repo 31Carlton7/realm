@@ -5,7 +5,9 @@ authoritative. Apply rechecks the preview fingerprint, writes only Realm setting
 receipt. Rollback restores the prior binding only while the current value still matches that receipt;
 later user edits produce a conflict. Launch precedence is session, space, profile, then Codex. Existing
 threads retain their recorded immutable settings; incompatible drift is recorded as “New session required.”
-Refresh and rendered UI validation remain pending.
+Refresh re-scans stored sources, reports fingerprint drift, preserves explicit overrides, and never
+restarts running sessions. Disconnect removes the current Realm-owned binding and space overrides
+only when its receipt still owns the current state. Rendered UI validation remains pending.
 
 The settings candidate adds a dedicated **Codex setup** tab beside Import. Reference lock: preserve
 the existing Settings rail, form fields, source rows, button hierarchy, and system theme behavior;

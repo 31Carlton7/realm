@@ -72,6 +72,9 @@ export function registerMethods(d: Deps): void {
   reg("codexSetup.apply", (p) => d.codexSetup.apply(p));
   reg("codexSetup.rollback", (p) => d.codexSetup.rollback(p.profileId, p.receiptId));
   reg("codexSetup.setSpaceOverrides", (p) => d.codexSetup.setSpaceOverrides(p.spaceId, p.overrides));
+  reg("codexSetup.getBinding", (p) => d.codexSetup.getBinding(p.profileId));
+  reg("codexSetup.refresh", (p) => d.codexSetup.refresh(p.profileId, p.cwd));
+  reg("codexSetup.disconnect", (p) => d.codexSetup.disconnect(p.profileId, p.receiptId));
 
   reg("system.info", () => ({ realmHome: d.home, version: d.version, machineName: d.machineName, userName: d.userName }));
 
