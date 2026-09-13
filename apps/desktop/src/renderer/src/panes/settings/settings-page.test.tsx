@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { AGENT_CLI_COMMANDS, DEFAULT_PERMISSION_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, PAGE_REF_IDS } from "@realm/contracts";
 import { engineVersionLabel, SettingsPage } from "./SettingsPage";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item, macRow, notification, type FakeData } from "../../state/store.test-fakes";
+import { fakeApi, item, macRow, notification, profile, space, type FakeData } from "../../state/store.test-fakes";
 import type { AgentProbe } from "../../state/store";
 
 /** The pane as PaneHost mounts it: kind is the identity, refId the sentinel. */
@@ -42,9 +42,25 @@ describe("the Settings page (Plan 12 W6)", () => {
     await mount();
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Engines" })).toBeChecked();
-    for (const tab of ["Usage", "App", "Sign-ins", "Import", "Permissions"]) {
+    for (const tab of ["Usage", "App", "Sign-ins", "Codex setup", "Import", "Permissions"]) {
       expect(screen.getByRole("radio", { name: tab }), tab).not.toBeChecked();
     }
+  });
+
+  it("previews and connects an existing Codex setup without mixing it with transcript import", async () => {
+    const { api } = await mount({ profiles: [profile("p1", "Main")], spaces: [space("s1", "p1", "Work")] });
+    fireEvent.click(screen.getByRole("radio", { name: "Codex setup" }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview Codex setup" }));
+    await waitFor(() => expect(api.calls).toContain("codexSetupScan"));
+    expect(await screen.findByText("authentication not checked", { exact: false })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Model override" }), { target: { value: "gpt-custom" } });
+    fireEvent.click(screen.getByRole("button", { name: "Connect setup" }));
+    await waitFor(() => expect(api.calls).toContain("codexSetupApply:p1:gpt-custom"));
+    expect(await screen.findByText("Codex setup connected.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(api.calls).toContain("codexSetupRefresh:p1"));
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+    await waitFor(() => expect(api.calls).toContain("codexSetupDisconnect:refreshed"));
   });
 
   it("the tabs ARE the page's rail, which is what widens the page's measure to hold them", async () => {

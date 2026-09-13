@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementContext, scanMentions, sessionEvent, stripMentionAts, type AgentKind, type ElementChip, type Environment, type Session, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
+import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, CodexSetupBindingSchema, CodexSetupLaunchSchema, CodexSetupOverridesSchema, DEFAULT_PERMISSION_MODE_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementContext, scanMentions, sessionEvent, stripMentionAts, type AgentKind, type ElementChip, type Environment, type Session, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
 import type { AdapterRegistry, AgentHandle, PermissionDecision, ProbeResult, SkillMention, UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -340,7 +340,7 @@ export class SessionService {
     // The row moves whether or not a process is live. A session that has not started yet keeps the
     // request in the column and hands it over at `start` (ensureLive reads the row), which is what
     // makes the switch mean the same thing before the first message as after it.
-    await this.live.get(id)?.handle.setOptions({ model: o.model, permissionMode: o.permissionMode, fastMode: o.fastMode });
+    await this.live.get(id)?.handle.setOptions({ model: o.model, effort: o.effort, permissionMode: o.permissionMode, fastMode: o.fastMode });
     return s;
   }
 
@@ -734,7 +734,33 @@ export class SessionService {
     const systemContext = joined.length > 0 ? joined : undefined;
     let handle: AgentHandle;
     try {
-      handle = adapter.start({ cwd: s.cwd, model: s.model, effort: s.effort, permissionMode: s.permissionMode, fastMode: s.fastMode, mcpServers, resume: s.providerSessionId,
+      const profileId = this.d.spaces.get(s.spaceId)?.profileId;
+      const binding = profileId ? CodexSetupBindingSchema.safeParse(this.d.settings.get(`codexSetup.binding:${profileId}`)) : null;
+      const bindingData = binding?.success ? binding.data : null;
+      const parsedSpace = CodexSetupOverridesSchema.safeParse(this.d.settings.get(`codexSetup.overrides:space:${s.spaceId}`));
+      const spaceOverrides = parsedSpace.success ? parsedSpace.data : {};
+      const inherited = s.agentKind === "codex" && bindingData ? {
+        model: spaceOverrides.model ?? bindingData.overrides.model,
+        provider: spaceOverrides.provider ?? bindingData.overrides.provider,
+        reasoning: spaceOverrides.reasoning ?? bindingData.overrides.reasoning,
+        approvalPolicy: spaceOverrides.approvalPolicy ?? bindingData.overrides.approvalPolicy,
+        sandbox: spaceOverrides.sandbox ?? bindingData.overrides.sandbox,
+      } : null;
+      const explicitPermission = s.permissionMode !== "default";
+      const desiredLaunch = inherited ? {
+        model: s.model ?? inherited.model ?? null,
+        modelProvider: inherited.provider ?? null,
+        effort: s.effort ?? inherited.reasoning ?? null,
+        permissionMode: explicitPermission ? s.permissionMode : undefined,
+        approvalPolicy: explicitPermission ? undefined : inherited.approvalPolicy ?? undefined,
+        sandbox: explicitPermission ? undefined : inherited.sandbox ?? undefined,
+      } : { model: s.model, effort: s.effort, permissionMode: s.permissionMode };
+      const previousLaunch = inherited ? CodexSetupLaunchSchema.safeParse(this.d.settings.get(`codexSetup.launch:${s.id}`)) : null;
+      const incompatible = Boolean(s.providerSessionId && previousLaunch?.success && ["model", "modelProvider", "permissionMode", "approvalPolicy", "sandbox"].some((key) => (previousLaunch.data[key as keyof typeof previousLaunch.data] ?? null) !== ((desiredLaunch as Record<string, unknown>)[key] ?? null)));
+      const launch = incompatible && previousLaunch?.success ? { ...desiredLaunch, model: previousLaunch.data.model, modelProvider: previousLaunch.data.modelProvider, permissionMode: previousLaunch.data.permissionMode ?? undefined, approvalPolicy: previousLaunch.data.approvalPolicy ?? undefined, sandbox: previousLaunch.data.sandbox ?? undefined } : desiredLaunch;
+      if (inherited && (!s.providerSessionId || !previousLaunch?.success)) this.d.settings.set(`codexSetup.launch:${s.id}`, { profileId, receiptId: bindingData!.receiptId, model: launch.model, modelProvider: launch.modelProvider ?? null, effort: launch.effort, permissionMode: launch.permissionMode ?? null, approvalPolicy: launch.approvalPolicy ?? null, sandbox: launch.sandbox ?? null, origins: { model: s.model ? "session" : spaceOverrides.model != null ? "space" : bindingData!.overrides.model != null ? "profile" : "codex", provider: spaceOverrides.provider != null ? "space" : bindingData!.overrides.provider != null ? "profile" : "codex", effort: s.effort ? "session" : spaceOverrides.reasoning != null ? "space" : bindingData!.overrides.reasoning != null ? "profile" : "codex", policy: explicitPermission ? "session" : spaceOverrides.approvalPolicy != null || spaceOverrides.sandbox != null ? "space" : bindingData!.overrides.approvalPolicy != null || bindingData!.overrides.sandbox != null ? "profile" : "codex" }, resumed: Boolean(s.providerSessionId), recordedAt: Date.now() });
+      if (incompatible) this.d.settings.set(`codexSetup.resumeConflict:${s.id}`, { message: "New session required", recordedAt: Date.now() });
+      handle = adapter.start({ cwd: s.cwd, ...launch, fastMode: s.fastMode, mcpServers, resume: s.providerSessionId,
         skills,
         systemContext,
         env: env ? portEnv(env) : {},

@@ -41,8 +41,12 @@ export type SkillsInjection = {
 export type StartOptions = {
   cwd: string;
   model?: string | null;
+  modelProvider?: string | null;
   effort?: string | null;
-  permissionMode?: string;
+permissionMode?: string;
+/** Native Codex policy overrides. Omitted values keep Codex's own config. */
+approvalPolicy?: string;
+sandbox?: string;
   /** The session has ASKED for fast mode. Only `claude` acts on it; every other adapter ignores it,
    *  and none of them is obliged to report back — the honest answer for an engine with no such
    *  concept is silence, which the prompter reads as "no switch to offer". */
@@ -87,7 +91,7 @@ export interface AgentHandle {
    *  question surface ignore it and answer the plain allow/deny they always did. */
   respondPermission(requestId: string, decision: PermissionDecision, answers?: Record<string, string>): void;
   interrupt(): Promise<void>;
-  setOptions(opts: { model?: string; permissionMode?: string; fastMode?: boolean }): Promise<void>;
+  setOptions(opts: { model?: string; effort?: string; permissionMode?: string; fastMode?: boolean }): Promise<void>;
   dispose(): Promise<void>;
 }
 

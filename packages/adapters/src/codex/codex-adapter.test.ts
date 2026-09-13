@@ -353,10 +353,26 @@ describe("CodexAdapter", () => {
     const { handle, evs } = await booted({ model: "reflect" });
     const params = JSON.parse(of(evs, "init")[0]!.payload.model) as Record<string, unknown>;
     expect(params.config).toBeUndefined();
+    expect(params).not.toHaveProperty("approvalPolicy");
+    expect(params).not.toHaveProperty("sandbox");
     const plain = await booted();
     expect(of(plain.evs, "init")[0]!.payload.model).toBe("gpt-5.2"); // fixture default: no model was sent
     await handle.dispose();
     await plain.handle.dispose();
+  });
+
+  it("passes explicit native policy overrides without Realm remapping", async () => {
+    const { handle, evs } = await booted({ model: "reflect", modelProvider: "proxy", approvalPolicy: "never", sandbox: "danger-full-access" });
+    expect(JSON.parse(of(evs, "init")[0]!.payload.model)).toMatchObject({ modelProvider: "proxy", approvalPolicy: "never", sandbox: "danger-full-access" });
+    await handle.dispose();
+  });
+
+  it("passes reasoning effort on each turn", async () => {
+    const { handle, evs } = await booted({ effort: "high" });
+    await handle.send({ text: "TURN_PARAMS", attachments: [] });
+    await waitFor(() => expect(texts(evs)).toHaveLength(1));
+    expect(JSON.parse(texts(evs)[0]!)).toMatchObject({ effort: "high" });
+    await handle.dispose();
   });
 
   it("passes mcp servers through config.mcp_servers", async () => {
@@ -467,6 +483,29 @@ describe("CodexAdapter", () => {
     await handle.dispose();
   });
 
+  it("bridges native requestUserInput questions and returns Codex's answer shape", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "QUESTION", attachments: [] });
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    const req = of(evs, "permission_request")[0]!.payload;
+    expect(req).toMatchObject({
+      toolName: "AskUserQuestion",
+      input: { questions: [{ question: "Pick?", header: "Mode", multiSelect: false, allowOther: true, secret: false, options: [{ label: "A", description: "first" }] }] },
+    });
+
+    handle.respondPermission(req.requestId, "allow", { "Pick?": "A" });
+    await waitFor(() => expect(texts(evs)).toEqual(['{"answers":{"choice":{"answers":["A"]}}}']));
+    await handle.dispose();
+  });
+
+  it("rejects malformed requestUserInput questions instead of stalling the turn", async () => {
+    const { handle, evs } = await booted();
+    await handle.send({ text: "BADQUESTION", attachments: [] });
+    await waitFor(() => expect(texts(evs)).toEqual(["refused: -32602"]));
+    expect(types(evs)).not.toContain("permission_request");
+    await handle.dispose();
+  });
+
   it("answers an unknown server request with -32601 instead of stalling the turn", async () => {
     const logs: string[] = [];
     const { handle, evs } = await booted({ onLog: (l) => logs.push(l) });
@@ -474,7 +513,7 @@ describe("CodexAdapter", () => {
     // The fixture only finishes the turn once its odd request is answered.
     await waitFor(() => expect(texts(evs)).toEqual(["refused: -32601"]));
     expect(types(evs)).not.toContain("permission_request");
-    expect(logs.some((l) => l.includes("item/tool/requestUserInput"))).toBe(true);
+    expect(logs.some((l) => l.includes("item/tool/unsupportedOddball"))).toBe(true);
     await handle.dispose();
   });
 

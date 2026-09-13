@@ -1,4 +1,5 @@
 import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip } from "@realm/contracts";
+import type { CodexSetupBinding, CodexSetupScan } from "@realm/contracts";
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
   allItems, closeItem as layoutClose, emptyLayout, equalizeSplit as layoutEqualize, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, modeWireValue, sessionModeOf,
@@ -277,6 +278,12 @@ export type Api = {
   /** `import.scan` — everything the agent CLIs have on disk, matched to spaces. A pure read: it
    *  creates nothing, so it is safe to call on mount and on every "Re-scan" click. */
   importScan(): Promise<ImportScan>;
+  codexSetupScan(input: { cwd: string; extraSkillRoots?: string[] }): Promise<CodexSetupScan>;
+  codexSetupApply(input: { profileId: string; scan: { cwd: string; extraSkillRoots?: string[]; fingerprint: string }; overrides?: CodexSetupBinding["overrides"] }): Promise<CodexSetupBinding>;
+  codexSetupRollback(profileId: string, receiptId: string): Promise<{ rolledBack: boolean; conflict: boolean }>;
+  codexSetupGetBinding(profileId: string): Promise<CodexSetupBinding | null>;
+  codexSetupRefresh(profileId: string, cwd: string): Promise<{ changed: boolean; previousFingerprint: string; binding: CodexSetupBinding; scan: CodexSetupScan }>;
+  codexSetupDisconnect(profileId: string, receiptId: string): Promise<{ disconnected: boolean; conflict: boolean }>;
   /** `import.apply` — the only writer. Takes the targets the USER settled on in the preview, which
    *  is why the panel passes them back explicitly instead of letting the server re-match. */
   importApply(selection: ImportApplyParams): Promise<ImportResult>;
@@ -1208,6 +1215,12 @@ export type AppState = {
    *  candidates the Import panel holds while the user edits targets, and parking that in the global
    *  store would keep it alive for every pane that never opens the panel. */
   importScan(): Promise<ImportScan>;
+  codexSetupScan(input: { cwd: string; extraSkillRoots?: string[] }): Promise<CodexSetupScan>;
+  codexSetupApply(input: { profileId: string; scan: { cwd: string; extraSkillRoots?: string[]; fingerprint: string }; overrides?: CodexSetupBinding["overrides"] }): Promise<CodexSetupBinding>;
+  codexSetupRollback(profileId: string, receiptId: string): Promise<{ rolledBack: boolean; conflict: boolean }>;
+  codexSetupGetBinding(profileId: string): Promise<CodexSetupBinding | null>;
+  codexSetupRefresh(profileId: string, cwd: string): Promise<{ changed: boolean; previousFingerprint: string; binding: CodexSetupBinding; scan: CodexSetupScan }>;
+  codexSetupDisconnect(profileId: string, receiptId: string): Promise<{ disconnected: boolean; conflict: boolean }>;
   /** Apply a selection, then refresh the surfaces it may have changed (spaces, items and the skills
    *  library all move under an import) so the sidebar reflects it without a reconnect. */
   importApply(selection: ImportApplyParams): Promise<ImportResult>;
@@ -3165,6 +3178,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       usageActiveDays(p) { return api.usageActiveDays(p); },
       setUsageBudget(budget) { return api.setUsageBudget(budget); },
       importScan() { return api.importScan(); },
+      codexSetupScan(input) { return api.codexSetupScan(input); },
+      codexSetupApply(input) { return api.codexSetupApply(input); },
+      codexSetupRollback(profileId, receiptId) { return api.codexSetupRollback(profileId, receiptId); },
+      codexSetupGetBinding(profileId) { return api.codexSetupGetBinding(profileId); },
+      codexSetupRefresh(profileId, cwd) { return api.codexSetupRefresh(profileId, cwd); },
+      codexSetupDisconnect(profileId, receiptId) { return api.codexSetupDisconnect(profileId, receiptId); },
       async importApply(selection) {
         const result = await api.importApply(selection);
         // An import can create spaces, sessions and items, and can add library skills that reach

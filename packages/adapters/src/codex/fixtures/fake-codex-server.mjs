@@ -22,6 +22,8 @@
  *   PATCH     edits a file and asks for a fileChange approval instead
  *   REFUSE    fails `turn/start` outright
  *   APPROVE2  runs two commands whose approvals are open at once      (waiting_permission bookkeeping)
+ *   QUESTION  asks one native Codex requestUserInput question
+ *   BADQUESTION asks a malformed empty native question request
  *   ODDBALL   asks a server request no client is expected to support  (-32601 answer path)
  *   ECHO      replies with the raw `input` array as the agent message (input-shape assertions)
  *   CRASH     opens a command item, then dies without warning          (unexpected-death path)
@@ -256,10 +258,31 @@ async function streamTurnParams(threadId, turnId, text, params) {
   endTurn(threadId, turnId);
 }
 
+/** A native Codex question; the answer is echoed so the adapter test can assert its wire shape. */
+async function streamQuestionTurn(threadId, turnId, text) {
+  await openTurn(threadId, turnId, text);
+  const { reply } = ask("item/tool/requestUserInput", {
+    threadId, turnId, itemId: `q_${nextItemN++}`,
+    questions: [{ id: "choice", header: "Mode", question: "Pick?", isOther: true, isSecret: false, options: [{ label: "A", description: "first" }] }],
+    isBlocking: true, autoResolutionMs: null,
+  });
+  const answer = await reply;
+  agentMessage(threadId, turnId, JSON.stringify(answer.result));
+  endTurn(threadId, turnId);
+}
+
+async function streamBadQuestionTurn(threadId, turnId, text) {
+  await openTurn(threadId, turnId, text);
+  const { reply } = ask("item/tool/requestUserInput", { threadId, turnId, itemId: `q_${nextItemN++}`, questions: [], autoResolutionMs: null });
+  const answer = await reply;
+  agentMessage(threadId, turnId, `refused: ${answer.error?.code ?? "none"}`);
+  endTurn(threadId, turnId);
+}
+
 /** A server request no client is expected to understand; the turn only ends once it is answered. */
 async function streamOddballTurn(threadId, turnId, text) {
   await openTurn(threadId, turnId, text);
-  const { reply } = ask("item/tool/requestUserInput", { threadId, turnId, itemId: `q_${nextItemN++}`, questions: [], autoResolutionMs: null });
+  const { reply } = ask("item/tool/unsupportedOddball", { threadId, turnId, itemId: `q_${nextItemN++}` });
   const answer = await reply;
   agentMessage(threadId, turnId, `refused: ${answer.error?.code ?? answer.result?.decision ?? "none"}`);
   endTurn(threadId, turnId);
@@ -342,6 +365,8 @@ function handleRequest(id, method, params) {
       if (text.includes("APPROVE2")) { void streamTwoApprovalsTurn(params.threadId, turnId, text); return; }
       if (text.includes("PATCH")) { void streamPatchTurn(params.threadId, turnId, text); return; }
       if (text.includes("APPROVE")) { void streamApprovalTurn(params.threadId, turnId, text); return; }
+      if (text.includes("BADQUESTION")) { void streamBadQuestionTurn(params.threadId, turnId, text); return; }
+      if (text.includes("QUESTION")) { void streamQuestionTurn(params.threadId, turnId, text); return; }
       if (text.includes("ODDBALL")) { void streamOddballTurn(params.threadId, turnId, text); return; }
       if (text.includes("TURN_PARAMS")) { void streamTurnParams(params.threadId, turnId, text, params); return; }
       if (text.includes("ECHO")) { void streamEchoTurn(params.threadId, turnId, text, params.input); return; }

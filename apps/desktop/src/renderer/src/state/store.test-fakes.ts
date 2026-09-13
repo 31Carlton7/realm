@@ -4,6 +4,7 @@ import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment,
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { basenameOf, mimeForPath, nextFireOf } from "@realm/contracts";
 import type { CliStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageSummary, UsageTotals } from "@realm/contracts";
+import type { CodexSetupBinding, CodexSetupScan } from "@realm/contracts";
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
 export const usageTotals = (extra: Partial<UsageTotals> = {}): UsageTotals =>
@@ -124,6 +125,7 @@ export type FakeData = {
   computerAllowedApps?: Record<string, string[]>;
   sessions?: Session[]; sessionEvents?: Record<string, StoredSessionEvent[]>;
   importScan?: ImportScan; importResult?: ImportResult;
+  codexSetupScan?: CodexSetupScan; codexSetupBinding?: CodexSetupBinding | null;
   usageSummary?: UsageSummary;
   usageActiveDays?: UsageDay[];
   schedules?: Schedule[];
@@ -337,6 +339,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     schedules: overrides.schedules ?? [],
     importScan: overrides.importScan ?? { sessions: [], memories: [], skills: [], sources: [] },
     importResult: overrides.importResult ?? { sessions: [], memories: [], skills: [], spacesCreated: [] },
+    codexSetupScan: overrides.codexSetupScan ?? { fingerprint: "fixture", cwd: "/tmp", homes: { user: "/tmp/user", codex: "/tmp/codex", realm: "/tmp/realm" }, runtime: { state: "available", components: { config: "available", skills: "available", hooks: "available" }, settings: { model: null, provider: null, reasoning: null, approvalPolicy: null, sandbox: null }, skills: [], hooks: [], connections: [] }, sources: [], warnings: [] },
+    codexSetupBinding: overrides.codexSetupBinding ?? null,
     tccRows: overrides.tccRows ?? [
       { id: "filesAndFolders", label: "Files & Folders", state: "unknown", detail: "Can't be checked until used — macOS only reveals these grants by asking." },
       { id: "automation", label: "Automation", state: "unknown", detail: "Can't be checked until used — grants are per-app-pair." },
@@ -992,6 +996,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return budget;
     },
     importScan: async () => { calls.push("importScan"); await wait("importScan"); return data.importScan; },
+    codexSetupScan: async () => { calls.push("codexSetupScan"); return data.codexSetupScan; },
+    codexSetupApply: async (input) => { calls.push(`codexSetupApply:${input.profileId}:${input.overrides?.model ?? "inherit"}`); const binding = { profileId: input.profileId, receiptId: "receipt", codexHome: data.codexSetupScan.homes.codex, extraSkillRoots: input.scan.extraSkillRoots ?? [], overrides: input.overrides ?? {}, fingerprint: input.scan.fingerprint, appliedAt: 1 }; data.codexSetupBinding = binding; return binding; },
+    codexSetupRollback: async (_profileId, receiptId) => { calls.push(`codexSetupRollback:${receiptId}`); data.codexSetupBinding = null; return { rolledBack: true, conflict: false }; },
+    codexSetupGetBinding: async (profileId) => { calls.push(`codexSetupGetBinding:${profileId}`); return data.codexSetupBinding; },
+    codexSetupRefresh: async (profileId) => { calls.push(`codexSetupRefresh:${profileId}`); const current = data.codexSetupBinding!; const binding = { ...current, receiptId: "refreshed", fingerprint: data.codexSetupScan.fingerprint }; data.codexSetupBinding = binding; return { changed: current.fingerprint !== binding.fingerprint, previousFingerprint: current.fingerprint, binding, scan: data.codexSetupScan }; },
+    codexSetupDisconnect: async (_profileId, receiptId) => { calls.push(`codexSetupDisconnect:${receiptId}`); data.codexSetupBinding = null; return { disconnected: true, conflict: false }; },
     importApply: async (selection) => {
       calls.push(`importApply:${(selection.sessions ?? []).length}|${(selection.memories ?? []).length}|${(selection.skills ?? []).length}`);
       importApplied.push(selection);

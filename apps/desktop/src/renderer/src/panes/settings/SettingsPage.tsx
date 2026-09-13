@@ -16,13 +16,14 @@ import { useApp, type CliJob, type SubmitKey } from "../../state/store";
 import type { PaneProps } from "../registry";
 import { hasWindowMaterial, useResolvedMode, type ThemePref } from "../../theme/useTheme";
 import { ImportPanel } from "../../components/settings/ImportPanel";
+import { CodexSetupPanel } from "../../components/settings/CodexSetupPanel";
 import { UsagePanel } from "./usage/UsagePanel";
 import { FailoverPanel } from "./FailoverPanel";
 
-type SettingsTab = "engines" | "usage" | "app" | "signins" | "import" | "permissions";
+type SettingsTab = "engines" | "usage" | "app" | "signins" | "codex" | "import" | "permissions";
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: "engines", label: "Engines" }, { id: "usage", label: "Usage" }, { id: "app", label: "App" },
-  { id: "signins", label: "Sign-ins" }, { id: "import", label: "Import" }, { id: "permissions", label: "Permissions" },
+  { id: "signins", label: "Sign-ins" }, { id: "codex", label: "Codex setup" }, { id: "import", label: "Import" }, { id: "permissions", label: "Permissions" },
 ];
 
 /**
@@ -69,6 +70,7 @@ export function SettingsPage(_props: PaneProps) {
           {tab === "usage" && <UsagePanel />}
           {tab === "app" && <AppTab />}
           {tab === "signins" && <SignInsTab />}
+          {tab === "codex" && <CodexSetupPanel />}
           {tab === "import" && <ImportPanel />}
           {tab === "permissions" && <PermissionsTab />}
         </PageScroll>
