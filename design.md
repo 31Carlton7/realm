@@ -101,11 +101,37 @@ Treat a Realm screen as a field of work, not a stack of cards.
 The first viewport of a page that EXPLAINS must show the product or its central working relationship.
 Do not spend it on mood alone.
 
-A page that only routes is not that page. Realm's landing page is one screen — the mark, the name,
-the download, and the two links out — and it deliberately shows no product at all, because it makes
-no argument that a screenshot would have to support. The exception holds only while the page stays
-that small: the moment it starts claiming things, it owes evidence, and the rule above applies
-again.
+A page that only routes is not that page, and Realm's landing page was one: the mark, the name, the
+download, and the two links out, showing no product because it made no argument a screenshot would
+have to support. It makes one now — what the workspace holds, and what an agent is and is not handed
+— so it carries what the rule demands: a single capture of a real space, large enough to read, and
+captioned with the claim it is evidence for.
+
+The mark went to the lockup when that happened. Two focal objects is the mosaic this section already
+refuses, and between an abstract mark and the product, the product is the one that earns the page —
+presence here comes from the visible workspace, not from mood. A mark contained to lockup size is
+also not a place to run a shader: it draws a smudge, and the static vector reads.
+
+Below that first viewport the page is a SEQUENCE, not a grid: one claim per section, one large
+product view each, sides alternating, ending in the questions a reader actually arrives with and one
+concrete next action. Alternate with `flex-row-reverse` rather than by reordering the markup, so
+source order stays claim-then-evidence and the stacked layout reads the right way round. A claim
+whose capture does not exist takes the full measure and reads as prose — a picture of a different
+feature under a sentence is worse than no picture, which is why the copy and the capture manifest
+are separate lists that the page intersects rather than one list that assumes.
+
+A caption describes what is IN the frame, not what the feature can do. The two drift apart without
+anyone lying: the product gains a screen, the capture is retaken, and the sentence above it still
+describes the screen from two releases ago. When a capture changes, re-read every word next to it —
+"the runs it has already produced" over a picture of two schedules and no runs is a false caption
+written by nobody. The same goes for the claim above the picture: state the limit as plainly as the
+capability, because a page that only says yes is an advertisement with a different shape.
+
+Crop out anything that is true of the capture harness rather than of Realm. Realm's captures are
+staged with a scripted agent whose model chip reads "Fake", and a landing page arguing that you
+bring the agent you already use cannot show that word. A crop is only a crop if the frame is
+NARROWER than the source — a box set to the source's own aspect ratio crops nothing, and looks
+exactly like a crop in the markup.
 
 ## Surfaces and depth
 

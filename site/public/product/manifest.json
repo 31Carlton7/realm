@@ -18,5 +18,8 @@
   "usage",
   "appearance",
   "permissions",
-  "engines"
+  "engines",
+  "commands",
+  "sandbox",
+  "keys"
 ]
