@@ -13,5 +13,10 @@
   "sidebar",
   "activity",
   "profiles",
-  "notifications"
+  "notifications",
+  "library",
+  "usage",
+  "appearance",
+  "permissions",
+  "engines"
 ]
