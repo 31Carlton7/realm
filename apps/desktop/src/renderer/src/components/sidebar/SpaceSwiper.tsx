@@ -3,16 +3,36 @@ import { Icon } from "@realm/ui";
 import { allItems, type Item, type PaneGroup, type SpaceGroups } from "@realm/contracts";
 import { useApp, useAppStore, useProfileSpaces } from "../../state/store";
 import { createDragSwipe, type SwipePhase, type SwipeUpdate } from "../../state/gesture";
+import { createSpring } from "../../state/spring";
 import { PinnedGrid } from "./PinnedGrid";
 import { ItemList } from "./ItemList";
 
 const IDLE_MS = 320;
 const DEBUG = () => { try { return localStorage.getItem("realm.debugSwipe") === "1"; } catch { return false; } };
-/* Arc's sidebar lands fast and decelerates hard; a long tail reads as "heavy", not "smooth".
-   .32/.72/0/1 is the iOS sheet curve — most of the distance is covered in the first third. */
-const COMMIT_MS = 300;
-const EASE_COMMIT = `transform ${COMMIT_MS}ms cubic-bezier(.32,.72,0,1)`;
-const EASE_SETTLE = "transform 220ms cubic-bezier(.32,.72,0,1)";
+
+/* The endgame is a SPRING, not a curve over a duration.
+ *
+ * It was `transform 300ms cubic-bezier(.32,.72,0,1)`, and three things follow from that which no
+ * amount of tuning the curve fixes. A page thrown hard and a page nudged over the line landed at the
+ * same speed, because the transition started from rest either way — the seam between the gesture and
+ * its animation. The slide could not be caught: grabbing a page mid-flight fought the transition and
+ * jumped. And a reversal was a cut, because the outgoing transition was replaced rather than
+ * re-aimed.
+ *
+ * A spring has none of those: it starts from where the thing IS, at the speed it is already going,
+ * and a new target is just a new target.
+ *
+ * Both are critically damped, and the bounce Apple gives a thrown sheet is deliberately refused
+ * here: this is a PAGER. Overshoot on a sheet shows a little more of the sheet; overshoot on a page
+ * that fills the column shows the edge of the page after the one you asked for, which reads as a
+ * mis-landing rather than as life. What a throw gets instead is the velocity handoff and a shorter
+ * response — it arrives sooner because it was thrown harder, not because it bounces.
+ */
+const THROW = { damping: 1, response: 0.3 };
+const SETTLE = { damping: 1, response: 0.35 };
+/** How long the outgoing page's rows stay rendered after a commit. Generous — the spring has no
+ *  duration, and a page whose content vanished mid-flight is the bug this guards. */
+const LEAVE_MS = 700;
 
 /** Map the native helper's (phase, momentum) pair to the tracker's phase vocabulary. */
 export function toSwipePhase(m: { phase: string; momentum: string }): SwipePhase | null {
@@ -30,7 +50,8 @@ export function toSwipePhase(m: { phase: string; momentum: string }): SwipePhase
 
 /** Horizontal track with one page per space. Two-finger drag follows the fingers 1:1 (transform
  *  written straight to the DOM — no React state per wheel event), rubber-bands at the ends, holds
- *  wherever you rest, and on lift either commits (past a third of a page, or a flick) or eases back.
+ *  wherever you rest, and on lift either commits (past a third of a page, or a flick projected past
+ *  it) or springs back — at the speed the fingers left, and catchable mid-flight.
  *  Finger lift comes from the native ScrollPhase helper when available; otherwise a quiet-gap timer.
  *  Only the active page subscribes to items; the page being left keeps a snapshot of its rows for
  *  the length of the slide, so a commit never animates a blank page out. */
@@ -71,47 +92,106 @@ export function SpaceSwiper() {
     if (!st.activeSpaceId) return;
     setLeaving({ id: st.activeSpaceId, items: st.items, groups: st.groups });
     if (leaveTimer.current) clearTimeout(leaveTimer.current);
-    leaveTimer.current = setTimeout(() => setLeaving(null), COMMIT_MS + 40);
+    leaveTimer.current = setTimeout(() => setLeaving(null), LEAVE_MS);
   };
 
-  const base = (i: number) => `translateX(${-i * 100}%)`;
-  const write = (t: string, ease: string | null) => {
+  /* The track's position is ONE number: how far it is displaced from the page it is resting on, in
+     px. The fingers write it directly; everything after a lift is a spring converging on 0. Keeping
+     both in the same variable is what makes a gesture and its animation continuous — there is no
+     handover, only who is holding the pen. */
+  const springRef = useRef<ReturnType<typeof createSpring> | null>(null);
+  const spring = () => (springRef.current ??= createSpring(0, SETTLE));
+  /** The displacement the last gesture left behind, snapshotted when a new drag starts. A drag that
+   *  begins mid-flight has to continue from where the page IS — reading the tracker's own offset,
+   *  which starts at 0, would snap it to the base and undo the interruption. */
+  const carryRef = useRef<number | null>(null);
+  /** A commit the store has not applied yet, and the speed the fingers left at. */
+  const pendingRef = useRef<{ dir: "next" | "prev"; velocity: number } | null>(null);
+  const frameRef = useRef<number | null>(null);
+  const lastTickRef = useRef(0);
+  const paintRef = useRef<number | null>(null);
+
+  const reduced = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+
+  /** Write the current displacement to the DOM. The only place a transform is set. */
+  const paint = () => {
     const el = trackRef.current; if (!el) return;
-    el.style.transition = ease ?? "none";
-    el.style.transform = t;
+    const x = springRef.current?.value() ?? 0;
+    el.style.transform = x === 0 ? `translateX(${-indexRef.current * 100}%)` : `translateX(calc(${-indexRef.current * 100}% + ${x}px))`;
   };
-  const cancelQueued = () => { if (rafRef.current !== null) cancelAnimationFrame(rafRef.current); rafRef.current = null; queuedRef.current = null; };
-  /** Settles and page landings are written now; drag frames are coalesced to one write per frame.
-   *  A 120 Hz trackpad otherwise forces several style recalcs per frame that the compositor throws
-   *  away — the work that made the drag stutter rather than track the fingers. */
-  const setTransform = (t: string, ease: string | null) => { cancelQueued(); write(t, ease); };
-  const queueTransform = (t: string) => {
-    queuedRef.current = t;
-    if (rafRef.current !== null) return;
-    rafRef.current = requestAnimationFrame(() => {
-      rafRef.current = null;
-      const v = queuedRef.current; queuedRef.current = null;
-      if (v !== null) write(v, null);
-    });
+  /** Drag frames are coalesced to one write per frame. A 120 Hz trackpad otherwise forces several
+   *  style recalcs per frame that the compositor throws away — the work that made the drag stutter
+   *  rather than track the fingers. */
+  const paintSoon = () => {
+    if (paintRef.current !== null) return;
+    paintRef.current = requestAnimationFrame(() => { paintRef.current = null; paint(); });
+  };
+  const stopFrames = () => {
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    if (paintRef.current !== null) cancelAnimationFrame(paintRef.current);
+    frameRef.current = null; paintRef.current = null;
+  };
+  const step = (ts: number) => {
+    /* The first frame takes a nominal 16ms rather than `ts - performance.now()`: the two clocks can
+       be a frame apart in a real renderer, and in a test driving frames by hand they share no origin
+       at all — either way the spring must not be handed a bogus first delta. */
+    const dt = lastTickRef.current < 0 ? 16 : ts - lastTickRef.current;
+    lastTickRef.current = ts;
+    const moving = spring().tick(dt);
+    paint();
+    frameRef.current = moving ? requestAnimationFrame(step) : null;
+  };
+  /** Let the spring run. Reduced motion takes the same journey with no frames in between. */
+  const animate = () => {
+    if (reduced()) { spring().set(spring().target()); stopFrames(); paint(); return; }
+    if (frameRef.current !== null) return;
+    lastTickRef.current = -1;
+    frameRef.current = requestAnimationFrame(step);
   };
   const tracker = () => (trackerRef.current ??= createDragSwipe({ width: hostRef.current?.clientWidth || 240, idleMs: IDLE_MS }));
 
-  // §6 does not animate "sidebar space swipes triggered by keyboard". A page slide is the tail of a
-  // gesture the fingers already started, so only a gesture commit arms it; ⌃⇥, a click on the space
-  // strip, or a space activated from anywhere else lands on the new page instantly.
-  const fromGesture = useRef(false);
-
   const apply = (r: SwipeUpdate) => {
-    const i = indexRef.current;
-    if (DEBUG() && r.type !== "ignore") console.debug("[swipe]", r.type, r.type === "move" ? r.offset.toFixed(1) : r.type === "commit" ? r.dir : "", "idx", i);
-    if (r.type === "move") { fromGesture.current = false; queueTransform(`translateX(calc(${-i * 100}% - ${r.offset}px))`); }
-    else if (r.type === "settle") setTransform(base(i), EASE_SETTLE);
-    else if (r.type === "commit") { fromGesture.current = true; freeze(); run(() => (r.dir === "next" ? nextSpace() : prevSpace())); } // layout effect eases to the new page
+    if (DEBUG() && r.type !== "ignore") console.debug("[swipe]", r.type, r.type === "move" ? r.offset.toFixed(1) : r.type === "commit" ? r.dir : "", "idx", indexRef.current);
+    if (r.type === "move") {
+      // The fingers own the value outright while they are down: a hard set, no spring under it.
+      if (carryRef.current === null) { carryRef.current = spring().value(); stopFrames(); }
+      spring().set(carryRef.current - r.offset);
+      paintSoon();
+    } else if (r.type === "settle") {
+      carryRef.current = null;
+      spring().to(0, SETTLE);
+      // The tracker counts towards `next`; the track moves the other way, and in px per second.
+      spring().nudge(-r.velocity * 1000);
+      animate();
+    } else if (r.type === "commit") {
+      carryRef.current = null;
+      pendingRef.current = { dir: r.dir, velocity: r.velocity };
+      freeze();
+      run(() => (r.dir === "next" ? nextSpace() : prevSpace())); // the layout effect below flies it home
+    }
   };
 
-  // React owns the resting position; gestures only deviate from it transiently.
-  useLayoutEffect(() => { setTransform(base(index), fromGesture.current ? EASE_COMMIT : null); fromGesture.current = false; }, [index, spaces.length]);
-  useLayoutEffect(() => () => { if (idleTimer.current) clearTimeout(idleTimer.current); if (leaveTimer.current) clearTimeout(leaveTimer.current); cancelQueued(); }, []);
+  /* React owns which page is resting under the track; this keeps the PIXELS continuous across that
+     change. On a gesture commit the base moves one page, so the displacement gains a page in the
+     opposite direction and the spring flies it back to zero from exactly where the fingers left it —
+     no jump, at the speed they were going. Every other way of changing space (⌃⇥, the strip, a
+     command) lands with no animation at all, which is §6's rule. */
+  useLayoutEffect(() => {
+    const width = hostRef.current?.clientWidth || 240;
+    const pending = pendingRef.current;
+    pendingRef.current = null;
+    if (pending) {
+      const s = spring();
+      s.set(s.value() + (pending.dir === "next" ? width : -width), -pending.velocity * 1000);
+      s.to(0, THROW);
+      animate();
+    } else {
+      stopFrames();
+      spring().set(0);
+    }
+    paint();
+  }, [index, spaces.length]);
+  useLayoutEffect(() => () => { if (idleTimer.current) clearTimeout(idleTimer.current); if (leaveTimer.current) clearTimeout(leaveTimer.current); stopFrames(); }, []);
 
   const bounds = () => { const i = indexRef.current; return { canPrev: i > 0, canNext: i < countRef.current - 1 }; };
   const armIdle = (ms: number) => {
@@ -157,7 +237,7 @@ export function SpaceSwiper() {
   return (
     <div className="swiper" data-swiper ref={hostRef} onWheel={onWheel}
       onPointerEnter={() => { hoverRef.current = true; }} onPointerLeave={() => { hoverRef.current = false; }}>
-      <div className="swiper-track" ref={trackRef} style={{ transform: base(index) }}>
+      <div className="swiper-track" ref={trackRef} style={{ transform: `translateX(${-index * 100}%)` }}>
         {/* A page is its ROWS. The space's name heads the whole column now (Sidebar.tsx) — one per
             page was one "Space menu" button per space, all with the same accessible name. */}
         {spaces.map((sp) => (

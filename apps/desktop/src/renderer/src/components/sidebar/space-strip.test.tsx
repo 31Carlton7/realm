@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { SpaceStrip } from "./SpaceStrip";
-import { StoreContext, createAppStore, spaceBadge } from "../../state/store";
+import { StoreContext, createAppStore, spaceActivity, spaceBadge } from "../../state/store";
 import { fakeApi, session, space } from "../../state/store.test-fakes";
 import { exited } from "../popover-exit.test-fakes";
 
@@ -13,21 +13,51 @@ async function mount(api = fakeApi()) {
 }
 
 describe("SpaceStrip overflow (A-H2)", () => {
-  // jsdom has no layout, so scrolling can't be observed — assert the effect's call instead.
-  const scrollSpy = vi.fn();
-  beforeEach(() => {
-    (Element.prototype as unknown as { scrollIntoView: unknown }).scrollIntoView = scrollSpy;
-    scrollSpy.mockClear();
+  /* jsdom has no layout, so the geometry the effect reads is staged by hand: a 100px rail holding
+     300px of chips, with the second space sitting off the right-hand end. */
+  const layout = (el: Element, props: Record<string, number>) => {
+    for (const [k, v] of Object.entries(props)) Object.defineProperty(el, k, { value: v, configurable: true, writable: true });
+  };
+  const stage = (container: HTMLElement, { scrollLeft = 0, chipLeft = 200 } = {}) => {
+    const rail = container.querySelector<HTMLElement>(".strip-spaces")!;
+    layout(rail, { clientWidth: 100, scrollWidth: 300, scrollLeft });
+    const chip = screen.getByRole("button", { name: /switch to space Homework/i });
+    layout(chip, { offsetLeft: chipLeft, offsetWidth: 30, clientWidth: 30 });
+    return rail;
+  };
+
+  it("scrolls the active space into view — and stops there, having moved the least it could", async () => {
+    /* It was `scrollIntoView`, which teleports. On a strip of identical 30px squares a jump has no
+       landmark to track, so the row simply IS somewhere else. The spring is the same one the pages
+       move on, and it lands on the nearest edge plus a chip of air rather than centring — a strip
+       that recentred itself on every activation would never stop moving. */
+    const { container } = await mount();
+    const rail = stage(container);
+    fireEvent.click(screen.getByRole("button", { name: /switch to space Homework/i }));
+    // 230 (the chip's right edge) + 30 of air, less the 100px rail.
+    await waitFor(() => expect(rail.scrollLeft).toBeCloseTo(160, 0), { timeout: 3000 });
   });
 
-  it("scrolls the active space's button into view on mount and again on every activation", async () => {
-    await mount();
-    await waitFor(() => expect(scrollSpy).toHaveBeenCalledWith({ inline: "nearest", block: "nearest" }));
-    expect(scrollSpy.mock.contexts.at(-1)).toBe(screen.getByRole("button", { name: /switch to space Versed/i }));
-    scrollSpy.mockClear();
+  it("does nothing at all when the space is already in view", async () => {
+    /* Chrome that shifts for no reason is worse than chrome that does not move. "In view" means the
+       chip AND its air: at scrollLeft 140 the rail shows 140–240, and a chip at 175–205 clears both
+       edges by the 30px the rule asks for. */
+    const { container } = await mount();
+    const rail = stage(container, { scrollLeft: 140, chipLeft: 175 });
     fireEvent.click(screen.getByRole("button", { name: /switch to space Homework/i }));
-    await waitFor(() => expect(scrollSpy).toHaveBeenCalledWith({ inline: "nearest", block: "nearest" }));
-    expect(scrollSpy.mock.contexts.at(-1)).toBe(screen.getByRole("button", { name: /switch to space Homework/i }));
+    await new Promise((r) => setTimeout(r, 120));
+    expect(rail.scrollLeft).toBe(140);
+  });
+
+  it("the user wins: a touch of the trackpad abandons the animation where it stands", async () => {
+    const { container } = await mount();
+    const rail = stage(container);
+    fireEvent.click(screen.getByRole("button", { name: /switch to space Homework/i }));
+    await waitFor(() => expect(rail.scrollLeft).toBeGreaterThan(1));
+    fireEvent.wheel(rail, { deltaX: 10 });
+    const abandoned = rail.scrollLeft;
+    await new Promise((r) => setTimeout(r, 150));
+    expect(rail.scrollLeft).toBe(abandoned); // never dragged back to the target
   });
 });
 
@@ -48,6 +78,27 @@ describe("spaceBadge priority (U-H3)", () => {
     expect(spaceBadge({ a: "idle", b: "ended" }, space, "s1")).toBeNull();
     expect(spaceBadge({ other: "waiting_permission" }, space, "s1")).toBeNull();
     expect(spaceBadge({ other: "waiting_permission" }, space, "s2")).toBe("waiting_permission");
+  });
+});
+
+describe("spaceActivity, the sort key behind \"Sort by activity\"", () => {
+  const space = { a: "s1", b: "s1", c: "s2" };
+
+  it("ranks the space with the newest activity first", () => {
+    const updated = { a: 100, b: 50 };
+    expect(spaceActivity({}, space, updated, "s1")).toBe(100); // the newer of a/b, not their sum
+    expect(spaceActivity({}, space, updated, "s2")).toBe(0); // c never reported one
+  });
+
+  it("waiting_permission outranks every timestamp — even an old question beats a fresh touch", () => {
+    const updated = { a: 1, c: 999_999 };
+    expect(spaceActivity({ a: "waiting_permission" }, space, updated, "s1")).toBe(Infinity);
+    expect(spaceActivity({ a: "waiting_permission" }, space, updated, "s1"))
+      .toBeGreaterThan(spaceActivity({}, space, updated, "s2"));
+  });
+
+  it("a session in another space never lends its timestamp", () => {
+    expect(spaceActivity({}, space, { c: 500 }, "s1")).toBe(0);
   });
 });
 
@@ -77,6 +128,55 @@ describe("SpaceStrip badges (U-H3)", () => {
     await waitFor(() => expect(store.getState().sessionSpace.seNew).toBe("s2"));
     expect(screen.getByRole("button", { name: /switch to space Homework/i }).querySelector(".strip-badge"))
       .toHaveAttribute("data-status", "running");
+  });
+});
+
+describe("SpaceStrip, sorted by activity", () => {
+  const twoSpaces = () => fakeApi({
+    spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework")],
+    sessions: [session("se1", "s1", { status: "idle", updatedAt: 100 }), session("se2", "s2", { status: "idle", updatedAt: 200 })],
+    items: { s1: [], s2: [] },
+  });
+  const order = (container: HTMLElement) => [...container.querySelectorAll(".strip-space")].map((b) => b.getAttribute("aria-label"));
+
+  it("leaves the strip's own order alone until the setting is turned on", async () => {
+    const { container, store } = await mount(twoSpaces());
+    await waitFor(() => expect(store.getState().sessionUpdatedAt.se2).toBe(200));
+    // s1 before s2, the drag order the fixture was given — s2 has the newer session but the setting
+    // is off, so recency has no say yet.
+    expect(order(container)).toEqual(["Switch to space Versed", "Switch to space Homework"]);
+  });
+
+  it("turning it on re-sorts by activity without writing a new drag order, and back off restores it", async () => {
+    const { container, store } = await mount(twoSpaces());
+    await waitFor(() => expect(store.getState().sessionUpdatedAt.se2).toBe(200));
+    await act(async () => { await store.getState().setSidebarActivityOrder(true); });
+    expect(order(container)).toEqual(["Switch to space Homework", "Switch to space Versed"]);
+    expect(store.getState().spaces.map((sp) => sp.id)).toEqual(["s1", "s2"]); // sort_order untouched
+    await act(async () => { await store.getState().setSidebarActivityOrder(false); });
+    expect(order(container)).toEqual(["Switch to space Versed", "Switch to space Homework"]);
+  });
+
+  it("a question outranks a fresher touch, and the strip re-sorts live as one arrives", async () => {
+    const { container, store } = await mount(twoSpaces());
+    await act(async () => { await store.getState().setSidebarActivityOrder(true); });
+    expect(order(container)).toEqual(["Switch to space Homework", "Switch to space Versed"]);
+    act(() => store.getState().applySessionStatus("se1", "waiting_permission"));
+    expect(order(container)).toEqual(["Switch to space Versed", "Switch to space Homework"]);
+  });
+
+  /* `draggable` is a browser-enforced attribute — jsdom fires drag events regardless of its value,
+     so the attribute itself, not a simulated drag, is the honest thing to assert here. A drop into a
+     spot the next status change would re-sort away from is a drop that looks like it did nothing,
+     which is worse than no affordance at all. */
+  it("turns off dragging while the setting is on, and gives it back when it's off again", async () => {
+    const { store } = await mount(twoSpaces());
+    const homework = () => screen.getByRole("button", { name: /switch to space Homework/i });
+    expect(homework()).toHaveAttribute("draggable", "true");
+    await act(async () => { await store.getState().setSidebarActivityOrder(true); });
+    expect(homework()).toHaveAttribute("draggable", "false");
+    await act(async () => { await store.getState().setSidebarActivityOrder(false); });
+    expect(homework()).toHaveAttribute("draggable", "true");
   });
 });
 

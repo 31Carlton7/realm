@@ -1,8 +1,78 @@
 import { describe, expect, it } from "vitest";
-import { createDragSwipe } from "./gesture";
+import { createDragSwipe, project, rubberband } from "./gesture";
 
 const BOUNDS = { canPrev: true, canNext: true };
 const mk = () => createDragSwipe({ width: 240, idleMs: 90 });
+
+describe("the physics the gesture is decided with", () => {
+  it("projects where a flick lands, not where it was let go", () => {
+    // Apple's exponential decay. The textbook v²/2a is a different curve and lands short — which is
+    // what a flick that "should obviously have switched" and did not actually feels like.
+    expect(project(1, 0.99)).toBeCloseTo(99, 5);   // 1px/ms coasts ~99px
+    expect(project(-1, 0.99)).toBeCloseTo(-99, 5); // …and the same backwards
+    expect(project(0, 0.99)).toBe(0);
+    // A longer coast throws further, which is why a sidebar does not use a screen's rate.
+    expect(project(1, 0.998)).toBeGreaterThan(project(1, 0.99) * 4);
+  });
+
+  it("resists progressively at an edge, and never past the constant", () => {
+    /* THE MUTANT this replaces: `overshoot * 0.35`, a flat multiplier. It is not resistance — the
+       page just becomes heavy and keeps going forever, so the end of the track never announces
+       itself. Rubber approaches a limit: the harder it is pulled, the less it gives. */
+    const width = 240, c = 0.55;
+    // Even steps of pull, so the shape of the curve is what is being read and not the spacing.
+    const pull = [0, 40, 80, 120, 160, 200].map((d) => rubberband(d, width, c));
+    const gain = pull.slice(1).map((v, i) => v - pull[i]!);
+    for (const g of gain) expect(g).toBeGreaterThan(0);                                  // always gives a little
+    for (let i = 1; i < gain.length; i++) expect(gain[i]!).toBeLessThan(gain[i - 1]!);   // …less each time
+    expect(rubberband(1e6, width, c)).toBeLessThan(width);                               // never past a page
+    // The constant IS the first give: ten pixels of pull move the page about 5.5.
+    expect(rubberband(10, width, c) / 10).toBeCloseTo(c, 1);
+    expect(rubberband(-40, width, c)).toBeCloseTo(-rubberband(40, width, c), 10);
+    expect(rubberband(40, 0, c)).toBe(0); // a track with no width has no edge to resist at
+  });
+});
+
+/* Intent: what has to be true before the sidebar moves sideways at all. From #46, whose report was
+   that a diagonal scroll drifted the column and that a lone space could still be dragged. */
+describe.each([false, true])("sidebar intent (native phases: %s)", (native) => {
+  const start = () => { const t = mk(); if (native) t.phase("began", 0); return t; };
+
+  it("never displaces a single space in either direction", () => {
+    // Nowhere to go: rubber-banding here would promise a space that does not exist.
+    const t = start();
+    for (const dx of [2, 80, -160]) {
+      expect(t.wheel(dx, 0, 10, { canPrev: false, canNext: false })).toEqual({ type: "ignore" });
+      expect(t.offset()).toBe(0);
+    }
+  });
+
+  it("banks horizontal jitter until it adds up to a deliberate drag", () => {
+    const t = start();
+    expect(t.wheel(2, 0, 10, BOUNDS)).toEqual({ type: "ignore" });
+    expect(t.wheel(2, 0, 20, BOUNDS)).toEqual({ type: "ignore" });
+    expect(t.wheel(3, 0, 30, BOUNDS)).toEqual({ type: "move", offset: 7 });
+  });
+
+  it("does not turn a diagonal scroll into a horizontal drag", () => {
+    const t = start();
+    for (let i = 1; i <= 10; i++) expect(t.wheel(5, 5, i * 10, BOUNDS)).toEqual({ type: "ignore" });
+    expect(t.offset()).toBe(0);
+  });
+
+  it("still allows a deliberate swipe after vertical scrolling", () => {
+    const t = start();
+    expect(t.wheel(2, 100, 10, BOUNDS)).toEqual({ type: "ignore" });
+    expect(t.wheel(-20, 0, 20, BOUNDS)).toEqual({ type: "move", offset: -20 });
+  });
+
+  it("settles a displaced page when the last other space disappears", () => {
+    const t = start();
+    expect(t.wheel(20, 0, 10, BOUNDS)).toEqual({ type: "move", offset: 20 });
+    expect(t.wheel(20, 0, 20, { canPrev: false, canNext: false })).toMatchObject({ type: "settle" });
+    expect(t.offset()).toBe(0);
+  });
+});
 
 describe("drag swipe (timer fallback — no phase source)", () => {
   it("small drag moves the content, then settles back on idle", () => {
@@ -11,7 +81,7 @@ describe("drag swipe (timer fallback — no phase source)", () => {
     // 6px over 80ms: under the 72px threshold and crawling, so projection can't reach it either.
     expect(t.wheel(6, 0, 80, BOUNDS)).toEqual({ type: "move", offset: 36 });
     expect(t.idle(80 + 89)).toEqual({ type: "ignore" });   // not idle yet
-    expect(t.idle(80 + 91)).toEqual({ type: "settle" });   // eases back to rest
+    expect(t.idle(80 + 91)).toMatchObject({ type: "settle" });   // eases back to rest
     expect(t.offset()).toBe(0);
   });
 
@@ -30,7 +100,7 @@ describe("drag swipe (timer fallback — no phase source)", () => {
     const t = mk();
     let ts = 0; let r;
     do { r = t.wheel(9, 0, (ts += 50), BOUNDS); } while (r.type !== "commit");
-    expect(r).toEqual({ type: "commit", dir: "next" });
+    expect(r).toMatchObject({ type: "commit", dir: "next" });
     // momentum tail (same direction) is swallowed…
     expect(t.wheel(30, 0, ts + 16, BOUNDS)).toEqual({ type: "ignore" });
     // …but a real opposite-direction delta re-arms and follows right away
@@ -41,14 +111,36 @@ describe("drag swipe (timer fallback — no phase source)", () => {
     const t = mk();
     expect(t.wheel(20, 0, 0, BOUNDS).type).toBe("move");
     // 45px, nowhere near 72 — but 25px in 16ms projects well past it.
-    expect(t.wheel(25, 0, 16, BOUNDS)).toEqual({ type: "commit", dir: "next" });
+    expect(t.wheel(25, 0, 16, BOUNDS)).toMatchObject({ type: "commit", dir: "next" });
   });
 
   it("the same distance covered slowly does not commit", () => {
+    /* Projection is Apple's exponential decay now (`project`), which is a longer coast than the flat
+       70ms window this used to use — so "slowly" has to be an actual crawl, and the boundary moved
+       with it: at 45px of a 240px page, anything under ~0.27px/ms settles back. */
     const t = mk();
-    expect(t.wheel(20, 0, 0, BOUNDS).type).toBe("move");
-    expect(t.wheel(25, 0, 85, BOUNDS)).toEqual({ type: "move", offset: 45 }); // 45px @ 0.29px/ms → 66px projected
-    expect(t.idle(85 + 91)).toEqual({ type: "settle" });
+    // 40px, in 5px steps 50ms apart: 0.1px/ms, which projects ~10px — nowhere near the 72px commit.
+    let ts = 0;
+    // The first 5px is under the intent threshold and moves nothing; it is banked, and the second
+    // step spends both — so the track has travelled its 40px by the last one either way.
+    expect(t.wheel(5, 0, (ts += 50), BOUNDS).type).toBe("ignore");
+    for (let i = 0; i < 7; i++) expect(t.wheel(5, 0, (ts += 50), BOUNDS).type).toBe("move");
+    expect(t.offset()).toBe(40);
+    expect(t.idle(ts + 91)).toMatchObject({ type: "settle" });
+  });
+
+  it("hands the release velocity out, in the offset's own sign", () => {
+    /* The number the animation is seeded with. Without it the page lands at the same speed however
+       hard it was thrown, which is the seam between a gesture and its animation — and the reason a
+       CSS transition could never be the endgame here. */
+    const t = mk();
+    t.wheel(20, 0, 0, BOUNDS);
+    const r = t.wheel(60, 0, 16, BOUNDS);
+    expect(r.type).toBe("commit");
+    if (r.type === "commit") {
+      expect(r.velocity).toBeGreaterThan(1);        // px/ms, towards `next`
+      expect(r.velocity).toBeCloseTo(60 / 16, 1);
+    }
   });
 
   it("dragging out then pulling back settles instead of committing", () => {
@@ -59,7 +151,7 @@ describe("drag swipe (timer fallback — no phase source)", () => {
     for (let i = 0; i < 4; i++) expect(t.wheel(10, 0, (ts += 60), BOUNDS).type).toBe("move");
     for (let i = 0; i < 2; i++) expect(t.wheel(-10, 0, (ts += 60), BOUNDS).type).toBe("move");
     expect(t.offset()).toBe(20);
-    expect(t.idle(ts + 100)).toEqual({ type: "settle" });
+    expect(t.idle(ts + 100)).toMatchObject({ type: "settle" });
   });
 
   it("vertical-dominant scrolling is ignored and does not start a drag", () => {
@@ -74,7 +166,7 @@ describe("drag swipe (timer fallback — no phase source)", () => {
     let ts = 0; let last = 0;
     for (let i = 0; i < 30; i++) { const r = t.wheel(10, 0, (ts += 60), { canPrev: true, canNext: false }); expect(r.type).toBe("move"); if (r.type === "move") last = r.offset; }
     expect(last).toBeLessThan(150); expect(last).toBeGreaterThan(0);
-    expect(t.idle(ts + 100)).toEqual({ type: "settle" });
+    expect(t.idle(ts + 100)).toMatchObject({ type: "settle" });
   });
 
   it("commits prev when dragging the other way", () => {
@@ -100,7 +192,7 @@ describe("drag swipe (native phases — macOS Spaces feel)", () => {
     const t = mk();
     t.phase("began", 0);
     t.wheel(20, 0, 60, BOUNDS); t.wheel(20, 0, 120, BOUNDS); // slow drag to 40px, then rest
-    expect(t.phase("ended", 400)).toEqual({ type: "settle" });  // released after a pause: no velocity, under threshold
+    expect(t.phase("ended", 400)).toMatchObject({ type: "settle" });  // released after a pause: no velocity, under threshold
     expect(t.offset()).toBe(0);
   });
 
@@ -112,14 +204,14 @@ describe("drag swipe (native phases — macOS Spaces feel)", () => {
     expect(t.offset()).toBe(108);
     t.wheel(20, 0, (ts += 50), BOUNDS);
     expect(t.offset()).toBe(128);
-    expect(t.phase("ended", ts + 10)).toEqual({ type: "commit", dir: "next" });
+    expect(t.phase("ended", ts + 10)).toMatchObject({ type: "commit", dir: "next" });
   });
 
   it("a flick (momentum begins) commits on lift even if short, and momentum deltas are ignored", () => {
     const t = mk();
     t.phase("began", 0);
     t.wheel(20, 0, 8, BOUNDS); t.wheel(25, 0, 16, BOUNDS); // fast
-    expect(t.phase("ended", 20)).toEqual({ type: "commit", dir: "next" });
+    expect(t.phase("ended", 20)).toMatchObject({ type: "commit", dir: "next" });
     t.phase("momentumBegan", 30);
     expect(t.wheel(30, 0, 40, BOUNDS)).toEqual({ type: "ignore" });
     expect(t.wheel(10, 0, 56, BOUNDS)).toEqual({ type: "ignore" });
@@ -135,7 +227,7 @@ describe("drag swipe (native phases — macOS Spaces feel)", () => {
     let ts = 0;
     for (let i = 0; i < 14; i++) t.wheel(10, 0, (ts += 50), BOUNDS); // 140 (past 72) while held
     for (let i = 0; i < 9; i++) t.wheel(-10, 0, (ts += 50), BOUNDS);  // back to 50
-    expect(t.phase("ended", ts + 10)).toEqual({ type: "settle" });
+    expect(t.phase("ended", ts + 10)).toMatchObject({ type: "settle" });
   });
 
   it("a hard pull-back never commits: projection only counts speed in the drag's own direction", () => {
@@ -146,13 +238,13 @@ describe("drag swipe (native phases — macOS Spaces feel)", () => {
     expect(t.offset()).toBe(30);
     // Unsigned projection would read that speed as "about to cross" and flip the page the user was
     // in the middle of cancelling.
-    expect(t.phase("ended", 312)).toEqual({ type: "settle" });
+    expect(t.phase("ended", 312)).toMatchObject({ type: "settle" });
   });
 
   it("deltas that arrive after the lift never displace the content (no stuck offsets)", () => {
     const t = mk();
     t.phase("began", 0); t.wheel(20, 0, 60, BOUNDS);
-    expect(t.phase("ended", 400)).toEqual({ type: "settle" });
+    expect(t.phase("ended", 400)).toMatchObject({ type: "settle" });
     expect(t.wheel(30, 0, 410, BOUNDS)).toEqual({ type: "ignore" });
     expect(t.offset()).toBe(0);
   });
@@ -161,12 +253,12 @@ describe("drag swipe (native phases — macOS Spaces feel)", () => {
     const t = createDragSwipe({ width: 240, staleMs: 4000 });
     t.phase("began", 0); t.wheel(30, 0, 50, BOUNDS);
     expect(t.idle(2000)).toEqual({ type: "ignore" });  // a real hold
-    expect(t.idle(4100)).toEqual({ type: "settle" });  // nothing for 4s → probably lifted; settle
+    expect(t.idle(4100)).toMatchObject({ type: "settle" });  // nothing for 4s → probably lifted; settle
   });
 
   it("phase 'cancelled' settles", () => {
     const t = mk();
     t.phase("began", 0); t.wheel(30, 0, 10, BOUNDS);
-    expect(t.phase("cancelled", 20)).toEqual({ type: "settle" });
+    expect(t.phase("cancelled", 20)).toMatchObject({ type: "settle" });
   });
 });
