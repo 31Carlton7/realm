@@ -51,9 +51,12 @@ function dayLabel(ts: number, now = Date.now()): string {
 }
 
 /** Consecutive runs of entries sharing a day. A `Map` keyed by label would silently merge two runs a
- *  year apart that happen to render the same words. */
-export function groupByDay(entries: LibraryEntry[], now = Date.now()): { label: string; entries: LibraryEntry[] }[] {
-  const out: { label: string; entries: LibraryEntry[] }[] = [];
+ *  year apart that happen to render the same words.
+ *
+ *  Generic over anything with a timestamp, because the session's file browser groups a directory
+ *  listing by the same days with the same words — "Today" has to mean one thing in this app. */
+export function groupByDay<T extends { ts: number }>(entries: T[], now = Date.now()): { label: string; entries: T[] }[] {
+  const out: { label: string; entries: T[] }[] = [];
   for (const e of entries) {
     const label = dayLabel(e.ts, now);
     const last = out.at(-1);

@@ -676,7 +676,7 @@ export function parseTerminalPanels(raw: unknown): Record<string, TerminalPanel>
  * What a session pane's right-hand strip is showing. One union rather than two flags, because the
  * strip is one place: see `sessionDock`.
  */
-export type SessionDock = { kind: "summary" } | { kind: "subagent"; toolUseId: string } | { kind: "terminal" };
+export type SessionDock = { kind: "summary" } | { kind: "files" } | { kind: "subagent"; toolUseId: string } | { kind: "terminal" };
 
 export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "scripts" | "sandbox" | "sessions" | "tasks" | "history";
 /** The profile page's rail (Plan 14 W2). */

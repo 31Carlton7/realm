@@ -37,6 +37,7 @@ import {
 import { RealmUpdater, UPDATE_FEED_LIVE, updaterDecision } from "./updater";
 import { SecretStore, SecretStoreError } from "./secret-store";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
+import { browseFolder, type BrowseResult } from "./browse";
 import { handleMediaProtocol, mediaPoster, registerMediaScheme, servablePath, statMedia } from "./media";
 
 /* `realm-media://` has to be declared privileged before `app.ready`, which is why this is a
@@ -866,6 +867,20 @@ ipcMain.handle("media:open", async (_e, path: unknown): Promise<void> => {
  * that one really can run an `.app`.
  */
 ipcMain.handle("files:stat", (_e, path: unknown) => statFile(path));
+/**
+ * One folder of a space or a checkout, newest first (`browse.ts`) — what a session's file browser
+ * lists.
+ *
+ * The root comes from the window, and the window only ever passes a `Space.folderPath` or an
+ * `Environment.path`: places the app itself created or was pointed at. What is checked HERE is the
+ * `dir` under it, because that one is navigation — a `..` in a breadcrumb must not walk out of the
+ * folder the panel says it is showing, and `browseFolder` refuses rather than clamping so a bad path
+ * is an error rather than a silent listing of somewhere else.
+ */
+ipcMain.handle("files:browse", async (_e, root: unknown, dir: unknown): Promise<BrowseResult | null> => {
+  if (typeof root !== "string" || root.trim() === "") return null;
+  try { return await browseFolder(root, typeof dir === "string" ? dir : ""); } catch { return null; }
+});
 /** Bigger than a tile's, because this one is meant to be read: a PDF's first page, a spreadsheet's
  *  first rows, a page of source. Same two producers as the tile — see `fileThumbnail`. */
 const PREVIEW_PX = 512;

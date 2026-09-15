@@ -74,6 +74,11 @@ contextBridge.exposeInMainWorld("realm", {
     /** Size and mtime, or null when nothing is there — which is how a preview learns to say the file
      *  is gone instead of drawing three actions that would each fail in turn. */
     stat: (path: string): Promise<{ path: string; size: number; mtimeMs: number } | null> => ipcRenderer.invoke("files:stat", path),
+    /** One folder under `root`, newest first — the session file browser's whole data source. Null
+     *  when the folder cannot be read or the path points outside the root it was given. */
+    browse: (root: string, dir: string): Promise<{ dir: string; truncated: boolean;
+      entries: { path: string; name: string; isDir: boolean; size: number; mtimeMs: number }[] } | null> =>
+      ipcRenderer.invoke("files:browse", root, dir),
     /** A readable picture of the file (a decoded image, or QuickLook's render of a PDF, a sheet, a
      *  page of source), as a data: URL. Null for a type macOS has no generator for. */
     preview: (path: string): Promise<string | null> => ipcRenderer.invoke("files:preview", path),

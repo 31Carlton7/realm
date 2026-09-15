@@ -479,7 +479,7 @@ function UploadRow({ upload, onLightbox, onFile }: { upload: Upload; onLightbox:
 /** Media, through the transcript's lightbox. `useMediaFiles` is what confirms the file is still
  *  there; a path the agent wrote and something later deleted opens the plain artifact sheet, which
  *  says so, rather than an empty frame. */
-function SummaryLightbox({ path, onClose }: { path: string; onClose: () => void }) {
+export function SummaryLightbox({ path, onClose }: { path: string; onClose: () => void }) {
   const candidates = useMemo(() => [path], [path]);
   const files = useMediaFiles(candidates);
   const file = files[0];

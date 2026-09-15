@@ -22,6 +22,7 @@ import { emptyTranscript } from "./transcript-model";
 import { promptHint } from "./prompt-hint";
 import { latestTodos } from "./session-todos";
 import { SessionSummaryHost, useSummaryLive } from "./SessionSummary";
+import { SessionFilesHost } from "./SessionFiles";
 import { GoalStrip } from "./GoalStrip";
 import { PathMenu, asRef } from "./PathMenu";
 import type { SlashCommand } from "./slash-commands";
@@ -126,6 +127,15 @@ function useSessionActions(item: Item): BarAction[] {
       aria: `Summary of ${item.title}`, dialog: true, on: dock === "summary",
       onSelect: () => toggleSessionDock(id, { kind: "summary" }),
     });
+    /* Second, right behind the summary, and for the summary's own reason: this is the only list in
+       the app that shows a file the session actually produced. The Library and the summary are both
+       folded out of tool calls, so anything a shell line or a script wrote is in neither — which is
+       the case someone is in when they go looking. It holds the bar as long as the summary does. */
+    list.push({
+      id: "files", label: "Files", title: "Files in this space and checkout", icon: "folder",
+      aria: `Files for ${item.title}`, dialog: true, on: dock === "files",
+      onSelect: () => toggleSessionDock(id, { kind: "files" }),
+    });
     list.push({
       id: "terminal", label: "Terminal", title: "Terminal (⌘J)", icon: "terminal",
       aria: `${dock === "terminal" ? "Hide" : "Show"} terminal for ${item.title}`,
@@ -169,9 +179,9 @@ function useSessionActions(item: Item): BarAction[] {
  * PanelBar action cluster for a session. `keep` is how many of the list above still fit as buttons;
  * the rest are in the ⋯ menu, put there by `useSessionMenuItems`.
  *
- * `SessionSummaryHost` is outside the slice on purpose: it mounts the summary's docked panel and its
- * lightbox, and those have to stay whatever the bar has room for. An action that moved into the menu
- * must still be able to open the thing it opens.
+ * The two hosts are outside the slice on purpose: each mounts a docked panel and its lightbox, and
+ * those have to stay whatever the bar has room for. An action that moved into the ⋯ menu must still
+ * be able to open the thing it opens.
  */
 export function SessionPanelActions({ item, keep }: { item: Item; keep: number }) {
   const actions = useSessionActions(item);
@@ -186,6 +196,7 @@ export function SessionPanelActions({ item, keep }: { item: Item; keep: number }
       </button>
     ))}
     <SessionSummaryHost item={item} />
+    <SessionFilesHost item={item} />
   </>);
 }
 

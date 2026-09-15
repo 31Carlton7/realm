@@ -33,7 +33,7 @@
 .cmd-cwd, .cmd-line, .code-body, .code-gutter, .code-preview, .composer-attach-note .attach-note-files,
 .diff-counts, .diff-hunk-head, .diff-line, .diff-status, .documents-picker-head, .documents-raw,
 .documents-rich-surface code, .documents-source, .env-path, .failover-pos, .fd-line, .fd-path, .fd-stat,
-.file-preview-path, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
+.file-preview-path, .files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
 .mcp-tool-name, .md code, .md-code-lang, .media-name, .media-time, .memory-doc, .mention-row-id,
 .msg-error pre, .pane-empty-path, .permission-details pre, .permission-tool code, .req-target,
 .sched-cron-input, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
@@ -6926,3 +6926,33 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 @media (prefers-reduced-transparency: reduce) {
   .wash, .wash[data-grain] { background-image: none; }
 }
+
+
+/* ── The session's file browser ───────────────────────────────────────────────
+   The summary's panel, showing a directory instead of a fold of the transcript, so nearly all of its
+   chrome is shared by class: `.pane-dock` for the card, `.summary-panel-head` for the title row,
+   `.summary-scroll-wrap` for the dissolve, `.summary-row` for a row. What is added here is the two
+   controls a LIST of files needs and a summary does not — which folder, and where in it. ── */
+.session-files { width: var(--summary-w); padding: 0 6px 8px;
+  max-height: calc(var(--dock-pane-h, 100vh) - var(--sidebar-inset) * 2); }
+/* Which of the two folders. A segmented pair on the panel's own ground rather than in a pill: the
+   panel is already a card, and a raised control inside a card is a second surface for two words. */
+.files-roots { flex: none; display: flex; align-items: center; gap: 2px; padding: 0 8px 6px; }
+.files-root { height: 22px; padding: 0 9px; border: 0; border-radius: var(--r-chip); corner-shape: squircle;
+  --fill: transparent; color: var(--rl-text-dim); font-size: 11.5px; box-shadow: none; }
+.files-root:hover { --fill: var(--rl-hover); color: var(--rl-text-bright); }
+.files-root[aria-checked="true"] { --fill: var(--rl-accent); color: var(--rl-accent-contrast); }
+/* The trail. Mono, because every segment is a path component and a proportional face makes a folder
+   name look like prose; the last crumb is where you are, so it is the only one that reads as text
+   rather than as a control. */
+.files-crumbs { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 2px; padding: 0 8px 6px;
+  font-family: var(--font-mono); font-size: 11px; }
+.files-crumb { padding: 1px 4px; border: 0; border-radius: var(--r-sm); background: none;
+  font: inherit; color: var(--rl-text-faint); }
+button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-hover); }
+.files-crumb[aria-current] { color: var(--rl-text-dim); }
+/* Between crumbs, and drawn by the stylesheet rather than rendered as its own element: a separator
+   is punctuation, not a node, and one per crumb is a node per folder in the path. */
+.files-crumb + .files-crumb::before { content: "/"; margin-right: 5px; color: var(--rl-text-faint); }
+/* Reading, empty, or capped — the three things this panel says in prose. */
+.files-note { margin: 0; padding: 6px 10px 10px; font-size: 11.5px; line-height: 1.45; color: var(--rl-text-faint); }
