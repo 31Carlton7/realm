@@ -337,8 +337,12 @@ kbd { font: 11px var(--font-mono); }
    collapsing reads as the button moving rather than as one control being swapped for another. */
 /* 76 to clear the lights, 26 for the toggle, then 16 so the first pane's leading control is not
    touching it — .panel-nav opens with a -8px margin, so the gap has to be budgeted at 16 to land
-   as 8 on screen. */
-.app[data-sidebar-collapsed] { --corner-w: 118px; }
+   as 8 on screen.
+   On :root rather than on the collapsed shell, because one of the strips that has to reserve it is
+   NOT inside `.app` at all: an app-level page is portalled to <body> (PageOverlay), so a token
+   declared on the shell never reaches it. The token existing always costs nothing — what is gated on
+   being collapsed is every rule that SPENDS it. */
+:root { --corner-w: 118px; }
 /* The lights' clearance moves on the same rung as the column. Without this the pane bar's indent
    snaps to 118px on the first frame while the sidebar is still a third of the way out, and the two
    halves of one gesture read as two events. */
@@ -347,7 +351,14 @@ kbd { font: 11px var(--font-mono); }
 .main > .panehost:first-child .panel[data-first-leaf] > .panel-bar {
   transition: padding-left var(--dur-move) var(--ease-in-out-strong);
 }
-.sb-corner { position: absolute; top: 0; left: 0; z-index: 5; height: 40px; display: flex; align-items: center;
+/* z-index 36: over an app-level page (35), under the scrims (40+).
+   THE TRAP this closes, and the component's own doc names it — "a collapse control that disappears on
+   collapse is a trap". A page covers the whole window when the sidebar is collapsed (`inset: 0`
+   below), so at the corner's old rung of 5 the only control that brings the column back was painted
+   over and hit-tested to the page: open Agents, collapse the sidebar, and the sidebar could not be
+   opened again except by ⌘B. It is window chrome, like the traffic lights it sits beside — which the
+   OS draws over everything — so it yields to a sheet or the palette and to nothing else. */
+.sb-corner { position: absolute; top: 0; left: 0; z-index: 36; height: 40px; display: flex; align-items: center;
   padding-left: 76px; -webkit-app-region: drag;
   /* Fades in behind the departing column rather than appearing under it mid-slide. No exit: it is
      unmounted the moment the sidebar comes back, and §6 wants an exit quieter than its enter. */
@@ -1891,6 +1902,11 @@ button.panel-title:hover { background: var(--rl-hover); }
 .quick-chat-confirm { flex: none; color: var(--rl-danger); font-size: 12px; white-space: nowrap; }
 /* The empty state, centred in the space the transcript will take. Two lines: what this is, and the
    one consequence worth knowing before you have typed into it rather than after. */
+/* Collapsed, the page takes the whole window (below) — so its bar is the strip under the traffic
+   lights and the corner toggle, and it reserves them the way the pane bar and the group bar do. It
+   cannot join that rule: it is portalled to <body>, so `.app[data-sidebar-collapsed] .main > …`
+   cannot reach it. Without this the page's own title is drawn underneath the lights. */
+.page-overlay[data-sidebar-collapsed] .page-overlay-bar { padding-left: var(--corner-w); }
 .quick-chat-empty { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 6px;
   margin: 0; padding: 0 24px; text-align: center; font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim); }
 .quick-chat-empty > span { font-size: 11.5px; color: var(--rl-text-faint); }

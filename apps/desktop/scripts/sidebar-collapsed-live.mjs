@@ -88,7 +88,12 @@ const check = (name, cond, detail) => {
   console.log(`${cond ? "PASS" : "FAIL"} ${name}${detail !== undefined ? " " + JSON.stringify(detail) : ""}`);
 };
 
-const collapse = (c) => evalIn(c, `(() => { document.querySelector('.sb-toggle').click(); return true; })()`);
+/* The sidebar's own toggle, by the one thing that identifies it: its name. `.sb-toggle` is a
+   size-and-band class the notifications bell and the activity lens wear too, so
+   `querySelector('.sb-toggle')` is the BELL — clicking it opened the notifications page and left the
+   sidebar exactly where it was, which this script then reported as "no corner". */
+const TOGGLE = `[aria-label^="Hide sidebar"], [aria-label^="Show sidebar"]`;
+const collapse = (c) => evalIn(c, `(() => { document.querySelector(\`${TOGGLE}\`).click(); return true; })()`);
 
 /** Every laid-out fact the checks below read, in one round trip. */
 const PROBE = `(() => {
@@ -105,7 +110,7 @@ const PROBE = `(() => {
   }).filter(Boolean);
   return {
     sidebar: box('.sidebar'), corner: box('.sb-corner'), main: box('.main'),
-    panehost: box('.panehost'), groupBar: box('.group-bar'), toggle: box('.sb-toggle'),
+    panehost: box('.panehost'), groupBar: box('.group-bar'), toggle: box('[aria-label^="Hide sidebar"], [aria-label^="Show sidebar"]'),
     groupBarPadLeft: document.querySelector('.group-bar') ? Math.round(parseFloat(getComputedStyle(document.querySelector('.group-bar')).paddingLeft)) : null,
     bars,
   };
@@ -186,19 +191,36 @@ async function main() {
 
   /* ── Collapsed: no rail, no band of height, content at y=0 ───────────────────────────────── */
   await collapse(c);
-  await until(() => evalIn(c, `!!document.querySelector('.sb-corner')`), 5000, "the corner");
+  await until(() => evalIn(c, `!!document.querySelector('.sb-corner')`), 5000, "the corner").catch(async (e) => {
+    // "No corner" has two causes that look identical: the toggle never fired, or it fired and the
+    // shell did not collapse. The attribute tells them apart.
+    console.error("DIAGNOSTIC", JSON.stringify(await evalIn(c, `(() => ({
+      collapsed: document.querySelector('.app')?.hasAttribute('data-sidebar-collapsed') ?? null,
+      sidebar: !!document.querySelector('.sidebar'),
+      toggles: [...document.querySelectorAll('.sb-toggle')].map((t) => t.getAttribute('aria-label')),
+      named: !!document.querySelector('[aria-label^="Show sidebar"], [aria-label^="Hide sidebar"]'),
+      error: document.querySelector('.error-bar')?.textContent ?? null,
+    }))()`)));
+    throw e;
+  });
   await sleep(300);
   const one = await evalIn(c, PROBE);
 
-  check("collapsed, the sidebar is gone rather than narrowed", one.sidebar === null, { sidebar: one.sidebar });
+  /* Off the window, not out of the tree. The column stays mounted and slides out under a negative
+     margin (App.tsx explains why: there is no exit animation for an element React has removed), so
+     what "gone" means here is that it occupies no width on screen — its right edge is at the window's
+     left one. The half pixel is the shell's own sub-pixel layout, and `opacity: 0` means there is
+     nothing to see in it either way. */
+  check("collapsed, the sidebar is off the window rather than narrowed",
+    one.sidebar !== null && one.sidebar.right <= 1 && one.sidebar.w === 280, { sidebar: one.sidebar });
   // The regression this replaces: a 38px full-width strip above the content. The panes now start at
   // the window's own top edge, so collapsing costs no height at all.
   check("collapsing costs no height — the pane host still starts at the top of the window",
-    one.panehost.top === 0 && one.main.top === 0 && one.main.left === 0,
+    one.panehost.top === 0 && one.main.top === 0 && one.main.left <= 1,
     { panehostTop: one.panehost.top, mainTop: one.main.top, mainLeft: one.main.left });
   const bar = one.bars.find((b) => b.first);
   check("the leftmost pane's bar is the strip under the lights, sitting at the very top of the window",
-    !!bar && bar.barTop === 0 && bar.barLeft === 0, one.bars);
+    !!bar && bar.barTop === 0 && bar.barLeft <= 1, one.bars);
 
   /* ── The lights land on that bar without hitting anything ────────────────────────────────── */
   check("the first pane's bar leaves the lights their whole width before its own content starts",
@@ -214,7 +236,7 @@ async function main() {
   // Panes are positioned elements, so a corner rendered before .main would be painted over by the
   // first pane's bar and hit-test to it. This is the check that catches that.
   const hit = await evalIn(c, `(() => {
-    const t = document.querySelector('.sb-toggle').getBoundingClientRect();
+    const t = document.querySelector('[aria-label^="Show sidebar"]').getBoundingClientRect();
     const el = document.elementFromPoint(t.left + t.width / 2, t.top + t.height / 2);
     return { tag: el?.tagName, cls: el?.className, inToggle: !!el?.closest('.sb-toggle') };
   })()`);
@@ -243,8 +265,40 @@ async function main() {
   check("…and the pane bar underneath is no longer indented, because it is no longer under them",
     grouped.bars.every((b) => b.padLeft <= 20), grouped.bars.map((b) => ({ first: b.first, padLeft: b.padLeft })));
 
+  /* ── With an app-level page up, the way back must still be there ─────────────────────────── */
+  /* THE BUG this pins, reported from the Agents page: collapse the sidebar with a page open and
+     nothing brings the column back. A page covers the whole window when the sidebar is collapsed, so
+     the corner was painted over AND hit-tested to the page — which no screenshot shows, because the
+     button is still drawn underneath. The hit test is the only thing that catches it. */
+  await evalIn(c, `(() => { [...document.querySelectorAll('.dest-row')].find((b) => /Agents|Library/.test(b.textContent))?.click(); return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector('.page-overlay')`), 8000, "an app-level page");
+  await sleep(300);
+  const onPage = await evalIn(c, `(() => {
+    const t = document.querySelector('[aria-label^="Show sidebar"]')?.getBoundingClientRect();
+    if (!t) return { toggle: null };
+    const el = document.elementFromPoint(t.left + t.width / 2, t.top + t.height / 2);
+    const bar = document.querySelector('.page-overlay-bar');
+    const cs = bar && getComputedStyle(bar);
+    return { toggle: { left: Math.round(t.left), top: Math.round(t.top) }, inToggle: !!el?.closest('.sb-toggle'),
+             hit: el?.className ?? null, barPadLeft: cs ? Math.round(parseFloat(cs.paddingLeft)) : null,
+             titleLeft: Math.round(document.querySelector('.page-overlay-title')?.getBoundingClientRect().left ?? -1) };
+  })()`);
+  check("with a page covering the window, a click at the toggle still lands on the toggle",
+    onPage.inToggle === true, onPage);
+  check("and the page's own bar leaves the lights and the toggle their strip",
+    onPage.barPadLeft >= LIGHTS.right && onPage.titleLeft >= onPage.toggle.left, onPage);
+  await evalIn(c, `(() => { document.querySelector('[aria-label^="Show sidebar"]').click(); return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector('.sidebar')`), 5000, "the sidebar back from a page");
+  check("…and pressing it brings the column back from inside the page", true);
+  // Put the page away and collapse again, so the checks below start where they expect to.
+  await evalIn(c, `(() => { document.querySelector('.page-overlay [aria-label^="Close"]')?.click(); return true; })()`);
+  await sleep(200);
+  await collapse(c);
+  await until(() => evalIn(c, `!!document.querySelector('.sb-corner')`), 5000, "the corner again");
+  await sleep(200);
+
   /* ── And the way back ────────────────────────────────────────────────────────────────────── */
-  await evalIn(c, `(() => { document.elementFromPoint(...(() => { const t = document.querySelector('.sb-toggle').getBoundingClientRect(); return [t.left + t.width / 2, t.top + t.height / 2]; })()).closest('.sb-toggle').click(); return true; })()`);
+  await evalIn(c, `(() => { document.elementFromPoint(...(() => { const t = document.querySelector('[aria-label^="Show sidebar"]').getBoundingClientRect(); return [t.left + t.width / 2, t.top + t.height / 2]; })()).closest('.sb-toggle').click(); return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('.sidebar')`), 5000, "the sidebar restored");
   const back = await evalIn(c, PROBE);
   check("clicking the corner's toggle brings the sidebar back", back.sidebar?.w === 280 && back.corner === null,
