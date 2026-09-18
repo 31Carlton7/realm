@@ -5,6 +5,7 @@ import { BROWSER_PROVIDER_NAME } from "../browsers/agent-tools";
 import { REALM_AGENT_PROVIDER_NAME } from "../browsers/browser-agent";
 import { DOCS_PROVIDER_NAME } from "../documents/agent-tools";
 import { TERMINAL_PROVIDER_NAME } from "../terminals/agent-tools";
+import { APP_PROVIDER_NAME } from "../app-ui/agent-tools";
 
 /**
  * The preamble that tells an ordinary session what Realm's own tools are for. Two things are worth
@@ -18,7 +19,7 @@ describe("capabilitiesContext", () => {
     // every session is handed a paragraph about a provider that is never keyed by that name — the
     // preamble goes silent about a capability the session has, with nothing else to notice it.
     expect([...CAPABILITY_PROVIDERS].sort()).toEqual(
-      [REALM_AGENT_PROVIDER_NAME, BROWSER_PROVIDER_NAME, DOCS_PROVIDER_NAME, TERMINAL_PROVIDER_NAME, COMPUTER_PROVIDER_NAME, MACHINE_PROVIDER_NAME].sort());
+      [REALM_AGENT_PROVIDER_NAME, BROWSER_PROVIDER_NAME, DOCS_PROVIDER_NAME, TERMINAL_PROVIDER_NAME, APP_PROVIDER_NAME, COMPUTER_PROVIDER_NAME, MACHINE_PROVIDER_NAME].sort());
   });
 
   it("describes only the providers it was given — a space with the browser off is never told it has one", () => {

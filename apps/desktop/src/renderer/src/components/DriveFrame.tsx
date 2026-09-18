@@ -30,6 +30,14 @@ import { AGENT_FRAME } from "@realm/contracts";
  * drop highlight it sits beside does. Copying a number across a boundary that changes what the
  * number means is not parity.
  *
+ * ## Why there is no window-wide variant of this
+ *
+ * Driving Realm's whole interface (`realm-app`) is the case that would want one, and it already has
+ * the mark: those acts go through `markAct` too, injected into THIS window's document, where the
+ * same `position: fixed; inset: 0` frame lands around the whole app — with the agent cursor beside
+ * it, which a renderer overlay could not draw at the point the input went to. So this component is
+ * for the case injection does not reach: one pty inside a window nobody is otherwise driving.
+ *
  * ## The linger, and why the component owns it
  *
  * The frame outlives the last act by `AGENT_FRAME.lingerMs` and then fades itself. Two reasons, both
@@ -38,12 +46,10 @@ import { AGENT_FRAME } from "@realm/contracts";
  * `driving: false` — a crashed server, a socket that died mid-act — cannot leave a pane wearing a
  * frame forever. Every arriving `active` resets it, so a run of acts is one continuous showing.
  */
-export function DriveFrame({ active, subject, scope = "pane" }: {
+export function DriveFrame({ active, subject }: {
   active: boolean;
-  /** What is being controlled, in the sentence's own words: "this terminal", "Realm". */
+  /** What is being controlled, in the sentence's own words: "this terminal". */
   subject: string;
-  /** `window` is flush to the window and has no neighbour to be confused with; `pane` insets. */
-  scope?: "pane" | "window";
 }) {
   const [shown, setShown] = useState(active);
 
@@ -58,7 +64,7 @@ export function DriveFrame({ active, subject, scope = "pane" }: {
   return (
     // aria-hidden, and no role: the frame is a picture of a fact the sidebar row's status dot already
     // states in words. A screen reader hearing it twice learns nothing the second time.
-    <div className="drive-frame" data-scope={scope} aria-hidden>
+    <div className="drive-frame" aria-hidden>
       {/* The glow is an ELEMENT rather than a `::before`, for the same reason the injected frame
           gives it its own node: the app-wide reduced-motion kill is `* { animation: none }`, and
           `*` does not match a pseudo-element. A glow on `::before` would keep pulsing for a reader

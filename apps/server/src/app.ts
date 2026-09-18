@@ -47,6 +47,7 @@ import { createComputerAgentProvider } from "./computer/agent-tools";
 import { createTerminalAgentProvider } from "./terminals/agent-tools";
 import { SignInTickets } from "./browsers/signin";
 import { SignInFlow } from "./browsers/signin-flow";
+import { createAppUiProvider } from "./app-ui/agent-tools";
 import { createMachineAgentProvider } from "./machines/agent-tools";
 import { MachineAllowlist } from "./machines/allowlist";
 import { ComputerAppAllowlist } from "./computer/allowlist";
@@ -733,6 +734,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   mcpGateway.registerProvider(createTerminalAgentProvider({
     terminals, rows: terminalsStore, items, mcp, broker: browserBroker, rpc, signIn: signInFlow,
   }));
+  /* `realm-app`: Realm's own interface, read and pressed. Off until a space asks, on
+     `realm-computer`'s reasoning — that one reaches every app on the Mac, this one reaches the
+     window the user answers questions in. The refusal that makes it survivable lives in main, where
+     the live DOM is (`app-drive.ts`). */
+  mcpGateway.registerProvider(createAppUiProvider({ mcp, bridge: browserBridge, broker: browserBroker }));
   // Plan 22 W2: the `realm-docs` provider — search/list/open/progress over the space's own folder.
   // One extractor for the process: PDF text is memoized across every session's searches.
   const extractor = new TextExtractor();

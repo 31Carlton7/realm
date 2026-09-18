@@ -173,7 +173,8 @@ describe("mcp over rpc", () => {
     /* Every registered provider is listed with this space's switch state. All default ON except the
        two whose reach is outside Realm: realm-computer, which drives every app on this Mac, and
        realm-vm, which drives a whole other computer.
-       realm-terminal is ON with them, and its reach is the reason: every harness already has a shell
+       realm-app is OFF with those two and for a related reason: it reaches the INTERFACE, the window
+       the user is reading and answers questions in. realm-terminal is ON, and its reach is why: every harness already has a shell
        tool, so it adds no ability to run commands — what it adds is a terminal that talks back, and
        the narrowings that matter (a password prompt refused in every mode, a terminal the session
        did not open prompting even under bypass) are inside the provider rather than on its switch.
@@ -184,7 +185,7 @@ describe("mcp over rpc", () => {
     expect(before).toEqual([
       { name: "realm-browser", enabled: true }, { name: "realm-agent", enabled: true },
       { name: "realm-computer", enabled: false }, { name: "realm-terminal", enabled: true },
-      { name: "realm-docs", enabled: true },
+      { name: "realm-app", enabled: false }, { name: "realm-docs", enabled: true },
       { name: "realm-vm", enabled: false }, { name: "goal", enabled: true },
     ]);
     await c.call("mcp.setProviderEnabled", { spaceId: work.id, name: "realm-browser", enabled: false });
@@ -192,7 +193,7 @@ describe("mcp over rpc", () => {
     expect((await c.call("mcp.providers.list", { spaceId: work.id })).result.providers).toEqual([
       { name: "realm-browser", enabled: false }, { name: "realm-agent", enabled: true },
       { name: "realm-computer", enabled: false }, { name: "realm-terminal", enabled: true },
-      { name: "realm-docs", enabled: true },
+      { name: "realm-app", enabled: false }, { name: "realm-docs", enabled: true },
       { name: "realm-vm", enabled: false }, { name: "goal", enabled: true },
     ]);
     /* And the opt-in provider turns ON through the same switch, for this space alone.

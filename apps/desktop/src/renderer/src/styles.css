@@ -2444,13 +2444,14 @@ button.panel-title:hover { background: var(--rl-hover); }
    up from `.session-drop` is the reason a pane-scoped one cannot be — "in a four-way split a flush
    ring would run straight into its neighbour's and the two would look like one target". So this
    insets and takes the pane's corner, exactly as the drop highlight beside it does. */
-.drive-frame { position: absolute; inset: 0; z-index: 3; pointer-events: none;
+/* Inset from the pane edge rather than flush to it, for `.session-drop`'s reason six lines up: in a
+   four-way split a flush ring runs straight into its neighbour's and the two read as one target.
+   There is no window-wide variant — an agent driving the whole interface is marked by the injected
+   frame, in this same window's document. */
+.drive-frame { position: absolute; inset: 6px; z-index: 3; pointer-events: none;
+  border-radius: calc(var(--r-float) + 4px); corner-shape: squircle;
+  box-shadow: inset 0 0 0 2px var(--rl-accent);
   animation: rl-fade-in var(--dur-enter) var(--ease-out-strong); }
-/* Inset and rounded where a neighbour could be confused for it; flush where nothing is beside it,
-   because the thing being controlled is then the whole window. */
-.drive-frame[data-scope="pane"] { inset: 6px; border-radius: calc(var(--r-float) + 4px); corner-shape: squircle;
-  box-shadow: inset 0 0 0 2px var(--rl-accent); }
-.drive-frame[data-scope="window"] { box-shadow: inset 0 0 0 2px var(--rl-accent); }
 /* The soft half, and the only part that moves. Its own element rather than a ::before: the app-wide
    reduced-motion kill is `* { animation: none }` and `*` does not match a pseudo-element, so a glow
    drawn there would keep pulsing for a reader who turned motion off. */

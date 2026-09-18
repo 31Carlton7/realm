@@ -1259,7 +1259,11 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
                     label={permissionLabel(session.permissionMode)} items={permissionItems} />
             )}
             {confirmBypass && (
-              <button className="composer-chip bypass-confirm"
+              /* data-no-agent for PermissionCard's reason: this is the other live self-grant route.
+                 The card answers one request; this escalates the whole session to a mode where
+                 nothing is asked again. An agent that could press it would not need to answer a
+                 permission card, because there would not be another one. */
+              <button className="composer-chip bypass-confirm" data-no-agent="permission mode confirmation"
                 onClick={() => { setConfirmBypass(false); if (inReadOnly) onParkPermission?.("bypassPermissions"); else onOptions({ permissionMode: "bypassPermissions" }); }}>
                 Allow everything? Confirm
               </button>

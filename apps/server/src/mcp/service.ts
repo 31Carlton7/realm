@@ -1,4 +1,5 @@
 import { COMPUTER_PROVIDER_NAME, MACHINE_PROVIDER_NAME, MCP_SECRET_STORAGE_NOTE, type ItemScope, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
+import { APP_PROVIDER_NAME } from "../app-ui/agent-tools";
 import { RpcError } from "../store/rows";
 import { liveCheck, type McpTestResult } from "./live-check";
 import type { SettingsStore } from "../store/settings";
@@ -40,7 +41,7 @@ const providersEnabledKey = (spaceId: string): string => `mcp.providersEnabled:$
  * Providers that are OFF until a space turns them on, inverting the default the others get.
  *
  * Every other provider acts inside Realm — a browser pane Realm owns, the space's own folder — so
- * shipping it IS the opt-in. These two do not, and their reasons differ enough to be worth stating
+ * shipping it IS the opt-in. These three do not, and their reasons differ enough to be worth stating
  * separately rather than filed under one heading:
  *
  *   - `realm-computer` reaches every application on THIS Mac, including ones the user has never
@@ -50,8 +51,14 @@ const providersEnabledKey = (spaceId: string): string => `mcp.providersEnabled:$
  *     user's files can be shared into, whose network is the user's network, and — for the most
  *     likely case, a second Mac at an address — somebody's actual desktop with their actual session
  *     signed in. The blast radius is not this Mac; it is a whole other one.
+ *   - `realm-app` acts inside Realm, which by the rule above would make it default-on — and that is
+ *     exactly the case the rule does not cover. Everything else reaching "inside Realm" reaches a
+ *     pane Realm made for it. This reaches the INTERFACE: the window the user is reading, and where
+ *     they answer Realm's own questions. The surfaces that grant things are refused outright (see
+ *     `app-drive.ts`), but "an agent may press buttons in the app you are using" is a sentence a
+ *     space should have agreed to rather than woken up holding.
  */
-const OPT_IN_PROVIDERS = new Set<string>([COMPUTER_PROVIDER_NAME, MACHINE_PROVIDER_NAME]);
+const OPT_IN_PROVIDERS = new Set<string>([COMPUTER_PROVIDER_NAME, MACHINE_PROVIDER_NAME, APP_PROVIDER_NAME]);
 
 
 /** What `mcp.add` / `mcp.update` accept, before the transport decides which half of it is meaningful. */

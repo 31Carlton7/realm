@@ -48,16 +48,6 @@ describe("DriveFrame", () => {
     expect(frame(container)).toBeNull();
   });
 
-  it("insets on a pane and sits flush on the window", () => {
-    // The one thing NOT copied from the injected frame, and the attribute is what selects it: a
-    // flush ring beside another pane reads as the two panes' shared edge rather than as this one.
-    const { container } = render(<DriveFrame active subject="this terminal" />);
-    expect(frame(container)).toHaveAttribute("data-scope", "pane");
-    cleanup();
-    const win = render(<DriveFrame active subject="Realm" scope="window" />);
-    expect(frame(win.container)).toHaveAttribute("data-scope", "window");
-  });
-
   it("is invisible to a screen reader, which is told the same thing in words elsewhere", () => {
     const { container } = render(<DriveFrame active subject="this terminal" />);
     expect(frame(container)).toHaveAttribute("aria-hidden", "true");

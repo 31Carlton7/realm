@@ -3182,13 +3182,10 @@ it("carries the prompter's mode ring up through every strip stacked above it", (
 describe("the agent-controlled frame", () => {
   const glow = bodiesFor(".drive-frame-glow").join(" ");
 
-  /* Each scope asserted on its OWN body, never on the two joined. Joined, a `toContain` is satisfied
-     by either one of them — so a pane frame that drifted to 3px while the window frame stayed at 2
-     passed, which is exactly the drift this describe exists to catch. Found by mutating it. */
-  it.each([["pane"], ["window"]])("draws the %s ring at the shared weight", (scope) => {
+  it("draws the ring at the shared weight", () => {
     // THE MUTANT: any other number. The ring is the whole statement on a pane whose content is
     // already dense, and one that does not match the browser's reads as a different kind of event.
-    for (const body of bodiesFor(`.drive-frame[data-scope="${scope}"]`))
+    for (const body of bodiesFor(".drive-frame"))
       expect(body).toContain(`inset 0 0 0 ${AGENT_FRAME.ringPx}px var(--rl-accent)`);
   });
 
