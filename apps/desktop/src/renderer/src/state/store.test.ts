@@ -2750,6 +2750,24 @@ describe("browser watching state (Plan 11 W4)", () => {
     expect(store.getState().browserDriving).toEqual({});
   });
 
+  it("applyTerminalDriving keeps the browser's contract: set on true, REMOVE on false", () => {
+    const store = createAppStore(fakeApi());
+    store.getState().applyTerminalDriving({ terminalId: "t1", driving: true });
+    expect(store.getState().terminalDriving).toEqual({ t1: true });
+    store.getState().applyTerminalDriving({ terminalId: "t1", driving: false });
+    expect(store.getState().terminalDriving).toEqual({});
+    store.getState().applyTerminalDriving({ terminalId: "tX", driving: false });
+    expect(store.getState().terminalDriving).toEqual({});
+  });
+
+  it("deleting a terminal item drops its driving flag, so a reused id starts blank", async () => {
+    const store = createAppStore(fakeApi({ items: { s1: [item("i1", "s1", { kind: "terminal", refId: "t1", title: "work" })] } }));
+    await store.getState().boot();
+    store.getState().applyTerminalDriving({ terminalId: "t1", driving: true });
+    await store.getState().deleteItem("i1");
+    expect(store.getState().terminalDriving.t1).toBeUndefined();
+  });
+
   it("deleting a browser item drops its ticker ring and driving flag", async () => {
     const store = createAppStore(fakeApi({ items: { s1: [item("i1", "s1", { kind: "browser", refId: "b1", title: "Browser" })] } }));
     await store.getState().boot();

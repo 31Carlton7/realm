@@ -871,6 +871,10 @@ export type AppState = {
   /** W4: browserIds an agent act/batch step is CURRENTLY in flight on — the "agent is driving" dot
    *  on the sidebar row and pane chrome. Every set is cleared by the matching settle broadcast. */
   browserDriving: Record<string, boolean>;
+  /** terminalIds an agent is CURRENTLY typing into, from `terminal.driving`. The terminal half of
+   *  the field above and deliberately its twin: an agent typing into a pty and an agent clicking in
+   *  a page are one event to a person watching, and the pane chrome draws them with one idiom. */
+  terminalDriving: Record<string, boolean>;
   /** Live machine state by machineId (Plan 25 W3), from `machine.status`. Absent means `off`, which
    *  is the only thing that is true about a machine nobody has connected to. */
   machineState: Record<string, MachineState>;
@@ -1429,6 +1433,7 @@ export type AppState = {
   /** W4 broadcasts: one settled action for the ticker's ring buffer / the driving flag flip. */
   applyBrowserAction(p: { browserId: string; text: string; ok: boolean; ts: number }): void;
   applyBrowserDriving(p: { browserId: string; driving: boolean }): void;
+  applyTerminalDriving(p: { terminalId: string; driving: boolean }): void;
   applyMachineState(s: MachineState): void;
   applySimulatorState(s: SimulatorState): void;
   applyGoalChanged(p: { sessionId: string; goal: Goal | null }): void;
@@ -2638,7 +2643,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
-      keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
+      keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
       spacePageTab: {}, profilePageTab: {}, librarySkill: {}, mcpPanelSpaceId: null,
       sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
@@ -3281,7 +3286,13 @@ await get().refreshCustomThemes().catch(() => {});
         // This path prunes `items` itself rather than going through refreshItems, so it owes the
         // back/forward trails the same prune: an item deleted here must leave no way back to it.
         set({ items, paneHistory: forgetNavItems(get().paneHistory, new Set(items.map((i) => i.id))) });
-        if (it?.kind === "terminal") api.disposeTerminal(it.refId);
+        if (it?.kind === "terminal") {
+          api.disposeTerminal(it.refId);
+          // The flag dies with the terminal, for the browser's reason: a reused id must start blank
+          // rather than inherit a frame from the pty before it.
+          const { [it.refId]: _td, ...terminalDriving } = get().terminalDriving;
+          set({ terminalDriving });
+        }
         if (it?.kind === "browser") {
           // The ticker and driving dot die with the browser — a reused id must start blank.
           const { [it.refId]: _ba, ...browserActions } = get().browserActions;
@@ -3584,6 +3595,13 @@ await get().refreshCustomThemes().catch(() => {});
         if (!(browserId in cur)) return; // clearing what was never set: no churn
         const { [browserId]: _gone, ...rest } = cur;
         set({ browserDriving: rest });
+      },
+      applyTerminalDriving({ terminalId, driving }) {
+        const cur = get().terminalDriving;
+        if (driving) { set({ terminalDriving: { ...cur, [terminalId]: true } }); return; }
+        if (!(terminalId in cur)) return; // same no-churn guard, same reason
+        const { [terminalId]: _gone, ...rest } = cur;
+        set({ terminalDriving: rest });
       },
       async refreshSessions() {
         const sid = get().activeSpaceId; if (!sid) return;

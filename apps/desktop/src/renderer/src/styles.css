@@ -1405,6 +1405,7 @@ kbd { font: 11px var(--font-mono); }
 :root[data-quiet] .strip-badge[data-status="waiting_permission"],
 :root[data-quiet] .permission-dot,
 :root[data-quiet] .gen-glow,
+:root[data-quiet] .drive-frame-glow,
 :root[data-quiet] .wash[data-grain] { animation-play-state: paused !important; }
 
 /* The ping is the exception to the pause: frozen mid-flight it leaves a static ring standing around
@@ -2429,6 +2430,50 @@ button.panel-title:hover { background: var(--rl-hover); }
   background: color-mix(in srgb, var(--rl-accent) 12%, transparent);
   mask-image: radial-gradient(farthest-side at 50% 50%, transparent 42%, #000 100%);
   -webkit-mask-image: radial-gradient(farthest-side at 50% 50%, transparent 42%, #000 100%); }
+/* ── An agent is controlling this ──────────────────────────────────────
+   Realm's own half of the mark the browser and simulator panes already wear. There it is injected
+   INTO the page over CDP, because a WebContentsView composites above all DOM and nothing drawn
+   beside one can reach it; a terminal pane is ordinary DOM in this window, so here it is an ordinary
+   overlay. `main/agent-cursor.ts` named this arrangement before either half existed: two surfaces,
+   two transports, one appearance.
+
+   What is held equal to the injected copy is what carries the meaning — the 2px accent ring, the
+   48px/-12px glow, the 1800ms pulse, the 1500ms linger — and `styles.test.ts` asserts every one of
+   them against that table. What is NOT copied is the geometry: the injected frame is flush to the
+   viewport because inside a page the pane's edge is somewhere else entirely, and the rule six lines
+   up from `.session-drop` is the reason a pane-scoped one cannot be — "in a four-way split a flush
+   ring would run straight into its neighbour's and the two would look like one target". So this
+   insets and takes the pane's corner, exactly as the drop highlight beside it does. */
+.drive-frame { position: absolute; inset: 0; z-index: 3; pointer-events: none;
+  animation: rl-fade-in var(--dur-enter) var(--ease-out-strong); }
+/* Inset and rounded where a neighbour could be confused for it; flush where nothing is beside it,
+   because the thing being controlled is then the whole window. */
+.drive-frame[data-scope="pane"] { inset: 6px; border-radius: calc(var(--r-float) + 4px); corner-shape: squircle;
+  box-shadow: inset 0 0 0 2px var(--rl-accent); }
+.drive-frame[data-scope="window"] { box-shadow: inset 0 0 0 2px var(--rl-accent); }
+/* The soft half, and the only part that moves. Its own element rather than a ::before: the app-wide
+   reduced-motion kill is `* { animation: none }` and `*` does not match a pseudo-element, so a glow
+   drawn there would keep pulsing for a reader who turned motion off. */
+/* The rate is a custom property, not a literal in the shorthand, and that is the ping family's own
+   idiom for the same reason (`--ring-rate`): §6's ladder is durations of CHANGES, and a loop period
+   is a tempo. Declaring it here keeps it off a ladder it would misfit, and out of the exempt list a
+   reader would have to go find. */
+.drive-frame-glow { position: absolute; inset: 0; border-radius: inherit; corner-shape: inherit;
+  --pulse-rate: 1800ms;
+  box-shadow: inset 0 0 48px -12px var(--rl-accent);
+  animation: rl-drive-pulse var(--pulse-rate) ease-in-out infinite; }
+/* The SLOW rung of the in-flight ping family, not the 0.9s the `driving` dot takes. The dot is
+   seven pixels and this is a whole pane, and the reason that difference decides the rate is already
+   written down beside the ping. */
+@keyframes rl-drive-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+/* Says which of the two pointers is Realm's, in words, because the ring alone cannot. Bottom-centre
+   so it never lands on a terminal's active line, which is the top-left half of the pane. */
+.drive-frame-label { position: absolute; left: 50%; bottom: 12px; translate: -50% 0;
+  padding: 4px 10px; border-radius: var(--r-chip); white-space: nowrap;
+  background: var(--rl-accent); color: var(--rl-accent-contrast);
+  font-size: 12px; font-weight: var(--font-weight-medium);
+  box-shadow: var(--shadow-pill); }
+
 /* The session's terminal drawer (W4): a split INSIDE the session pane, not a layout leaf. Its divider is
    the same 1px .resize-handle the pane host uses; the terminal keeps its full-pane treatment (§5 — no
    border, no radius), separated from the transcript by the panel→terminal-bg luminance step alone.

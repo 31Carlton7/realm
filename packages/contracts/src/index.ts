@@ -25,6 +25,7 @@ export * from "./browser-agent";
 export * from "./fence";
 export * from "./chips";
 export * from "./cli";
+export * from "./agent-marks";
 export * from "./computer-use";
 /* Colour maths, the shape of a palette, and reading a VS Code theme into one. Down here rather than
    in `@realm/ui` because the SERVER imports all three to translate a theme file on disk, and the ui
