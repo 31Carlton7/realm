@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DiffView } from "./DiffView";
-import { CodeBlock, CommandView, MatchList, RequestView, TerminalView, TodoList, clampGroups } from "./ToolViews";
+import { CodeBlock, CommandView, MatchList, RequestView, TerminalView, TodoList, UploadView, clampGroups } from "./ToolViews";
 import { fileDiffsFor, parseUnifiedDiff } from "./diff";
 import { PermissionCard } from "../PermissionCard";
 import { ToolCard } from "../ToolCard";
@@ -191,6 +191,33 @@ describe("RequestView", () => {
   });
 });
 
+describe("UploadView", () => {
+  it("names the destination and every file with its size — the list IS the question", () => {
+    render(<UploadView host="devpost.com" element="Choose files" files={[
+      { name: "hero.png", size: "1.2 MB", path: null },
+      { name: "shot-2.png", size: "880 KB", path: null },
+    ]} />);
+    expect(q(".req-host")[0]).toHaveTextContent("devpost.com");
+    expect(q(".req-target")[0]).toHaveTextContent("Choose files");
+    expect(text(".upl-name")).toEqual(["hero.png", "shot-2.png"]);
+    expect(text(".upl-size")).toEqual(["1.2 MB", "880 KB"]);
+  });
+
+  it("quotes a file from outside the space folder IN FULL, and says why that line is there", () => {
+    render(<UploadView host="youtube.com" element="Select files" files={[
+      { name: "demo.mp4", size: "40.0 MB", path: "/Users/me/Movies/demo.mp4" },
+    ]} />);
+    expect(q(".upl-path")[0]).toHaveTextContent("/Users/me/Movies/demo.mp4");
+    expect(q(".upl-note")[0]).toHaveTextContent("outside this space's folder");
+  });
+
+  it("says nothing about outside paths when every file came from inside the space folder", () => {
+    render(<UploadView host="devpost.com" element="Choose files" files={[{ name: "hero.png", size: "1.2 MB", path: null }]} />);
+    expect(q(".upl-path")).toHaveLength(0);
+    expect(q(".upl-note")).toHaveLength(0);
+  });
+});
+
 const tool = (name: string, input: Record<string, unknown>, result: string | null = null): ToolBlock =>
   ({ kind: "tool", toolUseId: "t1", name, input, result: result === null ? null : { content: result, isError: false }, ts: 0 });
 
@@ -237,6 +264,15 @@ describe("PermissionCard preview", () => {
     // The disclosure is still there, still shut, and still holds the exact payload.
     expect(q("details.permission-details")[0]).not.toHaveAttribute("open");
     expect(q("details.permission-details pre")[0]).toHaveTextContent('"old_string"');
+  });
+
+  it("shows the files an upload is about to send, with an outside-the-space path quoted in full", () => {
+    ask("browser_upload", {
+      browserId: "b1", ref: 11, origin: "devpost.com", element: "Choose files",
+      files: [{ name: "hero.png", size: "1.2 MB" }, { name: "demo.mp4", size: "40.0 MB", path: "/Users/me/Movies/demo.mp4" }],
+    });
+    expect(text(".permission-preview .upl-name")).toEqual(["hero.png", "demo.mp4"]);
+    expect(q(".permission-preview .upl-path")[0]).toHaveTextContent("/Users/me/Movies/demo.mp4");
   });
 
   it("keeps the plain 'Input' label where there is no drawing, so nothing reads as a lesser copy", () => {

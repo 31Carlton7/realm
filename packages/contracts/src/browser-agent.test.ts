@@ -54,8 +54,11 @@ describe("BROWSER_READ_ONLY_TOOLS", () => {
     ]);
   });
 
-  it("contains no tool that can change a page or put a secret on one", () => {
-    for (const mutating of ["browser_open", "browser_navigate", "browser_act", "browser_batch", "browser_fill_credential"]) {
+  it("contains no tool that can change a page, put a secret on one, or take a file off this Mac", () => {
+    for (const mutating of [
+      "browser_open", "browser_navigate", "browser_act", "browser_batch", "browser_fill_credential",
+      "browser_download", "browser_upload", "browser_dismiss_dialog",
+    ]) {
       expect(BROWSER_READ_ONLY_TOOLS).not.toContain(mutating);
     }
   });

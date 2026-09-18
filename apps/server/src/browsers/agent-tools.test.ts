@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import type { Browser } from "@realm/contracts";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createBrowserAgentProvider, BROWSER_PROVIDER_NAME, type BrowserAgentToolsDeps } from "./agent-tools";
@@ -20,6 +23,9 @@ function setup(opts: {
   /** Plan 23: the space's project root. `null` = a space with no project, which has no download
    *  destination and must refuse. */
   projectRoot?: string | null;
+  /** Plan 26: the space's folder — `browser_upload`'s default readable root. `null` = the harness
+   *  cannot say where the space lives, and every path is then shown in full. */
+  spaceRoot?: string | null;
 } = {}) {
   const rows = new Map<string, Browser>();
   rows.set("b1", { id: "b1", spaceId: "space1", url: "https://example.com/", title: "Example", createdAt: 1, updatedAt: 1 });
@@ -36,6 +42,8 @@ function setup(opts: {
     credentials: { credentials: [{ id: "cred-1", origin: "https://example.com", username: "ada", label: "Work", createdAt: 1 }] },
     fillCredential: { ok: true, detail: "filled saved credential for https://example.com" },
     download: { ok: true, name: "week-3.pdf", bytes: 204_800, relPath: "downloads/week-3.pdf" },
+    upload: { ok: true, method: "input", names: ["hero.png"], value: "hero.png", accept: "image/*", multiple: true },
+    dismissDialog: { dismissed: true, detail: "the file chooser was cancelled — the page was told nothing was picked" },
     ...opts.bridgeResults,
   };
 
@@ -58,6 +66,7 @@ function setup(opts: {
         return { browserId: id, itemId: `item-${id}`, url };
       },
     },
+    documents: { rootForSpace: () => (opts.spaceRoot === undefined ? UPLOAD_ROOT : opts.spaceRoot) },
     mcp: { providerEnabled: () => opts.enabled ?? true },
     bridge: {
       call: async (op, params) => {
@@ -302,7 +311,7 @@ describe("results and scoping", () => {
     const { provider, ctx } = setup();
     expect(provider.name).toBe(BROWSER_PROVIDER_NAME);
     const names = (await provider.tools(ctx)).map((t) => t.name);
-    expect(names).toEqual(["browser_list", "browser_open", "browser_navigate", "browser_snapshot", "browser_read", "browser_screenshot", "browser_act", "browser_credentials", "browser_fill_credential", "browser_download", "browser_batch"]);
+    expect(names).toEqual(["browser_list", "browser_open", "browser_navigate", "browser_snapshot", "browser_read", "browser_screenshot", "browser_act", "browser_credentials", "browser_fill_credential", "browser_download", "browser_upload", "browser_dismiss_dialog", "browser_batch"]);
   });
 
   it("a bridge failure (app not running) reads as an honest tool error, not a crash", async () => {
@@ -655,10 +664,10 @@ describe("browser_download", () => {
   });
 
   it("a refusal from the governor reaches the agent as an honest error", async () => {
-    const { call } = setup({ bridgeResults: { download: { ok: false, refused: "download_blocked", error: "that download was blocked — Realm only saves document and media file types" } } });
+    const { call } = setup({ bridgeResults: { download: { ok: false, refused: "download_blocked", error: "that download was blocked — Realm only saves a file as part of a download you approved" } } });
     const r = await call("browser_download", { browserId: "b1", ref: 11 });
     expect(r.isError).toBe(true);
-    expect(text(r)).toContain("only saves document and media file types");
+    expect(text(r)).toContain("as part of a download you approved");
   });
 
   it("is space-scoped like every other tool", async () => {
@@ -701,5 +710,196 @@ describe("browser_download", () => {
     const r = await call("browser_batch", { actions: [{ tool: "browser_download", arguments: { browserId: "b1", ref: 11 } }] });
     expect(r.isError).toBe(true);
     expect(calls.bridge.some((b) => b.op === "download")).toBe(false);
+  });
+});
+
+/**
+ * `browser_upload` and `browser_dismiss_dialog` at the tool surface (Plan 26).
+ *
+ * What must die here: an upload that reaches the bridge unprompted; a private key that reaches a
+ * PROMPT (never mind the bridge); an outside-the-space-folder path the card does not quote; an
+ * upload inside a batch, where one generic prompt would stand in for a card naming the files; a
+ * path that reaches the executor as the agent typed it rather than as it resolved.
+ *
+ * The real fs is used for the same reason `upload-paths.test.ts` uses it: the resolution is the
+ * feature, and a faked `realpath` is a symlink check nobody ran.
+ */
+const UPLOAD_BASE = tempDir("realm-tools-upload-");
+const UPLOAD_ROOT = join(UPLOAD_BASE, "space");
+const UPLOAD_OUT = join(UPLOAD_BASE, "elsewhere");
+const insideFile = (name: string) => join(UPLOAD_ROOT, name);
+const outsideFile = (name: string) => join(UPLOAD_OUT, name);
+
+describe("browser_upload", () => {
+  beforeAll(() => {
+    mkdirSync(join(UPLOAD_OUT, ".ssh"), { recursive: true });
+    mkdirSync(UPLOAD_ROOT, { recursive: true });
+    for (const n of ["hero.png", "shot-2.png"]) writeFileSync(insideFile(n), "x".repeat(1024));
+    writeFileSync(outsideFile("demo.mp4"), "x".repeat(2048));
+    writeFileSync(join(UPLOAD_OUT, ".ssh", "id_rsa"), "PRIVATE KEY");
+  });
+
+  it("gates BEFORE the bridge, and hands the executor the RESOLVED paths, names and sizes", async () => {
+    const { call, calls } = setup();
+    const r = await call("browser_upload", { browserId: "b1", ref: 11, paths: [insideFile("hero.png"), insideFile("shot-2.png")] });
+    expect(r.isError).toBe(false);
+    expect(calls.gates.map((g) => g.toolKey)).toEqual(["browser_upload"]);
+    const op = calls.bridge.find((b) => b.op === "upload")!;
+    expect(op.params.ref).toBe(11);
+    expect(op.params.files).toEqual([
+      { path: realpathSync(insideFile("hero.png")), name: "hero.png", bytes: 1024 },
+      { path: realpathSync(insideFile("shot-2.png")), name: "shot-2.png", bytes: 1024 },
+    ]);
+  });
+
+  it("a denied gate means nothing reaches the bridge", async () => {
+    const { call, calls } = setup({ gate: { allowed: false, reason: "the user denied this action" } });
+    const r = await call("browser_upload", { browserId: "b1", ref: 11, paths: [insideFile("hero.png")] });
+    expect(r.isError).toBe(true);
+    expect(calls.bridge.filter((b) => b.op === "upload")).toEqual([]);
+  });
+
+  it("refuses an ssh key WITHOUT prompting, naming the path (mutant: a card the user can approve)", async () => {
+    const { call, calls } = setup();
+    const r = await call("browser_upload", { browserId: "b1", ref: 11, paths: [join(UPLOAD_OUT, ".ssh", "id_rsa")] });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain(join(UPLOAD_OUT, ".ssh", "id_rsa"));
+    expect(calls.gates).toEqual([]);
+    expect(calls.bridge.filter((b) => b.op === "upload")).toEqual([]);
+  });
+
+  it("a missing path refuses before the prompt, as a missing file", async () => {
+    const { call, calls } = setup();
+    const r = await call("browser_upload", { browserId: "b1", ref: 11, paths: [insideFile("nope.png")] });
+    expect(text(r)).toContain("no such file");
+    expect(calls.gates).toEqual([]);
+  });
+
+  it("the card names the destination host, the element as the PAGE labels it, and every file with its size", async () => {
+    const { call, calls } = setup();
+    await call("browser_upload", { browserId: "b1", ref: 11, paths: [insideFile("hero.png")] });
+    const gate = calls.gates[0]!;
+    expect(gate.title).toContain("example.com");
+    expect(gate.title).toContain('the page labels "Submit order"');
+    expect(gate.title).toContain("hero.png (1 KB)");
+    expect(gate.input.files).toEqual([{ name: "hero.png", size: "1 KB" }]);
+    expect(gate.input.origin).toBe("example.com");
+  });
+
+  it("a file outside the space folder is called out on the line and QUOTED IN FULL in the card's input", async () => {
+    const { call, calls } = setup();
+    await call("browser_upload", { browserId: "b1", ref: 11, paths: [outsideFile("demo.mp4")] });
+    const gate = calls.gates[0]!;
+    expect(gate.title).toContain("OUTSIDE this space's folder");
+    expect(gate.input.files).toEqual([{ name: "demo.mp4", size: "2 KB", path: realpathSync(outsideFile("demo.mp4")) }]);
+  });
+
+  it("a file inside the space folder carries no path on the card — its location is what the user already chose", async () => {
+    const { call, calls } = setup();
+    await call("browser_upload", { browserId: "b1", ref: 11, paths: [insideFile("hero.png")] });
+    expect(calls.gates[0]!.title).not.toContain("OUTSIDE");
+    expect((calls.gates[0]!.input.files as { path?: string }[])[0]!.path).toBeUndefined();
+  });
+
+  it("with no space folder at all, the path is quoted — more shown, not less", async () => {
+    const { call, calls } = setup({ spaceRoot: null });
+    await call("browser_upload", { browserId: "b1", ref: 11, paths: [insideFile("hero.png")] });
+    expect((calls.gates[0]!.input.files as { path?: string }[])[0]!.path).toBe(realpathSync(insideFile("hero.png")));
+  });
+
+  it("reports the names the INPUT holds afterwards, not the ones that were asked for", async () => {
+    const { call } = setup({ bridgeResults: { upload: { ok: true, method: "input", names: ["IMG_0042.HEIC"], value: "IMG_0042.HEIC", accept: null, multiple: false } } });
+    const r = await call("browser_upload", { browserId: "b1", ref: 11, paths: [insideFile("hero.png")] });
+    expect(text(r)).toContain("IMG_0042.HEIC");
+    expect(text(r)).toContain("The input now holds");
+  });
+
+  it("an executor refusal — accept=, multiple, no chooser — surfaces as the tool's error", async () => {
+    const { call } = setup({ bridgeResults: { upload: { ok: false, refused: "accept_mismatch", error: 'the page\'s own accept="image/*" excludes "demo.mp4"' } } });
+    const r = await call("browser_upload", { browserId: "b1", ref: 11, paths: [insideFile("hero.png")] });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("accept=");
+  });
+
+  it("a drop says so, and does not claim a readback a dropzone cannot give", async () => {
+    const { call } = setup({ bridgeResults: { upload: { ok: true, method: "drop", names: ["hero.png"], value: null, accept: null, multiple: false } } });
+    const r = await call("browser_upload", { browserId: "b1", ref: 11, paths: [insideFile("hero.png")] });
+    expect(text(r)).toContain("dropped onto the page's drop zone");
+    expect(text(r)).toContain("could not be read back");
+    expect(text(r)).not.toContain("The input now holds");
+  });
+
+  it("tells an input that was read and is EMPTY apart from one that could not be read at all", async () => {
+    const { call } = setup({ bridgeResults: { upload: { ok: true, method: "input", names: ["hero.png"], value: "", accept: null, multiple: false } } });
+    const r = await call("browser_upload", { browserId: "b1", ref: 11, paths: [insideFile("hero.png")] });
+    expect(text(r)).toContain("the page cleared it");
+  });
+
+  it("a browserId from another space is refused exactly like one that never existed", async () => {
+    const { call, calls } = setup();
+    const r = await call("browser_upload", { browserId: "bX", ref: 11, paths: [insideFile("hero.png")] });
+    expect(r.isError).toBe(true);
+    expect(calls.gates).toEqual([]);
+  });
+
+  it("the W5 constraint is consulted, and refuses before the prompt", async () => {
+    const { call, calls, checkCalls } = setupWithConstraints((tool) => (tool === "browser_upload" ? "budget spent" : null));
+    const r = await call("browser_upload", { browserId: "b1", ref: 11, paths: [insideFile("hero.png")] });
+    expect(r.isError).toBe(true);
+    expect(checkCalls).toContainEqual({ tool: "browser_upload" });
+    expect(calls.gates).toEqual([]);
+  });
+
+  it("cannot run inside browser_batch — one generic prompt must not stand in for a card naming the files", async () => {
+    const { call, calls } = setup();
+    const r = await call("browser_batch", { actions: [{ tool: "browser_upload", arguments: { browserId: "b1", ref: 11, paths: [insideFile("hero.png")] } }] });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("cannot run inside browser_batch");
+    expect(calls.gates).toEqual([]);
+    expect(calls.bridge.filter((b) => b.op === "upload")).toEqual([]);
+  });
+
+  it("drives the watching broadcasts like every other mutating tool", async () => {
+    const { call, calls } = setup();
+    await call("browser_upload", { browserId: "b1", ref: 11, paths: [insideFile("hero.png")] });
+    const events = calls.broadcasts.map((b) => b.event);
+    expect(events).toEqual(["browser.driving", "browser.driving", "browser.action"]);
+  });
+});
+
+describe("browser_dismiss_dialog", () => {
+  it("gates, then cancels through the bridge", async () => {
+    const { call, calls } = setup();
+    const r = await call("browser_dismiss_dialog", { browserId: "b1" });
+    expect(r.isError).toBe(false);
+    expect(calls.gates.map((g) => g.toolKey)).toEqual(["browser_dismiss_dialog"]);
+    expect(calls.bridge.filter((b) => b.op === "dismissDialog")).toHaveLength(1);
+    expect(text(r)).toContain("Nothing was uploaded");
+  });
+
+  it("a denied gate leaves the page alone", async () => {
+    const { call, calls } = setup({ gate: { allowed: false, reason: "the user denied this action" } });
+    await call("browser_dismiss_dialog", { browserId: "b1" });
+    expect(calls.bridge.filter((b) => b.op === "dismissDialog")).toEqual([]);
+  });
+
+  it("says so when there was nothing to cancel, and is honest about the panel it cannot reach", async () => {
+    const { call } = setup({ bridgeResults: { dismissDialog: { dismissed: false, detail: "no file chooser was open on this pane" } } });
+    const r = await call("browser_dismiss_dialog", { browserId: "b1" });
+    expect(r.isError).toBe(false);
+    expect(text(r)).toContain("only the user can dismiss it");
+  });
+
+  it("IS batchable — it carries no payload, so the batch's one prompt says everything its own card would", async () => {
+    const { call, calls } = setup();
+    const r = await call("browser_batch", {
+      actions: [
+        { tool: "browser_act", arguments: { browserId: "b1", action: { kind: "click", ref: 11 } } },
+        { tool: "browser_dismiss_dialog", arguments: { browserId: "b1" } },
+      ],
+    });
+    expect(r.isError).toBe(false);
+    expect(calls.gates.map((g) => g.toolKey)).toEqual(["browser_batch"]);
+    expect(calls.bridge.filter((b) => b.op === "dismissDialog")).toHaveLength(1);
   });
 });

@@ -42,7 +42,7 @@
 .theme-import textarea, .tool-body pre, .tool-stat, .tool-summary, .tool-well, .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .composer-queue-item .queue-position, .composer-queue-item .queue-attach, .terminal-dock-title,
-.sim-detail, .sb-chat-mono {
+.sim-detail, .sb-chat-mono, .upl-path {
   letter-spacing: normal;
 }
 
@@ -3083,6 +3083,20 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   color: var(--rl-text-bright); background: var(--field); box-shadow: var(--shadow-hairline); }
 .req-target { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11.5px var(--font-mono); color: var(--rl-text-dim); }
 .req-prompt { font-size: 12px; line-height: 1.5; color: var(--rl-text-dim); }
+
+/* ── Files an agent is about to upload ────────────────────────────────────── */
+/* The list is the question, so it is set at reading size rather than as metadata. A file from
+   outside the space folder wears the accent on its path — the one line on the card the reader has
+   to actually look at — and the row keeps its name and size unchanged, because the file is not
+   suspect, its location is. */
+.upl { display: flex; flex-direction: column; gap: 7px; padding: 8px 10px; border-radius: var(--r-chip); background: var(--rl-frame); }
+.upl-files { display: flex; flex-direction: column; gap: 3px; margin: 0; padding: 0; list-style: none; }
+.upl-file { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 10px; align-items: baseline; }
+.upl-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--ink-2); }
+.upl-size { flex: none; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
+.upl-path { grid-column: 1 / -1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 11px var(--font-mono); color: var(--rl-accent); }
+.upl-note { font-size: 11px; color: var(--rl-text-faint); }
 
 /* The permission card's preview of what it is about to approve. Given the card's own width and no
    inner card of its own — it is the subject of the question, not an attachment to it. */

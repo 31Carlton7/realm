@@ -1,7 +1,7 @@
 import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, shell, systemPreferences, Tray, type MenuItemConstructorOptions } from "electron";
 import { BrowserCredentialInputSchema, newId, type BrowserCredential, type MediaFile } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { copyFile, writeFile } from "node:fs/promises";
+import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { spawn, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -303,6 +303,10 @@ async function createWindow(info: { port: number; home: string; token: string })
       audit: (entry) => secrets()?.audit(entry),
     },
     downloads: downloadGovernor,
+    // The `upload` op's drop route, and nothing else. The path is already resolved, symlink-checked,
+    // confined and user-approved by the time it reaches here — realm-server did all of that before
+    // it raised the permission card — so this reads exactly what it was handed and decides nothing.
+    readFile: async (path) => new Uint8Array(await readFile(path)),
   });
   pane.onViewDestroyed((id) => host.release(id));
   agentHost = host;
