@@ -42,14 +42,33 @@ export type SignInStart =
       ok: true;
       terminalId: string;
       command: string;
-      /** Absent when the command printed no URL before `URL_WAIT_MS` — the terminal is still there
-       *  and still running, and the screen says what it is doing instead. */
-      url?: string;
-      browserId?: string;
-      /** True when a ticket was minted, i.e. this space lets Realm press Authorize itself. */
-      mayAuthorize: boolean;
-      screen: TerminalScreen;
+      /**
+       * The rest of it: waiting for the URL and opening the pane, which together take as long as the
+       * CLI takes to print.
+       *
+       * Split from the call rather than awaited inside it because the two callers want different
+       * moments. A tool call wants the whole outcome and can block for it. A BUTTON cannot: the
+       * terminal appears the instant it is opened and the user is already watching it, so a click
+       * that sat for forty-five seconds before the UI acknowledged it would be reporting, very late,
+       * something they had been looking at the whole time.
+       *
+       * It never rejects. A caller that does not await it must not be able to produce an unhandled
+       * rejection, and a caller that does is owed an outcome rather than a throw — a sign-in whose
+       * URL never arrived is a real result with a screen attached, not an error.
+       */
+      settled: Promise<SignInSettled>;
     };
+
+/** How a started sign-in turned out, once the CLI has had its say. */
+export type SignInSettled = {
+  /** Null when the command printed no URL before `URL_WAIT_MS` — the terminal is still there and
+   *  still running, and the screen says what it is doing instead. */
+  url: string | null;
+  browserId: string | null;
+  /** True when a ticket was minted, i.e. this space lets Realm press Authorize itself. */
+  mayAuthorize: boolean;
+  screen: TerminalScreen;
+};
 
 export type SignInFlowDeps = {
   terminals: {
@@ -81,17 +100,23 @@ export class SignInFlow {
     const { terminalId } = this.d.terminals.open({ spaceId, cols: 100, rows: 30 });
     await this.d.terminals.quiet(terminalId, 300, 4_000);
     await this.d.terminals.manager.writeWhenQuiet(terminalId, `${command}\r`);
+    return { ok: true, terminalId, command, settled: this.settle(spaceId, terminalId) };
+  }
 
-    const found = await this.waitForUrl(terminalId);
-    const screen = found.screen;
-    if (!found.url) return { ok: true, terminalId, command, mayAuthorize: false, screen };
-
-    const opened = this.d.browsers.open({ spaceId, url: found.url });
-    this.d.tickets.mint(spaceId, opened.browserId, found.url);
-    return {
-      ok: true, terminalId, command, url: found.url, browserId: opened.browserId,
-      mayAuthorize: this.d.tickets.enabled(spaceId), screen,
-    };
+  /** The waiting half. Every failure becomes an outcome, for the reason `settled` gives. */
+  private async settle(spaceId: string, terminalId: string): Promise<SignInSettled> {
+    try {
+      const found = await this.waitForUrl(terminalId);
+      if (!found.url) return { url: null, browserId: null, mayAuthorize: false, screen: found.screen };
+      const opened = this.d.browsers.open({ spaceId, url: found.url });
+      this.d.tickets.mint(spaceId, opened.browserId, found.url);
+      return {
+        url: found.url, browserId: opened.browserId,
+        mayAuthorize: this.d.tickets.enabled(spaceId), screen: found.screen,
+      };
+    } catch {
+      return { url: null, browserId: null, mayAuthorize: false, screen: EMPTY_SCREEN };
+    }
   }
 
   /** Poll the rendered screen until a sign-in URL appears on it, or the clock runs out. */

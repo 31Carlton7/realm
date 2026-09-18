@@ -16,7 +16,7 @@ const screenOf = (data: string) => renderScreen(data, { cols: 100, rows: 30 });
  * can make a login command print its banner first and its URL a beat later, which is what they all
  * actually do.
  */
-function setup(opts: { output: string[]; ticketsEnabled?: boolean }) {
+function setup(opts: { output: string[]; ticketsEnabled?: boolean; screenThrows?: Error }) {
   const calls = { opened: [] as string[], writes: [] as string[], minted: [] as { browserId: string; url: string }[] };
   let step = 0;
   const current = () => opts.output[Math.min(step, opts.output.length - 1)] ?? "";
@@ -24,7 +24,7 @@ function setup(opts: { output: string[]; ticketsEnabled?: boolean }) {
   const deps: SignInFlowDeps = {
     terminals: {
       open: () => { calls.opened.push("terminal"); return { terminalId: "t1", itemId: "i1" }; },
-      screen: async () => screenOf(current()),
+      screen: async () => { if (opts.screenThrows) throw opts.screenThrows; return screenOf(current()); },
       quiet: async () => { step += 1; return true; },
       manager: { writeWhenQuiet: async (_id, data) => { calls.writes.push(data); } },
     },
@@ -87,21 +87,48 @@ describe("starting a sign-in", () => {
   it("opens the pane at the URL the terminal printed", async () => {
     const { flow, calls } = setup({ output: ["$ ", `Open this URL:\r\n${CONSENT}`] });
     const r = await flow.start(SPACE, "claude");
-    expect(r).toMatchObject({ ok: true, terminalId: "t1", browserId: "b1", url: CONSENT });
+    expect(r).toMatchObject({ ok: true, terminalId: "t1" });
+    if (!r.ok) return;
+    expect(await r.settled).toMatchObject({ browserId: "b1", url: CONSENT });
     expect(calls.opened).toEqual(["terminal", CONSENT]);
+  });
+
+  /**
+   * THE MUTANT: await the URL inside `start`. The terminal is open and visible the instant it is
+   * spawned, so a button wired to a call that blocked until the CLI printed would leave the user
+   * watching a pane that was already working while the thing they clicked stayed busy.
+   */
+  it("returns as soon as the terminal is running, before any URL has arrived", async () => {
+    const { flow, calls } = setup({ output: ["Checking for updates…"] });
+    const r = await flow.start(SPACE, "claude");
+    expect(r.ok).toBe(true);
+    // The terminal exists and the command has been typed; the pane has not been opened yet.
+    expect(calls.opened).toEqual(["terminal"]);
+    expect(calls.writes.length).toBe(1);
+  });
+
+  it("settles rather than rejecting when the terminal cannot be read at all", async () => {
+    // Nobody is required to await `settled`, so it must never be able to reject into nothing.
+    const { flow } = setup({ output: ["$ "], screenThrows: new Error("pty vanished") });
+    const r = await flow.start(SPACE, "claude");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    await expect(r.settled).resolves.toMatchObject({ url: null, browserId: null });
   });
 
   it("mints no ticket unless the space asked for one, so the click stays the user's", async () => {
     const { flow, calls } = setup({ output: [`${CONSENT}`] });
     const r = await flow.start(SPACE, "claude");
-    expect(r).toMatchObject({ mayAuthorize: false });
+    if (!r.ok) throw new Error("expected a start");
+    expect(await r.settled).toMatchObject({ mayAuthorize: false });
     expect(calls.minted).toEqual([]);
   });
 
   it("mints one for the pane it just opened when the space has it on", async () => {
     const { flow, calls } = setup({ output: [`${CONSENT}`], ticketsEnabled: true });
     const r = await flow.start(SPACE, "claude");
-    expect(r).toMatchObject({ mayAuthorize: true });
+    if (!r.ok) throw new Error("expected a start");
+    expect(await r.settled).toMatchObject({ mayAuthorize: true });
     expect(calls.minted).toEqual([{ browserId: "b1", url: CONSENT }]);
   });
 
@@ -124,9 +151,10 @@ describe("starting a sign-in", () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.terminalId).toBe("t1");
-    expect(r.url).toBeUndefined();
-    expect(r.browserId).toBeUndefined();
-    expect(r.screen.screen[0]).toContain("Checking for updates");
+    const settled = await r.settled;
+    expect(settled.url).toBeNull();
+    expect(settled.browserId).toBeNull();
+    expect(settled.screen.screen[0]).toContain("Checking for updates");
     expect(calls.opened).toEqual(["terminal"]);
   });
 });

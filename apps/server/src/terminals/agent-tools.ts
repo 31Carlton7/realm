@@ -406,6 +406,9 @@ const HANDLERS: Record<string, Handler> = {
 
     const started = await d.signIn.start(ctx.spaceId, args.value.kind);
     if (!started.ok) return err(started.reason);
+    // A tool call wants the whole outcome, so it waits for the half a button does not — see
+    // `SignInStart.settled`.
+    const settled = await started.settled;
 
     // The terminal this flow made belongs to this session, on the same terms one it opened itself
     // does: the code typed back at the end goes into THIS pty, and having to re-approve a terminal
@@ -415,16 +418,16 @@ const HANDLERS: Record<string, Handler> = {
     mine.add(started.terminalId);
 
     const lines = [`Ran \`${started.command}\` in terminal ${started.terminalId}.`];
-    if (!started.url) {
+    if (!settled.url) {
       lines.push("It has not printed a sign-in URL yet. The terminal is open and running — read it with terminal_read to see what it is asking.");
     } else {
-      lines.push(`It printed a sign-in URL, and Realm opened it in browser pane ${started.browserId}.`);
-      lines.push(started.mayAuthorize
+      lines.push(`It printed a sign-in URL, and Realm opened it in browser pane ${settled.browserId}.`);
+      lines.push(settled.mayAuthorize
         ? "This space lets Realm finish the sign-in, so you may drive that pane through the consent screen."
         : "Realm will NOT press Authorize — tell the user the pane is waiting for them to approve it.");
-      lines.push(`Once they have approved, read the code from pane ${started.browserId} and type it into terminal ${started.terminalId} with terminal_write.`);
+      lines.push(`Once they have approved, read the code from pane ${settled.browserId} and type it into terminal ${started.terminalId} with terminal_write.`);
     }
-    return ok(`${lines.join("\n")}\n\n${screenResult(started.screen, null).content.map((c) => (c as { text?: string }).text ?? "").join("")}`);
+    return ok(`${lines.join("\n")}\n\n${screenResult(settled.screen, null).content.map((c) => (c as { text?: string }).text ?? "").join("")}`);
   },
 
   terminal_close: async (c, raw) => {

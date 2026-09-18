@@ -364,7 +364,7 @@ describe("starting a sign-in", () => {
 
   it("tells the agent the click is not its to make", async () => {
     const { call } = setup({
-      signIn: async () => ({ ok: true, terminalId: "t9", command: "claude auth login", url: "https://claude.ai/oauth/authorize?client_id=a&redirect_uri=b", browserId: "b9", mayAuthorize: false, screen }),
+      signIn: async () => ({ ok: true, terminalId: "t9", command: "claude auth login", settled: Promise.resolve({ url: "https://claude.ai/oauth/authorize?client_id=a&redirect_uri=b", browserId: "b9", mayAuthorize: false, screen }) }),
     });
     const r = await call("signin_start", { kind: "claude" });
     expect(r.isError).toBe(false);
@@ -377,14 +377,14 @@ describe("starting a sign-in", () => {
 
   it("says so when the space has let Realm finish it", async () => {
     const { call } = setup({
-      signIn: async () => ({ ok: true, terminalId: "t9", command: "claude auth login", url: "https://claude.ai/oauth/authorize?client_id=a&redirect_uri=b", browserId: "b9", mayAuthorize: true, screen }),
+      signIn: async () => ({ ok: true, terminalId: "t9", command: "claude auth login", settled: Promise.resolve({ url: "https://claude.ai/oauth/authorize?client_id=a&redirect_uri=b", browserId: "b9", mayAuthorize: true, screen }) }),
     });
     expect(text(await call("signin_start", { kind: "claude" }))).toContain("may drive that pane");
   });
 
   it("adopts the terminal it made, so typing the code back needs no second card", async () => {
     const { call, calls } = setup({
-      signIn: async () => ({ ok: true, terminalId: "t1", command: "claude auth login", url: "https://x/authorize?client_id=a&redirect_uri=b", browserId: "b9", mayAuthorize: false, screen }),
+      signIn: async () => ({ ok: true, terminalId: "t1", command: "claude auth login", settled: Promise.resolve({ url: "https://x/authorize?client_id=a&redirect_uri=b", browserId: "b9", mayAuthorize: false, screen }) }),
     });
     await call("signin_start", { kind: "claude" });
     calls.gates.length = 0;

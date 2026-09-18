@@ -858,6 +858,21 @@ export const Methods = {
     params: z.object({ family: z.string().min(1) }),
     result: z.object({ faces: z.array(z.object({ weight: z.number().int(), base64: z.string() })) }),
   },
+  /**
+   * Start signing an agent CLI in: open a terminal in this space and run that CLI's own login
+   * command. Answers as soon as the shell is running with the command typed, NOT when the sign-in
+   * finishes — the terminal pane is on screen by then and the rest happens in front of the user,
+   * so a call that waited for the CLI to print would leave the button busy while the work it
+   * started was already visible. What follows (reading the URL, opening the consent pane) arrives
+   * as panes, through the item broadcasts every other pane uses.
+   *
+   * Refuses for an agent with no login command — Gemini's route is an API key, which is a sentence
+   * rather than a line to run.
+   */
+  "signin.start": {
+    params: z.object({ spaceId: IdSchema, kind: AgentKindSchema }),
+    result: z.object({ terminalId: IdSchema, command: z.string() }),
+  },
   "settings.get": { params: z.object({ key: z.string() }), result: z.object({ value: z.unknown() }) },
   "settings.set": { params: z.object({ key: z.string(), value: z.unknown() }), result: z.object({ ok: z.literal(true) }) },
 
