@@ -8,7 +8,7 @@ import {
   activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveGroup as groupsMove, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo,
+  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
   type AgentKind, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageSummary,
@@ -352,6 +352,10 @@ export type Api = {
   /** `cli.run` — start the install or update the status offered. Rejects when the server is not
    *  offering that action, which is the only place that decision is ever made. */
   runCli(kind: AgentKind, action: "install" | "update"): Promise<CliJobStart>;
+  /** `signin.start` — open a terminal in this space and run the agent CLI's own login command.
+   *  Resolves once the shell is running with the command typed, NOT when the sign-in finishes: the
+   *  terminal and then the consent pane arrive as items, the way every other pane does. */
+  startSignIn(spaceId: string, kind: AgentKind): Promise<{ terminalId: string; command: string }>;
   /** `models.catalog` — prices, context windows and reasoning efforts for the picker. Never rejects
    *  on a dead network: the server answers with its cache, or with nothing. */
   modelCatalog(force: boolean): Promise<ModelInfo[]>;
@@ -1563,6 +1567,18 @@ export type AppState = {
    *  refresh after an install finishes. */
   refreshCliStatus(force?: boolean): Promise<void>;
   runCliAction(kind: AgentKind, action: "install" | "update"): Promise<void>;
+  /** Start signing this agent in, in the active space. The panes it opens are the feedback. */
+  startSignIn(kind: AgentKind): Promise<void>;
+  /**
+   * Whether this SPACE lets Realm finish a sign-in itself, including the click on Authorize.
+   *
+   * Read and written per call rather than held in store state, unlike the app-level switches loaded
+   * at boot: this one is keyed by space, and the only surface that shows it is a panel that already
+   * mounts for one space and fetches its own rows. Caching it globally would mean a value in the
+   * store that is only true for whichever space was looked at last.
+   */
+  spaceSignInEnabled(spaceId: string): Promise<boolean>;
+  setSpaceSignInEnabled(spaceId: string, enabled: boolean): Promise<void>;
   applyCliOutput(e: CliJobOutput): void;
   applyCliDone(e: CliJobEnd): void;
   /** Drop a finished job's output panel. A running job cannot be dismissed — hiding output while a
@@ -4118,6 +4134,26 @@ await get().refreshCustomThemes().catch(() => {});
           .finally(() => { cliChecking[force ? "forced" : "plain"] = null; });
         cliChecking[force ? "forced" : "plain"] = p;
         await p;
+      },
+      async spaceSignInEnabled(spaceId) {
+        const raw = await api.getSetting(`${AGENT_SIGNIN_KEY}:${spaceId}`).catch(() => null);
+        // The server reads an unset key the same way (`SignInTickets.enabled`), and both have to
+        // agree: a switch that rendered on as the server treated it off would be the worst kind of
+        // wrong about a permission.
+        return raw === undefined || raw === null ? AGENT_SIGNIN_DEFAULT : raw === true;
+      },
+      async setSpaceSignInEnabled(spaceId, enabled) {
+        await api.setSetting(`${AGENT_SIGNIN_KEY}:${spaceId}`, enabled);
+      },
+      async startSignIn(kind) {
+        const spaceId = get().activeSpaceId;
+        if (!spaceId) return;
+        await api.startSignIn(spaceId, kind);
+        /* Nothing is stored. What the user gets back is the terminal pane, which arrives through
+           `items.changed` like any other, and the card they clicked from stays where it is until the
+           agent really is signed in — which only a re-probe can say, and which "Check again" and the
+           window-focus listener already ask. A local "signing in…" flag would be this client's guess
+           at a state the server is the one holding. */
       },
       async runCliAction(kind, action) {
         const started = await api.runCli(kind, action);

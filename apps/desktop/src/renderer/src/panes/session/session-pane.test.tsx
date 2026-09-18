@@ -1891,6 +1891,33 @@ describe("the CLI-missing install card (W4)", () => {
     expect(screen.queryByText(AGENT_CLI_COMMANDS.claude.install)).toBeNull();
   });
 
+  it("offers Sign in on the signed-out card, and starts the flow for THAT agent", async () => {
+    const { api } = await mountAgent([signedOut]);
+    await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Sign in" })); });
+    expect(api.calls.some((c) => c.startsWith("startSignIn:") && c.endsWith(":claude"))).toBe(true);
+  });
+
+  /**
+   * THE MUTANT: offer it on the missing card too. There is nothing to sign into before the CLI is
+   * there — the flow would spawn a terminal to run a command that does not exist, and the user would
+   * read the resulting "command not found" as the sign-in failing.
+   */
+  it("does not offer Sign in when the CLI is not installed", async () => {
+    await mountAgent([missing]);
+    await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
+    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+  });
+
+  it("says where Realm stops, on the card that offers to start", async () => {
+    // The note is the whole of what the user is told about the consent click before they commit to
+    // the errand; a card that started a sign-in without saying who approves it would be the feature
+    // making a promise the browser tools then refuse.
+    await mountAgent([signedOut]);
+    await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
+    expect(screen.getByText(/never presses Authorize for you/)).toBeInTheDocument();
+  });
+
   it("never takes the prompter away mid-turn — Stop must survive a probe that goes sour", async () => {
     const { api } = await mountAgent([missing], "running");
     await waitFor(() => expect(api.calls).toContain("probeAgents:false"));
