@@ -18,7 +18,11 @@ import type { TerminalRow } from "../store/terminals";
 const SPACE = "space1";
 const SESSION = "sess1";
 
-function setup(opts: { gate?: GateResult; enabled?: boolean; screen?: string } = {}) {
+function setup(opts: {
+  gate?: GateResult; enabled?: boolean; screen?: string;
+  /** Omitted = no `signIn` dep, which is a build without the flow and must offer no tool for it. */
+  signIn?: TerminalAgentToolsDeps["signIn"] extends infer S ? S extends { start: infer F } ? F : never : never;
+} = {}) {
   const rows = new Map<string, TerminalRow>([
     ["t1", { id: "t1", spaceId: SPACE, cwd: "/tmp/work", shell: "/bin/zsh", createdAt: 1, updatedAt: 1 }],
     ["tX", { id: "tX", spaceId: "spaceOTHER", cwd: "/tmp/elsewhere", shell: "/bin/zsh", createdAt: 1, updatedAt: 1 }],
@@ -74,6 +78,7 @@ function setup(opts: { gate?: GateResult; enabled?: boolean; screen?: string } =
     },
   };
 
+  if (opts.signIn) deps.signIn = { start: opts.signIn };
   const provider = createTerminalAgentProvider(deps);
   const call = (tool: string, args: unknown = {}) => provider.call({ sessionId: SESSION, spaceId: SPACE }, tool, args);
   /** Put a terminal in the state where it is asking something. */
@@ -327,5 +332,70 @@ describe("the watching broadcasts", () => {
     const { call, calls } = setup();
     await call("terminal_read", { terminalId: "t1" });
     expect(calls.broadcasts).toEqual([]);
+  });
+});
+
+describe("starting a sign-in", () => {
+  const screen = { screen: ["Open this URL:"], scrollback: [], cursor: { row: 0, col: 0 }, cols: 100, rows: 30, altScreen: false };
+
+  it("is not offered at all in a build without the flow", async () => {
+    const { provider } = setup();
+    const names = (await provider.tools({ sessionId: SESSION, spaceId: SPACE })).map((t) => t.name);
+    // THE MUTANT: list it regardless. An agent told the capability exists spends a turn discovering
+    // that reaching for it fails.
+    expect(names).not.toContain("signin_start");
+  });
+
+  it("is offered once the flow is wired", async () => {
+    const { provider } = setup({ signIn: async () => ({ ok: false, reason: "no" }) });
+    const names = (await provider.tools({ sessionId: SESSION, spaceId: SPACE })).map((t) => t.name);
+    expect(names).toContain("signin_start");
+  });
+
+  it("gates before it spawns anything", async () => {
+    let ran = false;
+    const { call } = setup({
+      gate: { allowed: false, reason: "the user denied this action" },
+      signIn: async () => { ran = true; return { ok: false, reason: "unreachable" }; },
+    });
+    expect((await call("signin_start", { kind: "claude" })).isError).toBe(true);
+    expect(ran).toBe(false);
+  });
+
+  it("tells the agent the click is not its to make", async () => {
+    const { call } = setup({
+      signIn: async () => ({ ok: true, terminalId: "t9", command: "claude auth login", url: "https://claude.ai/oauth/authorize?client_id=a&redirect_uri=b", browserId: "b9", mayAuthorize: false, screen }),
+    });
+    const r = await call("signin_start", { kind: "claude" });
+    expect(r.isError).toBe(false);
+    // THE MUTANT: report the pane and say nothing about who approves. The agent's obvious next move
+    // is to click the button, which the browser tools now refuse — so it would burn a turn finding
+    // out what this sentence could have told it.
+    expect(text(r)).toContain("will NOT press Authorize");
+    expect(text(r)).toContain("b9");
+  });
+
+  it("says so when the space has let Realm finish it", async () => {
+    const { call } = setup({
+      signIn: async () => ({ ok: true, terminalId: "t9", command: "claude auth login", url: "https://claude.ai/oauth/authorize?client_id=a&redirect_uri=b", browserId: "b9", mayAuthorize: true, screen }),
+    });
+    expect(text(await call("signin_start", { kind: "claude" }))).toContain("may drive that pane");
+  });
+
+  it("adopts the terminal it made, so typing the code back needs no second card", async () => {
+    const { call, calls } = setup({
+      signIn: async () => ({ ok: true, terminalId: "t1", command: "claude auth login", url: "https://x/authorize?client_id=a&redirect_uri=b", browserId: "b9", mayAuthorize: false, screen }),
+    });
+    await call("signin_start", { kind: "claude" });
+    calls.gates.length = 0;
+    await call("terminal_write", { terminalId: "t1", text: "code-123", submit: true });
+    expect(calls.gates[0]!.promptUnderBypass).toBe(false);
+  });
+
+  it("passes the flow's refusal straight through", async () => {
+    const { call } = setup({ signIn: async () => ({ ok: false, reason: "Gemini has no sign-in command Realm can run." }) });
+    const r = await call("signin_start", { kind: "acp:gemini" });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("no sign-in command");
   });
 });

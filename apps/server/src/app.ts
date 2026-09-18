@@ -46,6 +46,7 @@ import { createBrowserAgentProvider } from "./browsers/agent-tools";
 import { createComputerAgentProvider } from "./computer/agent-tools";
 import { createTerminalAgentProvider } from "./terminals/agent-tools";
 import { SignInTickets } from "./browsers/signin";
+import { SignInFlow } from "./browsers/signin-flow";
 import { createMachineAgentProvider } from "./machines/agent-tools";
 import { MachineAllowlist } from "./machines/allowlist";
 import { ComputerAppAllowlist } from "./computer/allowlist";
@@ -725,8 +726,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      the only way to reach an interactive login, and a visible pane instead of a hidden subprocess.
      The narrowings that matter are inside the provider: a password prompt is refused in every mode,
      and a terminal this session did not open prompts even under bypassPermissions. */
+  /* The sign-in flow rides on both: a terminal that talks back and a pane to put the consent page
+     in. It is handed to the terminal provider rather than the browser one because the terminal is
+     where it starts and where the code is typed back. */
+  const signInFlow = new SignInFlow({ terminals, browsers, tickets: signInTickets });
   mcpGateway.registerProvider(createTerminalAgentProvider({
-    terminals, rows: terminalsStore, items, mcp, broker: browserBroker, rpc,
+    terminals, rows: terminalsStore, items, mcp, broker: browserBroker, rpc, signIn: signInFlow,
   }));
   // Plan 22 W2: the `realm-docs` provider — search/list/open/progress over the space's own folder.
   // One extractor for the process: PDF text is memoized across every session's searches.

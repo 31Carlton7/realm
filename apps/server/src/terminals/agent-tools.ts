@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { fenceUntrusted } from "@realm/contracts";
+import { AgentKindSchema, fenceUntrusted } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
 import { err, ok, parseArgs } from "../mcp/tool-result";
@@ -8,6 +8,7 @@ import type { McpService } from "../mcp/service";
 import type { ItemsStore } from "../store/items";
 import type { TerminalsStore } from "../store/terminals";
 import type { BrowserPermissionBroker } from "../browsers/permissions";
+import type { SignInFlow } from "../browsers/signin-flow";
 import { MAX_SCROLLBACK_LINES, screenText, type TerminalScreen } from "./screen";
 import type { TerminalService } from "./service";
 
@@ -56,6 +57,9 @@ export type TerminalAgentToolsDeps = {
   mcp: Pick<McpService, "providerEnabled">;
   broker: Pick<BrowserPermissionBroker, "gate">;
   rpc: Pick<RpcServer, "broadcast">;
+  /** The sign-in flow (`browsers/signin-flow.ts`). Optional: a harness without it simply has no
+   *  `signin_start` tool, rather than one that fails when called. */
+  signIn?: Pick<SignInFlow, "start">;
 };
 
 export function createTerminalAgentProvider(d: TerminalAgentToolsDeps): RealmToolProvider {
@@ -76,7 +80,9 @@ export function createTerminalAgentProvider(d: TerminalAgentToolsDeps): RealmToo
     name: TERMINAL_PROVIDER_NAME,
     async tools(ctx: ProviderCallContext): Promise<Tool[]> {
       if (!d.mcp.providerEnabled(ctx.spaceId, TERMINAL_PROVIDER_NAME)) return [];
-      return TOOLS;
+      // A tool that is not wired up is not offered. An agent told a capability exists and then
+      // refused when it reaches for it has spent a turn learning what the list could have said.
+      return d.signIn ? TOOLS : TOOLS.filter((t) => t.name !== "signin_start");
     },
     async call(ctx: ProviderCallContext, tool: string, args: unknown): Promise<CallToolResult> {
       if (!d.mcp.providerEnabled(ctx.spaceId, TERMINAL_PROVIDER_NAME))
@@ -231,6 +237,17 @@ const TOOLS: Tool[] = [
     },
   },
   {
+    name: "signin_start",
+    description:
+      "Sign an agent CLI in, when a turn failed because it is signed out or out of quota. Realm opens a terminal, runs that CLI's own login command, reads the URL it prints and opens it in a browser pane in this space — then hands you both ids. You do NOT press Authorize: unless this space has enabled it, that click is the user's, and Realm refuses it. What is left for you afterwards is to read the code off the page once they have approved, and type it back with terminal_write. Asks the user for permission.",
+    inputSchema: {
+      type: "object",
+      properties: { kind: { type: "string", description: "which agent CLI to sign in, e.g. claude or codex" } },
+      required: ["kind"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "terminal_close",
     description: "Close a terminal pane and kill its shell. Asks the user for permission.",
     inputSchema: {
@@ -377,6 +394,39 @@ const HANDLERS: Record<string, Handler> = {
         return screenResult(last ?? screen, "The shell exited before the pattern matched.");
       }
     }
+  },
+
+  signin_start: async ({ d, ctx, opened }, raw) => {
+    if (!d.signIn) return err("sign-in is not available in this build.");
+    const args = parseArgs(z.object({ kind: AgentKindSchema }), raw);
+    if ("error" in args) return args.error;
+    const gate = await d.broker.gate(
+      ctx.sessionId, `signin_start:${args.value.kind}`, `Sign in to ${args.value.kind} — opens a terminal and runs its login command`,
+      { kind: args.value.kind }, "signin_start",
+    );
+    if (!gate.allowed) return err(gate.reason);
+
+    const started = await d.signIn.start(ctx.spaceId, args.value.kind);
+    if (!started.ok) return err(started.reason);
+
+    // The terminal this flow made belongs to this session, on the same terms one it opened itself
+    // does: the code typed back at the end goes into THIS pty, and having to re-approve a terminal
+    // Realm opened seconds ago on the session's behalf would be a card that says nothing new.
+    let mine = opened.get(ctx.sessionId);
+    if (!mine) opened.set(ctx.sessionId, (mine = new Set()));
+    mine.add(started.terminalId);
+
+    const lines = [`Ran \`${started.command}\` in terminal ${started.terminalId}.`];
+    if (!started.url) {
+      lines.push("It has not printed a sign-in URL yet. The terminal is open and running — read it with terminal_read to see what it is asking.");
+    } else {
+      lines.push(`It printed a sign-in URL, and Realm opened it in browser pane ${started.browserId}.`);
+      lines.push(started.mayAuthorize
+        ? "This space lets Realm finish the sign-in, so you may drive that pane through the consent screen."
+        : "Realm will NOT press Authorize — tell the user the pane is waiting for them to approve it.");
+      lines.push(`Once they have approved, read the code from pane ${started.browserId} and type it into terminal ${started.terminalId} with terminal_write.`);
+    }
+    return ok(`${lines.join("\n")}\n\n${screenResult(started.screen, null).content.map((c) => (c as { text?: string }).text ?? "").join("")}`);
   },
 
   terminal_close: async (c, raw) => {

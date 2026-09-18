@@ -173,29 +173,41 @@ describe("mcp over rpc", () => {
     /* Every registered provider is listed with this space's switch state. All default ON except the
        two whose reach is outside Realm: realm-computer, which drives every app on this Mac, and
        realm-vm, which drives a whole other computer.
+       realm-terminal is ON with them, and its reach is the reason: every harness already has a shell
+       tool, so it adds no ability to run commands — what it adds is a terminal that talks back, and
+       the narrowings that matter (a password prompt refused in every mode, a terminal the session
+       did not open prompting even under bypass) are inside the provider rather than on its switch.
        `goal` is last because it is registered last, and on by default because its reach is the
        narrowest here — two tools that appear only on a session already pursuing a goal, and the most
        either can do is end it. */
     const before = (await c.call("mcp.providers.list", { spaceId: work.id })).result.providers;
     expect(before).toEqual([
       { name: "realm-browser", enabled: true }, { name: "realm-agent", enabled: true },
-      { name: "realm-computer", enabled: false }, { name: "realm-docs", enabled: true },
+      { name: "realm-computer", enabled: false }, { name: "realm-terminal", enabled: true },
+      { name: "realm-docs", enabled: true },
       { name: "realm-vm", enabled: false }, { name: "goal", enabled: true },
     ]);
     await c.call("mcp.setProviderEnabled", { spaceId: work.id, name: "realm-browser", enabled: false });
     // The disable is per-space: Work reads OFF, School still reads ON.
     expect((await c.call("mcp.providers.list", { spaceId: work.id })).result.providers).toEqual([
       { name: "realm-browser", enabled: false }, { name: "realm-agent", enabled: true },
-      { name: "realm-computer", enabled: false }, { name: "realm-docs", enabled: true },
+      { name: "realm-computer", enabled: false }, { name: "realm-terminal", enabled: true },
+      { name: "realm-docs", enabled: true },
       { name: "realm-vm", enabled: false }, { name: "goal", enabled: true },
     ]);
-    // And the opt-in provider turns ON through the same switch, for this space alone.
+    /* And the opt-in provider turns ON through the same switch, for this space alone.
+       By NAME rather than by index: these lines each ask about one provider's switch, and an index
+       makes them a second, accidental assertion about registration order that breaks whenever a
+       provider is added in the middle. Order is already pinned, exactly once, by the whole-array
+       comparisons above — which is where a claim about it belongs. */
+    const providerIn = async (spaceId: string, name: string) =>
+      (await c.call("mcp.providers.list", { spaceId })).result.providers.find((p: { name: string }) => p.name === name);
     await c.call("mcp.setProviderEnabled", { spaceId: work.id, name: "realm-computer", enabled: true });
-    expect((await c.call("mcp.providers.list", { spaceId: work.id })).result.providers[2]).toEqual({ name: "realm-computer", enabled: true });
-    expect((await c.call("mcp.providers.list", { spaceId: school.id })).result.providers[2]).toEqual({ name: "realm-computer", enabled: false });
-    expect((await c.call("mcp.providers.list", { spaceId: school.id })).result.providers[0]).toEqual({ name: "realm-browser", enabled: true });
+    expect(await providerIn(work.id, "realm-computer")).toEqual({ name: "realm-computer", enabled: true });
+    expect(await providerIn(school.id, "realm-computer")).toEqual({ name: "realm-computer", enabled: false });
+    expect(await providerIn(school.id, "realm-browser")).toEqual({ name: "realm-browser", enabled: true });
     // …and realm-vm is the same shape of switch, off in both until one of them asks.
-    expect((await c.call("mcp.providers.list", { spaceId: work.id })).result.providers[4]).toEqual({ name: "realm-vm", enabled: false });
+    expect(await providerIn(work.id, "realm-vm")).toEqual({ name: "realm-vm", enabled: false });
     // Same ghost-space refusal as every other per-space mcp method.
     expect((await c.call("mcp.providers.list", { spaceId: "01ARZ3NDEKTSV4RRFFQ69G5FAZ" })).error?.code).toBe("NOT_FOUND");
     c.close();
