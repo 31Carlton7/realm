@@ -167,8 +167,6 @@ export type TerminalKey = keyof typeof TERMINAL_KEYS;
 
 /* ---------------------------------- tools ---------------------------------- */
 
-const READ_ONLY_TOOLS = new Set(["terminal_list", "terminal_read", "terminal_wait"]);
-
 /** How long a write waits for the program to react before reading the screen back. Long enough for
  *  a TUI to repaint, short enough that a command which is genuinely going to take a minute returns
  *  promptly and says so rather than blocking the agent's turn. */
@@ -511,6 +509,3 @@ async function runTracked(
     d.rpc.broadcast("terminal.action", { spaceId, terminalId, text, ok: succeeded, ts: Date.now() });
   }
 }
-
-/** The tools that run free in every mode — read by the capabilities preamble and by tests. */
-export const TERMINAL_READ_ONLY_TOOLS: readonly string[] = [...READ_ONLY_TOOLS];
