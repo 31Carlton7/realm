@@ -110,7 +110,12 @@ export function McpSection({ spaceId }: { spaceId: string }) {
  * Realm-native gateway toolsets (`realm-browser`, `realm-agent`), rendered as rows like the servers
  * above but honestly different: no status dot (they are in-process — there is no connection to have
  * checked), no editor, no scope moves (they are code, not config — the same in every profile), just
- * this space's switch. Default ON, per `mcp.setProviderEnabled`'s rationale.
+ * this space's switch.
+ *
+ * The rows are built from whatever the gateway reports, so a provider added in app.ts appears here
+ * without a line of work — which is also why the hint below does not say "on by default" flatly any
+ * more. Three of them are not: `realm-computer`, `realm-vm` and `realm-app` start off, and the hint
+ * names the property they share rather than listing them, so it stays true as the list grows.
  */
 function RealmProviders({ spaceId }: { spaceId: string }) {
   const providers = useApp((s) => s.mcpProviders);
@@ -120,7 +125,7 @@ function RealmProviders({ spaceId }: { spaceId: string }) {
   return (
     <div className="field">
       <span>Realm's own tools</span>
-      <p className="settings-hint">Built into Realm and served through the same gateway. On by default — they run under Realm's own permission flow, not as a process you configured. The switch is this space's.</p>
+      <p className="settings-hint">Built into Realm and served through the same gateway — they run under Realm's own permission flow, not as a process you configured. The switch is this space's. Most are on by default; the ones that reach outside a pane Realm made — other Mac apps, another machine, Realm's own interface — start off.</p>
       <ul className="env-list">
         {providers.map((p) => (
           <li key={p.name} className="env-row mcp-row">
