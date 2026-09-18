@@ -50,6 +50,17 @@ const BLOCKS: Record<string, string> = {
     "write the file into the space folder, and Realm opens what you create in the user's Documents pane without " +
     "being asked.",
 
+  "realm-terminal":
+    "- **A terminal that talks back.** `terminal_open` starts a real terminal pane in this space, " +
+    "`terminal_write` types into it and `terminal_read` shows what it is displaying NOW — the rendered " +
+    "screen, so a full-screen program's repaints are resolved rather than replayed at you. Reach for it " +
+    "for the work your own shell tool structurally cannot do: an interactive login, a prompt that asks a " +
+    "question, anything that needs a terminal on the other end. `claude auth login` under a " +
+    "non-interactive shell hangs; here it runs, and you can read the URL it prints and answer the code it " +
+    "asks for. For running a command and reading its output your own shell tool is better and costs no " +
+    "pane, so do not reach here for one. Realm refuses to type into a password prompt in every mode — " +
+    "say what is being asked for and let the user type it in the pane.",
+
   "realm-computer":
     "- **Other Mac apps.** `computer_list_apps`, `computer_snapshot` and `computer_act` drive the apps on the " +
     "user's Mac through the accessibility APIs. This space switched them on deliberately, so use them for work " +
@@ -67,7 +78,7 @@ const BLOCKS: Record<string, string> = {
 /** Fixed order, so the same set of providers always produces the same bytes: the blocks are read
  *  top-down and registration order is not a reason for the browser to appear above delegation one
  *  day and below it the next. */
-const ORDER = ["realm-agent", "realm-browser", "realm-docs", "realm-computer", "realm-vm"] as const;
+const ORDER = ["realm-agent", "realm-browser", "realm-docs", "realm-terminal", "realm-computer", "realm-vm"] as const;
 
 const HEADER =
   "# Realm\n\n" +

@@ -44,6 +44,7 @@ import { BrowserHostBridge } from "./browsers/host-bridge";
 import { BrowserPermissionBroker } from "./browsers/permissions";
 import { createBrowserAgentProvider } from "./browsers/agent-tools";
 import { createComputerAgentProvider } from "./computer/agent-tools";
+import { createTerminalAgentProvider } from "./terminals/agent-tools";
 import { createMachineAgentProvider } from "./machines/agent-tools";
 import { MachineAllowlist } from "./machines/allowlist";
 import { ComputerAppAllowlist } from "./computer/allowlist";
@@ -403,7 +404,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     notifications,
   });
   const envService = new EnvironmentService({ environments, spaces, worktrees, ports, checkpoints, notifications });
-  const terminals = new TerminalService({ db, rpc, spaces, items, terminals: new TerminalsStore(db), environments, history: new TerminalHistoryStore(db), settings, sandbox });
+  // Hoisted out of the service's argument list: the `realm-terminal` provider lists a space's
+  // terminals from the same store the service writes them to, and two stores over one table would
+  // be two answers to "what terminals are there".
+  const terminalsStore = new TerminalsStore(db);
+  const terminals = new TerminalService({ db, rpc, spaces, items, terminals: terminalsStore, environments, history: new TerminalHistoryStore(db), settings, sandbox });
   // A space's named shell commands. Runs go through TerminalService, which is also where each run
   // picks up its environment's port block (envFor → portEnv) — nothing here duplicates that.
   const scripts = new ScriptService({
@@ -710,6 +715,15 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp, agentRuns, reviews, asks));
   // The one provider a space has to switch ON: it reaches every app on the Mac.
   mcpGateway.registerProvider(createComputerAgentProvider({ mcp, bridge: browserBridge, broker: browserBroker, allowlist: computerAllowlist }));
+  /* The `realm-terminal` provider: a pty an agent can type into and read back. On by default, and
+     the reasoning is the blast radius — every harness already has a shell tool, so this adds no
+     ability to run commands that was not there. What it adds is a terminal that TALKS BACK, which is
+     the only way to reach an interactive login, and a visible pane instead of a hidden subprocess.
+     The narrowings that matter are inside the provider: a password prompt is refused in every mode,
+     and a terminal this session did not open prompts even under bypassPermissions. */
+  mcpGateway.registerProvider(createTerminalAgentProvider({
+    terminals, rows: terminalsStore, items, mcp, broker: browserBroker, rpc,
+  }));
   // Plan 22 W2: the `realm-docs` provider — search/list/open/progress over the space's own folder.
   // One extractor for the process: PDF text is memoized across every session's searches.
   const extractor = new TextExtractor();

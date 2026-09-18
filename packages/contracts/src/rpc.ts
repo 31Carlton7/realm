@@ -1706,6 +1706,15 @@ export const Events = {
    *  this browser (Plan 11 W4) — feeds the sidebar row and pane header's "agent is driving" dot.
    *  Every `true` is followed by a `false` on the same browserId, whatever the outcome. */
   "browser.driving": z.object({ spaceId: IdSchema, browserId: IdSchema, driving: z.boolean() }),
+  /** The terminal pair of the two above, and deliberately the same shape: an agent typing into a
+   *  pty is the same event as an agent clicking in a page — "Realm is acting here, watch" — and one
+   *  idiom for it is what keeps the pane chrome from growing a second vocabulary for the same fact.
+   *  Every `true` is followed by a `false` on the same terminalId, whatever the outcome. */
+  "terminal.driving": z.object({ spaceId: IdSchema, terminalId: IdSchema, driving: z.boolean() }),
+  /** A mutating terminal tool call SETTLED. `text` is the same description the permission card
+   *  showed — what was typed, quoted — never the terminal's own output, which is untrusted and stays
+   *  behind its fence. */
+  "terminal.action": z.object({ spaceId: IdSchema, terminalId: IdSchema, text: z.string(), ok: z.boolean(), ts: z.number() }),
   /** A machine's live state changed (Plan 25 W3) — the pane's body, the pane bar's power toggle and
    *  the sidebar row's dot all read this one event.
    *
