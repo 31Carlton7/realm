@@ -398,3 +398,21 @@ export const PICK_HTML_MAX = 1200;
  *  path via `pushState`, and can make either enormous. */
 export const PICK_URL_MAX = 2048;
 export const PICK_TITLE_MAX = 300;
+
+/**
+ * Per space: may Realm finish a sign-in by itself, including the click on Authorize?
+ *
+ * Off by default, and the default is the decision rather than a placeholder. With it off the flow
+ * still does every mechanical step — opens the terminal, runs the login command, reads the URL,
+ * puts the consent page in front of you — and stops at the one act that grants a durable capability.
+ * That is one click instead of a six-step errand, and no security boundary moves.
+ *
+ * Turning it on does not license authorizing anything: it lets `SignInTickets` mint a ticket for the
+ * exact page Realm read out of the terminal it just started, and only that page, for five minutes.
+ * The whole argument for why that is different from a standing grant is in `browsers/signin.ts`.
+ *
+ * Keyed per space like the computer allowlist, and for its reason: a switch that reached wider than
+ * the space it was flipped in would silently arm spaces nobody had said it about.
+ */
+export const AGENT_SIGNIN_KEY = "browsers.agentSignIn";
+export const AGENT_SIGNIN_DEFAULT = false;

@@ -45,6 +45,7 @@ import { BrowserPermissionBroker } from "./browsers/permissions";
 import { createBrowserAgentProvider } from "./browsers/agent-tools";
 import { createComputerAgentProvider } from "./computer/agent-tools";
 import { createTerminalAgentProvider } from "./terminals/agent-tools";
+import { SignInTickets } from "./browsers/signin";
 import { createMachineAgentProvider } from "./machines/agent-tools";
 import { MachineAllowlist } from "./machines/allowlist";
 import { ComputerAppAllowlist } from "./computer/allowlist";
@@ -602,6 +603,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // (the checkpoints knot again): nothing in it runs before a session exists to run it for.
   const computerAllowlist = new ComputerAppAllowlist({ settings });
   const browserBridge = new BrowserHostBridge({ rpc });
+  /* The consent-page gate for ACTS, and the provenance that can lift it for a sign-in Realm is
+     running itself. Off per space by default — see `signin.ts`. */
+  const signInTickets = new SignInTickets({ settings });
   const browserBroker = new BrowserPermissionBroker({
     // A missing row degrades to "plan" — the refuse-mutations mode — never to a prompt on a ghost.
     permissionMode: (sessionId) => sessionsStore.get(sessionId)?.permissionMode ?? "plan",
@@ -700,7 +704,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   reviews = new ReviewService({ settings, sessions, rpc, engine: delegationEngine, environments, notifications,
     otherDelegation: { isChild: (id) => agentRunsFinal.isChild(id) || browserAgentsFinal.isChild(id) },
     fallbackKind: opts.review?.fallbackKind ?? opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind, timeouts: opts.review?.timeouts });
-  mcpGateway.registerProvider(createBrowserAgentProvider({ browsers: browsersStore, projects, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc, constraints: browserAgents }));
+  mcpGateway.registerProvider(createBrowserAgentProvider({ browsers: browsersStore, projects, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc, constraints: browserAgents, signIn: signInTickets }));
   // Plan 20's interjection. `delegated` fans across all THREE registries: a delegated child of any
   // kind is neither a valid asker nor a valid target, because its own parent is already blocked inside
   // an MCP call waiting for it. `permissions` is the SAME broker the browser tools gate on — the card
