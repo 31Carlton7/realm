@@ -21,7 +21,7 @@ const BADGE_LABEL = { running: "agent running", waiting_permission: "agent needs
  * space overview (⌘⇧Space — every space, every profile, with names). The strip is a rail for the
  * profile you are in, not an index of everything you own.
  *
- * Drag-to-reorder is the default order; Settings ▸ Sidebar's "Sort by activity" swaps in a computed
+ * Drag-to-reorder is the default order; Settings ▸ App ▸ Sidebar's "Sort spaces by activity" swaps in a computed
  * one instead (`spaceActivity`: a space with something waiting on you first, then whichever moved
  * most recently) without touching the dragged order underneath, and turns dragging off for as long
  * as it is on — a drop into a spot the next status change would re-sort away from is a drop that did

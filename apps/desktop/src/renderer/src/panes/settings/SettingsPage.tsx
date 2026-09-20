@@ -790,6 +790,8 @@ function AppTab() {
   const easterEggs = useApp((s) => s.easterEggs);
   const lowPower = useApp((s) => s.lowPower);
   const setLowPower = useApp((s) => s.setLowPower);
+  const sidebarActivityOrder = useApp((s) => s.sidebarActivityOrder);
+  const setSidebarActivityOrder = useApp((s) => s.setSidebarActivityOrder);
   const setEasterEggs = useApp((s) => s.setEasterEggs);
   const run = useApp((s) => s.run);
   useEffect(() => { void run(() => refreshSettingsPrefs()); }, [run, refreshSettingsPrefs]);
@@ -943,6 +945,29 @@ function AppTab() {
           code weight would mean editing fifty-odd rules or hiding a weight inside a family name. */}
       <p className="settings-hint">Weight follows the app's own scale here.</p>
       <FontLibrary />
+
+      {/* The section `SpaceStrip` names when it explains where its order comes from. One row for now:
+          the sidebar's other preference — invert swipe — lives in the strip's own header menu, where
+          it sits on the gesture it changes, and moving it here to make a fuller section would take a
+          control away from the thing it acts on. */}
+      <h3 className="settings-head">Sidebar</h3>
+      <ul className="settings-list">
+        <li className="settings-row" title="The strip keeps the order you dragged it into. This orders it by what is happening instead — a space with a question waiting first, then whichever moved most recently — and leaves the dragged order untouched underneath, so turning this off puts it back exactly as you left it.">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Sort spaces by activity</span>
+            <span className="settings-row-detail">A waiting question first, then whatever moved last</span>
+          </div>
+          <input type="checkbox" role="switch" className="switch" aria-label="Sort spaces by activity"
+            checked={sidebarActivityOrder}
+            onChange={(e) => run(() => setSidebarActivityOrder(e.target.checked))} />
+        </li>
+      </ul>
+      {/* Says what it COSTS, because the strip stops answering the drag while it is on and a switch
+          that quietly disabled a gesture would read as the gesture breaking. */}
+      <p className="settings-hint">
+        While this is on the strip reorders itself, so spaces cannot be dragged — a drop into a spot
+        the next status change would move away from is a drop that did nothing.
+      </p>
 
       <h3 className="settings-head">Sessions</h3>
       <div className="settings-group">
