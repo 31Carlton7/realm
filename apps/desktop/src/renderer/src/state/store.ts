@@ -623,6 +623,7 @@ const SETTING_GROUND_ALPHA = "ui.groundAlpha";
 /** Agent of the most recent session the user created or switched to — what "+"/⌘N reach for next. */
 export const SETTING_LAST_AGENT = "ui.lastAgentKind";
 const SETTING_SWIPE_INVERT = "ui.swipeInvert";
+const SETTING_SIDEBAR_ACTIVITY_ORDER = "ui.sidebarActivityOrder";
 /** Whether the app keeps its decorative motion off for good. See `lowPower`. */
 const SETTING_LOW_POWER = "ui.lowPower";
 const SETTING_SUBMIT_KEY = "ui.submitKey";
@@ -917,6 +918,17 @@ export type AppState = {
   /** sessionId → spaceId for EVERY known session. session.status broadcasts carry only a sessionId;
    *  this map is what lets an inactive space's strip button wear its badge. */
   sessionSpace: Record<string, string>;
+  /**
+   * When each session last moved, by session id — the tiebreaker behind "Sort by activity".
+   *
+   * Kept beside `sessionSpace` rather than read off `sessions`, and for the same reason that map
+   * exists: `sessions` holds only the ACTIVE space's rows, while the strip sorts every space in the
+   * profile. Seeded from `listAllSessions` at boot and kept current by the status broadcasts.
+   */
+  sessionUpdatedAt: Record<string, number>;
+  /** Settings ▸ Sidebar's "Sort by activity": the strip orders itself by `spaceActivity` instead of
+   *  by the dragged order. A lens, never a rewrite — see `SpaceStrip`. */
+  sidebarActivityOrder: boolean;
   /** Transcripts by session id, kept across space switches (cheap, and a session pane may be revisited). */
   transcripts: Record<string, TranscriptEntry>;
   /** The fetched slice of the GLOBAL notifications feed (W5), newest first — what the page renders.
@@ -1284,6 +1296,7 @@ export type AppState = {
   setFonts(patch: Partial<FontPref>): Promise<void>;
   setGroundAlpha(pct: number): Promise<void>;
   setSwipeInvert(v: boolean): Promise<void>;
+  setSidebarActivityOrder(v: boolean): Promise<void>;
   setLowPower(v: boolean): Promise<void>;
   /** The window gained or lost focus. Called by App's own listeners; nothing else writes it. */
   setWindowActive(v: boolean): void;
@@ -2094,6 +2107,40 @@ export function spaceBadge(
   return error ? "error" : running ? "running" : null;
 }
 
+/**
+ * How recently a space moved, as one number to sort by — the key behind "Sort by activity".
+ *
+ * `Infinity` for a space holding a session that is WAITING on the user. That is not a timestamp
+ * trick standing in for a priority: a question is the one thing on this rail that will not resolve
+ * itself, and a space holding one belongs first however long it has been there. Every finite answer
+ * loses to it, including a touch from a second ago.
+ *
+ * Otherwise the NEWEST session in the space, never the sum: a space with six idle sessions has not
+ * been six times as active as a space with one, and adding them would sort by how many sessions
+ * someone happens to keep around.
+ *
+ * Zero for a space with nothing in it, which sorts last without needing a case of its own.
+ *
+ * Iterates `sessionSpace` rather than `sessionStatus` — unlike `spaceBadge` above, whose question IS
+ * about status. A session with a timestamp and no status entry is ordinary here (nothing has
+ * broadcast about it yet), and iterating statuses would score its space at zero.
+ */
+export function spaceActivity(
+  sessionStatus: Record<string, SessionStatus>,
+  sessionSpace: Record<string, string>,
+  sessionUpdatedAt: Record<string, number>,
+  spaceId: string,
+): number {
+  let newest = 0;
+  for (const [id, sid] of Object.entries(sessionSpace)) {
+    if (sid !== spaceId) continue;
+    if (sessionStatus[id] === "waiting_permission") return Infinity;
+    const at = sessionUpdatedAt[id];
+    if (at !== undefined && at > newest) newest = at;
+  }
+  return newest;
+}
+
 export type FocusDir = "left" | "right" | "up" | "down";
 
 /**
@@ -2656,13 +2703,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
+      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, sidebarActivityOrder: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
       spacePageTab: {}, profilePageTab: {}, librarySkill: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, sessionUpdatedAt: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -2734,6 +2781,10 @@ await get().refreshCustomThemes().catch(() => {});
         // both mean "nobody has said", which is the blinking cursor every other terminal draws.
         const cursorBlink = await api.getSetting(TERMINALS_CURSOR_BLINK_KEY).catch(() => null);
         set({ terminalCursorBlink: cursorBlink !== false });
+        // Defaulted OFF: the strip's resting order is the one the user dragged it into, and a
+        // preference nobody could read must not rearrange their spaces on them at launch.
+        const activityOrder = await api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER).catch(() => null);
+        set({ sidebarActivityOrder: activityOrder === true });
         const str = (v: unknown) => (typeof v === "string" ? v : "");
         set({ desktopNotifications: desktop !== false, soundCues: sound !== false, soundVolume: cueVolume(volume),
           notificationRelay: { imessage: str(imessage), slackWebhook: str(slackWebhook) }, midTurnMode: resolveMidTurnMode(midTurn) });
@@ -3019,6 +3070,10 @@ await get().refreshCustomThemes().catch(() => {});
       async setSwipeInvert(v) {
         set({ swipeInvert: v });
         await api.setSetting(SETTING_SWIPE_INVERT, v);
+      },
+      async setSidebarActivityOrder(v) {
+        set({ sidebarActivityOrder: v });
+        await api.setSetting(SETTING_SIDEBAR_ACTIVITY_ORDER, v);
       },
       async setLowPower(v) {
         set({ lowPower: v });
@@ -3332,6 +3387,7 @@ await get().refreshCustomThemes().catch(() => {});
           if (termId) api.disposeTerminal(termId);
           const { [it.refId]: _st, ...sessionStatus } = get().sessionStatus; const { [it.refId]: _se, ...sessions } = get().sessions;
           const { [it.refId]: _dr, ...drafts } = get().drafts; const { [it.refId]: _sp, ...sessionSpace } = get().sessionSpace;
+          const { [it.refId]: _ua, ...sessionUpdatedAt } = get().sessionUpdatedAt;
           const { [it.refId]: _tp, ...terminalPanel } = get().terminalPanel; const { [it.refId]: _tid, ...sessionTerminals } = get().sessionTerminals;
           const { [it.refId]: _dk, ...sessionDock } = get().sessionDock;
           const { [it.refId]: _pr, ...planReturn } = get().planReturn;
@@ -3340,7 +3396,7 @@ await get().refreshCustomThemes().catch(() => {});
           const { [it.refId]: _de, ...draftElements } = get().draftElements; // likewise
           const { [it.refId]: _dsr, ...draftSessionRefs } = get().draftSessionRefs; // likewise
           const { [it.refId]: _dl, ...draftLinks } = get().draftLinks;
-          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, planReturn, sessionSpace, terminalPanel, sessionTerminals, sessionDock });
+          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, planReturn, sessionSpace, sessionUpdatedAt, terminalPanel, sessionTerminals, sessionDock });
           if (termId || _tp) get().run(persistPanels); // the panel map just lost an entry
         }
       },
@@ -3627,8 +3683,9 @@ await get().refreshCustomThemes().catch(() => {});
         const sessions: Record<string, Session> = {}; const sessionStatus: Record<string, SessionStatus> = {};
         const sessionSpace = { ...get().sessionSpace };
         for (const [id, st] of Object.entries(get().sessionStatus)) if (!(id in get().sessions)) sessionStatus[id] = st;
-        for (const s of list) { sessions[s.id] = s; sessionStatus[s.id] = s.status; sessionSpace[s.id] = s.spaceId; }
-        set({ sessions: keepQuickChatSession(sessions), sessionStatus, sessionSpace });
+        const sessionUpdatedAt = { ...get().sessionUpdatedAt };
+        for (const s of list) { sessions[s.id] = s; sessionStatus[s.id] = s.status; sessionSpace[s.id] = s.spaceId; sessionUpdatedAt[s.id] = s.updatedAt; }
+        set({ sessions: keepQuickChatSession(sessions), sessionStatus, sessionSpace, sessionUpdatedAt });
       },
       listAllSessions(profileId = null) { return api.listAllSessions(profileId); },
       async refreshAllSessions() {
@@ -3636,8 +3693,9 @@ await get().refreshCustomThemes().catch(() => {});
         // The list is the truth for existence and mapping; server-persisted statuses are fresh (they
         // are written before each session.status broadcast), so they simply overwrite.
         const sessionSpace: Record<string, string> = {}; const sessionStatus: Record<string, SessionStatus> = {};
-        for (const s of all) { sessionSpace[s.id] = s.spaceId; sessionStatus[s.id] = s.status; }
-        set({ sessionSpace, sessionStatus });
+        const sessionUpdatedAt: Record<string, number> = {};
+        for (const s of all) { sessionSpace[s.id] = s.spaceId; sessionStatus[s.id] = s.status; sessionUpdatedAt[s.id] = s.updatedAt; }
+        set({ sessionSpace, sessionStatus, sessionUpdatedAt });
       },
       async jumpToPermission(sessionId = null) {
         const spaceOf = (id: string) => get().sessionSpace[id] ?? get().sessions[id]?.spaceId ?? null;
@@ -3745,6 +3803,15 @@ await get().refreshCustomThemes().catch(() => {});
         // A broadcast for a session we can't place (created in another window/space since the last
         // list): fetch the map so its space can wear the badge.
         if (!get().sessionSpace[sessionId]) get().run(() => get().refreshAllSessions());
+        /* A status change is the session MOVING, and the activity sort has no other way to learn it:
+           this path patches the status locally rather than refetching, so `updatedAt` would sit at
+           whatever the last list said until something else forced one — a "sort by activity" that
+           only re-sorted on a refetch. Stamped on a real change only; a repeat of the same status is
+           a broadcast, not movement.
+
+           `Date.now()` beside the server's own `updatedAt` is not two clocks: realm-server is a
+           process on this machine, so both read the same one. */
+        if (prev !== status) set({ sessionUpdatedAt: { ...get().sessionUpdatedAt, [sessionId]: Date.now() } });
         // A turn just finished (or died): the working tree likely changed, so refresh git context.
         if (prev !== status && (status === "idle" || status === "error")) refreshGitFor(sessionId);
       },
