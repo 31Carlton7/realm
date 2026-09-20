@@ -54,6 +54,44 @@ export function normalizeAddress(input: string): string | null {
 }
 
 /**
+ * The user agent a browser pane presents, derived from Electron's default.
+ *
+ * Two edits, and the restraint is the point of both.
+ *
+ * **`Electron/37.10.3` comes off.** It is the one token in the string that is not true of any
+ * browser a site has ever tested against, and sites do read it: some serve a degraded page, some
+ * refuse outright, and all of it is invisible from here because the page simply behaves differently.
+ * What is left is what Realm's panes actually are — Chromium, on macOS, at the version we ship.
+ *
+ * **The Chrome version is REDUCED to `<major>.0.0.0`**, which is not a lie but a convention: Chrome
+ * itself has frozen the minor/build/patch in its UA since the UA-reduction rollout, so a real Chrome
+ * 138 sends `Chrome/138.0.0.0`. Sending `138.0.7204.251` is a mismatch that marks the client as
+ * something other than a browser just as loudly as the Electron token does.
+ *
+ * What this deliberately does NOT do is claim a newer Chrome than we have. It would silence a
+ * "your browser is out of date" interstitial today, and it would buy that by telling a site it may
+ * use features this engine does not have — which is a failure that surfaces as a blank panel three
+ * clicks into a flow, and cannot be diagnosed from the page. Being out of date is fixed by not
+ * being out of date; see the Electron bump.
+ *
+ * The limit of this fix, measured rather than assumed: `navigator.userAgentData.brands` still
+ * reports `Chromium`, not `Google Chrome`, and overriding the UA string does not change it (Electron
+ * exposes no API for the client-hint metadata). A site that sniffs client hints rather than the UA
+ * string therefore still sees Chromium. That is the honest state of it, and it is the right side to
+ * err on — the string is what the overwhelming majority of sniffers read.
+ *
+ * Idempotent: a string that has already been through this comes out unchanged, so applying it at the
+ * session AND at each view cannot compound.
+ */
+export function browserUserAgent(defaultUserAgent: string): string {
+  const stripped = defaultUserAgent.replace(/\sElectron\/\S+/g, "");
+  // Guard against a default we do not recognise: a UA with no Chrome token is not something to
+  // rewrite blind, and handing back the input unchanged is the only safe answer.
+  if (!/Chrome\/\d/.test(stripped)) return defaultUserAgent;
+  return stripped.replace(/(Chrome\/\d+)(?:\.\d+)*/g, "$1.0.0.0");
+}
+
+/**
  * The per-space origin allowlist check (consulted by `will-navigate`, `will-redirect`, and every
  * host-initiated navigate). `null` = no list configured = allow everything — W1's default posture;
  * the restrictive default is a settings-product decision deferred to that plan's W2.

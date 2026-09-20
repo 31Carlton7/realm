@@ -1,5 +1,5 @@
 import { WebContentsView, screen, session, type BrowserWindow, type WebContents } from "electron";
-import { BrowserPaneHost, type ViewFactory } from "./browser-host";
+import { BrowserPaneHost, browserUserAgent, type ViewFactory } from "./browser-host";
 import type { CdpBinding } from "./browser-agent-host";
 import type { DownloadDecision, DownloadItemLike } from "./downloads";
 
@@ -38,6 +38,12 @@ export function electronViewFactory(win: BrowserWindow, onView?: (id: string, wc
     view.setVisible(false); // hidden until the renderer's first bounds sync places it
     win.contentView.addChildView(view);
     const wc = view.webContents;
+    /* The pane's user agent, set before anything can load. Also set on the SESSION below, and both
+       are needed rather than either: measured on Electron 37, `session.setUserAgent` reaches views
+       created AFTER the call and leaves existing ones on the old string, so the session covers what
+       has no view (workers, the partition's own fetches) and this covers the view in hand. One
+       derivation feeds both, so they cannot drift. */
+    wc.setUserAgent(browserUserAgent(wc.getUserAgent()));
     onView?.(id, wc);
 
     // Guard 1: no popups, ever — a window.open becomes an in-place navigation (allowlist-checked
@@ -115,6 +121,7 @@ export function createBrowserPane(win: BrowserWindow): BrowserPane {
     sendState: (s) => { if (!win.isDestroyed()) win.webContents.send("realm:browser-state", s); },
     scaleFactor: () => screen.getDisplayMatching(win.getBounds()).scaleFactor,
   });
+  applyBrowserUserAgent();
   // The views composite into this window; they must never outlive it.
   win.on("closed", () => host.destroyAll());
   return {
@@ -143,6 +150,23 @@ export function createBrowserPane(win: BrowserWindow): BrowserPane {
       };
     },
   };
+}
+
+/**
+ * Put the pane user agent on the partition's session. Once per process, like
+ * `governBrowserDownloads` and for the same reason: the session outlives any window, and a second
+ * window must not re-derive a string from a UA its own views have already been given.
+ *
+ * Deliberately reads the session's CURRENT default rather than a constant, so the string tracks
+ * whatever Chromium the app ships without anyone remembering to update it — which is the failure
+ * mode a hardcoded UA has, and it fails by claiming an engine version that no longer exists.
+ */
+let userAgentApplied = false;
+export function applyBrowserUserAgent(): void {
+  if (userAgentApplied) return;
+  userAgentApplied = true;
+  const ses = session.fromPartition(BROWSER_PARTITION);
+  ses.setUserAgent(browserUserAgent(ses.getUserAgent()));
 }
 
 /**
