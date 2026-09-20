@@ -97,7 +97,26 @@ export type BrowserReadKind = z.infer<typeof BrowserReadKindSchema>;
  */
 export type BrowserRefusal =
   | "password" | "origin_mismatch" | "no_credential" | "no_presence"
-  | "download_blocked" | "too_large" | "no_destination";
+  | "download_blocked" | "too_large" | "no_destination"
+  /** The element is inside one of Realm's OWN protected surfaces — the places it asks for permission
+   *  and grants things. Only `app_act` can produce this, and it is the refusal that makes driving
+   *  Realm's interface survivable at all: every approval in Realm ends up as a button in that
+   *  window, so an agent able to press them could answer the request it is blocked on. */
+  | "realm_protected";
+
+/**
+ * The attribute a renderer element wears to say "no agent may act in here", and what `app_act`
+ * refuses anything inside of — the `realm_protected` refusal above is what it produces.
+ *
+ * In contracts because it is a contract, held between two halves that cannot import each other: the
+ * renderer writes it onto the surfaces that grant things, and Electron main reads it off the live
+ * DOM at act time. The desktop app compiles those as separate composite projects, so there is no
+ * third place for it that both can reach.
+ *
+ * The VALUE on the element names the surface, so a refusal can say which one it was rather than
+ * "a protected one". An attribute with no value still refuses.
+ */
+export const NO_AGENT_ATTR = "data-no-agent";
 
 /** `act` and `fillCredential` op result. `refused` marks the hard blocks — decided in the executor
  *  against the live DOM, REGARDLESS of permission mode; the tool surface turns each into a
@@ -398,3 +417,21 @@ export const PICK_HTML_MAX = 1200;
  *  path via `pushState`, and can make either enormous. */
 export const PICK_URL_MAX = 2048;
 export const PICK_TITLE_MAX = 300;
+
+/**
+ * Per space: may Realm finish a sign-in by itself, including the click on Authorize?
+ *
+ * Off by default, and the default is the decision rather than a placeholder. With it off the flow
+ * still does every mechanical step — opens the terminal, runs the login command, reads the URL,
+ * puts the consent page in front of you — and stops at the one act that grants a durable capability.
+ * That is one click instead of a six-step errand, and no security boundary moves.
+ *
+ * Turning it on does not license authorizing anything: it lets `SignInTickets` mint a ticket for the
+ * exact page Realm read out of the terminal it just started, and only that page, for five minutes.
+ * The whole argument for why that is different from a standing grant is in `browsers/signin.ts`.
+ *
+ * Keyed per space like the computer allowlist, and for its reason: a switch that reached wider than
+ * the space it was flipped in would silently arm spaces nobody had said it about.
+ */
+export const AGENT_SIGNIN_KEY = "browsers.agentSignIn";
+export const AGENT_SIGNIN_DEFAULT = false;

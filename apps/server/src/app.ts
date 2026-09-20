@@ -44,6 +44,10 @@ import { BrowserHostBridge } from "./browsers/host-bridge";
 import { BrowserPermissionBroker } from "./browsers/permissions";
 import { createBrowserAgentProvider } from "./browsers/agent-tools";
 import { createComputerAgentProvider } from "./computer/agent-tools";
+import { createTerminalAgentProvider } from "./terminals/agent-tools";
+import { SignInTickets } from "./browsers/signin";
+import { SignInFlow } from "./browsers/signin-flow";
+import { createAppUiProvider } from "./app-ui/agent-tools";
 import { createMachineAgentProvider } from "./machines/agent-tools";
 import { MachineAllowlist } from "./machines/allowlist";
 import { ComputerAppAllowlist } from "./computer/allowlist";
@@ -403,7 +407,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     notifications,
   });
   const envService = new EnvironmentService({ environments, spaces, worktrees, ports, checkpoints, notifications });
-  const terminals = new TerminalService({ db, rpc, spaces, items, terminals: new TerminalsStore(db), environments, history: new TerminalHistoryStore(db), settings, sandbox });
+  // Hoisted out of the service's argument list: the `realm-terminal` provider lists a space's
+  // terminals from the same store the service writes them to, and two stores over one table would
+  // be two answers to "what terminals are there".
+  const terminalsStore = new TerminalsStore(db);
+  const terminals = new TerminalService({ db, rpc, spaces, items, terminals: terminalsStore, environments, history: new TerminalHistoryStore(db), settings, sandbox });
   // A space's named shell commands. Runs go through TerminalService, which is also where each run
   // picks up its environment's port block (envFor → portEnv) — nothing here duplicates that.
   const scripts = new ScriptService({
@@ -597,6 +605,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // (the checkpoints knot again): nothing in it runs before a session exists to run it for.
   const computerAllowlist = new ComputerAppAllowlist({ settings });
   const browserBridge = new BrowserHostBridge({ rpc });
+  /* The consent-page gate for ACTS, and the provenance that can lift it for a sign-in Realm is
+     running itself. Off per space by default — see `signin.ts`. */
+  const signInTickets = new SignInTickets({ settings });
   const browserBroker = new BrowserPermissionBroker({
     // A missing row degrades to "plan" — the refuse-mutations mode — never to a prompt on a ghost.
     permissionMode: (sessionId) => sessionsStore.get(sessionId)?.permissionMode ?? "plan",
@@ -695,7 +706,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   reviews = new ReviewService({ settings, sessions, rpc, engine: delegationEngine, environments, notifications,
     otherDelegation: { isChild: (id) => agentRunsFinal.isChild(id) || browserAgentsFinal.isChild(id) },
     fallbackKind: opts.review?.fallbackKind ?? opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind, timeouts: opts.review?.timeouts });
-  mcpGateway.registerProvider(createBrowserAgentProvider({ browsers: browsersStore, projects, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc, constraints: browserAgents }));
+  mcpGateway.registerProvider(createBrowserAgentProvider({ browsers: browsersStore, projects, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc, constraints: browserAgents, signIn: signInTickets }));
   // Plan 20's interjection. `delegated` fans across all THREE registries: a delegated child of any
   // kind is neither a valid asker nor a valid target, because its own parent is already blocked inside
   // an MCP call waiting for it. `permissions` is the SAME broker the browser tools gate on — the card
@@ -710,6 +721,24 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp, agentRuns, reviews, asks));
   // The one provider a space has to switch ON: it reaches every app on the Mac.
   mcpGateway.registerProvider(createComputerAgentProvider({ mcp, bridge: browserBridge, broker: browserBroker, allowlist: computerAllowlist }));
+  /* The `realm-terminal` provider: a pty an agent can type into and read back. On by default, and
+     the reasoning is the blast radius — every harness already has a shell tool, so this adds no
+     ability to run commands that was not there. What it adds is a terminal that TALKS BACK, which is
+     the only way to reach an interactive login, and a visible pane instead of a hidden subprocess.
+     The narrowings that matter are inside the provider: a password prompt is refused in every mode,
+     and a terminal this session did not open prompts even under bypassPermissions. */
+  /* The sign-in flow rides on both: a terminal that talks back and a pane to put the consent page
+     in. It is handed to the terminal provider rather than the browser one because the terminal is
+     where it starts and where the code is typed back. */
+  const signInFlow = new SignInFlow({ terminals, browsers, tickets: signInTickets });
+  mcpGateway.registerProvider(createTerminalAgentProvider({
+    terminals, rows: terminalsStore, items, mcp, broker: browserBroker, rpc, signIn: signInFlow,
+  }));
+  /* `realm-app`: Realm's own interface, read and pressed. Off until a space asks, on
+     `realm-computer`'s reasoning — that one reaches every app on the Mac, this one reaches the
+     window the user answers questions in. The refusal that makes it survivable lives in main, where
+     the live DOM is (`app-drive.ts`). */
+  mcpGateway.registerProvider(createAppUiProvider({ mcp, bridge: browserBridge, broker: browserBroker }));
   // Plan 22 W2: the `realm-docs` provider — search/list/open/progress over the space's own folder.
   // One extractor for the process: PDF text is memoized across every session's searches.
   const extractor = new TextExtractor();
@@ -804,7 +833,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const [machine, user] = await Promise.all([machineName(), userFirstName()]);
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch: new ProjectSearchService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, browserPermissions: browserBroker, cli, cliInstaller,
+    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch: new ProjectSearchService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     iconAssets, iconGeneration, planLimits, userCommands, scripts, keybindings, sandbox,
     /* A drain was accepted: watch for quiescence and close once it holds. The watcher owns the clock
        and the close; `methods.ts` owns the refusals that make quiescence reachable at all. Unref'd —

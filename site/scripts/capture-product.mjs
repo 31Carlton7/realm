@@ -10,7 +10,9 @@
  * It boots the BUILT app (`apps/desktop/out`, `apps/server/dist`), so run `pnpm build` at the repo
  * root first — a stale build reads as a live bug.
  *
- * Scenes are independent and each is wrapped: a selector that has moved loses one image and prints
+ * Every capture asserts its own subject before it is written (see `shot`), so a scene that lands on
+ * the wrong screen fails instead of photographing it. Scenes are independent and each is wrapped: a
+ * selector that has moved loses one image and prints
  * why, rather than ending the run. What survives is written to `public/product/manifest.json`, and
  * the features page renders the intersection of that and the copy authored in `content/features.ts`
  * — so a scene that breaks silently drops out of the carousel instead of shipping a broken image.
@@ -113,6 +115,21 @@ export function nest(events: SessionEvent[]): TranscriptNode[] {
 }
 
 let electron = null
+/** The live RPC client, so the shutdown at the bottom of the file can reach the server. */
+let liveRpc = null
+
+/** Ask realm-server to stop the way the product asks, and wait for the port to actually go quiet. */
+async function stopDaemon() {
+  if (!liveRpc) return
+  await liveRpc.call("daemon.stop", {}).catch(() => null)
+  liveRpc.close()
+  liveRpc = null
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (await portIsFree(serverPort)) return
+    await sleep(250)
+  }
+  console.warn(`  realm-server is still on ${serverPort} after daemon.stop`)
+}
 
 async function portIsFree(port) {
   return new Promise((resolve) => {
@@ -218,6 +235,44 @@ window.__capture = window.__capture ?? {
   key(key, options = {}) {
     window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, ...options }));
   },
+  /**
+   * What surface is actually on screen, as the app itself names it.
+   *
+   * Every page pane carries its own class (connections-page-pane, schedules-page, ...) and its own
+   * heading in .page-title h1. A bare .page carries neither, which is why waiting on one is not
+   * waiting for anything in particular.
+   */
+  onPage(kind, heading, tab) {
+    const page = document.querySelector("." + kind);
+    if (!page || page.offsetParent === null) return false;
+    if (heading !== undefined && page.querySelector(".page-title h1")?.textContent.trim() !== heading) return false;
+    if (tab === undefined) return true;
+    const selected = page.querySelector(".page-rail-tab[data-selected]");
+    return !!selected && selected.textContent.trim().startsWith(tab);
+  },
+  /** Everything a failed expectation should say, so the log names the screen it found instead. */
+  onScreen() {
+    const page = document.querySelector(".page");
+    const title = page?.querySelector(".page-title h1")?.textContent.trim();
+    const panes = [...document.querySelectorAll(".panehost .panel")].length;
+    return [
+      page ? "page " + page.className + (title ? " titled “" + title + "”" : "") : "no page pane",
+      page?.querySelector(".page-rail-tab[data-selected]")
+        ? "tab " + page.querySelector(".page-rail-tab[data-selected]").textContent.trim()
+        : null,
+      document.querySelector(".documents-code") ? "code editor" : null,
+      document.querySelector(".documents-pane") ? "documents pane" : null,
+      document.querySelector(".xterm") ? "terminal" : null,
+      document.querySelector(".transcript") ? "transcript" : null,
+      document.querySelector(".palette") ? "palette open" : null,
+      document.querySelector(".page-overlay")
+        ? "overlay “" + document.querySelector(".page-overlay").getAttribute("aria-label") + "”"
+        : "no page overlay",
+      [...document.querySelectorAll("[role=\"dialog\"]")].map((d) => d.getAttribute("aria-label") || "(unlabelled)")
+        .join(" + ") || null,
+      panes + " pane(s)",
+    ].filter(Boolean).join("; ");
+  },
 };
 void 0`
 
@@ -271,6 +326,10 @@ function makeContext(page, rpc) {
    * one makes the app open a fresh session, which is a worse leftover than the one being removed.
    */
   const solo = async () => {
+    // A page over the pane host is not "one pane" either, and every scene that opens one opens it
+    // after this. Closing it here also means a page scene that fails does not leave its page sitting
+    // over the sidebar scenes at the end of the run.
+    await closePage()
     await evaluate(`document.querySelector('button[aria-label^="Unfocus"]')?.click(); true`)
     await sleep(300)
     for (let attempt = 0; attempt < 12; attempt += 1) {
@@ -315,6 +374,17 @@ function makeContext(page, rpc) {
    * palette only offers the action when there is more than one pane to fill over.
    */
   const focusPane = async () => {
+    /*
+     * A page already covers the pane host, so there is nothing here to fill — and asking anyway was
+     * the bug that put the code editor under four different captions.
+     *
+     * The palette has no row starting with "Focus " while a page is up, so the fallback below threw,
+     * and its old `.catch(() => escape())` then pressed Escape — which a page overlay listens for,
+     * being `role="dialog"`. Every page scene therefore opened its page, passed the wait, and closed
+     * it again one line before the screenshot. The capture was of whatever the last pane scene had
+     * left behind, and nothing in the run could tell.
+     */
+    if (await evaluate(`!!document.querySelector('.page-overlay')`)) return
     if (await evaluate(`!!document.querySelector('button[aria-label^="Unfocus"]')`)) return
     const viaBar = await evaluate(`(() => {
       const button = document.querySelector('.panel-bar button[aria-label^="Focus"]');
@@ -324,10 +394,28 @@ function makeContext(page, rpc) {
     })()`)
     if (!viaBar) {
       // The palette is already open when this throws, and leaving it open puts a dialog over the
-      // next scene's subject.
-      await command("Focus ").catch(() => escape())
+      // next scene's subject. Dismiss the PALETTE, not "whatever is on top" — see above.
+      await command("Focus ").catch(() => dismissPalette())
     }
     await sleep(500)
+  }
+
+  /** Escape until the palette is gone, and stop there. Anything under it is somebody's subject. */
+  const dismissPalette = async () => {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      if (!(await evaluate(`!!document.querySelector('.palette')`))) return
+      await press("Escape", { vk: 27 })
+      await sleep(300)
+    }
+  }
+
+  /** Put away an app-level page. It answers to Escape because it is a `role="dialog"`. */
+  const closePage = async () => {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      if (!(await evaluate(`!!document.querySelector('.page-overlay')`))) return
+      await press("Escape", { vk: 27 })
+      await sleep(350)
+    }
   }
 
   const escape = async () => {
@@ -338,17 +426,34 @@ function makeContext(page, rpc) {
     }
   }
 
-  const shot = async (name) => {
+  /**
+   * Write one capture — but only once the screen has proved it is the subject.
+   *
+   * `expect` is not optional, and that is the point. Four slides once shipped as the same photograph
+   * of the code editor: a scene that failed to change screens left the app wherever the last one had
+   * put it, the scenes after it waited on `.page` — already satisfied by the page that was hanging
+   * around — and so they reported `✓` while photographing somebody else's subject. Nothing about a
+   * generic wait can catch that, because a generic wait is the bug. A capture now asserts the thing
+   * its caption will claim, in the same frame it is taken, and a scene that cannot get there fails
+   * loudly and drops out of the manifest rather than overwriting a good file with a wrong one.
+   */
+  const shot = async (name, expect) => {
+    if (typeof expect !== "string" || !expect.trim()) {
+      throw new Error(`shot("${name}") was given no expectation — every capture must prove its subject`)
+    }
     // Belt as well as the observer staging installs: a shot taken in the same frame as a re-render
     // should not be the one that publishes the developer's computer name.
     await evaluate(`window.__realmScrub?.(); true`)
     await sleep(350)
+    if (!(await evaluate(expect))) {
+      throw new Error(`${name}: expected ${expect} — on screen instead: ${await evaluate(`__capture.onScreen()`)}`)
+    }
     const result = await page.send("Page.captureScreenshot", { format: "png", fromSurface: true })
     fs.mkdirSync(outputDir, { recursive: true })
     fs.writeFileSync(path.join(outputDir, `${name}.png`), Buffer.from(result.data, "base64"))
   }
 
-  return { evaluate, clickText, command, escape, focusPane, press, solo, tab, shot, rpc, sleep, until }
+  return { evaluate, clickText, closePage, command, dismissPalette, escape, focusPane, press, solo, tab, shot, rpc, sleep, until }
 }
 
 /**
@@ -365,7 +470,7 @@ const scenes = [
         30_000,
         "the session plan",
       )
-      await shot("session")
+      await shot("session", `!!document.querySelector('.transcript .plan-card, .transcript [data-plan-id]')`)
     },
   },
   {
@@ -375,7 +480,7 @@ const scenes = [
       await press("k", { code: "KeyK", vk: 75, meta: true })
       await until(() => evaluate(`!!document.querySelector('.palette')`), 8_000, "the command palette")
       await sleep(500)
-      await shot("palette")
+      await shot("palette", `!!document.querySelector('.palette .palette-opt')`)
       await escape()
     },
   },
@@ -406,7 +511,7 @@ const scenes = [
       // the capture runs on.
       await evaluate(`__capture.clickText('.model-picker button, [role="dialog"] button', 'Claude')`)
       await sleep(700)
-      await shot("models")
+      await shot("models", `!!document.querySelector('.model-picker, [role="dialog"][aria-label*="odel"], .menu[role="menu"]')`)
       await escape()
     },
   },
@@ -442,7 +547,7 @@ const scenes = [
         "the rich document",
       )
       await sleep(600)
-      await shot("documents")
+      await shot("documents", `document.querySelector('[aria-label="Rich text editor"] h1')?.textContent === 'Realm 0.6'`)
     },
   },
   {
@@ -463,7 +568,7 @@ const scenes = [
       })()`)
       if (!opened) throw new Error("No sidebar row for the staged session")
       await sleep(1_200)
-      await shot("workspace")
+      await shot("workspace", `document.querySelectorAll('.panehost .panel').length === 2 && !!document.querySelector('.documents-pane') && !!document.querySelector('.transcript')`)
     },
   },
   {
@@ -491,7 +596,7 @@ const scenes = [
         await sleep(2_500)
       }
       await sleep(1_000)
-      await shot("terminal")
+      await shot("terminal", `!!document.querySelector('.xterm')`)
     },
   },
   {
@@ -526,7 +631,7 @@ const scenes = [
       await press("p", { code: "KeyP", vk: 80, meta: true })
       await until(() => evaluate(`!!document.querySelector('.palette-opt')`), 10_000, "the file finder")
       await sleep(600)
-      await shot("editor")
+      await shot("editor", `!!document.querySelector('.documents-code .cm-content') && !!document.querySelector('.palette-opt')`)
       await escape()
     },
   },
@@ -538,10 +643,10 @@ const scenes = [
     async run({ evaluate, command, focusPane, solo, shot, until }) {
       await solo()
       await command("Open space")
-      await until(() => evaluate(`!!document.querySelector('.page')`), 15_000, "the space page")
+      await until(() => evaluate(`__capture.onPage('space-page-pane')`), 15_000, "the space page")
       await focusPane()
       await sleep(900)
-      await shot("spaces")
+      await shot("spaces", `__capture.onPage('space-page-pane')`)
     },
   },
   {
@@ -566,12 +671,12 @@ const scenes = [
       }
       await solo()
       await command("Open space")
-      await until(() => evaluate(`!!document.querySelector('.page-rail-tab')`), 15_000, "the space page")
+      await until(() => evaluate(`__capture.onPage('space-page-pane')`), 15_000, "the space page")
       await focusPane()
       await tab("Scripts")
       await until(() => evaluate(`document.querySelectorAll('.settings-list .settings-row').length > 0`), 10_000, "the scripts list")
       await sleep(900)
-      await shot("commands")
+      await shot("commands", `__capture.onPage('space-page-pane') && document.querySelectorAll('.settings-list .settings-row').length > 0`)
     },
   },
   {
@@ -582,7 +687,7 @@ const scenes = [
       // here would put a Seatbelt policy under every terminal the rest of the run opens.
       await until(() => evaluate(`!!document.querySelector('.sandbox-choice')`), 10_000, "the sandbox postures")
       await sleep(900)
-      await shot("sandbox")
+      await shot("sandbox", `__capture.onPage('space-page-pane') && !!document.querySelector('.sandbox-choice')`)
     },
   },
   {
@@ -607,7 +712,7 @@ const scenes = [
       )
       if (!rewinds) throw new Error("This checkpoint restores files only — there is no conversation rewind to show")
       await sleep(600)
-      await shot("rewind")
+      await shot("rewind", `__capture.onPage('space-page-pane') && !!document.querySelector('.cp-hazard')`)
       await escape()
     },
   },
@@ -621,11 +726,11 @@ const scenes = [
       await rpc.call("sessions.setAgent", { id: ctx.sessionId, agentKind: "claude" }).catch(() => null)
       await ctx.solo()
       await command("Open library")
-      await until(() => evaluate(`!!document.querySelector('.page')`), 15_000, "the library page")
+      await until(() => evaluate(`__capture.onPage('library-page-pane', 'Library')`), 15_000, "the library page")
       await focusPane()
       await clickText(".page-rail-tab, .page-rail button", "Skills")
       await sleep(1_200)
-      await shot("library")
+      await shot("library", `__capture.onPage('library-page-pane', 'Library')`)
     },
   },
   {
@@ -633,10 +738,10 @@ const scenes = [
     async run({ evaluate, command, focusPane, solo, shot, until }) {
       await solo()
       await command("Open connections")
-      await until(() => evaluate(`!!document.querySelector('.page')`), 15_000, "the connections page")
+      await until(() => evaluate(`__capture.onPage('connections-page-pane', 'Connections')`), 15_000, "the connections page")
       await focusPane()
       await sleep(900)
-      await shot("connections")
+      await shot("connections", `__capture.onPage('connections-page-pane', 'Connections')`)
     },
   },
   {
@@ -663,10 +768,10 @@ const scenes = [
       }
       await solo()
       await evaluate(`__capture.clickText('.sidebar button', 'Scheduled tasks')`)
-      await until(() => evaluate(`!!document.querySelector('.page')`), 15_000, "the schedules page")
+      await until(() => evaluate(`__capture.onPage('schedules-page', 'Scheduled tasks')`), 15_000, "the schedules page")
       await focusPane()
       await sleep(900)
-      await shot("schedules")
+      await shot("schedules", `__capture.onPage('schedules-page', 'Scheduled tasks')`)
     },
   },
   {
@@ -674,11 +779,11 @@ const scenes = [
     async run({ evaluate, command, focusPane, solo, tab, shot, until }) {
       await solo()
       await command("Open settings")
-      await until(() => evaluate(`!!document.querySelector('.page-rail-tab')`), 15_000, "settings")
+      await until(() => evaluate(`__capture.onPage('settings-page-pane', 'Settings')`), 15_000, "settings")
       await focusPane()
       await tab("Usage")
       await sleep(1_200)
-      await shot("usage")
+      await shot("usage", `__capture.onPage('settings-page-pane', 'Settings', 'Usage')`)
     },
   },
   {
@@ -686,7 +791,7 @@ const scenes = [
     async run({ tab, shot }) {
       await tab("App")
       await sleep(1_200)
-      await shot("appearance")
+      await shot("appearance", `__capture.onPage('settings-page-pane', 'Settings', 'App')`)
     },
   },
   {
@@ -694,7 +799,7 @@ const scenes = [
     async run({ tab, shot }) {
       await tab("Permissions")
       await sleep(1_200)
-      await shot("permissions")
+      await shot("permissions", `__capture.onPage('settings-page-pane', 'Settings', 'Permissions')`)
     },
   },
   {
@@ -702,7 +807,7 @@ const scenes = [
     async run({ tab, shot }) {
       await tab("Engines")
       await sleep(1_500)
-      await shot("engines")
+      await shot("engines", `__capture.onPage('settings-page-pane', 'Settings', 'Engines')`)
     },
   },
   {
@@ -717,7 +822,7 @@ const scenes = [
         "the shortcut list",
       )
       await sleep(1_200)
-      await shot("keys")
+      await shot("keys", `__capture.onPage('settings-page-pane', 'Settings', 'Keys') && document.querySelectorAll('.settings-list .settings-row').length > 0`)
     },
   },
   {
@@ -725,10 +830,10 @@ const scenes = [
     async run({ evaluate, command, focusPane, solo, shot, until }) {
       await solo()
       await command("Open profile")
-      await until(() => evaluate(`!!document.querySelector('.page')`), 15_000, "the profile page")
+      await until(() => evaluate(`__capture.onPage('profile-page-pane')`), 15_000, "the profile page")
       await focusPane()
       await sleep(900)
-      await shot("memory")
+      await shot("memory", `__capture.onPage('profile-page-pane')`)
     },
   },
   {
@@ -748,7 +853,7 @@ const scenes = [
         return true;
       })()`)
       await sleep(1_200)
-      await shot("sidebar")
+      await shot("sidebar", `!!document.querySelector('.sidebar') && !!document.querySelector('.transcript')`)
     },
   },
   {
@@ -781,7 +886,7 @@ const scenes = [
       if (!lens) throw new Error("No activity lens toggle in the sidebar")
       await until(() => evaluate(`!!document.querySelector('.sb-activity .sb-chat-row')`), 15_000, "the activity lens")
       await sleep(900)
-      await shot("activity")
+      await shot("activity", `!!document.querySelector('.sb-activity .sb-chat-row')`)
       // Back to the space lens. The sidebar is in every shot after this one, and leaving it on the
       // feed would put this scene's subject behind the next two.
       await evaluate(`document.querySelector('.sb-toggle[aria-label="Activity"]')?.click(); true`)
@@ -794,7 +899,7 @@ const scenes = [
       await solo()
       await command("All spaces")
       await sleep(1_200)
-      await shot("profiles")
+      await shot("profiles", `!!document.querySelector('.profile-switch, [role="dialog"]')`)
       await escape()
     },
   },
@@ -803,10 +908,10 @@ const scenes = [
     async run({ evaluate, command, focusPane, solo, shot, until }) {
       await solo()
       await command("Open notifications")
-      await until(() => evaluate(`!!document.querySelector('.page')`), 15_000, "the notifications page")
+      await until(() => evaluate(`__capture.onPage('notifications-page-pane', 'Notifications')`), 15_000, "the notifications page")
       await focusPane()
       await sleep(900)
-      await shot("notifications")
+      await shot("notifications", `__capture.onPage('notifications-page-pane', 'Notifications')`)
     },
   },
 ]
@@ -882,6 +987,7 @@ async function main() {
   )
   const rpc = connectRpc(serverPort, token)
   await rpc.ready
+  liveRpc = rpc
   const ctx = makeContext(page, rpc)
 
   // ---- stage: past onboarding, one session with something in it ------------------
@@ -970,22 +1076,44 @@ async function main() {
   }
 
   // ---- run the scenes ------------------------------------------------------------
+  /* REALM_CAPTURE_ONLY=spaces,connections runs a subset. The scenes are order-dependent — each
+     leaves the app where the next one starts — so a subset is a diagnostic tool, not a way to
+     refresh one slide. Skipped scenes keep their file and their manifest entry. */
+  const only = (process.env.REALM_CAPTURE_ONLY ?? "").split(",").map((n) => n.trim()).filter(Boolean)
   const captured = []
   for (const scene of scenes) {
+    if (only.length && !only.includes(scene.name)) continue
     try {
       await scene.run(ctx)
       captured.push(scene.name)
       console.log(`  ✓ ${scene.name}`)
     } catch (error) {
       console.warn(`  ✗ ${scene.name} — ${error.message}`)
+      const where = await ctx.evaluate(`__capture.onScreen()`).catch(() => null)
+      if (where) console.warn(`      screen: ${where}`)
       await ctx.escape().catch(() => {})
     }
   }
 
-  fs.writeFileSync(path.join(outputDir, "manifest.json"), `${JSON.stringify(captured, null, 2)}\n`)
-  rpc.close()
+  /**
+   * The manifest is a UNION, not a replacement.
+   *
+   * A slug listed here means "there is a usable `<slug>.png` on disk", which is what the site reads
+   * it for. A scene that fails now leaves the previous file untouched — `shot` refuses to write
+   * unless the screen proves it is the subject — so dropping the slug would delete a working slide
+   * from the site to record a fact about this run instead. It cost four slides once: a diagnostic
+   * re-run of a few scenes rewrote the manifest down to its own successes and the site quietly lost
+   * library, usage, appearance and engines. A slug whose file is gone is still dropped.
+   */
+  const manifestPath = path.join(outputDir, "manifest.json")
+  const previous = fs.existsSync(manifestPath) ? JSON.parse(fs.readFileSync(manifestPath, "utf8")) : []
+  const kept = previous.filter((slug) => fs.existsSync(path.join(outputDir, `${slug}.png`)))
+  const manifest = [...new Set([...kept, ...captured])]
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
   page.close()
-  console.log(`\n${captured.length}/${scenes.length} scenes in ${path.relative(repoRoot, outputDir)}`)
+  console.log(`\n${captured.length}/${scenes.length} scenes captured; ${manifest.length} slides in ${path.relative(repoRoot, outputDir)}`)
+  const stale = manifest.filter((slug) => !captured.includes(slug))
+  if (stale.length) console.log(`  kept from an earlier run: ${stale.join(", ")}`)
 }
 
 main()
@@ -993,7 +1121,17 @@ main()
     console.error(error.message)
     process.exitCode = 1
   })
-  .finally(() => {
+  .finally(async () => {
+    /*
+     * Stop the SERVER, not just the window.
+     *
+     * realm-server is spawned by the desktop app and outliving the window is the whole point of it —
+     * so killing the Electron this script started reparents the server to init and leaves it holding
+     * the scratch home and REALM_PORT. The next run then dies on "Port 8917 is in use" and the temp
+     * home never gets removed. `daemon.stop` is how the product itself asks, so it is what this
+     * asks; the SIGKILL below stays as the answer for a server that will not.
+     */
+    await stopDaemon().catch(() => {})
     electron?.kill("SIGTERM")
     setTimeout(() => {
       electron?.kill("SIGKILL")

@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { actionsThatFit } from "./components/pane-bar-fit";
 import { REALM_SEED, deriveVars } from "@realm/ui";
-import { oklchToHex } from "@realm/contracts";
+import { AGENT_FRAME, oklchToHex } from "@realm/contracts";
 import { PICTURE_RADIUS, SCREEN_INSET, SCREEN_PAD, SCREEN_RADIUS } from "./panes/machine/fit";
 import { MAX_ROWS_PX } from "./panes/session/Composer";
 
@@ -968,8 +968,12 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     // every pane bought so the traffic lights would not land on pane chrome. Its return is the
     // regression this pins; sidebar-collapsed-live.mjs measures that the panes really start at y=0.
     expect(RULES.some((r) => r.selectors.some((s) => s.includes(".sb-rail")))).toBe(false);
-    // …and the shell no longer changes axis: collapsed is the same row with the column taken out.
-    expect(bodiesFor(".app[data-sidebar-collapsed]").join(" ")).not.toContain("flex-direction");
+    /* …and the shell no longer changes axis: collapsed is the same row with the column taken out.
+       Read off the rule set rather than through `bodiesFor`, which requires the selector to exist:
+       the collapsed shell has no properties of its own any more — `--corner-w` moved to `:root` so
+       the portalled page could reach it — and "no rule at all" satisfies this just as well. */
+    expect(RULES.filter((r) => partsOf(r).includes(".app[data-sidebar-collapsed]"))
+      .every((r) => !r.body.includes("flex-direction"))).toBe(true);
     const corner = bodiesFor(".sb-corner").join(" ");
     expect(corner).toContain("position: absolute");
     expect(corner).toContain("height: 40px");      // the band trafficLightPosition y:14 centres in
@@ -981,6 +985,19 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(bodiesFor(".app").join(" ")).toContain("position: relative");
   });
 
+  it("the corner that brings the sidebar back outranks an app-level page", () => {
+    /* THE BUG: open Agents, collapse the sidebar, and there is no way to open it again. A page takes
+       the whole window when the sidebar is collapsed (`.page-overlay[data-sidebar-collapsed]` has
+       `inset: 0`), and the corner sat at z-index 5 — painted over and, worse, hit-tested to the page.
+       The corner is window chrome, beside the traffic lights the OS draws over everything; it yields
+       to the scrims and to nothing else. */
+    const rung = (sel: string) => Number(/z-index:\s*(\d+)/.exec(bodiesFor(sel).join(" "))?.[1]);
+    expect(rung(".sb-corner")).toBeGreaterThan(rung(".page-overlay"));
+    for (const modal of [".sheet-backdrop", ".palette-backdrop"]) {
+      expect(rung(modal), `${modal} still covers the corner`).toBeGreaterThan(rung(".sb-corner"));
+    }
+  });
+
   it("exactly one strip reserves the lights — whichever is at the top of the main column", () => {
     // :first-child on each candidate is what keeps the three mutually exclusive: an error bar pushes
     // the others down, and only the strip actually under the lights may be indented.
@@ -989,9 +1006,14 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       ".app[data-sidebar-collapsed] .main > .error-bar:first-child",
       ".app[data-sidebar-collapsed] .main > .group-bar:first-child",
       ".app[data-sidebar-collapsed] .main > .panehost:first-child .panel[data-first-leaf] > .panel-bar",
+      /* A fourth candidate, and the only one outside the shell: an app-level page covers the whole
+         window while the sidebar is collapsed, so ITS bar is the strip under the lights then. It is
+         portalled to <body>, which is why it cannot be a fourth selector on the rule above and why
+         the width has to be a root token rather than one declared on `.app`. */
+      ".page-overlay[data-sidebar-collapsed] .page-overlay-bar",
     ]);
     // One declaration of the width, or the corner and the space reserved for it drift apart.
-    expect(RULES.filter((r) => r.body.includes("--corner-w:")).flatMap((r) => r.selectors)).toEqual([".app[data-sidebar-collapsed]"]);
+    expect(RULES.filter((r) => r.body.includes("--corner-w:")).flatMap((r) => r.selectors)).toEqual([":root"]);
     // Every strip the lights can land in is 40px. main places them once at y:14 and never moves them,
     // which only works while that is true of all of them (see the comment on trafficLightPosition).
     expect(bodiesFor(".sb-head").join(" ")).toContain("height: 40px");
@@ -3143,4 +3165,50 @@ it("carries the prompter's mode ring up through every strip stacked above it", (
       expect(fallback, `${strip} fallback hairline`).toContain("var(--hairline-w)");
     }
   }
+});
+
+/**
+ * The self-drive frame, held to the same numbers the injected one is drawn from.
+ *
+ * `main/agent-cursor.ts` says the arrangement out loud: the mark exists on two surfaces with two
+ * transports and must have one appearance, "so the appearance is a number table both read, and
+ * `styles.test.ts` asserts the parity". This is that assertion. Without it the two drift silently —
+ * nothing in the app ever renders them side by side, so a 2px ring here against a 3px ring in a page
+ * is a difference only a user switching panes would ever see, and could not name.
+ *
+ * Geometry is deliberately absent: see `AGENT_FRAME`'s own comment for why insetting a pane-scoped
+ * frame is parity rather than a departure from it.
+ */
+describe("the agent-controlled frame", () => {
+  const glow = bodiesFor(".drive-frame-glow").join(" ");
+
+  it("draws the ring at the shared weight", () => {
+    // THE MUTANT: any other number. The ring is the whole statement on a pane whose content is
+    // already dense, and one that does not match the browser's reads as a different kind of event.
+    for (const body of bodiesFor(".drive-frame"))
+      expect(body).toContain(`inset 0 0 0 ${AGENT_FRAME.ringPx}px var(--rl-accent)`);
+  });
+
+  it("draws the glow at the shared blur and spread", () => {
+    // The negative spread is the load-bearing half: drop it and the wash fills the pane instead of
+    // hugging its edges, and a terminal under it stops being readable.
+    expect(glow).toContain(`inset 0 0 ${AGENT_FRAME.glowBlurPx}px ${AGENT_FRAME.glowSpreadPx}px var(--rl-accent)`);
+  });
+
+  it("pulses at the shared rate", () => {
+    expect(glow).toContain(`${AGENT_FRAME.pulseMs}ms`);
+  });
+
+  it("gives the glow its own element rather than a pseudo-element", () => {
+    // THE MUTANT: move the animation onto `.drive-frame::before`. The app-wide reduced-motion kill
+    // is `* { animation: none }` and `*` does not match a pseudo-element, so the frame would keep
+    // pulsing for a reader who turned motion off — the failure the eggs wash already documents.
+    expect(RULES.some((r) => r.selectors.some((sel) => sel.startsWith(".drive-frame") && sel.includes("::")))).toBe(false);
+  });
+
+  it("is paused by the quiet attribute like every other ambient loop", () => {
+    // The quiet list is an enumeration, not a wildcard: a new looping surface that nobody adds to it
+    // keeps burning a core in an unfocused window, which is the audit this list came out of.
+    expect(bodiesFor(":root[data-quiet] .drive-frame-glow").join(" ")).toContain("animation-play-state: paused");
+  });
 });

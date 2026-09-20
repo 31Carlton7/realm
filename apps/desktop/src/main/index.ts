@@ -1,5 +1,5 @@
 import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, shell, systemPreferences, Tray, type MenuItemConstructorOptions } from "electron";
-import { BrowserCredentialInputSchema, newId, type BrowserCredential, type MediaFile } from "@realm/contracts";
+import { BrowserCredentialInputSchema, newId, type BrowserAction, type BrowserCredential, type MediaFile } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { copyFile, writeFile } from "node:fs/promises";
 import { spawn, execFileSync } from "node:child_process";
@@ -24,6 +24,7 @@ import { createBrowserPane, governBrowserDownloads, type BrowserPane } from "./b
 import { BlockedDownloads, DownloadGovernor, retryBlockedDownload } from "./downloads";
 import type { BrowserPaneHost, ViewRect } from "./browser-host";
 import { BrowserAgentHost } from "./browser-agent-host";
+import { AppDriveHost } from "./app-drive";
 import { startBrowserAgentBridge } from "./browser-agent-bridge";
 import { TCC_SETTINGS_URLS, isTccPermissionId, probeTcc, type TccRow } from "./tcc";
 import { ComputerUseHelper, axHelperPath } from "./computer-use-helper";
@@ -37,6 +38,7 @@ import {
 import { RealmUpdater, UPDATE_FEED_LIVE, updaterDecision } from "./updater";
 import { SecretStore, SecretStoreError } from "./secret-store";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
+import { browseFolder, type BrowseResult } from "./browse";
 import { handleMediaProtocol, mediaPoster, registerMediaScheme, servablePath, statMedia } from "./media";
 
 /* `realm-media://` has to be declared privileged before `app.ready`, which is why this is a
@@ -167,6 +169,17 @@ let browserPane: BrowserPane | null = null;
 /** The agent op executor + its server bridge (W3). The bridge lives as long as the app: it serves
  *  whichever window's views exist, and honestly reports "pane not open" between windows. */
 let agentHost: BrowserAgentHost | null = null;
+/* Realm driving its own window. Its CDP target is `mainWindow`'s own webContents, so unlike the
+   browser executor it holds no per-view state and survives as one instance — `forget()` is what
+   clears the snapshot index when the window it was indexing goes away. */
+const appDriveHost = new AppDriveHost({
+  attach: () => {
+    const wc = mainWindow?.webContents;
+    if (!wc || wc.isDestroyed()) return null;
+    try { if (!wc.debugger.isAttached()) wc.debugger.attach("1.3"); } catch { return null; }
+    return { send: (method: string, params?: Record<string, unknown>) => wc.debugger.sendCommand(method, params) as Promise<unknown> };
+  },
+});
 let agentBridge: { stop(): void } | null = null;
 /**
  * Computer use (the `realm-computer` tools): the native accessibility helper and the executor over
@@ -324,7 +337,7 @@ async function createWindow(info: { port: number; home: string; token: string })
       console.error(`[browser-agent] download blocked (${reason})${id ? ` (browser ${id})` : ""}: ${url}`);
     },
   });
-  win.on("closed", () => { phases.stop(); mainWindow = null; browserHost = null; browserPane = null; agentHost = null; });
+  win.on("closed", () => { phases.stop(); mainWindow = null; browserHost = null; browserPane = null; agentHost = null; appDriveHost.forget(); });
 }
 
 // Browser pane (Plan 11 W1): the renderer drives the native WebContentsViews over this surface.
@@ -350,7 +363,13 @@ ipcMain.handle("browser:cancel-pick", (_e, id: string) => { agentHost?.cancelPic
 
 /** The renderer's theme accent, for the marks main draws INSIDE a driven page (Plan 25 W1). Not per
  *  browser id: it is one value per window, and this process has one agent host per window. */
-ipcMain.on("browser:set-accent", (_e, accent: string) => { if (typeof accent === "string") agentHost?.setAccent(accent); });
+ipcMain.on("browser:set-accent", (_e, accent: string) => {
+  if (typeof accent !== "string") return;
+  agentHost?.setAccent(accent);
+  // The same accent for Realm's own marks: one theme, one colour for "an agent is doing this",
+  // whether the thing being driven is a page or the app around it.
+  appDriveHost.setAccent(accent);
+});
 
 /** The system clipboard, READ ONLY (Plan 25 W7). A machine pane sends it to a guest, which is a
  *  deliberate two-step rather than automatic sync: RFB's clipboard is not transparent, and pushing
@@ -866,6 +885,20 @@ ipcMain.handle("media:open", async (_e, path: unknown): Promise<void> => {
  * that one really can run an `.app`.
  */
 ipcMain.handle("files:stat", (_e, path: unknown) => statFile(path));
+/**
+ * One folder of a space or a checkout, newest first (`browse.ts`) — what a session's file browser
+ * lists.
+ *
+ * The root comes from the window, and the window only ever passes a `Space.folderPath` or an
+ * `Environment.path`: places the app itself created or was pointed at. What is checked HERE is the
+ * `dir` under it, because that one is navigation — a `..` in a breadcrumb must not walk out of the
+ * folder the panel says it is showing, and `browseFolder` refuses rather than clamping so a bad path
+ * is an error rather than a silent listing of somewhere else.
+ */
+ipcMain.handle("files:browse", async (_e, root: unknown, dir: unknown): Promise<BrowseResult | null> => {
+  if (typeof root !== "string" || root.trim() === "") return null;
+  try { return await browseFolder(root, typeof dir === "string" ? dir : ""); } catch { return null; }
+});
 /** Bigger than a tile's, because this one is meant to be read: a PDF's first page, a spreadsheet's
  *  first rows, a page of source. Same two producers as the tile — see `fileThumbnail`. */
 const PREVIEW_PX = 512;
@@ -1097,6 +1130,11 @@ app.whenReady().then(async () => {
         // Computer-use ops share this socket but not the browser executor: they need no window and
         // no view, so they are answered before the window check below.
         if (op.startsWith("computer")) return computerHost.handleOp(op, params);
+        // Realm's own window, which is a different target from any browser view — so these are
+        // answered before the executor below, whose `host` is about panes and would refuse first
+        // with a message about a pane.
+        if (op === "appSnapshot") return appDriveHost.snapshot();
+        if (op === "appAct") return appDriveHost.act((params as { action: BrowserAction }).action);
         const host = agentHost;
         // Level B: Electron is here, the window is not. The refusal names the actual fix, because
         // "Realm is not connected" would be false — it is connected, that is how this message got

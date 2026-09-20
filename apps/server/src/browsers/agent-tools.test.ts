@@ -20,6 +20,9 @@ function setup(opts: {
   /** Plan 23: the space's project root. `null` = a space with no project, which has no download
    *  destination and must refuse. */
   projectRoot?: string | null;
+  /** The consent gate's answer. Omitted = no `signIn` dep at all, which is a harness built before
+   *  the gate existed and must behave exactly as this file always did. */
+  allowsAct?: boolean;
 } = {}) {
   const rows = new Map<string, Browser>();
   rows.set("b1", { id: "b1", spaceId: "space1", url: "https://example.com/", title: "Example", createdAt: 1, updatedAt: 1 });
@@ -85,6 +88,7 @@ function setup(opts: {
       },
     };
   }
+  if (opts.allowsAct !== undefined) deps.signIn = { allowsAct: () => opts.allowsAct! };
   const provider = createBrowserAgentProvider(deps);
   const ctx = { sessionId: "sess1", spaceId: "space1" };
   const call = (tool: string, args: unknown): Promise<CallToolResult> => provider.call(ctx, tool, args);
@@ -701,5 +705,44 @@ describe("browser_download", () => {
     const r = await call("browser_batch", { actions: [{ tool: "browser_download", arguments: { browserId: "b1", ref: 11 } }] });
     expect(r.isError).toBe(true);
     expect(calls.bridge.some((b) => b.op === "download")).toBe(false);
+  });
+});
+
+/**
+ * The consent-page gate on ACTS. `refuseOAuth` covers the two tools that carry a URL; its own
+ * comment says it cannot see a pane that reached a consent screen by a redirect, a click or the
+ * user's own address bar — and pressing the button on one is the act the whole guard exists to
+ * prevent.
+ */
+describe("acting on a consent screen", () => {
+  it("refuses the click, and refuses it before the bridge acts", async () => {
+    const { call, calls } = setup({ allowsAct: false });
+    const r = await call("browser_act", { browserId: "b1", action: { kind: "click", ref: 11 } });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("does not press Authorize");
+    // THE MUTANT: check after the act. The refusal would be a report of something already done.
+    expect(calls.bridge.filter((b) => b.op === "act")).toEqual([]);
+  });
+
+  it("refuses it inside a batch too, where the hard blocks have always had to be repeated", async () => {
+    const { call, calls } = setup({ allowsAct: false });
+    const r = await call("browser_batch", { actions: [{ tool: "browser_act", arguments: { browserId: "b1", action: { kind: "click", ref: 11 } } }] });
+    expect(text(r)).toContain("does not press Authorize");
+    expect(calls.bridge.filter((b) => b.op === "act")).toEqual([]);
+  });
+
+  it("does not raise a permission card for it — a refusal is not a question", async () => {
+    // A card could be answered "always", and an "always" here would stand for every consent screen
+    // the session ever meets. The same reasoning the terminal's password block is built on.
+    const { call, calls } = setup({ allowsAct: false });
+    await call("browser_act", { browserId: "b1", action: { kind: "click", ref: 11 } });
+    expect(calls.gates).toEqual([]);
+  });
+
+  it("lets the act through when the gate says this is a sign-in Realm is running", async () => {
+    const { call, calls } = setup({ allowsAct: true });
+    const r = await call("browser_act", { browserId: "b1", action: { kind: "click", ref: 11 } });
+    expect(r.isError).toBe(false);
+    expect(calls.bridge.some((b) => b.op === "act")).toBe(true);
   });
 });

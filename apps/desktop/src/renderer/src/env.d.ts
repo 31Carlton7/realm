@@ -59,6 +59,11 @@ interface Window {
       /** Size and mtime, or null when nothing is there — how a preview learns to say the file is
        *  gone rather than drawing actions that would each fail in turn. */
       stat(path: string): Promise<{ path: string; size: number; mtimeMs: number } | null>;
+      /** One folder of a space or a checkout, newest first (`main/browse.ts`). Null when it cannot
+       *  be read, or when the path would leave the root — the session file browser's data source,
+       *  and the one list that shows a file a shell command made. */
+      browse?(root: string, dir: string): Promise<{ dir: string; truncated: boolean;
+        entries: { path: string; name: string; isDir: boolean; size: number; mtimeMs: number }[] } | null>;
       /** A readable picture of the file (a decoded image, or QuickLook's render of a PDF, a sheet,
        *  a page of source). Null for a type macOS has no generator for. */
       preview(path: string): Promise<string | null>;

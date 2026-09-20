@@ -52,7 +52,21 @@ export const COMPUTER_HOST_OPS = [
   "computerAct",
 ] as const;
 
-export const HOST_OPS = [...BROWSER_HOST_OPS, ...COMPUTER_HOST_OPS] as const;
+/**
+ * Realm driving its OWN window, over the same socket again. A third family rather than a member of
+ * either: these do not address a browser id and they do not address a Mac application — their target
+ * is the one window this bridge is already talking through, which is a different kind of thing from
+ * both and is worth being unable to confuse with either.
+ */
+export const APP_HOST_OPS = [
+  /** A fused DOM+accessibility snapshot of Realm's own interface, with the same `[ref=N]` a page gets. */
+  "appSnapshot",
+  /** One act dispatched into Realm's window. Refuses, in main against the live DOM, anything inside
+   *  a surface the renderer marked `NO_AGENT_ATTR` — see `app-drive.ts`. */
+  "appAct",
+] as const;
+
+export const HOST_OPS = [...BROWSER_HOST_OPS, ...COMPUTER_HOST_OPS, ...APP_HOST_OPS] as const;
 /** Every op the bridge will relay, of either family. */
 export type HostOp = (typeof HOST_OPS)[number];
 

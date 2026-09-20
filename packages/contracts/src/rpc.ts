@@ -858,6 +858,21 @@ export const Methods = {
     params: z.object({ family: z.string().min(1) }),
     result: z.object({ faces: z.array(z.object({ weight: z.number().int(), base64: z.string() })) }),
   },
+  /**
+   * Start signing an agent CLI in: open a terminal in this space and run that CLI's own login
+   * command. Answers as soon as the shell is running with the command typed, NOT when the sign-in
+   * finishes — the terminal pane is on screen by then and the rest happens in front of the user,
+   * so a call that waited for the CLI to print would leave the button busy while the work it
+   * started was already visible. What follows (reading the URL, opening the consent pane) arrives
+   * as panes, through the item broadcasts every other pane uses.
+   *
+   * Refuses for an agent with no login command — Gemini's route is an API key, which is a sentence
+   * rather than a line to run.
+   */
+  "signin.start": {
+    params: z.object({ spaceId: IdSchema, kind: AgentKindSchema }),
+    result: z.object({ terminalId: IdSchema, command: z.string() }),
+  },
   "settings.get": { params: z.object({ key: z.string() }), result: z.object({ value: z.unknown() }) },
   "settings.set": { params: z.object({ key: z.string(), value: z.unknown() }), result: z.object({ ok: z.literal(true) }) },
 
@@ -1706,6 +1721,15 @@ export const Events = {
    *  this browser (Plan 11 W4) — feeds the sidebar row and pane header's "agent is driving" dot.
    *  Every `true` is followed by a `false` on the same browserId, whatever the outcome. */
   "browser.driving": z.object({ spaceId: IdSchema, browserId: IdSchema, driving: z.boolean() }),
+  /** The terminal pair of the two above, and deliberately the same shape: an agent typing into a
+   *  pty is the same event as an agent clicking in a page — "Realm is acting here, watch" — and one
+   *  idiom for it is what keeps the pane chrome from growing a second vocabulary for the same fact.
+   *  Every `true` is followed by a `false` on the same terminalId, whatever the outcome. */
+  "terminal.driving": z.object({ spaceId: IdSchema, terminalId: IdSchema, driving: z.boolean() }),
+  /** A mutating terminal tool call SETTLED. `text` is the same description the permission card
+   *  showed — what was typed, quoted — never the terminal's own output, which is untrusted and stays
+   *  behind its fence. */
+  "terminal.action": z.object({ spaceId: IdSchema, terminalId: IdSchema, text: z.string(), ok: z.boolean(), ts: z.number() }),
   /** A machine's live state changed (Plan 25 W3) — the pane's body, the pane bar's power toggle and
    *  the sidebar row's dot all read this one event.
    *

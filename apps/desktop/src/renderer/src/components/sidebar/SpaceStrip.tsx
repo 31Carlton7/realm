@@ -1,6 +1,7 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useRef, useState, type DragEvent } from "react";
-import { spaceBadge, useApp, useProfileSpaces } from "../../state/store";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type RefObject } from "react";
+import { spaceActivity, spaceBadge, useApp, useProfileSpaces } from "../../state/store";
+import { createSpring } from "../../state/spring";
 import { Menu } from "../Menu";
 import { SpaceIcon } from "../SpaceIcon";
 
@@ -19,6 +20,12 @@ const BADGE_LABEL = { running: "agent running", waiting_permission: "agent needs
  * Everything past one profile lives in two places instead: the chip's menu (switch profile) and the
  * space overview (⌘⇧Space — every space, every profile, with names). The strip is a rail for the
  * profile you are in, not an index of everything you own.
+ *
+ * Drag-to-reorder is the default order; Settings ▸ App ▸ Sidebar's "Sort spaces by activity" swaps in a computed
+ * one instead (`spaceActivity`: a space with something waiting on you first, then whichever moved
+ * most recently) without touching the dragged order underneath, and turns dragging off for as long
+ * as it is on — a drop into a spot the next status change would re-sort away from is a drop that did
+ * nothing.
  */
 export function SpaceStrip() {
   const spaces = useApp((s) => s.spaces);
@@ -26,16 +33,27 @@ export function SpaceStrip() {
   const activeSpaceId = useApp((s) => s.activeSpaceId);
   const sessionStatus = useApp((s) => s.sessionStatus);
   const sessionSpace = useApp((s) => s.sessionSpace);
+  const sessionUpdatedAt = useApp((s) => s.sessionUpdatedAt);
+  const activityOrder = useApp((s) => s.sidebarActivityOrder);
   const selectSpace = useApp((s) => s.selectSpace);
   const reorderSpaces = useApp((s) => s.reorderSpaces);
   const openSheet = useApp((s) => s.openSheet);
   const run = useApp((s) => s.run);
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
+  /* A SORTED COPY, never a rewrite of `spaces`/`sort_order`: the setting is a lens on the strip, the
+     same way `sidebarView` is a lens on the column above it, and turning it back off has to land on
+     the order you dragged, undisturbed, not on whatever activity had put it there last. */
+  const ordered = useMemo(() => {
+    if (!activityOrder) return stripSpaces;
+    return [...stripSpaces].sort((a, b) =>
+      spaceActivity(sessionStatus, sessionSpace, sessionUpdatedAt, b.id) - spaceActivity(sessionStatus, sessionSpace, sessionUpdatedAt, a.id));
+  }, [stripSpaces, activityOrder, sessionStatus, sessionSpace, sessionUpdatedAt]);
   // Even scoped to one profile a strip can overflow; keep the active space reachable/visible on every
   // activation (safe-centered flex can clip either end, and the scrollbar is hidden).
   const activeRef = useRef<HTMLButtonElement | null>(null);
-  useEffect(() => { activeRef.current?.scrollIntoView?.({ inline: "nearest", block: "nearest" }); }, [activeSpaceId]);
+  const railRef = useRef<HTMLDivElement | null>(null);
+  useScrollTo(railRef, activeRef, activeSpaceId);
 
   const drop = (targetId: string) => {
     const from = dragId; setDragId(null); setOverId(null);
@@ -58,13 +76,18 @@ export function SpaceStrip() {
   return (
     <div className="space-strip">
       <ProfileChip />
-      <div className="strip-spaces" aria-label="Spaces">
-        {stripSpaces.map((sp) => {
+      <div className="strip-spaces" aria-label="Spaces" ref={railRef}>
+        {ordered.map((sp) => {
           const badge = spaceBadge(sessionStatus, sessionSpace, sp.id);
           return (
-          <button key={sp.id} ref={sp.id === activeSpaceId ? activeRef : null} className="strip-space" aria-pressed={sp.id === activeSpaceId} aria-label={`Switch to space ${sp.name}`} title={sp.name}
+          <button key={sp.id} ref={sp.id === activeSpaceId ? activeRef : null} className="strip-space" aria-pressed={sp.id === activeSpaceId} aria-label={`Switch to space ${sp.name}`}
+            title={activityOrder ? `${sp.name} — sorted by activity; drag to reorder is off while this is on` : sp.name}
             data-active={sp.id === activeSpaceId || undefined} data-drag-over={overId === sp.id || undefined}
-            draggable onDragStart={(e) => { setDragId(sp.id); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", sp.id); }}
+            // Dragging into an explicit position is pointless the moment the strip re-sorts itself on
+            // the next status change — worse than pointless, since the drop would look like it did
+            // nothing. The setting owns the order while it's on; the drag handle returns with it off.
+            draggable={!activityOrder}
+            onDragStart={(e) => { setDragId(sp.id); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", sp.id); }}
             onDragOver={onDragOver(sp.id)} onDragLeave={() => { if (overId === sp.id) setOverId(null); }}
             onDrop={(e) => { e.preventDefault(); drop(sp.id); }} onDragEnd={() => { setDragId(null); setOverId(null); }}
             onClick={() => run(() => selectSpace(sp.id))}>
@@ -77,6 +100,55 @@ export function SpaceStrip() {
       <button className="icon-btn strip-side" aria-label="New space" title="New space" onClick={() => openSheet({ kind: "new-space" })}><Icon name="add" size={14} /></button>
     </div>
   );
+}
+
+
+/**
+ * Bring the active space into view, on the same spring everything else in the sidebar moves on.
+ *
+ * It was `scrollIntoView`, which teleports: the row of spaces was in one place and then it was in
+ * another, with nothing in between to say which way it went — and on a strip where every icon is the
+ * same 30px square, a jump is genuinely disorienting because there is no landmark to track.
+ *
+ * Three things make it feel like the app rather than like a scroll API. It moves the LEAST it can
+ * (`nearest`, plus a chip's width of air so the neighbour shows and the strip reads as continuing);
+ * it does nothing at all when the space is already comfortably in view, because chrome that shifts
+ * for no reason is worse than chrome that does not move; and the user wins — one touch of the
+ * trackpad abandons the animation where it stands rather than fighting it back.
+ */
+function useScrollTo(rail: RefObject<HTMLDivElement | null>, active: RefObject<HTMLButtonElement | null>, key: string | null) {
+  useEffect(() => {
+    const box = rail.current, el = active.current;
+    if (!box || !el || box.scrollWidth <= box.clientWidth) return;
+    const margin = el.clientWidth || 30;
+    const left = el.offsetLeft - margin;
+    const right = el.offsetLeft + el.offsetWidth + margin;
+    const target = Math.max(0, Math.min(
+      box.scrollWidth - box.clientWidth,
+      right > box.scrollLeft + box.clientWidth ? right - box.clientWidth : left < box.scrollLeft ? left : box.scrollLeft,
+    ));
+    if (Math.abs(target - box.scrollLeft) < 1) return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) { box.scrollLeft = target; return; }
+
+    const s = createSpring(box.scrollLeft, { damping: 1, response: 0.32 });
+    s.to(target);
+    let frame = 0;
+    let last = -1;
+    const stop = () => { cancelAnimationFrame(frame); box.removeEventListener("wheel", stop); box.removeEventListener("pointerdown", stop); };
+    const step = (ts: number) => {
+      const moving = s.tick(last < 0 ? 16 : ts - last);
+      last = ts;
+      box.scrollLeft = s.value();
+      if (moving) frame = requestAnimationFrame(step);
+      else stop();
+    };
+    // Passive: this listener only ever cancels, and a non-passive wheel handler on a scroller is a
+    // frame of scrolling held hostage on every event.
+    box.addEventListener("wheel", stop, { passive: true });
+    box.addEventListener("pointerdown", stop);
+    frame = requestAnimationFrame(step);
+    return stop;
+  }, [rail, active, key]);
 }
 
 /**

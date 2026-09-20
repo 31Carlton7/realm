@@ -1180,6 +1180,10 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       if (!row || row.action !== action) throw new Error(`Realm is not offering to ${action} ${kind} right now`);
       return { id: `job-${kind}`, kind, action, command: row.command ?? "" };
     },
+    startSignIn: async (spaceId, kind) => {
+      calls.push(`startSignIn:${spaceId}:${kind}`);
+      return { terminalId: `term-${kind}`, command: `${kind} auth login` };
+    },
     modelCatalog: async (force) => {
       calls.push(`modelCatalog:${force}`);
       await wait("modelCatalog");

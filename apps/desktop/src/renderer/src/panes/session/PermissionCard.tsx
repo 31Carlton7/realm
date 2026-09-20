@@ -82,7 +82,12 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
   };
 
   return (
-    <div className="permission-card" role="group" aria-label="Permission request" data-enter={enter || undefined} onKeyDown={onKeyDown}>
+    /* data-no-agent: nothing inside this card may be acted on by `app_act`, in any mode. An agent
+       able to press these buttons could approve the very request it is blocked on, and no permission
+       model survives that — every approval in Realm ends up as a button in this window. The claim
+       lives HERE, on the component that grants things, rather than as a label match in main, so
+       whoever next changes this card sees it. `app-drive.ts` carries the reasoning. */
+    <div className="permission-card" role="group" aria-label="Permission request" data-no-agent="permission request" data-enter={enter || undefined} onKeyDown={onKeyDown}>
       {/* §5: the amber wash is gone — colour survives as a 6px dot and a "Waiting" pill. */}
       <div className="permission-head">
         <span className="permission-dot" />

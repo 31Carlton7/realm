@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { allItems, findLeafOfItem, type Layout, type McpCall } from "@realm/contracts";
 import { Sidebar } from "./Sidebar";
@@ -12,6 +12,8 @@ async function mount(api = fakeApi()) {
   const r = render(<StoreContext.Provider value={store}><Sidebar /></StoreContext.Provider>);
   return { store, api, ...r };
 }
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("Arc sidebar", () => {
   it("hydrates saved custom space icons before the strip renders", async () => {
@@ -178,22 +180,87 @@ describe("Arc sidebar", () => {
       expect(track(container).style.transform).toBe("translateX(0%)");
       await act(async () => { await store.getState().nextSpace(); });
       expect(track(container).style.transform).toBe("translateX(-100%)");
-      expect(track(container).style.transition).toBe("none");
+      // Never a CSS transition on this element: the endgame is a spring, and a transition underneath
+      // one is a second animation fighting it for the same property.
+      expect(track(container).style.transition).toBe("");
     });
 
     it("a click on the space strip lands instantly too", async () => {
       const { container } = await mount();
       fireEvent.click(screen.getByRole("button", { name: /switch to space Homework/i }));
       await waitFor(() => expect(track(container).style.transform).toBe("translateX(-100%)"));
-      expect(track(container).style.transition).toBe("none");
+      expect(track(container).style.transition).toBe("");
     });
 
-    it("a committed two-finger swipe still eases to the page it threw", async () => {
+    /* Frames by hand. The spring has no duration — it stops when it arrives — so a test that waited
+       on wall-clock time would be asserting the machine's speed rather than the animation's shape.
+       Driving rAF makes every frame between the throw and the landing observable, and deterministic. */
+    function frames() {
+      // Restored in the file's afterEach — a stubbed rAF that outlived its test froze every
+      // animation in the ones after it, which reads as four unrelated failures.
+      let queue: FrameRequestCallback[] = [];
+      let t = 0;
+      vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => { queue.push(cb); return queue.length; });
+      vi.stubGlobal("cancelAnimationFrame", () => { queue = []; });
+      return {
+        async step(ms = 16) {
+          t += ms;
+          const due = queue; queue = [];
+          await act(async () => { for (const cb of due) cb(t); });
+          return due.length;
+        },
+        async run(max = 400) { for (let i = 0; i < max; i++) if ((await this.step()) === 0) return i; return max; },
+      };
+    }
+    const displacement = (c: HTMLElement) => Number(/\+ (-?[\d.]+)px/.exec(track(c).style.transform)?.[1] ?? 0);
+
+    it("a committed two-finger swipe flies to the page it threw, from where the fingers left it", async () => {
       const { container } = await mount();
+      const f = frames();
+      const swiper = container.querySelector("[data-swiper]")!;
+      fireEvent.wheel(swiper, { deltaX: 50, deltaY: 0 }); fireEvent.wheel(swiper, { deltaX: 50, deltaY: 0 });
+      await waitFor(() => expect(track(container).style.transform).toContain("calc(-100%"));
+      /* The page under the track has changed and the track is displaced by what is LEFT of a page —
+         240 less the 50 the fingers already dragged. That displacement is the continuity: the pixels
+         do not move at the instant the index flips, and the spring takes them home from there. THE
+         MUTANT is landing on the new base at once, which is the jump this mechanism exists to
+         remove. */
+      expect(displacement(container)).toBeGreaterThan(150);
+      await f.run();
+      expect(track(container).style.transform).toBe("translateX(-100%)");
+    });
+
+    it("reduced motion takes the same journey with no frames in between", async () => {
+      /* Not "no feedback" — the same landing, arrived at instantly. The spring is JS, so the global
+         `prefers-reduced-motion` rule in the stylesheet cannot reach it; this is the one place that
+         has to ask the media query itself. */
+      vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("reduced-motion"), media: q, addEventListener() {}, removeEventListener() {} }));
+      const { container } = await mount();
+      const f = frames();
       const swiper = container.querySelector("[data-swiper]")!;
       fireEvent.wheel(swiper, { deltaX: 50, deltaY: 0 }); fireEvent.wheel(swiper, { deltaX: 50, deltaY: 0 });
       await waitFor(() => expect(track(container).style.transform).toBe("translateX(-100%)"));
-      expect(track(container).style.transition).toContain("transform 300ms");
+      expect(await f.step()).toBe(0); // nothing was ever queued to animate
+    });
+
+    it("a page can be caught mid-flight and dragged back", async () => {
+      /* Interruptibility, which a CSS transition cannot do at all: the drag has to continue from
+         where the page IS. Reading the tracker's own offset instead — it starts at 0 for every new
+         gesture — snaps the page to its base on the first frame, which is what "the swipe fights me"
+         means. */
+      const { container } = await mount();
+      const f = frames();
+      const swiper = container.querySelector("[data-swiper]")!;
+      fireEvent.wheel(swiper, { deltaX: 50, deltaY: 0 }); fireEvent.wheel(swiper, { deltaX: 50, deltaY: 0 });
+      await waitFor(() => expect(track(container).style.transform).toContain("calc(-100%"));
+      for (let i = 0; i < 6; i++) await f.step();      // let it get some of the way home
+      const flying = displacement(container);
+      expect(flying).not.toBe(0);                       // still in the air
+
+      // Where it lands is the spring's business; that the drag continues from THERE is this test's.
+      fireEvent.wheel(swiper, { deltaX: -30, deltaY: 0 });
+      await f.step();
+      expect(displacement(container)).toBeCloseTo(flying + 30, 0);
     });
 
     // The page being left empties the instant activeSpaceId flips (selectSpace clears `items` and
@@ -218,11 +285,12 @@ describe("Arc sidebar", () => {
       expect(track(container).style.transform).toContain("20px");
     });
 
-    it("a swipe that never reaches the threshold eases back to the page it started on", async () => {
+    it("a swipe that never reaches the threshold springs back to the page it started on", async () => {
       const { container } = await mount();
       fireEvent.wheel(container.querySelector("[data-swiper]")!, { deltaX: 20, deltaY: 0 });
-      await waitFor(() => expect(track(container).style.transition).toContain("transform 220ms"));
-      expect(track(container).style.transform).toBe("translateX(0%)"); // settle is shorter than a commit
+      await act(async () => { await new Promise(requestAnimationFrame); });
+      expect(track(container).style.transform).toContain("20px"); // displaced, following the fingers
+      await waitFor(() => expect(track(container).style.transform).toBe("translateX(0%)"), { timeout: 3000 });
     });
 
     it("an instant switch has nothing to slide, so the page it left empties at once", async () => {

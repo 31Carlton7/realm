@@ -9,6 +9,7 @@ import type { SpacesStore } from "../store/spaces";
 import type { TerminalHistoryStore, TerminalsStore } from "../store/terminals";
 import type { SettingsStore } from "../store/settings";
 import { Scrollback, type ScrollbackCursor, type ScrollbackRead } from "./scrollback";
+import { renderScreen, type TerminalScreen } from "./screen";
 import { NotFoundError, RpcError } from "../store/rows";
 import { portEnv } from "../workspace/ports";
 import type { ExecutionSandboxService } from "../sandbox/service";
@@ -115,6 +116,26 @@ export class TerminalService {
   }
 
   has(terminalId: string): boolean { return this.manager.has(terminalId); }
+
+  /**
+   * What this terminal is SHOWING — its bytes run through a terminal emulator — rather than the
+   * bytes themselves.
+   *
+   * Null for a terminal with no live ring, which is the same "there is nothing here to read" that
+   * `read` answers with a null. Everything about why this is a separate call from `read`, and why
+   * it parses on demand rather than on the way in, is in `screen.ts`.
+   */
+  async screen(terminalId: string, scrollback = 0): Promise<TerminalScreen | null> {
+    const read = this.scrollback.read(terminalId, null);
+    const size = this.scrollback.size(terminalId);
+    if (!read || !size) return null;
+    return renderScreen(read.live, { ...size, scrollback });
+  }
+
+  /** Resolve once this terminal has been quiet for `quietMs`; false if its pty died first. */
+  quiet(terminalId: string, quietMs?: number, timeoutMs?: number): Promise<boolean> {
+    return this.manager.quietFor(terminalId, quietMs, timeoutMs);
+  }
 
   /**
    * The environment variables a shell in this cwd is spawned with: its environment's port block

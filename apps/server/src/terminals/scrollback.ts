@@ -162,6 +162,14 @@ export class Scrollback {
     return [...this.rings.keys()];
   }
 
+  /** The size this terminal is currently being printed at, or null for one with no live ring.
+   *  `read` deliberately does not carry it — a pane already knows how big it made the pty — but a
+   *  reader that has to RENDER the bytes cannot lay them out without it (`screen.ts`). */
+  size(terminalId: string): { cols: number; rows: number } | null {
+    const ring = this.rings.get(terminalId);
+    return ring ? { cols: ring.cols, rows: ring.rows } : null;
+  }
+
   /**
    * What this client is missing.
    *

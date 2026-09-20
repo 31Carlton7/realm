@@ -5,7 +5,7 @@
  * live runs. Executed in Electron MAIN (the process that owns `webContents.debugger`); realm-server
  * reaches it over the browserHost bridge.
  */
-import { normalizeOrigin, PICK_HTML_MAX, PICK_NAME_MAX, PICK_SELECTOR_MAX, PICK_TEXT_MAX, type BrowserAction, type BrowserActResult, type BrowserPickedElement, type BrowserRefusal, type BrowserSnapshotResult } from "@realm/contracts";
+import { AGENT_FRAME, normalizeOrigin, PICK_HTML_MAX, PICK_NAME_MAX, PICK_SELECTOR_MAX, PICK_TEXT_MAX, type BrowserAction, type BrowserActResult, type BrowserPickedElement, type BrowserRefusal, type BrowserSnapshotResult } from "@realm/contracts";
 import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_MOTION, CURSOR_FORM_FOR_CSS, type CursorForm, type CursorFormName } from "./agent-cursor";
 
 export type CdpSend = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -885,9 +885,13 @@ function markScript(o: { accent: string; ring: string; point: { x: number; y: nu
     (Object.keys(AGENT_CURSOR_FORMS) as CursorFormName[]).map((name) => [name, formNode(name)]),
   );
   const ticks = tickStylesFor(o.press ?? { kind: "click", count: 1 }, o.accent);
+  // The ring and the glow read their numbers from `AGENT_FRAME` rather than spelling them, because
+  // Realm's own panes draw the same mark from the same table (`styles.css`, `DriveFrame.tsx`) and a
+  // literal here is how the two faces of one signal drift apart.
   const frameCss = "position:fixed;inset:0;pointer-events:none;z-index:2147483646;opacity:1;"
-    + `box-shadow:inset 0 0 0 2px ${o.accent};`;
-  const glowCss = `position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 48px -12px ${o.accent};`;
+    + `box-shadow:inset 0 0 0 ${AGENT_FRAME.ringPx}px ${o.accent};`;
+  const glowCss = "position:absolute;inset:0;pointer-events:none;"
+    + `box-shadow:inset 0 0 ${AGENT_FRAME.glowBlurPx}px ${AGENT_FRAME.glowSpreadPx}px ${o.accent};`;
   const labelCss = "position:absolute;left:50%;bottom:12px;translate:-50% 0;padding:4px 10px;border-radius:8px;"
     + `background:${o.accent};color:#fff;font:500 12px/1.4 ui-sans-serif,system-ui,sans-serif;white-space:nowrap;`
     + "box-shadow:0 2px 10px rgba(0,0,0,0.25);pointer-events:none;";

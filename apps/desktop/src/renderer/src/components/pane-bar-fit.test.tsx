@@ -41,11 +41,11 @@ async function mountAt(width: number) {
   });
   const store = createAppStore(api);
   await store.getState().boot();
-  /* An empty transcript, so the list here is the five UNCONDITIONAL actions: terminal, documents,
-     browser, machine, simulator. The summary is a sixth in front of them when the session has
-     anything to report, and its gate is tested where the gate lives (session-summary-panel.test.tsx)
-     — leaving it out here keeps every count below a fact about the budget rather than about a
-     summariser's opinion of a fixture. */
+  /* An empty transcript, so the list here is the six UNCONDITIONAL actions: files, terminal,
+     documents, browser, machine, simulator. The summary is a seventh in front of them when the
+     session has anything to report, and its gate is tested where the gate lives
+     (session-summary-panel.test.tsx) — leaving it out here keeps every count below a fact about the
+     budget rather than about a summariser's opinion of a fixture. */
   store.setState({ transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
   const view = render(
     <StoreContext.Provider value={store}>
@@ -91,33 +91,34 @@ describe("what a narrowing pane bar gives up", () => {
        every width. THE mutant: list them in the menu unconditionally. */
     await mountAt(widthFor(2));
     expect(barActions()).toHaveLength(2);
+    expect(barActions().some((n) => /^Files for/.test(n))).toBe(true);
     expect(barActions().some((n) => /terminal/.test(n))).toBe(true);
-    expect(barActions().some((n) => /documents/.test(n))).toBe(true);
     openMenu();
-    expect(menuRows()).toEqual(expect.arrayContaining(["Browser", "Machine", "Simulator"]));
-    for (const stillInTheBar of ["Terminal", "Documents"]) expect(menuRows()).not.toContain(stillInTheBar);
+    expect(menuRows()).toEqual(expect.arrayContaining(["Documents", "Browser", "Machine", "Simulator"]));
+    for (const stillInTheBar of ["Files", "Terminal"]) expect(menuRows()).not.toContain(stillInTheBar);
   });
 
   it("gives them up from the END, so what a session IS outlasts the panes it opens beside itself", async () => {
-    /* Order is priority. The summary is the only place a session's outputs and spend are listed and
-       the terminal is its own shell; the ones after them open a pane BESIDE it and are each reachable
-       from the sidebar and the palette too. THE mutant: slice from the front, and a one-action bar
-       offers a simulator while the session's own terminal is buried. */
+    /* Order is priority. The summary is the only place a session's spend is listed, the files panel
+       the only place its outputs are, and the terminal is its own shell; the ones after them open a
+       pane BESIDE it and are each reachable from the sidebar and the palette too. THE mutant: slice
+       from the front, and a one-action bar offers a simulator while the session's own files are
+       buried. */
     await mountAt(widthFor(1));
     expect(barActions()).toHaveLength(1);
-    expect(barActions()[0]).toMatch(/terminal/);
+    expect(barActions()[0]).toMatch(/^Files for/);
     openMenu();
-    expect(menuRows()).toEqual(expect.arrayContaining(["Documents", "Browser", "Machine", "Simulator"]));
-    expect(menuRows()).not.toContain("Terminal");
+    expect(menuRows()).toEqual(expect.arrayContaining(["Terminal", "Documents", "Browser", "Machine", "Simulator"]));
+    expect(menuRows()).not.toContain("Files");
   });
 
   it("keeps every button in a wide bar, and adds no rows to the menu for them", async () => {
     await mountAt(widthFor(9));
-    expect(barActions()).toHaveLength(5);
+    expect(barActions()).toHaveLength(6);
     openMenu();
     // The layout rows are still there; the action rows are not, because none of them left the bar.
     expect(menuRows()).toEqual(expect.arrayContaining(["Rename", "Split right", "Close"]));
-    for (const gone of ["Browser", "Machine", "Simulator", "Terminal", "Documents"]) expect(menuRows()).not.toContain(gone);
+    for (const gone of ["Files", "Browser", "Machine", "Simulator", "Terminal", "Documents"]) expect(menuRows()).not.toContain(gone);
   });
 
   it("an overflowed toggle still says which way it is pointing", async () => {
@@ -128,8 +129,10 @@ describe("what a narrowing pane bar gives up", () => {
     // A checkbox ROW, not a plain one — that is what carries the state into the menu at all.
     const row = () => {
       const rows = screen.getAllByRole("menuitemcheckbox");
-      expect(rows.map((r) => r.textContent)).toEqual(["Terminal"]);
-      return rows[0]!;
+      // Two toggles reach the menu now: the files panel and the terminal. The terminal is the one
+      // whose NAME holds still, which is what `pressed` — and therefore this row — is about.
+      expect(rows.map((r) => r.textContent)).toEqual(["Files", "Terminal"]);
+      return rows[1]!;
     };
     expect(row()).toHaveAttribute("aria-checked", "false");
     fireEvent.click(row());

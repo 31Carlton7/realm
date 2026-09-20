@@ -33,7 +33,7 @@
 .cmd-cwd, .cmd-line, .code-body, .code-gutter, .code-preview, .composer-attach-note .attach-note-files,
 .diff-counts, .diff-hunk-head, .diff-line, .diff-status, .documents-picker-head, .documents-raw,
 .documents-rich-surface code, .documents-source, .env-path, .failover-pos, .fd-line, .fd-path, .fd-stat,
-.file-preview-path, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
+.file-preview-path, .files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
 .mcp-tool-name, .md code, .md-code-lang, .media-name, .media-time, .memory-doc, .mention-row-id,
 .msg-error pre, .pane-empty-path, .permission-details pre, .permission-tool code, .req-target,
 .sched-cron-input, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
@@ -337,8 +337,12 @@ kbd { font: 11px var(--font-mono); }
    collapsing reads as the button moving rather than as one control being swapped for another. */
 /* 76 to clear the lights, 26 for the toggle, then 16 so the first pane's leading control is not
    touching it — .panel-nav opens with a -8px margin, so the gap has to be budgeted at 16 to land
-   as 8 on screen. */
-.app[data-sidebar-collapsed] { --corner-w: 118px; }
+   as 8 on screen.
+   On :root rather than on the collapsed shell, because one of the strips that has to reserve it is
+   NOT inside `.app` at all: an app-level page is portalled to <body> (PageOverlay), so a token
+   declared on the shell never reaches it. The token existing always costs nothing — what is gated on
+   being collapsed is every rule that SPENDS it. */
+:root { --corner-w: 118px; }
 /* The lights' clearance moves on the same rung as the column. Without this the pane bar's indent
    snaps to 118px on the first frame while the sidebar is still a third of the way out, and the two
    halves of one gesture read as two events. */
@@ -347,7 +351,14 @@ kbd { font: 11px var(--font-mono); }
 .main > .panehost:first-child .panel[data-first-leaf] > .panel-bar {
   transition: padding-left var(--dur-move) var(--ease-in-out-strong);
 }
-.sb-corner { position: absolute; top: 0; left: 0; z-index: 5; height: 40px; display: flex; align-items: center;
+/* z-index 36: over an app-level page (35), under the scrims (40+).
+   THE TRAP this closes, and the component's own doc names it — "a collapse control that disappears on
+   collapse is a trap". A page covers the whole window when the sidebar is collapsed (`inset: 0`
+   below), so at the corner's old rung of 5 the only control that brings the column back was painted
+   over and hit-tested to the page: open Agents, collapse the sidebar, and the sidebar could not be
+   opened again except by ⌘B. It is window chrome, like the traffic lights it sits beside — which the
+   OS draws over everything — so it yields to a sheet or the palette and to nothing else. */
+.sb-corner { position: absolute; top: 0; left: 0; z-index: 36; height: 40px; display: flex; align-items: center;
   padding-left: 76px; -webkit-app-region: drag;
   /* Fades in behind the departing column rather than appearing under it mid-slide. No exit: it is
      unmounted the moment the sidebar comes back, and §6 wants an exit quieter than its enter. */
@@ -1394,6 +1405,7 @@ kbd { font: 11px var(--font-mono); }
 :root[data-quiet] .strip-badge[data-status="waiting_permission"],
 :root[data-quiet] .permission-dot,
 :root[data-quiet] .gen-glow,
+:root[data-quiet] .drive-frame-glow,
 :root[data-quiet] .wash[data-grain] { animation-play-state: paused !important; }
 
 /* The ping is the exception to the pause: frozen mid-flight it leaves a static ring standing around
@@ -1891,6 +1903,11 @@ button.panel-title:hover { background: var(--rl-hover); }
 .quick-chat-confirm { flex: none; color: var(--rl-danger); font-size: 12px; white-space: nowrap; }
 /* The empty state, centred in the space the transcript will take. Two lines: what this is, and the
    one consequence worth knowing before you have typed into it rather than after. */
+/* Collapsed, the page takes the whole window (below) — so its bar is the strip under the traffic
+   lights and the corner toggle, and it reserves them the way the pane bar and the group bar do. It
+   cannot join that rule: it is portalled to <body>, so `.app[data-sidebar-collapsed] .main > …`
+   cannot reach it. Without this the page's own title is drawn underneath the lights. */
+.page-overlay[data-sidebar-collapsed] .page-overlay-bar { padding-left: var(--corner-w); }
 .quick-chat-empty { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 6px;
   margin: 0; padding: 0 24px; text-align: center; font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim); }
 .quick-chat-empty > span { font-size: 11.5px; color: var(--rl-text-faint); }
@@ -2413,6 +2430,51 @@ button.panel-title:hover { background: var(--rl-hover); }
   background: color-mix(in srgb, var(--rl-accent) 12%, transparent);
   mask-image: radial-gradient(farthest-side at 50% 50%, transparent 42%, #000 100%);
   -webkit-mask-image: radial-gradient(farthest-side at 50% 50%, transparent 42%, #000 100%); }
+/* ── An agent is controlling this ──────────────────────────────────────
+   Realm's own half of the mark the browser and simulator panes already wear. There it is injected
+   INTO the page over CDP, because a WebContentsView composites above all DOM and nothing drawn
+   beside one can reach it; a terminal pane is ordinary DOM in this window, so here it is an ordinary
+   overlay. `main/agent-cursor.ts` named this arrangement before either half existed: two surfaces,
+   two transports, one appearance.
+
+   What is held equal to the injected copy is what carries the meaning — the 2px accent ring, the
+   48px/-12px glow, the 1800ms pulse, the 1500ms linger — and `styles.test.ts` asserts every one of
+   them against that table. What is NOT copied is the geometry: the injected frame is flush to the
+   viewport because inside a page the pane's edge is somewhere else entirely, and the rule six lines
+   up from `.session-drop` is the reason a pane-scoped one cannot be — "in a four-way split a flush
+   ring would run straight into its neighbour's and the two would look like one target". So this
+   insets and takes the pane's corner, exactly as the drop highlight beside it does. */
+/* Inset from the pane edge rather than flush to it, for `.session-drop`'s reason six lines up: in a
+   four-way split a flush ring runs straight into its neighbour's and the two read as one target.
+   There is no window-wide variant — an agent driving the whole interface is marked by the injected
+   frame, in this same window's document. */
+.drive-frame { position: absolute; inset: 6px; z-index: 3; pointer-events: none;
+  border-radius: calc(var(--r-float) + 4px); corner-shape: squircle;
+  box-shadow: inset 0 0 0 2px var(--rl-accent);
+  animation: rl-fade-in var(--dur-enter) var(--ease-out-strong); }
+/* The soft half, and the only part that moves. Its own element rather than a ::before: the app-wide
+   reduced-motion kill is `* { animation: none }` and `*` does not match a pseudo-element, so a glow
+   drawn there would keep pulsing for a reader who turned motion off. */
+/* The rate is a custom property, not a literal in the shorthand, and that is the ping family's own
+   idiom for the same reason (`--ring-rate`): §6's ladder is durations of CHANGES, and a loop period
+   is a tempo. Declaring it here keeps it off a ladder it would misfit, and out of the exempt list a
+   reader would have to go find. */
+.drive-frame-glow { position: absolute; inset: 0; border-radius: inherit; corner-shape: inherit;
+  --pulse-rate: 1800ms;
+  box-shadow: inset 0 0 48px -12px var(--rl-accent);
+  animation: rl-drive-pulse var(--pulse-rate) ease-in-out infinite; }
+/* The SLOW rung of the in-flight ping family, not the 0.9s the `driving` dot takes. The dot is
+   seven pixels and this is a whole pane, and the reason that difference decides the rate is already
+   written down beside the ping. */
+@keyframes rl-drive-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+/* Says which of the two pointers is Realm's, in words, because the ring alone cannot. Bottom-centre
+   so it never lands on a terminal's active line, which is the top-left half of the pane. */
+.drive-frame-label { position: absolute; left: 50%; bottom: 12px; translate: -50% 0;
+  padding: 4px 10px; border-radius: var(--r-chip); white-space: nowrap;
+  background: var(--rl-accent); color: var(--rl-accent-contrast);
+  font-size: 12px; font-weight: var(--font-weight-medium);
+  box-shadow: var(--shadow-pill); }
+
 /* The session's terminal drawer (W4): a split INSIDE the session pane, not a layout leaf. Its divider is
    the same 1px .resize-handle the pane host uses; the terminal keeps its full-pane treatment (§5 — no
    border, no radius), separated from the transcript by the panel→terminal-bg luminance step alone.
@@ -6926,3 +6988,33 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 @media (prefers-reduced-transparency: reduce) {
   .wash, .wash[data-grain] { background-image: none; }
 }
+
+
+/* ── The session's file browser ───────────────────────────────────────────────
+   The summary's panel, showing a directory instead of a fold of the transcript, so nearly all of its
+   chrome is shared by class: `.pane-dock` for the card, `.summary-panel-head` for the title row,
+   `.summary-scroll-wrap` for the dissolve, `.summary-row` for a row. What is added here is the two
+   controls a LIST of files needs and a summary does not — which folder, and where in it. ── */
+.session-files { width: var(--summary-w); padding: 0 6px 8px;
+  max-height: calc(var(--dock-pane-h, 100vh) - var(--sidebar-inset) * 2); }
+/* Which of the two folders. A segmented pair on the panel's own ground rather than in a pill: the
+   panel is already a card, and a raised control inside a card is a second surface for two words. */
+.files-roots { flex: none; display: flex; align-items: center; gap: 2px; padding: 0 8px 6px; }
+.files-root { height: 22px; padding: 0 9px; border: 0; border-radius: var(--r-chip); corner-shape: squircle;
+  --fill: transparent; color: var(--rl-text-dim); font-size: 11.5px; box-shadow: none; }
+.files-root:hover { --fill: var(--rl-hover); color: var(--rl-text-bright); }
+.files-root[aria-checked="true"] { --fill: var(--rl-accent); color: var(--rl-accent-contrast); }
+/* The trail. Mono, because every segment is a path component and a proportional face makes a folder
+   name look like prose; the last crumb is where you are, so it is the only one that reads as text
+   rather than as a control. */
+.files-crumbs { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 2px; padding: 0 8px 6px;
+  font-family: var(--font-mono); font-size: 11px; }
+.files-crumb { padding: 1px 4px; border: 0; border-radius: var(--r-sm); background: none;
+  font: inherit; color: var(--rl-text-faint); }
+button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-hover); }
+.files-crumb[aria-current] { color: var(--rl-text-dim); }
+/* Between crumbs, and drawn by the stylesheet rather than rendered as its own element: a separator
+   is punctuation, not a node, and one per crumb is a node per folder in the path. */
+.files-crumb + .files-crumb::before { content: "/"; margin-right: 5px; color: var(--rl-text-faint); }
+/* Reading, empty, or capped — the three things this panel says in prose. */
+.files-note { margin: 0; padding: 6px 10px 10px; font-size: 11.5px; line-height: 1.45; color: var(--rl-text-faint); }
