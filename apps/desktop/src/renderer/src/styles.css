@@ -2698,6 +2698,31 @@ a.msg-chip:hover { text-decoration: underline; text-underline-offset: 2px; }
 .msg-action { position: relative; }
 .msg-action::after { content: ""; position: absolute; inset: -6px 0; }
 
+/* ── The selection bar (SelectionBar.tsx) ────────────────────────────────
+   Opens over a passage the reader selected in the transcript. Absolutely positioned in
+   `.transcript-wrap` — see the component for why it may not live inside the scroller — with its
+   coordinates written as inline `left`/`top`, which is the one thing here JS owns: they are measured
+   geometry per selection, not a value a stylesheet could hold.
+
+   The same raised-surface language as `.menu` and `.mention-picker`: this is one more floating
+   surface over the transcript, and a bar that invented its own fill and shadow would read as a
+   different kind of object than the pickers the prompter already opens. */
+.selection-bar { position: absolute; z-index: 100; display: flex; align-items: center; gap: 2px; padding: 3px;
+  background: var(--surface); border-radius: var(--r-panel); corner-shape: squircle; box-shadow: var(--shadow-raised);
+  /* The bar sits over text the user is mid-gesture on. Without this, the drag that made the
+     selection can continue INTO the bar and select its labels — and on the release the selection the
+     bar exists to act on is gone. */
+  user-select: none; }
+.selection-action { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px;
+  border-radius: var(--r-ctl); corner-shape: squircle; font-size: 12px; color: var(--rl-text-dim);
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+.selection-action:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+/* Quote is the primary, and it says so in WEIGHT and ink rather than in an accent fill: the bar is a
+   small surface floating over prose, and a filled accent button on it reads as an alert. The accent
+   is spent on the glyph alone, which is enough to rank two controls. */
+.selection-action.primary { color: var(--rl-text-bright); font-weight: var(--fw-label); }
+.selection-action.primary svg { color: var(--rl-accent); }
+
 /* The sources disclosure. Folded away by default: a citation is there to be checked, not read, and
    four urls between two messages cost every reader to serve the one who went looking. */
 .msg-sources { display: flex; flex-direction: column; gap: 6px; }

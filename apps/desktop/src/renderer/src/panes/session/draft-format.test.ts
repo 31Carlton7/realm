@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { scanMentions, stripMentionAts } from "@realm/contracts";
-import { chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, listItemAt, stepOverChip, toggleList, type Segment } from "./draft-format";
+import { chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, listItemAt, stepOverChip, toggleList, type Segment, appendQuote } from "./draft-format";
 
 /** A compact readout of the runs that carry a class — plain text is the uninteresting majority. */
 const painted = (segs: Segment[]) => segs.filter((s) => s.kind).map((s) => [s.kind, s.text]);
@@ -396,5 +396,48 @@ describe("highlightSegments — slash commands", () => {
       ["link", "https://x.dev/a"],
       ["mention", "@mac"],
     ]);
+  });
+});
+
+describe("appendQuote — a passage of the transcript, into the draft", () => {
+  it("prefixes every line and leaves the caret under the block", () => {
+    // The caret is the point. What the user is about to type is a question ABOUT the passage, and a
+    // caret left inside the `>` block would make their first sentence part of the quotation.
+    const e = appendQuote("", "one\ntwo");
+    expect(e.text).toBe("> one\n> two\n\n");
+    expect(e.start).toBe(e.text.length);
+    expect(e.end).toBe(e.text.length);
+  });
+
+  it("separates the quote from what was already typed", () => {
+    // THE MUTANT: concatenate. Markdown swallows a `>` that opens on the line after a paragraph, so
+    // the quote would render as part of the user's own sentence.
+    expect(appendQuote("about this:", "hello").text).toBe("about this:\n\n> hello\n\n");
+    // A draft that already ends blank has met the requirement; a second blank line is spacing, not
+    // syntax, and would push the quote further from what it answers on every successive quote.
+    expect(appendQuote("about this:\n\n", "hello").text).toBe("about this:\n\n> hello\n\n");
+  });
+
+  it("marks an interior blank line rather than leaving it empty", () => {
+    // THE MUTANT: leave the empty line bare. A blank line ENDS a blockquote, so a two-paragraph
+    // passage would render as two quotations with the reader's own prose apparently between them.
+    expect(appendQuote("", "one\n\ntwo").text).toBe("> one\n>\n> two\n\n");
+  });
+
+  it("drops the blank lines a drag picks up at either end", () => {
+    // Dragging past the end of a paragraph collects them, and each would become a `>` to delete.
+    expect(appendQuote("", "\n\nhello\n\n").text).toBe("> hello\n\n");
+    expect(appendQuote("", "hello   ").text).toBe("> hello\n\n");
+  });
+
+  it("leaves the draft alone when there was nothing but whitespace to quote", () => {
+    const e = appendQuote("keep me", "   \n  ");
+    expect(e.text).toBe("keep me");
+    expect(e.start).toBe("keep me".length);
+  });
+
+  it("quotes a passage that is itself a quote, rather than flattening it", () => {
+    // Nesting is the honest reading: the agent wrote a blockquote, and the user is quoting that.
+    expect(appendQuote("", "> they said\nand then").text).toBe("> > they said\n> and then\n\n");
   });
 });

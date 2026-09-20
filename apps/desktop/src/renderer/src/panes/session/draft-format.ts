@@ -358,3 +358,34 @@ export function deleteChipAt(spans: readonly ChipSpan[], text: string, caret: nu
   if (!chip) return null;
   return { text: text.slice(0, chip.start) + text.slice(chip.end), start: chip.start, end: chip.start };
 }
+
+/**
+ * Put a passage from the transcript into the draft as a blockquote, with the caret left under it.
+ *
+ * Markdown's own rules decide most of this and there is no latitude in them: a blockquote needs a
+ * blank line in front of it or it is swallowed by the paragraph above, and a blank line INSIDE one
+ * ends it — so an interior empty line gets a bare `>` rather than being left empty, which is the
+ * difference between one quotation and two with the reader's prose accidentally between them.
+ *
+ * The caret lands on the empty line after the quote, never inside it. What the user is about to type
+ * is a question ABOUT the passage, and a caret parked inside the `>` block would make their first
+ * sentence part of the thing they are asking about.
+ *
+ * Trailing blank lines in the selection are dropped — dragging past the end of a paragraph picks them
+ * up, and they would each become a `>` the user has to delete.
+ */
+export function appendQuote(draft: string, quote: string): DraftEdit {
+  const lines = quote.replace(/\r\n?/g, "\n").split("\n").map((l) => l.trimEnd());
+  while (lines.length > 0 && lines[0] === "") lines.shift();
+  while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  // Nothing but whitespace was selected. The draft is handed back untouched rather than growing an
+  // empty `>` — the caret goes to the end, which is where a no-op should leave it.
+  if (lines.length === 0) return { text: draft, start: draft.length, end: draft.length };
+  const block = lines.map((l) => (l === "" ? ">" : `> ${l}`)).join("\n");
+  // One blank line between the draft and the quote, and never two: the separator is markdown's
+  // requirement, not spacing, and a draft already ending in a blank line has met it.
+  const base = draft.replace(/\n+$/, "");
+  const lead = base === "" ? "" : `${base}\n\n`;
+  const text = `${lead}${block}\n\n`;
+  return { text, start: text.length, end: text.length };
+}

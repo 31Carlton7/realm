@@ -14,7 +14,7 @@ import { modelIdOn, modelRows } from "./model-rows";
 import { SkillPicker } from "./SkillPicker";
 import { ModelPicker, formatEffort, type FastMode, type OverflowGroup } from "./ModelPicker";
 import { heroGreeting } from "./greeting";
-import { chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, isChipKind, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
+import { appendQuote, chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, isChipKind, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
 import { AttachmentTile } from "./AttachmentTile";
 import { whenLabel } from "../schedules/SchedulesPage";
 import { DelegatedRuns } from "./DelegatedRuns";
@@ -419,7 +419,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, supportsFastMode, links, onLinkPaste, compact = false }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, supportsFastMode, links, onLinkPaste, quote = null, compact = false }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /**
    * The quick chat's prompter: the card, and only the card.
@@ -431,6 +431,17 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
    * model, attachments, and send.
    */
   compact?: boolean;
+  /**
+   * A passage the reader selected in the transcript, waiting to be quoted into the draft.
+   *
+   * A pulse (`{ text, n }`) rather than a plain string, because the same passage quoted twice is two
+   * requests and a value-equal prop would deliver only the first. It lands HERE rather than being
+   * appended to the draft by whoever handled the click, so that the insertion can end where every
+   * other insertion in this file ends — in `pendingSel`, which is the one path that focuses the
+   * textarea and places the caret. A store write alone would leave the quote in a prompter the
+   * reader still has to click into.
+   */
+  quote?: { text: string; n: number } | null;
   /** Open the diff pane for the session's checkout (W3) — what the branch/diff chips do. */
   onOpenDiff: () => void;
   draft: string; onDraftChange: (text: string) => void;
@@ -763,6 +774,20 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     if (el) { el.focus(); el.setSelectionRange(sel.start, sel.end); }
     setCaret(sel.start);
   }, [draft]);
+  /* A passage quoted out of the transcript.
+     The counter is what makes one arrival one insertion, and `applied` is what keeps it that way:
+     this effect writes the draft, which is one of its own dependencies, so it runs a second time
+     immediately — and the guard is what turns that second run into a no-op rather than a doubled
+     quote. Depending on the values honestly (rather than on the counter alone, with the rest read
+     out of refs written during render) is what makes the insertion see the CURRENT draft. */
+  const applied = useRef(0);
+  useEffect(() => {
+    if (!quote || quote.n === applied.current) return;
+    applied.current = quote.n;
+    const edit = appendQuote(draft, quote.text);
+    onDraftChange(edit.text);
+    pendingSel.current = { start: edit.start, end: edit.end };
+  }, [quote, draft, onDraftChange]);
   /** Insert `@id ` over the WHOLE token (start..end, not start..caret — `@ma|c` must not leave a
    *  stray `c`). The trailing space is the canonical delimiter the send-time scan expects. */
   const pickMention = (s: Skill) => {
