@@ -1,4 +1,4 @@
-import type { BlockedDownload, Browser, BrowserDownloadResult, BrowserPickedElement } from "@realm/contracts";
+import type { BlockedDownload, PasskeyNotice, Browser, BrowserDownloadResult, BrowserPickedElement } from "@realm/contracts";
 import { rpc } from "../../rpc/client";
 
 /** The per-space origin allowlist's settings key — stored like MCP enablement (`mcp.enabled:<spaceId>`),
@@ -69,6 +69,8 @@ export type BrowserHostBridge = {
   saveDownload(id: string, blockedId: string, dir: string): Promise<BrowserDownloadResult>;
   dismissDownload(id: string, blockedId: string): Promise<void>;
   onDownloadBlocked(cb: (m: { browserId: string; blocked: BlockedDownload }) => void): () => void;
+  /** A passkey request the pane refused, so a sign-in that goes nowhere says why (passkeys.ts). */
+  onPasskey(cb: (m: PasskeyNotice) => void): () => void;
 };
 
 /** The server side: the persisted row and the space's allowlist setting. */

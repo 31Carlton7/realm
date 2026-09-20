@@ -1,4 +1,4 @@
-import type { BlockedDownload, BrowserPickedElement } from "@realm/contracts";
+import type { BlockedDownload, PasskeyNotice, BrowserPickedElement } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { StoreApi } from "zustand";
@@ -84,6 +84,44 @@ function useBlockedDownloads(browserId: string, spaceId: string) {
   };
 
   return { top, busy, note, dismiss, save, clearNote: () => setNote(null) };
+}
+
+/**
+ * Why a passkey request did not go through (passkeys.ts).
+ *
+ * A refused WebAuthn request is silent by design — the page gets `NotAllowedError`, which every site
+ * renders as some variant of "that didn't work" — and the four reasons it can happen here need four
+ * different things from the user. The first one is the one that matters on a Mac: the passkeys in
+ * iCloud Keychain are not reachable from Electron, so a site the user already has a passkey on has
+ * none HERE until they register a second one.
+ *
+ * `rpId` is main's own derivation from the pane's real URL, never the page's claim, so naming a site
+ * in this bar is safe.
+ */
+function passkeyNoticeText(notice: PasskeyNotice): string {
+  switch (notice.refused) {
+    case "none":
+      return `No passkey for ${notice.rpId} in Realm yet. Sign in another way, then create one from that site's security settings — Realm can't use the passkeys in your iCloud Keychain.`;
+    case "no_presence":
+      return `Touch ID didn't confirm, so the passkey for ${notice.rpId} wasn't used.`;
+    case "rp_mismatch":
+      return `This page asked for a passkey belonging to ${notice.rpId}. Realm refused it.`;
+    case "unavailable":
+      return "This Mac has no Touch ID sensor, so Realm can't unlock a passkey.";
+  }
+}
+
+/** The pane's passkey bar: the last refusal, until the user dismisses it or navigates. */
+function usePasskeyNotice(browserId: string) {
+  const [notice, setNotice] = useState<PasskeyNotice | null>(null);
+  useEffect(() => {
+    const off = getBrowserBridges().host.onPasskey((m) => {
+      if (m.browserId !== browserId) return;
+      setNotice(m);
+    });
+    return off;
+  }, [browserId]);
+  return { notice, clear: () => setNotice(null) };
 }
 
 /**
@@ -213,6 +251,7 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
   const hasUrl = url !== "";
   const { actions, driving } = useAgentWatch(store, browserId);
   const downloads = useBlockedDownloads(browserId, item.spaceId);
+  const passkey = usePasskeyNotice(browserId);
   const picker = useElementPicker(browserId, store);
   const lastAction = actions.length > 0 ? actions[actions.length - 1]! : null;
 
@@ -428,6 +467,15 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
           )}
           <button type="button" className="icon-btn" aria-label="Dismiss"
             onClick={() => { if (downloads.top) downloads.dismiss(downloads.top.id); else downloads.clearNote(); }}>
+            <Icon name="close" size={12} />
+          </button>
+        </div>
+      )}
+      {passkey.notice && (
+        <div className="browser-notice" role="status">
+          <Icon name="key" size={12} />
+          <span className="browser-notice-text">{passkeyNoticeText(passkey.notice)}</span>
+          <button type="button" className="icon-btn" aria-label="Dismiss" onClick={passkey.clear}>
             <Icon name="close" size={12} />
           </button>
         </div>

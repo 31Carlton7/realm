@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { activeLayout, setActiveLayout, COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_KEYBINDINGS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack } from "@realm/contracts";
-import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult } from "@realm/contracts";
+import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { basenameOf, expandCommand, mimeForPath, nextFireOf } from "@realm/contracts";
 import type { CliStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageSummary, UsageTotals } from "@realm/contracts";
@@ -231,6 +231,9 @@ export type FakeData = {
   tccRows?: TccRow[];
   credentials?: BrowserCredential[];
   credentialStatus?: CredentialStatus;
+  /** Passkeys Realm holds. Like `credentials`, the fixture carries NO private key field — a fake
+   *  that kept one would be a fake that could pass a test main fails. */
+  passkeys?: Passkey[];
   /** Toasts main actually posted, in order — an OUTPUT, read as `api.data.shownNotifications`. */
   shownNotifications?: { id: string; title: string; body: string | null }[];
   /** The dock badge's last pushed value — also an output. Starts at 0, like a fresh dock. */
@@ -415,6 +418,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     modelCatalog: overrides.modelCatalog ?? [],
     credentials: overrides.credentials ?? [],
     credentialStatus: overrides.credentialStatus ?? { available: true, canPromptTouchID: true, presenceTtlMs: 0 },
+    passkeys: overrides.passkeys ?? [],
     lectures: overrides.lectures ?? {},
     plynn: overrides.plynn ?? { available: false, folder: "/tmp/plynn/Meetings", meetings: [] },
     guideProgress: overrides.guideProgress ?? {},
@@ -1115,6 +1119,13 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return data.credentials.length !== before;
     },
     credentialSetPresenceTtl: async (ms) => { calls.push(`credentialSetPresenceTtl:${ms}`); data.credentialStatus.presenceTtlMs = ms; return ms; },
+    passkeyList: async () => { calls.push("passkeyList"); return [...data.passkeys]; },
+    passkeyRemove: async (id) => {
+      calls.push(`passkeyRemove:${id}`);
+      const before = data.passkeys.length;
+      data.passkeys = data.passkeys.filter((p) => p.id !== id);
+      return data.passkeys.length !== before;
+    },
     openTccPane: async (pane) => { calls.push(`openTccPane:${pane}`); },
     macAccessStatus: async () => { calls.push("macAccessStatus"); return structuredClone(data.macAccess); },
     /** Models the real thing: the prompt goes up, the user answers, and the WHOLE audit is re-read —

@@ -1005,7 +1005,41 @@ describe("Sign-ins tab", () => {
     await waitFor(() => expect(api.calls).toContain("credentialRemove:cred-1"));
     await screen.findByText("No saved sign-ins yet.");
   });
+
+  /** The passkey half. What must die here: an Add button (a passkey is created by a site asking for
+   *  one and the user answering Touch ID, so there is nothing to type and no IPC to call), and a
+   *  Remove that lets someone believe it also removed the passkey from the site. */
+  const pk = {
+    id: "pk-1", rpId: "github.com", userName: "ada@example.com", userDisplayName: "Ada",
+    createdAt: 1, lastUsedAt: null,
+  };
+
+  it("lists passkeys by site and account, with NO way to add one by hand", async () => {
+    await signIns({ passkeys: [pk] });
+    const row = await screen.findByRole("listitem", { name: "github.com: ada@example.com" });
+    expect(within(row).getByText(/ada@example.com · Never used/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /add a passkey/i })).toBeNull();
+  });
+
+  it("says what removing a passkey does NOT do, which is the half that locks someone out", async () => {
+    await signIns({ passkeys: [pk] });
+    expect(await screen.findByText(/The site still lists the passkey/)).toBeInTheDocument();
+  });
+
+  it("removing a passkey goes through main and re-reads the list", async () => {
+    const { api } = await signIns({ passkeys: [pk] });
+    const row = await screen.findByRole("listitem", { name: "github.com: ada@example.com" });
+    fireEvent.click(within(row).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(api.calls).toContain("passkeyRemove:pk-1"));
+    await screen.findByText("No passkeys yet.");
+  });
+
+  it("states plainly that the passkeys in iCloud Keychain are out of reach, rather than letting a user wonder", async () => {
+    await signIns();
+    expect(await screen.findByText(/iCloud Keychain/)).toBeInTheDocument();
+  });
 });
+
 
 describe("Permissions tab — Apps on this Mac (the grantable half)", () => {
   const openPermissions = async (overrides: FakeData = {}) => {

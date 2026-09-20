@@ -158,6 +158,8 @@ export const liveApi = (): Api => ({
   credentialStatus: () => window.realm.credentials.status(),
   credentialAdd: (input) => window.realm.credentials.add(input),
   credentialRemove: (id) => window.realm.credentials.remove(id),
+  passkeyList: () => window.realm.passkeys.list(),
+  passkeyRemove: (id) => window.realm.passkeys.remove(id),
   credentialSetPresenceTtl: (ms) => window.realm.credentials.setPresenceTtl(ms),
   openTccPane: (pane) => window.realm.permissions.openSettings(pane),
   macAccessStatus: () => window.realm.macAccess.status(),

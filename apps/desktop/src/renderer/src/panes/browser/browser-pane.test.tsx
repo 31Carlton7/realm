@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import type { BlockedDownload, Browser, BrowserDownloadResult, BrowserPickedElement } from "@realm/contracts";
+import type { BlockedDownload, Browser, BrowserDownloadResult, BrowserPickedElement, PasskeyNotice } from "@realm/contracts";
 import { BrowserPane } from "./BrowserPane";
 import { setBrowserBridgesForTests, type BrowserBridges, type BrowserHostBridge, type BrowserServerBridge } from "./browser-client";
 import { SETTLE_MS, shouldShowView, isRealmItemDrag } from "./view-sync";
@@ -17,6 +17,7 @@ function fakeBridges(row: Partial<Browser> = {}) {
   const updates: Record<string, unknown>[] = [];
   const cbs = new Set<(s: StateMsg) => void>();
   const blockedCbs = new Set<(m: { browserId: string; blocked: BlockedDownload }) => void>();
+  const passkeyCbs = new Set<(m: PasskeyNotice) => void>();
   let allowlist: string[] | null = null;
   let downloadDir: string | null = "/tmp/proj/downloads";
   let saveResult: BrowserDownloadResult = { ok: true, name: "week-3.pdf", bytes: 2048, relPath: "downloads/week-3.pdf" };
@@ -38,6 +39,7 @@ function fakeBridges(row: Partial<Browser> = {}) {
     saveDownload: async (id, blockedId, dir) => { calls.push(`save:${id}:${blockedId}:${dir}`); return saveResult; },
     dismissDownload: async (id, blockedId) => { calls.push(`dismiss:${id}:${blockedId}`); },
     onDownloadBlocked: (cb) => { blockedCbs.add(cb); return () => blockedCbs.delete(cb); },
+    onPasskey: (cb) => { passkeyCbs.add(cb); return () => passkeyCbs.delete(cb); },
   };
   const server: BrowserServerBridge = {
     get: async () => r,
@@ -54,6 +56,10 @@ function fakeBridges(row: Partial<Browser> = {}) {
     settlePick: (el: BrowserPickedElement | null) => { pickResolve?.(el); pickResolve = null; },
     blockDownload: (blocked: BlockedDownload, browserId = "b1") => {
       for (const cb of blockedCbs) cb({ browserId, blocked });
+    },
+    refusePasskey: (notice: Partial<PasskeyNotice> = {}) => {
+      const full: PasskeyNotice = { browserId: "b1", rpId: "github.com", kind: "get", refused: "none", ...notice };
+      for (const cb of passkeyCbs) cb(full);
     },
     emit: (s: Partial<StateMsg>) => {
       const full: StateMsg = { id: "b1", url: "", title: "", loading: false, canGoBack: false, canGoForward: false, ...s };
@@ -511,6 +517,45 @@ describe("the blocked-download bar (Plan 23 W4)", () => {
 
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Dismiss" })); });
     expect(screen.getByRole("status")).toHaveTextContent("first.pdf");
+  });
+
+  /**
+   * A refused passkey request is invisible by design — the page gets `NotAllowedError` and renders
+   * its own "that didn't work" — so the bar is the only thing that tells the user which of four
+   * quite different problems they have. The one that matters on a Mac is the first: their existing
+   * passkey is in iCloud Keychain, where Electron cannot reach it.
+   */
+  it("says why a passkey request went nowhere, naming the site and the way out", async () => {
+    const f = await mountPane();
+    await act(async () => { f.refusePasskey({ refused: "none", rpId: "github.com" }); });
+    const bar = screen.getByRole("status");
+    expect(bar).toHaveTextContent("No passkey for github.com");
+    expect(bar).toHaveTextContent(/iCloud Keychain/);
+  });
+
+  it("tells the four refusals apart, because each needs something different from the user", async () => {
+    const f = await mountPane();
+    await act(async () => { f.refusePasskey({ refused: "no_presence", rpId: "github.com" }); });
+    expect(screen.getByRole("status")).toHaveTextContent("Touch ID didn't confirm");
+
+    await act(async () => { f.refusePasskey({ refused: "rp_mismatch", rpId: "github.com" }); });
+    expect(screen.getByRole("status")).toHaveTextContent("asked for a passkey belonging to github.com");
+
+    await act(async () => { f.refusePasskey({ refused: "unavailable", rpId: "github.com" }); });
+    expect(screen.getByRole("status")).toHaveTextContent("no Touch ID sensor");
+  });
+
+  it("ignores a passkey refusal belonging to ANOTHER pane", async () => {
+    const f = await mountPane();
+    await act(async () => { f.refusePasskey({ browserId: "b2" }); });
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("dismisses the passkey bar without touching the pane", async () => {
+    const f = await mountPane();
+    await act(async () => { f.refusePasskey(); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Dismiss" })); });
+    expect(screen.queryByRole("status")).toBeNull();
   });
 });
 

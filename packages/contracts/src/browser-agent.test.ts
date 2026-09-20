@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BROWSER_READ_ONLY_TOOLS, CREDENTIAL_PRESENCE_TTLS, DOWNLOAD_ALLOWED_EXTENSIONS,
-  downloadExtensionAllowed, normalizeOrigin,
+  downloadExtensionAllowed, normalizeOrigin, passkeyRpIdForPageUrl,
 } from "./browser-agent";
 
 /**
@@ -115,5 +115,53 @@ describe("downloadExtensionAllowed", () => {
   it("the list itself contains nothing executable (guards a careless addition)", () => {
     const executable = ["exe", "dmg", "pkg", "app", "command", "sh", "bash", "zsh", "bat", "ps1", "msi", "jar", "scpt", "applescript", "workflow", "webloc", "terminal", "kext", "dylib", "so", "py", "rb", "pl"];
     for (const bad of executable) expect(DOWNLOAD_ALLOWED_EXTENSIONS, bad).not.toContain(bad);
+  });
+});
+
+/**
+ * `passkeyRpIdForPageUrl` is the passkey half of the same gate `normalizeOrigin` is for passwords,
+ * and it is deliberately a DIFFERENT rule: WebAuthn scopes a credential to a registrable domain, so
+ * `gist.github.com` using `github.com`'s passkey is the design working, while a password saved for
+ * `https://github.com` filling on `gist.github.com` would be the hole.
+ *
+ * What it decides in Realm is which private keys get unsealed and which site a Touch ID prompt is
+ * allowed to name, so its mutants are: the leading dot dropped from the suffix test, the claim
+ * trusted when the page's own host disagrees, and a non-web page allowed to ask at all.
+ */
+describe("passkeyRpIdForPageUrl", () => {
+  it("falls back to the page's own host when the page states no rp id, as the spec does", () => {
+    expect(passkeyRpIdForPageUrl(null, "https://github.com/login")).toBe("github.com");
+    expect(passkeyRpIdForPageUrl("", "https://github.com/login")).toBe("github.com");
+  });
+
+  it("lets a subdomain claim its parent — the case passkeys exist to serve", () => {
+    expect(passkeyRpIdForPageUrl("github.com", "https://gist.github.com/x")).toBe("github.com");
+    expect(passkeyRpIdForPageUrl("github.com", "https://github.com/x")).toBe("github.com");
+  });
+
+  it("requires the suffix to start at a label boundary (mutant: the leading dot dropped)", () => {
+    // Without the dot, "notgithub.com".endsWith("github.com") is true, and a lookalike registered
+    // this morning gets a Touch ID prompt naming github.com.
+    expect(passkeyRpIdForPageUrl("github.com", "https://notgithub.com/login")).toBeNull();
+    expect(passkeyRpIdForPageUrl("github.com", "https://github.com.evil.example/login")).toBeNull();
+  });
+
+  it("refuses a parent claiming a child, and an unrelated site entirely", () => {
+    expect(passkeyRpIdForPageUrl("gist.github.com", "https://github.com/x")).toBeNull();
+    expect(passkeyRpIdForPageUrl("github.com", "https://example.com/x")).toBeNull();
+  });
+
+  it("is case-insensitive about hosts, which DNS is", () => {
+    expect(passkeyRpIdForPageUrl("GitHub.com", "https://GIST.GITHUB.COM/x")).toBe("github.com");
+  });
+
+  it("refuses pages a passkey has no business on", () => {
+    expect(passkeyRpIdForPageUrl(null, "about:blank")).toBeNull();
+    expect(passkeyRpIdForPageUrl(null, "file:///tmp/x.html")).toBeNull();
+    expect(passkeyRpIdForPageUrl(null, "data:text/html,hi")).toBeNull();
+    expect(passkeyRpIdForPageUrl(null, "not a url")).toBeNull();
+    // A bare host with no dot is not a registrable domain — except the one everybody develops on.
+    expect(passkeyRpIdForPageUrl(null, "https://intranet/login")).toBeNull();
+    expect(passkeyRpIdForPageUrl(null, "http://localhost:3000/login")).toBe("localhost");
   });
 });

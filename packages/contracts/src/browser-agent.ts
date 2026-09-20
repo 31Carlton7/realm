@@ -398,3 +398,96 @@ export const PICK_HTML_MAX = 1200;
  *  path via `pushState`, and can make either enormous. */
 export const PICK_URL_MAX = 2048;
 export const PICK_TITLE_MAX = 300;
+
+/* ---------------------------------- passkeys ---------------------------------- */
+
+/**
+ * A passkey Realm holds, as every surface outside the secret store sees it.
+ *
+ * Same shape of promise as `BrowserCredential` and for the same reason: NO FIELD FOR A PRIVATE KEY.
+ * The key exists as ciphertext in Electron main's secret store and, for the duration of one request
+ * the user approved with Touch ID, inside the pane's virtual authenticator. It is cleared out of the
+ * authenticator when that request settles, so a pane sitting idle holds no key material at all.
+ *
+ * `rpId` is a bare hostname (`github.com`), not an origin — that is what WebAuthn scopes a credential
+ * to, and it is deliberately NOT the origin rule `normalizeOrigin` implements for passwords. A
+ * passkey for `github.com` is designed to work on `gist.github.com`; a password for
+ * `https://github.com` is designed not to. Both rules are correct for their own credential type, and
+ * `passkeyRpIdForPageUrl` is where the WebAuthn one is written down.
+ *
+ * `userName` and `userDisplayName` come from the relying party at registration — they are the only
+ * page-authored strings here, they are clipped on the way in, and they are shown only in Settings
+ * beside the `rpId` Realm derived itself.
+ */
+export type Passkey = {
+  id: string;
+  rpId: string;
+  userName: string;
+  userDisplayName: string;
+  createdAt: number;
+  lastUsedAt: number | null;
+};
+
+/** Clip for the two relying-party-authored strings on a passkey. Long enough for a real email
+ *  address and a real display name; short enough that a row in Settings cannot be made into a
+ *  paragraph by the site that registered it. */
+export const PASSKEY_NAME_MAX = 128;
+
+/**
+ * Why a passkey request was refused, in the words the pane's notice uses.
+ *
+ * Each of these is a DIFFERENT thing for the user to do next, which is why they are not one message:
+ * `none` means register one, `no_presence` means the fingerprint check did not pass, `rp_mismatch`
+ * means the page asked for a passkey belonging to some other site, and `unavailable` means this Mac
+ * cannot do the Touch ID check at all.
+ */
+export type PasskeyRefusal = "none" | "no_presence" | "rp_mismatch" | "unavailable";
+
+/** What the pane is told when a passkey request did not go through. `rpId` is Realm's own derivation
+ *  from the pane's real URL, never the page's claim, so the notice can name a site safely. */
+export type PasskeyNotice = {
+  browserId: string;
+  rpId: string;
+  kind: "create" | "get";
+  refused: PasskeyRefusal;
+};
+
+/**
+ * The rp id a page at `pageUrl` is allowed to ask for, or null when it may not ask at all.
+ *
+ * This is the WebAuthn scoping rule, and Chromium enforces it again below us — it is written here
+ * anyway because Realm makes two decisions BEFORE dispatch that Chromium never sees: whether to
+ * raise a Touch ID prompt, and which of the user's private keys to unseal. Both must be made on the
+ * page's real origin rather than on the `rp.id` the page put in the options object, or a page could
+ * name `github.com` and have Realm prompt for, and unseal, a passkey that is not its own.
+ *
+ *   - `null` rpId means "my own host", which is what the spec says and what most sites send.
+ *   - A stated rpId must be the page's host or a dot-suffix of it: `github.com` from
+ *     `gist.github.com` is allowed, `github.com` from `github.com.evil.example` is not, because the
+ *     suffix must begin at a label boundary.
+ *   - http(s) only, and never a bare IP or a host with no dot — `localhost` is the one exception,
+ *     because it is a secure context and it is where anyone testing a sign-in flow works.
+ *
+ * Note what this does NOT do: consult the public suffix list. Chromium refuses `co.uk` at dispatch
+ * and Realm's answer to a request it should not have prompted for is a refusal the user sees, not a
+ * silent success — so the cost of being stricter here than the spec is zero and the cost of being
+ * looser is a prompt for the wrong site.
+ */
+export function passkeyRpIdForPageUrl(rpId: string | null | undefined, pageUrl: string): string | null {
+  let url: URL;
+  try { url = new URL(pageUrl); } catch { return null; }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  const host = url.hostname.toLowerCase();
+  if (!host) return null;
+  if (host !== "localhost" && !host.includes(".")) return null;
+  const claimed = (rpId ?? "").trim().toLowerCase();
+  if (!claimed) return host;
+  if (claimed === host) return claimed;
+  // The dot is part of the suffix on purpose: without it "notgithub.com" ends with "github.com".
+  return host.endsWith(`.${claimed}`) ? claimed : null;
+}
+
+/** Where passkeys live and what using one costs, said once so no surface invents its own wording —
+ *  the `CREDENTIAL_STORAGE_NOTE` of this feature, and just as unhedged about its limits. */
+export const PASSKEY_STORAGE_NOTE =
+  "Passkeys created in Realm's browser are held by Realm: the private key is encrypted with a key in your macOS Keychain and stored in Realm's home directory, and it is loaded into a page's authenticator only for the one request you approved with Touch ID. Realm cannot reach the passkeys in your iCloud Keychain — macOS only offers those to browsers Apple has entitled — so a site you already use a passkey on needs a second one registered here.";

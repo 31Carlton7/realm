@@ -11,7 +11,7 @@ import {
   DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
-  type AgentKind, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageSummary,
+  type AgentKind, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -382,6 +382,10 @@ export type Api = {
   credentialAdd(input: BrowserCredentialInput): Promise<BrowserCredential>;
   credentialRemove(id: string): Promise<boolean>;
   credentialSetPresenceTtl(ms: number): Promise<number>;
+  /** The passkeys Realm holds, and the one way to forget one. No `add`: a passkey is created by a
+   *  site asking for one in a pane and the user answering Touch ID. */
+  passkeyList(): Promise<Passkey[]>;
+  passkeyRemove(id: string): Promise<boolean>;
   /** Deep-link one permission row's System Settings pane. Takes the ROW id; main owns the URLs. */
   openTccPane(pane: string): Promise<void>;
   /** `mac doctor` through main — the prompt-free audit behind the "Apps on this Mac" rows. */
@@ -964,6 +968,9 @@ export type AppState = {
   /** Enrolled sign-ins; null until first load. Metadata only — see `credentialList`. */
   credentials: BrowserCredential[] | null;
   credentialStatus: CredentialStatus | null;
+  /** Passkeys Realm holds; null until first load. Metadata only — the private key has no field to
+   *  travel in, here or anywhere the renderer can reach. */
+  passkeys: Passkey[] | null;
   /** The `mac` CLI's access, exactly as `mac doctor` reported it through main; null until the
    *  Permissions tab first asks. Never synthesised client-side: an audit that could not run comes
    *  back with every row `unknown`, which is what "we don't know" looks like. */
@@ -1848,6 +1855,7 @@ export type AppState = {
   addCredential(input: BrowserCredentialInput): Promise<void>;
   removeCredential(id: string): Promise<void>;
   setCredentialPresenceTtl(ms: number): Promise<void>;
+  removePasskey(id: string): Promise<void>;
   /** Deep-link a permission row's System Settings pane (by row id; main owns the URLs). */
   openTccPane(pane: string): Promise<void>;
   /** Re-run `mac doctor` into `macAccess`. Prompt-free, so the tab may call it freely. */
@@ -2641,7 +2649,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
       spacePageTab: {}, profilePageTab: {}, librarySkill: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
+      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -4746,14 +4754,17 @@ await get().refreshCustomThemes().catch(() => {});
       },
       async refreshTcc() { set({ tccRows: await api.tccProbe() }); },
       async refreshCredentials() {
-        const [credentials, credentialStatus] = await Promise.all([api.credentialList(), api.credentialStatus()]);
-        set({ credentials, credentialStatus });
+        const [credentials, credentialStatus, passkeys] = await Promise.all([
+          api.credentialList(), api.credentialStatus(), api.passkeyList(),
+        ]);
+        set({ credentials, credentialStatus, passkeys });
       },
       // Each of these re-reads rather than patching local state: main clamps the TTL and mints the
       // id, so what it returns is the truth and a locally-patched list would be a guess at it.
       async addCredential(input) { await api.credentialAdd(input); await get().refreshCredentials(); },
       async removeCredential(id) { await api.credentialRemove(id); await get().refreshCredentials(); },
       async setCredentialPresenceTtl(ms) { await api.credentialSetPresenceTtl(ms); await get().refreshCredentials(); },
+      async removePasskey(id) { await api.passkeyRemove(id); await get().refreshCredentials(); },
       async openTccPane(pane) { await api.openTccPane(pane); },
       /** Straight through: an icon is a fact about the machine, with nothing in the store to keep in
        *  step. The caller memoises what it gets (`APP_ICONS`). */

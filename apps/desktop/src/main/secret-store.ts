@@ -45,8 +45,8 @@ import {
   isSealed, newSecretKey, open, seal, SECRET_KEY_BYTES, type SecretDomain,
 } from "@realm/contracts/src/secret-box";
 import {
-  CREDENTIAL_PRESENCE_TTLS, normalizeOrigin,
-  type BrowserCredential, type BrowserCredentialInput,
+  CREDENTIAL_PRESENCE_TTLS, normalizeOrigin, PASSKEY_NAME_MAX,
+  type BrowserCredential, type BrowserCredentialInput, type Passkey,
 } from "@realm/contracts";
 
 /** The slice of Electron's `safeStorage` this needs. */
@@ -65,6 +65,17 @@ export type CredentialAuditEntry = {
   origin: string;
   credentialId: string;
   outcome: "filled" | "origin_mismatch" | "no_credential" | "no_presence" | "error";
+};
+
+/** One line of the passkey audit log, written to the same file for the same reason: an auditor asks
+ *  "was a key of mine used, for which site, and did it go through", and every answer past that is
+ *  the key leaking by instalments. `rpId` is Realm's own derivation from the pane's URL, never the
+ *  page's claim, so a log line cannot be authored by a page. */
+export type PasskeyAuditEntry = {
+  ts: number;
+  rpId: string;
+  kind: "create" | "get";
+  outcome: "used" | "created" | "rp_mismatch" | "no_passkey" | "no_presence" | "error";
 };
 
 export type SecretStoreDeps = {
@@ -92,10 +103,47 @@ export type SecretStoreDeps = {
 };
 
 type StoredCredential = BrowserCredential & { sealed: string };
+
+/** A passkey as it sits on disk. `sealed` is the PKCS#8 private key under the `passkey` domain;
+ *  everything beside it is what the virtual authenticator needs handed back to reconstitute the
+ *  credential, and `signCount` is the one field that MUST be written back after every assertion —
+ *  a relying party that sees a counter go backwards is looking at what it is entitled to treat as a
+ *  cloned authenticator. */
+type StoredPasskey = Passkey & {
+  credentialId: string;
+  userHandle: string | null;
+  signCount: number;
+  sealed: string;
+};
+
+/** What `withPasskeysFor` hands its callback: the door the private key leaves by, and the only one.
+ *  Deliberately declared here rather than in `@realm/contracts` — a type with a `privateKey` field
+ *  has no business being importable by the renderer, the server, or the MCP surface. */
+export type PasskeyKeyMaterial = {
+  credentialId: string;
+  rpId: string;
+  userHandle: string | null;
+  privateKey: string;
+  signCount: number;
+};
+
+/** What a caller hands `recordPasskey` after a registration the user approved. One way, like
+ *  `BrowserCredentialInput`: there is no matching read shape because there is no read. */
+export type PasskeyInput = {
+  rpId: string;
+  userName: string;
+  userDisplayName: string;
+  credentialId: string;
+  userHandle: string | null;
+  signCount: number;
+  privateKey: string;
+};
+
 type StoreFile = {
   version: number;
   keyring: string;
   credentials: StoredCredential[];
+  passkeys: StoredPasskey[];
   presenceTtlMs: number;
 };
 
@@ -197,7 +245,10 @@ export class SecretStore {
     const row = this.load().credentials.find((c) => c.id === id);
     if (!row) return { ok: false, refused: "no_credential" };
 
-    if (!(await this.requirePresence(row))) return { ok: false, refused: "no_presence" };
+    const who = row.username ? `${row.username} on ${row.origin}` : row.origin;
+    if (!(await this.requirePresence(`fill your saved sign-in for ${who}`))) {
+      return { ok: false, refused: "no_presence" };
+    }
 
     const value = this.available ? open(this.key("credential"), "credential", row.sealed) : null;
     // An unopenable blob is a credential that is gone — a Keychain item revoked, a file restored from
@@ -215,14 +266,146 @@ export class SecretStore {
    * meaning every fill prompts; the longer settings exist because one sign-in is often two fills
    * across an SSO redirect, and prompting twice in six seconds teaches people to approve without
    * reading — which costs more than the window does.
+   *
+   * Passwords and passkeys share this ONE window rather than keeping a private one each. A sign-in
+   * that is a fill and then a passkey assertion is the same sign-in to the person doing it, and the
+   * alternative is a second timeout nobody configured and no screen mentions.
    */
-  private async requirePresence(row: StoredCredential): Promise<boolean> {
+  private async requirePresence(reason: string): Promise<boolean> {
     if (this.presenceTtlMs > 0 && this.d.now() < this.presenceUntil) return true;
-    const who = row.username ? `${row.username} on ${row.origin}` : row.origin;
-    const granted = await this.d.promptPresence(`fill your saved sign-in for ${who}`).catch(() => false);
+    const granted = await this.d.promptPresence(reason).catch(() => false);
     // Only a SUCCESSFUL check opens the window; a denial does not shorten or extend an existing one.
     if (granted && this.presenceTtlMs > 0) this.presenceUntil = this.d.now() + this.presenceTtlMs;
     return granted;
+  }
+
+  /* ---------------------------------- passkeys ---------------------------------- */
+
+  /** Metadata for every passkey Realm holds. `sealed` is stripped HERE, at the boundary, for the
+   *  same reason it is for credentials. */
+  listPasskeys(): Passkey[] {
+    return this.load().passkeys.map(stripPasskey);
+  }
+
+  /**
+   * Whether any passkey exists for this rp id — the question that decides whether a Touch ID prompt
+   * is raised at all.
+   *
+   * It is metadata, deliberately answerable WITHOUT presence, because the alternative is worse: a
+   * page that asks for a passkey Realm does not hold would otherwise raise a fingerprint prompt that
+   * could only ever fail. A prompt a user cannot satisfy teaches them to dismiss prompts, which is
+   * the reflex the whole gate depends on them not having.
+   */
+  hasPasskeyFor(rpId: string): boolean {
+    return this.load().passkeys.some((p) => p.rpId === rpId);
+  }
+
+  /**
+   * Remember a passkey the user just registered. Takes a private key and returns metadata: one way,
+   * like `addCredential`, and with no matching read.
+   *
+   * Unlike `addCredential` this IS reachable from a page-initiated flow, and that is not an
+   * oversight — registering a passkey is a thing a website asks for by design. What bounds it is the
+   * step before: the caller only gets here after the user answered Touch ID for a create on an rp id
+   * Realm derived from the pane's own URL. A page that is never approved never reaches this method,
+   * and one that is approved has been told exactly which site it is registering with.
+   */
+  recordPasskey(input: PasskeyInput): Passkey {
+    if (!this.available) {
+      throw new SecretStoreError("macOS is not offering Realm an encryption key right now (Keychain unavailable), so Realm will not save a passkey.");
+    }
+    const file = this.load();
+    const row: StoredPasskey = {
+      id: this.d.newId(),
+      rpId: input.rpId,
+      userName: clipName(input.userName),
+      userDisplayName: clipName(input.userDisplayName),
+      createdAt: this.d.now(),
+      lastUsedAt: null,
+      credentialId: input.credentialId,
+      userHandle: input.userHandle,
+      signCount: input.signCount,
+      sealed: seal(this.key("passkey"), "passkey", input.privateKey),
+    };
+    // A site that re-registers replaces rather than accumulates: the relying party has just been
+    // told the OLD credential id is gone, and keeping it would offer the user a key the site will
+    // refuse. Matched on the credential id the authenticator minted, which is unique per key.
+    file.passkeys = file.passkeys.filter((p) => p.credentialId !== row.credentialId);
+    file.passkeys.push(row);
+    this.save();
+    return stripPasskey(row);
+  }
+
+  /**
+   * Run `use` with every private key Realm holds for `rpId`, after the OS says a human is present.
+   *
+   * The same callback shape as `withCredentialValue`, made structural for the same reason: no return
+   * path for the material, the keys are a parameter and never a resolution, and `use`'s result is
+   * discarded. The caller loads them into a pane's virtual authenticator, lets the one request the
+   * user approved run, and clears them out again before this promise resolves.
+   *
+   * ORDER MATTERS and is fixed by the caller: the rp id is derived from the pane's REAL url by
+   * `passkeyRpIdForPageUrl` before this is called, so a page claiming to be `github.com` is refused
+   * without the user ever seeing a fingerprint prompt.
+   */
+  async withPasskeysFor(
+    rpId: string,
+    kind: "create" | "get",
+    use: (keys: PasskeyKeyMaterial[]) => Promise<void>,
+  ): Promise<{ ok: true } | { ok: false; refused: "no_passkey" | "no_presence" }> {
+    const rows = this.load().passkeys.filter((p) => p.rpId === rpId);
+    // A `get` with nothing to assert is refused before the prompt — see `hasPasskeyFor`. A `create`
+    // with nothing is the ordinary case: that is what registering a first passkey looks like.
+    if (kind === "get" && rows.length === 0) return { ok: false, refused: "no_passkey" };
+
+    const reason = kind === "create" ? `create a passkey for ${rpId}` : `use your passkey for ${rpId}`;
+    if (!(await this.requirePresence(reason))) return { ok: false, refused: "no_presence" };
+
+    const keys: PasskeyKeyMaterial[] = [];
+    for (const row of rows) {
+      const privateKey = this.available ? open(this.key("passkey"), "passkey", row.sealed) : null;
+      // An unopenable blob is a key that is gone — a Keychain item revoked, a file restored from
+      // another Mac's backup. Skipped rather than fatal: the other passkeys for this site still
+      // work, and a `get` that ends up with none refuses at the authenticator like any other.
+      if (privateKey === null) continue;
+      keys.push({
+        credentialId: row.credentialId, rpId: row.rpId, userHandle: row.userHandle,
+        privateKey, signCount: row.signCount,
+      });
+    }
+    if (kind === "get" && keys.length === 0) return { ok: false, refused: "no_passkey" };
+
+    await use(keys);
+    return { ok: true };
+  }
+
+  /**
+   * Write back what an assertion changed. The signature counter is the whole point: a relying party
+   * that sees one go backwards is entitled to treat the authenticator as cloned and lock the
+   * account, so a counter that only lived in the pane would break the passkey on the pane's next
+   * restart rather than at the moment the bug was written.
+   */
+  notePasskeyUse(credentialId: string, signCount: number): void {
+    const file = this.load();
+    const row = file.passkeys.find((p) => p.credentialId === credentialId);
+    if (!row) return;
+    // Never backwards: a stale report from a pane whose keys were cleared mid-request must not undo
+    // a later assertion's count.
+    row.signCount = Math.max(row.signCount, signCount);
+    row.lastUsedAt = this.d.now();
+    this.save();
+  }
+
+  /** Forget one. Returns whether anything was there, so Settings reports honestly rather than
+   *  claiming a deletion that removed nothing. Note what this cannot do: the relying party still
+   *  lists the passkey, and only the user can remove it there. */
+  removePasskey(id: string): boolean {
+    const file = this.load();
+    const before = file.passkeys.length;
+    file.passkeys = file.passkeys.filter((p) => p.id !== id);
+    if (file.passkeys.length === before) return false;
+    this.save();
+    return true;
   }
 
   /* ---------------------------------- settings ---------------------------------- */
@@ -247,7 +430,7 @@ export class SecretStore {
   /** One JSONL line per fill attempt, whatever the outcome. Never throws: an unwritable log is a
    *  degraded audit trail, not a reason to fail a sign-in the user just approved with their
    *  fingerprint. */
-  audit(entry: CredentialAuditEntry): void {
+  audit(entry: CredentialAuditEntry | PasskeyAuditEntry): void {
     try { this.d.appendAudit(`${JSON.stringify(entry)}\n`); } catch { /* see above */ }
   }
 
@@ -314,6 +497,7 @@ export class SecretStore {
       version: FILE_VERSION,
       keyring: typeof parsed?.keyring === "string" ? parsed.keyring : "",
       credentials: Array.isArray(parsed?.credentials) ? parsed.credentials.filter(isStoredCredential) : [],
+      passkeys: Array.isArray(parsed?.passkeys) ? parsed.passkeys.filter(isStoredPasskey) : [],
       presenceTtlMs: (CREDENTIAL_PRESENCE_TTLS as readonly number[]).includes(parsed?.presenceTtlMs as number)
         ? (parsed!.presenceTtlMs as number) : 0,
     };
@@ -345,11 +529,11 @@ export class SecretStore {
              launch after an update, because a feature nobody had used yet wanted a third key.
              Minted and folded in beside the other two instead — the existing keys are untouched, so
              nothing sealed under them stops opening. */
-          /* `machine` and `eggs` were both added after this keyring's shape was settled, and both
-             are folded in the same way and for the reason above: a missing domain is a key to mint,
-             never a corrupt keyring to discard. */
+          /* `machine`, `eggs` and `passkey` were each added after this keyring's shape was settled,
+             and all three are folded in the same way and for the reason above: a missing domain is a
+             key to mint, never a corrupt keyring to discard. */
           const added: Record<string, string> = {};
-          const fold = (name: "machine" | "eggs"): Buffer => {
+          const fold = (name: "machine" | "eggs" | "passkey"): Buffer => {
             const existing = Buffer.from(String(json[name] ?? ""), "base64");
             if (existing.length === SECRET_KEY_BYTES) return existing;
             const minted = newSecretKey();
@@ -358,23 +542,32 @@ export class SecretStore {
           };
           const machine = fold("machine");
           const eggs = fold("eggs");
+          const passkey = fold("passkey");
           if (Object.keys(added).length > 0) {
             file.keyring = this.d.safeStorage.encryptString(JSON.stringify({ ...json, ...added })).toString("base64");
             this.file = file;
             this.save();
           }
-          return { oauth, credential, machine, eggs };
+          return { oauth, credential, machine, eggs, passkey };
         }
       } catch { /* falls through to a fresh keyring */ }
       file.credentials = [];
+      // Sealed under keys that are gone, so every assertion would refuse with no way for the user to
+      // see why. Dropped for the same reason the credentials are, and recovered the same way: by
+      // registering a new passkey from the site's own settings.
+      file.passkeys = [];
     }
-    const keys = { oauth: newSecretKey(), credential: newSecretKey(), machine: newSecretKey(), eggs: newSecretKey() };
+    const keys = {
+      oauth: newSecretKey(), credential: newSecretKey(), machine: newSecretKey(),
+      eggs: newSecretKey(), passkey: newSecretKey(),
+    };
     file.keyring = this.d.safeStorage
       .encryptString(JSON.stringify({
         oauth: keys.oauth.toString("base64"),
         credential: keys.credential.toString("base64"),
         machine: keys.machine.toString("base64"),
         eggs: keys.eggs.toString("base64"),
+        passkey: keys.passkey.toString("base64"),
       }))
       .toString("base64");
     this.file = file;
@@ -395,10 +588,37 @@ function strip(c: StoredCredential): BrowserCredential {
   return { id: c.id, origin: c.origin, username: c.username, label: c.label, createdAt: c.createdAt };
 }
 
+/** `Passkey` from a stored row — the projection that drops `sealed` and the authenticator's own
+ *  fields. Written as an explicit field list, like `strip`, so that adding a field to the stored
+ *  shape cannot silently start returning it. */
+function stripPasskey(p: StoredPasskey): Passkey {
+  return {
+    id: p.id, rpId: p.rpId, userName: p.userName, userDisplayName: p.userDisplayName,
+    createdAt: p.createdAt, lastUsedAt: p.lastUsedAt,
+  };
+}
+
+/** The two relying-party-authored strings on a passkey, clipped on the way IN rather than on the way
+ *  out, so no surface has to remember to do it. */
+function clipName(v: string): string {
+  const trimmed = v.trim();
+  return trimmed.length > PASSKEY_NAME_MAX ? trimmed.slice(0, PASSKEY_NAME_MAX) : trimmed;
+}
+
 function isStoredCredential(v: unknown): v is StoredCredential {
   if (typeof v !== "object" || v === null) return false;
   const c = v as Record<string, unknown>;
   return typeof c.id === "string" && typeof c.origin === "string" && typeof c.username === "string"
     && typeof c.label === "string" && typeof c.createdAt === "number"
     && typeof c.sealed === "string" && isSealed(c.sealed);
+}
+
+function isStoredPasskey(v: unknown): v is StoredPasskey {
+  if (typeof v !== "object" || v === null) return false;
+  const p = v as Record<string, unknown>;
+  return typeof p.id === "string" && typeof p.rpId === "string" && typeof p.userName === "string"
+    && typeof p.userDisplayName === "string" && typeof p.createdAt === "number"
+    && (p.lastUsedAt === null || typeof p.lastUsedAt === "number")
+    && typeof p.credentialId === "string" && (p.userHandle === null || typeof p.userHandle === "string")
+    && typeof p.signCount === "number" && typeof p.sealed === "string" && isSealed(p.sealed);
 }

@@ -2,11 +2,49 @@ import { WebContentsView, screen, session, type BrowserWindow, type WebContents 
 import { BrowserPaneHost, browserUserAgent, type ViewFactory } from "./browser-host";
 import type { CdpBinding } from "./browser-agent-host";
 import type { DownloadDecision, DownloadItemLike } from "./downloads";
+import type { PasskeyCdp } from "./passkeys";
 
 /** The browser views' session partition. Persistent and Realm's own: never the user's daily Chrome
  *  profile — they log in once inside Realm, and the isolation is structural (capability research §5:
  *  no shared cookies/autofill/OAuth grants with any real browser). */
 export const BROWSER_PARTITION = "persist:browser";
+
+/** Installs the pane's virtual authenticator and the passkey shim (passkeys.ts). Injected rather
+ *  than imported so the factory stays testable and a build without it simply has no passkeys. */
+export type PasskeyInstaller = (id: string, cdp: PasskeyCdp) => Promise<void>;
+
+/**
+ * How long the first navigation waits for the passkey install before going ahead without it.
+ *
+ * The install must finish BEFORE the first document runs script — a conditional-mediation get that
+ * escapes the shim poisons the modal request the page's own passkey button makes next (passkeys.ts,
+ * fact 4). But a pane that never loads is a worse failure than a pane without passkeys, so the wait
+ * is bounded and the page wins the tie.
+ */
+export const PASSKEY_INSTALL_TIMEOUT_MS = 5_000;
+
+/**
+ * Put the authenticator and the shim in place before the pane's first real page.
+ *
+ * The `about:blank` is not ceremony. `WebAuthn.enable` and `addVirtualAuthenticator` answer on a view
+ * that has never loaded anything, but `Page.enable`, `Runtime.enable` and `Runtime.addBinding` do
+ * not — on a document-less view they never return at all (measured, Electron 37). One in-process
+ * navigation to the emptiest document there is gives them something to attach to.
+ */
+async function installPasskeys(id: string, wc: WebContents, install: PasskeyInstaller): Promise<void> {
+  try {
+    await wc.loadURL("about:blank");
+    if (wc.isDestroyed()) return;
+    if (!wc.debugger.isAttached()) wc.debugger.attach("1.3");
+    await install(id, {
+      send: (method, params) => wc.debugger.sendCommand(method, params) as Promise<unknown>,
+      onEvent: (cb) => { wc.debugger.on("message", (_e, method, params) => cb(method, params)); },
+    });
+  } catch {
+    // A pane without passkey support is exactly the pane Realm shipped before this existed. A pane
+    // whose first navigation never happens is not.
+  }
+}
 
 /**
  * The thin Electron half of the browser pane (Plan 11 W1): every decision is in browser-host.ts;
@@ -18,7 +56,11 @@ export const BROWSER_PARTITION = "persist:browser";
  * neutral ground most pages assume) so no vibrancy material ever shines through page transparency.
  * Within its bounds it covers the renderer; outside them it does not exist — nothing else to verify.
  */
-export function electronViewFactory(win: BrowserWindow, onView?: (id: string, wc: WebContents | null) => void): ViewFactory {
+export function electronViewFactory(
+  win: BrowserWindow,
+  onView?: (id: string, wc: WebContents | null) => void,
+  installPasskeysFor?: PasskeyInstaller,
+): ViewFactory {
   return (id, hooks) => {
     const view = new WebContentsView({
       webPreferences: {
@@ -46,6 +88,16 @@ export function electronViewFactory(win: BrowserWindow, onView?: (id: string, wc
     wc.setUserAgent(browserUserAgent(wc.getUserAgent()));
     onView?.(id, wc);
 
+    // The URL the pane was ASKED for, which is what every reader of this view's state wants to hear
+    // about — `about:blank` below is Realm's own bootstrap and belongs to nobody's address bar.
+    let wanted: string | null = null;
+    const ready = installPasskeysFor
+      ? Promise.race([
+          installPasskeys(id, wc, installPasskeysFor),
+          new Promise<void>((r) => setTimeout(r, PASSKEY_INSTALL_TIMEOUT_MS).unref?.()),
+        ])
+      : Promise.resolve();
+
     // Guard 1: no popups, ever — a window.open becomes an in-place navigation (allowlist-checked
     // inside the host's navigate), so the pane can never spawn a window Realm does not manage.
     wc.setWindowOpenHandler(({ url }) => { hooks.openInPlace(url); return { action: "deny" }; });
@@ -63,14 +115,25 @@ export function electronViewFactory(win: BrowserWindow, onView?: (id: string, wc
     return {
       setBounds: (r) => view.setBounds(r),
       setVisible: (v) => view.setVisible(v),
-      loadURL: (url) => { wc.loadURL(url).catch(() => { /* did-fail-load reports honestly */ }); },
+      loadURL: (url) => {
+        wanted = url;
+        // Queued behind the passkey install rather than racing it: a page that runs its own scripts
+        // first is a page whose passkey button is already broken.
+        void ready.then(() => {
+          if (wc.isDestroyed() || wanted !== url) return;
+          wc.loadURL(url).catch(() => { /* did-fail-load reports honestly */ });
+        });
+      },
       goBack: () => wc.navigationHistory.goBack(),
       goForward: () => wc.navigationHistory.goForward(),
       reload: () => wc.reload(),
       stop: () => wc.stop(),
       canGoBack: () => wc.navigationHistory.canGoBack(),
       canGoForward: () => wc.navigationHistory.canGoForward(),
-      getURL: () => wc.getURL(),
+      getURL: () => {
+        const live = wc.getURL();
+        return live === "about:blank" || live === "" ? wanted ?? "" : live;
+      },
       getTitle: () => wc.getTitle(),
       isLoading: () => wc.isLoading(),
       destroy: () => {
@@ -110,14 +173,14 @@ export type BrowserPane = {
   onViewDestroyed(cb: (id: string) => void): void;
 };
 
-export function createBrowserPane(win: BrowserWindow): BrowserPane {
+export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: PasskeyInstaller): BrowserPane {
   const views = new Map<string, WebContents>();
   const destroyedCbs: ((id: string) => void)[] = [];
   const host = new BrowserPaneHost({
     createView: electronViewFactory(win, (id, wc) => {
       if (wc) views.set(id, wc);
       else { views.delete(id); for (const cb of destroyedCbs) cb(id); }
-    }),
+    }, installPasskeysFor),
     sendState: (s) => { if (!win.isDestroyed()) win.webContents.send("realm:browser-state", s); },
     scaleFactor: () => screen.getDisplayMatching(win.getBounds()).scaleFactor,
   });
