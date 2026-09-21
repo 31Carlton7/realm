@@ -1,5 +1,60 @@
 # Changelog
 
+## v1.4.0 — 2026-09-20
+
+**Realm can use a terminal.** An agent gets `terminal_open`, `terminal_write`, `terminal_read` and
+`terminal_wait` over a real terminal pane in the space — visible in the sidebar, yours to take over
+by typing into it. This is not a second shell tool: every harness already has one, and for running a
+command and reading its output that one is better. This is for what a non-interactive shell
+structurally cannot do — a program that keeps a terminal and asks questions. `claude auth login`
+under `bash -c` hangs, because there is nothing on the other end to answer it.
+
+What made it possible was reading, not access. A terminal's scrollback is a raw tail, and every agent
+CLI worth signing into draws its login as a full-screen TUI: stripping the escape codes gives you
+everything the program typed *and untyped*, in order, which reads as gibberish that looks like
+content. Realm now renders those bytes into the screen a person would be looking at — on demand, per
+read, so a pty nobody is reading costs what it always did. Soft-wrapped rows come back rejoined,
+because a sign-in URL is two hundred characters, splits across three rows at any width, and one
+spliced back together wrong is a failure with nothing on screen to explain it.
+
+**Signing an agent in is a button now.** When a CLI is signed out, the card that used to print a
+command at you offers *Sign in*: Realm opens a terminal, runs that CLI's own login command, reads the
+URL it prints and opens the consent page in a pane beside it. It stops there. Approving a sign-in
+grants a durable capability, so that click is yours — and Realm's browser tools refuse it, in every
+permission mode. A space can hand that last step over in Connections ▸ *Finishing sign-ins*, and even
+then the permission is narrow: the one page Realm opened, from a login it started itself, for five
+minutes. Off by default.
+
+**An agent can be refused a consent screen it is already looking at.** Realm has always refused to
+*navigate* an agent to an OAuth authorization page. It turned out that never covered the act the rule
+exists to prevent: a pane that reached one by a redirect, a link, or your own address bar could be
+clicked freely, in every mode. Acting on a pane now asks where that pane actually is. This release
+makes that guard stronger than it was, and the sign-in flow above is the one deliberate, provenanced
+exception to it.
+
+**Realm's own interface, for an agent that needs to see it.** `app_snapshot` reads the window you are
+looking at as elements; `app_act` clicks, types and scrolls in it. It is for seeing what is on your
+screen and checking that something really renders — not for doing what Realm already has a tool or a
+setting for, which is direct where a click is a guess about layout. It ships **off**, per space: every
+other Realm toolset reaches a pane Realm made for it, and this one reaches the window you read and
+answer questions in.
+
+Two buttons in that window are refused outright, in every mode: the permission card and the
+permission-mode confirmation. An agent that could press those could approve the request it is blocked
+on, and no permission model survives that. The surfaces declare themselves in the markup, checked
+against the live screen at the moment of the click.
+
+**You can see it happening.** The accent frame and pointer that mark a browser pane as agent-driven
+now appear on Realm's own panes too, drawn from one table of numbers both halves read, so the two
+faces of that signal cannot drift apart. A terminal being typed into wears the frame and a driving dot
+on its sidebar row.
+
+**Sort spaces by activity.** Settings ▸ App ▸ Sidebar orders the space strip by what is happening —
+a space with a question waiting first, then whichever moved most recently — leaving the order you
+dragged untouched underneath, so turning it off puts the strip back exactly as you left it. Dragging
+is off while it is on, and the page says so: a drop into a spot the next status change would move
+away from is a drop that did nothing.
+
 ## v1.3.0 — 2026-09-12
 
 **The keymap is a file.** `~/Realm/keybindings.json` holds rules of `{key, command, when}`, where
