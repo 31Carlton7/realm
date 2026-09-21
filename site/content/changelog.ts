@@ -9,6 +9,47 @@ import type { Entry } from "@/lib/changelog"
  */
 export const entries: Entry[] = [
   {
+    slug: "v1-4-1",
+    title: "Realm v1.4.1",
+    date: "2026-09-21",
+    version: "v1.4.1",
+    area: "Release",
+    summary:
+      "A packaging fix for v1.4.0, which could not start, and a release that now boots the server it just packaged before the tag exists.",
+    body: [
+      { kind: "p", text: "The terminal renderer that v1.4.0 introduced pulls in a CommonJS library, and the server bundler leaves anything declared as a dependency for the runtime to resolve — so the shipped server carried an import Node refuses at load, and died the moment the app spawned it. v1.4.0 was withdrawn; everything in it is in this release." },
+      { kind: "h", text: "Nothing caught it, and that is the more interesting half" },
+      { kind: "p", text: "The test suite passed, because the test runner resolves that import through its own transform. Type checking passed, because the types were never wrong. The build passed, because compiling a bundle does not run it. The first execution of that line was going to be on someone's machine." },
+      { kind: "p", text: "`pnpm release` now boots the server it just packaged, on a scratch home, and requires it to report ready before the version commit and the tag exist. It closes the class rather than the instance: any import that resolves while compiling and explodes while loading now fails the release instead of shipping." }
+    ],
+  },
+  {
+    slug: "v1-4-0",
+    title: "Realm v1.4.0",
+    date: "2026-09-20",
+    version: "v1.4.0",
+    area: "Release",
+    summary:
+      "A terminal an agent can read and answer, sign-in as a button rather than a command printed at you, Realm's own interface as a tool, and a space strip that sorts by what is happening.",
+    body: [
+      { kind: "note", text: "Withdrawn — this build could not start. Everything below it shipped in **v1.4.1**." },
+      { kind: "h", text: "Realm can use a terminal" },
+      { kind: "p", text: "An agent gets `terminal_open`, `terminal_write`, `terminal_read` and `terminal_wait` over a real terminal pane in the space — visible in the sidebar, yours to take over by typing into it. This is not a second shell tool: every harness already has one, and for running a command and reading its output that one is better. This is for what a non-interactive shell structurally cannot do — a program that keeps a terminal and asks questions. `claude auth login` under `bash -c` hangs, because there is nothing on the other end to answer it." },
+      { kind: "p", text: "What made it possible was reading, not access. A terminal's scrollback is a raw tail, and every agent CLI worth signing into draws its login as a full-screen TUI: stripping the escape codes gives you everything the program typed **and untyped**, in order, which reads as gibberish that looks like content. Realm now renders those bytes into the screen a person would be looking at — on demand, per read, so a pty nobody is reading costs what it always did. Soft-wrapped rows come back rejoined, because a sign-in URL is two hundred characters, splits across three rows at any width, and one spliced back together wrong is a failure with nothing on screen to explain it." },
+      { kind: "h", text: "Signing an agent in is a button now" },
+      { kind: "p", text: "When a CLI is signed out, the card that used to print a command at you offers **Sign in**: Realm opens a terminal, runs that CLI's own login command, reads the URL it prints and opens the consent page in a pane beside it. It stops there. Approving a sign-in grants a durable capability, so that click is yours — and Realm's browser tools refuse it, in every permission mode. A space can hand that last step over in Connections ▸ **Finishing sign-ins**, and even then the permission is narrow: the one page Realm opened, from a login it started itself, for five minutes. Off by default." },
+      { kind: "h", text: "An agent can be refused a consent screen it is already looking at" },
+      { kind: "p", text: "Realm has always refused to navigate an agent to an OAuth authorization page. It turned out that never covered the act the rule exists to prevent: a pane that reached one by a redirect, a link, or your own address bar could be clicked freely, in every mode. Acting on a pane now asks where that pane actually is. This release makes that guard stronger than it was, and the sign-in flow above is the one deliberate, provenanced exception to it." },
+      { kind: "h", text: "Realm's own interface, for an agent that needs to see it" },
+      { kind: "p", text: "`app_snapshot` reads the window you are looking at as elements; `app_act` clicks, types and scrolls in it. It is for seeing what is on your screen and checking that something really renders — not for doing what Realm already has a tool or a setting for, which is direct where a click is a guess about layout. It ships **off**, per space: every other Realm toolset reaches a pane Realm made for it, and this one reaches the window you read and answer questions in." },
+      { kind: "p", text: "Two buttons in that window are refused outright, in every mode: the permission card and the permission-mode confirmation. An agent that could press those could approve the request it is blocked on, and no permission model survives that. The surfaces declare themselves in the markup, checked against the live screen at the moment of the click." },
+      { kind: "h", text: "You can see it happening" },
+      { kind: "p", text: "The accent frame and pointer that mark a browser pane as agent-driven now appear on Realm's own panes too, drawn from one table of numbers both halves read, so the two faces of that signal cannot drift apart. A terminal being typed into wears the frame and a driving dot on its sidebar row." },
+      { kind: "h", text: "Sort spaces by activity" },
+      { kind: "p", text: "Settings ▸ App ▸ Sidebar orders the space strip by what is happening — a space with a question waiting first, then whichever moved most recently — leaving the order you dragged untouched underneath, so turning it off puts the strip back exactly as you left it. Dragging is off while it is on, and the page says so: a drop into a spot the next status change would move away from is a drop that did nothing." }
+    ],
+  },
+  {
     slug: "v1-3-0",
     title: "Realm v1.3.0",
     date: "2026-09-12",
