@@ -15,7 +15,7 @@
  * next. `--dry-run` prints the whole plan (bump, entries, provenance) and touches nothing.
  */
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -188,7 +188,7 @@ export function release({ root, argv, exec, log, smoke = smokeTestPackagedServer
   if (missing.length) throw new Error(`build finished but artifacts are missing: ${missing.join(", ")} (release/ has: ${files.join(", ") || "nothing"}) — NO commit or tag was made`);
 
   log("[release] smoke-testing the packaged server…");
-  smoke(root);
+  smoke(root, log);
 
   exec("git", ["add", "apps/desktop/package.json", "CHANGELOG.md"], { cwd: root });
   exec("git", ["commit", "-m", `release: ${tag}`], { cwd: root });
@@ -231,33 +231,45 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
  * REALM_HOME is a throwaway directory and the port is one nothing else uses: a release must never
  * touch the real `~/Realm`, whose database it would migrate.
  */
-function smokeTestPackagedServer(root) {
+export function smokeTestPackagedServer(root, log = () => {}, timeoutMs = 60_000) {
   const entry = join(root, "apps", "server", "dist", "main.js");
   if (!existsSync(entry)) throw new Error(`no packaged server at ${entry} — NO commit or tag was made`);
   const home = mkdtempSync(join(tmpdir(), "realm-release-smoke-"));
-  const port = "8799";
+  const logPath = join(home, "boot.log");
+  /* The child writes to a FILE DESCRIPTOR, and this polls it with synchronous reads.
+     The obvious version — `spawn` plus `child.stdout.on("data", …)` — cannot work here and failed
+     silently the first time it ran: the wait below blocks the thread, so the event loop never turns,
+     so those handlers never fire, so the output is always empty and every release "fails". Writing
+     past Node's event loop is what makes a synchronous wait legitimate. */
+  const fd = openSync(logPath, "a");
   const child = spawn(process.execPath, [entry], {
     cwd: join(root, "apps", "server"),
-    env: { ...process.env, REALM_HOME: home, REALM_PORT: port },
-    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, REALM_HOME: home, REALM_PORT: "8799" },
+    stdio: ["ignore", fd, fd],
+    detached: false,
   });
-  let out = "";
-  child.stdout.on("data", (d) => { out += d; });
-  child.stderr.on("data", (d) => { out += d; });
-  const deadline = Date.now() + 60_000;
+  const read = () => { try { return readFileSync(logPath, "utf8"); } catch { return ""; } };
+  /* A crash names itself, so it is worth failing on immediately rather than waiting out the clock —
+     these are the shapes a bundle that will not load actually produces. */
+  const FATAL = /SyntaxError|Cannot find (module|package)|ERR_MODULE_NOT_FOUND|ERR_REQUIRE_ESM|MODULE_NOT_FOUND|ERR_UNKNOWN_BUILTIN_MODULE|ERR_UNSUPPORTED_DIR_IMPORT/;
+  const deadline = Date.now() + timeoutMs;
   try {
-    while (Date.now() < deadline) {
+    for (;;) {
+      const out = read();
       if (out.includes('"type":"ready"')) { log("[release] packaged server booted."); return; }
-      if (child.exitCode !== null) break;
+      if (FATAL.test(out)) throw new Error(smokeFailure("it could not load", out));
+      if (Date.now() >= deadline) throw new Error(smokeFailure("it never reported ready", out));
       execFileSync("sleep", ["0.25"]);
     }
-    throw new Error(
-      `the packaged server did not come up — NO commit or tag was made.\n` +
-      `This is the gate v1.4.0 did not have: the suite and the build cannot catch an import that\n` +
-      `only fails when the bundle is executed.\n--- its output ---\n${out.slice(0, 2000)}`,
-    );
   } finally {
     try { child.kill("SIGKILL"); } catch { /* already gone */ }
+    try { closeSync(fd); } catch { /* already closed */ }
     try { rmSync(home, { recursive: true, force: true }); } catch { /* best effort */ }
   }
+}
+
+function smokeFailure(why, out) {
+  return `the packaged server did not come up — ${why}. NO commit or tag was made.\n`
+    + `This is the gate v1.4.0 did not have: the suite and the build cannot catch an import that\n`
+    + `only fails when the bundle is executed.\n--- its output ---\n${(out || "(it printed nothing)").slice(0, 2000)}`;
 }

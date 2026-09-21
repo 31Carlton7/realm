@@ -1,11 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import {
   bumpPackageJsonText, bumpVersion, changelogEntries, entriesFromGh, missingArtifacts, nextStepsText,
-  parseReleaseArgs, prEntryFromSubject, prependChangelog, release, renderStub,
+  parseReleaseArgs, prEntryFromSubject, prependChangelog, release, renderStub, smokeTestPackagedServer,
 } from "./release.mjs";
 
 describe("parseReleaseArgs", () => {
@@ -263,5 +264,49 @@ describe("release() end to end in a scratch repo (no pushing, no publishing — 
     const v3 = cl.slice(cl.indexOf("## v0.0.3"), cl.indexOf("## v0.0.2"));
     expect(v3).toContain("New work after the release (#18)");
     expect(v3).not.toContain("Plan 13"); // already released in v0.0.2
+  });
+});
+
+/**
+ * The smoke gate's own machinery, against a stand-in server rather than the real bundle.
+ *
+ * It needs its own tests because its first two versions were both broken in ways nothing else could
+ * see. One collected the child's output through `stdout.on("data")` while waiting synchronously — so
+ * the event loop never turned, the handler never ran, and every release failed with empty output.
+ * The other called `log` from a module-level function that had no `log` in scope, which threw only
+ * on the SUCCESS path, where the first bug guaranteed it would never reach.
+ */
+describe("smokeTestPackagedServer", () => {
+  const stubServer = (body: string) => {
+    const root = mkdtempSync(join(tmpdir(), "realm-smoke-test-"));
+    mkdirSync(join(root, "apps", "server", "dist"), { recursive: true });
+    writeFileSync(join(root, "apps", "server", "dist", "main.js"), body);
+    return root;
+  };
+
+  it("passes when the server reports ready, and says so through the injected log", () => {
+    // THE MUTANT: collect the child's output with an async handler. Nothing arrives while the wait
+    // blocks the loop, so this times out — which is exactly how the real gate failed.
+    const root = stubServer(`console.log(JSON.stringify({ type: "ready", port: 8799 })); setInterval(() => {}, 1000);`);
+    const lines: string[] = [];
+    expect(() => smokeTestPackagedServer(root, (m: string) => lines.push(m))).not.toThrow();
+    expect(lines.join(" ")).toContain("booted");
+  });
+
+  it("fails fast on a bundle that cannot load, and attaches what it printed", () => {
+    // The v1.4.0 fault itself: a named import from a CommonJS module, which Node refuses at load.
+    const root = stubServer(`import { Terminal } from "./cjs.cjs"; void Terminal;`);
+    writeFileSync(join(root, "apps", "server", "dist", "cjs.cjs"), "module.exports = {};");
+    let err: Error | undefined;
+    try { smokeTestPackagedServer(root, () => {}, 20_000); } catch (e) { err = e as Error; }
+    expect(err?.message).toMatch(/could not load/);
+    // The output is attached, because a gate that only says "it did not come up" leaves whoever is
+    // cutting the release to go and reproduce it by hand.
+    expect(err?.message).toContain("SyntaxError");
+  });
+
+  it("refuses when there is no packaged server at all", () => {
+    const root = mkdtempSync(join(tmpdir(), "realm-smoke-empty-"));
+    expect(() => smokeTestPackagedServer(root, () => {}, 5_000)).toThrow(/no packaged server/);
   });
 });
