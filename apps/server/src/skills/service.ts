@@ -81,6 +81,10 @@ export class SkillsService {
   readonly root: string;
   constructor(private d: {
     home: string; settings: SettingsStore; bundledDir?: string | null;
+    /** Where `~/.agents`, `~/.claude`, `~/.codex` and `~/.cursor` are read from, and `codexHome` for
+     *  a relocated `CODEX_HOME`. Both default to Realm's own home so a scratch-home test or live
+     *  check can never reach (or expose) the real user's skill directories. */
+    userHome?: string; codexHome?: string;
     /** W2: space → profile, for scope resolution. Optional like `McpService.scopes`: unwired, every
      *  space reads as profile-less, profile-scoped skills apply nowhere, pre-scoping skills everywhere. */
     scopes?: { profileIdOf(spaceId: string): string | null };
@@ -112,7 +116,7 @@ export class SkillsService {
   /** Every skill directory visible to this space, deduped by realpath. Enumerated fresh each call. */
   private discover(spaceId: string | null): { entries: Discovered[]; roots: ScanRoot[] } {
     const projectDir = spaceId ? this.d.spaces?.folderPathOf(spaceId) ?? null : null;
-    const roots = buildScanRoots({ home: this.d.home, libraryRoot: this.root, projectDir, extraRoots: this.scanRoots() });
+    const roots = buildScanRoots({ userHome: this.d.userHome ?? this.d.home, codexHome: this.d.codexHome, libraryRoot: this.root, projectDir, extraRoots: this.scanRoots() });
     return { entries: scan(roots), roots };
   }
 

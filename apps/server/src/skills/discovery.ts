@@ -110,15 +110,17 @@ export function pluginRoots(home: string): ScanRoot[] {
  * and symlinked into `~/.agents/skills` is the library's, with the library's id and the library's
  * writability, rather than appearing twice.
  */
-export function scanRoots(d: { home: string; libraryRoot: string; projectDir?: string | null; extraRoots?: string[] }): ScanRoot[] {
+export function scanRoots(d: { userHome: string; codexHome?: string; libraryRoot: string; projectDir?: string | null; extraRoots?: string[] }): ScanRoot[] {
   const roots: ScanRoot[] = [{ kind: "library", key: "library", label: "Realm library", path: d.libraryRoot }];
 
   for (const { key, rel } of USER_DIRS) {
-    const path = join(d.home, rel);
-    if (isDir(path)) roots.push({ kind: "user", key, label: tildify(path, d.home), path });
+    // `CODEX_HOME` moves the whole of Codex's state, skills included. Honouring it is the difference
+    // between reading the setup the user actually runs and reading an empty default they abandoned.
+    const path = key === "codex" && d.codexHome ? join(d.codexHome, "skills") : join(d.userHome, rel);
+    if (isDir(path)) roots.push({ kind: "user", key, label: tildify(path, d.userHome), path });
   }
 
-  roots.push(...pluginRoots(d.home));
+  roots.push(...pluginRoots(d.userHome));
 
   if (d.projectDir) {
     for (const { key, rel } of PROJECT_DIRS) {
@@ -131,7 +133,7 @@ export function scanRoots(d: { home: string; libraryRoot: string; projectDir?: s
     // Only absolute paths: a relative extra root would resolve against the server's cwd, which is not
     // a directory the user ever chose or can see.
     if (!isAbsolute(raw) || !isDir(raw)) continue;
-    roots.push({ kind: "extra", key: sanitizeKey(basename(raw)) || "extra", label: tildify(raw, d.home), path: raw });
+    roots.push({ kind: "extra", key: sanitizeKey(basename(raw)) || "extra", label: tildify(raw, d.userHome), path: raw });
   }
 
   return assignRootKeys(roots);

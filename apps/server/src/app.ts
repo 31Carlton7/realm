@@ -276,8 +276,11 @@ export function defaultAdapters(): AdapterRegistry {
 }
 
 /** `claudeDir` overrides where MemoryService reads user-level Claude files (`~/.claude` otherwise) —
- *  for tests and live checks, which must never depend on (or expose) the real user's memory files. */
-export async function createApp(opts: { home: string; port: number; adapters?: AdapterRegistry; claudeDir?: string;
+ *  for tests and live checks, which must never depend on (or expose) the real user's memory files.
+ *  `userHome` and `codexHome` are the same seam for SkillsService's user-level skill directories.
+ *  Both default to `home`, so a test or live check that does not name them scans its own scratch
+ *  home and never the machine's — `main.ts` is the only caller that passes the real one. */
+export async function createApp(opts: { home: string; port: number; adapters?: AdapterRegistry; claudeDir?: string; userHome?: string; codexHome?: string;
   /** W5 test/live-check knobs for the browser-agent registry: `fallbackKind` (default claude) is the
    *  child agent when the parent's kind has no skills-injection route; `timeouts` shrinks the settle
    *  budget so suites don't wait minutes. Production callers pass neither. */
@@ -363,7 +366,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   };
   // Repo-shipped skills reach the user's library here, once each, before any session can be started.
   const skills = new SkillsService({
-    home: opts.home, settings, scopes: scopeSeam,
+    home: opts.home, userHome: opts.userHome, codexHome: opts.codexHome, settings, scopes: scopeSeam,
     // The space's own folder, for its project-level skill directories. A space whose folder is gone
     // reads as project-less rather than failing the scan — the rest of the roots are still valid.
     spaces: { folderPathOf: (spaceId: string): string | null => spaces.get(spaceId)?.folderPath ?? null },
