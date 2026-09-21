@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.4.1 — 2026-09-21
+
+**A packaging fix for v1.4.0, which could not start.** The terminal renderer that v1.4.0 introduced
+pulls in a CommonJS library, and the server bundler leaves anything declared as a dependency for the
+runtime to resolve — so the shipped server carried an import Node refuses at load, and died the
+moment the app spawned it. v1.4.0 was withdrawn; everything below it is in this release.
+
+Nothing caught it, and that is the more interesting half. The test suite passed, because the test
+runner resolves that import through its own transform. Type checking passed, because the types were
+never wrong. The build passed, because compiling a bundle does not run it. The first execution of
+that line was going to be on someone's machine.
+
+So `pnpm release` now boots the server it just packaged, on a scratch home, and requires it to report
+ready before the version commit and the tag exist. It closes the class rather than the instance: any
+import that resolves while compiling and explodes while loading now fails the release instead of
+shipping.
+
 ## v1.4.0 — 2026-09-20
 
 **Realm can use a terminal.** An agent gets `terminal_open`, `terminal_write`, `terminal_read` and
