@@ -14,8 +14,9 @@
  * It never pushes, never talks to a release API, and ends by printing exactly what a human does
  * next. `--dry-run` prints the whole plan (bump, entries, provenance) and touches nothing.
  */
-import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -127,7 +128,7 @@ export function nextStepsText({ tag, branch, artifacts }) {
 
 // ---------- orchestration (integration-tested with an injected exec) ----------
 
-export function release({ root, argv, exec, log }) {
+export function release({ root, argv, exec, log, smoke = smokeTestPackagedServer }) {
   const { kind, dryRun } = parseReleaseArgs(argv);
 
   const dirty = (exec("git", ["status", "--porcelain"], { cwd: root }) ?? "").trim();
@@ -186,6 +187,9 @@ export function release({ root, argv, exec, log }) {
   const missing = missingArtifacts(files, next);
   if (missing.length) throw new Error(`build finished but artifacts are missing: ${missing.join(", ")} (release/ has: ${files.join(", ") || "nothing"}) — NO commit or tag was made`);
 
+  log("[release] smoke-testing the packaged server…");
+  smoke(root);
+
   exec("git", ["add", "apps/desktop/package.json", "CHANGELOG.md"], { cwd: root });
   exec("git", ["commit", "-m", `release: ${tag}`], { cwd: root });
   exec("git", ["tag", tag], { cwd: root });
@@ -210,3 +214,50 @@ function main() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
+
+/**
+ * Boot the server bundle that was just packaged, on a scratch home, and require it to say `ready`.
+ *
+ * v1.4.0 shipped a server that could not start: `@xterm/headless` is CommonJS and tsup leaves
+ * anything in `dependencies` external, so the bundle carried a bare `import { Terminal } from
+ * "@xterm/headless"` that Node refuses at load. Every gate was green — the suite passed, `tsc`
+ * passed, `pnpm build` passed — because none of them RUN the bundle. The first execution was the
+ * packaged app's, on a user's machine.
+ *
+ * So this executes it. `dist/main.js` prints one line of JSON when it is serving; anything else, or
+ * nothing before the timeout, fails the release BEFORE the commit and the tag exist. It catches the
+ * whole class — any top-level import that resolves at build time and explodes at load.
+ *
+ * REALM_HOME is a throwaway directory and the port is one nothing else uses: a release must never
+ * touch the real `~/Realm`, whose database it would migrate.
+ */
+function smokeTestPackagedServer(root) {
+  const entry = join(root, "apps", "server", "dist", "main.js");
+  if (!existsSync(entry)) throw new Error(`no packaged server at ${entry} — NO commit or tag was made`);
+  const home = mkdtempSync(join(tmpdir(), "realm-release-smoke-"));
+  const port = "8799";
+  const child = spawn(process.execPath, [entry], {
+    cwd: join(root, "apps", "server"),
+    env: { ...process.env, REALM_HOME: home, REALM_PORT: port },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let out = "";
+  child.stdout.on("data", (d) => { out += d; });
+  child.stderr.on("data", (d) => { out += d; });
+  const deadline = Date.now() + 60_000;
+  try {
+    while (Date.now() < deadline) {
+      if (out.includes('"type":"ready"')) { log("[release] packaged server booted."); return; }
+      if (child.exitCode !== null) break;
+      execFileSync("sleep", ["0.25"]);
+    }
+    throw new Error(
+      `the packaged server did not come up — NO commit or tag was made.\n` +
+      `This is the gate v1.4.0 did not have: the suite and the build cannot catch an import that\n` +
+      `only fails when the bundle is executed.\n--- its output ---\n${out.slice(0, 2000)}`,
+    );
+  } finally {
+    try { child.kill("SIGKILL"); } catch { /* already gone */ }
+    try { rmSync(home, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+}

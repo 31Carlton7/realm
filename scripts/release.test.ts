@@ -185,7 +185,7 @@ describe("release() end to end in a scratch repo (no pushing, no publishing — 
   afterEach(() => rmSync(root, { recursive: true, force: true }));
 
   it("bumps, writes the stub, builds, commits and tags LOCALLY — and prints the manual next steps", () => {
-    const r = release({ root, argv: [], exec: makeExec({ gh: "offline" }), log });
+    const r = release({ root, argv: [], smoke: () => {}, exec: makeExec({ gh: "offline" }), log });
     expect(r).toMatchObject({ next: "0.0.2", tag: "v0.0.2", source: "pr-titles", dryRun: false });
     expect(JSON.parse(readFileSync(join(root, "apps", "desktop", "package.json"), "utf8")).version).toBe("0.0.2");
     const cl = readFileSync(join(root, "CHANGELOG.md"), "utf8");
@@ -202,14 +202,14 @@ describe("release() end to end in a scratch repo (no pushing, no publishing — 
   });
 
   it("gh answering takes the top rung: entries come from PR titles via gh", () => {
-    const r = release({ root, argv: ["--minor"], exec: makeExec({ gh: "ok" }), log });
+    const r = release({ root, argv: ["--minor"], smoke: () => {}, exec: makeExec({ gh: "ok" }), log });
     expect(r.next).toBe("0.1.0");
     expect(readFileSync(join(root, "CHANGELOG.md"), "utf8")).toContain("- Ship the thing (#21)");
   });
 
   it("dry run computes the same plan and writes NOTHING — no bump, no changelog, no commit, no tag", () => {
     const before = realExec("git", ["rev-parse", "HEAD"], { cwd: root }).trim();
-    const r = release({ root, argv: ["--dry-run"], exec: makeExec({ gh: "offline" }), log });
+    const r = release({ root, argv: ["--dry-run"], smoke: () => {}, exec: makeExec({ gh: "offline" }), log });
     expect(r).toMatchObject({ next: "0.0.2", dryRun: true });
     expect(JSON.parse(readFileSync(join(root, "apps", "desktop", "package.json"), "utf8")).version).toBe("0.0.1");
     expect(() => readFileSync(join(root, "CHANGELOG.md"))).toThrow();
@@ -219,11 +219,11 @@ describe("release() end to end in a scratch repo (no pushing, no publishing — 
 
   it("a dirty tree is refused before anything happens", () => {
     writeFileSync(join(root, "scratch.txt"), "x");
-    expect(() => release({ root, argv: [], exec: makeExec({}), log })).toThrow(/not clean/);
+    expect(() => release({ root, argv: [], smoke: () => {}, exec: makeExec({}), log })).toThrow(/not clean/);
   });
 
   it("a failed build leaves the bump in the tree but makes NO commit and NO tag, and says so", () => {
-    expect(() => release({ root, argv: [], exec: makeExec({ distFails: true }), log })).toThrow(/NO commit or tag was made/);
+    expect(() => release({ root, argv: [], smoke: () => {}, exec: makeExec({ distFails: true }), log })).toThrow(/NO commit or tag was made/);
     expect(JSON.parse(readFileSync(join(root, "apps", "desktop", "package.json"), "utf8")).version).toBe("0.0.2");
     expect(realExec("git", ["tag", "--list"], { cwd: root }).trim()).toBe("");
     expect(realExec("git", ["log", "-1", "--pretty=%s"], { cwd: root }).trim()).not.toContain("release:");
@@ -231,16 +231,34 @@ describe("release() end to end in a scratch repo (no pushing, no publishing — 
 
   it("an existing tag for the target version is refused up front", () => {
     realExec("git", ["tag", "v0.0.2"], { cwd: root });
-    expect(() => release({ root, argv: [], exec: makeExec({}), log })).toThrow(/v0\.0\.2 already exists/);
+    expect(() => release({ root, argv: [], smoke: () => {}, exec: makeExec({}), log })).toThrow(/v0\.0\.2 already exists/);
+  });
+
+  /**
+   * The gate v1.4.0 did not have. That release shipped a server that could not start — `@xterm/
+   * headless` is CJS and tsup left it external, so the bundle carried an import Node refuses at
+   * load — and every check was green, because the suite, `tsc` and `pnpm build` all decline to RUN
+   * the thing they produce. The first execution was the packaged app's.
+   */
+  it("a packaged server that will not boot stops the release before any commit or tag", () => {
+    const before = realExec("git", ["log", "--oneline"], { cwd: root });
+    expect(() => release({
+      root, argv: [], exec: makeExec({ gh: "offline" }), log,
+      smoke: () => { throw new Error("the packaged server did not come up"); },
+    })).toThrow(/did not come up/);
+    // THE MUTANT: run the smoke test after the commit, or warn instead of throwing. A broken build
+    // would get a tag, and the tag is what a release is published from.
+    expect(realExec("git", ["log", "--oneline"], { cwd: root })).toBe(before);
+    expect(realExec("git", ["tag", "--list"], { cwd: root }).trim()).not.toContain("v0.0.2");
   });
 
   it("changelog entries only cover commits since the last tag", () => {
     const exec = makeExec({ gh: "offline" });
-    release({ root, argv: [], exec, log }); // v0.0.2 tagged
+    release({ root, argv: [], exec, log, smoke: () => {} }); // v0.0.2 tagged
     writeFileSync(join(root, "next.txt"), "y");
     realExec("git", ["add", "-A"], { cwd: root });
     realExec("git", ["commit", "-q", "-m", "New work after the release (#18)"], { cwd: root });
-    release({ root, argv: [], exec, log }); // v0.0.3
+    release({ root, argv: [], exec, log, smoke: () => {} }); // v0.0.3
     const cl = readFileSync(join(root, "CHANGELOG.md"), "utf8");
     const v3 = cl.slice(cl.indexOf("## v0.0.3"), cl.indexOf("## v0.0.2"));
     expect(v3).toContain("New work after the release (#18)");
