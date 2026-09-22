@@ -4,6 +4,54 @@ import { createDragSwipe } from "./gesture";
 const BOUNDS = { canPrev: true, canNext: true };
 const mk = () => createDragSwipe({ width: 240, idleMs: 90 });
 
+// Both input routes reach the same gate, and the native one is the only route a trackpad takes —
+// a check that ran on the fallback alone would pass while the shipped path drifted.
+describe.each([false, true])("swipe intent (native phases: %s)", (native) => {
+  const armed = () => { const t = mk(); if (native) t.phase("began", 0); return t; };
+
+  it("holds a lone space still instead of rubber-banding it", () => {
+    const t = armed();
+    const alone = { canPrev: false, canNext: false };
+    for (const dx of [3, 90, -200]) {
+      expect(t.wheel(dx, 0, 10, alone)).toEqual({ type: "ignore" });
+      expect(t.offset()).toBe(0);
+    }
+  });
+
+  it("brings a displaced page home when the last other space goes away mid-drag", () => {
+    const t = armed();
+    expect(t.wheel(20, 0, 10, BOUNDS)).toEqual({ type: "move", offset: 20 });
+    expect(t.wheel(20, 0, 20, { canPrev: false, canNext: false })).toEqual({ type: "settle" });
+    expect(t.offset()).toBe(0);
+  });
+
+  it("banks horizontal travel without moving anything until it clears the intent threshold", () => {
+    const t = armed();
+    expect(t.wheel(2, 0, 10, BOUNDS)).toEqual({ type: "ignore" });
+    expect(t.wheel(2, 0, 20, BOUNDS)).toEqual({ type: "ignore" });
+    expect(t.wheel(3, 0, 30, BOUNDS)).toEqual({ type: "move", offset: 7 }); // 7px banked, shown 1:1
+  });
+
+  it("never lets a sustained diagonal scroll become a horizontal drag", () => {
+    const t = armed();
+    for (let i = 1; i <= 10; i++) expect(t.wheel(5, 5, i * 10, BOUNDS)).toEqual({ type: "ignore" });
+    expect(t.offset()).toBe(0);
+  });
+
+  it("does not bank jitter across an intervening vertical scroll", () => {
+    const t = armed();
+    expect(t.wheel(4, 0, 10, BOUNDS)).toEqual({ type: "ignore" });  // banked, still under the bar
+    expect(t.wheel(1, 40, 20, BOUNDS)).toEqual({ type: "ignore" }); // vertical clears the bank
+    expect(t.wheel(4, 0, 30, BOUNDS)).toEqual({ type: "ignore" });  // so 4+4 does not add up to 8
+  });
+
+  it("still starts a deliberate swipe the moment one arrives", () => {
+    const t = armed();
+    expect(t.wheel(2, 100, 10, BOUNDS)).toEqual({ type: "ignore" });
+    expect(t.wheel(-20, 0, 20, BOUNDS)).toEqual({ type: "move", offset: -20 });
+  });
+});
+
 describe("drag swipe (timer fallback — no phase source)", () => {
   it("small drag moves the content, then settles back on idle", () => {
     const t = mk();
@@ -162,6 +210,15 @@ describe("drag swipe (native phases — macOS Spaces feel)", () => {
     t.phase("began", 0); t.wheel(30, 0, 50, BOUNDS);
     expect(t.idle(2000)).toEqual({ type: "ignore" });  // a real hold
     expect(t.idle(4100)).toEqual({ type: "settle" });  // nothing for 4s → probably lifted; settle
+  });
+
+  it("a new touch starts from zero: jitter banked under the last one does not carry over", () => {
+    const t = mk();
+    t.phase("began", 0);
+    expect(t.wheel(4, 0, 10, BOUNDS)).toEqual({ type: "ignore" }); // banked, under the bar
+    t.phase("ended", 20);
+    t.phase("began", 30);
+    expect(t.wheel(3, 0, 40, BOUNDS)).toEqual({ type: "ignore" }); // not 4 + 3 = over the bar
   });
 
   it("phase 'cancelled' settles", () => {

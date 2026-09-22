@@ -38,11 +38,18 @@ export function createDragSwipe(opts: { width: number; commitFraction?: number; 
   const idleMs = opts.idleMs ?? 320;
   const rubber = opts.rubber ?? 0.35;
   const staleMs = opts.staleMs ?? 4000;
+  // A trackpad reports the hand's tremor as well as its intent, and a wheel reports a diagonal nudge
+  // as two axes at once. Neither is a swipe: content that starts following either one reads as drift.
+  // Content moves only once the horizontal travel is BOTH dominant and past a distance a hand cannot
+  // produce by accident.
+  const intentPx = 6;
+  const intentRatio = 1.5;
 
   let acc = 0;               // raw accumulated horizontal delta (px, + = towards next)
   let shown = 0;             // rubber-adjusted offset actually shown
   let locked = false;        // after a commit / during momentum: swallow deltas
   let dragging = false;
+  let pendingX = 0;          // horizontal travel banked before intent is established
   let lastCommitDir: "next" | "prev" | null = null;
   let fingersDown = false;   // only meaningful with native phases
   let hasPhases = false;     // once we've seen any phase, timers stop deciding
@@ -50,7 +57,7 @@ export function createDragSwipe(opts: { width: number; commitFraction?: number; 
   let lastBounds: SwipeBounds = { canPrev: true, canNext: true };
   let samples: Array<{ dx: number; ts: number }> = [];
 
-  const reset = () => { acc = 0; shown = 0; locked = false; dragging = false; samples = []; };
+  const reset = () => { acc = 0; shown = 0; locked = false; dragging = false; pendingX = 0; samples = []; };
 
   /** Mean px/ms over the last 100ms. The first sample in the window contributes its *timestamp*, not
    *  its delta: that delta was travelled before the window opened, and counting it against zero
@@ -87,6 +94,15 @@ export function createDragSwipe(opts: { width: number; commitFraction?: number; 
   return {
     wheel(dx: number, dy: number, ts: number, bounds: SwipeBounds): SwipeUpdate {
       lastBounds = bounds;
+      // One space has nowhere to go. Rubber-banding it would answer a swipe with movement in a
+      // sidebar whose whole job is to stay put, so the gesture is declined outright rather than
+      // resisted — and anything already displaced when the last neighbour went away comes home.
+      if (!bounds.canPrev && !bounds.canNext) {
+        const displaced = shown !== 0;
+        reset();
+        lastTs = ts;
+        return displaced ? { type: "settle" } : { type: "ignore" };
+      }
       if (!hasPhases && ts - lastTs > idleMs) reset(); // fallback: long gap = new gesture
       lastTs = ts;
       if (locked) {
@@ -96,9 +112,13 @@ export function createDragSwipe(opts: { width: number; commitFraction?: number; 
         else return { type: "ignore" };
       }
       if (hasPhases && !fingersDown) return { type: "ignore" }; // stray delta after lift (e.g. momentum) — never displaces
-      if (!dragging && Math.abs(dy) > Math.abs(dx)) return { type: "ignore" }; // vertical scroll
-      dragging = true;
-      acc += dx;
+      if (!dragging) {
+        if (Math.abs(dx) <= Math.abs(dy) * intentRatio) { pendingX = 0; return { type: "ignore" }; } // vertical or diagonal scroll
+        pendingX += dx;
+        if (Math.abs(pendingX) < intentPx) return { type: "ignore" };
+        dragging = true;
+        acc = pendingX; // 1:1 with the fingers means the page opens where they already are.
+      } else acc += dx;
       samples.push({ dx, ts });
 
       const wall = (acc > 0 && !bounds.canNext) || (acc < 0 && !bounds.canPrev);
@@ -121,7 +141,7 @@ export function createDragSwipe(opts: { width: number; commitFraction?: number; 
       lastTs = ts;
       switch (p) {
         case "began":
-          fingersDown = true; locked = false; acc = 0; shown = 0; dragging = false; samples = [];
+          fingersDown = true; reset();
           return { type: "ignore" };
         case "changed":
           return { type: "ignore" };
