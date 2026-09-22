@@ -269,6 +269,23 @@ export function defaultAdapters(): AdapterRegistry {
     // special case — a space with a chain hands over, one without says why it could not.
     on: "hit the limit", emit: [{ kind: "throw", message: "Claude AI usage limit reached|1788555903" }],
   }, {
+    // The question card, for the same reason as the plan card: it renders for one tool only, and the
+    // three shapes a question can take are not reachable from a real agent on demand. One card,
+    // paged: options with free text, options without it, and a free-text answer meant to stay unread.
+    on: "ask me", emit: [{ kind: "tool", name: "AskUserQuestion", needsPermission: true, result: "Answered", input: { questions: [
+      { question: "Which database should this use?", header: "Database", multiSelect: false,
+        options: [{ label: "Postgres", description: "Relational, boring, correct" }, { label: "SQLite", description: "Local, zero-ops" }] },
+      { question: "Which region should it deploy to?", header: "Region", multiSelect: false, allowOther: false,
+        options: [{ label: "us-east-1" }, { label: "eu-west-1" }] },
+      { question: "Paste the deploy token.", header: "Token", multiSelect: false, secret: true, options: [] },
+    ] } }],
+  }, {
+    // The fallback, which is the half of the gate worth being able to see: a question offering
+    // neither an option nor free text cannot be answered, so it must arrive as an ordinary
+    // permission rather than as a card with no row on it.
+    on: "unanswerable", emit: [{ kind: "tool", name: "AskUserQuestion", needsPermission: true, result: "Answered",
+      input: { questions: [{ question: "Unanswerable?", header: "None", multiSelect: false, allowOther: false, options: [] }] } }],
+  }, {
     // Its milder sibling, for the retry line: a dropped socket, which never moves the session.
     on: "drop the socket", emit: [{ kind: "throw", message: "read ECONNRESET" }],
   }] });
