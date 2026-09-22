@@ -5,7 +5,7 @@ import { QuestionCard, parseQuestions, type Question } from "./QuestionCard";
 afterEach(() => cleanup());
 
 const q = (over: Partial<Question> = {}): Question => ({
-  question: "Which database?", header: "Database", multiSelect: false,
+  question: "Which database?", header: "Database", multiSelect: false, allowOther: true, secret: false,
   options: [{ label: "Postgres", description: "Relational, boring, correct" }, { label: "SQLite", description: "Local, zero-ops" }],
   ...over,
 });
@@ -15,7 +15,7 @@ const rowsOf = (card: HTMLElement) => within(card).getAllByRole("button").filter
 describe("parseQuestions — only a genuinely question-shaped payload gets the question card", () => {
   it("accepts a well-formed AskUserQuestion payload", () => {
     const parsed = parseQuestions("AskUserQuestion", { questions: [{ question: "Pick?", header: "H", multiSelect: false, options: [{ label: "A", description: "d" }, { label: "B" }] }] });
-    expect(parsed).toEqual([{ question: "Pick?", header: "H", multiSelect: false, options: [{ label: "A", description: "d" }, { label: "B" }] }]);
+    expect(parsed).toEqual([{ question: "Pick?", header: "H", multiSelect: false, allowOther: true, secret: false, options: [{ label: "A", description: "d" }, { label: "B" }] }]);
   });
   it("refuses any other tool, so a Bash call can never render as a question", () => {
     expect(parseQuestions("Bash", { questions: [{ question: "Pick?", options: [{ label: "A" }] }] })).toBeNull();
@@ -25,14 +25,63 @@ describe("parseQuestions — only a genuinely question-shaped payload gets the q
     ["questions not an array", { questions: "nope" }],
     ["empty questions", { questions: [] }],
     ["question missing text", { questions: [{ header: "H", options: [{ label: "A" }] }] }],
-    ["question with no options", { questions: [{ question: "Pick?", options: [] }] }],
+    ["question with neither options nor free text", { questions: [{ question: "Pick?", options: [], allowOther: false }] }],
     ["option missing a label", { questions: [{ question: "Pick?", options: [{ description: "d" }] }] }],
   ])("falls back (null) on malformed input: %s", (_name, input) => {
     expect(parseQuestions("AskUserQuestion", input as Record<string, unknown>)).toBeNull();
   });
 });
 
+describe("parseQuestions — free text", () => {
+  it("accepts a question with no options as a free-text prompt", () => {
+    const parsed = parseQuestions("AskUserQuestion", { questions: [{ question: "Name?", options: [] }] });
+    expect(parsed).toEqual([{ question: "Name?", header: "", multiSelect: false, allowOther: true, secret: false, options: [] }]);
+  });
+
+  it("carries allowOther and secret through, defaulting free text on and masking off", () => {
+    const [plain] = parseQuestions("AskUserQuestion", { questions: [{ question: "Pick?", options: [{ label: "A" }] }] })!;
+    const [locked] = parseQuestions("AskUserQuestion", { questions: [{ question: "Pick?", options: [{ label: "A" }], allowOther: false, secret: true }] })!;
+    expect([plain!.allowOther, plain!.secret]).toEqual([true, false]);
+    expect([locked!.allowOther, locked!.secret]).toEqual([false, true]);
+  });
+});
+
 describe("QuestionCard", () => {
+  it("renders a question with no options as the free-text row alone", () => {
+    const { container } = render(<QuestionCard questions={[q({ options: [] })]} onAnswer={vi.fn()} onSkip={vi.fn()} />);
+    const card = container.querySelector<HTMLElement>(".question-card")!;
+    expect(rowsOf(card).map((r) => r.getAttribute("aria-label"))).toEqual(["Something else"]);
+  });
+
+  it("hides the free-text row when the requester does not offer it", () => {
+    const { container } = render(<QuestionCard questions={[q({ allowOther: false })]} onAnswer={vi.fn()} onSkip={vi.fn()} />);
+    const card = container.querySelector<HTMLElement>(".question-card")!;
+    expect(rowsOf(card).map((r) => r.getAttribute("aria-label"))).toEqual(["Postgres", "SQLite"]);
+  });
+
+  it("wraps the arrow keys over the options alone when there is no free-text row", () => {
+    const { container } = render(<QuestionCard questions={[q({ allowOther: false })]} onAnswer={vi.fn()} onSkip={vi.fn()} />);
+    const card = container.querySelector<HTMLElement>(".question-card")!;
+    const rows = rowsOf(card);
+    rows[0]!.focus();
+    fireEvent.keyDown(card, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(rows[1]); // last option, not a free-text row that is not there
+  });
+
+  it("masks a secret free-text answer while it is typed", () => {
+    const { container } = render(<QuestionCard questions={[q({ options: [], secret: true })]} onAnswer={vi.fn()} onSkip={vi.fn()} />);
+    const card = container.querySelector<HTMLElement>(".question-card")!;
+    fireEvent.click(within(card).getByRole("button", { name: "Something else" }));
+    expect(within(card).getByLabelText("Your answer")).toHaveAttribute("type", "password");
+  });
+
+  it("leaves an ordinary free-text answer visible", () => {
+    const { container } = render(<QuestionCard questions={[q({ options: [] })]} onAnswer={vi.fn()} onSkip={vi.fn()} />);
+    const card = container.querySelector<HTMLElement>(".question-card")!;
+    fireEvent.click(within(card).getByRole("button", { name: "Something else" }));
+    expect(within(card).getByLabelText("Your answer")).toHaveAttribute("type", "text");
+  });
+
   it("shows the question and its options as real labelled rows — not a JSON blob", () => {
     const { container } = render(<QuestionCard questions={[q()]} onAnswer={vi.fn()} onSkip={vi.fn()} />);
     const card = container.querySelector<HTMLElement>(".question-card")!;
