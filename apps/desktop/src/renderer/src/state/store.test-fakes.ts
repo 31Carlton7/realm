@@ -219,6 +219,11 @@ export type FakeData = {
   /** What `agents.probe` answers. Mutate `api.data.agentProbe` between calls to simulate the user
    *  installing (or logging into) a CLI while the install card is up. */
   agentProbe?: AgentProbe[];
+  /** What `office.generate` answers with — the model's reply, which is the whole of what the
+   *  prompter flow has to cope with. */
+  pixelWorldJson?: string;
+  /** What `office.drawSprite` answers with. */
+  pixelSpriteJson?: string;
   /** The space's failover policy. Defaults to the real default (retry on, no chain), so a test that
    *  does not care about failover gets the behaviour a fresh install has. */
   failover?: FailoverPolicy;
@@ -410,6 +415,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     memorySources: overrides.memorySources ?? {},
     pickFiles: overrides.pickFiles ?? [],
     agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
+    pixelWorldJson: overrides.pixelWorldJson ?? "{}",
+    pixelSpriteJson: overrides.pixelSpriteJson ?? "{}",
     failover: overrides.failover ?? DEFAULT_FAILOVER_POLICY,
     cliStatus: overrides.cliStatus ?? [],
     // The model catalog the picker's detail pane reads. Empty by default because that is the state
@@ -780,6 +787,18 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     // Whatever a test parks in `data.pickFiles` is what the native picker "returns".
     pickFiles: async () => { calls.push("pickFiles"); return data.pickFiles.splice(0, data.pickFiles.length); },
     listIconAssets: async (profileId) => { calls.push(`listIconAssets:${profileId}`); return data.iconAssets[profileId] ?? []; },
+    /** Answers with whatever `api.data.pixelWorldJson` holds — the tests drive the prompter by
+     *  setting the model's reply, which is the only interesting variable in that flow. */
+    drawPixelSprite: async (input) => {
+      calls.push(`drawPixelSprite:${input.prompt}`);
+      await wait("drawPixelSprite");
+      return { json: data.pixelSpriteJson };
+    },
+    generatePixelWorld: async (input) => {
+      calls.push(`generatePixelWorld:${input.prompt}`);
+      await wait("generatePixelWorld");
+      return { json: data.pixelWorldJson };
+    },
     generateIconAsset: async (profileId, prompt) => {
       calls.push(`generateIconAsset:${profileId}:${prompt}`);
       await wait("generateIconAsset");

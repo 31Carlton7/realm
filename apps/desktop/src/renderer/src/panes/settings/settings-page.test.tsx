@@ -473,6 +473,17 @@ describe("App tab", () => {
     expect(screen.getByText(/count unread ones on the dock icon/)).toBeInTheDocument();
   });
 
+  it("Sort by activity is off by default and writes ui.sidebarActivityOrder when toggled", async () => {
+    const { api, store } = await openApp();
+    const sw = screen.getByRole("switch", { name: "Sort by activity" });
+    expect(sw).not.toBeChecked();
+    fireEvent.click(sw);
+    await waitFor(() => expect(api.data.settings["ui.sidebarActivityOrder"]).toBe(true));
+    expect(store.getState().sidebarActivityOrder).toBe(true);
+    fireEvent.click(sw);
+    await waitFor(() => expect(api.data.settings["ui.sidebarActivityOrder"]).toBe(false));
+  });
+
   it("a stored OFF renders OFF, and toggling writes the key and clears the dock badge without touching the categories", async () => {
     const { api, store } = await openApp({
       settings: { [NOTIFICATIONS_DESKTOP_KEY]: false, [NOTIFICATIONS_DISABLED_KEY]: ["mcp_health"] },
@@ -1039,7 +1050,6 @@ describe("Sign-ins tab", () => {
     expect(await screen.findByText(/iCloud Keychain/)).toBeInTheDocument();
   });
 });
-
 
 describe("Permissions tab — Apps on this Mac (the grantable half)", () => {
   const openPermissions = async (overrides: FakeData = {}) => {

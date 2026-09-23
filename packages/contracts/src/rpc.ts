@@ -362,6 +362,41 @@ export const Methods = {
   "iconAssets.upload":   { params: z.object({ profileId: IdSchema, path: z.string().min(1) }), result: IconAssetSchema },
   "iconAssets.delete":   { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 
+  /* The pixel office's prompter. One description in, one world out, as the model's raw JSON TEXT —
+     deliberately unparsed here. The renderer owns the only validator (`@realm/pixel-office`'s
+     `checkWorld`/`checkTheme`), because it is the thing that has to survive the answer, and a second
+     weaker copy of those rules in this file is how two validators come to disagree about what is
+     safe to draw. `vocabulary` travels IN for the same reason it is not imported: the furniture
+     catalog is built from decoded sprites in the renderer, and reaching for it server-side would
+     pull a canvas into the daemon. */
+  "office.generate": {
+    params: z.object({
+      prompt: z.string().min(1).max(600),
+      vocabulary: z.array(z.object({ category: z.string().min(1), ids: z.array(z.string().min(1)).max(200) })).max(20),
+      current: z.object({ name: z.string(), room: z.array(z.string()).max(64) }).nullable().default(null),
+      maxCols: z.number().int().min(4).max(60),
+      maxRows: z.number().int().min(4).max(60),
+      /** How many agents need a desk. The room is built for the crowd that is actually there. */
+      seats: z.number().int().min(1).max(40).default(6),
+      /** How many props the model may ask to have drawn for it. */
+      maxDrawn: z.number().int().min(0).max(8).default(0),
+      /** What the last attempt got wrong, handed back so one retry can fix it. */
+      problems: z.array(z.string().max(300)).max(12).default([]),
+    }),
+    result: z.object({ json: z.string() }),
+  },
+  /* The same proxy for one piece of furniture rather than a whole room. Separate from
+     `office.generate` because they are different asks with different costs: a room is rearranged
+     occasionally, a prop is drawn one at a time while you are looking at the result. */
+  "office.drawSprite": {
+    params: z.object({
+      prompt: z.string().min(1).max(200),
+      maxWidth: z.number().int().min(8).max(48),
+      maxHeight: z.number().int().min(8).max(48),
+    }),
+    result: z.object({ json: z.string() }),
+  },
+
   "projects.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(ProjectSchema) },
   "projects.create": { params: z.object({ spaceId: IdSchema, name: z.string().min(1), rootPath: z.string(), defaultBranch: z.string().default("main") }), result: ProjectSchema },
   "projects.delete": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },

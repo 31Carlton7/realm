@@ -63,6 +63,8 @@ export const liveApi = (): Api => ({
   pickFiles: () => window.realm.pickFiles(),
   listIconAssets: (profileId) => rpc().call("iconAssets.list", { profileId }),
   generateIconAsset: (profileId, prompt) => rpc().call("iconAssets.generate", { profileId, prompt }),
+  generatePixelWorld: (input) => rpc().call("office.generate", input),
+  drawPixelSprite: (input) => rpc().call("office.drawSprite", input),
   describePaths: (paths) => window.realm.describePaths(paths),
   pickIconImage: () => window.realm.pickIconImage(),
   compressIconImage: (path) => window.realm.compressIconImage(path),

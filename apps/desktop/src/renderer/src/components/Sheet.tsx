@@ -1,4 +1,5 @@
 import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { centerOverComplement } from "../state/no-overlay";
 import { useBrowserRects } from "../state/store";
 
@@ -10,7 +11,18 @@ const FOCUSABLE = 'input, select, textarea, button:not([disabled]), [href], [tab
  *  W2 (no-overlay): while a browser pane is open, the panel centers over the widest non-browser
  *  column instead of the window — the native view paints over anything window-centered. The store
  *  side (openSheet) has already snapped an over-wide browser leaf to a ≤50% split by the time this
- *  renders, so the column is normally sheet-sized; the width cap is the backstop. */
+ *  renders, so the column is normally sheet-sized; the width cap is the backstop.
+ *
+ *  PORTALLED TO `document.body`, like every other floating surface here (Menu, PageOverlay, the
+ *  composer's pickers). Not a stylistic tidy-up: `.panel` and `.page` both carry
+ *  `container-type: inline-size`, and container-type applies LAYOUT CONTAINMENT, which makes the
+ *  element a containing block for `position: fixed` descendants. Rendered in place, the backdrop's
+ *  `position: fixed; inset: 0` therefore resolved against the pane that opened the sheet rather
+ *  than the window: the scrim dimmed one pane instead of the app, `.panel`'s `overflow: hidden`
+ *  CLIPPED the panel (a sheet raised from the Connections page lost its left edge), and the
+ *  viewport coordinates `centerOverComplement` returns below were measured against the wrong
+ *  origin. The z-index ladder in the stylesheet already says a sheet floats over a page; only the
+ *  DOM position made that a lie. */
 export function Sheet({ title, onClose, children, footer, width = 420 }: {
   title: string; onClose: () => void; children: ReactNode;
   /** Actions that stay put while the body scrolls — the sheet's decision, at the end of what it is
@@ -39,13 +51,14 @@ export function Sheet({ title, onClose, children, footer, width = 420 }: {
     window.addEventListener("keydown", onKey, true);
     return () => { window.removeEventListener("keydown", onKey, true); prev?.focus?.(); };
   }, [onClose]);
-  return (
+  return createPortal(
     <div className="sheet-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div ref={panel} role="dialog" aria-modal="true" aria-label={title} className="sheet" style={style} tabIndex={-1}>
         <div className="sheet-head"><h3>{title}</h3><button className="icon-btn" aria-label="Close" onClick={onClose}>✕</button></div>
         <div className="sheet-body">{children}</div>
         {footer && <div className="sheet-foot">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

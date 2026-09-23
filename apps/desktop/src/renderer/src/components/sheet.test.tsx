@@ -55,3 +55,34 @@ describe("Sheet no-overlay centering (W2)", () => {
     expect(left + w).toBeLessThanOrEqual(200); // entirely inside the only truly free column
   });
 });
+
+/** `.panel` and `.page` declare `container-type: inline-size`. Layout containment makes such an
+ *  element the containing block for `position: fixed` descendants AND — on `.panel`, which also sets
+ *  `overflow: hidden` — a clipper. jsdom has no layout, so the geometry is unobservable here; what IS
+ *  observable, and what the geometry depends on entirely, is that the backdrop is not a descendant of
+ *  the pane that opened it. Drop the `createPortal` in Sheet.tsx and both of these fail. */
+describe("Sheet escapes its opener's containment", () => {
+  it("MUTANT: the backdrop mounts on document.body, not inside the pane that rendered it", () => {
+    const { container } = render(
+      <div className="panel">
+        <div className="page">
+          <Sheet title="Add an MCP server" onClose={() => {}} width={560}>x</Sheet>
+        </div>
+      </div>);
+    const backdrop = document.querySelector(".sheet-backdrop")!;
+    expect(backdrop).not.toBeNull();
+    expect(backdrop.parentElement).toBe(document.body);
+    expect(container.querySelector(".sheet-backdrop")).toBeNull();
+    expect(container.querySelector(".page")!.contains(backdrop)).toBe(false);
+  });
+
+  it("the panel still rides inside that portalled backdrop", () => {
+    render(
+      <div className="panel">
+        <Sheet title="Nested" onClose={() => {}} width={420}>x</Sheet>
+      </div>);
+    const panel = screen.getByRole("dialog");
+    expect(panel.closest(".sheet-backdrop")).not.toBeNull();
+    expect(panel.closest(".panel")).toBeNull(); // the whole point: no containment ancestor above it
+  });
+});

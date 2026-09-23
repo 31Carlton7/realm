@@ -3,6 +3,7 @@ import type { z } from "zod";
 import type { RpcServer } from "./server";
 import { TERMINALS_HISTORY_KEY } from "@realm/contracts";
 import { BOOT_ID } from "../daemon/state";
+import { generatePixelSprite, generatePixelWorld } from "@realm/adapters";
 
 /** When this process came up, for `daemon.info`. A constant for the same reason `BOOT_ID` is one. */
 const STARTED_AT = Date.now();
@@ -201,6 +202,20 @@ export function registerMethods(d: Deps): void {
   reg("iconAssets.generate", (p) => d.iconGeneration.generate(p.profileId, p.prompt));
   reg("iconAssets.upload", (p) => d.iconGeneration.upload(p.profileId, p.path));
   reg("iconAssets.delete", (p) => { d.iconAssets.delete(p.id); return { ok: true as const }; });
+
+  /* The pixel office's prompter. A thin proxy: the model's answer travels back as text and the
+     renderer validates it. Nothing is persisted here — a world the user does not keep should leave
+     nothing behind, and the one they do keep is a setting the renderer writes. */
+  reg("office.generate", async (p) => ({
+    json: await generatePixelWorld({
+      prompt: p.prompt, vocabulary: p.vocabulary, current: p.current,
+      maxCols: p.maxCols, maxRows: p.maxRows, seats: p.seats,
+      maxDrawn: p.maxDrawn, problems: p.problems,
+    }),
+  }));
+  reg("office.drawSprite", async (p) => ({
+    json: await generatePixelSprite({ prompt: p.prompt, maxWidth: p.maxWidth, maxHeight: p.maxHeight }),
+  }));
 
   // Imported VS Code themes. `list` never throws on a bad file — one unreadable theme is one theme,
   // not the whole folder — so the only failure a client can see here is an import it just asked for.

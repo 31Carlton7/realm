@@ -417,6 +417,16 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   respects reduced motion like everything else, and any hue it paints is derived from the live accent
   rather than chosen — the palette's other hues already mean something. Amplitude is calibrated to the
   hero greeting's nod, not to what the effect could do.
+- A frame loop is outside every mechanism this app governs motion with, and has to re-implement all
+  of them. Both of the controls above are CSS: reduced motion is an app-wide `* { animation: none }`,
+  and the `data-quiet` pause the power audit measured is `animation-play-state`. A canvas driven by
+  `requestAnimationFrame` answers to neither, so it keeps running under a preference that silenced
+  everything else and burns a core in a window nobody is looking at — the two failures those
+  mechanisms exist to prevent, reappearing in the one place they cannot reach. Read the media query
+  and the `data-quiet` attribute in JS, and STOP the loop rather than throttling it: a canvas holds
+  its last frame for free, which is the same "freezes where it stands, resumes where it was" the
+  stylesheet gives everything else. The same applies to anything else that paints outside the
+  cascade — a worklet, a WebGL context, a video drawn by hand.
 
 ## Spaces, panes, and navigation
 
@@ -528,6 +538,11 @@ Realm copy is plain, exact, and compact.
 - Avoid generic AI imagery and metaphors: copilots, brains, sparkles, robots, glowing orbs.
 - Do not narrate the interface or the design process in shipped copy.
 - Use periods for sentences, not fragments that only look technical.
+- Never lowercase a rendered label to splice it into a sentence. `Next ${whenLabel(t).toLowerCase()}`
+  reads correctly for as long as every value lands on "Today" or "Tomorrow", and prints "Next sep 30"
+  the first time one reaches the branch holding a month or a weekday — which may be the day a new
+  feature arms the first row that gets there. Lower the relative words and the meridiem; leave the
+  proper nouns alone.
 
 ## Accessibility and responsive behavior
 

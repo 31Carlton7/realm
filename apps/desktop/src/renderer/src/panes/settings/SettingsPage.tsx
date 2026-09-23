@@ -13,6 +13,7 @@ import { useEffect, useReducer, useRef, useState, type CSSProperties } from "rea
 import { Sheet } from "../../components/Sheet";
 import { relativeTime } from "../../components/CheckpointsSheet";
 import { Spinner } from "../../components/Spinner";
+import { CommandCopy } from "../../components/CommandCopy";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import { useApp, type CliJob, type SubmitKey } from "../../state/store";
 import type { PaneProps } from "../registry";
@@ -88,27 +89,6 @@ export function SettingsPage(_props: PaneProps) {
  *  `action`, when given, is the button that RUNS this exact string. It sits beside the command rather
  *  than replacing it, because the promise the CLI manager makes is that the command is readable
  *  before it is run — a button whose command is hidden behind it would be a different promise. */
-function CommandCopy({ command, action }: { command: string; action?: React.ReactNode }) {
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const t = setTimeout(() => setCopied(false), 1600);
-    return () => clearTimeout(t);
-  }, [copied]);
-  return (
-    <div className="install-cmd">
-      <code>{command}</code>
-      <button className="tool-copy" aria-label="Copy command" title={copied ? "Copied" : "Copy"}
-        data-copied={copied || undefined}
-        onClick={() => { void navigator.clipboard?.writeText(command); setCopied(true); }}>
-        <Icon name="copy" size={12} className="copy-icon" />
-        <Icon name="check" size={12} className="copied-icon" />
-      </button>
-      {action}
-    </div>
-  );
-}
-
 /**
  * The output pane is scrolled to the tail on every chunk: a package manager's interesting line is
  * almost always its last, and a user watching an install is watching the end of it.
@@ -791,6 +771,8 @@ function AppTab() {
   const easterEggs = useApp((s) => s.easterEggs);
   const lowPower = useApp((s) => s.lowPower);
   const setLowPower = useApp((s) => s.setLowPower);
+  const sidebarActivityOrder = useApp((s) => s.sidebarActivityOrder);
+  const setSidebarActivityOrder = useApp((s) => s.setSidebarActivityOrder);
   const setEasterEggs = useApp((s) => s.setEasterEggs);
   const run = useApp((s) => s.run);
   useEffect(() => { void run(() => refreshSettingsPrefs()); }, [run, refreshSettingsPrefs]);
@@ -1014,6 +996,19 @@ function AppTab() {
           )}
         </div>
       </div>
+
+      <h3 className="settings-head">Sidebar</h3>
+      <ul className="settings-list">
+        <li className="settings-row" title="Replaces the strip's own drag order with one computed from what is actually happening. Turning it off restores the order you left it in — dragging was never touched, only not read from.">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Sort by activity</span>
+            <span className="settings-row-detail">Needs-you spaces first, then whichever you touched most recently</span>
+          </div>
+          <input type="checkbox" role="switch" className="switch" aria-label="Sort by activity"
+            checked={sidebarActivityOrder}
+            onChange={(e) => run(() => setSidebarActivityOrder(e.target.checked))} />
+        </li>
+      </ul>
 
       <h3 className="settings-head">Terminals</h3>
       <ul className="settings-list">
@@ -1239,6 +1234,15 @@ function Attribution() {
       <Signature />
       <p className="settings-attribution-line">
         Made by <a href="https://x.com/31Carlton7" target="_blank" rel="noreferrer">Carlton Aikins</a>
+      </p>
+      {/* The office is somebody else's work. MIT asks for the notice to travel with the code, which
+          it does in the package; CC0 asks for nothing at all. Both are named here anyway, because
+          shipping someone's art under a licence that lets you say nothing is not a reason to. */}
+      <p className="settings-attribution-line settings-attribution-credit">
+        The pixel office is <a href="https://github.com/pixel-agents-hq/pixel-agents" target="_blank" rel="noreferrer">Pixel Agents</a>{" "}
+        by Pablo De Lucca (MIT), with characters from{" "}
+        <a href="https://jik-a-4.itch.io/metrocity-free-topdown-character-pack" target="_blank" rel="noreferrer">MetroCity</a>{" "}
+        by JIK-A-4 (CC0).
       </p>
     </div>
   );

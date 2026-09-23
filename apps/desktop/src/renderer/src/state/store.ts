@@ -23,6 +23,7 @@ import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_SELECTION,
   type Mode, type ThemeName, type ThemeOverride, type ThemeOverrides, type ThemeSelection, setCustomThemes, type ThemeDef }  from "@realm/ui";
 import type { ThemePref } from "../theme/useTheme";
 import { emptyTranscript, lastUserMessage, reduceTranscript, type Rating, type Transcript } from "../panes/session/transcript-model";
+import { activityOf, type SessionActivity } from "./session-activity";
 import { exportFileName, exportSessionMarkdown } from "../panes/session/export-session";
 import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browser/browser-client";
 import { SIDEBAR_WIDTH, clampSidebarWidth } from "../components/sidebar/sidebar-width";
@@ -34,6 +35,27 @@ export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projec
   /** Plan 13 W2 (⌘⇧↩): record `dispatchedBy: { kind: "user-dispatch" }` on the row — the Tasks
    *  lens's seam. The only origin a client may claim; the agent origins are server-recorded. */
   userDispatched?: boolean };
+
+/** The most agents one fan-out may start. Not a safety limit — the delegation engine has those for
+ *  agents spawning agents, and this is a person pressing a button. It is a legibility limit, the
+ *  same argument `MAX_DELEGATION_DEPTH` makes: past a dozen tiles nobody is reading the wall, and
+ *  every one of them is a checkout on disk and a provider's rate limit being spent. */
+export const FAN_OUT_MAX = 12;
+
+/** One brief, several agents. `worktrees` off runs them all in the space folder, where they will
+ *  edit each other's files — true of any two sessions sharing a checkout, and the reason it defaults
+ *  on for a fan-out, where the collision is the expected case rather than the unlucky one. */
+export type FanOutInput = { brief: string; count: number; agentKind: AgentKind; worktrees: boolean };
+
+export type AgentsView = "list" | "wall" | "office";
+
+/** A generated world: the room its agents work in, and the palette it is painted with.
+ *
+ *  `layout` is a `pixel-office` `OfficeLayout` — tiles, furniture, seating — and is held as
+ *  `unknown` here for the same reason the store holds no other pane's internals: the office package
+ *  owns that shape, validates it at the boundary, and a copy of the type in this file would be a
+ *  second definition free to drift. */
+export type OfficeWorld = { id: string; name: string; prompt: string; layout: unknown; createdAt: number };
 /** `mcp.add` params, minus the wire's own defaulting — undefined fields simply aren't sent. */
 export type AddMcpServerInput = {
   spaceId: string | null; name: string; transport: McpTransport;
@@ -207,6 +229,13 @@ export type Api = {
   /** One-shot Claude call; can take a few seconds. Throws `ICON_INVALID`/`ICON_TOO_LARGE` on a
    *  response that failed the server's structural check. */
   generateIconAsset(profileId: string, prompt: string): Promise<IconAsset>;
+  /** `office.generate` — the pixel office's prompter. Returns the model's raw JSON text; the caller
+   *  validates it with `@realm/pixel-office`, which owns the only copy of those rules. */
+  generatePixelWorld(input: { prompt: string; vocabulary: { category: string; ids: string[] }[];
+    current: { name: string; room: string[] } | null; maxCols: number; maxRows: number;
+    seats: number; maxDrawn: number; problems: string[] }): Promise<{ json: string }>;
+  /** `office.drawSprite` — one piece of furniture, drawn. Raw JSON again; `checkSprite` validates. */
+  drawPixelSprite(input: { prompt: string; maxWidth: number; maxHeight: number }): Promise<{ json: string }>;
   /** Native single-image picker for an icon upload; null when cancelled. */
   describePaths(paths: string[]): Promise<PickedAttachment[]>;
   pickIconImage(): Promise<PickedFile | null>;
@@ -640,6 +669,9 @@ const SETTING_SIDEBAR_COLLAPSED = "ui.sidebarCollapsed";
  *  two answer different questions, and a width remembered through a collapse is what makes bringing
  *  the sidebar back restore the column the user had rather than the one Realm ships. */
 const SETTING_SIDEBAR_WIDTH = "ui.sidebarWidth";
+/** Whether the space strip sorts by activity instead of the user's own drag order. See
+ *  `sidebarActivityOrder`. */
+const SETTING_SIDEBAR_ACTIVITY_ORDER = "ui.sidebarActivityOrder";
 /** Per-session terminal-panel state (open + width), keyed by session id. */
 export const SETTING_TERMINAL_PANEL = "ui.terminalPanel";
 /** The quick chat: which session it is, and where its window sits. One key, because the two are only
@@ -713,7 +745,11 @@ export type Sheet =
   /** One plan out of a session's summary, named by the session that proposed it and the plan's own
    *  id. Read live for the same reason: a plan the agent revises while the sheet is open should show
    *  the revision, not the snapshot that was taken when the row was clicked. */
-  | { kind: "session-plan"; sessionId: string; planId: string };
+  | { kind: "session-plan"; sessionId: string; planId: string }
+  /** The Agents page's fan-out: one brief, several agents, a worktree each. Carries nothing — the
+   *  space it starts them in is the active one, which is the only space the page can act on, and a
+   *  copy of that id in the sheet slot could outlive a space switch made behind the sheet. */
+  | { kind: "fan-out" };
 
 export type AppState = {
   /** False until `boot()` has finished once. First-run onboarding keys off "no spaces" — which is also
@@ -797,6 +833,15 @@ export type AppState = {
   /** The column's width in pixels, inside SIDEBAR_WIDTH's range. Top-level because the shell paints
    *  it and the handle inside the sidebar writes it — the same rule that put `swipeInvert` here. */
   sidebarWidth: number;
+  /**
+   * The space strip sorts by activity instead of the order you last dragged it into.
+   *
+   * "Activity" is `spaceActivity`'s own answer: a space with a session waiting on a permission
+   * outranks every timestamp, and otherwise it is whichever space a session last moved in. Turning
+   * this off does not lose the dragged order — it was never touched, only not read from — so the
+   * strip picks up exactly where it was left.
+   */
+  sidebarActivityOrder: boolean;
   /** Which list the sidebar's body is showing: the space's own items, or the gateway's call log.
    *
    *  Store-held rather than local to the column because `applyMcpCall` reads it — a live call has to
@@ -903,6 +948,18 @@ export type AppState = {
   /** Statuses across spaces: seeded by refreshAllSessions, kept current by session.status broadcasts
    *  (which fire for every space) — entries survive space switches. */
   sessionStatus: Record<string, SessionStatus>;
+  /** The last thing each session was seen DOING, folded out of the `session.event` broadcast — what
+   *  the Agents wall draws under a tile's title. One entry per session, newest answer only, and only
+   *  for sessions that have done something since this window connected: a line nobody has heard yet
+   *  is absent rather than invented (`session-activity.ts`). Never persisted. */
+  sessionActivity: Record<string, SessionActivity>;
+  /** Which reading of the Agents page is on screen: the list that ranks every session by what it
+   *  needs from you, the wall that draws the live ones as tiles with what each is doing, or the
+   *  office that draws them as people in a room.
+   *  Renderer state, like `machineScale` — it is about the page in front of you, not a setting. */
+  agentsView: AgentsView;
+  /** The world the office is drawing, or null for the one it ships with. */
+  officeWorld: OfficeWorld | null;
   /** Messages waiting for a session's current turn to end, oldest first, from `session.queue`. The
    *  key is dropped when a queue empties, so a session with nothing waiting holds nothing here. */
   sessionQueues: Record<string, QueuedPrompt[]>;
@@ -913,6 +970,12 @@ export type AppState = {
   /** sessionId → spaceId for EVERY known session. session.status broadcasts carry only a sessionId;
    *  this map is what lets an inactive space's strip button wear its badge. */
   sessionSpace: Record<string, string>;
+  /** When each session last did something, for `spaceActivity`'s sort. Seeded from the server's own
+   *  `updatedAt` by `refreshAllSessions`, then kept current on the client's clock by every
+   *  `applySessionStatus` — a live status change is itself the activity, and waiting for the next
+   *  full refresh to notice it would leave the strip's order stale for as long as the app stayed
+   *  open. Ordering only: never shown as a time to the user, so the two clocks never have to agree. */
+  sessionUpdatedAt: Record<string, number>;
   /** Transcripts by session id, kept across space switches (cheap, and a session pane may be revisited). */
   transcripts: Record<string, TranscriptEntry>;
   /** The fetched slice of the GLOBAL notifications feed (W5), newest first — what the page renders.
@@ -1244,7 +1307,9 @@ export type AppState = {
    *  a profile is the separator, so a strip of one profile's spaces is a strip that fits. */
   profileSpaces(): Space[];
   boot(): Promise<void>;
-  selectSpace(id: string): Promise<void>;
+  /** `land: false` when the caller will open its own item next — `revealSession` does, and a landing
+   *  chosen here would open a pane beside the one it is about to ask for. */
+  selectSpace(id: string, opts?: { land?: boolean }): Promise<void>;
   /** Switch profiles: land on the space that profile was last on this run, else its first. The
    *  strip's profile chip and the overview's cross-profile rows both come through here. */
   selectProfile(profileId: string): Promise<void>;
@@ -1284,6 +1349,7 @@ export type AppState = {
   setGroundAlpha(pct: number): Promise<void>;
   setSwipeInvert(v: boolean): Promise<void>;
   setLowPower(v: boolean): Promise<void>;
+  setSidebarActivityOrder(v: boolean): Promise<void>;
   /** The window gained or lost focus. Called by App's own listeners; nothing else writes it. */
   setWindowActive(v: boolean): void;
   setEasterEggs(v: boolean): Promise<void>;
@@ -1493,6 +1559,10 @@ export type AppState = {
    *  Fails loudly when the space is not a git repository — there is no worktree to fall back to,
    *  and silently landing in the space folder would be the collision the user asked to avoid. */
   newSessionInWorktree(targetLeafId?: string | null): Promise<void>;
+  /** Set several agents going on one brief at once — the Agents page's fan-out. Returns the sessions
+   *  it actually started, which on a failure part-way through is the ones already working. */
+  fanOutAgents(input: FanOutInput): Promise<Session[]>;
+  setAgentsView(v: AgentsView): void;
   /** Arm (or with null, disarm) inline rename for the pane holding this item. */
   requestRename(itemId: string | null): void;
   /** Arm (or clear, with null) the inline rename of a pane group. */
@@ -1679,6 +1749,17 @@ export type AppState = {
   /** Ask Claude for an SVG icon from a description, save it, and prepend it into `iconAssets`. Can
    *  take a few seconds (a real model call) — callers show a spinner, not an optimistic result. */
   generateIcon(profileId: string, prompt: string): Promise<IconAsset>;
+  /** Put a world on screen, or `null` to go back to the one Realm ships. Not persisted: a world is
+   *  the room you are looking at right now, and a generated one you did not ask to keep should not
+   *  outlive the pane. */
+  setOfficeWorld(world: OfficeWorld | null): void;
+  /** Ask the model for a world. Returns its raw JSON; the caller validates it, because the validator
+   *  lives beside the renderer that has to survive the answer. */
+  generatePixelWorld(input: { prompt: string; vocabulary: { category: string; ids: string[] }[];
+    current: { name: string; room: string[] } | null; maxCols: number; maxRows: number;
+    seats: number; maxDrawn: number; problems: string[] }): Promise<{ json: string }>;
+  /** Ask the model to draw one piece of furniture. Raw JSON; the caller validates and registers it. */
+  drawPixelSprite(input: { prompt: string; maxWidth: number; maxHeight: number }): Promise<{ json: string }>;
   /** The icon picker's "Uploaded" tab: native single-image picker, then upload; null if cancelled. */
   uploadIconImage(profileId: string): Promise<IconAsset | null>;
   /** A file DROPPED on the icon picker, rather than chosen through the OS dialog. Resolves the
@@ -2081,6 +2162,23 @@ export function spaceBadge(
   return error ? "error" : running ? "running" : null;
 }
 
+/** The space strip's activity-sort key, for the "Sort by activity" setting. A space waiting on a
+ *  permission outranks every timestamp — a question sitting for an hour still comes before a space
+ *  merely touched a minute ago, the same priority `spaceBadge` already gives it — and otherwise it
+ *  is the latest `sessionUpdatedAt` across the space's own sessions. 0 for a space nothing has ever
+ *  touched, which sorts it after every space that has done anything at all. */
+export function spaceActivity(
+  sessionStatus: Record<string, SessionStatus>, sessionSpace: Record<string, string>,
+  sessionUpdatedAt: Record<string, number>, spaceId: string,
+): number {
+  if (spaceBadge(sessionStatus, sessionSpace, spaceId) === "waiting_permission") return Infinity;
+  let latest = 0;
+  for (const [id, sid] of Object.entries(sessionSpace)) {
+    if (sid === spaceId) latest = Math.max(latest, sessionUpdatedAt[id] ?? 0);
+  }
+  return latest;
+}
+
 export type FocusDir = "left" | "right" | "up" | "down";
 
 /**
@@ -2392,7 +2490,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     };
     /** Persisted events that arrive while openSession is fetching; replayed after the fetch so order is kept. */
     const loading = new Map<string, StoredSessionEvent[]>();
-    const setTranscript = (id: string, entry: TranscriptEntry) => set({ transcripts: { ...get().transcripts, [id]: entry } });
+    /** `also` is folded into the SAME write. A transcript move and the wall's activity line are two
+     *  facts about one event, and two `set` calls for them is two notifications — a render of every
+     *  subscribed pane — per event, per streaming session. */
+    const setTranscript = (id: string, entry: TranscriptEntry, also?: Partial<AppState>) =>
+      set({ ...also, transcripts: { ...get().transcripts, [id]: entry } });
     const dropTranscript = (id: string) => { pendingDeltas.delete(id); const { [id]: _gone, ...rest } = get().transcripts; set({ transcripts: rest }); };
 
     /**
@@ -2627,6 +2729,51 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      */
     const revealPanes = () => { if (get().pageOverlay) set({ pageOverlay: null }); };
 
+    /** The newest session in the ACTIVE space that has a pane to open — by the session's own
+     *  `updatedAt`, which is what "most recent" means to the person who last worked on it. */
+    const newestSessionItem = (): Item | null => {
+      const sessions = get().sessions;
+      let best: Item | null = null;
+      let bestAt = -1;
+      for (const item of get().items) {
+        if (item.kind !== "session" || item.archived) continue;
+        const session = sessions[item.refId];
+        if (!session || session.updatedAt <= bestAt) continue;
+        best = item;
+        bestAt = session.updatedAt;
+      }
+      return best;
+    };
+
+    /**
+     * The page overlay, after a space switch.
+     *
+     * A page is opened OVER a space and carries that space's id — the vantage its scope groups
+     * ("This space" / "From <profile>") are computed from. Left alone across a switch it keeps
+     * describing the space you just left: for a space's own Overview that is visibly the wrong
+     * space, and for every other page it is a screen standing between you and the work you switched
+     * to, with no way to tell from looking that anything moved.
+     *
+     * Overview and the profile page FOLLOW the switch — each is about a space (or its profile), and
+     * the answer for the new one is the same page re-pointed. Everything else is a detour, and
+     * switching spaces is a request to be back in the work, so the page gives way.
+     *
+     * Giving way opens the space's newest session only when the workspace has nothing in it. A space
+     * that already has panes open has its own saved arrangement, and forcing a session into it would
+     * rearrange — and persist — a layout the user did not touch. `openItem` reveals the panes itself,
+     * so a landing closes the page as part of arriving rather than as a second step.
+     */
+    const followSpaceSwitch = async (spaceId: string, land: boolean): Promise<void> => {
+      const page = get().pageOverlay;
+      if (!page) return;
+      if (page.kind === "space-page") { set({ pageOverlay: { kind: "space-page", refId: spaceId, spaceId } }); return; }
+      if (page.kind === "profile-page") { set({ pageOverlay: { ...page, spaceId } }); return; }
+      const empty = allItems(get().layout ?? emptyLayout()).length === 0;
+      const newest = land && empty ? newestSessionItem() : null;
+      if (newest) await get().openItem(newest.id);
+      else set({ pageOverlay: null });
+    };
+
     const adoptItem = async (sid: string, itemId: string, targetLeafId: string | null, beside = false, edge?: DropEdge) => {
       const seq = ++itemsFetchSeq;
       const items = await api.listItems(sid);
@@ -2643,13 +2790,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
+      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, sidebarActivityOrder: false, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
-      spacePageTab: {}, profilePageTab: {}, librarySkill: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionSpace: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
+      spacePageTab: {}, profilePageTab: {}, librarySkill: {}, mcpPanelSpaceId: null, agentsView: "list", officeWorld: null,
+      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -2666,9 +2813,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, swipeInvert, lowPower, submitKey, sidebarCollapsed, sidebarWidth, lastAgent, eggs, konami, panels, quick, system] = await Promise.all([
+        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, swipeInvert, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, lastAgent, eggs, konami, panels, quick, system] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME),
-          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_LAST_AGENT),
+          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
           api.getSetting(SETTING_TERMINAL_PANEL),
           api.getSetting(SETTING_QUICK_CHAT),
@@ -2682,6 +2829,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           groundAlpha: typeof groundAlpha === "number" ? clampGroundAlpha(groundAlpha) : DEFAULT_GROUND_ALPHA, swipeInvert: swipeInvert === true, lowPower: lowPower === true,
           submitKey: isSubmitKey(submitKey) ? submitKey : "enter", sidebarCollapsed: sidebarCollapsed === true,
           sidebarWidth: typeof sidebarWidth === "number" ? clampSidebarWidth(sidebarWidth) : SIDEBAR_WIDTH.default,
+          sidebarActivityOrder: activityOrder === true,
           lastAgentKind: agent.success ? agent.data : null,
           easterEggs: eggs === true, konamiUnlocked: konami === true,
           terminalPanel: parseTerminalPanels(panels), machineName: system.machineName, userName: system.userName, detachedSince: system.detachedSince });
@@ -2737,7 +2885,7 @@ await get().refreshCustomThemes().catch(() => {});
         // asking a registry on every launch. It only ever LOOKS; applying an update stays a click.
         void get().refreshCliStatus().catch(() => {});
       },
-      async selectSpace(id) {
+      async selectSpace(id, opts) {
         await flushPersist();
         itemsFetchSeq++; // in-flight item fetches from the previous activation are now stale
         layoutHydrated = false;
@@ -2755,6 +2903,8 @@ await get().refreshCustomThemes().catch(() => {});
         // true the moment the switch is committed, not a round trip later.
         if (space) set({ lastSpaceByProfile: { ...get().lastSpaceByProfile, [space.profileId]: id } });
         await Promise.all([get().refreshProjects(), get().refreshEnvironments(), get().refreshItems(), get().refreshSessions()]);
+        // After the items and sessions land, so a page that gives way has something to give way TO.
+        await followSpaceSwitch(id, opts?.land ?? true);
         // Space activation refreshes git context for the focused pane's session, if any.
         const focusedItem = get().items.find((i) => i.id === itemIdOfLeaf(get().layout, get().focusedLeafId));
         if (focusedItem?.kind === "session") refreshGitFor(focusedItem.refId);
@@ -3010,6 +3160,10 @@ await get().refreshCustomThemes().catch(() => {});
       async setLowPower(v) {
         set({ lowPower: v });
         await api.setSetting(SETTING_LOW_POWER, v);
+      },
+      async setSidebarActivityOrder(v) {
+        set({ sidebarActivityOrder: v });
+        await api.setSetting(SETTING_SIDEBAR_ACTIVITY_ORDER, v);
       },
       setWindowActive(v) {
         // Guarded: focus and blur both fire more than once for one switch (the window, then the
@@ -3321,7 +3475,8 @@ await get().refreshCustomThemes().catch(() => {});
           const { [it.refId]: _de, ...draftElements } = get().draftElements; // likewise
           const { [it.refId]: _dsr, ...draftSessionRefs } = get().draftSessionRefs; // likewise
           const { [it.refId]: _dl, ...draftLinks } = get().draftLinks;
-          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, planReturn, sessionSpace, terminalPanel, sessionTerminals, sessionDock });
+          const { [it.refId]: _ac, ...sessionActivity } = get().sessionActivity;
+          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, planReturn, sessionSpace, terminalPanel, sessionTerminals, sessionDock, sessionActivity });
           if (termId || _tp) get().run(persistPanels); // the panel map just lost an entry
         }
       },
@@ -3610,8 +3765,9 @@ await get().refreshCustomThemes().catch(() => {});
         // The list is the truth for existence and mapping; server-persisted statuses are fresh (they
         // are written before each session.status broadcast), so they simply overwrite.
         const sessionSpace: Record<string, string> = {}; const sessionStatus: Record<string, SessionStatus> = {};
-        for (const s of all) { sessionSpace[s.id] = s.spaceId; sessionStatus[s.id] = s.status; }
-        set({ sessionSpace, sessionStatus });
+        const sessionUpdatedAt: Record<string, number> = {};
+        for (const s of all) { sessionSpace[s.id] = s.spaceId; sessionStatus[s.id] = s.status; sessionUpdatedAt[s.id] = s.updatedAt; }
+        set({ sessionSpace, sessionStatus, sessionUpdatedAt });
       },
       async jumpToPermission(sessionId = null) {
         const spaceOf = (id: string) => get().sessionSpace[id] ?? get().sessions[id]?.spaceId ?? null;
@@ -3682,16 +3838,40 @@ await get().refreshCustomThemes().catch(() => {});
         } finally { loading.delete(id); }
       },
       applySessionEvent(ev) {
+        /* The wall's line, derived before every early return below — it is the one thing here that is
+           wanted for sessions nobody has OPENED, which is most of them and all of the interesting
+           ones. The returns that follow are about a transcript, which an unopened session has none
+           of; what the agent is doing is answerable either way.
+           Carried as a patch rather than written on the spot so it can ride along with whatever write
+           this event was already going to make. A `set` of its own would have been a second store
+           notification per event per streaming session — the cost `flushSessionDeltas` exists to
+           avoid, reintroduced one line above it. `assistant_delta` is not an activity case at all,
+           so the streaming path stays exactly as cheap as it was. */
+        const doing = activityOf(ev.event);
+        const activity = doing ? { sessionActivity: { ...get().sessionActivity, [ev.sessionId]: doing } } : undefined;
+        /* An auth failure the server has already re-probed and given up on. Re-read the agents here
+           too, and before the transcript returns below, because the answer is about the CLI rather
+           than about this session: a signed-out `claude` is signed out for every pane, including the
+           ones nobody has opened. What it buys is the prompter — `agentAvailability` turns a probe
+           that says `loggedIn: false` into the card holding the login command, and until the store's
+           copy of the probe is refreshed the prompter goes on offering a text box that will fail the
+           next message the same way. The forced call collapses across sessions (`probeAgents`), so
+           four panes failing together still spawn one probe. */
+        if (ev.event.type === "error" && ev.event.payload.failure === "auth") {
+          void get().run(() => get().probeAgents(true));
+        }
+        /** This event makes no other write: the line is the whole of it. */
+        const lineOnly = () => { if (activity) set(activity); };
         const buf = loading.get(ev.sessionId);
-        if (buf) { if (!ev.ephemeral) buf.push(ev); return; } // deltas are dropped while loading; the final text is persisted anyway
+        if (buf) { lineOnly(); if (!ev.ephemeral) buf.push(ev); return; } // deltas are dropped while loading; the final text is persisted anyway
         const cur = get().transcripts[ev.sessionId];
-        if (!cur) return; // not opened yet: openSession fetches everything later
+        if (!cur) { lineOnly(); return; } // not opened yet: openSession fetches everything later
         // Deltas are buffered and land a frame later; see `pendingDeltas`.
-        if (ev.ephemeral) { if (ev.event.type === "assistant_delta") queueDelta(ev.sessionId, ev.event.payload.messageId, ev.event.payload.delta, ev.event.ts); return; }
-        if (ev.seq <= cur.lastSeq) return;
+        if (ev.ephemeral) { lineOnly(); if (ev.event.type === "assistant_delta") queueDelta(ev.sessionId, ev.event.payload.messageId, ev.event.payload.delta, ev.event.ts); return; }
+        if (ev.seq <= cur.lastSeq) { lineOnly(); return; }
         // A persisted event is ordered AFTER the deltas still waiting, so it folds them into its own
         // write rather than racing the frame that would have applied them.
-        setTranscript(ev.sessionId, { lastSeq: ev.seq, t: reduceTranscript(drainInto(ev.sessionId, cur.t), ev.event) });
+        setTranscript(ev.sessionId, { lastSeq: ev.seq, t: reduceTranscript(drainInto(ev.sessionId, cur.t), ev.event) }, activity);
         // Watching a transcript move IS reading it. Same predicate the notifications auto-read uses —
         // this session is the focused pane — because "which pane has the keyboard" is the only thing
         // the renderer actually knows about attention. A pane in the background, or restored behind
@@ -3715,7 +3895,11 @@ await get().refreshCustomThemes().catch(() => {});
       applySessionStatus(sessionId, status) {
         const prev = get().sessionStatus[sessionId];
         const s = get().sessions[sessionId];
-        set({ sessionStatus: { ...get().sessionStatus, [sessionId]: status }, ...(s ? { sessions: { ...get().sessions, [sessionId]: { ...s, status } } } : {}) });
+        set({ sessionStatus: { ...get().sessionStatus, [sessionId]: status },
+          // The live signal `spaceActivity` sorts by: a status change is itself activity, and the
+          // client's own clock is fine because the value is never shown, only compared.
+          sessionUpdatedAt: { ...get().sessionUpdatedAt, [sessionId]: Date.now() },
+          ...(s ? { sessions: { ...get().sessions, [sessionId]: { ...s, status } } } : {}) });
         // A broadcast for a session we can't place (created in another window/space since the last
         // list): fetch the map so its space can wear the badge.
         if (!get().sessionSpace[sessionId]) get().run(() => get().refreshAllSessions());
@@ -3759,6 +3943,59 @@ await get().refreshCustomThemes().catch(() => {});
         if (isSpace(sid)) set({ environments: { ...get().environments, [env.id]: env } });
         await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT, environmentId: env.id }, targetLeafId);
       },
+      /**
+       * One brief, `count` agents, each sent the brief and left to work.
+       *
+       * No panes. Eight sessions opened as eight leaves is a layout nobody asked for and would have
+       * to undo before reading anything; the items exist in the space, the wall draws them, and the
+       * user opens the ones that turn out to matter. That is the difference between dispatching work
+       * and dispatching windows, and it is why this does not go through `newSession`.
+       *
+       * Strictly sequential, and that is a git fact rather than a preference: `git worktree add`
+       * takes the repository's index lock, so N of them at once against one repo is a race with a
+       * losing side. The sessions themselves then run concurrently, which is the whole point.
+       *
+       * A failure part-way through does NOT roll back. The agents already started are real, are
+       * working, and may already have written to disk; deleting them to make the batch atomic would
+       * destroy work to tidy up a number. The ones that started are returned and the reason for the
+       * stop surfaces through `run`, so what the user is told is what actually happened.
+       *
+       * Titles are left to the server's own generator rather than numbered here. A fan-out's agents
+       * are told apart by where they RUN — one worktree each, which the tile shows — and a name like
+       * "Agent 3" invented at this moment would outlive its usefulness by sticking to the row.
+       */
+      async fanOutAgents({ brief, count, agentKind, worktrees }) {
+        const sid = get().activeSpaceId; if (!sid) return [];
+        const text = brief.trim(); if (!text) return [];
+        const n = Math.max(1, Math.min(FAN_OUT_MAX, Math.trunc(count)));
+        const started: Session[] = [];
+        try {
+          for (let i = 0; i < n; i++) {
+            // Named from the brief, like "New worktree…" does, so the branches say what they are for
+            // and the server's slugifier settles the collision between N of the same name.
+            const env = worktrees ? await api.createWorktree(sid, worktreeTitleFrom(text)) : null;
+            if (env && isSpace(sid)) set({ environments: { ...get().environments, [env.id]: env } });
+            const { session } = await api.createSession({
+              spaceId: sid, agentKind, ...(env ? { environmentId: env.id } : {}), userDispatched: true,
+            });
+            if (isSpace(sid)) mergeSession(session);
+            await api.sendMessage(session.id, text, [], [], [], undefined, []);
+            started.push(session);
+          }
+        } finally {
+          // In `finally`, because the agents that DID start have item rows the sidebar is missing
+          // until this runs — and a batch that stopped half way is exactly when the user needs to
+          // see the half that is working.
+          if (started.length > 0) {
+            rememberAgent(agentKind);
+            const seq = ++itemsFetchSeq;
+            const items = await api.listItems(sid);
+            if (isSpace(sid) && seq === itemsFetchSeq) set({ items });
+          }
+        }
+        return started;
+      },
+      setAgentsView(v) { set({ agentsView: v }); },
       requestRename(itemId) { set({ renamingItemId: itemId }); },
       requestGroupRename(groupId) { set({ renamingGroupId: groupId }); },
       /**
@@ -4317,6 +4554,9 @@ await get().refreshCustomThemes().catch(() => {});
       async refreshIconAssets(profileId) {
         await fetchIconAssets(profileId);
       },
+      setOfficeWorld(world) { set({ officeWorld: world }); },
+      generatePixelWorld(input) { return api.generatePixelWorld(input); },
+      drawPixelSprite(input) { return api.drawPixelSprite(input); },
       async generateIcon(profileId, prompt) {
         const asset = await api.generateIconAsset(profileId, prompt);
         markIconAssetMutation(profileId);
@@ -4897,7 +5137,7 @@ await get().refreshCustomThemes().catch(() => {});
         // spaces leaves the caller's remembered id stale, and switching to the old space would open
         // nothing and look like a dead button.
         const target = get().sessionSpace[sessionId] ?? spaceId;
-        if (target && target !== get().activeSpaceId) await get().selectSpace(target);
+        if (target && target !== get().activeSpaceId) await get().selectSpace(target, { land: false });
         const item = get().items.find((i) => i.kind === "session" && i.refId === sessionId);
         // A session with no item in the space it claims has no pane to be brought forward — the space
         // switch above already happened, so callers need to hear that the jump did NOT land rather
