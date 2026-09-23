@@ -2,6 +2,7 @@ import { Icon } from "@realm/ui";
 import { useRef, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
+import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
 import type { SlashCommand } from "./slash-commands";
 
 /**
@@ -27,6 +28,7 @@ export function SlashPicker({ commands, activeIndex, anchorRef, onPick, onHover,
   // No exit, matching the mention picker: this opens and closes between keystrokes, and a ghost of
   // it trailing the caret while the sentence carries on is noise rather than motion.
   const { pos } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose });
+  useAutoHideScrollbar(ref);
   const active = Math.min(activeIndex, commands.length - 1);
   return createPortal(
     <div ref={ref} id="slash-list" className="mention-picker slash-picker" role="listbox" aria-label="Commands"
