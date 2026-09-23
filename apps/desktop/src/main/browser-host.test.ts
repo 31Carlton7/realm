@@ -93,7 +93,8 @@ describe("toViewBounds", () => {
 
 /** A fake ViewHandle that records calls and simulates the webContents state getters. */
 function fakeView() {
-  const nav = { url: "", title: "", loading: false, back: false, forward: false };
+  const nav = { url: "", title: "", loading: false, back: false, forward: false,
+    entries: [] as { url: string; title: string }[], activeIndex: 0 };
   const calls: string[] = [];
   let hooks: ViewHooks | null = null;
   const handle: ViewHandle = {
@@ -104,6 +105,8 @@ function fakeView() {
     reload: () => calls.push("reload"), stop: () => calls.push("stop"),
     canGoBack: () => nav.back, canGoForward: () => nav.forward,
     getURL: () => nav.url, getTitle: () => nav.title, isLoading: () => nav.loading,
+    history: () => ({ entries: nav.entries, activeIndex: nav.activeIndex }),
+    goToIndex: (i) => calls.push(`goToIndex:${i}`),
     destroy: () => calls.push("destroy"),
   };
   return { handle, calls, nav, setHooks: (h: ViewHooks) => { hooks = h; }, getHooks: () => hooks! };
@@ -137,6 +140,50 @@ describe("BrowserPaneHost", () => {
     expect(factory).toHaveBeenCalledTimes(1);
     expect(views.get("b1")!.calls.filter((c) => c.startsWith("load:"))).toHaveLength(1);
     expect(states.at(-1)!.id).toBe("b1");
+  });
+
+  it("splits the trail at where the view is standing, nearest first going back", () => {
+    /* THE off-by-one mutant: include the active entry in either arm. Back would offer the page you
+       are already on as its first row, and Forward would too — one of them a no-op wearing a title. */
+    const { host, views } = makeHost();
+    host.create("b1", "https://c.example", null);
+    const v = views.get("b1")!;
+    v.nav.entries = [
+      { url: "https://a.example", title: "A" },
+      { url: "https://b.example", title: "B" },
+      { url: "https://c.example", title: "C" },
+      { url: "https://d.example", title: "D" },
+    ];
+    v.nav.activeIndex = 2;
+    // Nearest first: the page one press of Back away is the row nearest the button.
+    expect(host.historyTrail("b1", "back")).toEqual([{ index: 1, label: "B" }, { index: 0, label: "A" }]);
+    // Forward is walked in the order it would be walked.
+    expect(host.historyTrail("b1", "forward")).toEqual([{ index: 3, label: "D" }]);
+  });
+
+  it("falls back to the url for a page that never set a title, and refuses both ends", () => {
+    const { host, views } = makeHost();
+    host.create("b1", "https://a.example", null);
+    const v = views.get("b1")!;
+    v.nav.entries = [{ url: "https://a.example", title: "" }, { url: "https://b.example", title: "   " }];
+    v.nav.activeIndex = 1;
+    // A blank row in a menu is a row nobody can aim at.
+    expect(host.historyTrail("b1", "back")).toEqual([{ index: 0, label: "https://a.example" }]);
+    // Standing at the oldest entry there is nothing behind; at the newest, nothing ahead.
+    v.nav.activeIndex = 0;
+    expect(host.historyTrail("b1", "back")).toEqual([]);
+    v.nav.activeIndex = 1;
+    expect(host.historyTrail("b1", "forward")).toEqual([]);
+    // A browser that is not open has no trail rather than throwing at the menu's call site.
+    expect(host.historyTrail("nope", "back")).toEqual([]);
+  });
+
+  it("goToIndex reaches the view, and a missing one is a no-op", () => {
+    const { host, views } = makeHost();
+    host.create("b1", "https://a.example", null);
+    host.goToIndex("b1", 3);
+    expect(views.get("b1")!.calls).toContain("goToIndex:3");
+    expect(() => host.goToIndex("nope", 1)).not.toThrow();
   });
 
   it("create with an empty url loads nothing (the pane's empty state, not about:blank)", () => {

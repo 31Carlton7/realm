@@ -54,6 +54,8 @@ export type BrowserHostBridge = {
   retain(id: string): Promise<void>;
   navigate(id: string, input: string): Promise<string | null>;
   nav(id: string, action: "back" | "forward" | "reload" | "stop"): Promise<void>;
+  /** The trail as an OS menu — see main's handler for why it cannot be a popover in this pane. */
+  historyMenu(id: string, dir: "back" | "forward", at: { x: number; y: number }): Promise<void>;
   setAllowlist(id: string, allowlist: string[] | null): Promise<void>;
   setBounds(id: string, rect: { x: number; y: number; width: number; height: number }, dpr: number, visible: boolean): void;
   onState(cb: (s: BrowserViewState) => void): () => void;

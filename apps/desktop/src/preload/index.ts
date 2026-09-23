@@ -217,6 +217,9 @@ contextBridge.exposeInMainWorld("realm", {
     /** Resolves the normalized URL actually loaded, or null when refused (allowlist) / empty. */
     navigate: (id: string, input: string): Promise<string | null> => ipcRenderer.invoke("browser:navigate", id, input),
     nav: (id: string, action: "back" | "forward" | "reload" | "stop"): Promise<void> => ipcRenderer.invoke("browser:nav", id, action),
+    /** Pops the OS back/forward menu under a button whose window-relative corner this carries. */
+    historyMenu: (id: string, dir: "back" | "forward", at: { x: number; y: number }): Promise<void> =>
+      ipcRenderer.invoke("browser:history-menu", id, dir, at),
     setAllowlist: (id: string, allowlist: string[] | null): Promise<void> => ipcRenderer.invoke("browser:set-allowlist", id, allowlist),
     setBounds: (id: string, rect: { x: number; y: number; width: number; height: number }, dpr: number, visible: boolean): void =>
       ipcRenderer.send("browser:set-bounds", id, rect, dpr, visible),

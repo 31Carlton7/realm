@@ -1,6 +1,7 @@
 import type { BlockedDownload, BrowserPickedElement, PasskeyNotice } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import type { StoreApi } from "zustand";
 import type { PaneProps } from "../registry";
 import { useAppStoreMaybe, type AppState, type BrowserActionTick } from "../../state/store";
@@ -384,6 +385,15 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
   }, [focused, hasUrl, initialUrl]);
 
   const nav = (action: "back" | "forward" | "reload" | "stop") => { void getBrowserBridges().host.nav(browserId, action); };
+  /* Right-click either arrow for the trail behind it — the gesture every browser has. The menu is
+     the OS's, popped by main: this pane bans dropdowns because the native view composites over
+     renderer DOM, and an OS menu is the one surface that is not renderer DOM. Anchored to the
+     button's bottom-left so it hangs off the control it belongs to rather than at the pointer. */
+  const historyMenu = (dir: "back" | "forward") => (e: ReactMouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    const r = e.currentTarget.getBoundingClientRect();
+    void getBrowserBridges().host.historyMenu(browserId, dir, { x: r.left, y: r.bottom });
+  };
   const submit = async () => {
     const input = draft ?? url;
     const loaded = await getBrowserBridges().host.navigate(browserId, input);
@@ -393,10 +403,12 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
   return (
     <div className="browser-pane">
       <div className="browser-chrome">
-        <button className="icon-btn" aria-label="Back" title="Back" disabled={!state?.canGoBack} onClick={() => nav("back")}>
+        <button className="icon-btn" aria-label="Back" title="Back — right-click for the pages behind this one"
+          disabled={!state?.canGoBack} onClick={() => nav("back")} onContextMenu={historyMenu("back")}>
           <Icon name="chevronLeft" size={14} />
         </button>
-        <button className="icon-btn" aria-label="Forward" title="Forward" disabled={!state?.canGoForward} onClick={() => nav("forward")}>
+        <button className="icon-btn" aria-label="Forward" title="Forward — right-click for the pages ahead of this one"
+          disabled={!state?.canGoForward} onClick={() => nav("forward")} onContextMenu={historyMenu("forward")}>
           <Icon name="chevronRight" size={14} />
         </button>
         {state?.loading ? (
