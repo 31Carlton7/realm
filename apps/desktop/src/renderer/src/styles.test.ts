@@ -2348,10 +2348,48 @@ describe("§6 do-NOT-animate list", () => {
     expect(stepOf(light, "divider")).toBeGreaterThan(stepOf(light, "line-strong"));
   });
 
-  it("resize handles carry no transition or animation — a drag must track the pointer exactly", () => {
-    for (const r of RULES.filter((x) => x.selectors.some((s) => s.startsWith(".resize-handle")))) {
-      expect(r.body, r.selectors.join(",")).not.toContain("transition");
-      expect(r.body, r.selectors.join(",")).not.toContain("animation");
+  /* A divider may FADE, but it may never ease into position.
+     What this has always been protecting is the drag: a transition on anything that decides where
+     the handle is puts the line behind the pointer that is dragging it, and the pane edge arrives
+     after the mouse. That is a fact about geometry, not about the word "transition" — the hover
+     highlight is an opacity on a pseudo-element, which paints and cannot move anything. So the rule
+     is the same rule §6 states for every hover fill in the app (colour, never geometry), enforced
+     here rather than restated: list what may be transitioned, and let the ban do the rest.
+     `animation` stays out entirely; nothing on a control this direct should run on its own clock. */
+  /* The kill that silently killed nothing.
+     `*` is a type selector: it matches ELEMENTS, and a `::before` is not one. So `@media
+     (prefers-reduced-motion: reduce) { * { transition: none } }` read like an app-wide guarantee and
+     left every pseudo-element transition running — the switch knob's throw, the checkbox tick, both
+     slider thumbs, the space strip's marker, the divider highlights. Caught in a real window under
+     `Emulation.setEmulatedMedia`, where the media query matched and the computed duration on
+     `.sb-resize::after` was still 180ms. This pins the selector list AND the reason it has to exist,
+     so the day nothing transitions on a pseudo-element the test says so rather than passing. */
+  it("stops motion on pseudo-elements too, where `*` alone never reached", () => {
+    const pseudoTransitions = RULES.filter(
+      (r) => /transition:\s*(?!none)/.test(r.body) && partsOf(r).some((s) => s.includes("::")),
+    );
+    expect(pseudoTransitions.length, "no pseudo-element transitions left — this guard is now moot")
+      .toBeGreaterThan(0);
+
+    for (const guard of [/@media \(prefers-reduced-motion: reduce\)/, /\[data-theme-switching\]/]) {
+      const block = RULES.find((r) => r.body.includes("transition: none !important")
+        && (guard.source.includes("reduced") ? partsOf(r).includes("*") : partsOf(r).some((s) => s.includes("data-theme-switching"))));
+      expect(block, `no blanket transition kill for ${guard.source}`).toBeTruthy();
+      const parts = partsOf(block!).join(" ");
+      expect(parts, `${guard.source} kill skips ::before`).toContain("::before");
+      expect(parts, `${guard.source} kill skips ::after`).toContain("::after");
+    }
+  });
+
+  it("resize handles transition paint only — a drag must track the pointer exactly", () => {
+    const PAINT = ["opacity", "background-color", "color"];
+    for (const r of RULES.filter((x) => x.selectors.some((s) => s.startsWith(".resize-handle") || s.startsWith(".sb-resize")))) {
+      const where = r.selectors.join(",");
+      expect(r.body, where).not.toContain("animation");
+      const transition = /transition:([^;}]*)/.exec(r.body);
+      if (!transition) continue;
+      const properties = transition[1]!.split(",").map((part) => part.trim().split(/\s+/)[0]!);
+      for (const property of properties) expect(PAINT, `${where} transitions ${property}`).toContain(property);
     }
   });
 

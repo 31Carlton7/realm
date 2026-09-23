@@ -373,6 +373,11 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // intent: ⌘⇧↩ dispatches the draft into a NEW session (store.dispatchDraft, bound in hotkeys.ts)
   // and must leave this scroller exactly where the reader parked it.
   const [sends, setSends] = useState(0);
+  /* A passage quoted out of the transcript, on its way to the prompter. Held HERE because the two
+     components that need it are siblings — the bar that reads the selection and the card that owns
+     the caret — and a counter rather than a bare string so that quoting the same sentence twice is
+     two events rather than one prop that did not change. */
+  const [quote, setQuote] = useState<{ text: string; n: number } | null>(null);
   /** The file path whose menu is open, and the element it was clicked on. */
   const [pathMenu, setPathMenu] = useState<{ path: string; at: HTMLElement } | null>(null);
   /* The whole pane takes a dropped file, not just the prompter: with a transcript on screen the card
@@ -516,6 +521,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
         mode={sessionModeOf(session.permissionMode)}
         eggs={easterEggs} packLabels={packLabels}
         onPath={(p, at) => setPathMenu({ path: p, at })}
+        onQuote={(text) => setQuote((q) => ({ text, n: (q?.n ?? 0) + 1 }))}
         sends={sends}
         // Keyed by SESSION, not by pane: a space switch tears this pane down and rebuilds it, and
         // what the reader is owed back is their place in this log (scroll-memory.ts).
@@ -531,7 +537,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onInstall={() => run(() => runCliAction(session.agentKind, "install"))}
             onSignIn={() => run(() => startSignIn(session.agentKind))}
             onDismissJob={() => dismissCliJob(session.agentKind)} />
-        : <Composer session={session} status={status} gitInfo={gitInfo} todos={todos}
+        : <Composer session={session} status={status} gitInfo={gitInfo} todos={todos} quote={quote}
             onOpenDiff={() => run(() => openDiff(session.environmentId))} draft={draft} onDraftChange={(t) => setDraft(id, t)}
             attachments={attachments}
             onAttachPick={() => run(() => attachFromPicker(id))}

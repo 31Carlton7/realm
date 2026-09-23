@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { BrowserAction } from "@realm/contracts";
-import { buildSnapshot, performAct, performFillCredential, SNAPSHOT_STYLES, isOpaqueColor, cursorTargetFor, DEFAULT_AGENT_ACCENT, HIGHLIGHT_ATTR, highlightTargetRef, markAct, MARK_CURSOR, MARK_FRAME, MARK_RING, viewportCentre, type CdpSend } from "./browser-agent";
+import { UPLOAD_DROP_MAX_BYTES, type BrowserAction } from "@realm/contracts";
+import { buildSnapshot, cancelFileChooser, performAct, performFillCredential, performUpload, SNAPSHOT_STYLES, isOpaqueColor, cursorTargetFor, DEFAULT_AGENT_ACCENT, HIGHLIGHT_ATTR, highlightTargetRef, markAct, MARK_CURSOR, MARK_FRAME, MARK_RING, viewportCentre, type CdpSend, type UploadSeams } from "./browser-agent";
 import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_MOTION, CURSOR_FORM_FOR_CSS } from "./agent-cursor";
 import { tickStylesFor } from "./browser-agent";
 
@@ -62,6 +62,19 @@ function fakeSend(opts: {
    *  what the credential fill's origin gate reads. `"throw"` is a history CDP will not give up. */
   history?: { url: string } | "throw";
   focus?: "throw";
+  /** Plan 26. The fake mints object ids as `obj-<backendNodeId>`, so everything below is keyed by
+   *  backendNodeId and the three upload scripts are told apart by a distinctive substring of their
+   *  own source — the alternative is exporting the script constants purely so a test can compare
+   *  them, which pins the implementation rather than the behaviour. */
+  /** What `<input type=file>` a ref resolves to (`null` = none, which sends `performUpload` on to
+   *  the click-and-intercept route). */
+  fileInputFor?: Record<number, number | null>;
+  /** What each file input answers about itself. */
+  fileInputs?: Record<number, { accept?: string; multiple?: boolean; names?: string[] }>;
+  /** Parent chain, for the dropzone's bounded ancestor walk. */
+  parents?: Record<number, number>;
+  /** How many files a synthesized drop reports carrying; `"throw"` is a page that rejected it. */
+  drop?: number | "throw";
 }) {
   const calls: { method: string; params: Record<string, unknown> }[] = [];
   const send: CdpSend = async (method, params = {}) => {
@@ -85,9 +98,36 @@ function fakeSend(opts: {
         return { quads: q ?? [] };
       }
       case "DOM.describeNode": {
+        // By objectId: the upload path resolves a found node back to its backendNodeId this way.
+        if (typeof params.objectId === "string") return { node: { backendNodeId: Number(params.objectId.replace("obj-", "")) } };
         const d = opts.describe?.[Number(params.backendNodeId)];
         if (d === "throw") throw new Error("describe failed");
         return { node: d ?? { nodeName: "DIV", attributes: [] } };
+      }
+      case "DOM.setFileInputFiles": return {};
+      case "Page.setInterceptFileChooserDialog": return {};
+      case "Runtime.callFunctionOn": {
+        const id = Number(String(params.objectId).replace("obj-", ""));
+        const decl = String(params.functionDeclaration);
+        if (decl.includes("input[type=file]")) {
+          const found = opts.fileInputFor?.[id];
+          return found ? { result: { objectId: `obj-${found}` } } : { result: {} };
+        }
+        if (decl.includes("names: files.map")) {
+          const state = opts.fileInputs?.[id];
+          return state
+            ? { result: { value: { accept: state.accept ?? "", multiple: state.multiple === true, names: state.names ?? [] } } }
+            : { result: { value: null } };
+        }
+        if (decl.includes("DataTransfer")) {
+          if (opts.drop === "throw") return { exceptionDetails: { text: "refused" } };
+          return { result: { value: opts.drop ?? 0 } };
+        }
+        if (decl.includes("parentElement")) {
+          const parent = opts.parents?.[id];
+          return parent ? { result: { objectId: `obj-${parent}` } } : { result: {} };
+        }
+        return {};
       }
       case "Accessibility.getPartialAXTree": return { nodes: [] };
       case "DOM.focus":
@@ -114,6 +154,34 @@ describe("buildSnapshot", () => {
     expect(snap.text).toContain('[ref=42] button "Submit order" (10,20 100×30)');
     expect(snap.elementCount).toBe(1);
     expect(snap.url).toBe("https://example.com/");
+  });
+
+  it("renders a file input's ATTACHED FILE NAMES the way a textbox renders its value (Plan 26)", async () => {
+    // "Did the upload land" has to be answerable from the tree. The names are not in the DOM
+    // snapshot at all — a file input's value attribute is empty however many files it holds — so
+    // the mutant here is the readback being dropped and the line coming back bare.
+    const doc = makeSnapshotDoc();
+    const input = doc.addNode({ tag: "INPUT", attrs: { type: "file", multiple: "" }, backendId: 5 });
+    doc.addLayout(input, [0, 0, 200, 30]);
+    const { send } = fakeSend({
+      snapshot: doc.payload(),
+      ax: [{ backendDOMNodeId: 5, role: "button", name: "Choose files" }],
+      fileInputs: { 5: { accept: "image/*", multiple: true, names: ["hero.png", "shot-2.png"] } },
+    });
+    const snap = await buildSnapshot(send, null);
+    expect(snap.text).toContain('value="hero.png, shot-2.png"');
+    expect(snap.text).toContain("file input — use browser_upload, takes several files");
+  });
+
+  it("an empty file input says what it is without claiming a value", async () => {
+    const doc = makeSnapshotDoc();
+    const input = doc.addNode({ tag: "INPUT", attrs: { type: "file" }, backendId: 5 });
+    doc.addLayout(input, [0, 0, 200, 30]);
+    const { send } = fakeSend({ snapshot: doc.payload(), ax: [{ backendDOMNodeId: 5, role: "button", name: "Choose file" }], fileInputs: { 5: { names: [] } } });
+    const snap = await buildSnapshot(send, null);
+    expect(snap.text).toContain("file input — use browser_upload");
+    expect(snap.text).not.toContain("takes several files");
+    expect(snap.text).not.toContain("value=");
   });
 
   it("NEVER includes a password field's value — not from inputValue, not from the AX tree (mutant: password leak)", async () => {
@@ -752,5 +820,191 @@ describe("the marks an act leaves in the page (W4; the cursor and the frame, Pla
     };
     const snap = await buildSnapshot(send, null);
     expect(snap.text).toContain("ref=42");
+  });
+});
+
+/**
+ * `performUpload` — the three routes, and the ordering property the whole feature rests on.
+ *
+ * The mutants that must die here:
+ *   - the click going out BEFORE interception is armed (which is a native macOS panel on the user's
+ *     screen, and an unrecoverable pane);
+ *   - a pending chooser ignored, so an upload clicks again and strands the first one;
+ *   - the page's own `accept=` or the absence of `multiple` not enforced, so the site silently drops
+ *     the file instead;
+ *   - a refusal that still called `DOM.setFileInputFiles`;
+ *   - the post-state echoed from the request rather than read back off the input.
+ */
+const FILES = [{ path: "/space/hero.png", name: "hero.png", bytes: 1024 }];
+const TWO = [FILES[0]!, { path: "/space/shot-2.png", name: "shot-2.png", bytes: 2048 }];
+
+function seams(o: Partial<UploadSeams> & { log?: string[] } = {}): UploadSeams {
+  const log = o.log ?? [];
+  return {
+    pending: o.pending ?? (() => null),
+    arm: o.arm ?? (async () => { log.push("arm"); }),
+    disarm: o.disarm ?? (async () => { log.push("disarm"); }),
+    awaitChooser: o.awaitChooser ?? (async () => null),
+    retain: o.retain ?? (() => { log.push("retain"); }),
+    readFile: o.readFile ?? (async () => new Uint8Array([1, 2, 3])),
+  };
+}
+
+describe("performUpload", () => {
+  it("sets the files straight onto the input when the ref IS one — no click, no chooser", async () => {
+    const { send, calls } = fakeSend({ fileInputFor: { 5: 5 }, fileInputs: { 5: { multiple: true, names: [] } } });
+    const log: string[] = [];
+    const r = await performUpload(send, 5, FILES, seams({ log }));
+    expect(r.ok && r.method).toBe("input");
+    expect(calls.find((c) => c.method === "DOM.setFileInputFiles")!.params).toEqual({ backendNodeId: 5, files: ["/space/hero.png"] });
+    expect(log).toEqual([]); // interception was never armed: nothing could have opened a panel
+    expect(calls.some((c) => c.method === "Input.dispatchMouseEvent")).toBe(false);
+  });
+
+  it("finds the HIDDEN input a clicked label stands for, and fills that", async () => {
+    const { send, calls } = fakeSend({ fileInputFor: { 7: 99 }, fileInputs: { 99: { multiple: true, names: [] } } });
+    const r = await performUpload(send, 7, FILES, seams());
+    expect(r.ok && r.method).toBe("input");
+    expect(calls.find((c) => c.method === "DOM.setFileInputFiles")!.params.backendNodeId).toBe(99);
+  });
+
+  it("ARMS interception before the click — the mutant is a native macOS panel on the user's screen", async () => {
+    const order: string[] = [];
+    const { send } = fakeSend({ fileInputFor: { 7: null }, quads: { 7: [[0, 0, 10, 0, 10, 10, 0, 10]] }, fileInputs: { 31: { multiple: false, names: ["hero.png"] } } });
+    const wrapped: CdpSend = async (method, params) => {
+      if (method === "Input.dispatchMouseEvent") order.push("click");
+      return send(method, params);
+    };
+    const r = await performUpload(wrapped, 7, FILES, seams({
+      arm: async () => { order.push("arm"); },
+      awaitChooser: async () => { order.push("chooser"); return { backendNodeId: 31, multiple: false }; },
+    }));
+    expect(r.ok && r.method).toBe("chooser");
+    expect(order[0]).toBe("arm");
+    expect(order.indexOf("arm")).toBeLessThan(order.indexOf("click"));
+  });
+
+  it("fulfils a chooser the pane is ALREADY holding, without clicking anything again", async () => {
+    const { send, calls } = fakeSend({ fileInputs: { 31: { multiple: false, names: [] } } });
+    const r = await performUpload(send, 7, FILES, seams({ pending: () => ({ backendNodeId: 31, multiple: false }) }));
+    expect(r.ok && r.method).toBe("chooser");
+    expect(calls.find((c) => c.method === "DOM.setFileInputFiles")!.params.backendNodeId).toBe(31);
+    expect(calls.some((c) => c.method === "Input.dispatchMouseEvent")).toBe(false);
+  });
+
+  it("disarms when the click opened no chooser, so the USER's own picker still works", async () => {
+    const log: string[] = [];
+    const { send } = fakeSend({ fileInputFor: { 7: null }, quads: { 7: [[0, 0, 10, 0, 10, 10, 0, 10]] } });
+    const r = await performUpload(send, 7, FILES, seams({ log }));
+    expect(r.ok).toBe(false);
+    expect(log).toEqual(["arm", "disarm"]);
+  });
+
+  it("tells a clickable element that opens no chooser apart from one that is no target at all", async () => {
+    const clickable = fakeSend({ fileInputFor: { 7: null }, quads: { 7: [[0, 0, 10, 0, 10, 10, 0, 10]] }, listeners: { 7: ["click"] } });
+    const r1 = await performUpload(clickable.send, 7, FILES, seams());
+    expect(!r1.ok && r1.refused).toBe("no_chooser");
+
+    const inert = fakeSend({ fileInputFor: { 7: null }, quads: { 7: [[0, 0, 10, 0, 10, 10, 0, 10]] } });
+    const r2 = await performUpload(inert.send, 7, FILES, seams());
+    expect(!r2.ok && r2.refused).toBe("not_a_file_target");
+  });
+
+  it("enforces the page's own accept=, and attaches NOTHING when it fails", async () => {
+    const { send, calls } = fakeSend({ fileInputFor: { 5: 5 }, fileInputs: { 5: { accept: "image/*", multiple: true, names: [] } } });
+    const r = await performUpload(send, 5, [{ path: "/space/demo.mp4", name: "demo.mp4", bytes: 9 }], seams());
+    expect(!r.ok && r.refused).toBe("accept_mismatch");
+    expect(r.ok === false && r.error).toContain("demo.mp4");
+    expect(calls.some((c) => c.method === "DOM.setFileInputFiles")).toBe(false);
+  });
+
+  it("refuses several files to an input without `multiple`, rather than silently attaching one", async () => {
+    const { send, calls } = fakeSend({ fileInputFor: { 5: 5 }, fileInputs: { 5: { multiple: false, names: [] } } });
+    const r = await performUpload(send, 5, TWO, seams());
+    expect(!r.ok && r.refused).toBe("too_many");
+    expect(calls.some((c) => c.method === "DOM.setFileInputFiles")).toBe(false);
+  });
+
+  it("reports the input's post-state READ BACK off the node, not the request", async () => {
+    // The fake answers the readback with a different name from the one asked for; a result echoing
+    // the request would say "hero.png" and be wrong exactly when it matters.
+    const { send } = fakeSend({ fileInputFor: { 5: 5 }, fileInputs: { 5: { multiple: true, names: ["IMG_0042.HEIC"] } } });
+    const r = await performUpload(send, 5, FILES, seams());
+    expect(r.ok && r.names).toEqual(["IMG_0042.HEIC"]);
+    expect(r.ok && r.value).toBe("IMG_0042.HEIC");
+  });
+
+  it("leaves the post-state NULL when the input could not be read back, rather than claiming it is empty", async () => {
+    // A node replaced by a re-render between the set and the read. The mutant collapses this into
+    // `value: ""`, and the tool then reports "the page cleared it" for an upload that landed.
+    const { send } = fakeSend({ fileInputFor: { 5: 5 } });
+    const r = await performUpload(send, 5, FILES, seams());
+    expect(r.ok && r.value).toBeNull();
+    expect(r.ok && r.names).toEqual(["hero.png"]);
+  });
+
+  it("falls back to a synthesized drop for a dropzone with no input and no chooser", async () => {
+    const { send, calls } = fakeSend({
+      fileInputFor: { 7: null }, quads: { 7: [[0, 0, 10, 0, 10, 10, 0, 10]] },
+      listeners: { 7: ["drop"] }, drop: 1,
+    });
+    const r = await performUpload(send, 7, FILES, seams());
+    expect(r.ok && r.method).toBe("drop");
+    expect(r.ok && r.value).toBeNull(); // a dropzone has no input, so there is no post-state to claim
+    expect(calls.some((c) => c.method === "Runtime.callFunctionOn" && String(c.params.functionDeclaration).includes("DataTransfer"))).toBe(true);
+  });
+
+  it("refuses a drop of something too large for the route, and names the route's own limit", async () => {
+    const { send, calls } = fakeSend({
+      fileInputFor: { 7: null }, quads: { 7: [[0, 0, 10, 0, 10, 10, 0, 10]] }, listeners: { 7: ["drop"] },
+    });
+    const huge = [{ path: "/space/demo.mp4", name: "demo.mp4", bytes: UPLOAD_DROP_MAX_BYTES + 1 }];
+    const r = await performUpload(send, 7, huge, seams());
+    expect(!r.ok && r.refused).toBe("too_large");
+    expect(r.ok === false && r.error).toContain("drop target");
+    expect(calls.some((c) => c.method === "DOM.setFileInputFiles")).toBe(false);
+  });
+
+  it("hands a chooser BACK when the files were refused — the page is still waiting on it", async () => {
+    // Only the chooser can tell you the input's accept=, so this refusal can only happen after the
+    // chooser is open. The mutant: dropping it on the floor, after which the node is known to nobody
+    // and browser_dismiss_dialog finds nothing to cancel.
+    const { send } = fakeSend({
+      fileInputFor: { 7: null }, quads: { 7: [[0, 0, 10, 0, 10, 10, 0, 10]] },
+      fileInputs: { 31: { accept: "image/*", multiple: true, names: [] } },
+    });
+    const retained: { backendNodeId: number }[] = [];
+    const r = await performUpload(send, 7, [{ path: "/space/demo.mp4", name: "demo.mp4", bytes: 9 }], seams({
+      awaitChooser: async () => ({ backendNodeId: 31, multiple: true }),
+      retain: (c) => { retained.push(c); },
+    }));
+    expect(!r.ok && r.refused).toBe("accept_mismatch");
+    expect(retained).toEqual([{ backendNodeId: 31, multiple: true }]);
+  });
+
+  it("hands back an ALREADY-pending chooser it could not fulfil either", async () => {
+    const { send } = fakeSend({ fileInputs: { 31: { accept: "image/*", multiple: false, names: [] } } });
+    const retained: { backendNodeId: number }[] = [];
+    const r = await performUpload(send, 7, [{ path: "/space/demo.mp4", name: "demo.mp4", bytes: 9 }], seams({
+      pending: () => ({ backendNodeId: 31, multiple: false }),
+      retain: (c) => { retained.push(c); },
+    }));
+    expect(r.ok).toBe(false);
+    expect(retained).toHaveLength(1);
+  });
+
+  it("a click that fails is reported as the click's own failure, not as a missing chooser", async () => {
+    const { send } = fakeSend({ fileInputFor: { 7: null }, quads: { 7: "throw" } });
+    const r = await performUpload(send, 7, FILES, seams());
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toContain("no visible geometry");
+  });
+});
+
+describe("cancelFileChooser", () => {
+  it("tells the page nothing was picked, by setting an EMPTY file list on the waiting input", async () => {
+    const { send, calls } = fakeSend({});
+    await cancelFileChooser(send, 31);
+    expect(calls.find((c) => c.method === "DOM.setFileInputFiles")!.params).toEqual({ backendNodeId: 31, files: [] });
   });
 });

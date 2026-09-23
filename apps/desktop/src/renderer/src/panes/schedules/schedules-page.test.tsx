@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import type { Schedule } from "@realm/contracts";
+import { onceExpr, parseOnce, type Schedule } from "@realm/contracts";
 import { createAppStore, StoreContext } from "../../state/store";
 import { fakeApi, item } from "../../state/store.test-fakes";
-import { SchedulesPage, filterSchedules, scheduleState, whenLabel } from "./SchedulesPage";
+import { SchedulesPage, filterSchedules, scheduleState, whenLabel, whenPhrase } from "./SchedulesPage";
 
 afterEach(() => cleanup());
 
@@ -38,6 +38,15 @@ describe("whenLabel", () => {
     expect(whenLabel(new Date(2026, 8, 6, 9).getTime(), now)).toMatch(/^Yesterday at /);
     expect(whenLabel(new Date(2026, 8, 10, 9).getTime(), now)).toMatch(/^Thursday at /);
     expect(whenLabel(new Date(2026, 9, 20, 9).getTime(), now)).toMatch(/^Oct 20 at /);
+  });
+
+  it("lowers the relative words inside a sentence and leaves the proper nouns alone", () => {
+    // THE MUTANT: `whenLabel(...).toLowerCase()`, which is what the row used to do. It reads fine
+    // while every next run is within a day — true of any cron schedule — and a one-shot armed a
+    // fortnight out turns it into "Next sep 30", which is not a date anyone writes.
+    expect(whenPhrase(new Date(2026, 8, 8, 9).getTime(), now)).toBe("tomorrow at 9:00 am");
+    expect(whenPhrase(new Date(2026, 9, 20, 13).getTime(), now)).toBe("Oct 20 at 1:00 pm");
+    expect(whenPhrase(new Date(2026, 8, 10, 9).getTime(), now)).toBe("Thursday at 9:00 am");
   });
 });
 
@@ -113,6 +122,69 @@ describe("the Scheduled tasks page", () => {
   it("says what the page is for when nothing is scheduled yet", async () => {
     await mount([]);
     expect(screen.getByText(/Nothing is scheduled here yet/)).toBeInTheDocument();
+  });
+});
+
+describe("a schedule that runs once", () => {
+  const MOMENT = new Date(2026, 8, 30, 13).getTime();
+
+  it("keeps its moment on screen after it has fired, when there is no next time left to show", async () => {
+    // THE MUTANT: read the moment out of `nextRunAt`. A fired one-shot has none, and the row would
+    // fall back to "No further runs" — losing the one fact it was ever about.
+    await mount([schedule({ cron: onceExpr(MOMENT), nextRunAt: null, lastRunAt: MOMENT })]);
+    expect(within(row()).getByText("Once, on Sep 30 at 1:00 PM")).toBeInTheDocument();
+    expect(within(row()).getByText("No further runs")).toBeInTheDocument();
+  });
+
+  it("offers a date picker rather than asking anyone to write the token by hand", async () => {
+    // `once:1790773200000` is a storage format. The form writes it; nobody should have to know it.
+    await mount([]);
+    fireEvent.click(screen.getByRole("button", { name: /New schedule/ }));
+    fireEvent.change(screen.getByLabelText("When"), { target: { value: "once" } });
+    expect(screen.queryByLabelText("Cron expression")).toBeNull();
+    const picker = screen.getByLabelText<HTMLInputElement>("Date and time");
+    expect(picker.type).toBe("datetime-local");
+    // Tomorrow at 09:00, for the reason @daily is not midnight: this starts an agent.
+    expect(picker.value).toMatch(/T09:00$/);
+    expect(screen.getByText(/^Runs once, /)).toBeInTheDocument();
+  });
+
+  it("refuses to save a moment that has already passed, and says so in those terms", async () => {
+    // "Check the five fields" would send someone hunting for a syntax error in a date that is
+    // simply behind them.
+    await mount([]);
+    fireEvent.click(screen.getByRole("button", { name: /New schedule/ }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Ship it" } });
+    fireEvent.change(screen.getByLabelText("What should it do?"), { target: { value: "open the PR" } });
+    fireEvent.change(screen.getByLabelText("When"), { target: { value: "once" } });
+    expect(screen.getByRole("button", { name: "Create schedule" })).toBeEnabled();
+
+    fireEvent.change(screen.getByLabelText("Date and time"), { target: { value: "2020-01-02T09:00" } });
+    expect(screen.getByText(/already passed/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create schedule" })).toBeDisabled();
+  });
+
+  it("stores the picked moment as the expression, and leaves a cron behind when switched back", async () => {
+    const { api, store } = await mount([]);
+    fireEvent.click(screen.getByRole("button", { name: /New schedule/ }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Ship it" } });
+    fireEvent.change(screen.getByLabelText("What should it do?"), { target: { value: "open the PR" } });
+    fireEvent.change(screen.getByLabelText("When"), { target: { value: "once" } });
+    fireEvent.change(screen.getByLabelText("Date and time"), { target: { value: "2026-09-30T13:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create schedule" }));
+    await waitFor(() => expect(api.calls).toContain("createSchedule:s1"));
+    expect(parseOnce(store.getState().schedules.s1![0]!.cron)).toBe(MOMENT);
+  });
+
+  it("hands Custom a cron expression rather than the token it was holding", async () => {
+    // THE MUTANT: leave the expression alone when Custom is picked. The box it reveals would be
+    // holding `once:…`, which is not something anyone can edit as a cron.
+    await mount([]);
+    fireEvent.click(screen.getByRole("button", { name: /New schedule/ }));
+    fireEvent.change(screen.getByLabelText("When"), { target: { value: "once" } });
+    fireEvent.change(screen.getByLabelText("When"), { target: { value: "custom" } });
+    expect(screen.getByLabelText<HTMLInputElement>("Cron expression").value).not.toContain("once:");
+    expect(screen.getByText(/^First run /)).toBeInTheDocument();
   });
 });
 

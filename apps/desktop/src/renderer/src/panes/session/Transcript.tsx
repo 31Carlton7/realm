@@ -2,9 +2,11 @@ import { Icon } from "@realm/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { LINK_SERVICE_META, chipRuns, mediaCandidatesIn, type SessionMode, type SessionStatus } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
+import { CommandCopy } from "../../components/CommandCopy";
 import type { PermissionDecision } from "../../state/store";
 import { Markdown } from "./Markdown";
 import { MessageActions } from "./MessageActions";
+import { SelectionBar } from "./SelectionBar";
 import { MessageSources } from "./MessageSources";
 import { sourcesFor, type Source } from "./message-sources";
 import { PermissionCard } from "./PermissionCard";
@@ -159,7 +161,7 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, onExpandPlan, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null }: {
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, onExpandPlan, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, onQuote }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: Record<string, string>) => void; visible?: boolean;
   /** Ask the last user message again. Offered on the newest assistant message only: "retry" names
    *  the turn that just finished, and a button on message three of forty would silently act on
@@ -168,6 +170,9 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   /** Record what the reader made of one answer, or with null take an earlier verdict back. Absent
    *  means the thumbs are not drawn at all, rather than drawn dead. */
   onRate?: (messageId: string, rating: Rating | null) => void;
+  /** Put a passage the reader selected into the prompter as a quote. Absent — the read-only mounts —
+   *  leaves the selection bar its Copy button and no Quote, rather than a Quote that does nothing. */
+  onQuote?: (text: string) => void;
   /** The pane sits in the focused leaf: the first pending permission card autofocuses (U-H4). */
   focused?: boolean;
   /** The session's working directory — the base a message's bare filenames are joined against when
@@ -343,9 +348,15 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
      only dissolve that works on a pane showing the window's material. The top end matters now that
      the pane bar rules no line — without it a message scrolling up to the bar arrives at a hard cut. */
   useDissolve(ref);
+  const wrap = useRef<HTMLDivElement>(null);
 
   return (
-    <div className="transcript-wrap">
+    <div className="transcript-wrap" ref={wrap}>
+      {/* Outside the scroller, and that is load-bearing: `.transcript` carries the edge dissolve,
+          and a mask applies to everything its element paints. A bar mounted inside would be faded by
+          it against the bottom end — the deeper of the two bands — which is measured rather than
+          asserted (see `selection-bar-live.mjs`). */}
+      <SelectionBar scrollRef={ref} wrapRef={wrap} onQuote={onQuote} />
       <div className="transcript" ref={ref} onScroll={onScroll} role="log" aria-live="polite" aria-label="Transcript">
         <div className="transcript-col">
         {groupTranscript(transcript.blocks).map((it) => {
@@ -385,7 +396,18 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             case "tool": return <ToolCard key={key} block={b} sessionStatus={sessionStatus} enter={enter} nested={withEnter(it.nested, isEntering)} />;
             case "plan": return <PlanCard key={key} text={b.text} steps={b.steps} enter={enter}
               onExpand={onExpandPlan && (() => onExpandPlan(b.planId))} />;
-            case "error": return <div key={key} className="msg-error" role="alert" data-enter={enter || undefined}><Icon name="alert" size={14} /><pre>{b.message}</pre></div>;
+            // A failure Realm knows the answer to says the answer here, under the message, because
+            // this is where the reader is already looking. The command is offered to copy and
+            // nothing more: the transcript is content, and the controls that act on this session —
+            // "Check again", "Open in terminal" — live on the prompter, which takes over entirely
+            // when the agent's own probe confirms it is signed out.
+            case "error": return <div key={key} className="msg-error" role="alert" data-enter={enter || undefined}>
+              <Icon name="alert" size={14} />
+              <div className="msg-error-body">
+                <pre>{b.message}</pre>
+                {b.fix?.command && <CommandCopy command={b.fix.command} />}
+              </div>
+            </div>;
             // The shimmer the reader was watching, settled: same verb, past tense, with the wait it
             // cost them. It stays in the scrollback rather than vanishing with the spinner — "how
             // long did that take" is a question asked after the fact, not during.
@@ -409,8 +431,13 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             </div>;
             // Present tense, because this one is about right now: it is the only block in the
             // transcript that will be replaced rather than joined by what comes next.
+            // An auth wait says what it is waiting ON. "Retrying…" under a message that just said
+            // the session expired reads as Realm ignoring it; the agent's credentials having been
+            // re-read, and found sound, is the fact that makes another attempt sensible.
             case "retrying": return <div key={key} className="msg-run muted" data-enter={enter || undefined}>
-              {b.attempt === 1 ? "Retrying…" : `Retrying (attempt ${b.attempt})…`}
+              {b.reason === "auth"
+                ? (b.attempt === 1 ? "Signed in — trying again…" : `Signed in — trying again (attempt ${b.attempt})…`)
+                : (b.attempt === 1 ? "Retrying…" : `Retrying (attempt ${b.attempt})…`)}
             </div>;
             // The other seam, wearing the handover's shape because it reports the same kind of thing:
             // the transcript above this line is no longer what the agent below it is reading. Sharing

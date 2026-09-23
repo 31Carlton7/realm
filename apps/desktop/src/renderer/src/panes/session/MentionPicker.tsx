@@ -3,6 +3,7 @@ import { useRef } from "react";
 import { createPortal } from "react-dom";
 import type { RefObject } from "react";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
+import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
 
 /** The characters a skill id may contain — must agree with contracts/mentions.ts, or the popover
  *  would offer a completion the send-time scan then refuses to recognise. */
@@ -60,6 +61,7 @@ export function MentionPicker({ skills, activeIndex, anchorRef, onPick, onHover,
   // No exit, because this one is driven by typing: it opens and closes between keystrokes, and a
   // ghost of it trailing the caret while the sentence carries on is noise rather than motion.
   const { pos } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose });
+  useAutoHideScrollbar(ref);
   const active = Math.min(activeIndex, skills.length - 1);
   return createPortal(
     <div ref={ref} id="mention-list" className="mention-picker" role="listbox" aria-label="Skills"

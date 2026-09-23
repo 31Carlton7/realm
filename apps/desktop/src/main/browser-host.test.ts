@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  BrowserPaneHost, RETAINED_VIEW_LIMIT, normalizeAddress, originAllowed, toViewBounds,
+  BrowserPaneHost, RETAINED_VIEW_LIMIT, browserUserAgent, normalizeAddress, originAllowed, toViewBounds,
   type BrowserViewState, type ViewHandle, type ViewHooks,
 } from "./browser-host";
 
@@ -364,5 +364,64 @@ describe("BrowserPaneHost retention", () => {
     host.destroyAll();
     expect(alive(views.get("b1")!)).toBe(false);
     expect(host.has("b1")).toBe(false);
+  });
+});
+
+/**
+ * The pane's user agent. What must die here: the Electron token surviving into a request (sites read
+ * it and quietly serve a different page); the full Chrome build number surviving (real Chrome froze
+ * those at zero, so keeping them is its own tell); and — the mutant that would be tempting — the
+ * MAJOR being rewritten to something newer than the engine, which trades a nag today for a feature
+ * the page may then use and the renderer cannot do.
+ */
+describe("browserUserAgent", () => {
+  const E37 = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.7204.251 Electron/37.10.3 Safari/537.36";
+
+  it("takes the Electron token out and freezes the Chrome build, leaving a plain Chrome UA", () => {
+    expect(browserUserAgent(E37)).toBe(
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+    );
+  });
+
+  it("says nothing about Electron anywhere in the result", () => {
+    expect(browserUserAgent(E37).toLowerCase()).not.toContain("electron");
+  });
+
+  it("keeps the ENGINE's own major — it never claims a Chrome the renderer is not", () => {
+    // The whole reason this is not a spoof. A site told "152" may use what 152 has; this renderer
+    // is 138, and the failure lands as a blank panel three clicks into a flow.
+    expect(browserUserAgent(E37)).toContain("Chrome/138.");
+    expect(browserUserAgent(E37)).not.toContain("Chrome/139");
+  });
+
+  it("leaves the platform and the Safari/AppleWebKit tokens exactly as Chromium wrote them", () => {
+    const out = browserUserAgent(E37);
+    expect(out).toContain("(Macintosh; Intel Mac OS X 10_15_7)");
+    expect(out).toContain("AppleWebKit/537.36 (KHTML, like Gecko)");
+    expect(out.endsWith("Safari/537.36")).toBe(true);
+  });
+
+  it("is idempotent — it is applied at the session AND at each view, and must not compound", () => {
+    const once = browserUserAgent(E37);
+    expect(browserUserAgent(once)).toBe(once);
+    expect(browserUserAgent(browserUserAgent(once))).toBe(once);
+  });
+
+  it("tracks whatever Chromium ships, rather than a version anyone has to remember to update", () => {
+    const E44 = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.7977.130 Electron/44.4.3 Safari/537.36";
+    expect(browserUserAgent(E44)).toContain("Chrome/152.0.0.0");
+    expect(browserUserAgent(E44)).not.toContain("Electron");
+  });
+
+  it("hands back anything it does not recognise, rather than rewriting a string blind", () => {
+    // Fail closed on shape: a UA with no Chrome token is not one this function has an opinion about,
+    // and half-rewriting it would produce something no browser has ever sent.
+    expect(browserUserAgent("curl/8.7.1")).toBe("curl/8.7.1");
+    expect(browserUserAgent("")).toBe("");
+  });
+
+  it("does not disturb a UA that never carried an Electron token", () => {
+    const chrome = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36";
+    expect(browserUserAgent(chrome)).toBe(chrome);
   });
 });

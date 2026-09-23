@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { AgentKindSchema, type AgentKind } from "./entities";
-import { AGENT_META } from "./presets";
+import { AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META } from "./presets";
 
 /**
  * Failover: finishing a turn that the agent could not.
@@ -34,14 +34,18 @@ import { AGENT_META } from "./presets";
  * - `transient` — a socket died, a stream ended early, a timeout. The same agent will very likely
  *   work on the next attempt. → retry only; NEVER a handoff, because moving agents for a dropped
  *   connection would rewrite someone's session over a hiccup.
- * - `auth` — not signed in, token expired, key rejected. No amount of retrying fixes it and no
- *   other agent's credentials are implied by it. → handoff, but never a retry.
+ * - `auth` — not signed in, token expired, key rejected. → ask the CLI whether it is actually
+ *   signed in, and let the answer decide (`AUTH_RECHECK_BACKOFF_MS`). A blind retry is still wrong
+ *   here, which is what `isRetryable` says; a VERIFIED one is the only thing that recovers an
+ *   expired token the CLI has since refreshed for itself.
  * - `fatal` — a real error. The turn is over and the user should read it.
  */
 export const FailureKindSchema = z.enum(["usage_limit", "provider_down", "transient", "auth", "fatal"]);
 export type FailureKind = z.infer<typeof FailureKindSchema>;
 
-/** Whether a kind is worth trying again ON THE SAME AGENT. */
+/** Whether a kind is worth trying again ON THE SAME AGENT, on the evidence of the message alone.
+ *  `auth` is deliberately absent: it earns attempts only once something has re-read the agent's
+ *  credentials and found them sound (`AUTH_RECHECK_BACKOFF_MS`), never on the message. */
 export const isRetryable = (k: FailureKind): boolean => k === "provider_down" || k === "transient";
 
 /** Whether a kind is worth handing to a DIFFERENT agent. A `transient` failure is pointedly not:
@@ -86,6 +90,12 @@ const TABLE: { kind: FailureKind; phrases: readonly string[] }[] = [
   {
     kind: "auth",
     phrases: [
+      // SEEN LIVE, four times across four sessions between 11:20 and 11:22 on 2026-09-16: the Claude
+      // harness's own wording when its access token has expired and the refresh it tried failed. It
+      // is the reason this kind now re-probes rather than stopping — the keychain entry was rewritten
+      // six minutes after the last of those failures, so every one of them was a turn that would have
+      // finished had anything asked again.
+      "oauth session expired",
       // Read off vendor error catalogues rather than seen live: Realm's probes catch a signed-out
       // agent long before a turn starts, so these fire mainly for a token that expired MID-session.
       "authentication_error",
@@ -160,6 +170,64 @@ export const FAILOVER_MAX_RETRIES = FAILOVER_BACKOFF_MS.length;
 
 export const backoffFor = (attempt: number): number =>
   FAILOVER_BACKOFF_MS[Math.min(Math.max(attempt, 1), FAILOVER_MAX_RETRIES) - 1] ?? 0;
+
+/**
+ * The separate ladder an `auth` failure runs on, and why it is not the one above.
+ *
+ * An expired OAuth session is not a dropped socket. What recovers it is the CLI refreshing its own
+ * tokens, which happens on the CLI's schedule and not on Realm's — measured on 2026-09-16, four
+ * turns died over two minutes and the keychain entry was rewritten six minutes after the last of
+ * them. A one-second first step would spend the whole ladder inside the window that was always going
+ * to fail, so this one opens wider and ends further out.
+ *
+ * It still ends. Ninety seconds is about as long as a turn can sit saying "retrying" before the
+ * honest thing is to stop and name the fix, and an agent that cannot authenticate after three spaced
+ * attempts while claiming to be signed in is not going to on a fourth.
+ */
+export const AUTH_RECHECK_BACKOFF_MS: readonly number[] = [2_000, 15_000, 60_000];
+
+/** How many verified re-auth attempts one turn gets. */
+export const AUTH_MAX_RECHECKS = AUTH_RECHECK_BACKOFF_MS.length;
+
+export const authBackoffFor = (attempt: number): number =>
+  AUTH_RECHECK_BACKOFF_MS[Math.min(Math.max(attempt, 1), AUTH_MAX_RECHECKS) - 1] ?? 0;
+
+/**
+ * What to tell the user when an auth failure is real, as the `fix` an `error` event carries.
+ *
+ * Three shapes, because the sentence has to match what Realm actually established, and the three
+ * differ precisely in that:
+ *
+ * - `signed_out` — the CLI itself says it has no session. Nothing Realm does will change that; the
+ *   sentence is the one the agent's own hint gives, and the command is its login.
+ * - `unverified` — Realm asked, the CLI said it IS signed in, and the turn failed to authenticate
+ *   anyway. That contradiction is the whole message: a user told only "sign in" would check, find
+ *   themselves signed in, and conclude Realm was wrong. Signing in again is still the fix, because
+ *   it is what replaces the credential the CLI is holding and cannot use.
+ * - `unchecked` — nobody asked, because the space turned automatic retries off. It says the least,
+ *   and that is the point: the other two report a probe, and reporting one that never ran would be
+ *   the same lie either of them would otherwise be there to prevent.
+ *
+ * The command is never run for them. A login is a browser round-trip or an API key, so Realm offers
+ * the command to copy or to drop into this session's terminal — the same rule the install card
+ * states, and for the same reason.
+ */
+export function authFix(kind: AgentKind, why: "signed_out" | "unverified" | "unchecked"): { title: string; hint: string; command: string | null } {
+  const label = agentLabel(kind);
+  const command = AGENT_CLI_COMMANDS[kind].login;
+  if (why === "signed_out") return { title: `${label} is not signed in`, hint: AGENT_LOGIN_HINTS[kind], command };
+  // The login hint is appended wherever the agent has no login COMMAND — goose, DeepSeek and Gemini
+  // all need a sentence rather than a line to run, and a card with an empty command frame and no
+  // explanation is worse than the bare error it replaced.
+  const tail = command ? "Signing in again replaces them." : AGENT_LOGIN_HINTS[kind];
+  return {
+    title: `${label} could not authenticate`,
+    hint: why === "unverified"
+      ? `${label} reports that it is signed in, so its stored credentials are the problem rather than the absence of them. ${tail}`
+      : `Realm did not check whether ${label} is signed in, because automatic retries are off for this space. ${tail}`,
+    command,
+  };
+}
 
 /**
  * A session's failover policy.

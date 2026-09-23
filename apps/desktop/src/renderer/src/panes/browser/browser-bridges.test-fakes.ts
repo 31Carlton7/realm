@@ -29,6 +29,7 @@ export function fakeBrowserBridges(over: {
     saveDownload: async () => ({ ok: false, error: "no download bridge in this test" }),
     dismissDownload: async () => {},
     onDownloadBlocked: () => () => {},
+    onPasskey: () => () => {},
     ...over.host,
   };
   const server: BrowserServerBridge = {

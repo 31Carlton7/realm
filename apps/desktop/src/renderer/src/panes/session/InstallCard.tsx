@@ -1,5 +1,6 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
+import { CommandCopy } from "../../components/CommandCopy";
 import type { AgentAvailability } from "../../state/agent-availability";
 import type { CliJob } from "../../state/store";
 
@@ -42,14 +43,8 @@ export function InstallCard({ availability, onRetry, onOpenInTerminal, offer, jo
   onSignIn: () => void;
 }) {
   const { title, reason, command, state } = availability;
-  const [copied, setCopied] = useState(false);
   const tail = useRef<HTMLPreElement>(null);
   useEffect(() => { const el = tail.current; if (el) el.scrollTop = el.scrollHeight; }, [job?.output]);
-  useEffect(() => {
-    if (!copied) return;
-    const t = setTimeout(() => setCopied(false), 1600);
-    return () => clearTimeout(t);
-  }, [copied]);
   // Window focus re-probe: the whole point of this card is that the fix can happen in another app.
   // Still true now that Realm can install one itself — Homebrew, a downloaded binary and a login all
   // still happen elsewhere.
@@ -70,17 +65,7 @@ export function InstallCard({ availability, onRetry, onOpenInTerminal, offer, jo
           <h3>{title}</h3>
         </div>
         <p className="install-reason">{reason}</p>
-        {command && (
-          <div className="install-cmd">
-            <code>{command}</code>
-            <button className="tool-copy" aria-label="Copy command" title={copied ? "Copied" : "Copy"}
-              data-copied={copied || undefined}
-              onClick={() => { void navigator.clipboard?.writeText(command); setCopied(true); }}>
-              <Icon name="copy" size={12} className="copy-icon" />
-              <Icon name="check" size={12} className="copied-icon" />
-            </button>
-          </div>
-        )}
+        {command && <CommandCopy command={command} />}
         {job && (
           <div className="cli-job" data-state={job.state}>
             <div className="cli-job-head">

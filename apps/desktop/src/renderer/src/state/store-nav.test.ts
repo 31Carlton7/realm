@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { navEntry } from "@realm/contracts";
+import { allItems, emptyLayout, navEntry } from "@realm/contracts";
 import { createAppStore } from "./store";
-import { fakeApi, item, notification, type FakeData } from "./store.test-fakes";
+import { fakeApi, item, notification, session, space, type FakeData } from "./store.test-fakes";
 
 const boot = async (overrides: FakeData = {}) => {
   const api = fakeApi(overrides);
@@ -159,5 +159,108 @@ describe("store — per-pane back/forward", () => {
     const before = store.getState().paneHistory;
     store.getState().navigateInPane("i2", "whatever"); // i2 exists but was never opened
     expect(store.getState().paneHistory).toBe(before);
+  });
+});
+
+/**
+ * A page is opened OVER a space and carries that space's id. Across a switch it was left pointing at
+ * the space you just left — an Overview describing the wrong space, and every other page a screen
+ * between you and the work you switched to, with nothing on it to say anything had moved.
+ */
+describe("a page overlay across a space switch", () => {
+  const TWO_SPACE_ITEMS = {
+    s1: [item("i1", "s1", { kind: "session", title: "one", refId: "se1" })],
+    /* The newest session is deliberately FIRST in the list and the oldest last: ordered the other way
+       round, "the newest session" and "the last item" pick the same row and the assertion below
+       cannot tell a real answer from a coincidence. */
+    s2: [
+      item("i3", "s2", { kind: "session", title: "newest", refId: "se3" }),
+      item("i2", "s2", { kind: "session", title: "older", refId: "se2" }),
+    ],
+  };
+  const SESSIONS = [
+    session("se1", "s1", { updatedAt: 10 }),
+    session("se2", "s2", { title: "older", updatedAt: 20 }),
+    session("se3", "s2", { title: "newest", updatedAt: 99 }),
+  ];
+
+  it("re-points a space's Overview at the space you switched to", async () => {
+    /* THE MUTANT: leave `pageOverlay` alone. The page keeps rendering the space you left, and the
+       only thing on screen that would tell you is the name at the top of a page you just switched
+       away from. */
+    const { store } = await boot({ items: TWO_SPACE_ITEMS, sessions: SESSIONS });
+    store.getState().openSpacePage("s1");
+    expect(store.getState().pageOverlay).toEqual({ kind: "space-page", refId: "s1", spaceId: "s1" });
+
+    await store.getState().selectSpace("s2");
+    expect(store.getState().pageOverlay).toEqual({ kind: "space-page", refId: "s2", spaceId: "s2" });
+  });
+
+  it("keeps the profile page up, re-pointed at the new space's vantage", async () => {
+    const { store } = await boot({ items: TWO_SPACE_ITEMS, sessions: SESSIONS });
+    store.getState().openProfilePage();
+    expect(store.getState().pageOverlay?.kind).toBe("profile-page");
+
+    await store.getState().selectSpace("s2");
+    expect(store.getState().pageOverlay?.kind).toBe("profile-page");
+    expect(store.getState().pageOverlay?.spaceId).toBe("s2");
+  });
+
+  it("gives way from a destination page, landing on the new space's newest session", async () => {
+    /* Settings, Agents, Library, Connections, Scheduled tasks: none of them is about the space being
+       switched to, and switching is a request to be back in the work. THE MUTANT: close the page and
+       stop — an empty space then shows "open something from the sidebar", which is the screen this
+       is meant to avoid. */
+    const { store } = await boot({ items: TWO_SPACE_ITEMS, sessions: SESSIONS });
+    store.getState().openDestinationPage("notifications-page");
+    expect(store.getState().pageOverlay).not.toBeNull();
+
+    await store.getState().selectSpace("s2");
+    expect(store.getState().pageOverlay).toBeNull();
+    // `i3` is se3, updated at 99 — newer than se2's 20, and the FIRST item, not the last.
+    expect(allItems(store.getState().layout!)).toContain("i3");
+    expect(allItems(store.getState().layout!)).not.toContain("i2");
+  });
+
+  it("does not rearrange a space that already has panes open", async () => {
+    /* A space with a saved arrangement is already showing its work. Forcing the newest session into
+       it would rearrange — and persist — a layout the user never touched. THE MUTANT: open the
+       newest session unconditionally. */
+    const { store } = await boot({
+      items: TWO_SPACE_ITEMS,
+      sessions: SESSIONS,
+      spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework", { layout: { type: "leaf", id: "L2", itemId: "i2" } })],
+    });
+    store.getState().openDestinationPage("notifications-page");
+
+    await store.getState().selectSpace("s2");
+    expect(store.getState().pageOverlay).toBeNull();
+    // The saved layout, untouched: the older session it was left on, and not the newest one.
+    expect(allItems(store.getState().layout!)).toEqual(["i2"]);
+  });
+
+  it("leaves the workspace alone when no page is open", async () => {
+    const { store } = await boot({ items: TWO_SPACE_ITEMS, sessions: SESSIONS });
+    await store.getState().selectSpace("s2");
+    expect(store.getState().pageOverlay).toBeNull();
+    expect(allItems(store.getState().layout ?? emptyLayout())).toEqual([]);
+  });
+
+  it("opens ONE pane when a chat in another space is revealed from behind a page", async () => {
+    /* `revealSession` switches the space and then opens the pane it was asked for. If the switch also
+       landed on the newest session, clicking a chat row from behind Settings would open two panes —
+       the one you asked for and one you did not. THE MUTANT: drop `{ land: false }`. */
+    const { store } = await boot({ items: TWO_SPACE_ITEMS, sessions: SESSIONS });
+    store.getState().openDestinationPage("notifications-page");
+
+    const landed = await store.getState().revealSession("se2", "s2");
+    expect(landed).toBe(true);
+    expect(store.getState().pageOverlay).toBeNull();
+    expect(allItems(store.getState().layout!)).toEqual(["i2"]);
+    /* The end state alone cannot see this: `openItem` REPLACES the focused pane, so a landing that
+       opened the newest session first is overwritten and leaves the same single pane. What it does
+       leave is a stop in that pane's trail — one entry for what was asked for, two if the space
+       switch opened something on the way. */
+    expect(store.getState().paneHistory[focused(store)]?.entries.length ?? 0).toBe(1);
   });
 });

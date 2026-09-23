@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
-import { SCHEDULE_CATCHUP_MS, type CreateScheduleInput, type Run } from "@realm/contracts";
+import { SCHEDULE_CATCHUP_MS, onceExpr, type CreateScheduleInput, type Run } from "@realm/contracts";
 import { openDatabase, type Db } from "../db/database";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
@@ -23,6 +23,7 @@ import { ScheduleService } from "./service";
  *   - a missed firing dropped in silence     → "a laptop that slept"
  *   - one bad schedule taking the tick down  → "a firing that throws"
  *   - `runNow` moving the schedule's clock   → "run now"
+ *   - the catch-up window applied to a one-shot → "a task set for one moment"
  */
 
 let db: Db; let spaceId: string;
@@ -264,5 +265,65 @@ describe("the timer", () => {
       vi.advanceTimersByTime(60_000);
       expect(created).toHaveLength(2);
     } finally { vi.useRealTimers(); }
+  });
+});
+
+describe("a task set for one moment", () => {
+  const IN_TWO_WEEKS = at(2026, 4, 20, 13);
+
+  it("fires at its moment and is then finished for good", () => {
+    // Completed, in the page's vocabulary: still enabled, with nothing left to fire. It falls out of
+    // `nextFireOf` rather than out of a status column — there is no one-shot state to get wrong.
+    const { svc, store } = service();
+    const s = svc.create(input({ cron: onceExpr(IN_TWO_WEEKS) }));
+    expect(s.nextRunAt).toBe(IN_TWO_WEEKS);
+    clock = IN_TWO_WEEKS;
+    svc.tick(); svc.tick();
+    expect(created).toHaveLength(1);
+    const after = store.get(s.id)!;
+    expect(after.enabled).toBe(true);
+    expect(after.nextRunAt).toBeNull();
+    expect(after.lastRunAt).toBe(IN_TWO_WEEKS);
+  });
+
+  it("still runs when the lid was shut for a fortnight — the window does not apply to it", () => {
+    // THE MUTANT: drop the `isOnce` guard in `tick`. "In two weeks, open the PR" then vanishes on
+    // any machine that was asleep at 1pm that day, which is most laptops, and the only trace is a
+    // `lastSkippedAt` nobody is watching. A one-shot has no backlog to stampede, so late beats never.
+    const { svc, store } = service();
+    const s = svc.create(input({ cron: onceExpr(IN_TWO_WEEKS) }));
+    clock = IN_TWO_WEEKS + 14 * 24 * 60 * 60 * 1000;
+    svc.tick();
+    expect(created).toHaveLength(1);
+    expect(store.get(s.id)!.lastSkippedAt).toBeNull();
+  });
+
+  it("leaves a recurring schedule's window exactly where it was", () => {
+    // The guard is on the one-shot alone. A daily that slept a week must still skip, or the fix for
+    // one-shots has quietly turned every schedule into a catch-up stampede.
+    const { svc, store } = service();
+    const s = svc.create(input());
+    clock = NINE + SCHEDULE_CATCHUP_MS + 60_000;
+    svc.tick();
+    expect(created).toEqual([]);
+    expect(store.get(s.id)!.lastSkippedAt).toBe(clock);
+  });
+
+  it("refuses a moment that has already passed, in the terms it was written in", () => {
+    // A date behind you is not a malformed expression, and "check the five fields" sends its author
+    // hunting for a syntax error in a number that is simply in the past.
+    const { svc } = service();
+    expect(() => svc.create(input({ cron: onceExpr(at(2026, 4, 6, 7)) }))).toThrow(/already passed/);
+    expect(() => svc.create(input({ cron: "not a cron" }))).toThrow(/will ever run/);
+    expect(svc.list(spaceId)).toEqual([]);
+  });
+
+  it("can be paused before its moment and re-armed after, without losing it", () => {
+    // Pausing nulls `next_run_at`; the moment itself lives in the expression, so resuming recovers
+    // it. The mutant here is storing the pending moment in that column alone.
+    const { svc } = service();
+    const s = svc.create(input({ cron: onceExpr(IN_TWO_WEEKS) }));
+    expect(svc.update({ id: s.id, enabled: false }).nextRunAt).toBeNull();
+    expect(svc.update({ id: s.id, enabled: true }).nextRunAt).toBe(IN_TWO_WEEKS);
   });
 });

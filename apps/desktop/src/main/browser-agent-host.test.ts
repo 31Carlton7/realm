@@ -15,6 +15,8 @@ function setup(opts: {
   /** Plan 23: a stand-in governor. Omitted = no download support, which must refuse rather than
    *  fall back to writing files. */
   downloads?: boolean;
+  /** Plan 26: `false` strips the file reader, which is what a build without one looks like. */
+  readFile?: boolean;
 } = {}) {
   let emit: ((method: string, params: unknown) => void) | null = null;
   const calls: { method: string; params?: Record<string, unknown> }[] = [];
@@ -30,6 +32,10 @@ function setup(opts: {
       if (method === "Page.captureScreenshot") return { data: "c2NyZWVu" };
       if (method === "Page.getNavigationHistory") return opts.responses?.[method] ?? { currentIndex: 0, entries: [{ url: "https://example.com/x" }] };
       if (method === "DOM.getContentQuads") return opts.responses?.[method] ?? { quads: [[10, 10, 30, 10, 30, 20, 10, 20]] };
+      // Plan 26: every node-scoped script (reading a file input's accept/multiple/files, finding the
+      // hidden input behind a label) goes through resolveNode first, so the fake has to hand out an
+      // object id or none of it runs.
+      if (method === "DOM.resolveNode") return opts.responses?.[method] ?? { object: { objectId: "obj-1" } };
       return opts.responses?.[method] ?? {};
     },
     onEvent: (cb) => { emit = cb; },
@@ -60,6 +66,7 @@ function setup(opts: {
           : { ok: false, error: clicked.error ?? "click failed" };
       },
     } : undefined,
+    readFile: opts.readFile === false ? undefined : async () => new Uint8Array([1, 2, 3]),
   });
   return { host, calls, liveViews, audit, grants, touched, emitEvent: (method: string, params: unknown) => emit?.(method, params) };
 }
@@ -571,5 +578,160 @@ describe("driving a browser whose pane is off screen", () => {
     h.liveViews.delete("b1");
     await expect(h.host.handleOp("read", { browserId: "b1", kind: "text" })).rejects.toThrow(/pane is not open/);
     expect(h.touched).toEqual([]);
+  });
+});
+
+/**
+ * File choosers (Plan 26). The property under test is not "uploads work" — that is the executor's
+ * file — but that **a native macOS file panel can no longer reach the screen from an agent's click**,
+ * and that the intercepted chooser it leaves instead is visible and cancellable.
+ */
+describe("file-chooser interception", () => {
+  const interception = (calls: { method: string; params?: Record<string, unknown> }[]) =>
+    calls.filter((c) => c.method === "Page.setInterceptFileChooserDialog").map((c) => c.params?.enabled);
+
+  it("a click ARMS interception before the input event goes out — the mutant is an unrecoverable pane", async () => {
+    const { host, calls } = setup();
+    await host.handleOp("act", { browserId: "b1", action: { kind: "click", ref: 5 } });
+    const armed = calls.findIndex((c) => c.method === "Page.setInterceptFileChooserDialog" && c.params?.enabled === true);
+    const clicked = calls.findIndex((c) => c.method === "Input.dispatchMouseEvent");
+    expect(armed).toBeGreaterThanOrEqual(0);
+    expect(armed).toBeLessThan(clicked);
+  });
+
+  it("a key act arms too — Enter on a focused file input opens the same panel", async () => {
+    const { host, calls } = setup();
+    await host.handleOp("act", { browserId: "b1", action: { kind: "key", key: "Enter" } });
+    expect(interception(calls)).toContain(true);
+  });
+
+  it("scrolling and typing do not arm — neither can open a picker, and interception belongs to the page", async () => {
+    const { host, calls } = setup();
+    await host.handleOp("act", { browserId: "b1", action: { kind: "scroll", deltaY: 100 } });
+    expect(interception(calls)).toEqual([]);
+  });
+
+  it("an intercepted chooser is reported in the act's OWN result, with what to do next", async () => {
+    const { host, calls, emitEvent } = setup();
+    // The chooser event lands while the act is settling, the way a real one does.
+    const act = host.handleOp("act", { browserId: "b1", action: { kind: "click", ref: 5 } });
+    await Promise.resolve();
+    emitEvent("Page.fileChooserOpened", { backendNodeId: 31, mode: "selectMultiple" });
+    const result = (await act) as { ok: boolean; detail: string };
+    expect(result.ok).toBe(true);
+    expect(result.detail).toContain("intercepted");
+    expect(result.detail).toContain("browser_upload");
+    expect(result.detail).toContain("browser_dismiss_dialog");
+    // And it stays armed while one is pending: disarming would not un-intercept it, and the next
+    // click would then put a real panel on top of a page already waiting for files.
+    expect(interception(calls)).not.toContain(false);
+  });
+
+  it("a pending chooser is named in the next snapshot, where an agent that moved on will look", async () => {
+    const { host, emitEvent } = setup();
+    await host.handleOp("act", { browserId: "b1", action: { kind: "click", ref: 5 } });
+    emitEvent("Page.fileChooserOpened", { backendNodeId: 31, mode: "selectSingle" });
+    const snap = (await host.handleOp("snapshot", { browserId: "b1" })) as { text: string };
+    expect(snap.text).toContain("a file chooser is open on this page");
+    expect(snap.text).toContain("no macOS panel is on screen");
+  });
+
+  it("a snapshot with nothing pending says nothing about choosers", async () => {
+    const { host } = setup();
+    const snap = (await host.handleOp("snapshot", { browserId: "b1" })) as { text: string };
+    expect(snap.text).not.toContain("file chooser");
+  });
+
+  it("dismissDialog cancels the pending chooser with an EMPTY file list, and disarms", async () => {
+    const { host, calls, emitEvent } = setup();
+    await host.handleOp("act", { browserId: "b1", action: { kind: "click", ref: 5 } });
+    emitEvent("Page.fileChooserOpened", { backendNodeId: 31, mode: "selectSingle" });
+    const r = (await host.handleOp("dismissDialog", { browserId: "b1" })) as { dismissed: boolean };
+    expect(r.dismissed).toBe(true);
+    expect(calls.find((c) => c.method === "DOM.setFileInputFiles")!.params).toEqual({ backendNodeId: 31, files: [] });
+    expect(interception(calls)).toContain(false);
+  });
+
+  it("dismissDialog with nothing open says so rather than failing", async () => {
+    const { host } = setup();
+    expect(await host.handleOp("dismissDialog", { browserId: "b1" })).toEqual({ dismissed: false, detail: "no file chooser was open on this pane" });
+  });
+
+  it("a chooser is answered once — a second dismiss finds nothing left to cancel", async () => {
+    const { host, emitEvent } = setup();
+    await host.handleOp("act", { browserId: "b1", action: { kind: "click", ref: 5 } });
+    emitEvent("Page.fileChooserOpened", { backendNodeId: 31, mode: "selectSingle" });
+    await host.handleOp("dismissDialog", { browserId: "b1" });
+    expect(((await host.handleOp("dismissDialog", { browserId: "b1" })) as { dismissed: boolean }).dismissed).toBe(false);
+  });
+
+  it("a main-frame navigation forgets the pending chooser and disarms — its node went with the page", async () => {
+    const { host, calls, emitEvent } = setup();
+    await host.handleOp("act", { browserId: "b1", action: { kind: "click", ref: 5 } });
+    emitEvent("Page.fileChooserOpened", { backendNodeId: 31, mode: "selectSingle" });
+    emitEvent("Page.frameNavigated", { frame: {} });
+    expect(interception(calls)).toContain(false);
+    const snap = (await host.handleOp("snapshot", { browserId: "b1" })) as { text: string };
+    expect(snap.text).not.toContain("file chooser is open");
+  });
+
+  it("the interception is noted in the console buffer, so browser_read console explains a dead click", async () => {
+    const { host, emitEvent } = setup();
+    await host.handleOp("act", { browserId: "b1", action: { kind: "click", ref: 5 } });
+    emitEvent("Page.fileChooserOpened", { backendNodeId: 31, mode: "selectSingle" });
+    const read = (await host.handleOp("read", { browserId: "b1", kind: "console" })) as { text: string };
+    expect(read.text).toContain("file chooser was intercepted");
+  });
+
+  it("a chooser event with no node is ignored — without interception Chromium names none, and a panel is already up", async () => {
+    const { host, emitEvent } = setup();
+    emitEvent("Page.fileChooserOpened", { mode: "selectSingle" });
+    expect(((await host.handleOp("dismissDialog", { browserId: "b1" })) as { dismissed: boolean }).dismissed).toBe(false);
+  });
+});
+
+describe("the upload op", () => {
+  it("fulfils a chooser the pane is already holding, without clicking again", async () => {
+    const { host, calls, emitEvent } = setup({
+      responses: { "Runtime.callFunctionOn": { result: { value: { accept: "", multiple: true, names: ["hero.png"] } } } },
+    });
+    await host.handleOp("act", { browserId: "b1", action: { kind: "click", ref: 5 } });
+    emitEvent("Page.fileChooserOpened", { backendNodeId: 31, mode: "selectMultiple" });
+    const clicksBefore = calls.filter((c) => c.method === "Input.dispatchMouseEvent").length;
+    const r = (await host.handleOp("upload", {
+      browserId: "b1", ref: 5, files: [{ path: "/space/hero.png", name: "hero.png", bytes: 10 }],
+    })) as { ok: boolean; method?: string };
+    expect(r.ok).toBe(true);
+    expect(r.method).toBe("chooser");
+    expect(calls.filter((c) => c.method === "Input.dispatchMouseEvent").length).toBe(clicksBefore);
+  });
+
+  it("DISARMS after a chooser-route upload — a pane left armed breaks the user's own picker", async () => {
+    const { host, calls, emitEvent } = setup({
+      responses: { "Runtime.callFunctionOn": { result: { value: { accept: "", multiple: true, names: ["hero.png"] } } } },
+    });
+    await host.handleOp("act", { browserId: "b1", action: { kind: "click", ref: 5 } });
+    emitEvent("Page.fileChooserOpened", { backendNodeId: 31, mode: "selectMultiple" });
+    await host.handleOp("upload", { browserId: "b1", ref: 5, files: [{ path: "/space/hero.png", name: "hero.png", bytes: 10 }] });
+    expect(calls.filter((c) => c.method === "Page.setInterceptFileChooserDialog").map((c) => c.params?.enabled)).toContain(false);
+  });
+
+  it("STAYS armed when the files were refused, because the chooser is still waiting and still cancellable", async () => {
+    const { host, calls, emitEvent } = setup({
+      // accept="image/*" against a .mp4 — the refusal that can only be learned once a chooser is open.
+      responses: { "Runtime.callFunctionOn": { result: { value: { accept: "image/*", multiple: true, names: [] } } } },
+    });
+    await host.handleOp("act", { browserId: "b1", action: { kind: "click", ref: 5 } });
+    emitEvent("Page.fileChooserOpened", { backendNodeId: 31, mode: "selectMultiple" });
+    const r = (await host.handleOp("upload", { browserId: "b1", ref: 5, files: [{ path: "/space/demo.mp4", name: "demo.mp4", bytes: 10 }] })) as { ok: boolean };
+    expect(r.ok).toBe(false);
+    expect(calls.filter((c) => c.method === "Page.setInterceptFileChooserDialog").map((c) => c.params?.enabled)).not.toContain(false);
+    // And it is still there to cancel — the whole point of handing it back.
+    expect(((await host.handleOp("dismissDialog", { browserId: "b1" })) as { dismissed: boolean }).dismissed).toBe(true);
+  });
+
+  it("refuses an empty file list rather than reaching for the page", async () => {
+    const { host } = setup();
+    expect(await host.handleOp("upload", { browserId: "b1", ref: 5, files: [] })).toEqual({ ok: false, error: "no files were given to attach" });
   });
 });

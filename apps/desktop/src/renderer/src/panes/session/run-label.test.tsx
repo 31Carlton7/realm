@@ -46,18 +46,33 @@ describe("the word a run wears", () => {
   });
 });
 
-describe("what an unlocked friend pack adds", () => {
+describe("what an unlocked friend pack takes over", () => {
   const PACK = [
     { present: "Asking Alice", past: "Asked Alice" },
     { present: "Blaming Bob", past: "Blamed Bob" },
   ];
 
-  it("joins the house pool rather than replacing it", () => {
-    // A group that unlocked a pack should still see the shipped jokes: a pool that swapped wholesale
-    // would make "did it work?" a question you answer by counting.
-    const seen = new Set(Array.from({ length: 3_000 }, (_, i) => runLabelFor(1_756_900_000_000 + i, undefined, true, PACK).present));
-    for (const l of EGG_RUN_LABELS) expect(seen, l.present).toContain(l.present);
-    for (const l of PACK) expect(seen, l.present).toContain(l.present);
+  it("takes the vocabulary over, so the house verbs stop showing up entirely", () => {
+    /* THE mutant is the arrangement this replaced: the pack's lines joining the pool on a one-in-four
+       roll, which spent three runs in four saying "Percolating" to a group that unlocked a pack to
+       stop reading that. A single house verb in two thousand runs fails this. */
+    for (let i = 0; i < 2_000; i++) {
+      const label = runLabelFor(1_756_900_000_000 + i, undefined, true, PACK);
+      expect(PACK, `seed +${i}`).toContain(label);
+    }
+  });
+
+  it("uses every line in the pack rather than whichever one the roll favours", () => {
+    const seen = new Set(Array.from({ length: 500 }, (_, i) => runLabelFor(1_756_900_000_000 + i, undefined, true, PACK).present));
+    expect(seen).toEqual(new Set(PACK.map((l) => l.present)));
+  });
+
+  it("holds one line for the whole of a run, the way the house list does", () => {
+    // Same reason as the house verbs: the shimmer re-renders on every delta and the settled line is
+    // recomputed from the event log, so a name that re-rolled would resolve into a different friend.
+    const seed = 1_756_900_000_123;
+    const first = runLabelFor(seed, undefined, true, PACK);
+    for (let i = 0; i < 50; i++) expect(runLabelFor(seed, undefined, true, PACK)).toEqual(first);
   });
 
   it("adds nothing at all with the eggs off", () => {
@@ -70,15 +85,17 @@ describe("what an unlocked friend pack adds", () => {
     }
   });
 
-  it("leaves the verb of a run it does not rename exactly where it was", () => {
-    // The same guarantee the eggs themselves carry, now with a pack in the pool: unlocking one must
-    // not retell every past turn in the transcript, which is recomputed rather than stored.
+  it("hands the verbs back, unchanged, to a group that forgets the pack", () => {
+    // Forgetting a pack is a thing Settings offers, so the state it returns to has to be the state
+    // the switch alone gives — not a third arrangement that only exists after an unlock.
     for (let i = 0; i < 500; i++) {
       const seed = 1_756_900_000_000 + i * 37;
-      const withPack = runLabelFor(seed, undefined, true, PACK);
-      if (EGG_RUN_LABELS.includes(withPack) || PACK.includes(withPack)) continue;
-      expect(withPack).toBe(runLabelFor(seed));
+      expect(runLabelFor(seed, undefined, true, [])).toBe(runLabelFor(seed, undefined, true));
     }
+  });
+
+  it("does not put a name on a plan either, pack or no pack", () => {
+    expect(runLabelFor(NAMED_SEED, "plan", true, PACK)).toBe(PLAN_RUN_LABEL);
   });
 
   it("ships no names of its own, which is what the packs are for", () => {

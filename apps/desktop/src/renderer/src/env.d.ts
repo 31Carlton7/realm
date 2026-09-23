@@ -126,6 +126,12 @@ interface Window {
       remove(id: string): Promise<boolean>;
       setPresenceTtl(ms: number): Promise<number>;
     };
+    /** Settings → Sign-ins, the passkey half. No `add`: a passkey is created by a site asking for one
+     *  in a pane and the user answering Touch ID, so there is nothing for a person to type. */
+    passkeys: {
+      list(): Promise<import("@realm/contracts").Passkey[]>;
+      remove(id: string): Promise<boolean>;
+    };
     /** Browser pane (Plan 11 W1): drives the native WebContentsView main owns for a browser item. */
     clipboard: { readText(): Promise<string> };
     browser: {
@@ -145,6 +151,8 @@ interface Window {
       saveDownload(id: string, blockedId: string, dir: string): Promise<import("@realm/contracts").BrowserDownloadResult>;
       dismissDownload(id: string, blockedId: string): Promise<void>;
       onDownloadBlocked(cb: (m: { browserId: string; blocked: import("@realm/contracts").BlockedDownload }) => void): () => void;
+      /** A passkey request the pane refused, so a sign-in that goes nowhere says why. */
+      onPasskey(cb: (m: import("@realm/contracts").PasskeyNotice) => void): () => void;
       setAllowlist(id: string, allowlist: string[] | null): Promise<void>;
       /** Per-frame, fire-and-forget: placeholder rect (CSS px) + devicePixelRatio + visibility. */
       setBounds(id: string, rect: { x: number; y: number; width: number; height: number }, dpr: number, visible: boolean): void;

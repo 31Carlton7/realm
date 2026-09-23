@@ -38,7 +38,7 @@ export const RUN_LABELS: readonly RunLabel[] = [
 ];
 
 /**
- * The labels the easter-egg switch adds, on top of whatever an unlocked friend pack brings.
+ * What the easter-egg switch gives someone who has not unlocked a friend pack.
  *
  * A separate list rather than more entries in `RUN_LABELS`, because the two are picked differently:
  * lengthening the pool above would renumber it, and the settled line is recomputed from the event
@@ -85,15 +85,18 @@ export function runLabelFor(startedAt: number, mode?: string, eggs = false, pack
   h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0;
   h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0;
   const spread = (h ^ (h >>> 16)) >>> 0;
+  /* An unlocked pack takes the whole vocabulary, rather than a share of it. The names were the
+     reason to unlock anything, and a group that typed its word and then watched three runs in four
+     say "Percolating" got the generic app with a rare surprise in it instead of their app. The
+     house verbs are what the pack replaces, so they step aside until the pack is forgotten —
+     including the nameless egg lines, which were the switch's stand-in for names nobody had. */
+  if (eggs && packLabels.length) return packLabels[spread % packLabels.length]!;
   // A third round rather than a slice of the second: the bits `spread` already spent on choosing the
-  // verb are not independent of it, and reusing them would tie which runs get a friend to which
+  // verb are not independent of it, and reusing them would tie which runs get an egg to which
   // verb they would otherwise have had.
   const egg = Math.imul(spread ^ (spread >>> 16), 0x45d9f3b) >>> 0;
-  /* One run in four, so a name stays a thing you notice rather than the way the app talks.
-     An unlocked pack's lines join the pool rather than replacing it — a group that unlocked one
-     should still see the house jokes, and a pool that swapped wholesale would make "did you unlock
-     it?" a question you answer by counting. */
-  const pool = packLabels.length ? [...EGG_RUN_LABELS, ...packLabels] : EGG_RUN_LABELS;
-  if (eggs && egg % 4 === 0) return pool[(egg >>> 2) % pool.length]!;
+  /* With no pack unlocked there is nothing to name, so these stay one run in four: a joke that
+     arrives every single time is the way the app talks, not an egg. */
+  if (eggs && egg % 4 === 0) return EGG_RUN_LABELS[(egg >>> 2) % EGG_RUN_LABELS.length]!;
   return RUN_LABELS[spread % RUN_LABELS.length]!;
 }

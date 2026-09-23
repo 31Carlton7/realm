@@ -29,20 +29,20 @@
    surface that reads --font-mono gives it up. styles.test.ts keeps this list in step with that set.
    The UI face is untouched: the bundled Inter has no `liga` at all (its GSUB carries calt/dlig only),
    so there is no standard ligature to win there, and buying calt would cost the app its tracking. */
-.activity-call, .activity-duration, .activity-time, .agent-hint-text code, .agents-row-mono, .cli-job-output,
+.activity-call, .activity-duration, .activity-time, .agent-hint-text code, .agent-tile-mono, .agents-row-mono, .cli-job-output,
 .cmd-cwd, .cmd-line, .code-body, .code-gutter, .code-preview, .composer-attach-note .attach-note-files,
 .diff-counts, .diff-hunk-head, .diff-line, .diff-status, .documents-picker-head, .documents-raw,
 .documents-rich-surface code, .documents-source, .env-path, .failover-pos, .fd-line, .fd-path, .fd-stat,
 .file-preview-path, .files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
 .mcp-tool-name, .md code, .md-code-lang, .media-name, .media-time, .memory-doc, .mention-row-id,
-.msg-error pre, .pane-empty-path, .permission-details pre, .permission-tool code, .req-target,
+.msg-error pre, .office-drawn-size, .office-kept, .pane-empty-path, .permission-details pre, .permission-tool code, .req-target,
 .sched-cron-input, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
 .font-installed-size, .sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-file-name code, .skill-picker-row-id,
 .summary-diff, .summary-fact .summary-row-name, .summary-file-path, .term-exit, .term-out, .terminal-hint-path,
 .theme-import textarea, .tool-body pre, .tool-stat, .tool-summary, .tool-well, .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .composer-queue-item .queue-position, .composer-queue-item .queue-attach, .terminal-dock-title,
-.sim-detail, .sb-chat-mono {
+.sim-detail, .sb-chat-mono, .upl-path {
   letter-spacing: normal;
 }
 
@@ -280,11 +280,24 @@ kbd { font: 11px var(--font-mono); }
    rather than flowed, so the rows beside it lay out as though it were not there. */
 .sb-resize { position: absolute; inset-block: 0; inset-inline-end: 0; width: 8px;
   cursor: col-resize; touch-action: none; }
-/* While it is being dragged, and while the keyboard has it — a control with a value the arrows move
-   has to say where it is. One line, on the sidebar's last pixel, in the accent: the same thing a
-   pane divider does under the pointer, at the app's one "you are here" colour. */
-.sb-resize[data-resizing]::after, .sb-resize:focus-visible::after {
-  content: ""; position: absolute; inset-block: 0; inset-inline-end: 0; width: 1px; background: var(--rl-accent); }
+/* Under the pointer, while it is being dragged, and while the keyboard has it — a control with a
+   value the arrows move has to say where it is, and one you can grab should admit it before you do.
+   The accent, at the app's one "you are here" colour: the same line the pane dividers light.
+
+   One element for all three states rather than a hover treatment beside a drag treatment, because a
+   control that got THINNER once you pressed it would read as the app losing track of the gesture.
+   It is pre-sized and fades, for the reason the pane divider does: §6 hover fills move colour, not
+   geometry, and this one is `position: absolute` inside a column whose width is the thing being
+   dragged.
+
+   It grows INWARD, into the sidebar's last 3px, where the 1px used to sit alone. Outward is over
+   `.main`, which paints after the sidebar and would take the pixel straight back — the same stacking
+   fact that keeps this handle's 8px of hit area inside the column. At rest it still paints nothing,
+   so the app's one boundary is still one hairline wide until you reach for it. */
+.sb-resize::after {
+  content: ""; position: absolute; inset-block: 0; inset-inline-end: 0; width: 3px;
+  background: var(--rl-accent); opacity: 0; transition: opacity var(--dur-hover) ease; }
+.sb-resize:hover::after, .sb-resize[data-resizing]::after, .sb-resize:focus-visible::after { opacity: 1; }
 /* The global focus ring would draw a 2px rectangle around an 8px-wide strip that paints nothing —
    a box around empty space, in a place where the thing being operated on is the column beside it.
    The line above is this control's focus state instead. */
@@ -1807,11 +1820,44 @@ button.panel-title:hover { background: var(--rl-hover); }
 
    Not thicker: 1px is right, and a 2px seam between every pair of panes is the gridded look §3 spent
    a pass removing. The fix is the alpha, not the width. */
-.resize-handle { flex: 0 0 1px; background: var(--rl-divider); position: relative; }
+.resize-handle { flex: 0 0 1px; background: var(--rl-divider); position: relative;
+  /* Above the panels, so the lit line below reads the same on both sides of the seam. Handle i is
+     rendered before panel i, both are positioned, and `.panel` is a stacking context of its own
+     (`container-type` carries layout containment) — so without this the overhang is painted over on
+     its trailing side by whatever the next pane draws, and the highlight comes out 2px beside a
+     terminal and 3px beside a transcript. Ordering among the group's own children only; a pane's
+     internals, `.drop-overlay` included, keep their order inside it. */
+  z-index: 1; }
 .resize-handle::after { content: ""; position: absolute; inset: -3px; }
 /* Still a step under the pointer — the divider is a control, and losing that feedback to raise the
-   resting line would trade one problem for another. */
+   resting line would trade one problem for another. It also stays as the fallback: beside a browser
+   pane the lit line below is a renderer paint next to a `WebContentsView`, which composites above
+   the DOM unconditionally, so its overhang is simply not there. The 1px seam is real layout and
+   survives that; the step on it is what still answers the pointer. */
 .resize-handle:hover, .resize-handle[data-resize-handle-active] { background: var(--rl-divider-hover); }
+/* And it LIGHTS — the accent, a little thicker, faded rather than snapped.
+   The thickness is pre-sized and only the opacity moves, for two reasons. A hover fill in this app
+   touches colour and never geometry (§6 motion table), and a divider whose BOX grows is a divider
+   that reflows both panes beside it: every pane in the group would shift a pixel as the pointer
+   crossed the seam, which is the one thing a resize affordance must not do before the drag starts.
+   So the line is always 3px and normally invisible, and what fades is whether you can see it.
+
+   3px, not 2: the seam is 1px and the growth has to be symmetrical about it, or the boundary appears
+   to step sideways under the pointer. This is the HOVER state and does not touch the ruling above —
+   the resting seam is still 1px, and a 2px line between every pair of panes is still the gridded
+   look §3 removed. One divider lights, under the pointer, and only while it is there.
+
+   `data-resize-handle-state` as well as `:hover` because the library sets it from its own hit
+   testing, and it is the state a CDP check can force when `:hover` cannot be driven. */
+.resize-handle::before {
+  content: ""; position: absolute; inset: 0; background: var(--rl-accent);
+  opacity: 0; transition: opacity var(--dur-hover) ease;
+}
+.resize-handle[data-panel-group-direction="horizontal"]::before { inset-inline: -1px; }
+.resize-handle[data-panel-group-direction="vertical"]::before { inset-block: -1px; }
+.resize-handle:hover::before,
+.resize-handle[data-resize-handle-state="hover"]::before,
+.resize-handle[data-resize-handle-active]::before { opacity: 1; }
 
 /* Only ever rendered while a drag is in progress (see PaneHost.tsx), so it's always meant to catch
    pointer events — no idle "none" state to switch out of. */
@@ -1857,6 +1903,11 @@ button.panel-title:hover { background: var(--rl-hover); }
    `.md-code-head` and the terminal dock's bar. */
 .page-overlay-bar { flex: none; display: flex; align-items: center; gap: 8px; min-height: 38px;
   padding: 0 6px 0 14px; }
+/* Collapsed, the page takes the whole window (below) — so its bar is the strip under the traffic
+   lights and the corner toggle, and it reserves them the way the pane bar and the group bar do. It
+   cannot join that rule: it is portalled to <body>, so `.app[data-sidebar-collapsed] .main > …`
+   cannot reach it. Without this the page's own title is drawn underneath the lights. */
+.page-overlay[data-sidebar-collapsed] .page-overlay-bar { padding-left: var(--corner-w); }
 .page-overlay-mark { flex: none; color: var(--rl-text-faint); }
 .page-overlay-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 12.5px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
@@ -1903,11 +1954,6 @@ button.panel-title:hover { background: var(--rl-hover); }
 .quick-chat-confirm { flex: none; color: var(--rl-danger); font-size: 12px; white-space: nowrap; }
 /* The empty state, centred in the space the transcript will take. Two lines: what this is, and the
    one consequence worth knowing before you have typed into it rather than after. */
-/* Collapsed, the page takes the whole window (below) — so its bar is the strip under the traffic
-   lights and the corner toggle, and it reserves them the way the pane bar and the group bar do. It
-   cannot join that rule: it is portalled to <body>, so `.app[data-sidebar-collapsed] .main > …`
-   cannot reach it. Without this the page's own title is drawn underneath the lights. */
-.page-overlay[data-sidebar-collapsed] .page-overlay-bar { padding-left: var(--corner-w); }
 .quick-chat-empty { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 6px;
   margin: 0; padding: 0 24px; text-align: center; font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim); }
 .quick-chat-empty > span { font-size: 11.5px; color: var(--rl-text-faint); }
@@ -2744,6 +2790,31 @@ a.msg-chip:hover { text-decoration: underline; text-underline-offset: 2px; }
 .msg-action { position: relative; }
 .msg-action::after { content: ""; position: absolute; inset: -6px 0; }
 
+/* ── The selection bar (SelectionBar.tsx) ────────────────────────────────
+   Opens over a passage the reader selected in the transcript. Absolutely positioned in
+   `.transcript-wrap` — see the component for why it may not live inside the scroller — with its
+   coordinates written as inline `left`/`top`, which is the one thing here JS owns: they are measured
+   geometry per selection, not a value a stylesheet could hold.
+
+   The same raised-surface language as `.menu` and `.mention-picker`: this is one more floating
+   surface over the transcript, and a bar that invented its own fill and shadow would read as a
+   different kind of object than the pickers the prompter already opens. */
+.selection-bar { position: absolute; z-index: 100; display: flex; align-items: center; gap: 2px; padding: 3px;
+  background: var(--surface); border-radius: var(--r-panel); corner-shape: squircle; box-shadow: var(--shadow-raised);
+  /* The bar sits over text the user is mid-gesture on. Without this, the drag that made the
+     selection can continue INTO the bar and select its labels — and on the release the selection the
+     bar exists to act on is gone. */
+  user-select: none; }
+.selection-action { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px;
+  border-radius: var(--r-ctl); corner-shape: squircle; font-size: 12px; color: var(--rl-text-dim);
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+.selection-action:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+/* Quote is the primary, and it says so in WEIGHT and ink rather than in an accent fill: the bar is a
+   small surface floating over prose, and a filled accent button on it reads as an alert. The accent
+   is spent on the glyph alone, which is enough to rank two controls. */
+.selection-action.primary { color: var(--rl-text-bright); font-weight: var(--fw-label); }
+.selection-action.primary svg { color: var(--rl-accent); }
+
 /* The sources disclosure. Folded away by default: a citation is there to be checked, not read, and
    four urls between two messages cost every reader to serve the one who went looking. */
 .msg-sources { display: flex; flex-direction: column; gap: 6px; }
@@ -2843,6 +2914,13 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .md.thinking-body { margin-top: 4px; padding: 8px 10px; border-left: 2px solid var(--rl-line); color: var(--rl-text-dim); }
 .msg-error { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: var(--r-ctl); color: var(--rl-danger); background: color-mix(in srgb, var(--rl-danger) 8%, var(--rl-panel)); }
 .msg-error pre { margin: 0; white-space: pre-wrap; font: 12px var(--font-mono); max-height: 240px; overflow: auto; }
+/* The message and, when Realm knows one, the command that fixes it — stacked in one column beside
+   the glyph so the command aligns with the sentence it answers rather than with the icon. */
+.msg-error-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; flex: 1; }
+/* The command row carries the transcript's own frame rather than the error's red wash: it is the
+   way out, not more of the fault. */
+.msg-error-body .install-cmd { background: var(--rl-panel); }
+.msg-error-body .install-cmd code { color: var(--rl-text-bright); }
 /* Plan 9 W2 — BUI LoadingState's shimmer label replaces the spinner+text pair; under
    prefers-reduced-motion the global animation kill leaves a static, readable gradient. */
 /* The one system line that had no entrance at all: it was mounted by the status flipping to
@@ -3129,6 +3207,20 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   color: var(--rl-text-bright); background: var(--field); box-shadow: var(--shadow-hairline); }
 .req-target { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11.5px var(--font-mono); color: var(--rl-text-dim); }
 .req-prompt { font-size: 12px; line-height: 1.5; color: var(--rl-text-dim); }
+
+/* ── Files an agent is about to upload ────────────────────────────────────── */
+/* The list is the question, so it is set at reading size rather than as metadata. A file from
+   outside the space folder wears the accent on its path — the one line on the card the reader has
+   to actually look at — and the row keeps its name and size unchanged, because the file is not
+   suspect, its location is. */
+.upl { display: flex; flex-direction: column; gap: 7px; padding: 8px 10px; border-radius: var(--r-chip); background: var(--rl-frame); }
+.upl-files { display: flex; flex-direction: column; gap: 3px; margin: 0; padding: 0; list-style: none; }
+.upl-file { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 10px; align-items: baseline; }
+.upl-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--ink-2); }
+.upl-size { flex: none; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
+.upl-path { grid-column: 1 / -1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 11px var(--font-mono); color: var(--rl-accent); }
+.upl-note { font-size: 11px; color: var(--rl-text-faint); }
 
 /* The permission card's preview of what it is about to approve. Given the card's own width and no
    inner card of its own — it is the subject of the question, not an attachment to it. */
@@ -4564,6 +4656,39 @@ select { appearance: none; padding-right: 22px;
   border: 2px solid transparent; background-clip: content-box; }
 .space-body:hover::-webkit-scrollbar-thumb { background: var(--rl-line-strong); background-clip: content-box; }
 
+/* ── Scrollbars: on scroll, in the prompter ────────────────────────────────
+   Everywhere above keeps the persistent hairline: a transcript, a diff, a settings page is long
+   enough that "there is more this way" is worth saying continuously. The prompter's own popovers —
+   the mention and slash lists, the skill picker, the model picker's list, its jump strip, its detail
+   pane — are dropdowns glanced at mid-sentence, not columns read top to bottom, and a line down their
+   edge at rest was chrome with nothing to answer. `use-auto-hide-scrollbar.ts` marks `data-scrolling`
+   on the scroller for a moment after each scroll event; these rules are what that attribute means.
+
+   Deliberately scroll-only, not hover-only: `:hover` still matches while idle (the root rule two
+   screens up), so hiding the thumb has to out-rank hover too, not just the resting case. */
+.mention-picker, .skill-picker-list { scrollbar-color: transparent transparent; }
+.mention-picker[data-scrolling], .skill-picker-list[data-scrolling] { scrollbar-color: var(--rl-line) transparent; }
+/* `.mp-list`, `.mp-detail-body` and `.mp-jumps` ride the masked scrollbar's fade at their own two
+   ends ([data-dissolve]/[data-dissolve-x], above) — that stays; only the thumb's resting paint
+   changes. The reclaim is already true by inheritance from the bare attribute rule above, and is
+   restated here anyway: the rule below this comment is itself a `::-webkit-scrollbar` owner, and it
+   should not ask a reader to go find where its own standard properties were handed back. */
+.mp-list[data-dissolve], .mp-detail-body[data-dissolve], .mp-jumps[data-dissolve-x],
+.mp-list[data-dissolve][data-scrolling], .mp-detail-body[data-dissolve][data-scrolling], .mp-jumps[data-dissolve-x][data-scrolling] {
+  scrollbar-color: auto; scrollbar-width: auto; }
+/* One extra class outweighs the bare attribute selector for the idle case (transparent, which has to
+   beat `[data-dissolve]:hover` too — hence AFTER it in the file, not just heavier); adding
+   `[data-scrolling]` outweighs everything above unconditionally the moment it is true. Neither
+   variant touches `border`/`background-clip`, so both keep the inset the base rule already drew. */
+.mp-list[data-dissolve]::-webkit-scrollbar-thumb, .mp-detail-body[data-dissolve]::-webkit-scrollbar-thumb,
+.mp-jumps[data-dissolve-x]::-webkit-scrollbar-thumb { background: transparent; }
+.mp-list[data-dissolve][data-scrolling]::-webkit-scrollbar-thumb, .mp-detail-body[data-dissolve][data-scrolling]::-webkit-scrollbar-thumb,
+.mp-jumps[data-dissolve-x][data-scrolling]::-webkit-scrollbar-thumb { background: var(--rl-line); }
+/* The composer's own textarea is not in this list, and cannot be: `scrollbar-width: none` there is
+   permanent, not a resting state, because a classic scrollbar reserves gutter width the moment
+   content overflows regardless of thumb colour — which would misalign the highlight mirror's wrapped
+   lines under the caret the instant a long draft needed to scroll (see `.composer-input`, above). */
+
 /* xterm keeps an explicit treatment rather than inheriting the app's. It owns this element: it
    measures the viewport to decide the terminal's column count, and its interior is a dark world in
    both app modes (`color-scheme: dark` on .terminal-pane), so the thumb here answers to the terminal
@@ -4718,10 +4843,16 @@ select { appearance: none; padding-right: 22px;
 /* §6 "do NOT animate: theme/mode switching". useTheme sets this for a beat around a palette rewrite;
    without it the surfaces carrying a hover transition would tween to the new theme while the rest of
    the window snapped. */
-:root[data-theme-switching] * { transition: none !important; }
+:root[data-theme-switching] *, :root[data-theme-switching] *::before, :root[data-theme-switching] *::after { transition: none !important; }
 
 @media (prefers-reduced-motion: reduce) {
-  * { animation: none !important; transition: none !important; }
+  /* `*` does not match a pseudo-element, so for as long as this rule has existed it has been
+     stopping motion on elements and silently letting every `::before`/`::after` keep its own. Eight
+     rules were transitioning through it — the switch knob, the checkbox tick, both slider thumbs,
+     the space strip's marker, and the two divider highlights — which is to say a reader on this
+     preference still got the throw, the tick and the slide. Naming the pseudo-elements is the whole
+     fix; nothing else about the rule changes. */
+  *, *::before, *::after { animation: none !important; transition: none !important; }
   /* A frozen spinner reads as a hang (A-L5): hide it. .msg-working keeps its "Working…" text; the
      running tool row gets a static ellipsis in the status slot instead. */
   .spinner { display: none; }
@@ -5494,6 +5625,118 @@ select { appearance: none; padding-right: 22px;
 .agents-more svg { transition: rotate var(--dur-hover) ease; }
 .agents-more[aria-expanded="true"] svg { rotate: 180deg; }
 
+/* The page head's right-hand cluster: which reading is on screen, and the one action that makes
+   more agents. Baseline-aligned with the title like everything else in the head. */
+.agents-head-actions { flex: none; display: flex; align-items: center; gap: 8px; align-self: center; }
+.agents-views { display: flex; gap: 2px; padding: 2px; border-radius: var(--r-ctl); background: var(--rl-frame); }
+.agents-view { padding: 3px 10px; font-size: 12px; font-weight: var(--fw-medium); border: none; border-radius: var(--r-chip);
+  background: transparent; color: var(--rl-text-dim); cursor: pointer;
+  transition: background var(--dur-hover) ease, color var(--dur-hover) ease; }
+.agents-view:hover { color: var(--rl-text-bright); }
+/* One appearance for "this one is on", carried by the fill alone — the label names the VIEW, and
+   `aria-pressed` is the only place the state is said in words. */
+.agents-view[aria-pressed="true"] { background: var(--rl-active); color: var(--rl-text-bright); }
+
+/* The wall. `auto-fill` rather than `auto-fit`: a group holding one agent should draw one tile at
+   the column width the others use, not one tile stretched across the page. */
+.agent-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; }
+.agent-tile { display: flex; flex-direction: column; align-items: stretch; gap: 5px; padding: 10px 12px; text-align: left;
+  font: inherit; border: none; border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-frame);
+  color: var(--rl-text-bright); cursor: pointer;
+  transition: background var(--dur-hover) ease, scale var(--dur-press) var(--ease-out-strong); }
+.agent-tile:hover { background: var(--rl-hover); }
+.agent-tile:active { scale: 0.98; }
+.agent-tile-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.agent-tile-mark { flex: none; }
+/* The title is the unbounded user data, so it takes the slack and gives it back first; the clock
+   beside it is four characters of fixed width that are reserved before the title gets any. */
+.agent-tile-title { flex: 1; min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-tile-when { flex: none; font-size: 11.5px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+/* What it is doing now. Not mono, and that is a decision rather than an omission: the line is a
+   command as often as it is a sentence, and setting prose in the machine face would say the wrong
+   thing about half of them. The glyph is what tells the two apart. */
+.agent-tile-doing { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 11.5px; color: var(--rl-text-dim); }
+.agent-tile-doing-mark { flex: none; color: var(--rl-text-faint); }
+.agent-tile-doing-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-tile-sub { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 11px; color: var(--rl-text-faint); }
+.agent-tile-sub > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The stated yielding order for this row: the space name goes first and the folder last, because a
+   fan-out's agents share a space and are told apart by the worktree they run in. */
+.agent-tile-sub > span:first-child { flex: 1 3 auto; }
+.agent-tile-mono { flex: 0 1 auto; font-family: var(--font-mono); }
+
+/* The farm (easter eggs only — AgentWall mounts it or does not). A band under the last row of
+   tiles, with a hairline for the ground the figures stand on. No surface and no fill: it is the
+   page's own canvas with some pixels on it, and giving it a card would make it a panel the eye is
+   asked to read. */
+.agent-farm { display: block; width: 100%; margin-top: 10px; }
+/* The ground. Drawn here rather than on the canvas so it is one hairline on the app's own token
+   rather than a second thing the accent paints. */
+.agents-page .agent-farm { border-bottom: var(--hairline-w) solid var(--rl-line); }
+
+/* The office. A canvas that takes the page's remaining height — an office is a room, and a room
+   drawn into a 200px band is a diorama. `--rl-frame` behind it so a world smaller than the pane
+   sits on the app's own ground rather than on nothing. */
+.agent-office { display: flex; flex-direction: column; min-height: 0; flex: 1;
+  border-radius: var(--r-panel); background: var(--rl-frame); overflow: hidden; }
+.agent-office-canvas { display: block; width: 100%; flex: 1; min-height: 0; }
+
+/* The prompter, above the room. Chrome, so it sits OUTSIDE the canvas and stays put while the world
+   under it changes — and so it never goes soft, which is the rule about what may dissolve. */
+.office-prompter { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; }
+.office-ask { display: flex; align-items: center; gap: 8px; }
+.office-ask-mark { flex: none; color: var(--rl-accent); }
+.office-ask-input { flex: 1; min-width: 0; height: 30px; padding: 0 10px; font: inherit; font-size: 13px;
+  border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field);
+  color: var(--rl-text-bright); outline: none; }
+.office-ask-input::placeholder { color: var(--rl-text-faint); }
+.office-ask-input:focus { border-color: var(--rl-accent); }
+.office-themes { display: flex; flex-wrap: wrap; gap: 4px; }
+.office-theme { padding: 3px 9px; font-size: 11.5px; font-weight: var(--fw-medium); border: none;
+  border-radius: var(--r-chip); background: var(--rl-hover); color: var(--rl-text-dim); cursor: pointer;
+  transition: background var(--dur-hover) ease, color var(--dur-hover) ease; }
+.office-theme:hover:not(:disabled) { background: var(--rl-active); color: var(--rl-text-bright); }
+.office-theme:disabled { opacity: 0.45; cursor: default; }
+/* Why a world was refused. Every line is one thing the model got wrong and one thing a person could
+   say differently, so they are listed rather than summarised into "that did not work". */
+.office-problems { margin: 0; padding-left: 16px; font-size: 11.5px; line-height: 1.5; color: var(--rl-warning); }
+/* The vendored-work credit, quieter than the app's own signature line above it. */
+.settings-attribution-credit { font-size: 11px; line-height: 1.5; color: var(--rl-text-faint); max-width: 44ch; }
+
+.office-draw { display: flex; flex-direction: column; gap: 8px; }
+/* The preview. A generated sprite can validate perfectly and still be an unrecognisable smudge, and
+   that is a judgment only a person looking at it can make — so it is shown at 4x before anything
+   reaches the catalog. `image-rendering: pixelated` because a smoothed pixel sprite is a lie about
+   what will be placed. */
+.office-drawn { display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  border-radius: var(--r-panel); background: var(--rl-raised); }
+/* No `image-rendering: pixelated` here, and that is the point rather than an omission: the preview
+   is drawn at DEVICE resolution (one sprite pixel becomes an exact whole number of device pixels),
+   so there is no resampling to disown. Claiming sharpness over a resampled picture is a statement
+   that is not true, and the machine pane's screen is the only place in the app where it is. */
+.office-drawn-preview { flex: none; }
+.office-drawn-name { font-size: 13px; color: var(--rl-text-bright); }
+.office-drawn-size { font-size: 11px; font-family: var(--font-mono); color: var(--rl-text-faint); margin-right: auto; }
+.office-kept { margin: 0; font-size: 11px; font-family: var(--font-mono); color: var(--rl-text-faint); }
+/* The office is the one page content that is a ROOM rather than a list, so its column stops being a
+   scroller and becomes a frame: the canvas fits the world to whatever height it is given, and a
+   column that scrolls would hand it an unbounded one and then clip what it drew. */
+.agents-page .page-content:has(.agent-office) { display: flex; flex-direction: column; overflow: hidden; }
+
+/* The fan-out sheet. */
+.fan-out-brief { resize: vertical; min-height: 76px; }
+/* There is no generic placeholder rule in this stylesheet — every field opts in — so a field that
+   forgets renders its hint at the weight of typed text, and the user reads a brief nobody wrote. */
+.fan-out-brief::placeholder { color: var(--rl-text-faint); }
+.fan-out-row { display: grid; grid-template-columns: 6rem 1fr; gap: 12px; }
+.fan-out-switch { display: flex; align-items: flex-start; gap: 9px; cursor: pointer; }
+.fan-out-switch > input { flex: none; margin-top: 2px; }
+.fan-out-switch > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.fan-out-switch strong { font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
+/* The one sentence under the row that says something the label and the control do not: what the
+   switch being off would cost. It changes with the switch, because that is the whole of its job. */
+.fan-out-note { font-size: 11.5px; line-height: 1.45; color: var(--rl-text-faint); }
+
 /* ── The Library's file browser ────────────────────────────────────────────
    A grid of tiles grouped by day, which is what a file browser over a timeline of work is: the
    question is almost always "the thing from this afternoon", and a flat list sorted by date answers
@@ -5628,6 +5871,9 @@ select { appearance: none; padding-right: 22px;
 .sched-when select { flex: 1 1 auto; min-width: 0; }
 /* Mono, and never narrower than the five fields it holds: this is machine state the user is typing. */
 .sched-cron-input { flex: 0 0 168px; font-family: var(--font-mono); font-size: 11.5px; }
+/* The native picker, sized to the date it shows rather than to the cron box it replaces — it is a
+   date, not machine state, so it keeps the interface font. */
+.sched-once-input { flex: 0 0 auto; font-size: 11.5px; }
 .sched-preview { margin: 0; font-size: 11.5px; color: var(--rl-text-faint); }
 .sched-preview[data-invalid] { color: var(--rl-warning); }
 .sched-form-actions { display: flex; gap: 8px; }

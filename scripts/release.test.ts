@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tempDir } from "@realm/test-utils";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { tempDir } from "@realm/test-utils";
@@ -278,7 +278,7 @@ describe("release() end to end in a scratch repo (no pushing, no publishing — 
  */
 describe("smokeTestPackagedServer", () => {
   const stubServer = (body: string) => {
-    const root = mkdtempSync(join(tmpdir(), "realm-smoke-test-"));
+    const root = tempDir("realm-smoke-test-");
     mkdirSync(join(root, "apps", "server", "dist"), { recursive: true });
     writeFileSync(join(root, "apps", "server", "dist", "main.js"), body);
     return root;
@@ -306,7 +306,7 @@ describe("smokeTestPackagedServer", () => {
   });
 
   it("refuses when there is no packaged server at all", () => {
-    const root = mkdtempSync(join(tmpdir(), "realm-smoke-empty-"));
+    const root = tempDir("realm-smoke-empty-");
     expect(() => smokeTestPackagedServer(root, () => {}, 5_000)).toThrow(/no packaged server/);
   });
 });

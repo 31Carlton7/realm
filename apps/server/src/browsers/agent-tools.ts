@@ -1,10 +1,11 @@
 import { z } from "zod";
 import {
   BROWSER_READ_ONLY_TOOLS, BrowserActionSchema, BrowserReadKindSchema, CREDENTIAL_2FA_NOTE,
-  DOWNLOAD_DIRNAME, DOWNLOAD_MAX_BYTES,
+  DOWNLOAD_DIRNAME, DOWNLOAD_MAX_BYTES, UPLOAD_MAX_FILES, formatUploadSize,
   type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserDescribeResult,
-  type BrowserDownloadResult, type BrowserNavigateResult, type BrowserReadResult,
-  type BrowserScreenshotResult, type BrowserSnapshotResult, type Browser,
+  type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserNavigateResult,
+  type BrowserReadResult, type BrowserScreenshotResult, type BrowserSnapshotResult,
+  type BrowserUploadResult, type Browser,
 } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
@@ -19,6 +20,7 @@ import { join } from "node:path";
 import type { ProjectsStore } from "../store/projects";
 import { fenceUntrusted } from "@realm/contracts";
 import { isOAuthConsentUrl } from "./guards";
+import { resolveUploadPaths, type ResolvedUploadFile } from "./upload-paths";
 
 export const BROWSER_PROVIDER_NAME = "realm-browser";
 
@@ -50,6 +52,16 @@ export type BrowserAgentToolsDeps = {
    *  with no project has no destination and `browser_download` refuses — deliberately, rather than
    *  inventing a Realm-owned directory no other surface shows the user. */
   projects: Pick<ProjectsStore, "list">;
+  /**
+   * Plan 26: the space's own folder — the default root a `browser_upload` may read from. Anything
+   * outside it is still uploadable, but only with its full path quoted on the approval card, so the
+   * user is told when an agent reaches past the space they are working in.
+   *
+   * Optional, and its absence means "no default root": every path is then treated as outside and
+   * shown in full. That is the safe direction — a harness that cannot say where the space lives
+   * should show more, not less.
+   */
+  documents?: { rootForSpace(spaceId: string): string | null };
   browserService: Pick<BrowserService, "open">;
   mcp: Pick<McpService, "providerEnabled">;
   bridge: Pick<BrowserHostBridge, "call">;
@@ -180,7 +192,7 @@ const TOOLS: Tool[] = [
   {
     name: "browser_download",
     description:
-      `Download the file behind a link or button by its [ref=N], into the space project's ${DOWNLOAD_DIRNAME}/ directory. Asks the user for permission. Only document, image, archive and media types are saved — never anything executable — only from the origin the pane is already on, and only up to ${Math.round(DOWNLOAD_MAX_BYTES / 1024 / 1024)} MB. Returns the project-relative path, which you can then read with your own file tools. Batch this when fetching several files: one prompt covers the batch.`,
+      `Download the file behind a link or button by its [ref=N], into the space project's ${DOWNLOAD_DIRNAME}/ directory. Asks the user for permission. Any file type is saved, but only from the origin the pane is already on, and only up to ${Math.round(DOWNLOAD_MAX_BYTES / 1024 / 1024)} MB. Returns the project-relative path, which you can then read with your own file tools. Batch this when fetching several files: one prompt covers the batch.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -190,6 +202,34 @@ const TOOLS: Tool[] = [
       required: ["browserId", "ref"],
       additionalProperties: false,
     },
+  },
+  {
+    name: "browser_upload",
+    description:
+      "Attach files from this Mac to a page — the only way to do it, because typing a path into a file input does nothing and Realm never opens macOS's file panel (it is modal: once up, nothing here can dismiss it). " +
+      "Give the [ref=N] of the file input itself, of the button or label that opens the picker, or of a drag-and-drop zone; Realm sets the files on the input directly, or intercepts the picker before the click and fills it, or synthesizes a real drop. " +
+      "Paths are absolute and on this machine. Anything outside the space's folder is quoted in full on the approval card; keys and secrets (~/.ssh, ~/.aws, keychains, *.pem, .env) are refused outright, whatever the user approves. " +
+      `The page's own accept= and multiple are enforced, so a wrong file fails here with a reason instead of being silently dropped by the site. Up to ${UPLOAD_MAX_FILES} files in one call, under one approval. Returns the names actually attached. Asks the user for permission.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        browserId: { type: "string" },
+        ref: { type: "number", description: "ref of the file input, the button/label that opens the picker, or the dropzone — from browser_snapshot" },
+        paths: {
+          type: "array", minItems: 1, maxItems: UPLOAD_MAX_FILES,
+          items: { type: "string", description: "absolute path of a file on this Mac" },
+        },
+      },
+      required: ["browserId", "ref", "paths"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "browser_dismiss_dialog",
+    description:
+      "Cancel a file chooser a click opened — the way back from a click that turned out to open a picker you did not want. Realm intercepts every chooser an agent's click opens, so nothing is on screen; this tells the page nothing was picked and clears it. " +
+      "browser_snapshot says when one is open. Does nothing (and says so) when none is. Asks the user for permission.",
+    inputSchema: { type: "object", properties: { browserId: { type: "string" } }, required: ["browserId"], additionalProperties: false },
   },
   {
     name: "browser_batch",
@@ -225,6 +265,11 @@ const FillCredentialArgs = z.object({
   browserId: z.string().min(1),
   ref: z.number().int().positive(),
   credentialId: z.string().min(1),
+});
+const UploadArgs = z.object({
+  browserId: z.string().min(1),
+  ref: z.number().int().positive(),
+  paths: z.array(z.string().min(1)).min(1).max(UPLOAD_MAX_FILES),
 });
 const BatchArgs = z.object({
   actions: z.array(z.object({ tool: z.string().min(1), arguments: z.record(z.unknown()).default({}) })).min(1).max(20),
@@ -371,12 +416,78 @@ const HANDLERS: Record<string, Handler> = {
     const title = await describeDownload(d, row.value.id, args.value.ref);
     // Ordinary mode parity, UNLIKE browser_fill_credential: `bypassPermissions` skips this card. A
     // download is not a secret leaving the machine, and the guards that actually matter — path
-    // confinement, the extension allowlist, the size cap, the one-shot grant — are unconditional and
+    // confinement, the origin match, the size cap, the one-shot grant — are unconditional and
     // never consult a mode. A second always-prompt tool would only train prompt-fatigue on the one
     // workflow that legitimately needs twenty in a row.
     const gate = await d.broker.gate(ctx.sessionId, "browser_download", title, { browserId: row.value.id, ref: args.value.ref });
     if (!gate.allowed) return err(gate.reason);
     return runTracked(d, ctx.spaceId, row.value.id, title, () => runDownload(d, row.value.id, args.value.ref, dest));
+  },
+
+  /**
+   * Put files into a page (Plan 26).
+   *
+   * The sequence is the feature: RESOLVE the paths (realpath, stat, secret refusal, containment)
+   * BEFORE the card is raised, then show the user exactly what was resolved, then hand main a list
+   * it cannot widen. A card that said "upload 5 files" and let the executor work out which ones
+   * would be a card about nothing.
+   *
+   * Refusals that happen before the prompt — a path that does not exist, a private key, a directory,
+   * a file over the cap — are refusals, not prompts. Asking the user to approve an upload that is
+   * going to fail teaches them that the card is noise, and asking them to approve `~/.ssh/id_rsa` is
+   * worse than that.
+   */
+  browser_upload: async (d, ctx, rawArgs) => {
+    const args = parseArgs(UploadArgs, rawArgs); if ("error" in args) return args.error;
+    const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
+    const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_upload"); if (limited) return err(limited);
+
+    const resolved = await resolveUploadPaths(args.value.paths, d.documents?.rootForSpace(ctx.spaceId) ?? null);
+    if (!resolved.ok) return err(resolved.error);
+    const files = resolved.files;
+
+    const live = await describeSafe(d, row.value.id, args.value.ref);
+    const title = describeUpload(files, live, args.value.ref);
+    /*
+     * Ordinary mode parity, like `browser_download` and unlike `browser_fill_credential`:
+     * `bypassPermissions` skips this card. The guards that actually bound an upload — the secret-path
+     * refusal, the symlink-resolved containment, the size caps, the page's own accept= — are
+     * unconditional and never consult a mode, and the motivating workflow (a project gallery) is
+     * several uploads in a row. What the card is for is the one thing no rule can decide: whether
+     * THESE files should go to THIS site.
+     *
+     * `input` carries the structured list the card draws from (`browser_upload` has a view in
+     * tool-view.ts) — names, sizes, and the full resolved path for anything outside the space folder,
+     * which is the spec's "quoting the full path".
+     */
+    const gate = await d.broker.gate(ctx.sessionId, "browser_upload", title, {
+      browserId: row.value.id, ref: args.value.ref,
+      origin: hostOf(live?.url),
+      element: live?.element ? clip(live.element.name, 60) : "",
+      files: files.map((f) => ({ name: f.name, size: formatUploadSize(f.bytes), ...(f.outsideRoot ? { path: f.path } : {}) })),
+    });
+    if (!gate.allowed) return err(gate.reason);
+    return runTracked(d, ctx.spaceId, row.value.id, title, () => runUpload(d, row.value.id, args.value.ref, files));
+  },
+
+  /**
+   * Cancel an intercepted file chooser.
+   *
+   * Gated like every other tool that touches a page, rather than run free: the split this file
+   * documents is read-only vs mutating, and this dispatches into the page. Under `bypassPermissions`
+   * — which is where an agent doing this kind of work usually is — there is no card at all, so the
+   * recovery path this exists for costs nothing; under `default` the user sees one line naming the
+   * site, which is a fair price for an agent reaching into their pane.
+   */
+  browser_dismiss_dialog: async (d, ctx, rawArgs) => {
+    const args = parseArgs(BrowserIdArgs, rawArgs); if ("error" in args) return args.error;
+    const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
+    const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_dismiss_dialog"); if (limited) return err(limited);
+    const live = await describeSafe(d, row.value.id);
+    const title = `Cancel the file chooser on ${hostOf(live?.url)}`;
+    const gate = await d.broker.gate(ctx.sessionId, "browser_dismiss_dialog", title, { browserId: row.value.id });
+    if (!gate.allowed) return err(gate.reason);
+    return runTracked(d, ctx.spaceId, row.value.id, title, () => runDismissDialog(d, row.value.id));
   },
 
   browser_batch: async (d, ctx, rawArgs) => {
@@ -391,6 +502,12 @@ const HANDLERS: Record<string, Handler> = {
       // own Touch ID check; "one prompt per fill, no batching" is the requirement, and a batch is by
       // construction one prompt for many steps.
       if (a.tool === "browser_fill_credential") return err("browser_fill_credential cannot run inside browser_batch — a credential fill is approved one at a time, on its own card. Call it directly.");
+      // Refused here for the same reason, and at the same point: a batch is by construction ONE
+      // prompt for many steps, and an upload's card is the list of files and the site they are going
+      // to. Approving "run 4 browser actions, including: browser_upload" would be approving an
+      // upload whose files the user never saw. One call per destination; batching several files into
+      // one call is what `paths` is for, and that is still one prompt.
+      if (a.tool === "browser_upload") return err("browser_upload cannot run inside browser_batch — its approval names the files and the site, so it is asked one upload at a time. Pass several paths to one browser_upload call instead; that is still one prompt.");
       if (!HANDLERS[a.tool]) return err(`unknown tool "${a.tool}" in batch.`);
       validated.push(a);
     }
@@ -471,6 +588,16 @@ async function runBatchMutation(d: Deps, ctx: ProviderCallContext, tool: string,
     const title = await describeDownload(d, row.value.id, args.value.ref);
     return runTracked(d, ctx.spaceId, row.value.id, title, () => runDownload(d, row.value.id, args.value.ref, dest));
   }
+  if (tool === "browser_dismiss_dialog") {
+    // Batchable, unlike `browser_upload`: it carries no payload and names no destination, so the
+    // batch's one prompt says everything its own card would have. "Click, then cancel the chooser
+    // that opens" is a plan, and plans are what a batch is for.
+    const args = parseArgs(BrowserIdArgs, rawArgs); if ("error" in args) return args.error;
+    const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
+    const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_dismiss_dialog"); if (limited) return err(limited);
+    const live = await describeSafe(d, row.value.id);
+    return runTracked(d, ctx.spaceId, row.value.id, `Cancel the file chooser on ${hostOf(live?.url)}`, () => runDismissDialog(d, row.value.id));
+  }
   return err(`"${tool}" is not a known mutating browser tool.`);
 }
 
@@ -531,9 +658,10 @@ async function describeAct(d: Deps, browserId: string, action: BrowserAction): P
 }
 
 /**
- * Execute one download. The hard blocks (path confinement, the extension allowlist, the size cap,
- * the one-shot grant) all live in Electron main's governor and apply regardless of what happens
- * here — this is only result-shaping.
+ * Execute one download. The hard blocks (path confinement, the origin match, the size cap, the
+ * one-shot grant) all live in Electron main's governor and apply regardless of what happens
+ * here — this is only result-shaping. There is no file-type test anywhere in the path: any type the
+ * site serves is saved, which is why the permission card below has to name the destination.
  *
  * On the filename, which is page-authored (`Content-Disposition`, or the URL): it is NOT wrapped in
  * `fenceUntrusted`. That fence is a multi-line preamble built for blocks of page text and reads as
@@ -548,6 +676,74 @@ async function runDownload(d: Deps, browserId: string, ref: number, dir: string)
   const name = clip(result.name.replace(/\s+/g, " "), 120);
   return ok(`Saved "${name}" (${Math.round(result.bytes / 1024)} KB) into ${DOWNLOAD_DIRNAME}/ in the space's project. Read it at the project-relative path ${clip(result.relPath, 200)}.`);
 }
+
+/**
+ * Execute one upload. Every rule that decides which bytes may go has already run server-side
+ * (`resolveUploadPaths`) and the user has approved this exact list — what happens across the bridge
+ * is route selection and the attach, and this function only shapes the answer.
+ *
+ * The success line reports the names the INPUT holds afterwards, read back off `input.files` by the
+ * executor rather than echoed from the request. That is the whole point of returning a post-state:
+ * an agent can confirm the upload landed without spending a screenshot on it, and a site that
+ * silently swapped the input out shows up as a name list that does not match.
+ *
+ * File names here are page-adjacent but not page-authored — they are the basenames of paths the USER
+ * approved, and the executor clips each one — so they are not fenced, only clipped again as a bound
+ * that does not depend on remembering what the far side guarantees.
+ */
+async function runUpload(d: Deps, browserId: string, ref: number, files: ResolvedUploadFile[]): Promise<CallToolResult> {
+  const result = (await d.bridge.call("upload", {
+    browserId, ref,
+    // Only the three fields the executor needs. `requested` and `outsideRoot` were the CARD's
+    // business and stop here — nothing across the bridge has any use for the path the agent typed.
+    files: files.map((f) => ({ path: f.path, name: f.name, bytes: f.bytes })),
+  })) as BrowserUploadResult;
+  if (!result.ok) return err(`upload failed: ${result.error}`);
+  const names = result.names.map((n) => clip(n.replace(/\s+/g, " "), 120));
+  const how = result.method === "input" ? "set directly on the page's file input"
+    : result.method === "chooser" ? "given to the file chooser the page opened (no macOS panel appeared)"
+    : "dropped onto the page's drop zone";
+  const state = result.value === null
+    ? "The input could not be read back afterwards — take a browser_snapshot to see what the page did with them."
+    : result.value === ""
+      ? "The input reports holding nothing, so the page cleared it — check the site's own error message with browser_read."
+      : `The input now holds: ${clip(result.value, 300)}.`;
+  return ok(`Attached ${names.length} file(s) — ${how}: ${names.join(", ")}. ${state}`);
+}
+
+async function runDismissDialog(d: Deps, browserId: string): Promise<CallToolResult> {
+  const result = (await d.bridge.call("dismissDialog", { browserId })) as BrowserDismissDialogResult;
+  return ok(result.dismissed
+    ? `${result.detail}. Nothing was uploaded.`
+    : `${result.detail}. Nothing to cancel — if a macOS file panel is genuinely on screen, it was opened outside Realm's control and only the user can dismiss it.`);
+}
+
+/**
+ * The permission line for an upload.
+ *
+ * Three things the spec requires it carry, and they are in the order a reader needs them: WHAT is
+ * leaving (names and sizes — the decision), WHERE it is going (the element as the PAGE labels it,
+ * attributed as such, plus the host), and whether anything came from outside the space folder.
+ *
+ * The outside-root count rather than the paths themselves: a full path is long, this is one line in
+ * a `<span>`, and the card draws the paths in full underneath (`tool-view.ts`). The line's job is to
+ * make a reader who is about to press Enter stop and look, and "1 from outside this space's folder"
+ * does that where ninety characters of `/Users/…` would just be clipped.
+ */
+function describeUpload(files: ResolvedUploadFile[], live: BrowserDescribeResult | null, ref: number): string {
+  const listed = files.slice(0, UPLOAD_TITLE_FILES).map((f) => `${clip(f.name, 40)} (${formatUploadSize(f.bytes)})`);
+  const rest = files.length - listed.length;
+  const what = `${listed.join(", ")}${rest > 0 ? `, and ${rest} more` : ""}`;
+  const el = live?.element ? ` the ${live.element.role || live.element.tag || "element"} the page labels "${clip(live.element.name, 40)}"` : ` element ref=${ref}`;
+  const outside = files.filter((f) => f.outsideRoot).length;
+  const warn = outside === 0 ? "" : ` — ${outside} from OUTSIDE this space's folder`;
+  return `Upload ${files.length} file(s) to${el} on ${hostOf(live?.url)}: ${what}${warn}`;
+}
+
+/** How many file names the permission LINE spells out before it starts counting. Three names and
+ *  their sizes is already most of the width a card's head has; the rest are drawn in full in the
+ *  card's body, where there is room for them. */
+const UPLOAD_TITLE_FILES = 3;
 
 /** The permission card for a download. The link's accessible name is page-derived and attributed as
  *  such — never laundered into Realm's own voice — and the destination is named so the user knows

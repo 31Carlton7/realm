@@ -32,6 +32,15 @@ export const BROWSER_HOST_OPS = [
    *  server-side (from the space's project) and travels with the op — main never picks a path, and
    *  the page never influences one. */
   "download",
+  /** Put files INTO a page (Plan 26). The PATHS are decided server-side — resolved, symlink-checked,
+   *  confined to the approved roots, refused if they name a secret, and approved by the user — and
+   *  travel with the op as absolutes. Main never reads a path off the page and never widens the
+   *  list it was given; its whole job is getting those files onto the right node without macOS's
+   *  modal open panel ever appearing. */
+  "upload",
+  /** Cancel a file chooser Realm intercepted, so a click that opened a picker by mistake is
+   *  recoverable from the agent's side rather than needing the user. */
+  "dismissDialog",
 ] as const;
 
 /**

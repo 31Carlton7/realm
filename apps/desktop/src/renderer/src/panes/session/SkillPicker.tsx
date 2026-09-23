@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { RefObject } from "react";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
+import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
 
 /**
  * Rank a skill against a query. Higher is better; `null` is "does not match at all".
@@ -87,10 +88,12 @@ export function SkillPicker({ skills, anchorRef, onToggle, onMention, onClose, o
   onManage: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const { pos } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose });
+  useAutoHideScrollbar(list);
 
   const shown = useMemo(() => filterSkills(skills, query), [skills, query]);
   const groups = useMemo(() => groupSkills(shown), [shown]);
@@ -130,7 +133,7 @@ export function SkillPicker({ skills, anchorRef, onToggle, onMention, onClose, o
           value={query} onChange={(e) => setQuery(e.target.value)} />
         <span className="skill-picker-count">{enabledCount} on</span>
       </div>
-      <div id="skill-picker-list" className="skill-picker-list" role="listbox" aria-label="Skills">
+      <div ref={list} id="skill-picker-list" className="skill-picker-list" role="listbox" aria-label="Skills">
         {shown.length === 0 ? (
           <p className="skill-picker-empty">
             {skills.length === 0 ? "No skills found on this Mac yet." : `Nothing matches “${query}”.`}

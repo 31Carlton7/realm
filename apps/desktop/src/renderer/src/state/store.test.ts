@@ -1240,6 +1240,31 @@ describe("app store", () => {
       expect(store.getState().sessionStatus.unknown).toBe("idle");
     });
 
+    it("applySessionStatus bumps sessionUpdatedAt on a CHANGE — a live status change IS activity, on the strip's own clock", async () => {
+      /* `seed()` boots se1 as running, so the status applied here has to be a different one: the
+         stamp is guarded on `prev !== status`, and a repeat is a broadcast rather than movement
+         (`space-strip.test.tsx` owns that half). Applying "running" to a running session tested the
+         clock and nothing else. */
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      const before = store.getState().sessionUpdatedAt.se1 ?? 0;
+      vi.setSystemTime(before + 1000);
+      store.getState().applySessionStatus("se1", "idle");
+      expect(store.getState().sessionUpdatedAt.se1).toBeGreaterThan(before);
+
+      // THE MUTANT: drop the guard. The same status arriving again would move the space up the
+      // strip, and a rebroadcast would reorder the sidebar under a reader who did nothing.
+      const stamped = store.getState().sessionUpdatedAt.se1 ?? 0;
+      vi.setSystemTime(stamped + 1000);
+      store.getState().applySessionStatus("se1", "idle");
+      expect(store.getState().sessionUpdatedAt.se1).toBe(stamped);
+    });
+
+    it("refreshAllSessions seeds sessionUpdatedAt from the server's own updatedAt", async () => {
+      api = fakeApi({ items: { s1: [] }, sessions: [session("se1", "s1", { updatedAt: 555 })] });
+      const store = createAppStore(api); await store.getState().boot(); // boot calls refreshAllSessions itself
+      expect(store.getState().sessionUpdatedAt.se1).toBe(555);
+    });
+
     it("newSession creates, opens the item into the focused leaf, persists, and opens the transcript", async () => {
       api = seed(); const store = createAppStore(api); await store.getState().boot();
       await store.getState().newSession({ agentKind: "fake", model: "fake" });
@@ -2382,6 +2407,35 @@ describe("agent probe + the install card's terminal prefill (W4)", () => {
     expect(store.getState().agentProbe[0]!.available).toBe(false);
   });
 
+  it("re-probes the agents when the server reports a verified auth failure", async () => {
+    // The prompter is what makes an auth failure actionable: `agentAvailability` turns a probe that
+    // says `loggedIn: false` into the card holding the login command. Without this the store's copy
+    // of the probe still says the agent is fine, and the user gets a text box that will fail the
+    // next message exactly the same way.
+    const a = withSession();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    const before = a.calls.filter((c) => c === "probeAgents:true").length;
+    const ev = { seq: 9, sessionId: "se1", event: sessionEvent("error", { message: "boom", failure: "auth" as const }) };
+    store.getState().applySessionEvent({ ...ev, ephemeral: false });
+    await vi.waitFor(() => expect(a.calls.filter((c) => c === "probeAgents:true")).toHaveLength(before + 1));
+  });
+
+  it("does not re-probe for an error that is not about credentials", async () => {
+    // The mutant: re-probe on every error. Five child processes per failing turn, on the machine of
+    // anyone whose tests fail — which is the ordinary case.
+    const a = withSession();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    const before = a.calls.filter((c) => c === "probeAgents:true").length;
+    store.getState().applySessionEvent({
+      seq: 9, sessionId: "se1", ephemeral: false,
+      event: sessionEvent("error", { message: "TypeError: x is not a function" }),
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(a.calls.filter((c) => c === "probeAgents:true")).toHaveLength(before);
+  });
+
   it("collapses a mount storm into one call, but never lets a cheap call satisfy a forced one", async () => {
     const a = withSession();
     a.delays["probeAgents"] = 10;
@@ -3262,6 +3316,19 @@ describe("what the app does when nobody is looking", () => {
     const again = createAppStore(fakeApi({ settings: { "ui.lowPower": true } }));
     await again.getState().boot();
     expect(again.getState().lowPower).toBe(true);
+  });
+
+  it("remembers Sort by activity the same way, off by default", async () => {
+    const api = fakeApi();
+    const store = createAppStore(api);
+    await store.getState().boot();
+    expect(store.getState().sidebarActivityOrder).toBe(false);
+    await store.getState().setSidebarActivityOrder(true);
+    expect(api.calls).toContain("setSetting:ui.sidebarActivityOrder=true");
+
+    const again = createAppStore(fakeApi({ settings: { "ui.sidebarActivityOrder": true } }));
+    await again.getState().boot();
+    expect(again.getState().sidebarActivityOrder).toBe(true);
   });
 
   it("the window's focus is a state change only when it CHANGES", async () => {

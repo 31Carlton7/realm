@@ -5,8 +5,8 @@
  * (filled from CDP events from the moment of first attach), the download-block notes, and the
  * previous snapshot's fingerprint index that `*[new]` markers diff against.
  */
-import { DOWNLOAD_GRANT_TTL_MS, normalizeOrigin, type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserDescribeResult, type BrowserDownloadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
-import { DEFAULT_AGENT_ACCENT, PICK_BINDING, armElementPick, buildSnapshot, describeElement, describePick, disarmElementPick, markAct, performAct, performFillCredential, readPageText, resolvePickedNode, type CdpSend, type SnapshotIndex } from "./browser-agent";
+import { DOWNLOAD_GRANT_TTL_MS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
+import { DEFAULT_AGENT_ACCENT, PICK_BINDING, armElementPick, buildSnapshot, cancelFileChooser, describeElement, describePick, disarmElementPick, markAct, performAct, performFillCredential, performUpload, readPageText, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex } from "./browser-agent";
 import type { CredentialAuditEntry } from "./secret-store";
 import { axElementAt, readAxSnapshot } from "./device-ax";
 
@@ -100,6 +100,18 @@ export type BrowserAgentHostDeps = {
       click: () => Promise<{ ok: boolean; error?: string }>,
     ): Promise<BrowserDownloadResult>;
   };
+  /**
+   * Read a file off disk, for the `upload` op alone — and only for its DROP route, where the bytes
+   * have to be materialized inside the page. The other two routes hand Chromium a path and the
+   * browser process opens it, which is why this is not on the hot path.
+   *
+   * Optional for the same reason `secrets` and `downloads` are: a harness without it simply cannot
+   * take the drop route, and says so, rather than falling back to something less careful. Every
+   * path reaching this has already been resolved, symlink-checked, confined and approved
+   * server-side — this dependency is a reader, not a gate, and must never become one, because a
+   * second place that decides which files are legal is a second place that can disagree.
+   */
+  readFile?(path: string): Promise<Uint8Array>;
 };
 
 /** Executor refusals → audit outcomes. `password` is absent because a fill cannot produce it (that
@@ -110,6 +122,11 @@ const FILL_OUTCOMES: Partial<Record<string, CredentialAuditEntry["outcome"]>> = 
 
 const CONSOLE_MAX = 200;
 const NETWORK_MAX = 150;
+
+/** How long an act waits, after a successful click, to see whether it opened a file chooser. Short
+ *  enough to be invisible to a person and to a twenty-step batch; long enough for the renderer to
+ *  dispatch the click handler and for the CDP event to cross the debugger. */
+const CHOOSER_SETTLE_MS = 150;
 
 type Attached = {
   binding: CdpBinding;
@@ -125,7 +142,38 @@ type Attached = {
   pickPoint: PickPoint | null;
   /** Bumped by every `pickElement`, so a superseded call can tell it no longer owns inspect mode. */
   pickGen: number;
+  /** File-chooser interception state for this view — see `FileChooserState`. */
+  chooser: FileChooserState;
 };
+
+/**
+ * What this pane knows about file choosers.
+ *
+ * The invariant the whole upload feature rests on: **a file chooser opened by an agent's click is
+ * INTERCEPTED, never shown.** macOS's open panel is modal and unreachable from CDP, so a pane that
+ * shows one is a pane the agent has taken away from its user until they come back and dismiss it by
+ * hand. Interception is armed before any click that could open one and disarmed afterwards, so the
+ * USER's own clicks still get a real panel — interception is a property of the page, and a pane left
+ * permanently armed is one where the human's own "Choose files" button silently does nothing.
+ *
+ *   - `armed` — interception is on right now.
+ *   - `disarmAt` / `timer` — the deadline the post-click window expires at. Extended rather than
+ *     stacked, so twenty clicks in a batch hold one timer, not twenty.
+ *   - `pending` — a chooser that WAS intercepted and has not been answered. The page is waiting on
+ *     that node; `browser_upload` fills it and `browser_dismiss_dialog` cancels it. Interception
+ *     stays armed while one is pending, because disarming would not un-intercept it and the next
+ *     click would open a native panel on top of a page already waiting for files.
+ *   - `waiter` — a `browser_upload` blocked on the next `Page.fileChooserOpened`.
+ */
+type FileChooserState = {
+  armed: boolean;
+  disarmAt: number;
+  timer: ReturnType<typeof setTimeout> | null;
+  pending: InterceptedChooser | null;
+  waiter: ((c: InterceptedChooser | null) => void) | null;
+};
+
+const newChooserState = (): FileChooserState => ({ armed: false, disarmAt: 0, timer: null, pending: null, waiter: null });
 
 export class BrowserAgentHost {
   private readonly attached = new Map<string, Attached>();
@@ -164,7 +212,17 @@ export class BrowserAgentHost {
     // A pick armed on a view that just died resolves EMPTY rather than hanging: the renderer awaits
     // this promise to un-arm its button, and a pane closed mid-pick would otherwise leave the button
     // lit for a view that no longer exists.
-    this.attached.get(browserId)?.pick?.(null);
+    const entry = this.attached.get(browserId);
+    entry?.pick?.(null);
+    // A chooser waiter on a dead view resolves empty rather than hanging out its timeout, and the
+    // disarm timer is cleared — it would otherwise fire against a binding whose view is gone.
+    if (entry) {
+      this.clearChooserTimer(entry);
+      const waiter = entry.chooser.waiter;
+      entry.chooser.waiter = null;
+      entry.chooser.pending = null;
+      waiter?.(null);
+    }
     this.attached.delete(browserId);
   }
 
@@ -291,6 +349,13 @@ export class BrowserAgentHost {
         const result = await buildSnapshot(entry.binding.send, entry.lastSnapshot);
         entry.lastSnapshot = result.index;
         const { index: _index, ...wire } = result;
+        // A pending chooser is page state the tree cannot show — the input it belongs to is usually
+        // the hidden one behind a styled button, so it has no box and is in no layout. The note is
+        // how "a click of yours is still waiting for files" survives to the next snapshot, which is
+        // where an agent that acted and moved on will actually look.
+        if (entry.chooser.pending) {
+          wire.text = `${wire.text}\n(a file chooser is open on this page and waiting — Realm intercepted it, so no macOS panel is on screen. browser_upload attaches files to it; browser_dismiss_dialog cancels it.)`;
+        }
         return wire;
       }
       case "read": {
@@ -309,7 +374,80 @@ export class BrowserAgentHost {
         // gate is server-side), so a mark never points at something that was refused; and `markAct`
         // swallows every failure — a page where it cannot draw acts anyway.
         await markAct(entry.binding.send, action, this.accent);
-        return performAct(entry.binding.send, action);
+        /*
+         * Arm file-chooser interception BEFORE a click or a key, and hold it for a short window
+         * afterwards.
+         *
+         * Not an upload feature — a safety one, and the reason there is no `browser_act` that can
+         * wedge a pane any more. Any click can be the one that opens a picker: a "Choose files"
+         * button, a menu item, an `<input type=file>` reached with Enter. If that picker becomes a
+         * native NSOpenPanel it is modal, CDP cannot see or close it, and the pane belongs to nobody
+         * until a human dismisses it by hand. Armed, the same click yields `Page.fileChooserOpened`
+         * — nothing appears on screen, the agent is told, and `browser_upload` or
+         * `browser_dismiss_dialog` can answer it.
+         *
+         * The window is short (`UPLOAD_ARM_WINDOW_MS`) because interception belongs to the PAGE and
+         * not to the caller: while it is on, the user's own click on a file input gets no panel
+         * either. That race is real and it is the trade — a couple of seconds after an agent act, in
+         * a pane the agent is visibly driving, against a class of unrecoverable wedge. `arm` is
+         * awaited and the act is not: the ordering is what the property depends on.
+         */
+        if (action.kind === "click" || action.kind === "key") await this.armChooser(entry);
+        const result = await performAct(entry.binding.send, action);
+        return this.withChooserNote(entry, result);
+      }
+      /**
+       * Attach files to a page (Plan 26). The gate, the path resolution, the symlink check, the
+       * secret-path refusal and the user's approval all happened SERVER-side; what arrives here is a
+       * list of absolute paths already vetted, and this op's whole job is to get them onto the right
+       * node without the OS panel. `performUpload` picks the route; the seams below are the pieces
+       * only this class can supply — the chooser's event plumbing and the disk.
+       */
+      case "upload": {
+        const entry = this.ensure(browserId);
+        const ref = Number(params.ref);
+        const files = (params.files ?? []) as BrowserUploadFile[];
+        if (!Array.isArray(files) || files.length === 0) {
+          return { ok: false, error: "no files were given to attach" } satisfies BrowserUploadResult;
+        }
+        const read = this.d.readFile;
+        try {
+          return await performUpload(entry.binding.send, ref, files, {
+            pending: () => this.takePendingChooser(entry),
+            arm: () => this.armChooser(entry, { hold: true }),
+            disarm: () => this.disarmChooser(entry),
+            awaitChooser: (timeoutMs) => this.awaitChooser(entry, timeoutMs),
+            retain: (chooser) => { entry.chooser.pending = chooser; },
+            readFile: read
+              ? (path) => read(path)
+              : () => Promise.reject(new Error("this build cannot read files for a synthesized drop")),
+          });
+        } finally {
+          // `arm` above holds interception open for as long as the upload needs, with no timer behind
+          // it, so the disarm has to happen HERE — a pane left armed is one where the USER's own
+          // "Choose files" button silently does nothing. `disarmChooser` declines when a chooser is
+          // still pending (a refused `accept=`, handed back by `retain`), which is the one case where
+          // staying armed is right.
+          await this.disarmChooser(entry);
+        }
+      }
+      /**
+       * Cancel an intercepted file chooser — the recovery valve for a click that turned out to open
+       * a picker the agent did not want.
+       *
+       * Says plainly what it is and is not: it answers a chooser Realm INTERCEPTED, by telling the
+       * page nothing was picked. There is no native panel to close, because interception is what
+       * kept one from ever appearing; a panel that somehow reached the screen (a click in a window
+       * with no interception armed, from before this pane was attached) is outside CDP's reach and
+       * outside this op's, and the honest answer there is that the user has to dismiss it.
+       */
+      case "dismissDialog": {
+        const entry = this.ensure(browserId);
+        const pending = this.takePendingChooser(entry);
+        await this.disarmChooser(entry);
+        if (!pending) return { dismissed: false, detail: "no file chooser was open on this pane" } satisfies BrowserDismissDialogResult;
+        await cancelFileChooser(entry.binding.send, pending.backendNodeId);
+        return { dismissed: true, detail: "the file chooser was cancelled — the page was told nothing was picked" } satisfies BrowserDismissDialogResult;
       }
       /**
        * Enrolled sign-ins, METADATA ONLY — the `BrowserCredential` type has no value field, so this
@@ -405,6 +543,101 @@ export class BrowserAgentHost {
     }
   }
 
+  /* ------------------------------ file choosers ------------------------------ */
+
+  /**
+   * Turn interception on, and (unless the caller is holding it itself) schedule the disarm.
+   *
+   * Idempotent and cheap to call repeatedly: a second arm inside the window only pushes the deadline
+   * out, so a batch of twenty clicks holds one timer rather than twenty. A CDP failure is swallowed —
+   * this is a hardening on top of the act, and an act must not fail because a page's debugger
+   * declined one extra command.
+   */
+  private async armChooser(entry: Attached, opts: { hold?: boolean } = {}): Promise<void> {
+    try {
+      if (!entry.chooser.armed) await setFileChooserInterception(entry.binding.send, true);
+      entry.chooser.armed = true;
+    } catch {
+      entry.chooser.armed = false;
+      return;
+    }
+    if (opts.hold) { this.clearChooserTimer(entry); return; }
+    entry.chooser.disarmAt = Date.now() + UPLOAD_ARM_WINDOW_MS;
+    if (entry.chooser.timer) return; // one timer; it re-checks the deadline when it fires
+    const tick = () => {
+      const remaining = entry.chooser.disarmAt - Date.now();
+      if (remaining > 0) { entry.chooser.timer = setTimeout(tick, remaining); entry.chooser.timer.unref?.(); return; }
+      entry.chooser.timer = null;
+      void this.disarmChooser(entry);
+    };
+    entry.chooser.timer = setTimeout(tick, UPLOAD_ARM_WINDOW_MS);
+    entry.chooser.timer.unref?.();
+  }
+
+  /** Turn interception off — unless a chooser is still pending. Disarming would not un-intercept
+   *  that one, and the page is already waiting on it; the next click would then put a native panel
+   *  on top of a page mid-upload, which is the exact state this whole mechanism exists to prevent.
+   *  It is disarmed when the pending chooser is answered (`takePendingChooser`) instead. */
+  private async disarmChooser(entry: Attached): Promise<void> {
+    this.clearChooserTimer(entry);
+    if (entry.chooser.pending) return;
+    if (!entry.chooser.armed) return;
+    entry.chooser.armed = false;
+    await setFileChooserInterception(entry.binding.send, false).catch(() => {});
+  }
+
+  private clearChooserTimer(entry: Attached): void {
+    if (entry.chooser.timer) clearTimeout(entry.chooser.timer);
+    entry.chooser.timer = null;
+  }
+
+  /** The pending chooser, removed as it is taken — a chooser is answered once, and two callers must
+   *  not both think they own it. */
+  private takePendingChooser(entry: Attached): InterceptedChooser | null {
+    const pending = entry.chooser.pending;
+    entry.chooser.pending = null;
+    return pending;
+  }
+
+  /** The next intercepted chooser, or null after `timeoutMs`. One already pending satisfies it
+   *  immediately — the event can land between the click returning and this being called. */
+  private awaitChooser(entry: Attached, timeoutMs: number): Promise<InterceptedChooser | null> {
+    const already = this.takePendingChooser(entry);
+    if (already) return Promise.resolve(already);
+    return new Promise<InterceptedChooser | null>((resolve) => {
+      const timer = setTimeout(() => {
+        if (entry.chooser.waiter !== settle) return;
+        entry.chooser.waiter = null;
+        resolve(null);
+      }, timeoutMs);
+      timer.unref?.();
+      const settle = (c: InterceptedChooser | null) => { clearTimeout(timer); entry.chooser.waiter = null; resolve(c); };
+      entry.chooser.waiter = settle;
+    });
+  }
+
+  /**
+   * Tell the agent, in the act's own result, that its click opened a file chooser.
+   *
+   * The wait is what makes this truthful rather than lucky: a chooser opens on the page's side of
+   * the click, so at the instant `performAct` returns nothing is pending yet. `CHOOSER_SETTLE_MS` is
+   * the cost — paid only on a successful click, only while interception is armed, and small enough
+   * to sit under perception even across a full `browser_batch`. Without it the note would appear
+   * only on the next snapshot, and an agent that acted twice in a row would have stranded a chooser
+   * without ever being told.
+   */
+  private async withChooserNote(entry: Attached, result: BrowserActResult): Promise<BrowserActResult> {
+    if (!result.ok || !entry.chooser.armed) return result;
+    if (!entry.chooser.pending) await this.awaitChooser(entry, CHOOSER_SETTLE_MS).then((c) => { if (c) entry.chooser.pending = c; });
+    if (!entry.chooser.pending) return result;
+    return {
+      ok: true,
+      detail:
+        `${result.detail} — that opened a file chooser, which Realm intercepted, so no macOS panel appeared. ` +
+        "Call browser_upload with this same ref and the paths to attach, or browser_dismiss_dialog to cancel it.",
+    };
+  }
+
   /** One audit line per fill attempt: timestamp, origin, credentialId, outcome — and never the
    *  value, the page's text, or the length of anything. */
   private auditFill(credentialId: string, origin: string, outcome: CredentialAuditEntry["outcome"]): void {
@@ -425,7 +658,7 @@ export class BrowserAgentHost {
     if (cached) return cached;
     const binding = this.d.attach(browserId);
     if (!binding) throw new Error(`could not attach the debugger to browser ${browserId}`);
-    const entry: Attached = { binding, consoleLines: [], network: new Map(), networkOrder: [], lastSnapshot: null, pick: null, pickPoint: null, pickGen: 0 };
+    const entry: Attached = { binding, consoleLines: [], network: new Map(), networkOrder: [], lastSnapshot: null, pick: null, pickPoint: null, pickGen: 0, chooser: newChooserState() };
     binding.onEvent((method, rawParams) => this.onCdpEvent(entry, method, rawParams));
     this.attached.set(browserId, entry);
     // Enable the event domains the buffers feed on. Fire-and-forget: an enable that fails costs a
@@ -479,11 +712,29 @@ export class BrowserAgentHost {
         entry.pickPoint = parsePickPoint(String(p.payload ?? ""));
         void resolvePickedNode(entry.binding.send).then((ref) => this.settlePick(entry, ref));
       }
+    } else if (method === "Page.fileChooserOpened") {
+      /* The page tried to open a file picker and interception caught it — NOTHING is on screen. The
+         node travels with the event only because interception is on; without it Chromium would have
+         shown macOS's panel and said nothing useful here, which is the whole reason acts arm first.
+         `mode` is the page's own statement of how many files that input takes. */
+      const backendNodeId = Number(p.backendNodeId ?? 0);
+      if (backendNodeId > 0) {
+        const chooser: InterceptedChooser = { backendNodeId, multiple: p.mode === "selectMultiple" };
+        const waiter = entry.chooser.waiter;
+        if (waiter) waiter(chooser);
+        else entry.chooser.pending = chooser;
+        pushRing(entry.consoleLines, "[realm] a file chooser was intercepted (no macOS panel was shown) — browser_upload attaches files to it, browser_dismiss_dialog cancels it", CONSOLE_MAX);
+      }
     } else if (method === "Page.frameNavigated" && (p.frame as { parentId?: string } | undefined)?.parentId === undefined) {
       // A main-frame navigation resets the overlay agent, so an armed picker silently stops picking.
       // Settling it empty is what keeps the toolbar button from staying lit over a page it can no
       // longer pick from; the user presses it again on the new page.
       this.settlePick(entry, null);
+      // The same navigation took any pending file chooser's node with it. Forgotten rather than
+      // cancelled: there is nothing left to tell, and holding a dead backendNodeId is what would
+      // keep interception armed forever on a page that never asked for it.
+      entry.chooser.pending = null;
+      void this.disarmChooser(entry);
     }
   }
 

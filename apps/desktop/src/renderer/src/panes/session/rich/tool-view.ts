@@ -23,7 +23,13 @@ export type ToolInputView =
   | { kind: "diff"; files: FileDiff[] }
   | { kind: "todos"; todos: Todo[] }
   | { kind: "command"; command: string; cwd: string | null; description: string | null }
-  | { kind: "request"; url: string | null; query: string | null; prompt: string | null };
+  | { kind: "request"; url: string | null; query: string | null; prompt: string | null }
+  | { kind: "upload"; host: string; element: string; files: UploadFile[] };
+
+/** One file a `browser_upload` is about to send. `path` is present only for a file resolved OUTSIDE
+ *  the space's folder — the server puts it there precisely so the card can quote it, because that is
+ *  the case the user has to actually see rather than skim. */
+export type UploadFile = { name: string; size: string; path: string | null };
 
 export type ToolResultView =
   | { kind: "diff"; files: FileDiff[] }
@@ -53,6 +59,26 @@ export function parseTodos(input: Record<string, unknown>): Todo[] | null {
   return out;
 }
 
+/**
+ * The files a `browser_upload` names, or null if the payload is not the shape the browser provider
+ * sends. Null means the card falls back to the raw JSON, which is the right failure here: an upload
+ * is the one permission where "which files" IS the question, and a half-drawn list would hide a file
+ * the user is being asked to send.
+ */
+export function parseUploadFiles(input: Record<string, unknown>): UploadFile[] | null {
+  const raw = input["files"];
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const out: UploadFile[] = [];
+  for (const f of raw) {
+    if (!f || typeof f !== "object") return null;
+    const bag = f as Record<string, unknown>;
+    const name = str(bag, "name");
+    if (name === null) return null;
+    out.push({ name, size: str(bag, "size") ?? "", path: str(bag, "path") });
+  }
+  return out;
+}
+
 export function toolInputView(name: string, input: Record<string, unknown>): ToolInputView | null {
   if (DIFF_TOOLS.has(name)) {
     const files = fileDiffsFor(name, input);
@@ -65,6 +91,10 @@ export function toolInputView(name: string, input: Record<string, unknown>): Too
   if (name === "TodoWrite") {
     const todos = parseTodos(input);
     return todos ? { kind: "todos", todos } : null;
+  }
+  if (name === "browser_upload") {
+    const files = parseUploadFiles(input);
+    return files ? { kind: "upload", host: str(input, "origin") ?? "", element: str(input, "element") ?? "", files } : null;
   }
   if (name === "WebFetch" || name === "WebSearch" || name === "webSearch") {
     const url = str(input, "url"), query = str(input, "query");

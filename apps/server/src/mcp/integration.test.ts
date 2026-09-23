@@ -174,19 +174,22 @@ describe("mcp over rpc", () => {
        two whose reach is outside Realm: realm-computer, which drives every app on this Mac, and
        realm-vm, which drives a whole other computer.
        realm-app is OFF with those two and for a related reason: it reaches the INTERFACE, the window
-       the user is reading and answers questions in. realm-terminal is ON, and its reach is why: every harness already has a shell
-       tool, so it adds no ability to run commands — what it adds is a terminal that talks back, and
-       the narrowings that matter (a password prompt refused in every mode, a terminal the session
-       did not open prompting even under bypass) are inside the provider rather than on its switch.
-       `goal` is last because it is registered last, and on by default because its reach is the
-       narrowest here — two tools that appear only on a session already pursuing a goal, and the most
-       either can do is end it. */
+       the user is reading and answers questions in. realm-terminal is ON, and its reach is why: every
+       harness already has a shell tool, so it adds no ability to run commands — what it adds is a
+       terminal that talks back, and the narrowings that matter (a password prompt refused in every
+       mode, a terminal the session did not open prompting even under bypass) are inside the provider
+       rather than on its switch.
+       `goal` and `realm-schedule` are last because they are registered last — both wrap a service
+       declared further down `app.ts`. `goal` is on by default because its reach is the narrowest here
+       (two tools that appear only on a session already pursuing a goal, and the most either can do is
+       end it); `realm-schedule` because it only writes a row this space's own page can see. */
     const before = (await c.call("mcp.providers.list", { spaceId: work.id })).result.providers;
     expect(before).toEqual([
       { name: "realm-browser", enabled: true }, { name: "realm-agent", enabled: true },
       { name: "realm-computer", enabled: false }, { name: "realm-terminal", enabled: true },
       { name: "realm-app", enabled: false }, { name: "realm-docs", enabled: true },
       { name: "realm-vm", enabled: false }, { name: "goal", enabled: true },
+      { name: "realm-schedule", enabled: true },
     ]);
     await c.call("mcp.setProviderEnabled", { spaceId: work.id, name: "realm-browser", enabled: false });
     // The disable is per-space: Work reads OFF, School still reads ON.
@@ -195,6 +198,7 @@ describe("mcp over rpc", () => {
       { name: "realm-computer", enabled: false }, { name: "realm-terminal", enabled: true },
       { name: "realm-app", enabled: false }, { name: "realm-docs", enabled: true },
       { name: "realm-vm", enabled: false }, { name: "goal", enabled: true },
+      { name: "realm-schedule", enabled: true },
     ]);
     /* And the opt-in provider turns ON through the same switch, for this space alone.
        By NAME rather than by index: these lines each ask about one provider's switch, and an index

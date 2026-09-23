@@ -86,9 +86,9 @@ export type BrowserReadKind = z.infer<typeof BrowserReadKindSchema>;
  *   - `no_credential` — nothing is enrolled under that id (or it was removed since the agent last
  *     listed credentials).
  *   - `no_presence` — the OS declined or the user cancelled the Touch ID / password prompt.
- *   - `download_blocked` — a download whose filename is not on `DOWNLOAD_ALLOWED_EXTENSIONS`, or that
- *     arrived with no live grant. Default-deny is the resting state of the download handler; this is
- *     what the agent sees when it stays that way.
+ *   - `download_blocked` — a download that arrived with no live grant, or with one that had already
+ *     expired or been spent. Default-deny is the resting state of the download handler; this is what
+ *     the agent sees when it stays that way.
  *   - `too_large` — a download that streamed past `DOWNLOAD_MAX_BYTES` and was cancelled mid-flight.
  *   - `no_destination` — the space has no project, so there is nowhere a download could land that any
  *     other Realm surface would show the user.
@@ -255,31 +255,31 @@ export function normalizeOrigin(input: string): string | null {
 /* ---------------------------------- downloads ---------------------------------- */
 
 /**
- * What a browser pane is allowed to write to disk, as an ALLOWLIST.
+ * There is no file-type allowlist here, and that is a decision rather than an omission.
  *
- * This is the single most load-bearing constant in the download feature, and the choice of an
- * allowlist over a denylist is the whole argument for why reversing the old blanket block is safe.
- * A denylist of executables is a list of the ones somebody thought of on the day: `.dmg`, `.pkg`,
- * `.command`, `.scpt`, `.jar`, `.webloc`, `.terminal`, `.workflow`, whatever ships next. The risk
- * this feature actually introduces is turning "an agent reads the web" into "an agent writes files
- * to your disk", and only an allowlist bounds that — an extension nobody enumerated is refused
- * rather than permitted.
+ * There was one — documents, archives, images, audio, video — and it refused everything else,
+ * including through the user's own Save button. It was the wrong boundary. The web serves `.7z`,
+ * `.parquet`, `.ipynb`, `.sqlite`, a firmware `.bin`, a font, a file with no extension at all, and
+ * an allowlist is a list of the formats somebody thought of on the day: it is wrong again every
+ * year, and it is wrong in the direction that makes the feature useless for the file you actually
+ * need. Refusing a download because Realm cannot name its type is a guess dressed as a guard.
  *
- * Documents and archives, because that is what the feature exists for (course materials, papers,
- * spreadsheets). A file with NO extension is refused: `safeAttachmentName` preserves extensions
- * precisely so `mimeForPath` can read them, and a name that carries none is a name Realm cannot
- * reason about.
+ * What bounds the risk is the part that never depended on the file's name, and none of it moved:
  *
- * Adding to this list is a security change, not a convenience change. `.html` and `.svg` are here
- * deliberately — both are inert on disk and only dangerous when opened, which is Gatekeeper's and
- * the user's decision, not Realm's — but anything that executes on double-click must never be.
+ *   - `will-download` is DEFAULT-DENY. Nothing is written without a one-shot grant minted by an
+ *     approved act, consumed on first use, and disarmed when that act's op returns.
+ *   - The grant names an origin, and the item's own URL must still match it at download time.
+ *   - The name is reduced by `safeAttachmentName` to a bare basename over `[\w.\- ]` with leading
+ *     dots stripped, so nothing lands outside the destination whatever the server called it.
+ *   - The destination is a fixed `downloads/` under the space's project — never page-influenced,
+ *     never per-call — and a collision gets a suffix rather than an overwrite.
+ *   - `DOWNLOAD_MAX_BYTES` is enforced on bytes actually RECEIVED.
+ *
+ * What an extension list never was, is a defence against execution. Realm does not open what it
+ * saves. A `.dmg` in a project folder is bytes until someone double-clicks it, and that is the
+ * user's decision at the moment they make it — the same decision they make about a file downloaded
+ * in any browser, and not one an enumeration in this file can make better on their behalf.
  */
-export const DOWNLOAD_ALLOWED_EXTENSIONS = [
-  "pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx", "csv", "tsv",
-  "txt", "md", "rtf", "tex", "epub", "json", "xml", "html",
-  "zip", "tar", "gz", "png", "jpg", "jpeg", "gif", "webp", "svg", "heic",
-  "mp3", "m4a", "wav", "mp4", "mov", "webm",
-] as const;
 
 /**
  * The cap, enforced against bytes actually RECEIVED rather than any total the server declared —
@@ -305,11 +305,14 @@ export const DOWNLOAD_DIRNAME = "downloads";
  *
  * Note what is NOT here: the URL. The renderer gets an opaque id and a name already reduced by
  * `safeAttachmentName`, so nothing page-authored reaches the UI unsanitized and the renderer never
- * holds a list of addresses the user visited. `retryable` is false for anything the extension
- * allowlist would refuse anyway — those are shown (a silent failure is what this exists to remove)
- * but not offered, because a Save button that cannot work is a lie.
+ * holds a list of addresses the user visited.
+ *
+ * Every entry is offerable. There used to be a `retryable` flag for the types the allowlist would
+ * refuse anyway — shown, but with no Save button, because a button that cannot work is a lie. With
+ * the allowlist gone the flag was always true, and a field that is always true is a branch the UI
+ * has to carry for a case that can no longer happen.
  */
-export type BlockedDownload = { id: string; name: string; retryable: boolean; ts: number };
+export type BlockedDownload = { id: string; name: string; ts: number };
 
 /** How long a blocked download stays offerable. Short: the bar is about the click the user just
  *  made, not a history of everything a page ever tried. */
@@ -320,18 +323,6 @@ export const BLOCKED_DOWNLOAD_TTL_MS = 5 * 60_000;
 export type BrowserDownloadResult =
   | { ok: true; name: string; bytes: number; relPath: string }
   | { ok: false; error: string; refused?: BrowserRefusal };
-
-/**
- * Whether a filename's extension is on the allowlist. Case-insensitive, and deliberately reads only
- * the FINAL extension: `notes.pdf.command` is a `.command`, which is exactly the trick this has to
- * catch. A name with no dot, a name ending in a dot, and a dotfile with no extension all refuse.
- */
-export function downloadExtensionAllowed(filename: string): boolean {
-  const base = filename.trim().toLowerCase();
-  const dot = base.lastIndexOf(".");
-  if (dot <= 0 || dot === base.length - 1) return false;
-  return (DOWNLOAD_ALLOWED_EXTENSIONS as readonly string[]).includes(base.slice(dot + 1));
-}
 
 /* ------------------------------------ element picking ------------------------------------ */
 
@@ -435,3 +426,96 @@ export const PICK_TITLE_MAX = 300;
  */
 export const AGENT_SIGNIN_KEY = "browsers.agentSignIn";
 export const AGENT_SIGNIN_DEFAULT = false;
+
+/* ---------------------------------- passkeys ---------------------------------- */
+
+/**
+ * A passkey Realm holds, as every surface outside the secret store sees it.
+ *
+ * Same shape of promise as `BrowserCredential` and for the same reason: NO FIELD FOR A PRIVATE KEY.
+ * The key exists as ciphertext in Electron main's secret store and, for the duration of one request
+ * the user approved with Touch ID, inside the pane's virtual authenticator. It is cleared out of the
+ * authenticator when that request settles, so a pane sitting idle holds no key material at all.
+ *
+ * `rpId` is a bare hostname (`github.com`), not an origin — that is what WebAuthn scopes a credential
+ * to, and it is deliberately NOT the origin rule `normalizeOrigin` implements for passwords. A
+ * passkey for `github.com` is designed to work on `gist.github.com`; a password for
+ * `https://github.com` is designed not to. Both rules are correct for their own credential type, and
+ * `passkeyRpIdForPageUrl` is where the WebAuthn one is written down.
+ *
+ * `userName` and `userDisplayName` come from the relying party at registration — they are the only
+ * page-authored strings here, they are clipped on the way in, and they are shown only in Settings
+ * beside the `rpId` Realm derived itself.
+ */
+export type Passkey = {
+  id: string;
+  rpId: string;
+  userName: string;
+  userDisplayName: string;
+  createdAt: number;
+  lastUsedAt: number | null;
+};
+
+/** Clip for the two relying-party-authored strings on a passkey. Long enough for a real email
+ *  address and a real display name; short enough that a row in Settings cannot be made into a
+ *  paragraph by the site that registered it. */
+export const PASSKEY_NAME_MAX = 128;
+
+/**
+ * Why a passkey request was refused, in the words the pane's notice uses.
+ *
+ * Each of these is a DIFFERENT thing for the user to do next, which is why they are not one message:
+ * `none` means register one, `no_presence` means the fingerprint check did not pass, `rp_mismatch`
+ * means the page asked for a passkey belonging to some other site, and `unavailable` means this Mac
+ * cannot do the Touch ID check at all.
+ */
+export type PasskeyRefusal = "none" | "no_presence" | "rp_mismatch" | "unavailable";
+
+/** What the pane is told when a passkey request did not go through. `rpId` is Realm's own derivation
+ *  from the pane's real URL, never the page's claim, so the notice can name a site safely. */
+export type PasskeyNotice = {
+  browserId: string;
+  rpId: string;
+  kind: "create" | "get";
+  refused: PasskeyRefusal;
+};
+
+/**
+ * The rp id a page at `pageUrl` is allowed to ask for, or null when it may not ask at all.
+ *
+ * This is the WebAuthn scoping rule, and Chromium enforces it again below us — it is written here
+ * anyway because Realm makes two decisions BEFORE dispatch that Chromium never sees: whether to
+ * raise a Touch ID prompt, and which of the user's private keys to unseal. Both must be made on the
+ * page's real origin rather than on the `rp.id` the page put in the options object, or a page could
+ * name `github.com` and have Realm prompt for, and unseal, a passkey that is not its own.
+ *
+ *   - `null` rpId means "my own host", which is what the spec says and what most sites send.
+ *   - A stated rpId must be the page's host or a dot-suffix of it: `github.com` from
+ *     `gist.github.com` is allowed, `github.com` from `github.com.evil.example` is not, because the
+ *     suffix must begin at a label boundary.
+ *   - http(s) only, and never a bare IP or a host with no dot — `localhost` is the one exception,
+ *     because it is a secure context and it is where anyone testing a sign-in flow works.
+ *
+ * Note what this does NOT do: consult the public suffix list. Chromium refuses `co.uk` at dispatch
+ * and Realm's answer to a request it should not have prompted for is a refusal the user sees, not a
+ * silent success — so the cost of being stricter here than the spec is zero and the cost of being
+ * looser is a prompt for the wrong site.
+ */
+export function passkeyRpIdForPageUrl(rpId: string | null | undefined, pageUrl: string): string | null {
+  let url: URL;
+  try { url = new URL(pageUrl); } catch { return null; }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  const host = url.hostname.toLowerCase();
+  if (!host) return null;
+  if (host !== "localhost" && !host.includes(".")) return null;
+  const claimed = (rpId ?? "").trim().toLowerCase();
+  if (!claimed) return host;
+  if (claimed === host) return claimed;
+  // The dot is part of the suffix on purpose: without it "notgithub.com" ends with "github.com".
+  return host.endsWith(`.${claimed}`) ? claimed : null;
+}
+
+/** Where passkeys live and what using one costs, said once so no surface invents its own wording —
+ *  the `CREDENTIAL_STORAGE_NOTE` of this feature, and just as unhedged about its limits. */
+export const PASSKEY_STORAGE_NOTE =
+  "Passkeys created in Realm's browser are held by Realm: the private key is encrypted with a key in your macOS Keychain and stored in Realm's home directory, and it is loaded into a page's authenticator only for the one request you approved with Touch ID. Realm cannot reach the passkeys in your iCloud Keychain — macOS only offers those to browsers Apple has entitled — so a site you already use a passkey on needs a second one registered here.";

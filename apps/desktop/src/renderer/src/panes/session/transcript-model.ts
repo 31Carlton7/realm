@@ -18,7 +18,10 @@ export type Block =
    *   moment the launch result lands, `stopped` when the harness notifies. Absent on every ordinary
    *   call, including a blocking sub-agent — whose "still going" is simply `result === null`. */
   | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; parentToolUseId?: string; result: { content: string; isError: boolean } | null; background?: "running" | "stopped"; ts: number }
-  | { kind: "error"; message: string; ts: number }
+  /** `fix` is the thing to do about it, carried from the server on the failures where Realm knows
+   *   one (today: an auth failure it re-probed). Absent on every other error, which is most of
+   *   them — a block that invented a remedy would be worse than the bare message. */
+  | { kind: "error"; message: string; fix?: { title: string; hint: string; command: string | null }; ts: number }
   /**
    * The session changed agents mid-turn, because the one it was on could not finish (failover).
    *
@@ -33,7 +36,10 @@ export type Block =
    * REPLACED by the next one rather than stacking, so three attempts leave one line saying what is
    * happening now instead of three saying what already did.
    */
-  | { kind: "retrying"; attempt: number; waitMs: number; ts: number }
+  /** `reason` is carried because the wait does not mean the same thing in each case: a `transient`
+   *   retry is the same request again, where an `auth` one is Realm having checked the agent's
+   *   sign-in and found nothing wrong with it. The reader deserves the difference. */
+  | { kind: "retrying"; reason: "provider_down" | "transient" | "auth"; attempt: number; waitMs: number; ts: number }
   /**
    * The harness summarised the conversation above and dropped it. A seam for the same reason
    * `handoff` is one: the messages are all still here, and this line is the only thing that says the
@@ -239,7 +245,8 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
     //   error → handoff    the seam supersedes the failure
     //   retrying → error   the ladder ran out; the failure supersedes the wait, and is final
     case "error":
-      return { ...t, blocks: [...dropPending(blocks), { kind: "error", message: e.payload.message, ts: e.ts }] };
+      return { ...t, blocks: [...dropPending(blocks),
+        { kind: "error", message: e.payload.message, ...(e.payload.fix ? { fix: e.payload.fix } : {}), ts: e.ts }] };
     case "handoff":
       return { ...t, blocks: [...dropPending(blocks),
         { kind: "handoff", from: e.payload.from, to: e.payload.to, note: e.payload.note, attempt: e.payload.attempt, ts: e.ts }] };
@@ -250,7 +257,7 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
       // Replace rather than stack: attempt 2 says what attempt 1 said, one number later, and a
       // transcript that keeps both is a transcript reporting the wait instead of the work.
       return { ...t, blocks: [...dropPending(blocks),
-        { kind: "retrying", attempt: e.payload.attempt, waitMs: e.payload.waitMs, ts: e.ts }] };
+        { kind: "retrying", reason: e.payload.reason, attempt: e.payload.attempt, waitMs: e.payload.waitMs, ts: e.ts }] };
     }
     case "plan": {
       const i = findLast(blocks, (b) => b.kind === "plan" && b.planId === e.payload.planId);

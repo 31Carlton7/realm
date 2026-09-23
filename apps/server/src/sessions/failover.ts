@@ -1,12 +1,12 @@
 import {
-  DEFAULT_FAILOVER_POLICY, FailoverPolicySchema, backoffFor, buildHandoffContext, classifyFailure,
-  exhaustedNote, failoverPolicyKey, handoffContextKey, handoffNote, isHandoffable, isRetryable,
-  nextInChain, sessionEvent, FAILOVER_MAX_RETRIES,
+  AUTH_MAX_RECHECKS, DEFAULT_FAILOVER_POLICY, FailoverPolicySchema, authBackoffFor, authFix, backoffFor,
+  buildHandoffContext, classifyFailure, exhaustedNote, failoverPolicyKey, handoffContextKey, handoffNote,
+  isHandoffable, isRetryable, nextInChain, sessionEvent, FAILOVER_MAX_RETRIES,
   type AgentKind, type FailoverPolicy, type FailureKind, type Session, type SessionEvent,
 } from "@realm/contracts";
 import type { SessionsStore, SessionEventsStore } from "../store/sessions";
 import type { SettingsStore } from "../store/settings";
-import type { AdapterRegistry } from "@realm/adapters";
+import type { AdapterRegistry, ProbeResult } from "@realm/adapters";
 import type { SendMessage } from "./service";
 
 /**
@@ -53,6 +53,14 @@ type Attempt = {
   msg: SendMessage | null;
   /** Same-agent retries already spent on this turn. */
   retries: number;
+  /** Verified re-auth attempts already spent on this turn. Counted apart from `retries` because the
+   *  two ladders answer different failures, and a turn that survived a dropped socket should not
+   *  arrive at an expired token with its budget already gone. */
+  reauths: number;
+  /** Set when a re-auth probe read the agent's own CLI as having no session. With `reauths` it is
+   *  the whole of what the user is told: which of the three sentences in `authFix` Realm has earned
+   *  the right to say. */
+  authSignedOut: boolean;
   /** Agent kinds this turn has already run on, oldest first. Keeps a chain from looping back. */
   tried: AgentKind[];
   /** The pending backoff, so an interrupt or a new message can cancel it. */
@@ -71,6 +79,12 @@ export type FailoverDeps = {
   resend: (sessionId: string, msg: SendMessage) => Promise<void>;
   /** Tear down the live adapter so the next `ensureLive` starts the new kind. */
   stop: (sessionId: string) => Promise<void>;
+  /**
+   * Ask the agent CLIs what they are. `SessionService.probe`, and ALWAYS called forced: a cached
+   * answer is exactly the one this cannot use, because the thirty seconds the probe cache holds are
+   * the thirty seconds in which the credential changed.
+   */
+  probe: (opts: { force: boolean }) => Promise<ProbeResult[]>;
   /** Injectable so tests do not spend real seconds on the backoff ladder. */
   setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
   clearTimer?: (t: ReturnType<typeof setTimeout>) => void;
@@ -130,7 +144,7 @@ export class FailoverService {
    *  previous one's retry budget and chain position. */
   turnStarted(sessionId: string, msg: SendMessage): void {
     this.cancel(sessionId);
-    this.turns.set(sessionId, { msg, retries: 0, tried: [], timer: null });
+    this.turns.set(sessionId, { msg, retries: 0, reauths: 0, authSignedOut: false, tried: [], timer: null });
   }
 
   /** The user pressed stop, or the session is going away. Any scheduled retry dies with it —
@@ -162,7 +176,7 @@ export class FailoverService {
    * Deliberately fire-and-forget on the effects: `onEvent` is synchronous and on the pump's path, and
    * a retry that awaited the adapter would hold the transcript's event loop behind a network call.
    */
-  onError(session: Session, message: string): "retry" | "handoff" | "stop" {
+  onError(session: Session, message: string): "retry" | "reauth" | "handoff" | "stop" {
     if (this.closing) return "stop";
     const kind = classifyFailure(message);
     if (kind === "fatal") { this.cancel(session.id); return "stop"; }
@@ -177,28 +191,120 @@ export class FailoverService {
       const waitMs = backoffFor(attempt);
       turn.retries = attempt;
       this.d.emit(session.id, sessionEvent("retrying", { reason: kind === "provider_down" ? "provider_down" : "transient", attempt, waitMs }));
-      turn.timer = this.setTimer(() => {
-        turn.timer = null;
-        // Re-read the turn: the user may have cancelled or sent something else while we waited.
-        if (this.turns.get(session.id) !== turn || !turn.msg) return;
-        void this.d.resend(session.id, turn.msg).catch(() => {});
-      }, waitMs);
+      this.scheduleResend(session.id, turn, waitMs);
       return "retry";
     }
 
+    // The one failure Realm can CHECK instead of guessing about. Everything above this line decides
+    // on the message; an auth failure gets decided on the agent's own answer to "are you signed in",
+    // which is the difference between a token that expired mid-turn and a user who never signed in.
+    // Behind `policy.retry` with the ladder above, because it is the same promise: this space has
+    // said Realm may finish a turn its agent could not.
+    if (kind === "auth" && policy.retry && turn.reauths < AUTH_MAX_RECHECKS) {
+      void this.reauth(session, turn).catch((e) => {
+        console.error(`[failover] re-auth failed for ${session.id}: ${e instanceof Error ? e.message : String(e)}`);
+      });
+      return "reauth";
+    }
+
+    return this.escalate(session, kind, turn, policy);
+  }
+
+  /**
+   * The tail every unrecoverable failure reaches: hand the turn to the next agent, or stop and say
+   * what happened. Shared with `reauth`, which arrives here having learned something `onError` could
+   * not know without waiting on a child process.
+   */
+  private escalate(session: Session, kind: FailureKind, turn: Attempt, policy: FailoverPolicy): "handoff" | "stop" {
     if (!isHandoffable(kind)) { this.cancel(session.id); return "stop"; }
     const to = nextInChain(policy, [session.agentKind, ...turn.tried]);
     if (!to) {
       // Nowhere to go. Said out loud rather than swallowed: a user who configured no chain and just
       // lost an hour to a usage limit should learn that a chain is the thing that would have helped.
-      if (policy.chain.length === 0) this.d.emit(session.id, sessionEvent("error", { message: exhaustedNote(session.agentKind, kind) }));
+      //
+      // Cancelled BEFORE the event goes out, and that order is load-bearing rather than tidy: `emit`
+      // runs back through `onEvent`, which calls this very method again. With the turn already gone
+      // the re-entry stops at "nothing to replay" instead of depending on how the sentence below
+      // happens to classify.
+      // Derived from what this turn actually did, not from a flag something remembered to set: the
+      // CLI said no, or it said yes to every attempt this turn spent, or nobody asked it at all.
+      const why = turn.authSignedOut ? "signed_out" : turn.reauths > 0 ? "unverified" : "unchecked";
       this.cancel(session.id);
+      if (kind === "auth") {
+        // The fix, not the post-mortem. `exhaustedNote` would say "is not signed in" here, which is
+        // a claim about the user's credentials that Realm has either checked and found false, or —
+        // with retries off — never checked at all.
+        const fix = authFix(session.agentKind, why);
+        this.d.emit(session.id, sessionEvent("error", { message: `${fix.title}. ${fix.hint}`, failure: "auth", fix }));
+      } else if (policy.chain.length === 0) {
+        this.d.emit(session.id, sessionEvent("error", { message: exhaustedNote(session.agentKind, kind), failure: kind }));
+      }
       return "stop";
     }
     void this.handoff(session, to, kind, turn).catch((e) => {
       console.error(`[failover] handoff failed for ${session.id}: ${e instanceof Error ? e.message : String(e)}`);
     });
     return "handoff";
+  }
+
+  /**
+   * One verified re-auth attempt.
+   *
+   * The probe is the whole point and it is always FORCED — a cached answer is the one this cannot
+   * use, since the window the cache holds is the window in which the credential changed.
+   *
+   * Three answers, three different things to do:
+   *
+   *  - `false` — the CLI says it has no session. Retrying would burn the ladder proving what has
+   *    already been established, so this escalates immediately, carrying the reason so the user is
+   *    told to sign in rather than told about a credential that does not exist.
+   *  - `true` — the CLI says it is signed in and the turn failed to authenticate anyway. That is the
+   *    refresh race, and asking again is exactly what resolves it.
+   *  - `null` — the probe could not tell (an ACP agent, a CLI with no status command). Treated as
+   *    `true`, because the ladder is bounded and three spaced attempts cost a turn ninety seconds,
+   *    where refusing to try costs a turn that was going to succeed.
+   */
+  private async reauth(session: Session, turn: Attempt): Promise<void> {
+    const attempt = turn.reauths + 1;
+    turn.reauths = attempt;
+    const signedIn = await this.signedIn(session.agentKind);
+    // The await let the world move: the user may have pressed stop, sent something else, or closed
+    // the app while a child process ran.
+    if (this.closing || this.turns.get(session.id) !== turn || !turn.msg) return;
+    if (signedIn === false) {
+      turn.authSignedOut = true;
+      this.escalate(session, "auth", turn, this.policy(session.spaceId));
+      return;
+    }
+    const waitMs = authBackoffFor(attempt);
+    this.d.emit(session.id, sessionEvent("retrying", { reason: "auth", attempt, waitMs }));
+    this.scheduleResend(session.id, turn, waitMs);
+  }
+
+  /** Replay this turn after `waitMs`, unless it is no longer the turn. Both ladders end here, and
+   *  the re-read is why: a backoff is dead time in which the user can press stop or send something
+   *  else, and resuming a turn somebody moved on from is the rudest thing this service could do. */
+  private scheduleResend(sessionId: string, turn: Attempt, waitMs: number): void {
+    turn.timer = this.setTimer(() => {
+      turn.timer = null;
+      if (this.turns.get(sessionId) !== turn || !turn.msg) return;
+      void this.d.resend(sessionId, turn.msg).catch(() => {});
+    }, waitMs);
+  }
+
+  /** What the agent's own CLI says about being signed in, or null when it will not say. A probe that
+   *  throws is null too: a failed probe is not evidence of a signed-out user. */
+  private async signedIn(kind: AgentKind): Promise<boolean | null> {
+    try {
+      const results = await this.d.probe({ force: true });
+      const row = results.find((r) => r.kind === kind);
+      // An agent that no longer runs at all is not a sign-in problem, and answering `false` here
+      // would send the user to a login command for a CLI that is missing.
+      if (!row || !row.available) return null;
+      return row.loggedIn;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -228,9 +334,13 @@ export class FailoverService {
       note: handoffNote(session.agentKind, to, kind),
       attempt: turn.retries,
     }));
-    // The retry budget is per-agent: the new one gets a full ladder of its own, because the reason
-    // the old one was out of attempts says nothing about this one.
+    // Every budget and verdict here is per-AGENT: the reason the old one was out of attempts says
+    // nothing about this one, and neither does what its CLI said about being signed in. Carrying
+    // either across would put the outgoing agent's sentence — and its login command — under the
+    // incoming agent's failure.
     turn.retries = 0;
+    turn.reauths = 0;
+    turn.authSignedOut = false;
     if (turn.msg) await this.d.resend(session.id, turn.msg);
   }
 }

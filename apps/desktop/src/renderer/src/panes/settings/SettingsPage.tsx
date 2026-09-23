@@ -1,7 +1,7 @@
 import { PageScroll } from "../../components/ScrollFades";
 import {
   AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
-  CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, NOTIFICATION_CATEGORIES,
+  CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
   PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, type NotificationCategory,
 } from "@realm/contracts";
 import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED,
@@ -11,7 +11,9 @@ import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_
 import type { ThemeSeed } from "@realm/contracts";
 import { useEffect, useReducer, useRef, useState, type CSSProperties } from "react";
 import { Sheet } from "../../components/Sheet";
+import { relativeTime } from "../../components/CheckpointsSheet";
 import { Spinner } from "../../components/Spinner";
+import { CommandCopy } from "../../components/CommandCopy";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import { useApp, type CliJob, type SubmitKey } from "../../state/store";
 import type { PaneProps } from "../registry";
@@ -87,27 +89,6 @@ export function SettingsPage(_props: PaneProps) {
  *  `action`, when given, is the button that RUNS this exact string. It sits beside the command rather
  *  than replacing it, because the promise the CLI manager makes is that the command is readable
  *  before it is run — a button whose command is hidden behind it would be a different promise. */
-function CommandCopy({ command, action }: { command: string; action?: React.ReactNode }) {
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const t = setTimeout(() => setCopied(false), 1600);
-    return () => clearTimeout(t);
-  }, [copied]);
-  return (
-    <div className="install-cmd">
-      <code>{command}</code>
-      <button className="tool-copy" aria-label="Copy command" title={copied ? "Copied" : "Copy"}
-        data-copied={copied || undefined}
-        onClick={() => { void navigator.clipboard?.writeText(command); setCopied(true); }}>
-        <Icon name="copy" size={12} className="copy-icon" />
-        <Icon name="check" size={12} className="copied-icon" />
-      </button>
-      {action}
-    </div>
-  );
-}
-
 /**
  * The output pane is scrolled to the tail on every chunk: a package manager's interesting line is
  * almost always its last, and a user watching an install is watching the end of it.
@@ -1039,6 +1020,19 @@ function AppTab() {
         </div>
       </div>
 
+      <h3 className="settings-head">Sidebar</h3>
+      <ul className="settings-list">
+        <li className="settings-row" title="Replaces the strip's own drag order with one computed from what is actually happening. Turning it off restores the order you left it in — dragging was never touched, only not read from.">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Sort by activity</span>
+            <span className="settings-row-detail">Needs-you spaces first, then whichever you touched most recently</span>
+          </div>
+          <input type="checkbox" role="switch" className="switch" aria-label="Sort by activity"
+            checked={sidebarActivityOrder}
+            onChange={(e) => run(() => setSidebarActivityOrder(e.target.checked))} />
+        </li>
+      </ul>
+
       <h3 className="settings-head">Terminals</h3>
       <ul className="settings-list">
         <li className="settings-row">
@@ -1264,6 +1258,15 @@ function Attribution() {
       <p className="settings-attribution-line">
         Made by <a href="https://x.com/31Carlton7" target="_blank" rel="noreferrer">Carlton Aikins</a>
       </p>
+      {/* The office is somebody else's work. MIT asks for the notice to travel with the code, which
+          it does in the package; CC0 asks for nothing at all. Both are named here anyway, because
+          shipping someone's art under a licence that lets you say nothing is not a reason to. */}
+      <p className="settings-attribution-line settings-attribution-credit">
+        The pixel office is <a href="https://github.com/pixel-agents-hq/pixel-agents" target="_blank" rel="noreferrer">Pixel Agents</a>{" "}
+        by Pablo De Lucca (MIT), with characters from{" "}
+        <a href="https://jik-a-4.itch.io/metrocity-free-topdown-character-pack" target="_blank" rel="noreferrer">MetroCity</a>{" "}
+        by JIK-A-4 (CC0).
+      </p>
     </div>
   );
 }
@@ -1288,10 +1291,12 @@ const PRESENCE_TTL_LABELS: Record<number, string> = { 0: "Every time", 60_000: "
  */
 function SignInsTab() {
   const credentials = useApp((s) => s.credentials);
+  const passkeys = useApp((s) => s.passkeys);
   const status = useApp((s) => s.credentialStatus);
   const refreshCredentials = useApp((s) => s.refreshCredentials);
   const addCredential = useApp((s) => s.addCredential);
   const removeCredential = useApp((s) => s.removeCredential);
+  const removePasskey = useApp((s) => s.removePasskey);
   const setCredentialPresenceTtl = useApp((s) => s.setCredentialPresenceTtl);
   const run = useApp((s) => s.run);
   useEffect(() => { void run(() => refreshCredentials()); }, [run, refreshCredentials]);
@@ -1380,6 +1385,46 @@ function SignInsTab() {
         )}
       </div>
 
+      {/* Passkeys have no Add button, and the absence is the feature: one exists because a site asked
+          for it in a pane and the user answered Touch ID. There is nothing to type and no IPC an
+          agent could call to mint one. */}
+      <div className="field">
+        <div className="mcp-section-head"><span>Passkeys</span></div>
+        {passkeys === null ? <p className="env-empty">Loading…</p> : passkeys.length === 0 ? (
+          <div className="creds-empty">
+            <p className="creds-empty-line">No passkeys yet.</p>
+            <p className="creds-empty-sub">
+              When a site offers to set up a passkey, doing it in a browser pane creates one here.
+              Realm holds the key and asks for Touch ID every time a page uses it.
+            </p>
+          </div>
+        ) : (
+          <ul className="settings-list creds-list">
+            {passkeys.map((p) => (
+              <li key={p.id} className="settings-row" aria-label={`${p.rpId}${p.userName ? `: ${p.userName}` : ""}`}>
+                <span className="creds-mark" aria-hidden="true"><Icon name="key" size={16} /></span>
+                <div className="settings-row-main">
+                  <span className="settings-row-name">{p.rpId}</span>
+                  <span className="settings-row-desc">
+                    {[p.userName || p.userDisplayName, p.lastUsedAt === null ? "Never used" : `Used ${relativeTime(p.lastUsedAt, Date.now())}`]
+                      .filter(Boolean).join(" · ")}
+                  </span>
+                </div>
+                <button type="button" className="btn-quiet" onClick={() => run(() => removePasskey(p.id))}>Remove</button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {/* The half a Remove button cannot do, which is the half that locks someone out if they
+            assume it did. */}
+        {passkeys !== null && passkeys.length > 0 && (
+          <p className="settings-hint">
+            Removing one here deletes Realm's copy of the key. The site still lists the passkey, so
+            remove it there too.
+          </p>
+        )}
+      </div>
+
       {adding && (
       <Sheet title="Add a sign-in" onClose={() => setAdding(false)} width={480}>
       <div className="form creds-form">
@@ -1438,6 +1483,7 @@ function SignInsTab() {
       <div className="field"><span>What Realm can't do</span>
         <p className="settings-hint">{CREDENTIAL_2FA_NOTE}</p>
         <p className="settings-hint">{CREDENTIAL_STORAGE_NOTE}</p>
+        <p className="settings-hint">{PASSKEY_STORAGE_NOTE}</p>
       </div>
     </div>
   );

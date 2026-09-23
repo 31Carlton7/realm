@@ -14,6 +14,11 @@ import { RunConstraintsSchema } from "./runs";
  * So this file is only about WHEN. `runs.create` is what happens next, and everything a run's
  * vocabulary refuses — `bypassPermissions` above all — a schedule refuses too, by construction:
  * `RunConstraintsSchema` is reused verbatim rather than mirrored.
+ *
+ * WHEN has two spellings, and `nextFireOf` is the single gate in front of both: a cron expression for
+ * work that recurs, and `once:<epoch ms>` for a single moment. They share one field because they
+ * answer one question, and because a schedule that has nothing left to fire is already a state this
+ * model has — `nextRunAt === null` with `enabled` still true, which the page reads as Completed.
  */
 
 /* ────────────────────────────── cron ────────────────────────────── */
@@ -22,7 +27,9 @@ import { RunConstraintsSchema } from "./runs";
  * The five fields, in the order every crontab on earth writes them.
  *
  * Deliberately five, not six or seven: seconds are not a schedule anyone wants for work that spawns
- * an agent, and a year field is a way to write a schedule that fires once in 2031 and is forgotten.
+ * an agent, and a year field is a way to write a schedule that fires once in 2031 and is forgotten —
+ * a one-shot wearing a recurring expression's clothes. Something that happens once says so instead,
+ * in the `once:` spelling below, where the page can show it as finished rather than as armed.
  * Ranges are inclusive at both ends. Day-of-week takes 0–6 with 0 = Sunday, and 7 is accepted as a
  * second spelling of Sunday because half the world's crontabs use it.
  */
@@ -171,9 +178,115 @@ export function nextCronFire(cron: Cron, after: number): number | null {
   return null;
 }
 
-/** Parse and find the next fire in one step — what every caller outside the tests actually wants.
- *  Null covers both "not a valid expression" and "matches nothing ahead". */
+/* ────────────────────────────── once ────────────────────────────── */
+
+/** The one-shot spelling: `once:` followed by an absolute epoch millisecond. */
+export const ONCE_PREFIX = "once:";
+
+/** Write one. `Math.trunc` rather than a round, so the stored moment is never a millisecond LATER
+ *  than what the caller asked for — a schedule may fire late, but not early. */
+export const onceExpr = (ms: number): string => `${ONCE_PREFIX}${Math.trunc(ms)}`;
+
+/**
+ * The moment a one-shot names, or null when this is not one.
+ *
+ * Absolute milliseconds rather than a local wall-clock string, which is the opposite of the choice
+ * cron makes one section up, and deliberately: "every day at 9" means nine o'clock wherever the
+ * person is and has to survive a DST change, while "the 30th at 1pm" is a single instant somebody
+ * already picked. Storing that instant as local text would reintroduce the one hour a year that
+ * happens twice and the one that never happens at all, for a value that has no reason to be ambiguous.
+ *
+ * Digits only — `once:1e12`, `once:0x10` and `once:+1` are refused rather than coerced, because every
+ * one of them has a "helpful" reading and this field decides when unattended work runs.
+ */
+export function parseOnce(expr: string): number | null {
+  const trimmed = expr.trim().toLowerCase();
+  if (!trimmed.startsWith(ONCE_PREFIX)) return null;
+  const digits = trimmed.slice(ONCE_PREFIX.length);
+  if (!/^\d+$/.test(digits)) return null;
+  const ms = Number(digits);
+  return Number.isSafeInteger(ms) && ms > 0 ? ms : null;
+}
+
+/** Whether an expression fires once and is then finished. The runner reads this to decide that the
+ *  catch-up window does not apply (see `ScheduleService.tick`). */
+export const isOnce = (expr: string): boolean => parseOnce(expr) !== null;
+
+/**
+ * A local wall-clock moment, with no zone on it: `2026-09-30T13:00`, optionally with seconds, and a
+ * space accepted in place of the `T` because models write it both ways.
+ *
+ * Date-only is NOT accepted, and that is the rule worth stating out loud. `new Date("2026-09-30")` is
+ * UTC midnight by the language's own spec while `new Date("2026-09-30T13:00")` is local — the same
+ * string one character shorter changes zone, silently, by up to a day. And a bare date has to invent a
+ * time of day: midnight would start unattended work while nobody is awake to answer a permission
+ * prompt, which is the exact state `@daily` already points at 9am to avoid.
+ */
+const LOCAL_MOMENT = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/;
+const ZONED = /(?:[zZ]|[+-]\d{2}:?\d{2})$/;
+
+/**
+ * Text a person or a model wrote that names one moment, as absolute milliseconds — or null.
+ *
+ * Shared by the `once` picker in the UI and the `at` argument of `schedule_create`, because they are
+ * the same question asked in two places and two parsers would be two answers.
+ *
+ * The local form is built through `new Date(y, m, d, …)` and then read back, because the constructor
+ * ROLLS rather than refuses: February 30th becomes March 2nd and 25:00 becomes the next morning, both
+ * without complaint. Comparing the fields back is what turns those into a refusal. It also refuses the
+ * hour that does not exist on the day the clocks go forward, which is correct — there is no such
+ * moment to schedule, and picking 03:30 on the caller's behalf would be a guess about the one thing
+ * this file must not guess about.
+ */
+export function parseMoment(raw: string): number | null {
+  const s = raw.trim();
+  const m = LOCAL_MOMENT.exec(s);
+  if (m) {
+    const [y, mo, d, h, mi] = [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4]), Number(m[5])];
+    const sec = m[6] === undefined ? 0 : Number(m[6]);
+    if (sec > 59) return null;
+    const t = new Date(y, mo - 1, d, h, mi, sec, 0);
+    if (t.getFullYear() !== y || t.getMonth() !== mo - 1 || t.getDate() !== d) return null;
+    if (t.getHours() !== h || t.getMinutes() !== mi) return null;
+    return t.getTime();
+  }
+  // An explicit offset or `Z` is unambiguous, so the language's own parser is trustworthy here in a
+  // way it is not above.
+  if (ZONED.test(s)) {
+    const t = Date.parse(s);
+    return Number.isFinite(t) ? t : null;
+  }
+  return null;
+}
+
+/** A moment as `<input type="datetime-local">` spells it — the inverse of `parseMoment`'s local form,
+ *  and local by construction, which `toISOString` is not. */
+export function momentInputValue(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/* ────────────────────────────── either one ────────────────────────────── */
+
+/**
+ * Parse and find the next fire in one step — what every caller outside the tests actually wants, and
+ * the single gate both spellings pass through.
+ *
+ * Null covers three things that are all "nothing will happen": not a valid expression, a cron that
+ * matches nothing ahead, and a one-shot whose moment has passed. The third is what makes a one-shot
+ * cost the rest of the system nothing — `claimDue` writes this value back after firing, so a
+ * one-shot advances itself to `nextRunAt === null` by the same statement that advances a daily
+ * schedule to tomorrow, and the page's Completed lens reads that pair without being taught about
+ * one-shots at all.
+ *
+ * Strictly after, for the same reason `nextCronFire` is: the runner writes `nextRunAt =
+ * nextFireOf(now)` immediately after firing, and an inclusive comparison here would hand back the
+ * moment that just fired and run it again on the next tick.
+ */
 export function nextFireOf(expr: string, after: number): number | null {
+  const once = parseOnce(expr);
+  if (once !== null) return once > after ? once : null;
   const cron = parseCron(expr);
   return cron ? nextCronFire(cron, after) : null;
 }
@@ -185,8 +298,21 @@ export function nextFireOf(expr: string, after: number): number | null {
  * expression in mono. That is the honest split — a general cron-to-prose translator gets the
  * gnarly cases subtly wrong, and a subtly wrong description of when unattended work runs is worse
  * than showing the expression the user wrote.
+ *
+ * A one-shot always gets its sentence, and it is the only place its moment survives: once the
+ * schedule has fired there is no next occurrence for the row's meta line to show, and a row reading
+ * only "No further runs" would have lost what it was ever for. The year appears when it is not the
+ * current one — `now` is a parameter for the same reason `whenLabel` takes one, so a test can ask
+ * about December from June.
  */
-export function describeCron(expr: string): string {
+export function describeSchedule(expr: string, now = Date.now()): string {
+  const once = parseOnce(expr);
+  if (once !== null) {
+    const d = new Date(once);
+    const sameYear = d.getFullYear() === new Date(now).getFullYear();
+    const date = d.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) });
+    return `Once, on ${date} at ${d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+  }
   const cron = parseCron(expr);
   if (!cron) return expr;
   const at = (h: Set<number>, m: Set<number>) => {

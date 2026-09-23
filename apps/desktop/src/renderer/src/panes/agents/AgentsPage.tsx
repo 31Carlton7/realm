@@ -1,7 +1,9 @@
 import { AGENT_META, DEFAULT_MODEL_LABEL, type Session, type SessionStatus } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useState } from "react";
-import { useApp } from "../../state/store";
+import { AgentOffice } from "./AgentOffice";
+import { AgentWall } from "./AgentWall";
+import { useApp, type AgentsView } from "../../state/store";
 import type { PaneProps } from "../registry";
 
 /** The states as a manager reads them, in the order they want attention. `fold` is how many rows a
@@ -42,6 +44,14 @@ export function groupAgents(sessions: readonly Session[], status: Record<string,
   return STATE.map((state) => ({ state, rows: by.get(state.status) ?? [] })).filter((g) => g.rows.length > 0);
 }
 
+/** The two readings, and what each is FOR — the tooltip is where the difference is stated, because
+ *  a word on a button cannot carry it and a sentence beside them would be a third thing to read. */
+const VIEWS: { view: AgentsView; label: string; hint: string }[] = [
+  { view: "list", label: "List", hint: "Every session, ranked by what it needs from you." },
+  { view: "wall", label: "Wall", hint: "The live ones as tiles, each showing what it is doing now." },
+  { view: "office", label: "Office", hint: "The live ones as people working in a room you can change." },
+];
+
 /**
  * Every agent in the profile, by what it needs from you.
  *
@@ -53,12 +63,21 @@ export function groupAgents(sessions: readonly Session[], status: Record<string,
  * Rows come from one `sessions.listAll` and re-read whenever any status changes, which is the
  * moment a row would move between groups. Clicking a row goes to the session, switching space if
  * it has to — the same move a permission notification makes.
+ *
+ * The wall is the same sessions read for a different question — what each is DOING rather than what
+ * it needs from you — and is a view of this page rather than a page of its own, because a second
+ * destination would be a second place to look for one set of agents. Both draw `groupAgents`, so
+ * the two can never disagree about which group a session is in. See `AgentWall`.
  */
-export function AgentsPage({ item }: PaneProps) {
+export function AgentsPage({ item, visible }: PaneProps) {
   const spaces = useApp((s) => s.spaces);
   const status = useApp((s) => s.sessionStatus);
   const listAll = useApp((s) => s.listAllSessions);
   const reveal = useApp((s) => s.revealSession);
+  const view = useApp((s) => s.agentsView);
+  const setView = useApp((s) => s.setAgentsView);
+  const openSheet = useApp((s) => s.openSheet);
+  const canFanOut = useApp((s) => s.activeSpaceId !== null);
   const run = useApp((s) => s.run);
   const [rows, setRows] = useState<Session[] | null>(null);
   /** Groups the user has opened past their fold. */
@@ -76,13 +95,39 @@ export function AgentsPage({ item }: PaneProps) {
         <div className="page-title"><h1>Agents</h1></div>
         {/* The one number, as the vantage: how many are blocked on you right now. */}
         {needsYou > 0 && <span className="page-vantage">{needsYou} waiting on you</span>}
+        <div className="agents-head-actions">
+          {/* Two readings of one page, each button naming the view rather than its own state — so
+              `aria-pressed` says which is on without the label and the flag disagreeing. */}
+          <div className="agents-views" role="group" aria-label="View">
+            {VIEWS.map((v) => (
+              <button key={v.view} type="button" className="agents-view" aria-pressed={view === v.view}
+                title={v.hint} onClick={() => setView(v.view)}>{v.label}</button>
+            ))}
+          </div>
+          {canFanOut && (
+            <button type="button" className="btn" onClick={() => openSheet({ kind: "fan-out" })}>Start agents…</button>
+          )}
+        </div>
       </header>
       <div className="page-body">
-        <div className="page-content">
+        {/* The wall takes the wide measure the Tasks lens already defines, because it is the same
+            kind of surface: a comparison, where the reading is across the row rather than down it.
+            At the ordinary 720px column a grid of readable tiles is two wide, which is a list with
+            extra steps. The head widens with it — a head narrower than the content it heads is the
+            misalignment the wide measure exists to avoid. */}
+        <div className="page-content" data-wide={view !== "list" || undefined}>
           {rows !== null && rows.length === 0 && (
             <p className="env-empty">No agents yet. Start a session in any space and it shows up here with what it needs from you.</p>
           )}
-          {groups.map((g) => {
+          {view === "wall" && rows !== null && rows.length > 0 && (
+            <AgentWall groups={groups} spaceName={spaceName} visible={visible}
+              onOpen={(s) => run(() => reveal(s.id, s.spaceId))} />
+          )}
+          {view === "office" && rows !== null && (
+            <AgentOffice sessions={rows} status={status} visible={visible}
+              onPick={(s) => run(() => reveal(s.id, s.spaceId))} />
+          )}
+          {view === "list" && groups.map((g) => {
             const open = opened.has(g.state.status);
             const shown = open ? g.rows : g.rows.slice(0, g.state.fold);
             const hidden = g.rows.length - shown.length;

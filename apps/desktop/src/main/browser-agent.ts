@@ -5,7 +5,13 @@
  * live runs. Executed in Electron MAIN (the process that owns `webContents.debugger`); realm-server
  * reaches it over the browserHost bridge.
  */
-import { AGENT_FRAME, normalizeOrigin, PICK_HTML_MAX, PICK_NAME_MAX, PICK_SELECTOR_MAX, PICK_TEXT_MAX, type BrowserAction, type BrowserActResult, type BrowserPickedElement, type BrowserRefusal, type BrowserSnapshotResult } from "@realm/contracts";
+import {
+  acceptsUpload, AGENT_FRAME, mimeForPath, normalizeOrigin,
+  PICK_HTML_MAX, PICK_NAME_MAX, PICK_SELECTOR_MAX, PICK_TEXT_MAX,
+  UPLOAD_CHOOSER_TIMEOUT_MS, UPLOAD_DROP_MAX_BYTES, UPLOAD_MAX_FILES,
+  type BrowserAction, type BrowserActResult, type BrowserPickedElement, type BrowserRefusal,
+  type BrowserSnapshotResult, type BrowserUploadFile, type BrowserUploadMethod, type BrowserUploadResult,
+} from "@realm/contracts";
 import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_MOTION, CURSOR_FORM_FOR_CSS, type CursorForm, type CursorFormName } from "./agent-cursor";
 
 export type CdpSend = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -147,6 +153,13 @@ export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | nul
   const visible = interactive.filter((c) => c.offscreen || !isCovered(c, layoutByDoc[c.docIndex]!));
   const coveredCount = interactive.length - visible.length;
 
+  // A file input's `value` is not in the DOMSnapshot: `inputValue` carries the value ATTRIBUTE, which
+  // for `type=file` is the empty string however many files are attached — the names live on
+  // `input.files`, a property only script can read. So they are fetched here, bounded, for the
+  // visible file inputs only. It is what makes "did the upload land" answerable from the tree, the
+  // way a textbox's `value=` answers "did the typing land".
+  await fillFileInputValues(send, visible.filter(isFileInput).slice(0, FILE_INPUT_READ_MAX));
+
   const index: SnapshotIndex = new Map();
   const lines: string[] = [];
   for (const c of visible.slice(0, MAX_ELEMENTS)) {
@@ -167,6 +180,26 @@ export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | nul
     elementCount: Math.min(visible.length, MAX_ELEMENTS),
     index,
   };
+}
+
+/** A visible `<input type="file">` among the snapshot's candidates. */
+const isFileInput = (c: Candidate): boolean => c.tag === "INPUT" && (c.attrs.type ?? "").toLowerCase() === "file";
+
+/** How many file inputs one snapshot reads `files` off. A page with more than this many VISIBLE file
+ *  inputs is not a page; the cap is here so a pathological one cannot turn a snapshot into a
+ *  round-trip storm. Note the limit this leaves standing: an input the page hides behind a styled
+ *  label is not in the layout tree at all, so it is not listed and its names are not read — what the
+ *  agent reads there is `browser_upload`'s own returned post-state. */
+const FILE_INPUT_READ_MAX = 12;
+
+/** Read each file input's attached names onto its candidate `value`, so `formatLine` prints them the
+ *  way it prints a textbox's. Best-effort per input: one that will not answer keeps an empty value
+ *  rather than failing the snapshot. */
+async function fillFileInputValues(send: CdpSend, candidates: Candidate[]): Promise<void> {
+  await Promise.all(candidates.map(async (c) => {
+    const state = await readFileInputState(send, c.backendNodeId).catch(() => null);
+    if (state) c.value = clip(fileInputValue(state.names), VALUE_MAX);
+  }));
 }
 
 /** What occlusion needs about every layout box in a document — rects, paint order, the tree shape
@@ -330,6 +363,10 @@ export function isOpaqueColor(cssColor: string): boolean {
 function formatLine(c: Candidate, isNew: boolean): string {
   const flags = [
     c.password ? "password field — typing is blocked, hand this to the user" : null,
+    // Named explicitly because the AX tree reports a file input as a plain `button`, so nothing else
+    // on the line says what it takes. The agent needs to see that `browser_upload` is the tool here:
+    // clicking it opens a picker, and typing a path into it does nothing at all.
+    isFileInput(c) ? `file input — use browser_upload${c.attrs.multiple !== undefined ? ", takes several files" : ""}` : null,
     c.disabled ? "disabled" : null,
     c.checked === true ? "checked" : c.checked === false ? "unchecked" : null,
     c.offscreen ? "offscreen" : null,
@@ -594,6 +631,430 @@ async function pressNamedKey(send: CdpSend, name: string): Promise<void> {
   const k = NAMED_KEYS[name]!;
   await send("Input.dispatchKeyEvent", { type: "keyDown", key: k.key, code: k.code, windowsVirtualKeyCode: k.vk, nativeVirtualKeyCode: k.vk, ...(k.text ? { text: k.text, unmodifiedText: k.text } : {}) });
   await send("Input.dispatchKeyEvent", { type: "keyUp", key: k.key, code: k.code, windowsVirtualKeyCode: k.vk, nativeVirtualKeyCode: k.vk });
+}
+
+/* ------------------------------------ upload ------------------------------------ */
+
+/**
+ * Putting a file INTO a page, without ever opening the OS file panel.
+ *
+ * The panel is the thing this whole section exists to avoid: on macOS it is a modal NSOpenPanel, and
+ * once one is up the pane is wedged — CDP cannot type into it, cannot cancel it, and cannot even see
+ * it, so an agent that opens one has taken the user's pane away until the user comes back. Driving it
+ * would need Accessibility/UI scripting, which is a machine-wide grant to automate a file picker.
+ *
+ * So there are three routes and the panel is none of them, in the order `performUpload` tries them:
+ *
+ *   1. **Set the input's files directly** (`DOM.setFileInputFiles`). Works whether the ref IS the
+ *      `<input type="file">` or merely the visible label/button a hidden one hangs off — which is
+ *      how nearly every styled uploader is built. No chooser, no click, no side effects.
+ *   2. **Intercept the chooser, then click.** For a button that opens a picker from script, where
+ *      there is no input to find until the page names one. `Page.setInterceptFileChooserDialog` is
+ *      armed FIRST — the ordering is the whole safety property, because a click that lands before
+ *      interception is armed produces the native panel — and `Page.fileChooserOpened` then hands
+ *      back the very node the page meant to fill.
+ *   3. **Synthesize a drop.** For a "drag and drop" zone with no input behind it at all: a real
+ *      `DataTransfer` carrying real `File`s, and `dragenter`/`dragover`/`drop` dispatched on the
+ *      element. Last, and size-capped (`UPLOAD_DROP_MAX_BYTES`), because it is the only route where
+ *      the bytes have to travel through the page.
+ */
+
+/** Everything `performUpload` needs that is not a CDP call on a node: the chooser's event plumbing
+ *  (owned by the host, which is where CDP events arrive) and the disk. Injected so this module stays
+ *  a pure function of `CdpSend` and can be tested without either. */
+export type UploadSeams = {
+  /** A chooser the host is ALREADY holding for this pane — an earlier `browser_act` click opened one
+   *  and it was intercepted rather than shown. Fulfilling it is better than clicking again: the
+   *  second click would open a second chooser and leave the first still pending. */
+  pending(): InterceptedChooser | null;
+  /** Turn interception on. Must complete before any click that could open a chooser. */
+  arm(): Promise<void>;
+  /** Turn it back off, so the USER's own clicks still get a real panel. */
+  disarm(): Promise<void>;
+  /** The next `Page.fileChooserOpened`, or null if none arrives within `timeoutMs`. */
+  awaitChooser(timeoutMs: number): Promise<InterceptedChooser | null>;
+  /** Hand a chooser BACK unanswered — the page is still waiting on it, so it has to stay findable by
+   *  `browser_dismiss_dialog` and by the next `browser_upload`. Called when the files were refused
+   *  after the chooser had already opened, which is the only way to learn a page's `accept=`. */
+  retain(chooser: InterceptedChooser): void;
+  /** File bytes — only the drop route reads any. */
+  readFile(path: string): Promise<Uint8Array>;
+};
+
+/** A file chooser the page opened and Realm caught instead of macOS. `backendNodeId` is the input
+ *  element the page wants filled; `multiple` is that input's own `multiple` flag as Chromium reports
+ *  the chooser's mode, which is the page's statement of how many files it will take. */
+export type InterceptedChooser = { backendNodeId: number; multiple: boolean };
+
+/** What the input looks like after (or before) an attach — read off the live node rather than echoed
+ *  from the request, so "did the upload land" is answered by the page and not by Realm's optimism. */
+export type FileInputState = { accept: string | null; multiple: boolean; names: string[] };
+
+export async function performUpload(send: CdpSend, ref: number, files: BrowserUploadFile[], seams: UploadSeams): Promise<BrowserUploadResult> {
+  try {
+    // Route 2a, checked FIRST: a chooser this pane already has open. An earlier click (an ordinary
+    // `browser_act`, or a `browser_upload` whose files were refused) left one intercepted, and the
+    // page is waiting on exactly that node. Clicking again would strand it.
+    const held = seams.pending();
+    if (held) {
+      const result = await fulfil(send, held.backendNodeId, files, "chooser", held.multiple);
+      if (!result.ok) seams.retain(held);
+      return result;
+    }
+
+    // Route 1: the input itself, or the hidden one this element stands for.
+    const direct = await resolveFileInput(send, ref);
+    if (direct !== null) return await fulfil(send, direct, files, "input", null);
+
+    // Route 2b: arm, click, and take whatever node the page names. Armed before the click, always.
+    await seams.arm();
+    let opened: InterceptedChooser | null = null;
+    try {
+      const clicked = await performAct(send, { kind: "click", ref, button: "left", clickCount: 1, modifiers: [] });
+      if (!clicked.ok) return { ok: false, error: clicked.error };
+      opened = await seams.awaitChooser(UPLOAD_CHOOSER_TIMEOUT_MS);
+    } finally {
+      // Disarmed whether or not a chooser arrived. Leaving a pane armed is how the USER's own
+      // "Choose files" button silently stops working — interception belongs to the page, not to the
+      // caller who turned it on.
+      if (opened === null) await seams.disarm();
+    }
+    if (opened) {
+      const result = await fulfil(send, opened.backendNodeId, files, "chooser", opened.multiple);
+      // A refusal here leaves the page mid-pick. Handing the chooser back is what keeps it
+      // recoverable: without this the node is known to nobody, `browser_dismiss_dialog` finds
+      // nothing, and the page waits for a file that can never arrive.
+      if (!result.ok) seams.retain(opened);
+      return result;
+    }
+
+    // Route 3: no input, no chooser — is it a dropzone? Asked of the element's own listeners rather
+    // than of its class names, and only now, because a dropzone that is ALSO a picker button has
+    // already been served better by the click above.
+    if (await hasDropListeners(send, ref)) return await performDrop(send, ref, files, seams);
+
+    return {
+      ok: false,
+      refused: (await hasClickListeners(send, ref)) ? "no_chooser" : "not_a_file_target",
+      error:
+        `ref=${ref} did not take files: it is not a file input, no file input is associated with it, clicking it opened no file chooser, and it accepts no drops. ` +
+        "Take a fresh browser_snapshot and look for an element whose role is a file input or whose name mentions choosing/uploading a file.",
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * Attach `files` to a known input node, then read the input back.
+ *
+ * The two page-stated constraints are checked HERE rather than at the tool surface, because this is
+ * the first point at which the actual target node is known — for the chooser route the page does not
+ * name it until after the click. A refusal leaves the input untouched; for a chooser it leaves the
+ * chooser pending, which `browser_dismiss_dialog` can then clear.
+ */
+async function fulfil(send: CdpSend, backendNodeId: number, files: BrowserUploadFile[], method: BrowserUploadMethod, chooserMultiple: boolean | null): Promise<BrowserUploadResult> {
+  const before = await readFileInputState(send, backendNodeId);
+  const multiple = before?.multiple ?? chooserMultiple ?? false;
+  const accept = before?.accept ?? null;
+
+  if (files.length > 1 && !multiple) {
+    return {
+      ok: false, refused: "too_many",
+      error: `that input takes one file (it has no "multiple" attribute) and ${files.length} were offered — nothing was attached. Upload them one call at a time, or find the input that takes several.`,
+    };
+  }
+  const rejected = files.filter((f) => !acceptsUpload(accept, f.name, mimeForPath(f.name)));
+  if (rejected.length > 0) {
+    return {
+      ok: false, refused: "accept_mismatch",
+      error: `the page's own accept="${clip(accept ?? "", 120)}" excludes ${rejected.map((f) => `"${f.name}"`).join(", ")} — nothing was attached. Convert the file or pick an input that accepts this type.`,
+    };
+  }
+
+  await send("DOM.setFileInputFiles", { backendNodeId, files: files.map((f) => f.path) });
+  const after = await readFileInputState(send, backendNodeId);
+  // The names come from `input.files` AFTER the set — the page's own record of what it holds. If the
+  // node will not answer (it was replaced by a re-render between the set and the read), fall back to
+  // what was asked for and leave `value` null, which is the result's way of saying "not read back"
+  // rather than claiming a readback that did not happen.
+  return {
+    ok: true, method,
+    names: after?.names ?? files.map((f) => f.name),
+    value: after ? fileInputValue(after.names) : null,
+    accept: after?.accept ?? accept,
+    multiple: after?.multiple ?? multiple,
+  };
+}
+
+/**
+ * The file input this ref stands for, or null when there is none to find WITHOUT clicking.
+ *
+ * Three shapes, in the order a page is likely to use them: the ref is the input; the ref is (or sits
+ * inside) a `<label>` bound to one; the ref CONTAINS exactly one. The "exactly one" is the whole
+ * safety of the third case — a page whose button wraps two file inputs has not said which it means,
+ * and guessing there would attach a gallery's photos to the avatar field. Ambiguity falls through to
+ * the click route, where the page itself names the node.
+ */
+export async function resolveFileInput(send: CdpSend, ref: number): Promise<number | null> {
+  const objectId = await resolveObject(send, ref);
+  if (!objectId) return null;
+  try {
+    const result = (await send("Runtime.callFunctionOn", {
+      objectId, functionDeclaration: FIND_FILE_INPUT_JS, returnByValue: false,
+    })) as { result?: { objectId?: string; subtype?: string } };
+    const found = result.result?.objectId;
+    if (!found) return null;
+    try {
+      const described = (await send("DOM.describeNode", { objectId: found })) as { node?: { backendNodeId?: number } };
+      return described.node?.backendNodeId ?? null;
+    } finally {
+      void send("Runtime.releaseObject", { objectId: found }).catch(() => {});
+    }
+  } catch {
+    return null;
+  } finally {
+    void send("Runtime.releaseObject", { objectId }).catch(() => {});
+  }
+}
+
+const FIND_FILE_INPUT_JS = `function () {
+  const isFile = (n) => !!n && n.tagName === "INPUT" && (n.getAttribute("type") || "").toLowerCase() === "file";
+  const el = this;
+  if (isFile(el)) return el;
+  const doc = el.ownerDocument;
+  const forTarget = (n) => {
+    const id = n.getAttribute && n.getAttribute("for");
+    return id && doc ? doc.getElementById(id) : null;
+  };
+  const only = (n) => {
+    const all = n.querySelectorAll ? n.querySelectorAll("input[type=file]") : [];
+    return all.length === 1 ? all[0] : null;
+  };
+  const fromLabel = (n) => {
+    const t = forTarget(n);
+    if (isFile(t)) return t;
+    const c = n.control;
+    if (isFile(c)) return c;
+    return only(n);
+  };
+  if (el.tagName === "LABEL") {
+    const hit = fromLabel(el);
+    if (hit) return hit;
+  }
+  const inside = only(el);
+  if (inside) return inside;
+  let cur = el.parentElement, hops = 0;
+  while (cur && hops++ < 4) {
+    if (cur.tagName === "LABEL") {
+      const hit = fromLabel(cur);
+      if (hit) return hit;
+    }
+    cur = cur.parentElement;
+  }
+  return null;
+}`;
+
+/** The live input's `accept`, `multiple` and attached file NAMES. Null when the node is gone or will
+ *  not answer — the caller treats that as "I could not read it back", never as "it is empty". */
+export async function readFileInputState(send: CdpSend, backendNodeId: number): Promise<FileInputState | null> {
+  const objectId = await resolveObject(send, backendNodeId);
+  if (!objectId) return null;
+  try {
+    const result = (await send("Runtime.callFunctionOn", {
+      objectId, functionDeclaration: READ_FILE_INPUT_JS, returnByValue: true,
+    })) as { result?: { value?: { accept?: unknown; multiple?: unknown; names?: unknown } } };
+    const v = result.result?.value;
+    if (!v || typeof v !== "object") return null;
+    const names = Array.isArray(v.names) ? v.names.filter((n): n is string => typeof n === "string") : [];
+    return {
+      accept: typeof v.accept === "string" && v.accept !== "" ? v.accept : null,
+      multiple: v.multiple === true,
+      // Page-authored (the site chose nothing here — the FILENAME is the user's, but it reaches the
+      // agent through the page's `File` object), so bounded like every other page string in a
+      // snapshot line rather than trusted to be short.
+      names: names.slice(0, UPLOAD_MAX_FILES).map((n) => clip(n, NAME_MAX)),
+    };
+  } catch {
+    return null;
+  } finally {
+    void send("Runtime.releaseObject", { objectId }).catch(() => {});
+  }
+}
+
+const READ_FILE_INPUT_JS = `function () {
+  if (!this || this.tagName !== "INPUT") return null;
+  const files = this.files ? Array.prototype.slice.call(this.files) : [];
+  return { accept: this.getAttribute("accept") || "", multiple: this.multiple === true, names: files.map((f) => f.name) };
+}`;
+
+/** How an attached file input reads in a snapshot line and in an upload result — the same string in
+ *  both places, so "did it land" has one answer however the agent looks. */
+export function fileInputValue(names: readonly string[]): string {
+  return names.length === 0 ? "" : names.join(", ");
+}
+
+/**
+ * Does this element (or a close ancestor) actually handle drops?
+ *
+ * Asked of `DOMDebugger.getEventListeners`, the same instrument the snapshot's div-soup sweep uses,
+ * rather than of class names or the words "drag and drop" in the page's text — those are what the
+ * page says about itself, and a drop dispatched at something that does not listen fails silently,
+ * which is the one failure mode an upload may not have. The ancestor walk is short and bounded: a
+ * dropzone commonly listens on the wrapper and paints the inner box.
+ */
+async function hasDropListeners(send: CdpSend, ref: number): Promise<boolean> {
+  const objectId = await resolveObject(send, ref);
+  if (!objectId) return false;
+  try {
+    const result = (await send("DOMDebugger.getEventListeners", { objectId, depth: 0, pierce: false })) as { listeners?: { type: string }[] };
+    if ((result.listeners ?? []).some((l) => DROP_LISTENER_TYPES.has(l.type))) return true;
+  } catch {
+    return false;
+  } finally {
+    void send("Runtime.releaseObject", { objectId }).catch(() => {});
+  }
+  // `depth: -1` on the ancestors is not available, so walk them explicitly — bounded, and each hop
+  // is one getEventListeners on one node.
+  const ancestors = await ancestorObjects(send, ref, 3);
+  for (const id of ancestors) {
+    try {
+      const result = (await send("DOMDebugger.getEventListeners", { objectId: id, depth: 0 })) as { listeners?: { type: string }[] };
+      if ((result.listeners ?? []).some((l) => DROP_LISTENER_TYPES.has(l.type))) return true;
+    } catch { /* an ancestor that will not answer is not a dropzone */ }
+    finally { void send("Runtime.releaseObject", { objectId: id }).catch(() => {}); }
+  }
+  return false;
+}
+
+const DROP_LISTENER_TYPES = new Set(["drop", "dragover", "dragenter"]);
+
+/** Up to `limit` ancestor element objects, nearest first. */
+async function ancestorObjects(send: CdpSend, ref: number, limit: number): Promise<string[]> {
+  const objectId = await resolveObject(send, ref);
+  if (!objectId) return [];
+  try {
+    const out: string[] = [];
+    let current = objectId;
+    for (let i = 0; i < limit; i++) {
+      const result = (await send("Runtime.callFunctionOn", {
+        objectId: current, functionDeclaration: "function () { return this.parentElement; }", returnByValue: false,
+      })) as { result?: { objectId?: string } };
+      const parent = result.result?.objectId;
+      if (!parent) break;
+      out.push(parent);
+      current = parent;
+    }
+    return out;
+  } catch {
+    return [];
+  } finally {
+    void send("Runtime.releaseObject", { objectId }).catch(() => {});
+  }
+}
+
+/**
+ * The dropzone route: build a real `DataTransfer` of real `File`s inside the page and dispatch the
+ * three events a dropzone listens for.
+ *
+ * The bytes go base64 through one CDP argument, which is why `UPLOAD_DROP_MAX_BYTES` is small and
+ * why this route is last. It is also the only route where Realm reads the file itself — the other
+ * two hand Chromium a path and let the browser process open it.
+ */
+async function performDrop(send: CdpSend, ref: number, files: BrowserUploadFile[], seams: UploadSeams): Promise<BrowserUploadResult> {
+  const oversized = files.filter((f) => f.bytes > UPLOAD_DROP_MAX_BYTES);
+  if (oversized.length > 0) {
+    return {
+      ok: false, refused: "too_large",
+      error:
+        `${oversized.map((f) => `"${f.name}"`).join(", ")} exceeds ${Math.round(UPLOAD_DROP_MAX_BYTES / 1024 / 1024)} MB, and this element is a drop target rather than a file input — a synthesized drop has to carry the bytes through the page, so that is the cap for this route. ` +
+        "Find the page's own file input (or the button that opens its picker) and upload to that instead; those have no such limit.",
+    };
+  }
+  const objectId = await resolveObject(send, ref);
+  if (!objectId) return { ok: false, error: `ref=${ref} could not be resolved — take a fresh browser_snapshot` };
+  try {
+    const payload = {
+      files: await Promise.all(files.map(async (f) => ({
+        name: f.name,
+        mime: mimeForPath(f.name),
+        b64: bytesToBase64(await seams.readFile(f.path)),
+      }))),
+    };
+    const result = (await send("Runtime.callFunctionOn", {
+      objectId, functionDeclaration: DROP_JS, arguments: [{ value: payload }], returnByValue: true,
+    })) as { result?: { value?: unknown }; exceptionDetails?: unknown };
+    if (result.exceptionDetails) return { ok: false, error: "the page rejected the synthesized drop" };
+    const dropped = Number(result.result?.value ?? 0);
+    if (dropped !== files.length) return { ok: false, error: "the synthesized drop did not carry every file — the page may have replaced the element mid-drop" };
+    // A dropzone has no input to read back, so the confirmation is what the DROP carried — `value`
+    // is null rather than a restatement of it, and `method: "drop"` is what tells the agent the
+    // difference. Whether the page KEPT them is a question only the page can answer: take a snapshot.
+    return { ok: true, method: "drop", names: files.map((f) => f.name), value: null, accept: null, multiple: files.length > 1 };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  } finally {
+    void send("Runtime.releaseObject", { objectId }).catch(() => {});
+  }
+}
+
+const DROP_JS = `function (payload) {
+  const dt = new DataTransfer();
+  for (const f of payload.files) {
+    const bin = atob(f.b64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    dt.items.add(new File([arr], f.name, { type: f.mime }));
+  }
+  const r = this.getBoundingClientRect();
+  const init = {
+    bubbles: true, cancelable: true, composed: true,
+    clientX: r.left + r.width / 2, clientY: r.top + r.height / 2,
+    dataTransfer: dt,
+  };
+  this.dispatchEvent(new DragEvent("dragenter", init));
+  this.dispatchEvent(new DragEvent("dragover", init));
+  this.dispatchEvent(new DragEvent("drop", init));
+  return dt.files.length;
+}`;
+
+/** Base64 without `Buffer`: this module has no node imports and does not start now. */
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000; // String.fromCharCode's argument list has a limit; chunk under it.
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+/** A backendNodeId as a Runtime object, or null. Every caller releases what it gets. */
+async function resolveObject(send: CdpSend, backendNodeId: number): Promise<string | null> {
+  try {
+    const resolved = (await send("DOM.resolveNode", { backendNodeId })) as { object?: { objectId?: string } };
+    return resolved.object?.objectId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Cancel an intercepted file chooser: tell the page the user picked nothing.
+ *
+ * An empty `setFileInputFiles` is what "cancelled" looks like from inside the page — the chooser
+ * closes, `change` does not fire with new files, and the site's own handler takes its no-op path.
+ * There is nothing on screen to close, which is the point: interception meant the native panel was
+ * never shown, so this is tidying Realm's own pending state rather than reaching into macOS.
+ */
+export async function cancelFileChooser(send: CdpSend, backendNodeId: number): Promise<void> {
+  await send("DOM.setFileInputFiles", { backendNodeId, files: [] }).catch(() => {});
+}
+
+/** Arm/disarm the interception. Separate exports rather than a flag, because the two are used at
+ *  different times by different callers and the ORDER (arm strictly before the click) is the
+ *  property that keeps a native panel off the screen. */
+export async function setFileChooserInterception(send: CdpSend, enabled: boolean): Promise<void> {
+  await send("Page.setInterceptFileChooserDialog", { enabled });
 }
 
 /* ------------------------------------ read ------------------------------------ */

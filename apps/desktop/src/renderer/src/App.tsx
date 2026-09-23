@@ -8,6 +8,7 @@ import { NewLectureSheet, WrapUpLectureSheet } from "./components/LectureSheets"
 import { ArtifactSheet, SessionPlanSheet } from "./panes/session/SessionSummary";
 import { PlynnImportSheet } from "./components/PlynnImportSheet";
 import { RemoveWorktreeSheet } from "./components/RemoveWorktreeSheet";
+import { FanOutSheet } from "./components/FanOutSheet";
 import { CheckpointsSheet } from "./components/CheckpointsSheet";
 import { ActivitySheet } from "./components/ActivitySheet";
 import { CommandPalette } from "./components/CommandPalette";
@@ -202,6 +203,7 @@ function SheetHost() {
   if (sheet.kind === "plynn-import") return <PlynnImportSheet />;
   if (sheet.kind === "artifact") return <ArtifactSheet path={sheet.path} />;
   if (sheet.kind === "session-plan") return <SessionPlanSheet sessionId={sheet.sessionId} planId={sheet.planId} />;
+  if (sheet.kind === "fan-out") return <FanOutSheet />;
   return null;
 }
 

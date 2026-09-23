@@ -310,3 +310,194 @@ describe("SecretStore — the key handoff and the audit log", () => {
     expect(() => store.audit({ ts: 1, origin: "https://example.com", credentialId: "c", outcome: "filled" })).not.toThrow();
   });
 });
+
+/**
+ * The passkey half's mutants:
+ *   - a private key readable back out (a getter, a list field, the file on disk);
+ *   - presence not required for an assertion, or required only the first time;
+ *   - a `get` for a site with no passkey raising a Touch ID prompt that can only fail;
+ *   - the signature counter not written back, or written backwards;
+ *   - a keyring adopted from before the passkey domain existed dropping the credentials beside it.
+ */
+const PRIVATE_KEY = "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg-not-a-real-key";
+
+const passkey = (over: Partial<Parameters<SecretStore["recordPasskey"]>[0]> = {}) => ({
+  rpId: "github.com", userName: "ada", userDisplayName: "Ada Lovelace",
+  credentialId: "Y3JlZC0x", userHandle: "dXNlci0x", signCount: 1, privateKey: PRIVATE_KEY, ...over,
+});
+
+describe("SecretStore — passkeys", () => {
+  it("records one and answers with metadata that has NO field for the private key", () => {
+    const { store, disk } = makeStore();
+    const row = store.recordPasskey(passkey());
+    expect(row).toEqual({
+      id: "cred-1", rpId: "github.com", userName: "ada", userDisplayName: "Ada Lovelace",
+      createdAt: 1_000_000, lastUsedAt: null,
+    });
+    expect(Object.keys(row)).not.toContain("sealed");
+    expect(JSON.stringify(store.listPasskeys())).not.toContain(PRIVATE_KEY);
+    // …and the mutant this really guards: sealing skipped on the way to the file.
+    expect(disk.file).not.toContain(PRIVATE_KEY);
+  });
+
+  it("hands the key to the callback and returns NOTHING that contains it", async () => {
+    const { store } = makeStore();
+    store.recordPasskey(passkey());
+    const seen: string[] = [];
+    const result = await store.withPasskeysFor("github.com", "get", async (keys) => {
+      for (const k of keys) seen.push(k.privateKey);
+    });
+    expect(seen).toEqual([PRIVATE_KEY]);
+    expect(JSON.stringify(result)).not.toContain(PRIVATE_KEY);
+  });
+
+  it("requires presence BEFORE unsealing, and a refusal hands over nothing", async () => {
+    const { store, presence } = makeStore();
+    store.recordPasskey(passkey());
+    presence.grant = false;
+    let called = false;
+    const result = await store.withPasskeysFor("github.com", "get", async () => { called = true; });
+    expect(result).toEqual({ ok: false, refused: "no_presence" });
+    expect(called).toBe(false);
+    expect(presence.asked).toEqual(["use your passkey for github.com"]);
+  });
+
+  it("a `get` for a site with no passkey refuses WITHOUT prompting (a prompt that can only fail teaches the wrong reflex)", async () => {
+    const { store, presence } = makeStore();
+    store.recordPasskey(passkey({ rpId: "example.com" }));
+    const result = await store.withPasskeysFor("github.com", "get", async () => {});
+    expect(result).toEqual({ ok: false, refused: "no_passkey" });
+    expect(presence.asked).toEqual([]);
+  });
+
+  it("a `create` with nothing stored still prompts — that is what registering a first passkey looks like", async () => {
+    const { store, presence } = makeStore();
+    let handed: unknown[] = [];
+    const result = await store.withPasskeysFor("github.com", "create", async (keys) => { handed = keys; });
+    expect(result).toEqual({ ok: true });
+    expect(handed).toEqual([]);
+    expect(presence.asked).toEqual(["create a passkey for github.com"]);
+  });
+
+  it("hands over only the keys for the rp asked about (mutant: the filter dropped)", async () => {
+    const { store } = makeStore();
+    store.recordPasskey(passkey({ rpId: "github.com", credentialId: "a" }));
+    store.recordPasskey(passkey({ rpId: "example.com", credentialId: "b" }));
+    const seen: string[] = [];
+    await store.withPasskeysFor("github.com", "get", async (keys) => {
+      for (const k of keys) seen.push(k.credentialId);
+    });
+    expect(seen).toEqual(["a"]);
+  });
+
+  it("prompts on EVERY use by default (mutant: presence checked once and remembered)", async () => {
+    const { store, presence } = makeStore();
+    store.recordPasskey(passkey());
+    await store.withPasskeysFor("github.com", "get", async () => {});
+    await store.withPasskeysFor("github.com", "get", async () => {});
+    expect(presence.asked).toHaveLength(2);
+  });
+
+  it("shares the ONE presence window with saved sign-ins rather than keeping a second nobody configured", async () => {
+    const { store, presence } = makeStore();
+    store.setPresenceTtlMs(60_000);
+    const cred = store.addCredential(input());
+    store.recordPasskey(passkey());
+    await store.withCredentialValue(cred.id, async () => {});
+    await store.withPasskeysFor("github.com", "get", async () => {});
+    expect(presence.asked).toHaveLength(1);
+  });
+
+  it("writes the signature counter back, and never backwards (a counter that goes back reads as a cloned authenticator)", async () => {
+    const { store, disk, clock, deps } = makeStore();
+    store.recordPasskey(passkey({ signCount: 1 }));
+    clock.now = 2_000_000;
+    store.notePasskeyUse("Y3JlZC0x", 7);
+    expect(store.listPasskeys()[0]!.lastUsedAt).toBe(2_000_000);
+
+    // A stale report from a pane whose keys were cleared mid-request must not undo a later assertion.
+    store.notePasskeyUse("Y3JlZC0x", 3);
+
+    // The counter is only ever read where it is used, so read it there: a cold store over the same
+    // file, handing the key to an authenticator.
+    const reopened = new SecretStore({ ...deps, readFile: () => disk.file });
+    let restored = -1;
+    await reopened.withPasskeysFor("github.com", "get", async (keys) => { restored = keys[0]!.signCount; });
+    expect(restored).toBe(7);
+  });
+
+  it("a re-registration REPLACES the credential of the same id rather than stacking a key the site has forgotten", () => {
+    const { store } = makeStore();
+    store.recordPasskey(passkey({ userName: "old" }));
+    store.recordPasskey(passkey({ userName: "new" }));
+    expect(store.listPasskeys()).toHaveLength(1);
+    expect(store.listPasskeys()[0]!.userName).toBe("new");
+  });
+
+  it("clips the two relying-party-authored strings on the way IN", () => {
+    const { store } = makeStore();
+    const row = store.recordPasskey(passkey({ userName: "x".repeat(400), userDisplayName: "y".repeat(400) }));
+    expect(row.userName).toHaveLength(128);
+    expect(row.userDisplayName).toHaveLength(128);
+  });
+
+  it("hasPasskeyFor answers without a prompt — it is what decides whether to raise one at all", () => {
+    const { store, presence } = makeStore();
+    store.recordPasskey(passkey());
+    expect(store.hasPasskeyFor("github.com")).toBe(true);
+    expect(store.hasPasskeyFor("example.com")).toBe(false);
+    expect(presence.asked).toEqual([]);
+  });
+
+  it("removePasskey reports honestly whether anything was there", () => {
+    const { store } = makeStore();
+    const row = store.recordPasskey(passkey());
+    expect(store.removePasskey(row.id)).toBe(true);
+    expect(store.removePasskey(row.id)).toBe(false);
+    expect(store.listPasskeys()).toEqual([]);
+  });
+
+  it("a second store over the same file opens the same passkey", async () => {
+    const { store, disk, deps } = makeStore();
+    store.recordPasskey(passkey());
+    const reopened = new SecretStore({ ...deps, readFile: () => disk.file });
+    const seen: string[] = [];
+    await reopened.withPasskeysFor("github.com", "get", async (keys) => {
+      for (const k of keys) seen.push(k.privateKey);
+    });
+    expect(seen).toEqual([PRIVATE_KEY]);
+  });
+
+  it("with safeStorage unavailable it stores NOTHING — there is no plaintext fallback", () => {
+    const { store } = makeStore({ available: false });
+    expect(() => store.recordPasskey(passkey())).toThrow(SecretStoreError);
+  });
+
+  it("adopts a keyring written before the passkey domain existed, WITHOUT dropping the credentials beside it", async () => {
+    const { store, disk, deps } = makeStore();
+    const cred = store.addCredential(input());
+    // Rewrite the keyring as an older Realm would have: no `passkey` key at all.
+    const file = JSON.parse(disk.file!) as { keyring: string };
+    const ring = JSON.parse(deps.safeStorage.decryptString(Buffer.from(file.keyring, "base64"))) as Record<string, string>;
+    delete ring.passkey;
+    file.keyring = deps.safeStorage.encryptString(JSON.stringify(ring)).toString("base64");
+    disk.file = JSON.stringify(file);
+
+    const reopened = new SecretStore({ ...deps, readFile: () => disk.file });
+    let filled = "";
+    expect(await reopened.withCredentialValue(cred.id, async (v) => { filled = v; })).toEqual({ ok: true });
+    expect(filled).toBe(SECRET);
+    // …and the freshly minted key works for what it was minted for.
+    expect(reopened.recordPasskey(passkey())).toMatchObject({ rpId: "github.com" });
+  });
+
+  it("a keyring the OS will no longer open DROPS the passkeys it sealed rather than listing keys that refuse forever", () => {
+    const { store, disk, deps } = makeStore();
+    store.recordPasskey(passkey());
+    const file = JSON.parse(disk.file!) as { keyring: string };
+    file.keyring = Buffer.from("not ours at all", "utf8").toString("base64");
+    disk.file = JSON.stringify(file);
+    const reopened = new SecretStore({ ...deps, readFile: () => disk.file });
+    expect(reopened.listPasskeys()).toEqual([]);
+  });
+});

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { createPortal } from "react-dom";
 import { ScrollFades, ScrollFadesX } from "../../components/ScrollFades";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
+import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
 import { filterRows, flatten, groupRows, modelDetail, modelIdOn, type ModelRow } from "./model-rows";
 
 /** How many favourites get a ⌘-digit shortcut. Nine because ⌘0 is not a tenth — it is a different
@@ -206,6 +207,8 @@ function ModelPopover({ rows, info, anchorRef, onClose, onPick, onToggleFavorite
 
   const strip = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
+  useAutoHideScrollbar(strip);
+  useAutoHideScrollbar(list);
   const queried = useMemo(() => filterRows(rows, query), [rows, query]);
   const groups = useMemo(() => groupRows(queried, { query }), [queried, query]);
   const shown = useMemo(() => flatten(groups), [groups]);
@@ -423,6 +426,7 @@ function ModelDetail({ row, route, info, onRoute, onUse, effortItems, overflow, 
   const { note, catalog } = modelDetail(row, info);
   const harness = AGENT_NOTES[route];
   const body = useRef<HTMLDivElement>(null);
+  useAutoHideScrollbar(body);
   return (
     <div className="mp-detail" aria-live="polite">
       {/* Everything the model has to SAY scrolls; the two controls below it never do. A long blurb

@@ -1,7 +1,7 @@
 import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, shell, systemPreferences, Tray, type MenuItemConstructorOptions } from "electron";
-import { BrowserCredentialInputSchema, newId, type BrowserAction, type BrowserCredential, type MediaFile } from "@realm/contracts";
+import { BrowserCredentialInputSchema, newId, type BrowserAction, type BrowserCredential, type MediaFile, type Passkey } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { copyFile, writeFile } from "node:fs/promises";
+import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { spawn, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -37,6 +37,7 @@ import {
 } from "./mac-access";
 import { RealmUpdater, UPDATE_FEED_LIVE, updaterDecision } from "./updater";
 import { SecretStore, SecretStoreError } from "./secret-store";
+import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
 import { browseFolder, type BrowseResult } from "./browse";
 import { handleMediaProtocol, mediaPoster, registerMediaScheme, servablePath, statMedia } from "./media";
@@ -295,7 +296,33 @@ async function createWindow(info: { port: number; home: string; token: string })
   if (lastDaemonState) win.webContents.send("daemon:state", lastDaemonState);
   // Native trackpad phases for the space swiper (macOS; optional helper).
   const phases = startScrollPhaseStream(win);
-  const pane = createBrowserPane(win); // destroys its views on win "closed" itself
+  /**
+   * Passkeys (passkeys.ts). Electron gives a pane Chromium's WebAuthn API and no authenticator behind
+   * it, which is what a site reports as partial passkey support; the broker puts one there, holds the
+   * private keys in the same Keychain-sealed store the saved sign-ins live in, and puts Touch ID in
+   * front of every use.
+   *
+   * The reach into the store is a bag of bound methods rather than the store itself, for the reason
+   * the agent host's `secrets` is: nothing here can call `exportOauthKey`, and there is no key export
+   * for passkeys to call in the first place.
+   */
+  const passkeys = new PasskeyBroker({
+    pageUrl: (paneId) => browserPane?.pageState(paneId)?.url ?? null,
+    hasPasskeyFor: (rpId) => secrets()?.hasPasskeyFor(rpId) ?? false,
+    withPasskeysFor: async (rpId, kind, use) =>
+      secrets()?.withPasskeysFor(rpId, kind, use) ?? { ok: false, refused: "no_passkey" },
+    recordPasskey: (input) => { secrets()?.recordPasskey(input); },
+    notePasskeyUse: (credentialId, signCount) => { secrets()?.notePasskeyUse(credentialId, signCount); },
+    // Biometrics only, like every other presence check here: `promptTouchID` has no password
+    // fallback, so a Mac without a sensor is told so rather than shown a prompt that cannot pass.
+    canPromptPresence: () => process.platform === "darwin" && systemPreferences.canPromptTouchID(),
+    notify: (notice) => {
+      if (!win.isDestroyed()) win.webContents.send("realm:browser-passkey", notice);
+    },
+    audit: (entry) => secrets()?.audit(entry),
+    now: () => Date.now(),
+  });
+  const pane = createBrowserPane(win, (paneId, cdp) => passkeys.install(paneId, cdp)); // destroys its views on win "closed" itself
   browserPane = pane;
   browserHost = pane.host;
   // The agent executor (W3): drives the pane's views over in-process CDP for realm-server's
@@ -315,8 +342,12 @@ async function createWindow(info: { port: number; home: string; token: string })
       audit: (entry) => secrets()?.audit(entry),
     },
     downloads: downloadGovernor,
+    // The `upload` op's drop route, and nothing else. The path is already resolved, symlink-checked,
+    // confined and user-approved by the time it reaches here — realm-server did all of that before
+    // it raised the permission card — so this reads exactly what it was handed and decides nothing.
+    readFile: async (path) => new Uint8Array(await readFile(path)),
   });
-  pane.onViewDestroyed((id) => host.release(id));
+  pane.onViewDestroyed((id) => { host.release(id); passkeys.release(id); });
   agentHost = host;
   // Downloads on the browser partition are DEFAULT-DENY (Plan 11 W3), narrowed by Plan 23 to let
   // through exactly those covered by a live one-shot grant from an approved `browser_download`.
@@ -470,6 +501,16 @@ ipcMain.handle("credentials:add", (_e, input: unknown): BrowserCredential => {
   }
 });
 ipcMain.handle("credentials:remove", (_e, id: string): boolean => secrets()?.removeCredential(String(id)) ?? false);
+
+/**
+ * Settings → Sign-ins also lists the passkeys Realm holds, and this is the only way to remove one.
+ *
+ * Note the asymmetry with credentials, which is deliberate: there is no `passkeys:add`. A passkey is
+ * created by a site asking for one in a pane and the user answering Touch ID — there is nothing for a
+ * person to type, and nothing an agent could call to mint one.
+ */
+ipcMain.handle("passkeys:list", (): Passkey[] => secrets()?.listPasskeys() ?? []);
+ipcMain.handle("passkeys:remove", (_e, id: string): boolean => secrets()?.removePasskey(String(id)) ?? false);
 ipcMain.handle("credentials:set-presence-ttl", (_e, ms: number): number => secrets()?.setPresenceTtlMs(Number(ms)) ?? 0);
 
 ipcMain.handle("pick-folder", async () => {

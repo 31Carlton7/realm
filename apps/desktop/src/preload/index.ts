@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
-import type { BlockedDownload, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, BrowserPickedElement, MediaFile } from "@realm/contracts";
+import type { BlockedDownload, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, BrowserPickedElement, MediaFile, Passkey, PasskeyNotice } from "@realm/contracts";
 import type { TccRow } from "../main/tcc";
 import type { MacAccessStatus } from "../main/mac-access";
 import type { ComputerAccessStatus } from "../main/computer-access";
@@ -190,6 +190,12 @@ contextBridge.exposeInMainWorld("realm", {
     /** Resolves the value main actually stored — clamped, so a stale renderer learns the truth. */
     setPresenceTtl: (ms: number): Promise<number> => ipcRenderer.invoke("credentials:set-presence-ttl", ms),
   },
+  /** Settings → Sign-ins, the passkey half. Read and forget only: there is no `add`, because a
+   *  passkey is created by a site asking for one and the user answering Touch ID. */
+  passkeys: {
+    list: (): Promise<Passkey[]> => ipcRenderer.invoke("passkeys:list"),
+    remove: (id: string): Promise<boolean> => ipcRenderer.invoke("passkeys:remove", id),
+  },
   /**
    * The system clipboard, read only, for the machine pane's Paste row (Plan 25 W7).
    *
@@ -246,6 +252,13 @@ contextBridge.exposeInMainWorld("realm", {
       const handler = (_e: IpcRendererEvent, m: { browserId: string; blocked: BlockedDownload }) => cb(m);
       ipcRenderer.on("realm:browser-download-blocked", handler);
       return () => ipcRenderer.removeListener("realm:browser-download-blocked", handler);
+    },
+    /** A passkey request the pane refused, so a sign-in that goes nowhere says why. Every field is
+     *  Realm's own — `rpId` is derived from the pane's URL in main, never from the page. */
+    onPasskey: (cb: (m: PasskeyNotice) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, m: PasskeyNotice) => cb(m);
+      ipcRenderer.on("realm:browser-passkey", handler);
+      return () => ipcRenderer.removeListener("realm:browser-passkey", handler);
     },
   },
 });

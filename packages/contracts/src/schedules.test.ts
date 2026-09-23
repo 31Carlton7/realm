@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { CRON_PRESETS, describeCron, matchesCron, nextCronFire, nextFireOf, parseCron } from "./schedules";
+import {
+  CRON_PRESETS, describeSchedule, isOnce, matchesCron, momentInputValue, nextCronFire, nextFireOf,
+  onceExpr, parseCron, parseMoment, parseOnce,
+} from "./schedules";
 
 const at = (y: number, m: number, d: number, h = 0, min = 0) => new Date(y, m - 1, d, h, min).getTime();
 const show = (ts: number | null) => (ts === null ? null : new Date(ts).toString().slice(0, 24));
@@ -131,19 +134,96 @@ describe("nextCronFire", () => {
   });
 });
 
-describe("describeCron", () => {
+describe("describeSchedule", () => {
   it("reads back the shapes the picker itself writes", () => {
-    expect(describeCron("0 9 * * *")).toBe("Every day at 09:00");
-    expect(describeCron("0 9 * * 1-5")).toBe("Weekdays at 09:00");
-    expect(describeCron("30 17 * * 1")).toBe("Monday at 17:30");
-    expect(describeCron("0 9 1 * *")).toBe("Day 1 of each month at 09:00");
-    expect(describeCron("15 * * * *")).toBe("Every hour at :15");
+    expect(describeSchedule("0 9 * * *")).toBe("Every day at 09:00");
+    expect(describeSchedule("0 9 * * 1-5")).toBe("Weekdays at 09:00");
+    expect(describeSchedule("30 17 * * 1")).toBe("Monday at 17:30");
+    expect(describeSchedule("0 9 1 * *")).toBe("Day 1 of each month at 09:00");
+    expect(describeSchedule("15 * * * *")).toBe("Every hour at :15");
   });
 
   it("shows the expression itself rather than a subtly wrong sentence", () => {
     // A general cron-to-prose translator gets the gnarly cases wrong, and a wrong description of
     // when unattended work runs is worse than the expression the user typed.
-    expect(describeCron("0 9,17 * 3-5 2")).toBe("0 9,17 * 3-5 2");
-    expect(describeCron("not a cron")).toBe("not a cron");
+    expect(describeSchedule("0 9,17 * 3-5 2")).toBe("0 9,17 * 3-5 2");
+    expect(describeSchedule("not a cron")).toBe("not a cron");
+  });
+});
+
+describe("once — the one-shot spelling", () => {
+  it("round-trips a moment through the token", () => {
+    const t = at(2026, 9, 30, 13);
+    expect(parseOnce(onceExpr(t))).toBe(t);
+    expect(isOnce(onceExpr(t))).toBe(true);
+    expect(isOnce("0 9 * * *")).toBe(false);
+  });
+
+  it("refuses every number spelling that is not plain digits", () => {
+    // Each of these has a "helpful" Number() reading, and taking it would schedule unattended work
+    // at a moment nobody wrote. `once:0` is the epoch, which is not a thing anyone is scheduling.
+    for (const bad of ["once:", "once:1e12", "once:0x10", "once:+1", "once:-1", "once:1.5", "once: 1", "once:0", "once:abc", "0 9 * * *"]) {
+      expect(parseOnce(bad), bad).toBeNull();
+    }
+  });
+
+  it("is a next fire until its moment, and null forever after", () => {
+    // THE MUTANT: `>=` instead of `>`. `claimDue` writes `nextFireOf(now)` back the instant it fires,
+    // so an inclusive comparison hands the same moment back and the one-shot runs every minute.
+    const t = at(2026, 9, 30, 13);
+    const expr = onceExpr(t);
+    expect(nextFireOf(expr, t - 60_000)).toBe(t);
+    expect(nextFireOf(expr, t)).toBeNull();
+    expect(nextFireOf(expr, t + 1)).toBeNull();
+  });
+
+  it("reads back as a sentence carrying its moment, because nothing else will after it fires", () => {
+    // A fired one-shot has no next occurrence for the row's meta line to show. If this sentence did
+    // not hold the date, the row would have lost the one fact it was ever about.
+    const june = at(2026, 6, 1, 12);
+    expect(describeSchedule(onceExpr(at(2026, 9, 30, 13, 5)), june)).toBe("Once, on Sep 30 at 1:05 PM");
+    // A different year is named. "Once, on Jan 2" a year out is a date a reader would get wrong.
+    expect(describeSchedule(onceExpr(at(2027, 1, 2, 9)), june)).toBe("Once, on Jan 2, 2027 at 9:00 AM");
+  });
+});
+
+describe("parseMoment", () => {
+  it("reads a local wall-clock moment, with or without seconds or a T", () => {
+    expect(parseMoment("2026-09-30T13:00")).toBe(at(2026, 9, 30, 13));
+    expect(parseMoment("2026-09-30 13:00")).toBe(at(2026, 9, 30, 13));
+    expect(parseMoment("2026-09-30T13:00:30")).toBe(at(2026, 9, 30, 13) + 30_000);
+    expect(parseMoment("  2026-09-30T13:00  ")).toBe(at(2026, 9, 30, 13));
+  });
+
+  it("refuses a bare date rather than inventing a time of day", () => {
+    // THE MUTANT: fall through to `Date.parse`. That reads "2026-09-30" as UTC midnight while the
+    // string one character longer is LOCAL — the zone changes silently with the length of the input —
+    // and midnight is when nobody is awake to answer the permission prompt the run will raise.
+    expect(parseMoment("2026-09-30")).toBeNull();
+    expect(parseMoment("Sep 30 2026 1pm")).toBeNull();
+    expect(parseMoment("")).toBeNull();
+  });
+
+  it("refuses the calendar's impossible days and hours instead of rolling past them", () => {
+    // `new Date(2026, 1, 30)` is March 2nd, silently. Reading the fields back is what makes it a
+    // refusal — a schedule that fires two days off is worse than one that will not save.
+    expect(parseMoment("2026-02-30T09:00")).toBeNull();
+    expect(parseMoment("2026-09-30T25:00")).toBeNull();
+    expect(parseMoment("2026-09-30T13:60")).toBeNull();
+  });
+
+  it("trusts the language's parser only where the string carries a zone", () => {
+    expect(parseMoment("2026-09-30T13:00:00Z")).toBe(Date.parse("2026-09-30T13:00:00Z"));
+    expect(parseMoment("2026-09-30T13:00:00+02:00")).toBe(Date.parse("2026-09-30T13:00:00+02:00"));
+    expect(parseMoment("2026-09-30T13:00:00+0200")).toBe(Date.parse("2026-09-30T13:00:00+0200"));
+  });
+
+  it("round-trips whatever the datetime-local input writes", () => {
+    // THE MUTANT: build the input value from `toISOString`, which is UTC. Every picker east or west
+    // of Greenwich would then show a time hours from the one stored, and editing a schedule would
+    // move it without anyone touching the field.
+    const t = at(2026, 9, 30, 13, 5);
+    expect(momentInputValue(t)).toBe("2026-09-30T13:05");
+    expect(parseMoment(momentInputValue(t))).toBe(t);
   });
 });

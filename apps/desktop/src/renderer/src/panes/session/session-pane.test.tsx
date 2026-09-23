@@ -429,6 +429,41 @@ describe("SessionPane", () => {
     expect(screen.getByText("/a/b.ts")).toBeInTheDocument();
   });
 
+  it("puts the command that fixes an auth failure under the message that reports it", async () => {
+    // The screenshot this came from: a red block saying the OAuth session expired, and nothing at
+    // all to do about it. The command is offered to COPY and no more — "Check again" and "Open in
+    // terminal" act on the session, and those live on the prompter.
+    await mount("idle", reduceAll([
+      sessionEvent("error", {
+        message: "Claude could not authenticate. Claude reports that it is signed in.",
+        failure: "auth",
+        fix: { title: "Claude could not authenticate", hint: "…", command: "claude auth login" },
+      }),
+    ]));
+    expect(screen.getByRole("alert")).toHaveTextContent("could not authenticate");
+    expect(screen.getByText("claude auth login")).toBeInTheDocument();
+    expect(screen.getByLabelText("Copy command")).toBeInTheDocument();
+  });
+
+  it("leaves an ordinary error exactly as bare as it was", async () => {
+    // The mutant this catches: render the fix row unconditionally. Every error in the app grows an
+    // empty command frame, and most errors have no fix to offer.
+    await mount("idle", reduceAll([sessionEvent("error", { message: "TypeError: x is not a function" })]));
+    expect(screen.getByRole("alert")).toHaveTextContent("TypeError");
+    expect(screen.queryByLabelText("Copy command")).toBeNull();
+  });
+
+  it("says what a re-auth wait is waiting on, rather than just 'Retrying'", async () => {
+    // Under a message that just said the session expired, a bare "Retrying…" reads as Realm having
+    // ignored it. Realm re-read the agent's sign-in and found it sound; that is the fact that makes
+    // another attempt sensible, so it is the one on screen.
+    await mount("running", reduceAll([
+      sessionEvent("error", { message: "OAuth session expired", failure: "auth" }),
+      sessionEvent("retrying", { reason: "auth", attempt: 1, waitMs: 2000 }),
+    ]));
+    expect(screen.getByText(/Signed in — trying again/)).toBeInTheDocument();
+  });
+
   it("carries the easter-egg switch to the two places in the pane that can wear it", async () => {
     // THE unwired-flag mutant: leave `easterEggs` on the store and never read it here. Every unit
     // below this passes — the label function takes the flag, the picker takes the prop — and the

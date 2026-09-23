@@ -6,7 +6,7 @@ import {
   Tick01Icon, Delete02Icon, PencilEdit02Icon, Sun03Icon, Moon02Icon, RefreshIcon,
   SentIcon, StopIcon, SparklesIcon, ArrowDown01Icon, ArrowDown02Icon, ArrowUp02Icon, CheckmarkCircle02Icon, CancelCircleIcon,
   Alert02Icon, BotIcon, Wrench01Icon, CodeIcon, IdeaIcon, Copy01Icon, Attachment01Icon, Image01Icon,
-  Task01Icon, GitBranchIcon, GitCompareIcon, GitCommitIcon, GitPullRequestIcon, LaptopIcon, PlugSocketIcon,
+  Task01Icon, GitBranchIcon, GitCompareIcon, GitCommitIcon, GitPullRequestIcon, LaptopIcon, PlugSocketIcon, QuoteUpIcon,
   Layout2ColumnIcon, Layout2RowIcon, BookOpen01Icon, Notification02Icon, Download04Icon,
   // Space icon picker's "Default" section (SPACE_ICONS, packages/contracts/src/presets.ts) — every
   // name there must have a matching key below.
@@ -50,6 +50,10 @@ export const icons = {
      familiar symbol over a new illustration, and honest about which it is. */
   caduceus: CaduceusIcon,
   copy: Copy01Icon, plan: Task01Icon, attach: Attachment01Icon, image: Image01Icon, reload: RefreshIcon,
+  /* The opening quotation mark, for quoting a passage of the transcript into the prompter. The
+     leading mark rather than `QuoteDown`: it is the one a reader sees at the START of a quotation,
+     and the pair reads as punctuation rather than as an apostrophe only in that orientation. */
+  quote: QuoteUpIcon,
   thumbsUp: ThumbsUpIcon, thumbsDown: ThumbsDownIcon, info: InformationCircleIcon,
   branch: GitBranchIcon, diff: GitCompareIcon, commit: GitCommitIcon, pullRequest: GitPullRequestIcon,
   splitRight: Layout2ColumnIcon, splitDown: Layout2RowIcon,

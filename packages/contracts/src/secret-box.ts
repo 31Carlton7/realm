@@ -35,13 +35,19 @@
  * is Realm's own and a plaintext row is a recoverable inconvenience; a VNC password is frequently
  * the user's login, and writing one into `realm.db` in the clear is not a degradation anybody asked
  * for.
+ *
+ * `passkey` is the narrowest of all of them. It seals WebAuthn private keys, it is minted and held
+ * only by Electron main, and unlike `credential` its plaintext does not even become key events — it
+ * goes into a pane's virtual authenticator over in-process CDP and is cleared out again when the
+ * request the user approved has settled. There is no `exportPasskeyKey`, and there is no shape in
+ * `@realm/contracts` with a field a private key could be serialized into.
  */
 import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from "node:crypto";
 
 /** Domain → the byte written into the header and mixed in as AAD. Codes are permanent: changing one
  *  makes every existing blob of that domain unopenable, which for credentials means silent data
  *  loss the user only discovers at a sign-in prompt. Add, never renumber. */
-export const SECRET_DOMAINS = { oauth: 1, credential: 2, machine: 3, eggs: 4 } as const;
+export const SECRET_DOMAINS = { oauth: 1, credential: 2, machine: 3, eggs: 4, passkey: 5 } as const;
 export type SecretDomain = keyof typeof SECRET_DOMAINS;
 
 const VERSION = 1;
