@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { basenameOf } from "@realm/contracts";
 import { useApp } from "../../state/store";
+import { useScrollMemory } from "../scroll-memory";
 
 /**
  * A Word, Excel, PowerPoint or iWork file, shown as the picture macOS renders of it.
@@ -22,10 +23,13 @@ import { useApp } from "../../state/store";
  * `version` is the buffer's disk hash, so an agent rewriting the file re-renders it: the URL changes,
  * the browser fetches, and the server's own cache key is the file's mtime and size.
  */
-export function QuickLookView({ documentsId, path, version }: {
-  documentsId: string; path: string; version: string | null;
+export function QuickLookView({ documentsId, path, version, scrollKey }: {
+  documentsId: string; path: string; version: string | null; scrollKey?: string | null;
 }) {
   const previewInfo = useApp((s) => s.previewInfo);
+  /* Unlike the framed previews this is an `<img>` in an ordinary div, so the reader's place is a
+     number on an element the pane can touch — the hook attaches and nothing else is needed. */
+  const viewScroll = useScrollMemory(scrollKey ?? null);
   const [info, setInfo] = useState<{ port: number; token: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Reset on every new render request: a file that failed once and has since been fixed must not
@@ -57,7 +61,7 @@ export function QuickLookView({ documentsId, path, version }: {
     );
   }
   return (
-    <div className="ql-view">
+    <div className="ql-view" ref={viewScroll}>
       <img className="ql-page" src={src} alt={`Preview of ${basenameOf(path)}`} onError={() => setFailed(true)} />
       {/* Under the render, not over it: the limit is worth knowing before you try to select text,
           and it must not sit on top of the document it is describing. */}

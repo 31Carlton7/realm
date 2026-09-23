@@ -32,6 +32,12 @@
  * total}` to the pane, which folds it into the guide's sidecar and answers with
  * `{type:"realm-guide:progress", progress}`; the runtime shows best/last per topic. The frame's
  * origin is opaque, so this bridge is the ONLY persistence a guide has.
+ *
+ * Reading position rides the same bridge. The frame is cross-origin, so the pane cannot read its
+ * scroller and `scroll-memory.ts` — which works by touching the element — has nothing to attach to.
+ * Instead the runtime posts `{type:"realm-guide:scroll", top}` as the reader moves and applies a
+ * `top` sent back to it, which makes the guide the one framed preview that can come back where it
+ * was left. A PDF cannot do this: Chromium renders it in a nested viewer that runs no script of ours.
  */
 
 export const GUIDE_JS = String.raw`(function () {
@@ -209,12 +215,40 @@ export const GUIDE_JS = String.raw`(function () {
     Array.prototype.forEach.call(document.querySelectorAll(".rg-steps"), setupSteps);
     Array.prototype.forEach.call(document.querySelectorAll(".rg-flashcards"), setupCards);
     renderMath();
+    // Coalesced to a frame: a scroll fires per wheel notch, and one postMessage per notch would be
+    // hundreds of messages to carry a number only the last of which matters.
+    var pending = false;
+    window.addEventListener("scroll", function () {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(function () {
+        pending = false;
+        post({ type: "realm-guide:scroll", top: window.scrollY || document.documentElement.scrollTop || 0 });
+      });
+    }, { passive: true });
     post({ type: "realm-guide:ready" });
   }
 
   window.addEventListener("message", function (e) {
     var d = e && e.data;
-    if (!d || d.type !== "realm-guide:progress" || !d.progress || !d.progress.topics) return;
+    if (!d) return;
+    if (d.type === "realm-guide:scroll") {
+      // The document can be shorter than the offset it is being asked for — KaTeX and images both
+      // land after the ready post — so the write is repeated while the page is still growing, and
+      // stops the moment it takes or the reader moves themselves.
+      if (typeof d.top !== "number" || d.top <= 0) return;
+      var until = Date.now() + 1000, stop = false;
+      var quit = function () { stop = true; };
+      window.addEventListener("wheel", quit, { once: true, passive: true });
+      window.addEventListener("keydown", quit, { once: true });
+      (function land() {
+        if (stop || Date.now() > until) return;
+        window.scrollTo(0, d.top);
+        if (Math.abs((window.scrollY || 0) - d.top) > 1) requestAnimationFrame(land);
+      })();
+      return;
+    }
+    if (d.type !== "realm-guide:progress" || !d.progress || !d.progress.topics) return;
     progress = d.progress;
     Array.prototype.forEach.call(document.querySelectorAll(".rg-quiz"), renderBadge);
   });

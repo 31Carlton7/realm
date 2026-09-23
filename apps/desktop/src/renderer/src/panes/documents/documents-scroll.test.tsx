@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { Item } from "@realm/contracts";
 
 /** The pane subscribes to `documents.fileChanged` through the rpc singleton, which needs a real
@@ -18,9 +18,9 @@ const paneItem: Item = item("i1", "s1", { kind: "documents", title: "Documents",
  * scrolled" is a state no test could be in. Stage a scroll offset on `.documents-source` that
  * actually stores what is written to it — and a height, so a restore is not silently clamped.
  */
-function stageSource({ height = 4000, view = 600 } = {}) {
+function stageSource({ height = 4000, view = 600, cls = "documents-source" } = {}) {
   const tops = new WeakMap<HTMLElement, number>();
-  const mine = (el: unknown) => el instanceof HTMLElement && el.classList.contains("documents-source");
+  const mine = (el: unknown) => el instanceof HTMLElement && el.classList.contains(cls);
   Object.defineProperty(HTMLElement.prototype, "scrollHeight", { configurable: true, get() { return mine(this) ? height : 0; } });
   Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get() { return mine(this) ? view : 0; } });
   Object.defineProperty(HTMLElement.prototype, "scrollTop", {
@@ -67,6 +67,28 @@ async function sourceFor(name: string) {
  * coming back is a fresh mount over a workspace the server still has. Unmount/remount against one
  * store is that round trip exactly.
  */
+describe("a Quick Look render's scroll position", () => {
+  it("puts the reader back where they were in a rendered page", async () => {
+    /* A .docx has no source view to fall back to — the render IS the document — so losing the
+       offset here loses the only position there was. THE MUTANT: drop the ref from `.ql-view`. The
+       hook still runs, the mark is still kept, and the reader still comes back to the top.
+
+       The div is an ordinary scroller, unlike the framed previews: this is the reason a Quick Look
+       render can use the hook at all and a PDF cannot. */
+    const staged = stageSource({ cls: "ql-view" });
+    const store = makeStore({ "report.docx": "" }, ["report.docx"], "report.docx");
+    const { unmount } = render(pane(store));
+    const view = await screen.findByAltText("Preview of report.docx");
+    staged.readerScrollsTo(view.closest(".ql-view") as HTMLElement, 900);
+
+    unmount();
+    render(pane(store));
+
+    const reborn = await screen.findByAltText("Preview of report.docx");
+    await waitFor(() => expect(staged.topOf(reborn.closest(".ql-view") as HTMLElement)).toBe(900));
+  });
+});
+
 describe("a document's scroll position across a space switch", () => {
   it("puts the reader back where they were in the file", async () => {
     const staged = stageSource();

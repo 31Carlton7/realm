@@ -495,12 +495,14 @@ function Editor({ buffer, kind, mode, documentsId, onChange, onSave }: {
     <div className="documents-editor" data-kind={kind}>
       <div className="documents-surface">
         {showStructured && structured === "render" ? (
-          <QuickLookView key={buffer.path} documentsId={documentsId} path={buffer.path} version={buffer.baseHash} />
+          <QuickLookView key={buffer.path} documentsId={documentsId} path={buffer.path} version={buffer.baseHash}
+            scrollKey={`doc:${documentsId}:render:${buffer.path}`} />
         ) : showStructured && (structured === "preview" || structured === "pdf") ? (
           // The frame reloads on the DISK hash: while the user edits the source, the preview keeps
           // showing the last saved version, and the autosave tick (or an agent's write) refreshes it.
           <PreviewFrame key={buffer.path} documentsId={documentsId} path={buffer.path}
-            kind={structured === "pdf" ? "pdf" : "html"} version={buffer.baseHash} />
+            kind={structured === "pdf" ? "pdf" : "html"} version={buffer.baseHash}
+            scrollKey={`doc:${documentsId}:preview:${buffer.path}`} />
         ) : showStructured ? (
           <Suspense fallback={<div className="pane-placeholder muted">Loading editor…</div>}>
             {/* Keyed by path so switching documents remounts the editor rather than diffing one
