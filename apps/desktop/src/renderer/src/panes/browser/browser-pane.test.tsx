@@ -436,7 +436,7 @@ describe("action ticker + driving dot (W4)", () => {
  */
 describe("the blocked-download bar (Plan 23 W4)", () => {
   const blocked = (over: Partial<BlockedDownload> = {}): BlockedDownload =>
-    ({ id: "bd_1", name: "week-3.pdf", retryable: true, ts: 1, ...over });
+    ({ id: "bd_1", name: "week-3.pdf", ts: 1, ...over });
 
   async function mountPane() {
     const f = fakeBridges();
@@ -466,14 +466,17 @@ describe("the blocked-download bar (Plan 23 W4)", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Saved week-3.pdf to downloads/");
   });
 
-  it("a NON-retryable type is shown but offers no Save button (mutant: a button that cannot work)", async () => {
+  it("offers Save for an executable too — no type is shown as a dead end any more", async () => {
     const f = await mountPane();
-    await act(async () => { f.blockDownload(blocked({ name: "installer.dmg", retryable: false })); });
+    await act(async () => { f.blockDownload(blocked({ id: "bd_2", name: "installer.dmg" })); });
 
     const bar = screen.getByRole("status");
     expect(bar).toHaveTextContent("installer.dmg");
-    expect(bar).toHaveTextContent("doesn't save this file type");
-    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    // The mutant this catches is the old copy coming back: a bar that tells the user Realm will not
+    // save this, beside a button that will.
+    expect(bar).not.toHaveTextContent("file type");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save" })); });
+    expect(f.calls).toContain("save:b1:bd_2:/tmp/proj/downloads");
   });
 
   it("a space with no project says so rather than inventing a destination", async () => {

@@ -37,6 +37,12 @@ describe("safeAttachmentName", () => {
     expect(safeAttachmentName("///")).toBe("pasted");
     expect(safeAttachmentName("...")).toBe("pasted");
   });
+
+  it("lets the caller name that fallback — a download is not a paste", () => {
+    expect(safeAttachmentName("...", "download")).toBe("download");
+    // Only the empty case takes it: a real name is never replaced by the caller's word.
+    expect(safeAttachmentName("notes", "download")).toBe("notes");
+  });
   it("bounds the length", () => {
     expect(safeAttachmentName("x".repeat(500)).length).toBe(120);
   });

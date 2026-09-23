@@ -6,7 +6,7 @@ import { BlockedDownloads, DownloadGovernor, decideDownload, retryBlockedDownloa
  * Plan 23's named mutants. Each is a one-line change to `downloads.ts` that one of these must catch:
  *
  *   1. a path escape via a page-authored filename;
- *   2. the extension allowlist inverted, dropped, or read from the wrong end of the name;
+ *   2. a file-type test creeping back into the gate, refusing what the user asked for;
  *   3. a grant outliving its op (a later page-initiated download riding it);
  *   4. the size cap read from `getTotalBytes()` instead of received bytes;
  *   5. origin drift between approval and download;
@@ -50,18 +50,35 @@ describe("decideDownload — the gate", () => {
     }
   });
 
-  it("MUTANT 2: executables are refused — including one hiding behind a document extension", () => {
-    for (const filename of ["setup.dmg", "install.pkg", "run.command", "x.sh", "a.scpt", "tool.jar", "app.exe", "notes.pdf.command", "README", ".bashrc", "trailing."]) {
+  it("MUTANT 2: a grant covers ANY file type — an executable, an unheard-of format, no extension at all", () => {
+    // The allowlist is gone on purpose. What the user approved is what gets written, and the reason
+    // that is safe has nothing to do with the name: no grant, no file (every test above this one).
+    for (const filename of ["setup.dmg", "install.pkg", "run.command", "x.sh", "tool.jar", "app.exe",
+      "archive.7z", "notebook.ipynb", "model.safetensors", "x.someformatinventedin2029", "README"]) {
       expect(decideDownload({ grant: grant(), url: "https://example.com/x", filename, now: NOW }), filename)
-        .toEqual({ allow: false, refused: "download_blocked" });
+        .toEqual({ allow: true, name: filename });
     }
   });
 
-  it("MUTANT 2: the allowlist reads the FINAL extension, case-insensitively", () => {
-    expect(decideDownload({ grant: grant(), url: "https://example.com/x", filename: "Lecture 3.PDF", now: NOW }).allow).toBe(true);
-    // The inverse of the trap above: a .command masquerading as a pdf is still a .command.
-    expect(decideDownload({ grant: grant(), url: "https://example.com/x", filename: "safe.command.pdf", now: NOW }).allow).toBe(true);
-    expect(decideDownload({ grant: grant(), url: "https://example.com/x", filename: "safe.pdf.command", now: NOW }).allow).toBe(false);
+  it("MUTANT 2: the name is passed through as written, case and all — no extension is read at all", () => {
+    for (const filename of ["Lecture 3.PDF", "safe.command.pdf", "safe.pdf.command"]) {
+      expect(decideDownload({ grant: grant(), url: "https://example.com/x", filename, now: NOW }), filename)
+        .toEqual({ allow: true, name: filename });
+    }
+  });
+
+  it("MUTANT 1: a name that is nothing but dots names a file, never a directory entry", () => {
+    // The extension test used to refuse these on its way past; `safeAttachmentName` is now the only
+    // thing between them and a path, so what it produces is asserted rather than assumed.
+    const name = (filename: string) => {
+      const d = decideDownload({ grant: grant(), url: "https://example.com/x", filename, now: NOW });
+      expect(d.allow, filename).toBe(true);
+      return d.allow ? d.name : "";
+    };
+    expect(name(".")).toBe("download");
+    expect(name("..")).toBe("download");
+    expect(name("....")).toBe("download");
+    expect(name(".bashrc")).toBe("bashrc"); // a dotfile loses the dot rather than being written as one
   });
 
   it("an opaque URL has no origin to match and is refused", () => {
@@ -230,7 +247,6 @@ describe("DownloadGovernor", () => {
 
 /**
  * The point of W4 is that a blocked download stops being SILENT. Its mutants:
- *   - a Save button offered for something the allowlist would refuse anyway (a button that lies);
  *   - the page-authored filename reaching the bar unsanitized;
  *   - the retry bypassing the governor (writing without a grant);
  *   - an entry surviving its take, so one approval fetches twice.
@@ -243,16 +259,22 @@ describe("BlockedDownloads", () => {
     const b = make();
     const entry = b.note("b1", "https://example.com/x", "../../week 3.pdf")!;
     expect(entry.name).toBe("week 3.pdf");
-    expect(entry.retryable).toBe(true);
     // The URL never crosses into what the renderer is handed.
-    expect(Object.keys(entry).sort()).toEqual(["id", "name", "retryable", "ts"]);
+    expect(Object.keys(entry).sort()).toEqual(["id", "name", "ts"]);
   });
 
-  it("SHOWS a refused file type but never offers to save it (a Save button that cannot work is a lie)", () => {
+  it("offers every type it remembers — there is no longer a shown-but-unofferable class", () => {
     const b = make();
-    const entry = b.note("b1", "https://example.com/x", "installer.dmg")!;
-    expect(entry.name).toBe("installer.dmg");
-    expect(entry.retryable).toBe(false);
+    for (const name of ["installer.dmg", "run.command", "notes"]) {
+      expect(b.note("b1", "https://example.com/x", name)!.name, name).toBe(name);
+    }
+    expect(b.list("b1")).toHaveLength(3);
+  });
+
+  it("says nothing about an item with no address to re-request", () => {
+    const b = make();
+    expect(b.note("b1", "blob:https://example.com/abc", "x.pdf")).toBeNull();
+    expect(b.list("b1")).toEqual([]);
   });
 
   it("keeps entries per pane, newest last, capped", () => {
@@ -334,18 +356,18 @@ describe("retryBlockedDownload — the user's Save button", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("REFUSES a non-retryable type even though the user asked — the allowlist is not a suggestion", async () => {
+  it("saves a type the allowlist used to refuse, because the user asked for it by name", async () => {
     const { governor } = makeGovernor();
     const blocked = new BlockedDownloads(() => NOW);
     const entry = blocked.note("b1", "https://example.com/x.dmg", "x.dmg")!;
-    let fetched = false;
+    const f = fakeItem({ url: "https://example.com/x.dmg", filename: "x.dmg" });
 
     const result = await retryBlockedDownload(governor, blocked, {
       browserId: "b1", id: entry.id, dir: "/tmp/d", now: () => NOW,
-      downloadURL: () => { fetched = true; },
+      downloadURL: () => { governor.handle("b1", f.item); f.finish(); },
     });
-    expect(result).toMatchObject({ ok: false, refused: "download_blocked" });
-    expect(fetched).toBe(false);
+    expect(result).toMatchObject({ ok: true, name: "x.dmg", relPath: "downloads/x.dmg" });
+    expect(f.state.savePath).toBe("/tmp/d/x.dmg");
   });
 
   it("an entry that expired or was already saved fails honestly", async () => {

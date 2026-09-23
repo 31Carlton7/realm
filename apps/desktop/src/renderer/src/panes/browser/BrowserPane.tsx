@@ -1,4 +1,4 @@
-import type { BlockedDownload, PasskeyNotice, BrowserPickedElement } from "@realm/contracts";
+import type { BlockedDownload, BrowserPickedElement, PasskeyNotice } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { StoreApi } from "zustand";
@@ -455,11 +455,10 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
             {downloads.note ?? (
               <>
                 Blocked a download: <strong>{downloads.top!.name}</strong>
-                {!downloads.top!.retryable && " — Realm doesn't save this file type"}
               </>
             )}
           </span>
-          {downloads.top?.retryable && (
+          {downloads.top && (
             <button type="button" className="btn-quiet" disabled={downloads.busy}
               onClick={() => { void downloads.save(downloads.top!); }}>
               {downloads.busy ? "Saving…" : "Save"}

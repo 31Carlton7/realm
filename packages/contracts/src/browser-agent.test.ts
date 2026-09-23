@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  BROWSER_READ_ONLY_TOOLS, CREDENTIAL_PRESENCE_TTLS, DOWNLOAD_ALLOWED_EXTENSIONS,
-  downloadExtensionAllowed, normalizeOrigin, passkeyRpIdForPageUrl,
+  BROWSER_READ_ONLY_TOOLS, CREDENTIAL_PRESENCE_TTLS, normalizeOrigin, passkeyRpIdForPageUrl,
 } from "./browser-agent";
 
 /**
@@ -71,52 +70,6 @@ describe("CREDENTIAL_PRESENCE_TTLS", () => {
   });
 });
 
-/**
- * The download allowlist. Its whole job is to bound what "an agent reads the web" can turn into, so
- * the test that matters is not "does .pdf pass" but "does anything that executes on double-click
- * get in" — including through the name tricks that make a denylist useless.
- */
-describe("downloadExtensionAllowed", () => {
-  it("permits the document, archive and media types the feature exists for", () => {
-    for (const name of ["lecture.pdf", "notes.DOCX", "slides.pptx", "data.csv", "readme.md", "bundle.zip", "figure.png", "recording.mp4"]) {
-      expect(downloadExtensionAllowed(name), name).toBe(true);
-    }
-  });
-
-  it("refuses everything that executes on double-click, named or not", () => {
-    for (const name of [
-      "setup.dmg", "install.pkg", "app.exe", "x.msi", "run.command", "s.sh", "s.bash", "s.zsh",
-      "a.scpt", "a.applescript", "t.terminal", "w.workflow", "l.webloc", "j.jar", "p.ps1", "b.bat",
-      "app.app", "k.kext", "d.dylib", "s.so",
-    ]) {
-      expect(downloadExtensionAllowed(name), name).toBe(false);
-    }
-  });
-
-  it("reads the FINAL extension — the trick a denylist gets wrong", () => {
-    expect(downloadExtensionAllowed("safe.command.pdf")).toBe(true);
-    expect(downloadExtensionAllowed("lecture.pdf.command")).toBe(false);
-    expect(downloadExtensionAllowed("a.b.c.d.dmg")).toBe(false);
-  });
-
-  it("refuses a name with no usable extension at all", () => {
-    for (const name of ["README", "", "   ", ".", "..", ".bashrc", "trailing.", "no-extension-here"]) {
-      expect(downloadExtensionAllowed(name), JSON.stringify(name)).toBe(false);
-    }
-  });
-
-  it("is an ALLOWLIST, not a denylist — an extension nobody enumerated is refused", () => {
-    // The property that makes this safe as the format landscape changes: unknown means no.
-    for (const name of ["x.someformatinventedin2029", "y.zzz", "z.øµ"]) {
-      expect(downloadExtensionAllowed(name), name).toBe(false);
-    }
-  });
-
-  it("the list itself contains nothing executable (guards a careless addition)", () => {
-    const executable = ["exe", "dmg", "pkg", "app", "command", "sh", "bash", "zsh", "bat", "ps1", "msi", "jar", "scpt", "applescript", "workflow", "webloc", "terminal", "kext", "dylib", "so", "py", "rb", "pl"];
-    for (const bad of executable) expect(DOWNLOAD_ALLOWED_EXTENSIONS, bad).not.toContain(bad);
-  });
-});
 
 /**
  * `passkeyRpIdForPageUrl` is the passkey half of the same gate `normalizeOrigin` is for passwords,
