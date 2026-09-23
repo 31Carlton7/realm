@@ -2551,7 +2551,7 @@ describe("the page measure", () => {
     // that names it stays at the pane's left edge, introducing nothing.
     const band = RULES.filter((r) => r.selectors.includes(".page-head") && r.body.includes("margin-inline: auto"));
     expect(band).toHaveLength(1);
-    for (const sel of [".page-body", ".profile-spaces"]) expect(band[0]!.selectors).toContain(sel);
+    expect(band[0]!.selectors).toContain(".page-body");
     // The load-bearing one: an auto cross-axis margin switches a flex item's stretch OFF, so without
     // an explicit width each band shrinks to fit its own longest line instead of filling the cap.
     expect(band[0]!.body).toContain("width: 100%");
@@ -2591,16 +2591,20 @@ describe("the page measure", () => {
     for (const [sel, value] of MEASURES) expect(value, sel).toBeGreaterThan(760);
   });
 
-  it("the profile page's chip strip is a band of the page, and can still shed its gutter when narrow", () => {
-    // Its own rule sits BELOW the narrow block. Stated there, `padding-inline: 24px` would beat the
-    // query's 16px — a container query carries no extra specificity — and the chips would hang past
-    // the head at every narrow width.
-    const base = css.indexOf(".profile-spaces { padding-inline: 24px");
-    const narrow = css.indexOf(".profile-spaces { padding-inline: 16px");
+  it("the rail's two lists lie down with the rail, and the gap between them outranks the gap inside", () => {
+    /* The rail turns into a horizontal strip under 640px. THE MUTANT: leave `.page-rail-list` a
+       column there and the strip becomes two short stacks side by side, which reads as a layout
+       accident rather than as one row of destinations. */
+    const narrow = css.indexOf(".page-rail-list { flex-direction: row");
+    const base = css.indexOf(".page-rail-list { display: flex; flex-direction: column");
     expect(base).toBeGreaterThan(-1);
-    expect(narrow).toBeGreaterThan(base);
-    // A `margin` shorthand anywhere would zero the auto that centres it.
-    for (const body of bodiesFor(".profile-spaces")) expect(body, body).not.toMatch(/(^|;\s*)margin:/);
+    expect(narrow).toBeGreaterThan(base); // and inside the container query, which follows it
+    // Rows inside a list sit on the rail's own 2px; the lists themselves are further apart, or the
+    // two questions read as one list with a heading dropped into the middle of it.
+    expect(decl(".page-rail-list", "gap")).toBe("2px");
+    expect(decl(".page-rail:has(.page-rail-list)", "gap")).toBe("16px");
+    // The old chip strip is gone from the page's band rule, and from the stylesheet entirely.
+    expect(css).not.toContain(".profile-chip");
   });
 });
 

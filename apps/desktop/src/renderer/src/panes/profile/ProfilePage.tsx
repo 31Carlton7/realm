@@ -51,26 +51,37 @@ export function ProfilePage({ item }: PaneProps) {
       <header className="page-head">
         <div className="page-title"><h1>{profile.name}</h1></div>
       </header>
-      {/* The profile's spaces as jump chips: the page's subject is a group of spaces, and each chip
-          goes to one of them (the space switcher's own path — never a second navigation scheme). */}
-      <div className="profile-spaces" aria-label={`Spaces of ${profile.name}`}>
-        {profileSpaces.map((sp) => (
-          <button key={sp.id} type="button" className="profile-chip" title={`Switch to ${sp.name}`}
-            onClick={() => run(() => selectSpace(sp.id))}>
-            <SpaceIcon icon={sp.icon} size={12} /> {sp.name}
-          </button>
-        ))}
-      </div>
       <div className="page-body">
-        <fieldset className="page-rail">
-          <legend className="visually-hidden">Profile page section</legend>
-          {PROFILE_TABS.map((t) => (
-            <label key={t.id} className="settings-tab page-rail-tab" data-selected={tab === t.id || undefined}>
-              <input type="radio" name={`profile-page-tab-${item.id}`} value={t.id} checked={tab === t.id} onChange={() => { setProfilePageTab(profile.id, t.id); navigateInPane(item.id, t.id); }} />
-              {t.label}
-            </label>
-          ))}
-        </fieldset>
+        {/* Two lists, one rail. The page's sections and the profile's spaces are both "where this
+            page can take you", and as a chip strip above the head the spaces were a third band that
+            read as decoration over the title rather than as navigation beside it. Separate columns
+            rather than one, so the gap between them can say "different kind of thing" while the rows
+            inside each keep the rail's own rhythm. */}
+        <div className="page-rail">
+          <fieldset className="page-rail-list">
+            <legend className="visually-hidden">Profile page section</legend>
+            {PROFILE_TABS.map((t) => (
+              <label key={t.id} className="settings-tab page-rail-tab" data-selected={tab === t.id || undefined}>
+                <input type="radio" name={`profile-page-tab-${item.id}`} value={t.id} checked={tab === t.id} onChange={() => { setProfilePageTab(profile.id, t.id); navigateInPane(item.id, t.id); }} />
+                {t.label}
+              </label>
+            ))}
+          </fieldset>
+          {/* Buttons, not radios: a space is somewhere to GO, and the tabs above are a choice of what
+              this page shows. Wearing the tabs' look would promise the rail keeps one of them lit. */}
+          {profileSpaces.length > 0 && (
+            <nav className="page-rail-list" aria-label={`Spaces of ${profile.name}`}>
+              <span className="page-rail-head">Spaces</span>
+              {profileSpaces.map((sp) => (
+                <button key={sp.id} type="button" className="settings-tab page-rail-tab page-rail-space"
+                  title={`Switch to ${sp.name}`} onClick={() => run(() => selectSpace(sp.id))}>
+                  <SpaceIcon icon={sp.icon} size={14} />
+                  <span className="page-rail-space-name">{sp.name}</span>
+                </button>
+              ))}
+            </nav>
+          )}
+        </div>
         <div className="page-content">
           {tab === "skills" && <ProfileSkillsTab spaceId={spaceId} profileId={profile.id} profileName={profile.name} spaceName={space.name} />}
           {tab === "connections" && <ProfileConnectionsTab spaceId={spaceId} profileId={profile.id} profileName={profile.name} spaceName={space.name} />}

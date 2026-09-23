@@ -5402,11 +5402,7 @@ select { appearance: none; padding-right: 22px;
 .page:has(.page-content[data-wide]) { --page-measure: 1348px; }  /* the Tasks lens's own 1100px cap */
 /* `width: 100%` is load-bearing: an auto cross-axis margin switches off a flex item's stretch, so
    without it each band would shrink to fit its own longest line instead of filling the cap. */
-.page-head, .page-body, .profile-spaces { width: 100%; max-width: var(--page-measure); margin-inline: auto; }
-/* The profile page's chip strip is a third band between the head and the body, so its gutter is
-   stated here rather than with its own look — after the narrow block below, it could not be
-   overridden there (a container query carries no extra specificity). */
-.profile-spaces { padding-inline: 24px; }
+.page-head, .page-body { width: 100%; max-width: var(--page-measure); margin-inline: auto; }
 /* A page's title sits where its CONTENT starts, not where the window does. On a railed page the
    content column begins past the rail, and a title left-aligned to the window instead pointed at the
    tab list rather than at the thing it names. The two rail measurements are variables so the indent
@@ -5441,6 +5437,17 @@ select { appearance: none; padding-right: 22px;
 .page-rail { flex: none; width: var(--page-rail-w); display: flex; flex-direction: column; gap: 2px; align-self: flex-start;
   margin: 0; padding: 0; border: none; background: none; }
 .page-rail .settings-tab { flex: none; text-align: left; padding: 6px 10px; font-size: 13px; border-radius: var(--r-ctl); corner-shape: squircle; }
+/* The profile page's spaces (Plan 14 W2), now a second list in the rail rather than a chip strip
+   over the title. One list per kind of destination; the rail's own gap separates the rows inside a
+   list, and the bigger gap between the lists is what says they are not the same question.
+   `.page-rail-list` carries the fieldset reset too, because one of the two IS a fieldset. */
+.page-rail-list { display: flex; flex-direction: column; gap: 2px; min-width: 0; margin: 0; padding: 0; border: none; background: none; }
+.page-rail:has(.page-rail-list) { gap: 16px; }
+/* Aligned to the rows' own text, not to the rail's edge, so the heading sits over the column it
+   names rather than 10px to the left of it. */
+.page-rail-head { padding: 0 10px 2px; font-size: 11.5px; font-weight: var(--fw-medium); color: var(--rl-text-faint); }
+.page-rail-space { display: flex; align-items: center; gap: 7px; }
+.page-rail-space-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* `min-height: 0` matters once the narrow block below turns `.page-body` into a column: without it
    the content column's auto minimum keeps it at full content height, and it overflows the pane
    instead of scrolling inside it. */
@@ -5494,11 +5501,14 @@ select { appearance: none; padding-right: 22px;
   .page-rail { flex-direction: row; width: auto; min-width: 0; align-self: stretch; gap: 4px;
     overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
   .page-rail .settings-tab { white-space: nowrap; }
+  /* The rail lies down here, so its lists have to as well — left as columns they would stand two
+     short stacks side by side in a strip that is meant to read as one row of destinations. */
+  .page-rail-list { flex-direction: row; gap: 4px; }
+  .page-rail-head { align-self: center; padding: 0 2px 0 6px; }
   /* The contents rail's indent says "under the heading above" — a claim a horizontal strip cannot
      make, where it only reads as uneven spacing between peers. */
   .skill-toc-link[data-level="2"] { padding-left: 10px; }
   .page-content { max-width: none; padding-right: 0; }
-  .profile-spaces { padding-inline: 16px; }
   /* The `1fr auto` row grid, stood up: the actions keep their own width and the path/name column
      gets all of it back. */
   .env-row { grid-template-columns: minmax(0, 1fr); }
@@ -5887,13 +5897,6 @@ select { appearance: none; padding-right: 22px;
 .task-attempt-outcome[data-outcome="succeeded"] { color: var(--rl-text-bright); }
 .task-attempt-outcome[data-outcome="failed"], .task-attempt-outcome[data-outcome="expired"] { color: var(--rl-danger); }
 
-/* The profile page's space chips (Plan 14 W2): the profile's spaces as jump targets, under the head. */
-/* The inline margin is left to the band rule up in the page section — a `margin` shorthand here
-   would zero the auto that centres it. */
-.profile-spaces { display: flex; flex-wrap: wrap; gap: 6px; margin-block: 2px 10px; }
-.profile-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; font-size: 12px;
-  border: var(--hairline-w) solid var(--rl-line-strong); border-radius: 999px; background: none; color: var(--rl-text-dim); cursor: pointer; }
-.profile-chip:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* The sidebar header's whole title row is the page's front door. */
 .space-title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 4px; margin: -2px -4px;
   border: none; border-radius: var(--r-chip); corner-shape: squircle; background: none; color: inherit; font: inherit; cursor: pointer; }
