@@ -96,6 +96,7 @@ describe("chordFromEvent", () => {
       ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => chordFromEvent(press({ code: `Digit${n}`, key: String(n), metaKey: true }))),
       chordFromEvent(press({ code: "KeyT", key: "t", metaKey: true })),
       chordFromEvent(press({ code: "KeyN", key: "n", metaKey: true })),
+      chordFromEvent(press({ code: "KeyN", key: "N", metaKey: true, shiftKey: true })),
       chordFromEvent(press({ code: "KeyU", key: "u", metaKey: true })),
       chordFromEvent(press({ code: "KeyJ", key: "j", metaKey: true })),
       chordFromEvent(press({ code: "Enter", key: "Enter", metaKey: true, shiftKey: true })),

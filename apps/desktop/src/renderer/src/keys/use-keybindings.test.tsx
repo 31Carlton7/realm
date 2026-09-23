@@ -157,6 +157,27 @@ describe("useKeybindings", () => {
     await waitFor(() => expect(api.calls).toContain("interrupt:sess1"));
   });
 
+  it("opens a quick chat on \u2318\u21e7N, which had no keyboard way in at all", async () => {
+    const { api, store } = await mount();
+    expect(store.getState().quickChat).toBe(null);
+    key({ key: "N", code: "KeyN", metaKey: true, shiftKey: true });
+    await waitFor(() => expect(store.getState().quickChat).not.toBe(null));
+    expect(made(api, "createUnlistedSession")).toBe(true);
+  });
+
+  it("leaves an open quick chat alone rather than toggling it shut, because closing one deletes it", async () => {
+    // THE MUTANT: bind the chord to a toggle. The second press would delete the conversation the
+    // first one started, which is not what a second press of an OPEN command should ever mean.
+    const { api, store } = await mount();
+    key({ key: "N", code: "KeyN", metaKey: true, shiftKey: true });
+    await waitFor(() => expect(store.getState().quickChat).not.toBe(null));
+    const opened = store.getState().quickChat;
+    key({ key: "N", code: "KeyN", metaKey: true, shiftKey: true });
+    await tick();
+    expect(store.getState().quickChat).toEqual(opened);
+    expect(made(api, "deleteSession")).toBe(false);
+  });
+
   it("picks up a new keymap without missing a keystroke", async () => {
     // Rules arrive from the server after boot and change again whenever the file does. THE MUTANT:
     // capture `rules` in the listener's closure — the first keymap would be the only one that ever ran.

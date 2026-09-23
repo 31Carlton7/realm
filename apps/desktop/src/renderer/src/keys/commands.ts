@@ -98,6 +98,9 @@ export function appCommands(store: StoreApi<AppState>): Readonly<Record<string, 
 
     "session.new": () => { const s = get(); s.run(() => s.newSessionInstant()); },
     "session.newInWorktree": () => { const s = get(); s.run(() => s.newSessionInWorktree()); },
+    /* Open-only, not a toggle, because closing a quick chat DELETES its session — the sidebar button
+       means the same thing by the same name, and `openQuickChat` already no-ops when one is up. */
+    "session.quickChat": () => { const s = get(); s.run(() => s.openQuickChat()); },
     "session.attachFiles": withSession((s, id) => s.run(() => s.attachFromPicker(id))),
     "session.dispatchDraft": withSession((s, id) => s.run(() => s.dispatchDraft(id))),
     /* The `when` clause already gates this on a running session, and the check is here as well
