@@ -600,14 +600,20 @@ kbd { font: 11px var(--font-mono); }
 /* Panes are neutral; the row's own pane lifts to ink (accent = ink now, V-C1 kept). */
 .item-glyph rect[data-on] { fill: var(--rl-text-dim); }
 .item[data-active] .item-glyph rect[data-on] { fill: var(--rl-text-bright); } /* W3: BUI active icons are ink, not accent */
-.item-close, .item-shelf { opacity: 0; display: grid; place-items: center; width: 22px; height: 22px; margin-right: 3px; border-radius: var(--r-chip); color: var(--rl-text-dim); }
-.item:hover .item-close, .item:hover .item-shelf { opacity: 1; }
+.item-close, .item-shelf, .item-delete { opacity: 0; display: grid; place-items: center; width: 22px; height: 22px; margin-right: 3px; border-radius: var(--r-chip); color: var(--rl-text-dim); }
+.item:hover .item-close, .item:hover .item-shelf, .item:hover .item-delete { opacity: 1; }
 .item-close:hover, .item-shelf:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
-/* the hover-only x and archive box must also appear for keyboard focus (A-M8) */
-.item-close:focus-visible, .item-shelf:focus-visible { opacity: 1; }
+/* the hover-only x, archive box and trash must also appear for keyboard focus (A-M8) */
+.item-close:focus-visible, .item-shelf:focus-visible, .item-delete:focus-visible { opacity: 1; }
 /* The shelf sits left of the x and gives back the 3px gutter the x owns, so the pair reads as one
-   cluster rather than two widely spaced buttons. */
-.item-shelf { margin-right: 0; }
+   cluster rather than two widely spaced buttons. The trash takes the shelf's place for the kinds
+   that have no shelf, so it inherits the same gutter. */
+.item-shelf, .item-delete { margin-right: 0; }
+/* Danger only on the way in and while armed — a row of red trash cans at rest would read as a list
+   of problems rather than a list of things. Armed is filled, because the second click is the one
+   that spends, and an armed control that looked like the resting one would be a trap. */
+.item-delete:hover { background: var(--rl-hover); color: var(--rl-danger); }
+.item-delete[data-confirming] { opacity: 1; background: var(--rl-danger); color: var(--rl-panel); }
 .item[data-dragging], .new-item[data-dragging] { opacity: .45; }
 .rename { width: 100%; height: 28px; padding: 0 8px; border-radius: var(--r-chip); border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
 .space-empty { font-size: 12px; color: var(--rl-text-faint); padding: 4px 5px 8px; } /* A-L6 */
