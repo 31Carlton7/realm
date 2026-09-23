@@ -124,6 +124,7 @@ function ThemeBridge() {
   const fonts = useApp((s) => s.fonts);
   const groundAlpha = useApp((s) => s.groundAlpha);
   const cursorBlink = useApp((s) => s.terminalCursorBlink);
+  const cursorStyle = useApp((s) => s.terminalCursorStyle);
   /* The page zoom, onto `:root` as a number the stylesheet multiplies by. Chromium already scales
      every px when you press ⌘−; what this buys is the surfaces that should give up MORE than their
      share when you do — the prompter's column, today. */
@@ -136,6 +137,7 @@ function ThemeBridge() {
   // Whether that cursor blinks is the same story: xterm takes it at construction, and a preference
   // that only reached the NEXT terminal is one nobody believes they changed.
   useEffect(() => { getTerminalHub().setCursorBlink(cursorBlink); }, [cursorBlink]);
+  useEffect(() => { getTerminalHub().setCursorStyle(cursorStyle); }, [cursorStyle]);
   // Same shape, same reason (Plan 25 W1): main draws the agent's action ring, cursor and
   // controlled-screen frame INSIDE the page, where none of Realm's CSS reaches, so the accent has to
   // be pushed to it. Read off the live document rather than derived from the store, because the

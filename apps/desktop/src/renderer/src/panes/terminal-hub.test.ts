@@ -364,6 +364,23 @@ describe("the code face reaches a terminal that is already open", () => {
     expect(terms.map((t) => t.options!.cursorBlink)).toEqual([true, true, true]);
   });
 
+  it("pushes the cursor's SHAPE the same way, and keeps it independent of the blink", () => {
+    /* THE folded-control mutant lives in Settings, but its consequence would land here: a shape and
+       a blink that could not disagree. A bar that holds still is a pair somebody wants. */
+    const { hub, terms } = setup();
+    hub.acquire("a");
+    hub.setCursorStyle("bar");
+    hub.setCursorBlink(false);
+    expect(terms.map((t) => t.options!.cursorStyle)).toEqual(["bar"]);
+    expect(terms.map((t) => t.options!.cursorBlink)).toEqual([false]);
+
+    // A terminal opened after the change agrees with the one opened before it — the half a live
+    // push alone would miss, and the half a construction-only write would be all of.
+    hub.acquire("b");
+    expect(terms.at(-1)!.options!.cursorStyle).toBe("bar");
+    expect(terms.at(-1)!.options!.cursorBlink).toBe(false);
+  });
+
   it("pushes a changed face into every live terminal and re-fits the opened ones", () => {
     // xterm reads its font once, at construction. THE next-terminal-only mutant: leave it there. The
     // setting appears to do nothing to the terminal in front of you, which is the terminal you were
@@ -390,3 +407,4 @@ describe("the code face reaches a terminal that is already open", () => {
     container.remove();
   });
 });
+
