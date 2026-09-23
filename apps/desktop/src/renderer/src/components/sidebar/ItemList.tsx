@@ -93,10 +93,10 @@ export function ItemGlyph({ layout, itemId }: { layout: Layout; itemId: string }
 
 /** Sidebar item rows. "open" = the OPEN group (items currently in the layout): the row's x closes the item
  *  from the layout only (it stays around, unopened), and the row shows the quadrant glyph. "space" = the
- *  SPACE group (everything else): no x, no glyph, just click-to-open. "archived" = the shelf: no x, no
+ *  SESSIONS group (everything else): no x, no glyph, just click-to-open. "archived" = the shelf: no x, no
  *  glyph, and the row's click RESTORES before it opens (see below). Row clicks call openItem either
  *  way, but the store treats an already-open item as "go there" (focus its pane, no layout change);
- *  only SPACE rows actually open into the focused leaf. Moving an open item is a drag, or the row
+ *  only SESSIONS rows actually open into the focused leaf. Moving an open item is a drag, or the row
  *  menu's "Open here". */
 /**
  * Sessions with events this user has not read.
@@ -118,7 +118,7 @@ const unseenSessions = (sessions: AppState["sessions"]): Set<string> => {
 export function ItemList({ items, variant, layout: groupLayout }: {
   items: Item[]; variant: "open" | "space" | "archived";
   /** The layout the quadrant glyph is drawn against — the owning GROUP's tree, which for a group that
-   *  is not on screen is not the active layout. Defaults to the active one (SPACE rows, tests). */
+   *  is not on screen is not the active layout. Defaults to the active one (SESSIONS rows, tests). */
   layout?: Layout;
 }) {
   const activeLayoutValue = useApp((s) => s.layout) ?? emptyLayout();

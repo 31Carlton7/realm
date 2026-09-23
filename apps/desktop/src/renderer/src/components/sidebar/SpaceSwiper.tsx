@@ -253,7 +253,7 @@ export function SpaceSwiper() {
 const REALM_ITEM_TYPE = "application/x-realm-item";
 
 /**
- * One sidebar section per PANE GROUP, then SPACE for everything open in no group at all.
+ * One sidebar section per PANE GROUP, then SESSIONS for everything open in no group at all.
  *
  * This is where the old single "Open" list went. The list was never wrong, only flat: a space had one
  * arrangement, so "open" was unambiguous. With groups the same rows still say "these are open", but
@@ -299,7 +299,7 @@ const SpaceBody = memo(function SpaceBody({ items, groups }: { items: Item[]; gr
             <Icon name="add" size={12} /><span>New group</span>
           </button>
         )}
-        <div className="group-label">Space</div>
+        <div className="group-label">Sessions</div>
         {live.length === 0 && <div className="space-empty">Nothing here yet — start one with New session above</div>}
         {pinned.length > 0 && <PinnedGrid items={pinned} />}
         <ItemList items={rest} variant="space" />

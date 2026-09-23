@@ -471,14 +471,14 @@ describe("Arc sidebar", () => {
     await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("space-page"));
   });
 
-  it("OPEN label is absent when nothing is open; unopened items render under SPACE", async () => {
+  it("OPEN label is absent when nothing is open; unopened items render under SESSIONS", async () => {
     await mount(); // default: layout is null, i1 "Terminal" is unopened
     expect(screen.queryByText("Open")).not.toBeInTheDocument();
-    expect(screen.getByText("Space")).toBeInTheDocument();
+    expect(screen.getByText("Sessions")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Terminal" })).toBeInTheDocument();
   });
 
-  it("OPEN group follows layout order (not items order); SPACE holds the rest, pinned tiles first, and a pinned-and-open item appears only in OPEN", async () => {
+  it("OPEN group follows layout order (not items order); SESSIONS holds the rest, pinned tiles first, and a pinned-and-open item appears only in OPEN", async () => {
     // Layout order is i2 then i1 — the reverse of the items array below, so an implementation that
     // (wrongly) used items order instead of allItems(layout) order would render them the other way.
     const layout: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
@@ -504,24 +504,24 @@ describe("Arc sidebar", () => {
     expect(pinnedGrid.textContent).not.toContain("Alpha"); // open-and-pinned lives in OPEN, not the grid
     const spaceList = lists[1]!;
     expect(spaceList.textContent).toContain("Delta");
-    expect(spaceList.textContent).not.toContain("Gamma"); // pinned items don't also get a SPACE row
+    expect(spaceList.textContent).not.toContain("Gamma"); // pinned items do not also get a SESSIONS row
     expect(spaceList.textContent).not.toContain("Alpha");
   });
 
-  it("clicking a SPACE row opens it; clicking an OPEN row keeps/re-opens it (both call openItem)", async () => {
+  it("clicking a SESSIONS row opens it; clicking an OPEN row keeps/re-opens it (both call openItem)", async () => {
     const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
     const api = fakeApi({
       spaces: [space("s1", "p1", "Versed", { layout })],
       items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" })] },
     });
     const { store } = await mount(api);
-    fireEvent.click(screen.getByRole("button", { name: "Beta" })); // SPACE row -> opens it
+    fireEvent.click(screen.getByRole("button", { name: "Beta" })); // SESSIONS row -> opens it
     await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).toBe("i2"); });
     fireEvent.click(screen.getByRole("button", { name: "Alpha" })); // now unopened -> click re-opens it
     await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).toBe("i1"); });
   });
 
-  it("the x on an OPEN row closes it from the layout without deleting it; SPACE rows render no x", async () => {
+  it("the x on an OPEN row closes it from the layout without deleting it; SESSIONS rows render no x", async () => {
     const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
     const api = fakeApi({
       spaces: [space("s1", "p1", "Versed", { layout })],
@@ -679,7 +679,7 @@ describe("Arc sidebar", () => {
     expect(screen.getByRole("button", { name: "Alpha" }).closest(".item")).not.toHaveAttribute("data-active");
   });
 
-  it("both OPEN and SPACE rows are draggable, carry the item id via application/x-realm-item on dragstart, and set/clear data-dragging", async () => {
+  it("both OPEN and SESSIONS rows are draggable, carry the item id via application/x-realm-item on dragstart, and set/clear data-dragging", async () => {
     const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
     const api = fakeApi({
       spaces: [space("s1", "p1", "Versed", { layout })],
@@ -687,7 +687,7 @@ describe("Arc sidebar", () => {
     });
     await mount(api);
     const openRow = screen.getByRole("button", { name: "Alpha" }).closest(".item")!; // OPEN row
-    const spaceRow = screen.getByRole("button", { name: "Beta" }).closest(".item")!; // SPACE row
+    const spaceRow = screen.getByRole("button", { name: "Beta" }).closest(".item")!; // SESSIONS row
 
     for (const [row, id] of [[openRow, "i1"], [spaceRow, "i2"]] as const) {
       expect(row).toHaveAttribute("draggable", "true");
