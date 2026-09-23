@@ -319,7 +319,7 @@ describe("App tab", () => {
     const { store, api } = await openApp();
     expect((screen.getByRole("combobox", { name: "UI font" }) as HTMLSelectElement).value).toBe("bundled");
     fireEvent.change(screen.getByRole("combobox", { name: "UI font" }), { target: { value: "system" } });
-    await waitFor(() => expect(store.getState().fonts).toEqual({ ui: "system", uiWeight: "regular", code: "bundled" }));
+    await waitFor(() => expect(store.getState().fonts).toEqual({ ui: "system", uiWeight: "regular", code: "bundled", leading: 0 }));
     fireEvent.change(screen.getByRole("combobox", { name: "UI font weight" }), { target: { value: "medium" } });
     await waitFor(() => expect(store.getState().fonts.uiWeight).toBe("medium"));
     expect(store.getState().fonts.code).toBe("bundled");
@@ -1217,6 +1217,20 @@ describe("terminal scrollback", () => {
     fireEvent.click(sw);
     await waitFor(() => expect(store.getState().terminalHistory).toBe(true));
     expect(api.calls).toContain(`setSetting:${TERMINALS_HISTORY_KEY}=true`);
+  });
+
+  it("moves the leading of every reading surface from one slider, and says where prose lands", async () => {
+    /* THE readout mutant: print the stored offset. "+10" is a number about the control; 1.70 is a
+       number about the text, and the text is what the person is looking at while they drag it. */
+    const { store, api } = await mount();
+    fireEvent.click(screen.getByRole("radio", { name: "App" }));
+    const slider = screen.getByRole("slider", { name: "Line height" });
+    expect(screen.getByText("1.60")).toBeInTheDocument();
+
+    fireEvent.change(slider, { target: { value: "10" } });
+    await waitFor(() => expect(store.getState().fonts.leading).toBe(10));
+    expect(screen.getByText("1.70")).toBeInTheDocument();
+    expect(api.calls.some((c) => c.startsWith("setSetting:ui.fonts"))).toBe(true);
   });
 
   it("asks before deleting until you say otherwise", async () => {

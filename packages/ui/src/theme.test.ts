@@ -99,7 +99,7 @@ describe("applyTheme (runtime writes: --rl-space, the fonts, the two attributes,
     const { root, props } = fakeRoot();
     applyTheme({ space: "#7c6cff", mode: "dark" }, root);
     for (const [name, value] of Object.entries(fontVars(DEFAULT_FONTS))) expect(props[name], name).toBe(value);
-    applyTheme({ space: "#7c6cff", mode: "dark", fonts: { ui: "system", uiWeight: "medium", code: "system" } }, root);
+    applyTheme({ space: "#7c6cff", mode: "dark", fonts: { ui: "system", uiWeight: "medium", code: "system", leading: 0 } }, root);
     expect(props["--font-ui"]).not.toContain("Inter");
     expect(props["--fw-shift"]).not.toBe("0");
   });

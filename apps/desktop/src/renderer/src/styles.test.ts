@@ -454,7 +454,7 @@ describe("Ara refresh §3/§4 geometry", () => {
     for (const sel of [".msg-user", ".msg-assistant"]) {
       const body = bodiesFor(sel).join(" ");
       expect(body, sel).toContain("font-size: 15px");
-      expect(body, sel).toContain("line-height: 1.6");
+      expect(body, sel).toContain("line-height: calc(1.6 + var(--lh-shift))");
     }
   });
 
@@ -685,7 +685,7 @@ describe("Ara refresh §3/§4 geometry", () => {
   it("the highlight mirror matches the textarea's text metrics exactly", () => {
     const mirror = bodiesFor(".composer-highlight").join(" ");
     const input = bodiesFor(".composer-input").join(" ");
-    for (const decl of ["font: inherit", "font-size: 15px", "line-height: 1.55", "padding: 14px 16px 10px"]) {
+    for (const decl of ["font: inherit", "font-size: 15px", "line-height: calc(1.55 + var(--lh-shift))", "padding: 14px 16px 10px"]) {
       expect(mirror, decl).toContain(decl);
       expect(input, decl).toContain(decl);
     }
@@ -711,7 +711,7 @@ describe("Ara refresh §3/§4 geometry", () => {
   it("the prompt hint sits in the input's own text box, on one line", () => {
     const body = bodiesFor(".composer-hint").join(" ");
     const input = bodiesFor(".composer-input").join(" ");
-    for (const decl of ["font: inherit", "font-size: 15px", "line-height: 1.55", "padding: 14px 16px 10px"]) {
+    for (const decl of ["font: inherit", "font-size: 15px", "line-height: calc(1.55 + var(--lh-shift))", "padding: 14px 16px 10px"]) {
       expect(body, decl).toContain(decl);
       expect(input, decl).toContain(decl);
     }
@@ -1187,7 +1187,7 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
     expect(bodiesFor(":root[data-squircle] .md-code").join(" ")).toContain("--sq-fill: var(--surface)");
     const body = bodiesFor(".md-code pre").join(" ");
     expect(body).toContain("font-size: 12.5px");
-    expect(body).toContain("line-height: 1.65");
+    expect(body).toContain("line-height: calc(1.65 + var(--lh-shift))");
   });
 
   it("diff lines carry the CodeBlock diff treatment: token tints, a 3px bar (solid green add, red hatch delete), coloured gutters", () => {

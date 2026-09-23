@@ -7,7 +7,7 @@ import {
 import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED,
   THEMES, contrastMisses, deriveVars, exportTheme, importTheme, isHexColour, isOverridden, overrideKey,
   allThemes, paletteFor, seedFor, themeModes, themeSwatches,
-  type FontId, type FontRole, type FontWeight, type Mode, type ThemeName, type ThemeOverride } from "@realm/ui";
+  type FontId, type FontRole, type FontWeight, type Mode, type ThemeName, type ThemeOverride, LEADING_RANGE } from "@realm/ui";
 import type { ThemeSeed } from "@realm/contracts";
 import { useEffect, useReducer, useRef, useState, type CSSProperties } from "react";
 import { Sheet } from "../../components/Sheet";
@@ -913,6 +913,20 @@ function AppTab() {
               onChange={(e) => run(() => setFonts({ uiWeight: e.target.value as FontWeight }))}>
               {FONT_WEIGHTS.map((w) => <option key={w.id} value={w.id}>{w.label}</option>)}
             </select>
+          </div>
+        </div>
+        <div className="settings-row">
+          <div className="settings-row-main"><span className="settings-row-name">Line height</span></div>
+          {/* An OFFSET, not a value. Prose is 1.6, markdown 1.55 and a code block 1.65, and those
+              three are a judgement about each surface — a control that set one number would flatten
+              them and lose the reason a code block breathes more than a paragraph. The readout names
+              the ratio prose lands on, because "+10" is a number about the control and 1.70 is a
+              number about the text. */}
+          <div className="slider-row" title="Moves the leading of messages, markdown and the prompter together, each from its own starting ratio. Code panes, terminals and diffs keep theirs — their line box is a grid the gutter is measured against.">
+            <Slider aria-label="Line height"
+              min={LEADING_RANGE.min} max={LEADING_RANGE.max} step={LEADING_RANGE.step}
+              value={fonts.leading} onChange={(e) => run(() => setFonts({ leading: Number(e.target.value) }))} />
+            <span className="slider-value">{(1.6 + fonts.leading / 100).toFixed(2)}</span>
           </div>
         </div>
         <div className="settings-row">

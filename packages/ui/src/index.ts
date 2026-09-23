@@ -12,7 +12,7 @@ export { applyTheme, clampGroundAlpha, DEFAULT_GROUND_ALPHA, GROUND_ALPHA_RANGE,
    walk) stay exported from their own modules, where applyTheme and the package's own suites import
    them directly — a barrel entry for each would advertise a public API nothing consumes. */
 export { exportTheme, importTheme } from "./theme-io";
-export { DEFAULT_FONTS, FONT_FACES, FONT_WEIGHTS, parseFontPref,
+export { clampLeading, DEFAULT_FONTS, FONT_FACES, FONT_WEIGHTS, LEADING_RANGE, parseFontPref,
   type FontId, type FontPref, type FontRole, type FontWeight } from "./fonts";
 export { allThemes, clampContrast, CONTRAST_RANGE, contrastMisses, DEFAULT_SELECTION, deriveVars, isHexColour, isOverridden,
   isThemeName, overrideKey, paletteFor, parseThemeOverrides, REALM_SEED, seedFor, setCustomThemes, THEMES, themeModes, themeSwatches,
