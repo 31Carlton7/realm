@@ -294,6 +294,48 @@ async function main() {
   check("it sits under its own Deleting heading", sw.heads.includes("Deleting"), sw.heads);
   await shoot(c, "03-deleting-setting");
 
+  // ---- 8. the leading slider, measured through the real cascade --------------------------------
+  //
+  // `--lh-shift` is a registered custom property that each surface ADDS to its own ratio. jsdom
+  // computes no cascade at all, so the only thing a unit test can assert is the string written into
+  // the stylesheet. What matters is the used value: a probe wearing the transcript's own class,
+  // measured in px, before and after the slider moves.
+  const probe = (expr) => evalIn(c, `(() => {
+    let p = document.getElementById("lh-probe");
+    if (!p) {
+      p = document.createElement("div");
+      p.id = "lh-probe"; p.className = "msg-assistant";
+      p.textContent = "probe";
+      document.body.appendChild(p);
+    }
+    ${expr}
+    const cs = getComputedStyle(p);
+    return { lineHeight: cs.lineHeight, fontSize: cs.fontSize,
+             shift: getComputedStyle(document.documentElement).getPropertyValue("--lh-shift").trim() };
+  })()`);
+
+  const lhSlider = await evalIn(c, `!!Array.from(document.querySelectorAll('input[type=range]')).find(i => i.getAttribute('aria-label') === 'Line height')`);
+  check("Settings carries the Line height slider", lhSlider === true);
+
+  const before = await probe("");
+  console.log(`  leading at rest: ${JSON.stringify(before)}`);
+  // 15px prose at 1.6 is 24px. The default shift is 0, so the used value must be the ratio itself.
+  check("prose starts on its own ratio, with the shift at zero",
+    before.shift === "0" && Math.abs(parseFloat(before.lineHeight) - 24) < 0.6, before);
+
+  await evalIn(c, `(() => {
+    const el = Array.from(document.querySelectorAll('input[type=range]')).find(i => i.getAttribute('aria-label') === 'Line height');
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    set.call(el, '30'); el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true }));
+    return true; })()`);
+  await sleep(700);
+  const after = await probe("");
+  console.log(`  leading at +30: ${JSON.stringify(after)}`);
+  // 15px at 1.9 is 28.5px. The point of the check is that the USED value moved, not the declaration.
+  check("moving the slider moves the used line-height, not just the declaration",
+    after.shift === "0.3" && parseFloat(after.lineHeight) > parseFloat(before.lineHeight) + 3, { before, after });
+  await shoot(c, "04-line-height", { x: 0, y: 0, width: 1280, height: 860 });
+
   c.close();
 }
 
