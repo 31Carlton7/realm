@@ -50,6 +50,16 @@ const BLOCKS: Record<string, string> = {
     "write the file into the space folder, and Realm opens what you create in the user's Documents pane without " +
     "being asked.",
 
+  "realm-schedule":
+    "- **Work on a clock.** `schedule_create` starts work LATER — once at a moment (\"in two weeks, open " +
+    "the PR\") or repeatedly on a cron — and `schedule_list` says what this space already has waiting, " +
+    "which is what to check before setting up a thing the user may already have. What fires is a task in " +
+    "this space: a fresh session with none of this conversation, so write its goal as complete standing " +
+    "instructions rather than as a follow-up to something said here. Reach for it only when the ask is " +
+    "about later — work you could finish in this turn should be finished in this turn, not scheduled — " +
+    "and say back the moment you set, because unattended work the user did not register is work that " +
+    "arrives unannounced.",
+
   "realm-computer":
     "- **Other Mac apps.** `computer_list_apps`, `computer_snapshot` and `computer_act` drive the apps on the " +
     "user's Mac through the accessibility APIs. This space switched them on deliberately, so use them for work " +
@@ -67,7 +77,7 @@ const BLOCKS: Record<string, string> = {
 /** Fixed order, so the same set of providers always produces the same bytes: the blocks are read
  *  top-down and registration order is not a reason for the browser to appear above delegation one
  *  day and below it the next. */
-const ORDER = ["realm-agent", "realm-browser", "realm-docs", "realm-computer", "realm-vm"] as const;
+const ORDER = ["realm-agent", "realm-browser", "realm-docs", "realm-schedule", "realm-computer", "realm-vm"] as const;
 
 const HEADER =
   "# Realm\n\n" +

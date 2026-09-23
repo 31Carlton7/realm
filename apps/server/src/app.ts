@@ -79,6 +79,7 @@ import { NotificationRelay, realTransport } from "./notifications/relay";
 import { RunsStore } from "./store/runs";
 import { RunService } from "./runs/service";
 import { ScheduleService } from "./schedules/service";
+import { createScheduleAgentProvider } from "./schedules/agent-tools";
 import { SchedulesStore } from "./store/schedules";
 import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, type AdapterRegistry } from "@realm/adapters";
 import { GitInfoService } from "./workspace/git-info";
@@ -305,6 +306,13 @@ export function defaultAdapters(): AdapterRegistry {
   }, {
     // Its milder sibling, for the retry line: a dropped socket, which never moves the session.
     on: "drop the socket", emit: [{ kind: "throw", message: "read ECONNRESET" }],
+  }, {
+    // A permission the agent HOLDS open. `needsPermission` blocks the adapter until a decision
+    // arrives, which makes this the only state a fake session can be parked in and looked at:
+    // everything else this agent reaches settles in milliseconds, and a failed spawn ends the
+    // session rather than failing it. The surfaces that need a session stopped mid-air — the
+    // permission card, the sidebar's blocked mark, the Agents wall — have nothing else to pose for.
+    on: "ask me", emit: [{ kind: "tool", name: "Bash", input: { command: "rm -rf build" }, needsPermission: true, result: "removed" }],
   }] });
   return reg;
 }
@@ -754,6 +762,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // from anything the process was holding (schedules/service.ts). Started after boot recovery below,
   // not here, so a catch-up firing lands in a world whose live runs have already been reconciled.
   schedules = new ScheduleService({ store: new SchedulesStore(db), runs, rpc });
+  /* The `realm-schedule` provider — how a session puts work on the clock from inside a conversation,
+     rather than only from the Schedules page. Registered HERE and not up with the other providers
+     because it wraps the service declared on the line above; the gateway's per-space enablement is
+     what decides whether a session actually sees the tools. */
+  mcpGateway.registerProvider(createScheduleAgentProvider({ schedules, mcp }));
   // The durable ship log (Plan 14 W1): GitWriteService stays a pure git service — the recorder is the
   // one seam through which a settled ship becomes a row, and the broadcast rides the same write so a
   // History tab already open sees the ship land.
@@ -795,6 +808,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     emit: (id, ev) => sessions.emitExternal(id, ev),
     resend: (id, msg) => sessions.resendTurn(id, msg),
     stop: (id) => sessions.stopAgent(id),
+    probe: (opts) => sessions.probe(opts),
   });
   // Importing the agent CLIs' own history (transcripts, memory folders, skills). Reads ~/.claude,
   // ~/.codex and ~/.cursor and never writes them; everything it produces lands in this database or

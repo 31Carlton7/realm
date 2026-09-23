@@ -1,6 +1,6 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useState } from "react";
-import { CRON_PRESETS, describeCron, nextFireOf, type Schedule } from "@realm/contracts";
+import { CRON_PRESETS, describeSchedule, momentInputValue, nextFireOf, onceExpr, parseMoment, parseOnce, type Schedule } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import type { PaneProps } from "../registry";
 
@@ -31,7 +31,7 @@ export const scheduleState = (s: Schedule): Exclude<ScheduleFilter, "all"> =>
  * Filter and search, in that order, as one pure function so the counts on the chips and the rows in
  * the list can never disagree — they are the same call.
  *
- * The query reads the title, the goal and the cron's plain-English reading. The goal matters most:
+ * The query reads the title, the goal and the expression's plain-English reading. The goal matters most:
  * a user looking for the schedule that files their expenses remembers what it DOES, not what they
  * called it at 11pm three months ago.
  */
@@ -40,7 +40,7 @@ export function filterSchedules(schedules: readonly Schedule[], filter: Schedule
   return schedules.filter((s) => {
     if (filter !== "all" && scheduleState(s) !== filter) return false;
     if (q === "") return true;
-    return `${s.title}\n${s.goal}\n${describeCron(s.cron)}`.toLowerCase().includes(q);
+    return `${s.title}\n${s.goal}\n${describeSchedule(s.cron)}`.toLowerCase().includes(q);
   });
 }
 
@@ -57,6 +57,19 @@ export function whenLabel(ts: number, now = Date.now()): string {
   if (days > 1 && days < 7) return `${d.toLocaleDateString(undefined, { weekday: "long" })} at ${time}`;
   return `${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })} at ${time}`;
 }
+
+/**
+ * The same moment inside a sentence: "Next tomorrow at 9:00 am", "Next Sep 30 at 1:00 pm".
+ *
+ * Only the relative words are lowered. A blanket `toLowerCase()` reads fine while every next run is
+ * within a day — which is what a cron schedule's always is — and turns into "next sep 30" the moment
+ * a one-shot is armed a fortnight out, because a month and a weekday are proper nouns. The meridiem
+ * goes down either way, which is the ordinary typographic form and keeps the two branches matching.
+ */
+export const whenPhrase = (ts: number, now = Date.now()): string => {
+  const label = whenLabel(ts, now).replace(/\b(AM|PM)\b/g, (m) => m.toLowerCase());
+  return /^(Today|Tomorrow|Yesterday)\b/.test(label) ? label[0]!.toLowerCase() + label.slice(1) : label;
+};
 
 /**
  * Scheduled tasks: the goals this space starts on a clock rather than on a keystroke.
@@ -129,8 +142,9 @@ export function SchedulesPage({ item }: PaneProps) {
           )}
           {schedules.length === 0 && !composing && (
             <p className="env-empty">
-              Nothing is scheduled here yet. A schedule runs a goal on a repeating clock and hands the
-              result to the Tasks lens, where it can stop and ask you before it does anything.
+              Nothing is scheduled here yet. A schedule runs a goal on a clock &mdash; once, or on a
+              repeat &mdash; and hands the result to the Tasks lens, where it can stop and ask you
+              before it does anything.
             </p>
           )}
           {/* A list emptied by the filter says so where the rows would have been. Falling back to
@@ -167,7 +181,7 @@ function ScheduleRow({ schedule, onEdit }: { schedule: Schedule; onEdit: () => v
         <div className="sched-title">
           <span className="sched-name">{schedule.title}</span>
           {/* The expression's reading, or the expression itself where a sentence would be a guess. */}
-          <span className="sched-cron">{describeCron(schedule.cron)}</span>
+          <span className="sched-cron">{describeSchedule(schedule.cron)}</span>
         </div>
         <p className="sched-goal">{schedule.goal}</p>
         <div className="sched-meta">
@@ -175,13 +189,13 @@ function ScheduleRow({ schedule, onEdit }: { schedule: Schedule; onEdit: () => v
           <span className="sched-next">
             {!schedule.enabled ? "Paused"
               : schedule.nextRunAt === null ? "No further runs"
-              : `Next ${whenLabel(schedule.nextRunAt).toLowerCase()}`}
+              : `Next ${whenPhrase(schedule.nextRunAt)}`}
           </span>
-          {schedule.lastRunAt !== null && <span className="sched-last">Last ran {whenLabel(schedule.lastRunAt).toLowerCase()}</span>}
+          {schedule.lastRunAt !== null && <span className="sched-last">Last ran {whenPhrase(schedule.lastRunAt)}</span>}
           {/* Named, never swallowed: a laptop that slept through Monday did not run Monday's task,
               and a row that only showed "last ran" would present last week's result as this week's. */}
           {schedule.lastSkippedAt !== null && (
-            <span className="sched-skipped"><Icon name="alert" size={12} /> Missed {whenLabel(schedule.lastSkippedAt).toLowerCase()}</span>
+            <span className="sched-skipped"><Icon name="alert" size={12} /> Missed {whenPhrase(schedule.lastSkippedAt)}</span>
           )}
         </div>
       </div>
@@ -213,6 +227,11 @@ function ScheduleRow({ schedule, onEdit }: { schedule: Schedule; onEdit: () => v
  * someone notices the work has not happened. The local check also lets the form show the first
  * occurrence before it is saved, which is the only way to tell a right expression from a plausible
  * one at the moment you are writing it.
+ *
+ * One field holds both spellings, because "when" is one question. Picking Once swaps the cron box for
+ * a native datetime input rather than asking anyone to write `once:` by hand — the token is a storage
+ * format, not something a person should have to know — and every other option leaves the expression
+ * visible and editable, which is how someone learns the syntax the presets are writing.
  */
 function ScheduleForm({ spaceId, schedule, onDone }: { spaceId: string; schedule: Schedule | null; onDone: () => void }) {
   const createSchedule = useApp((s) => s.createSchedule);
@@ -220,19 +239,39 @@ function ScheduleForm({ spaceId, schedule, onDone }: { spaceId: string; schedule
   const run = useApp((s) => s.run);
   const [title, setTitle] = useState(schedule?.title ?? "");
   const [goal, setGoal] = useState(schedule?.goal ?? "");
-  const [cron, setCron] = useState(schedule?.cron ?? CRON_PRESETS[1].expr);
-  const preview = nextFireOf(cron, Date.now());
+  const [expr, setExpr] = useState(schedule?.cron ?? CRON_PRESETS[1].expr);
+  const once = parseOnce(expr);
+  const preview = nextFireOf(expr, Date.now());
   const valid = title.trim().length > 0 && goal.trim().length > 0 && preview !== null;
+
+  // Tomorrow morning, for the reason `@daily` is 09:00 and not midnight: this starts an agent, and
+  // the default hour should be one where somebody could answer it.
+  const defaultMoment = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    d.setHours(9, 0, 0, 0);
+    return d.getTime();
+  };
+
+  const pick = (value: string) => {
+    if (value === "once") { setExpr(onceExpr(defaultMoment())); return; }
+    // Custom means "write the expression yourself", so it has to leave a cron expression behind when
+    // the form was on Once — otherwise the box it reveals would be holding a `once:` token.
+    if (value === "custom") { if (once !== null) setExpr(CRON_PRESETS[1].expr); return; }
+    setExpr(value);
+  };
 
   const submit = () => {
     if (!valid) return;
-    const patch = { title: title.trim(), goal: goal.trim(), cron: cron.trim() };
+    const patch = { title: title.trim(), goal: goal.trim(), cron: expr.trim() };
     run(async () => {
       if (schedule) await updateSchedule({ id: schedule.id, ...patch });
       else await createSchedule({ spaceId, ...patch, enabled: true, constraints: null });
       onDone();
     });
   };
+
+  const selected = once !== null ? "once" : CRON_PRESETS.some((p) => p.expr === expr) ? expr : "custom";
 
   return (
     <form className="sched-form" onSubmit={(e) => { e.preventDefault(); submit(); }}>
@@ -248,22 +287,27 @@ function ScheduleForm({ spaceId, schedule, onDone }: { spaceId: string; schedule
       <label className="field">
         <span>When</span>
         <div className="sched-when">
-          <select value={CRON_PRESETS.some((p) => p.expr === cron) ? cron : "custom"}
-            onChange={(e) => { if (e.target.value !== "custom") setCron(e.target.value); }}>
+          <select value={selected} onChange={(e) => pick(e.target.value)}>
+            <option value="once">Once, at a time…</option>
             {CRON_PRESETS.map((p) => <option key={p.expr} value={p.expr}>{p.label}</option>)}
             <option value="custom">Custom…</option>
           </select>
-          {/* Always editable, never hidden behind the "Custom…" option: the presets WRITE this field,
-              so showing what they wrote is how someone learns the syntax they would otherwise have to
-              be taught. */}
-          <input className="sched-cron-input" value={cron} onChange={(e) => setCron(e.target.value)}
-            aria-label="Cron expression" spellCheck={false} />
+          {once !== null
+            ? <input className="sched-once-input" type="datetime-local" aria-label="Date and time"
+                value={momentInputValue(once)}
+                onChange={(e) => { const ms = parseMoment(e.target.value); if (ms !== null) setExpr(onceExpr(ms)); }} />
+            : /* Always editable, never hidden behind the "Custom…" option: the presets WRITE this field,
+                 so showing what they wrote is how someone learns the syntax they would otherwise have to
+                 be taught. */
+              <input className="sched-cron-input" value={expr} onChange={(e) => setExpr(e.target.value)}
+                aria-label="Cron expression" spellCheck={false} />}
         </div>
       </label>
       <p className="sched-preview" data-invalid={preview === null || undefined}>
-        {preview === null
-          ? "That expression will never run — check the five fields (minute, hour, day, month, weekday)."
-          : `First run ${whenLabel(preview).toLowerCase()}.`}
+        {preview !== null
+          ? once !== null ? `Runs once, ${whenPhrase(preview)}.` : `First run ${whenPhrase(preview)}.`
+          : once !== null ? "That time has already passed. Pick one ahead of now."
+          : "That expression will never run — check the five fields (minute, hour, day, month, weekday)."}
       </p>
       <div className="sched-form-actions">
         <button type="submit" className="btn primary" disabled={!valid}>{schedule ? "Save" : "Create schedule"}</button>
