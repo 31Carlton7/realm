@@ -772,6 +772,8 @@ function AppTab() {
   const lowPower = useApp((s) => s.lowPower);
   const setLowPower = useApp((s) => s.setLowPower);
   const sidebarActivityOrder = useApp((s) => s.sidebarActivityOrder);
+  const confirmDelete = useApp((s) => s.confirmDelete);
+  const setConfirmDelete = useApp((s) => s.setConfirmDelete);
   const setSidebarActivityOrder = useApp((s) => s.setSidebarActivityOrder);
   const setEasterEggs = useApp((s) => s.setEasterEggs);
   const run = useApp((s) => s.run);
@@ -1007,6 +1009,19 @@ function AppTab() {
           <input type="checkbox" role="switch" className="switch" aria-label="Sort by activity"
             checked={sidebarActivityOrder}
             onChange={(e) => run(() => setSidebarActivityOrder(e.target.checked))} />
+        </li>
+      </ul>
+
+      <h3 className="settings-head">Deleting</h3>
+      <ul className="settings-list">
+        <li className="settings-row" title="Applies to deleting an item or a schedule. Removing a split and discarding a quick chat still ask, because neither is a delete — the panes come back and the draft was never saved.">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Ask before deleting</span>
+            <span className="settings-row-detail">A delete takes the object with it, and nothing here brings one back</span>
+          </div>
+          <input type="checkbox" role="switch" className="switch" aria-label="Ask before deleting"
+            checked={confirmDelete}
+            onChange={(e) => run(() => setConfirmDelete(e.target.checked))} />
         </li>
       </ul>
 

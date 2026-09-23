@@ -317,6 +317,19 @@ describe("Arc sidebar", () => {
     expect(api.calls).toContain("deleteItem:i1");
   });
 
+  it("deletes on the first click once the user has turned the asking off", async () => {
+    /* The whole point of the setting: someone who deletes often enough that the second click has
+       stopped being a question should not keep paying for it. THE MUTANT: leave the menu row armed
+       regardless — "Really delete?" would appear and the item would survive the click that was
+       supposed to end it. */
+    const { store, api } = await mount();
+    act(() => store.setState({ confirmDelete: false }));
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Terminal" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+    await waitFor(() => expect(store.getState().items.map((i) => i.id)).not.toContain("i1"));
+    expect(api.calls).toContain("deleteItem:i1");
+  });
+
   it("Delete is two-step: the first click arms 'Really delete?' without deleting; reopening the menu disarms; the second click deletes", async () => {
     const { store, api } = await mount();
     fireEvent.contextMenu(screen.getByRole("button", { name: "Terminal" }));

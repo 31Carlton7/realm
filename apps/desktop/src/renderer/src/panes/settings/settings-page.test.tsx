@@ -1219,6 +1219,20 @@ describe("terminal scrollback", () => {
     expect(api.calls).toContain(`setSetting:${TERMINALS_HISTORY_KEY}=true`);
   });
 
+  it("asks before deleting until you say otherwise", async () => {
+    /* Defaulted ON: a delete takes the object with it and nothing in the app brings one back, so the
+       unset key has to mean "keep asking". THE MUTANT: read the stored value with `=== true` and a
+       user who has never opened Settings loses the guard. */
+    const { store, api } = await mount();
+    fireEvent.click(screen.getByRole("radio", { name: "App" }));
+    const sw = screen.getByRole("switch", { name: "Ask before deleting" });
+    expect(sw).toBeChecked();
+
+    fireEvent.click(sw);
+    await waitFor(() => expect(store.getState().confirmDelete).toBe(false));
+    expect(api.calls).toContain("setSetting:ui.confirmDelete=false");
+  });
+
   it("the cursor blinks until you say otherwise, and the switch says which cursor", async () => {
     /* The one thing in the app that animates forever, and there was no way to stop it. Defaulted ON
        because that is what every terminal on this Mac draws — and named for the TERMINAL's cursor,

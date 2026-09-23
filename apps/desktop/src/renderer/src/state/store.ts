@@ -672,6 +672,8 @@ const SETTING_SIDEBAR_WIDTH = "ui.sidebarWidth";
 /** Whether the space strip sorts by activity instead of the user's own drag order. See
  *  `sidebarActivityOrder`. */
 const SETTING_SIDEBAR_ACTIVITY_ORDER = "ui.sidebarActivityOrder";
+/** Whether a delete asks first. On unless the user has said otherwise — see `confirmDelete`. */
+const SETTING_CONFIRM_DELETE = "ui.confirmDelete";
 /** Per-session terminal-panel state (open + width), keyed by session id. */
 export const SETTING_TERMINAL_PANEL = "ui.terminalPanel";
 /** The quick chat: which session it is, and where its window sits. One key, because the two are only
@@ -842,6 +844,19 @@ export type AppState = {
    * strip picks up exactly where it was left.
    */
   sidebarActivityOrder: boolean;
+  /**
+   * Whether deleting something asks first.
+   *
+   * On by default, because a delete here is not a close: the object goes, and nothing in the app
+   * brings it back. Off is for someone who deletes often enough that the second click has stopped
+   * being a question and become a keystroke they spend — at which point the guard is costing them
+   * real time and protecting nothing, since a guard you answer without reading is not one.
+   *
+   * Scope is the two-step "Really delete?" on an ITEM and on a schedule. It does not reach the
+   * confirms that are not deletes — removing a split keeps its panes, discarding a quick chat
+   * throws away a draft — nor the ones that spell out a named object and offer an explicit Cancel.
+   */
+  confirmDelete: boolean;
   /** Which list the sidebar's body is showing: the space's own items, or the gateway's call log.
    *
    *  Store-held rather than local to the column because `applyMcpCall` reads it — a live call has to
@@ -1350,6 +1365,7 @@ export type AppState = {
   setSwipeInvert(v: boolean): Promise<void>;
   setLowPower(v: boolean): Promise<void>;
   setSidebarActivityOrder(v: boolean): Promise<void>;
+  setConfirmDelete(v: boolean): Promise<void>;
   /** The window gained or lost focus. Called by App's own listeners; nothing else writes it. */
   setWindowActive(v: boolean): void;
   setEasterEggs(v: boolean): Promise<void>;
@@ -2790,7 +2806,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, sidebarActivityOrder: false, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
+      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, sidebarActivityOrder: false, confirmDelete: true, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
@@ -2813,9 +2829,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, swipeInvert, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, lastAgent, eggs, konami, panels, quick, system] = await Promise.all([
+        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, swipeInvert, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, panels, quick, system] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME),
-          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_LAST_AGENT),
+          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
           api.getSetting(SETTING_TERMINAL_PANEL),
           api.getSetting(SETTING_QUICK_CHAT),
@@ -2830,6 +2846,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           submitKey: isSubmitKey(submitKey) ? submitKey : "enter", sidebarCollapsed: sidebarCollapsed === true,
           sidebarWidth: typeof sidebarWidth === "number" ? clampSidebarWidth(sidebarWidth) : SIDEBAR_WIDTH.default,
           sidebarActivityOrder: activityOrder === true,
+          // Only an explicit false turns it off: an unset key and a missing row both mean "nobody
+          // has said", and the answer to that for a destructive step is to keep asking.
+          confirmDelete: askDelete !== false,
           lastAgentKind: agent.success ? agent.data : null,
           easterEggs: eggs === true, konamiUnlocked: konami === true,
           terminalPanel: parseTerminalPanels(panels), machineName: system.machineName, userName: system.userName, detachedSince: system.detachedSince });
@@ -3164,6 +3183,10 @@ await get().refreshCustomThemes().catch(() => {});
       async setSidebarActivityOrder(v) {
         set({ sidebarActivityOrder: v });
         await api.setSetting(SETTING_SIDEBAR_ACTIVITY_ORDER, v);
+      },
+      async setConfirmDelete(v) {
+        set({ confirmDelete: v });
+        await api.setSetting(SETTING_CONFIRM_DELETE, v);
       },
       setWindowActive(v) {
         // Guarded: focus and blur both fire more than once for one switch (the window, then the
