@@ -178,6 +178,14 @@ describe("useKeybindings", () => {
     expect(made(api, "deleteSession")).toBe(false);
   });
 
+  it("makes a split on \u2318\u21e7G, which the catalog carried with no default binding", async () => {
+    const { store } = await mount();
+    await act(async () => { await store.getState().newPaneGroup("Read"); });
+    const before = store.getState().groups!.groups.length;
+    key({ key: "G", code: "KeyG", metaKey: true, shiftKey: true });
+    await waitFor(() => expect(store.getState().groups!.groups).toHaveLength(before + 1));
+  });
+
   it("picks up a new keymap without missing a keystroke", async () => {
     // Rules arrive from the server after boot and change again whenever the file does. THE MUTANT:
     // capture `rules` in the listener's closure — the first keymap would be the only one that ever ran.

@@ -71,8 +71,8 @@ export function GroupBar() {
   };
 
   return (
-    <div className="group-bar" role="toolbar" aria-label="Pane groups">
-      <div className="group-tabs" role="tablist" aria-label="Pane groups" data-reordering={drag ? "" : undefined}>
+    <div className="group-bar" role="toolbar" aria-label="Splits">
+      <div className="group-tabs" role="tablist" aria-label="Splits" data-reordering={drag ? "" : undefined}>
         {order.map((g, i) => (g.id === renamingGroupId ? (
           <span key={g.id} className="group-tab group-tab-renaming">
             <GroupRenameInput group={g} onDone={() => requestGroupRename(null)} />
@@ -154,7 +154,7 @@ export function GroupBar() {
             const moved = e.dataTransfer.getData(REALM_GROUP_TYPE);
             if (moved) commitDrop(order.length, moved);
           }} />
-        <button className="icon-btn group-add" aria-label="New pane group" title="New pane group"
+        <button className="icon-btn group-add" aria-label="New split" title="New split"
           onClick={() => run(() => newPaneGroup())}><Icon name="add" size={14} /></button>
       </div>
       {menu && <GroupMenu group={menu.group} at={{ x: menu.x, y: menu.y }} onClose={() => setMenu(null)} />}
@@ -162,7 +162,7 @@ export function GroupBar() {
   );
 }
 
-/** Right-click a tab: rename in place, or remove the group.
+/** Right-click a tab: rename in place, or remove the split.
  *
  *  Rename turns THIS tab into the field. It used to arm an editor in the sidebar as well, and the
  *  two autoFocus inputs took the focus off each other — see `GroupSection` in SpaceSwiper.tsx, where
@@ -176,14 +176,14 @@ function GroupMenu({ group, at, onClose }: { group: PaneGroup; at: { x: number; 
   const last = (groups?.groups.length ?? 0) < 2;
   return (
     <Menu at={at} label={`Actions for ${group.name}`} onClose={onClose} items={[
-      { label: "Rename group", onSelect: () => requestGroupRename(group.id) },
+      { label: "Rename split", onSelect: () => requestGroupRename(group.id) },
       { kind: "separator" },
       confirming
         // Two-step (U-H2) even though nothing is deleted: the panes come back in the SESSIONS list, but
         // an arrangement someone built is still work, and it is not restorable.
-        ? { label: <strong>Remove group?</strong>, danger: true, onSelect: () => run(() => removePaneGroup(group.id)) }
-        : { label: "Remove group", danger: true, keepOpen: true, disabled: last,
-            title: last ? "A space keeps at least one group" : "Its panes return to the space list",
+        ? { label: <strong>Remove split?</strong>, danger: true, onSelect: () => run(() => removePaneGroup(group.id)) }
+        : { label: "Remove split", danger: true, keepOpen: true, disabled: last,
+            title: last ? "A space keeps at least one split" : "Its panes return to the Sessions list",
             onSelect: () => setConfirming(true) },
     ]} />
   );

@@ -446,9 +446,9 @@ export const KEY_COMMANDS: readonly KeyCommand[] = [
   { id: "pane.navBack", label: "Back in this pane", group: "Panes" },
   { id: "pane.navForward", label: "Forward in this pane", group: "Panes" },
   { id: "pane.rename", label: "Rename the focused pane", group: "Panes" },
-  { id: "paneGroup.next", label: "Next pane group", group: "Panes" },
-  { id: "paneGroup.previous", label: "Previous pane group", group: "Panes" },
-  { id: "paneGroup.new", label: "New pane group", group: "Panes" },
+  { id: "paneGroup.next", label: "Next split", group: "Panes" },
+  { id: "paneGroup.previous", label: "Previous split", group: "Panes" },
+  { id: "paneGroup.new", label: "New split", group: "Panes" },
 
   { id: "space.next", label: "Next space", group: "Spaces" },
   { id: "space.previous", label: "Previous space", group: "Spaces" },
@@ -530,6 +530,7 @@ export const DEFAULT_KEYBINDINGS: readonly Keybinding[] = [
   { key: "mod+]", command: "pane.navForward", when: WHEN_IDLE },
   { key: "mod+shift+[", command: "paneGroup.previous", when: WHEN_IDLE },
   { key: "mod+shift+]", command: "paneGroup.next", when: WHEN_IDLE },
+  { key: "mod+shift+g", command: "paneGroup.new", when: WHEN_IDLE },
 
   { key: "ctrl+tab", command: "space.next", when: WHEN_IDLE },
   { key: "ctrl+shift+tab", command: "space.previous", when: WHEN_IDLE },

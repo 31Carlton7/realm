@@ -45,7 +45,7 @@ describe("GroupBar", () => {
   it("does not render at all for one group with no pane focused", async () => {
     const { store } = await mount();
     await twoPanes(store);
-    expect(screen.queryByRole("toolbar", { name: "Pane groups" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("toolbar", { name: "Splits" })).not.toBeInTheDocument();
   });
 
   it("appears with a tab per group once a second group exists, marking the active one", async () => {
@@ -64,7 +64,7 @@ describe("GroupBar", () => {
     const { store } = await mount();
     await twoPanes(store);
     await act(async () => { await store.getState().newPaneGroup("Read"); });
-    fireEvent.click(screen.getByRole("button", { name: "New pane group" }));
+    fireEvent.click(within(screen.getByRole("toolbar", { name: "Splits" })).getByRole("button", { name: "New split" }));
     await waitFor(() => expect(store.getState().groups!.groups).toHaveLength(3));
     expect(store.getState().groups!.activeGroupId).toBe(store.getState().groups!.groups[2]!.id);
   });
@@ -79,7 +79,7 @@ describe("GroupBar", () => {
     await twoPanes(store);
     await act(async () => { await store.getState().focusPaneFull(findLeafOfItem(store.getState().layout!, "i2")!.id); });
     expect(store.getState().zoomedLeafId()).not.toBeNull();
-    expect(screen.queryByRole("toolbar", { name: "Pane groups" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("toolbar", { name: "Splits" })).not.toBeInTheDocument();
     // …and nothing anywhere still draws the banner's copy.
     expect(screen.queryByText(/^Focused/)).not.toBeInTheDocument();
   });
@@ -101,8 +101,8 @@ describe("GroupBar", () => {
     await twoPanes(store);
     await act(async () => { await store.getState().newPaneGroup("Read"); });
     fireEvent.contextMenu((await screen.findAllByRole("tab"))[1]!);
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove group" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove group?" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove split" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove split?" }));
     await waitFor(() => expect(store.getState().groups!.groups).toHaveLength(1));
   });
 
@@ -115,7 +115,7 @@ describe("GroupBar", () => {
     await twoPanes(store);
     await act(async () => { await store.getState().newPaneGroup("Read"); });
     fireEvent.contextMenu((await screen.findAllByRole("tab"))[1]!);
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Rename group" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Rename split" }));
 
     const field = await screen.findByRole("textbox", { name: "Rename Read" });
     fireEvent.change(field, { target: { value: "Ship" } });
@@ -130,7 +130,7 @@ describe("GroupBar", () => {
     await twoPanes(store);
     await act(async () => { await store.getState().newPaneGroup("Read"); });
     fireEvent.contextMenu((await screen.findAllByRole("tab"))[1]!);
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Rename group" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Rename split" }));
     expect(screen.getAllByRole("textbox", { name: "Rename Read" })).toHaveLength(1);
     // And the request survives the mount, which is the thing the twin destroyed.
     expect(store.getState().renamingGroupId).not.toBeNull();
@@ -286,10 +286,10 @@ describe("sidebar group sections", () => {
     expect(allItems(store.getState().groups!.groups[1]!.layout)).toEqual(["i3"]); // Read kept its pane
   });
 
-  it("the New group button adds one", async () => {
+  it("the New split button adds one", async () => {
     const { store } = await mount("sidebar");
     await twoPanes(store);
-    fireEvent.click(screen.getByRole("button", { name: /New group/ }));
+    fireEvent.click(screen.getByRole("button", { name: /New split/ }));
     await waitFor(() => expect(store.getState().groups!.groups).toHaveLength(2));
   });
 
@@ -436,7 +436,7 @@ describe("GroupBar in isolation", () => {
   it("renders nothing without an active space", () => {
     const store = createAppStore(fakeApi());
     render(<StoreContext.Provider value={store}><GroupBar /></StoreContext.Provider>);
-    expect(screen.queryByRole("toolbar", { name: "Pane groups" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("toolbar", { name: "Splits" })).not.toBeInTheDocument();
   });
 });
 
@@ -473,8 +473,8 @@ describe("command palette", () => {
     const { store } = await open();
     await twoPanes(store);
     await show(store);
-    expect(screen.queryByText(/^Group: /)).not.toBeInTheDocument();
-    expect(screen.getByText("New pane group")).toBeInTheDocument();
+    expect(screen.queryByText(/^Split: /)).not.toBeInTheDocument();
+    expect(within(screen.getByRole("dialog")).getByText("New split")).toBeInTheDocument();
   });
 
   it("lists every group once there is more than one, marking the current, and switches on pick", async () => {
@@ -482,9 +482,9 @@ describe("command palette", () => {
     await twoPanes(store);
     await act(async () => { await store.getState().newPaneGroup("Read"); });
     await show(store);
-    expect(screen.getByText("Group: Main")).toBeInTheDocument();
-    expect(screen.getByText("Group: Read")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Group: Main"));
+    expect(screen.getByText("Split: Main")).toBeInTheDocument();
+    expect(screen.getByText("Split: Read")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Split: Main"));
     await waitFor(() => expect(allItems(store.getState().layout!)).toEqual(["i1", "i2"]));
   });
 

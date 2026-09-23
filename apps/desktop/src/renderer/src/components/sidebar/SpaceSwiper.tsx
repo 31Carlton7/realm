@@ -296,7 +296,7 @@ const SpaceBody = memo(function SpaceBody({ items, groups }: { items: Item[]; gr
         })}
         {groups && (
           <button className="group-new" onClick={() => run(() => newPaneGroup())}>
-            <Icon name="add" size={12} /><span>New group</span>
+            <Icon name="add" size={12} /><span>New split</span>
           </button>
         )}
         <div className="group-label">Sessions</div>
