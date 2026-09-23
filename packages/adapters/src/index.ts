@@ -15,3 +15,5 @@ export { createCodexMapper } from "./codex/map-codex";
 export { CodexAdapter, CODEX_SANDBOX_REFUSAL, pickCodexDecision, codexPolicyFor } from "./codex/codex-adapter";
 export { probeCodex } from "./codex/probe";
 export { AcpAdapter, pickAcpOption, type AcpAgentSpec } from "./acp/acp-adapter";
+export { generatePixelWorld, extractJson, type PixelWorldRequest, type WorldVocabulary } from "./claude/generate-pixel-world";
+export { generatePixelSprite, type PixelSpriteRequest } from "./claude/generate-pixel-sprite";

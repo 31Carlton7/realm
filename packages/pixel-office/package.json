@@ -1,0 +1,24 @@
+{
+  "name": "@realm/pixel-office",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.build.json && tsc -p tsconfig.json --noEmit",
+    "decode-assets": "tsx tools/decode-assets.mts",
+    "build": "tsc -p tsconfig.build.json",
+    "build-default-office": "tsx tools/build-default-office.mts"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "react": "^19.0.0",
+    "tsx": "^4.0.0",
+    "pngjs": "^7.0.0",
+    "@types/pngjs": "^6.0.5"
+  }
+}

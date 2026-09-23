@@ -15,7 +15,8 @@
     "dist:dir": "node scripts/stage-pack.mjs && node scripts/pack.mjs --dir --publish never"
   },
   "dependencies": {
-    "emojilib": "4.0.3"
+    "emojilib": "4.0.3",
+    "@realm/pixel-office": "workspace:*"
   },
   "devDependencies": {
     "@codemirror/commands": "^6.7.0",
