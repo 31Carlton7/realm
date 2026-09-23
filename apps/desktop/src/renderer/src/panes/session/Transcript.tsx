@@ -2,6 +2,7 @@ import { Icon } from "@realm/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { LINK_SERVICE_META, chipRuns, mediaCandidatesIn, type SessionMode, type SessionStatus } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
+import { CommandCopy } from "../../components/CommandCopy";
 import type { PermissionDecision } from "../../state/store";
 import { Markdown } from "./Markdown";
 import { MessageActions } from "./MessageActions";
@@ -395,7 +396,18 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             case "tool": return <ToolCard key={key} block={b} sessionStatus={sessionStatus} enter={enter} nested={withEnter(it.nested, isEntering)} />;
             case "plan": return <PlanCard key={key} text={b.text} steps={b.steps} enter={enter}
               onExpand={onExpandPlan && (() => onExpandPlan(b.planId))} />;
-            case "error": return <div key={key} className="msg-error" role="alert" data-enter={enter || undefined}><Icon name="alert" size={14} /><pre>{b.message}</pre></div>;
+            // A failure Realm knows the answer to says the answer here, under the message, because
+            // this is where the reader is already looking. The command is offered to copy and
+            // nothing more: the transcript is content, and the controls that act on this session —
+            // "Check again", "Open in terminal" — live on the prompter, which takes over entirely
+            // when the agent's own probe confirms it is signed out.
+            case "error": return <div key={key} className="msg-error" role="alert" data-enter={enter || undefined}>
+              <Icon name="alert" size={14} />
+              <div className="msg-error-body">
+                <pre>{b.message}</pre>
+                {b.fix?.command && <CommandCopy command={b.fix.command} />}
+              </div>
+            </div>;
             // The shimmer the reader was watching, settled: same verb, past tense, with the wait it
             // cost them. It stays in the scrollback rather than vanishing with the spinner — "how
             // long did that take" is a question asked after the fact, not during.
@@ -419,8 +431,13 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             </div>;
             // Present tense, because this one is about right now: it is the only block in the
             // transcript that will be replaced rather than joined by what comes next.
+            // An auth wait says what it is waiting ON. "Retrying…" under a message that just said
+            // the session expired reads as Realm ignoring it; the agent's credentials having been
+            // re-read, and found sound, is the fact that makes another attempt sensible.
             case "retrying": return <div key={key} className="msg-run muted" data-enter={enter || undefined}>
-              {b.attempt === 1 ? "Retrying…" : `Retrying (attempt ${b.attempt})…`}
+              {b.reason === "auth"
+                ? (b.attempt === 1 ? "Signed in — trying again…" : `Signed in — trying again (attempt ${b.attempt})…`)
+                : (b.attempt === 1 ? "Retrying…" : `Retrying (attempt ${b.attempt})…`)}
             </div>;
             // The other seam, wearing the handover's shape because it reports the same kind of thing:
             // the transcript above this line is no longer what the agent below it is reading. Sharing

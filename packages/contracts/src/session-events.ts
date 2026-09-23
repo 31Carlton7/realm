@@ -58,7 +58,24 @@ const P = {
      *  "Stopped" instead of banking the harness's own diagnostic as an error the user has to read —
      *  a cancelled turn is not a fault, and reporting it as one is the loudest lie in the log. */
     interrupted: z.boolean().optional() }),
-  error: z.object({ message: z.string() }),
+  /**
+   * The turn failed.
+   *
+   * `fix` is present only where Realm can name a specific thing the user can do, which today is an
+   * auth failure it has already verified (`failover.ts` → `authFix`). Optional rather than a second
+   * event type so every error row ever written still parses, and so the transcript keeps ONE shape
+   * for "the turn failed" — a failure with a fix is not a different kind of block, it is the same
+   * block with somewhere to go.
+   *
+   * `failure` is the classifier's verdict, carried so a client can react to the kind without
+   * re-running a phrase table of its own (the prompter re-probes on `auth`, because the agent's
+   * sign-in state is the one thing an auth failure proves is worth re-reading).
+   */
+  error: z.object({
+    message: z.string(),
+    failure: z.enum(["usage_limit", "provider_down", "transient", "auth", "fatal"]).optional(),
+    fix: z.object({ title: z.string(), hint: z.string(), command: z.string().nullable() }).optional(),
+  }),
   /**
    * The provider's accounting of the ACCOUNT's plan quota, as it changes.
    *
@@ -112,7 +129,7 @@ const P = {
    * "hold on" for someone watching the pane right now, and a transcript reopened tomorrow should
    * show the turn that eventually ran, not three announcements of it being about to.
    */
-  retrying: z.object({ reason: z.enum(["provider_down", "transient"]), attempt: z.number().int(), waitMs: z.number().int() }),
+  retrying: z.object({ reason: z.enum(["provider_down", "transient", "auth"]), attempt: z.number().int(), waitMs: z.number().int() }),
   /**
    * `contextTokens` is how much of the window the conversation OCCUPIES, and `contextWindow` is what
    * that was measured against. Both are the harness's own measurement — Claude's `getContextUsage`,
