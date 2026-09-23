@@ -183,6 +183,40 @@ describe("App tab", () => {
     expect(api.calls).toContain("setSetting:ui.theme=dark");
   });
 
+  /**
+   * The switch `SpaceStrip` points at when it explains where its order comes from. Until this
+   * existed the setting was real, persisted and honoured, and nothing in the app could turn it on.
+   */
+  describe("Sort spaces by activity", () => {
+    const SWITCH = "Sort spaces by activity";
+
+    it("is off until someone turns it on", async () => {
+      await openApp();
+      expect(screen.getByRole("switch", { name: SWITCH })).not.toBeChecked();
+    });
+
+    it("writes the preference, so it survives a relaunch", async () => {
+      const { store, api } = await openApp();
+      fireEvent.click(screen.getByRole("switch", { name: SWITCH }));
+      await waitFor(() => expect(store.getState().sidebarActivityOrder).toBe(true));
+      // THE MUTANT: set the state and skip the write. The strip reorders for this session and comes
+      // back in the dragged order tomorrow, which reads as the switch not having stuck.
+      expect(api.calls).toContain("setSetting:ui.sidebarActivityOrder=true");
+    });
+
+    it("renders what a saved preference says", async () => {
+      await openApp({ settings: { "ui.sidebarActivityOrder": true } });
+      expect(screen.getByRole("switch", { name: SWITCH })).toBeChecked();
+    });
+
+    it("says what it costs, not only what it does", async () => {
+      // Dragging stops working while it is on. A switch that disabled a gesture without saying so
+      // would read as the gesture breaking.
+      await openApp();
+      expect(screen.getByText(/spaces cannot be dragged/)).toBeInTheDocument();
+    });
+  });
+
   const row = (face: "Light" | "Dark") => within(screen.getByRole("group", { name: `${face} theme` }));
   const colours = (face: "Light" | "Dark") => within(screen.getByRole("group", { name: `${face} theme colours` }));
 

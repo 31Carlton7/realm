@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { actionsThatFit } from "./components/pane-bar-fit";
 import { REALM_SEED, deriveVars } from "@realm/ui";
-import { oklchToHex } from "@realm/contracts";
+import { AGENT_FRAME, oklchToHex } from "@realm/contracts";
 import { PICTURE_RADIUS, SCREEN_INSET, SCREEN_PAD, SCREEN_RADIUS } from "./panes/machine/fit";
 import { MAX_ROWS_PX } from "./panes/session/Composer";
 
@@ -3203,4 +3203,50 @@ it("carries the prompter's mode ring up through every strip stacked above it", (
       expect(fallback, `${strip} fallback hairline`).toContain("var(--hairline-w)");
     }
   }
+});
+
+/**
+ * The self-drive frame, held to the same numbers the injected one is drawn from.
+ *
+ * `main/agent-cursor.ts` says the arrangement out loud: the mark exists on two surfaces with two
+ * transports and must have one appearance, "so the appearance is a number table both read, and
+ * `styles.test.ts` asserts the parity". This is that assertion. Without it the two drift silently —
+ * nothing in the app ever renders them side by side, so a 2px ring here against a 3px ring in a page
+ * is a difference only a user switching panes would ever see, and could not name.
+ *
+ * Geometry is deliberately absent: see `AGENT_FRAME`'s own comment for why insetting a pane-scoped
+ * frame is parity rather than a departure from it.
+ */
+describe("the agent-controlled frame", () => {
+  const glow = bodiesFor(".drive-frame-glow").join(" ");
+
+  it("draws the ring at the shared weight", () => {
+    // THE MUTANT: any other number. The ring is the whole statement on a pane whose content is
+    // already dense, and one that does not match the browser's reads as a different kind of event.
+    for (const body of bodiesFor(".drive-frame"))
+      expect(body).toContain(`inset 0 0 0 ${AGENT_FRAME.ringPx}px var(--rl-accent)`);
+  });
+
+  it("draws the glow at the shared blur and spread", () => {
+    // The negative spread is the load-bearing half: drop it and the wash fills the pane instead of
+    // hugging its edges, and a terminal under it stops being readable.
+    expect(glow).toContain(`inset 0 0 ${AGENT_FRAME.glowBlurPx}px ${AGENT_FRAME.glowSpreadPx}px var(--rl-accent)`);
+  });
+
+  it("pulses at the shared rate", () => {
+    expect(glow).toContain(`${AGENT_FRAME.pulseMs}ms`);
+  });
+
+  it("gives the glow its own element rather than a pseudo-element", () => {
+    // THE MUTANT: move the animation onto `.drive-frame::before`. The app-wide reduced-motion kill
+    // is `* { animation: none }` and `*` does not match a pseudo-element, so the frame would keep
+    // pulsing for a reader who turned motion off — the failure the eggs wash already documents.
+    expect(RULES.some((r) => r.selectors.some((sel) => sel.startsWith(".drive-frame") && sel.includes("::")))).toBe(false);
+  });
+
+  it("is paused by the quiet attribute like every other ambient loop", () => {
+    // The quiet list is an enumeration, not a wildcard: a new looping surface that nobody adds to it
+    // keeps burning a core in an unfocused window, which is the audit this list came out of.
+    expect(bodiesFor(":root[data-quiet] .drive-frame-glow").join(" ")).toContain("animation-play-state: paused");
+  });
 });

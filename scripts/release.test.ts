@@ -1,11 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tempDir } from "@realm/test-utils";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import {
   bumpPackageJsonText, bumpVersion, changelogEntries, entriesFromGh, missingArtifacts, nextStepsText,
-  parseReleaseArgs, prEntryFromSubject, prependChangelog, release, renderStub,
+  parseReleaseArgs, prEntryFromSubject, prependChangelog, release, renderStub, smokeTestPackagedServer,
 } from "./release.mjs";
 
 describe("parseReleaseArgs", () => {
@@ -185,7 +186,7 @@ describe("release() end to end in a scratch repo (no pushing, no publishing — 
   afterEach(() => rmSync(root, { recursive: true, force: true }));
 
   it("bumps, writes the stub, builds, commits and tags LOCALLY — and prints the manual next steps", () => {
-    const r = release({ root, argv: [], exec: makeExec({ gh: "offline" }), log });
+    const r = release({ root, argv: [], smoke: () => {}, exec: makeExec({ gh: "offline" }), log });
     expect(r).toMatchObject({ next: "0.0.2", tag: "v0.0.2", source: "pr-titles", dryRun: false });
     expect(JSON.parse(readFileSync(join(root, "apps", "desktop", "package.json"), "utf8")).version).toBe("0.0.2");
     const cl = readFileSync(join(root, "CHANGELOG.md"), "utf8");
@@ -202,14 +203,14 @@ describe("release() end to end in a scratch repo (no pushing, no publishing — 
   });
 
   it("gh answering takes the top rung: entries come from PR titles via gh", () => {
-    const r = release({ root, argv: ["--minor"], exec: makeExec({ gh: "ok" }), log });
+    const r = release({ root, argv: ["--minor"], smoke: () => {}, exec: makeExec({ gh: "ok" }), log });
     expect(r.next).toBe("0.1.0");
     expect(readFileSync(join(root, "CHANGELOG.md"), "utf8")).toContain("- Ship the thing (#21)");
   });
 
   it("dry run computes the same plan and writes NOTHING — no bump, no changelog, no commit, no tag", () => {
     const before = realExec("git", ["rev-parse", "HEAD"], { cwd: root }).trim();
-    const r = release({ root, argv: ["--dry-run"], exec: makeExec({ gh: "offline" }), log });
+    const r = release({ root, argv: ["--dry-run"], smoke: () => {}, exec: makeExec({ gh: "offline" }), log });
     expect(r).toMatchObject({ next: "0.0.2", dryRun: true });
     expect(JSON.parse(readFileSync(join(root, "apps", "desktop", "package.json"), "utf8")).version).toBe("0.0.1");
     expect(() => readFileSync(join(root, "CHANGELOG.md"))).toThrow();
@@ -219,11 +220,11 @@ describe("release() end to end in a scratch repo (no pushing, no publishing — 
 
   it("a dirty tree is refused before anything happens", () => {
     writeFileSync(join(root, "scratch.txt"), "x");
-    expect(() => release({ root, argv: [], exec: makeExec({}), log })).toThrow(/not clean/);
+    expect(() => release({ root, argv: [], smoke: () => {}, exec: makeExec({}), log })).toThrow(/not clean/);
   });
 
   it("a failed build leaves the bump in the tree but makes NO commit and NO tag, and says so", () => {
-    expect(() => release({ root, argv: [], exec: makeExec({ distFails: true }), log })).toThrow(/NO commit or tag was made/);
+    expect(() => release({ root, argv: [], smoke: () => {}, exec: makeExec({ distFails: true }), log })).toThrow(/NO commit or tag was made/);
     expect(JSON.parse(readFileSync(join(root, "apps", "desktop", "package.json"), "utf8")).version).toBe("0.0.2");
     expect(realExec("git", ["tag", "--list"], { cwd: root }).trim()).toBe("");
     expect(realExec("git", ["log", "-1", "--pretty=%s"], { cwd: root }).trim()).not.toContain("release:");
@@ -231,19 +232,81 @@ describe("release() end to end in a scratch repo (no pushing, no publishing — 
 
   it("an existing tag for the target version is refused up front", () => {
     realExec("git", ["tag", "v0.0.2"], { cwd: root });
-    expect(() => release({ root, argv: [], exec: makeExec({}), log })).toThrow(/v0\.0\.2 already exists/);
+    expect(() => release({ root, argv: [], smoke: () => {}, exec: makeExec({}), log })).toThrow(/v0\.0\.2 already exists/);
+  });
+
+  /**
+   * The gate v1.4.0 did not have. That release shipped a server that could not start — `@xterm/
+   * headless` is CJS and tsup left it external, so the bundle carried an import Node refuses at
+   * load — and every check was green, because the suite, `tsc` and `pnpm build` all decline to RUN
+   * the thing they produce. The first execution was the packaged app's.
+   */
+  it("a packaged server that will not boot stops the release before any commit or tag", () => {
+    const before = realExec("git", ["log", "--oneline"], { cwd: root });
+    expect(() => release({
+      root, argv: [], exec: makeExec({ gh: "offline" }), log,
+      smoke: () => { throw new Error("the packaged server did not come up"); },
+    })).toThrow(/did not come up/);
+    // THE MUTANT: run the smoke test after the commit, or warn instead of throwing. A broken build
+    // would get a tag, and the tag is what a release is published from.
+    expect(realExec("git", ["log", "--oneline"], { cwd: root })).toBe(before);
+    expect(realExec("git", ["tag", "--list"], { cwd: root }).trim()).not.toContain("v0.0.2");
   });
 
   it("changelog entries only cover commits since the last tag", () => {
     const exec = makeExec({ gh: "offline" });
-    release({ root, argv: [], exec, log }); // v0.0.2 tagged
+    release({ root, argv: [], exec, log, smoke: () => {} }); // v0.0.2 tagged
     writeFileSync(join(root, "next.txt"), "y");
     realExec("git", ["add", "-A"], { cwd: root });
     realExec("git", ["commit", "-q", "-m", "New work after the release (#18)"], { cwd: root });
-    release({ root, argv: [], exec, log }); // v0.0.3
+    release({ root, argv: [], exec, log, smoke: () => {} }); // v0.0.3
     const cl = readFileSync(join(root, "CHANGELOG.md"), "utf8");
     const v3 = cl.slice(cl.indexOf("## v0.0.3"), cl.indexOf("## v0.0.2"));
     expect(v3).toContain("New work after the release (#18)");
     expect(v3).not.toContain("Plan 13"); // already released in v0.0.2
+  });
+});
+
+/**
+ * The smoke gate's own machinery, against a stand-in server rather than the real bundle.
+ *
+ * It needs its own tests because its first two versions were both broken in ways nothing else could
+ * see. One collected the child's output through `stdout.on("data")` while waiting synchronously — so
+ * the event loop never turned, the handler never ran, and every release failed with empty output.
+ * The other called `log` from a module-level function that had no `log` in scope, which threw only
+ * on the SUCCESS path, where the first bug guaranteed it would never reach.
+ */
+describe("smokeTestPackagedServer", () => {
+  const stubServer = (body: string) => {
+    const root = tempDir("realm-smoke-test-");
+    mkdirSync(join(root, "apps", "server", "dist"), { recursive: true });
+    writeFileSync(join(root, "apps", "server", "dist", "main.js"), body);
+    return root;
+  };
+
+  it("passes when the server reports ready, and says so through the injected log", () => {
+    // THE MUTANT: collect the child's output with an async handler. Nothing arrives while the wait
+    // blocks the loop, so this times out — which is exactly how the real gate failed.
+    const root = stubServer(`console.log(JSON.stringify({ type: "ready", port: 8799 })); setInterval(() => {}, 1000);`);
+    const lines: string[] = [];
+    expect(() => smokeTestPackagedServer(root, (m: string) => lines.push(m))).not.toThrow();
+    expect(lines.join(" ")).toContain("booted");
+  });
+
+  it("fails fast on a bundle that cannot load, and attaches what it printed", () => {
+    // The v1.4.0 fault itself: a named import from a CommonJS module, which Node refuses at load.
+    const root = stubServer(`import { Terminal } from "./cjs.cjs"; void Terminal;`);
+    writeFileSync(join(root, "apps", "server", "dist", "cjs.cjs"), "module.exports = {};");
+    let err: Error | undefined;
+    try { smokeTestPackagedServer(root, () => {}, 20_000); } catch (e) { err = e as Error; }
+    expect(err?.message).toMatch(/could not load/);
+    // The output is attached, because a gate that only says "it did not come up" leaves whoever is
+    // cutting the release to go and reproduce it by hand.
+    expect(err?.message).toContain("SyntaxError");
+  });
+
+  it("refuses when there is no packaged server at all", () => {
+    const root = tempDir("realm-smoke-empty-");
+    expect(() => smokeTestPackagedServer(root, () => {}, 5_000)).toThrow(/no packaged server/);
   });
 });

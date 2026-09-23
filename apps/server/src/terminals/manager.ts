@@ -69,14 +69,30 @@ export class TerminalManager {
    */
   async writeWhenQuiet(id: string, data: string, quietMs = 250, timeoutMs = 4000): Promise<void> {
     this.get(id); // reject an unknown id up front, not after the wait
+    if (!(await this.quietFor(id, quietMs, timeoutMs))) return; // the shell died while we waited
+    if (this.terms.has(id)) this.write(id, data);
+  }
+
+  /**
+   * Resolve once the shell has produced nothing for `quietMs`, or `timeoutMs` elapses.
+   *
+   * The waiting half of `writeWhenQuiet`, extracted because an agent needs it on its own: having
+   * typed something, the useful next move is "wait for the program to finish reacting, then read the
+   * screen", and that is this without a write on the end of it.
+   *
+   * False means the pty is gone — the caller's terminal exited while it waited, which is a different
+   * outcome from "it went quiet" and must not be reported as one. Reaching the timeout is still
+   * true: a shell that is still talking after `timeoutMs` has told the caller something real, and
+   * the screen is worth reading either way.
+   */
+  async quietFor(id: string, quietMs = 250, timeoutMs = 4000): Promise<boolean> {
     const deadline = this.now() + timeoutMs;
     for (;;) {
+      if (!this.terms.has(id)) return false;
       const since = this.now() - (this.lastDataAt.get(id) ?? 0);
-      if (since >= quietMs || this.now() >= deadline) break;
+      if (since >= quietMs || this.now() >= deadline) return true;
       await new Promise((r) => setTimeout(r, Math.min(quietMs - since, 50)));
-      if (!this.terms.has(id)) return; // the shell died while we waited
     }
-    if (this.terms.has(id)) this.write(id, data);
   }
   resize(id: string, cols: number, rows: number): void { this.get(id).resize(clamp(cols, 2, MAX_COLS), clamp(rows, 1, MAX_ROWS)); }
   close(id: string): void { const p = this.get(id); p.kill(); this.terms.delete(id); this.lastDataAt.delete(id); }

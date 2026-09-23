@@ -1,3 +1,5 @@
+import { AGENT_FRAME } from "@realm/contracts";
+
 /**
  * The numbers behind the agent's in-page cursor and the controlled-screen frame (Plan 25 W2).
  *
@@ -53,7 +55,7 @@ export const AGENT_CURSOR = {
    * answer "how long after the last act does an agent stop counting as driving", and two answers to
    * one question is how they drift. `agent-cursor.test.ts` holds them equal.
    */
-  idleMs: 1500,
+  idleMs: AGENT_FRAME.lingerMs,
 } as const;
 
 /**
@@ -196,5 +198,5 @@ export const AGENT_MOTION = {
    * "running"]` uses), not the 0.9s the `driving` dot takes. The dot is 13px and the frame is the
    * whole viewport, and the stylesheet already writes down why that difference decides the rate.
    */
-  framePulseMs: 1800,
+  framePulseMs: AGENT_FRAME.pulseMs,
 } as const;

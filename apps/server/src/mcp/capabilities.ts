@@ -60,6 +60,26 @@ const BLOCKS: Record<string, string> = {
     "and say back the moment you set, because unattended work the user did not register is work that " +
     "arrives unannounced.",
 
+  "realm-terminal":
+    "- **A terminal that talks back.** `terminal_open` starts a real terminal pane in this space, " +
+    "`terminal_write` types into it and `terminal_read` shows what it is displaying NOW — the rendered " +
+    "screen, so a full-screen program's repaints are resolved rather than replayed at you. Reach for it " +
+    "for the work your own shell tool structurally cannot do: an interactive login, a prompt that asks a " +
+    "question, anything that needs a terminal on the other end. `claude auth login` under a " +
+    "non-interactive shell hangs; here it runs, and you can read the URL it prints and answer the code it " +
+    "asks for. For running a command and reading its output your own shell tool is better and costs no " +
+    "pane, so do not reach here for one. Realm refuses to type into a password prompt in every mode — " +
+    "say what is being asked for and let the user type it in the pane.",
+
+  "realm-app":
+    "- **Realm's own interface.** `app_snapshot` reads the window the user is looking at as elements with " +
+    "`[ref=N]`, and `app_act` clicks, types and scrolls in it. This space switched it on deliberately. " +
+    "Reach for it to SEE what is on their screen, or to check that something you changed really renders — " +
+    "not to perform an action Realm already has a tool or a setting for, because those are direct and a " +
+    "click is a guess about layout. Realm refuses, in every mode, any element inside its own permission " +
+    "card or permission-mode confirmation: you cannot approve your own request, so ask in your reply " +
+    "instead.",
+
   "realm-computer":
     "- **Other Mac apps.** `computer_list_apps`, `computer_snapshot` and `computer_act` drive the apps on the " +
     "user's Mac through the accessibility APIs. This space switched them on deliberately, so use them for work " +
@@ -77,7 +97,7 @@ const BLOCKS: Record<string, string> = {
 /** Fixed order, so the same set of providers always produces the same bytes: the blocks are read
  *  top-down and registration order is not a reason for the browser to appear above delegation one
  *  day and below it the next. */
-const ORDER = ["realm-agent", "realm-browser", "realm-docs", "realm-schedule", "realm-computer", "realm-vm"] as const;
+const ORDER = ["realm-agent", "realm-browser", "realm-docs", "realm-schedule", "realm-terminal", "realm-app", "realm-computer", "realm-vm"] as const;
 
 const HEADER =
   "# Realm\n\n" +

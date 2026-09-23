@@ -8,7 +8,7 @@ import {
   activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveGroup as groupsMove, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo,
+  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
   type AgentKind, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageSummary,
@@ -381,6 +381,10 @@ export type Api = {
   /** `cli.run` — start the install or update the status offered. Rejects when the server is not
    *  offering that action, which is the only place that decision is ever made. */
   runCli(kind: AgentKind, action: "install" | "update"): Promise<CliJobStart>;
+  /** `signin.start` — open a terminal in this space and run the agent CLI's own login command.
+   *  Resolves once the shell is running with the command typed, NOT when the sign-in finishes: the
+   *  terminal and then the consent pane arrive as items, the way every other pane does. */
+  startSignIn(spaceId: string, kind: AgentKind): Promise<{ terminalId: string; command: string }>;
   /** `models.catalog` — prices, context windows and reasoning efforts for the picker. Never rejects
    *  on a dead network: the server answers with its cache, or with nothing. */
   modelCatalog(force: boolean): Promise<ModelInfo[]>;
@@ -920,6 +924,10 @@ export type AppState = {
   /** W4: browserIds an agent act/batch step is CURRENTLY in flight on — the "agent is driving" dot
    *  on the sidebar row and pane chrome. Every set is cleared by the matching settle broadcast. */
   browserDriving: Record<string, boolean>;
+  /** terminalIds an agent is CURRENTLY typing into, from `terminal.driving`. The terminal half of
+   *  the field above and deliberately its twin: an agent typing into a pty and an agent clicking in
+   *  a page are one event to a person watching, and the pane chrome draws them with one idiom. */
+  terminalDriving: Record<string, boolean>;
   /** Live machine state by machineId (Plan 25 W3), from `machine.status`. Absent means `off`, which
    *  is the only thing that is true about a machine nobody has connected to. */
   machineState: Record<string, MachineState>;
@@ -970,11 +978,13 @@ export type AppState = {
   /** sessionId → spaceId for EVERY known session. session.status broadcasts carry only a sessionId;
    *  this map is what lets an inactive space's strip button wear its badge. */
   sessionSpace: Record<string, string>;
-  /** When each session last did something, for `spaceActivity`'s sort. Seeded from the server's own
-   *  `updatedAt` by `refreshAllSessions`, then kept current on the client's clock by every
-   *  `applySessionStatus` — a live status change is itself the activity, and waiting for the next
-   *  full refresh to notice it would leave the strip's order stale for as long as the app stayed
-   *  open. Ordering only: never shown as a time to the user, so the two clocks never have to agree. */
+  /**
+   * When each session last moved, by session id — the tiebreaker behind "Sort by activity".
+   *
+   * Kept beside `sessionSpace` rather than read off `sessions`, and for the same reason that map
+   * exists: `sessions` holds only the ACTIVE space's rows, while the strip sorts every space in the
+   * profile. Seeded from `listAllSessions` at boot and kept current by the status broadcasts.
+   */
   sessionUpdatedAt: Record<string, number>;
   /** Transcripts by session id, kept across space switches (cheap, and a session pane may be revisited). */
   transcripts: Record<string, TranscriptEntry>;
@@ -1348,6 +1358,7 @@ export type AppState = {
   setFonts(patch: Partial<FontPref>): Promise<void>;
   setGroundAlpha(pct: number): Promise<void>;
   setSwipeInvert(v: boolean): Promise<void>;
+  setSidebarActivityOrder(v: boolean): Promise<void>;
   setLowPower(v: boolean): Promise<void>;
   setSidebarActivityOrder(v: boolean): Promise<void>;
   /** The window gained or lost focus. Called by App's own listeners; nothing else writes it. */
@@ -1502,6 +1513,7 @@ export type AppState = {
   /** W4 broadcasts: one settled action for the ticker's ring buffer / the driving flag flip. */
   applyBrowserAction(p: { browserId: string; text: string; ok: boolean; ts: number }): void;
   applyBrowserDriving(p: { browserId: string; driving: boolean }): void;
+  applyTerminalDriving(p: { terminalId: string; driving: boolean }): void;
   applyMachineState(s: MachineState): void;
   applySimulatorState(s: SimulatorState): void;
   applyGoalChanged(p: { sessionId: string; goal: Goal | null }): void;
@@ -1635,6 +1647,18 @@ export type AppState = {
    *  refresh after an install finishes. */
   refreshCliStatus(force?: boolean): Promise<void>;
   runCliAction(kind: AgentKind, action: "install" | "update"): Promise<void>;
+  /** Start signing this agent in, in the active space. The panes it opens are the feedback. */
+  startSignIn(kind: AgentKind): Promise<void>;
+  /**
+   * Whether this SPACE lets Realm finish a sign-in itself, including the click on Authorize.
+   *
+   * Read and written per call rather than held in store state, unlike the app-level switches loaded
+   * at boot: this one is keyed by space, and the only surface that shows it is a panel that already
+   * mounts for one space and fetches its own rows. Caching it globally would mean a value in the
+   * store that is only true for whichever space was looked at last.
+   */
+  spaceSignInEnabled(spaceId: string): Promise<boolean>;
+  setSpaceSignInEnabled(spaceId: string, enabled: boolean): Promise<void>;
   applyCliOutput(e: CliJobOutput): void;
   applyCliDone(e: CliJobEnd): void;
   /** Drop a finished job's output panel. A running job cannot be dismissed — hiding output while a
@@ -2162,21 +2186,38 @@ export function spaceBadge(
   return error ? "error" : running ? "running" : null;
 }
 
-/** The space strip's activity-sort key, for the "Sort by activity" setting. A space waiting on a
- *  permission outranks every timestamp — a question sitting for an hour still comes before a space
- *  merely touched a minute ago, the same priority `spaceBadge` already gives it — and otherwise it
- *  is the latest `sessionUpdatedAt` across the space's own sessions. 0 for a space nothing has ever
- *  touched, which sorts it after every space that has done anything at all. */
+/**
+ * How recently a space moved, as one number to sort by — the key behind "Sort by activity".
+ *
+ * `Infinity` for a space holding a session that is WAITING on the user. That is not a timestamp
+ * trick standing in for a priority: a question is the one thing on this rail that will not resolve
+ * itself, and a space holding one belongs first however long it has been there. Every finite answer
+ * loses to it, including a touch from a second ago.
+ *
+ * Otherwise the NEWEST session in the space, never the sum: a space with six idle sessions has not
+ * been six times as active as a space with one, and adding them would sort by how many sessions
+ * someone happens to keep around.
+ *
+ * Zero for a space with nothing in it, which sorts last without needing a case of its own.
+ *
+ * Iterates `sessionSpace` rather than `sessionStatus` — unlike `spaceBadge` above, whose question IS
+ * about status. A session with a timestamp and no status entry is ordinary here (nothing has
+ * broadcast about it yet), and iterating statuses would score its space at zero.
+ */
 export function spaceActivity(
-  sessionStatus: Record<string, SessionStatus>, sessionSpace: Record<string, string>,
-  sessionUpdatedAt: Record<string, number>, spaceId: string,
+  sessionStatus: Record<string, SessionStatus>,
+  sessionSpace: Record<string, string>,
+  sessionUpdatedAt: Record<string, number>,
+  spaceId: string,
 ): number {
-  if (spaceBadge(sessionStatus, sessionSpace, spaceId) === "waiting_permission") return Infinity;
-  let latest = 0;
+  let newest = 0;
   for (const [id, sid] of Object.entries(sessionSpace)) {
-    if (sid === spaceId) latest = Math.max(latest, sessionUpdatedAt[id] ?? 0);
+    if (sid !== spaceId) continue;
+    if (sessionStatus[id] === "waiting_permission") return Infinity;
+    const at = sessionUpdatedAt[id];
+    if (at !== undefined && at > newest) newest = at;
   }
-  return latest;
+  return newest;
 }
 
 export type FocusDir = "left" | "right" | "up" | "down";
@@ -2790,10 +2831,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, sidebarActivityOrder: false, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
+      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, sidebarActivityOrder: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
-      keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
+      keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
       spacePageTab: {}, profilePageTab: {}, librarySkill: {}, mcpPanelSpaceId: null, agentsView: "list", officeWorld: null,
       sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
@@ -2829,6 +2870,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           groundAlpha: typeof groundAlpha === "number" ? clampGroundAlpha(groundAlpha) : DEFAULT_GROUND_ALPHA, swipeInvert: swipeInvert === true, lowPower: lowPower === true,
           submitKey: isSubmitKey(submitKey) ? submitKey : "enter", sidebarCollapsed: sidebarCollapsed === true,
           sidebarWidth: typeof sidebarWidth === "number" ? clampSidebarWidth(sidebarWidth) : SIDEBAR_WIDTH.default,
+          // Defaulted OFF: the strip's resting order is the one the user dragged it into, and a
+          // preference nobody could read must not rearrange their spaces on them at launch.
           sidebarActivityOrder: activityOrder === true,
           lastAgentKind: agent.success ? agent.data : null,
           easterEggs: eggs === true, konamiUnlocked: konami === true,
@@ -3157,13 +3200,13 @@ await get().refreshCustomThemes().catch(() => {});
         set({ swipeInvert: v });
         await api.setSetting(SETTING_SWIPE_INVERT, v);
       },
-      async setLowPower(v) {
-        set({ lowPower: v });
-        await api.setSetting(SETTING_LOW_POWER, v);
-      },
       async setSidebarActivityOrder(v) {
         set({ sidebarActivityOrder: v });
         await api.setSetting(SETTING_SIDEBAR_ACTIVITY_ORDER, v);
+      },
+      async setLowPower(v) {
+        set({ lowPower: v });
+        await api.setSetting(SETTING_LOW_POWER, v);
       },
       setWindowActive(v) {
         // Guarded: focus and blur both fire more than once for one switch (the window, then the
@@ -3443,7 +3486,13 @@ await get().refreshCustomThemes().catch(() => {});
         // This path prunes `items` itself rather than going through refreshItems, so it owes the
         // back/forward trails the same prune: an item deleted here must leave no way back to it.
         set({ items, paneHistory: forgetNavItems(get().paneHistory, new Set(items.map((i) => i.id))) });
-        if (it?.kind === "terminal") api.disposeTerminal(it.refId);
+        if (it?.kind === "terminal") {
+          api.disposeTerminal(it.refId);
+          // The flag dies with the terminal, for the browser's reason: a reused id must start blank
+          // rather than inherit a frame from the pty before it.
+          const { [it.refId]: _td, ...terminalDriving } = get().terminalDriving;
+          set({ terminalDriving });
+        }
         if (it?.kind === "browser") {
           // The ticker and driving dot die with the browser — a reused id must start blank.
           const { [it.refId]: _ba, ...browserActions } = get().browserActions;
@@ -3467,6 +3516,7 @@ await get().refreshCustomThemes().catch(() => {});
           if (termId) api.disposeTerminal(termId);
           const { [it.refId]: _st, ...sessionStatus } = get().sessionStatus; const { [it.refId]: _se, ...sessions } = get().sessions;
           const { [it.refId]: _dr, ...drafts } = get().drafts; const { [it.refId]: _sp, ...sessionSpace } = get().sessionSpace;
+          const { [it.refId]: _ua, ...sessionUpdatedAt } = get().sessionUpdatedAt;
           const { [it.refId]: _tp, ...terminalPanel } = get().terminalPanel; const { [it.refId]: _tid, ...sessionTerminals } = get().sessionTerminals;
           const { [it.refId]: _dk, ...sessionDock } = get().sessionDock;
           const { [it.refId]: _pr, ...planReturn } = get().planReturn;
@@ -3476,7 +3526,7 @@ await get().refreshCustomThemes().catch(() => {});
           const { [it.refId]: _dsr, ...draftSessionRefs } = get().draftSessionRefs; // likewise
           const { [it.refId]: _dl, ...draftLinks } = get().draftLinks;
           const { [it.refId]: _ac, ...sessionActivity } = get().sessionActivity;
-          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, planReturn, sessionSpace, terminalPanel, sessionTerminals, sessionDock, sessionActivity });
+          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, planReturn, sessionSpace, sessionUpdatedAt, terminalPanel, sessionTerminals, sessionDock, sessionActivity });
           if (termId || _tp) get().run(persistPanels); // the panel map just lost an entry
         }
       },
@@ -3748,6 +3798,13 @@ await get().refreshCustomThemes().catch(() => {});
         const { [browserId]: _gone, ...rest } = cur;
         set({ browserDriving: rest });
       },
+      applyTerminalDriving({ terminalId, driving }) {
+        const cur = get().terminalDriving;
+        if (driving) { set({ terminalDriving: { ...cur, [terminalId]: true } }); return; }
+        if (!(terminalId in cur)) return; // same no-churn guard, same reason
+        const { [terminalId]: _gone, ...rest } = cur;
+        set({ terminalDriving: rest });
+      },
       async refreshSessions() {
         const sid = get().activeSpaceId; if (!sid) return;
         const list = await api.listSessions(sid);
@@ -3756,8 +3813,9 @@ await get().refreshCustomThemes().catch(() => {});
         const sessions: Record<string, Session> = {}; const sessionStatus: Record<string, SessionStatus> = {};
         const sessionSpace = { ...get().sessionSpace };
         for (const [id, st] of Object.entries(get().sessionStatus)) if (!(id in get().sessions)) sessionStatus[id] = st;
-        for (const s of list) { sessions[s.id] = s; sessionStatus[s.id] = s.status; sessionSpace[s.id] = s.spaceId; }
-        set({ sessions: keepQuickChatSession(sessions), sessionStatus, sessionSpace });
+        const sessionUpdatedAt = { ...get().sessionUpdatedAt };
+        for (const s of list) { sessions[s.id] = s; sessionStatus[s.id] = s.status; sessionSpace[s.id] = s.spaceId; sessionUpdatedAt[s.id] = s.updatedAt; }
+        set({ sessions: keepQuickChatSession(sessions), sessionStatus, sessionSpace, sessionUpdatedAt });
       },
       listAllSessions(profileId = null) { return api.listAllSessions(profileId); },
       async refreshAllSessions() {
@@ -3896,13 +3954,19 @@ await get().refreshCustomThemes().catch(() => {});
         const prev = get().sessionStatus[sessionId];
         const s = get().sessions[sessionId];
         set({ sessionStatus: { ...get().sessionStatus, [sessionId]: status },
-          // The live signal `spaceActivity` sorts by: a status change is itself activity, and the
-          // client's own clock is fine because the value is never shown, only compared.
-          sessionUpdatedAt: { ...get().sessionUpdatedAt, [sessionId]: Date.now() },
           ...(s ? { sessions: { ...get().sessions, [sessionId]: { ...s, status } } } : {}) });
         // A broadcast for a session we can't place (created in another window/space since the last
         // list): fetch the map so its space can wear the badge.
         if (!get().sessionSpace[sessionId]) get().run(() => get().refreshAllSessions());
+        /* A status change is the session MOVING, and the activity sort has no other way to learn it:
+           this path patches the status locally rather than refetching, so `updatedAt` would sit at
+           whatever the last list said until something else forced one — a "sort by activity" that
+           only re-sorted on a refetch. Stamped on a real change only; a repeat of the same status is
+           a broadcast, not movement.
+
+           `Date.now()` beside the server's own `updatedAt` is not two clocks: realm-server is a
+           process on this machine, so both read the same one. */
+        if (prev !== status) set({ sessionUpdatedAt: { ...get().sessionUpdatedAt, [sessionId]: Date.now() } });
         // A turn just finished (or died): the working tree likely changed, so refresh git context.
         if (prev !== status && (status === "idle" || status === "error")) refreshGitFor(sessionId);
       },
@@ -4345,6 +4409,26 @@ await get().refreshCustomThemes().catch(() => {});
           .finally(() => { cliChecking[force ? "forced" : "plain"] = null; });
         cliChecking[force ? "forced" : "plain"] = p;
         await p;
+      },
+      async spaceSignInEnabled(spaceId) {
+        const raw = await api.getSetting(`${AGENT_SIGNIN_KEY}:${spaceId}`).catch(() => null);
+        // The server reads an unset key the same way (`SignInTickets.enabled`), and both have to
+        // agree: a switch that rendered on as the server treated it off would be the worst kind of
+        // wrong about a permission.
+        return raw === undefined || raw === null ? AGENT_SIGNIN_DEFAULT : raw === true;
+      },
+      async setSpaceSignInEnabled(spaceId, enabled) {
+        await api.setSetting(`${AGENT_SIGNIN_KEY}:${spaceId}`, enabled);
+      },
+      async startSignIn(kind) {
+        const spaceId = get().activeSpaceId;
+        if (!spaceId) return;
+        await api.startSignIn(spaceId, kind);
+        /* Nothing is stored. What the user gets back is the terminal pane, which arrives through
+           `items.changed` like any other, and the card they clicked from stays where it is until the
+           agent really is signed in — which only a re-probe can say, and which "Check again" and the
+           window-focus listener already ask. A local "signing in…" flag would be this client's guess
+           at a state the server is the one holding. */
       },
       async runCliAction(kind, action) {
         const started = await api.runCli(kind, action);

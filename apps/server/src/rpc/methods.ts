@@ -29,6 +29,7 @@ import type { ThemesService } from "../themes/service";
 import type { FontsService } from "../fonts/service";
 import type { McpService } from "../mcp/service";
 import type { ComputerAppAllowlist } from "../computer/allowlist";
+import type { SignInFlow } from "../browsers/signin-flow";
 import type { BrowserPermissionBroker } from "../browsers/permissions";
 import type { McpHub } from "../mcp/hub";
 import type { McpGateway } from "../mcp/gateway";
@@ -80,7 +81,7 @@ export type Deps = {
   /** Called once when `daemon.drain` is accepted. `createApp` starts the quiescence watcher here —
    *  the watcher owns the clock and the close, this owns the refusals. */
   onDrain?: () => void;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService;
   planLimits: PlanLimitsService;
   delegation: DelegationEngine;
@@ -228,6 +229,15 @@ export function registerMethods(d: Deps): void {
   reg("fonts.install", async (p) => { const f = await d.fonts.install(p.family); rpc.broadcast("fonts.changed", {}); return f; });
   reg("fonts.remove", (p) => { d.fonts.remove(p.family); rpc.broadcast("fonts.changed", {}); return { ok: true as const }; });
   reg("fonts.faces", (p) => ({ faces: d.fonts.faces(p.family) }));
+  /* Answers on the terminal, not on the outcome — see the method's own doc comment. The waiting half
+     is deliberately dropped on the floor here rather than awaited: it opens the consent pane by
+     itself, through the same item broadcast every pane arrives on, and it cannot reject. */
+  reg("signin.start", async (p) => {
+    const started = await d.signIn.start(p.spaceId, p.kind);
+    if (!started.ok) throw new RpcError("BAD_REQUEST", started.reason);
+    void started.settled;
+    return { terminalId: started.terminalId, command: started.command };
+  });
   reg("settings.get", (p) => ({ value: d.settings.get(p.key) }));
   reg("settings.set", (p) => {
     d.settings.set(p.key, p.value);

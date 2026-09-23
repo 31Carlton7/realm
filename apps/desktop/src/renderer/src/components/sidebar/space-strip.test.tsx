@@ -102,6 +102,39 @@ describe("spaceActivity, the sort key behind \"Sort by activity\"", () => {
   });
 });
 
+/**
+ * The half `spaceActivity` cannot see on its own: something has to KEEP `sessionUpdatedAt` current.
+ * `applySessionStatus` patches status locally rather than refetching, so without a stamp there the
+ * timestamps sit at whatever the last list said and the strip only re-sorts on a refetch — a "sort
+ * by activity" that does not follow activity.
+ */
+describe("what keeps sessionUpdatedAt current", () => {
+  const twoSessions = () => fakeApi({
+    spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework")],
+    sessions: [session("se1", "s1", { status: "idle", updatedAt: 100 }), session("se2", "s2", { status: "idle", updatedAt: 200 })],
+    items: { s1: [], s2: [] },
+  });
+
+  it("a status CHANGE moves the session to the front of the order", async () => {
+    const { container, store } = await mount(twoSessions());
+    await waitFor(() => expect(store.getState().sessionUpdatedAt.se2).toBe(200));
+    await act(async () => { await store.getState().setSidebarActivityOrder(true); });
+    const order = () => [...container.querySelectorAll(".strip-space")].map((b) => b.getAttribute("aria-label"));
+    expect(order()).toEqual(["Switch to space Homework", "Switch to space Versed"]);
+    // se1 is the older session in the older space; it running is the most recent thing to happen.
+    act(() => store.getState().applySessionStatus("se1", "running"));
+    expect(store.getState().sessionUpdatedAt.se1).toBeGreaterThan(200);
+    expect(order()).toEqual(["Switch to space Versed", "Switch to space Homework"]);
+  });
+
+  it("a repeat of the same status is a broadcast, not movement", async () => {
+    const { store } = await mount(twoSessions());
+    await waitFor(() => expect(store.getState().sessionUpdatedAt.se1).toBe(100));
+    act(() => store.getState().applySessionStatus("se1", "idle")); // already idle
+    expect(store.getState().sessionUpdatedAt.se1).toBe(100);
+  });
+});
+
 describe("SpaceStrip badges (U-H3)", () => {
   it("a status broadcast for an INACTIVE space's session badges that space's button", async () => {
     const api = fakeApi({ sessions: [session("se2", "s2", { status: "idle" })] });
