@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_GROUND_ALPHA, GROUND_ALPHA_RANGE } from "@realm/ui";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { AGENT_CLI_COMMANDS, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_HISTORY_COPY, TERMINALS_HISTORY_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, PAGE_REF_IDS } from "@realm/contracts";
+import { AGENT_CLI_COMMANDS, DEFAULT_PERMISSION_MODE_KEY, EDITOR_CURSOR_BLINK_COPY, MID_TURN_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_HISTORY_COPY, TERMINALS_HISTORY_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, PAGE_REF_IDS } from "@realm/contracts";
 import { engineVersionLabel, SettingsPage } from "./SettingsPage";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, macRow, notification, type FakeData } from "../../state/store.test-fakes";
@@ -1245,6 +1245,38 @@ describe("terminal scrollback", () => {
     fireEvent.click(sw);
     await waitFor(() => expect(store.getState().confirmDelete).toBe(false));
     expect(api.calls).toContain("setSetting:ui.confirmDelete=false");
+  });
+
+  it("offers the three cursor shapes every terminal has, as their own control", async () => {
+    /* THE folded-control mutant: one list of Block / Bar / Underline / Off. A bar that holds still
+       and a block that pulses are both things people ask for, and half the pairs become unreachable. */
+    const { store, api } = await mount();
+    fireEvent.click(screen.getByRole("radio", { name: "App" }));
+    const sel = screen.getByRole("combobox", { name: "Terminal cursor" }) as HTMLSelectElement;
+    expect(sel.value).toBe("block");
+    expect(Array.from(sel.options).map((o) => o.value)).toEqual(["block", "bar", "underline"]);
+    // The blink is still its own switch beside it.
+    expect(screen.getByRole("switch", { name: TERMINALS_CURSOR_BLINK_COPY.label })).toBeInTheDocument();
+
+    fireEvent.change(sel, { target: { value: "bar" } });
+    await waitFor(() => expect(store.getState().terminalCursorStyle).toBe("bar"));
+    expect(api.calls).toContain("setSetting:terminals.cursorStyle=bar");
+  });
+
+  it("gives the code editor's caret its own switch, and says why the prompter's is not in it", async () => {
+    /* VS Code splits `editor.cursorBlinking` from `terminal.integrated.cursorBlinking`, and so does
+       this: the two carets are in different places doing different jobs. THE MUTANT: one switch for
+       both, which is a switch that lies about half of what it names — and a third of what a reader
+       would assume, since the prompter's caret is Chromium's and cannot be told at all on 138. */
+    const { store, api } = await mount();
+    fireEvent.click(screen.getByRole("radio", { name: "App" }));
+    const sw = screen.getByRole("switch", { name: EDITOR_CURSOR_BLINK_COPY.label });
+    expect(sw).toBeChecked();
+    expect(screen.getByText(/prompter's caret is the system's/)).toBeInTheDocument();
+
+    fireEvent.click(sw);
+    await waitFor(() => expect(store.getState().editorCursorBlink).toBe(false));
+    expect(api.calls).toContain("setSetting:editor.cursorBlink=false");
   });
 
   it("the cursor blinks until you say otherwise, and the switch says which cursor", async () => {

@@ -160,3 +160,33 @@ describe("CodeEditor", () => {
     });
   });
 });
+
+describe("the caret's blink", () => {
+  /** CodeMirror drives the blink with a CSS animation on its cursor layer, so the rate it was given
+   *  is readable straight off the element — which is the only honest way to assert this in jsdom. */
+  const rateOf = (container: HTMLElement) =>
+    (container.querySelector(".cm-cursorLayer") as HTMLElement | null)?.style.animationDuration;
+
+  it("is on by default and off when the preference says so", () => {
+    const on = render(<CodeEditor path="a.ts" text="x" onChange={() => {}} onSave={() => {}} />);
+    expect(rateOf(on.container)).toBe("1200ms");
+    const off = render(<CodeEditor path="b.ts" text="x" onChange={() => {}} onSave={() => {}} blinkCaret={false} />);
+    // Zero is what stops the animation; a slower rate would still be a pulse.
+    expect(rateOf(off.container)).toBe("0ms");
+  });
+
+  it("reaches the editor that is ALREADY open", () => {
+    /* THE construction-only mutant: read `blinkCaret` where the view is built and nowhere else.
+       `drawSelection` takes its rate once, so the setting would reach the next file opened and not
+       the file being looked at — which is a switch somebody flips, sees nothing from, and gives up
+       on. The compartment is what makes the second assertion possible. */
+    const { container, rerender } = render(
+      <CodeEditor path="a.ts" text="x" onChange={() => {}} onSave={() => {}} blinkCaret />,
+    );
+    expect(rateOf(container)).toBe("1200ms");
+    rerender(<CodeEditor path="a.ts" text="x" onChange={() => {}} onSave={() => {}} blinkCaret={false} />);
+    expect(rateOf(container)).toBe("0ms");
+    rerender(<CodeEditor path="a.ts" text="x" onChange={() => {}} onSave={() => {}} blinkCaret />);
+    expect(rateOf(container)).toBe("1200ms");
+  });
+});

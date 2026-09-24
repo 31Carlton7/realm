@@ -39,3 +39,29 @@ export const TERMINALS_CURSOR_BLINK_COPY = {
   label: "Blink the terminal cursor",
   detail: "The block cursor in a terminal pane pulses so it is findable in a screen of output. Turn it off for a cursor that sits still.",
 } as const;
+
+/**
+ * What shape a terminal's cursor is.
+ *
+ * The three every terminal emulator offers, and the three xterm draws. A block is the default
+ * because it is what a TUI is drawn against — a full-cell cursor is the one that reads correctly on
+ * top of a character — while a bar is what someone coming from an editor expects, and an underline
+ * is the one that never hides the glyph it is standing on.
+ *
+ * Its own setting rather than a mode of the blink: a bar that does not blink and a blinking block
+ * are both things people ask for, and folding them into one control would make half the pairs
+ * unreachable.
+ */
+export const TERMINAL_CURSOR_STYLES = ["block", "bar", "underline"] as const;
+export type TerminalCursorStyle = (typeof TERMINAL_CURSOR_STYLES)[number];
+
+export const TERMINALS_CURSOR_STYLE_KEY = "terminals.cursorStyle";
+export const TERMINALS_CURSOR_STYLE_DEFAULT: TerminalCursorStyle = "block";
+
+export const isTerminalCursorStyle = (x: unknown): x is TerminalCursorStyle =>
+  typeof x === "string" && (TERMINAL_CURSOR_STYLES as readonly string[]).includes(x);
+
+export const TERMINALS_CURSOR_STYLE_COPY = {
+  label: "Terminal cursor",
+  options: { block: "Block", bar: "Bar", underline: "Underline" },
+} as const;

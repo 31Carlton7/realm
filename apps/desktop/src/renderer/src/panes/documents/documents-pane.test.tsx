@@ -296,3 +296,29 @@ describe("DocumentsPane — making a document", () => {
     expect(await screen.findByLabelText("Edit renamed.md")).toHaveValue("unsaved words");
   });
 });
+
+describe("the code editor's caret follows its OWN preference", () => {
+  it("reads editor.cursorBlink, not the terminal's switch", async () => {
+    /* THE shared-switch mutant, and the one a settings test cannot see: both stores hold a boolean,
+       both write a setting, and the page looks right either way — while the editor's caret silently
+       answers to the terminal's control. VS Code keeps `editor.cursorBlinking` and
+       `terminal.integrated.cursorBlinking` apart for the same reason, and so does this.
+
+       The two are set to OPPOSITE values here on purpose: a caret reading the wrong one is the only
+       way the assertion can fail. */
+    const { store, ui } = renderPane({ "a.ts": "const x = 1;" }, ["a.ts"], "a.ts");
+    act(() => store.setState({ terminalCursorBlink: false, editorCursorBlink: true }));
+    const rate = async () => {
+      const layer = await waitFor(() => {
+        const el = ui.container.querySelector(".cm-cursorLayer") as HTMLElement | null;
+        if (!el) throw new Error("no cursor layer yet");
+        return el;
+      });
+      return layer.style.animationDuration;
+    };
+    expect(await rate()).toBe("1200ms");
+
+    act(() => store.setState({ editorCursorBlink: false }));
+    await waitFor(async () => expect(await rate()).toBe("0ms"));
+  });
+});
