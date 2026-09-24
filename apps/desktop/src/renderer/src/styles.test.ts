@@ -1021,6 +1021,21 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(bodiesFor(".app[data-sidebar-collapsed] .main > .group-bar:first-child").join(" ")).toContain("min-height: 40px");
   });
 
+  it("insets the split strip further than a tab's own padding, so no tab sits flush with the window", () => {
+    /* The strip runs to both edges of the window and its tabs are the only thing in it, so the bar's
+       inset is the entire gap between a tab's text and the frame. THE MUTANT: put either number back
+       under the tab's own 14px and the first tab's label lands within a couple of pixels of the
+       traffic lights on one side, or of the window edge on the other. */
+    const bar = bodiesFor(".group-bar").join(" ");
+    expect(bar).toContain("padding: 0 14px 0 16px");
+    expect(bar).toContain("min-height: 38px");
+    expect(bodiesFor(".group-tab").join(" ")).toContain("padding: 6px 14px");
+    // The ring's padding is paid back exactly, or the bar grows by it — see the rule's own comment.
+    const tabs = bodiesFor(".group-tabs").join(" ");
+    expect(tabs).toContain("padding-block: 4px");
+    expect(tabs).toContain("margin-block: -4px");
+  });
+
   it("the sidebar's right edge is a BORDER on .main, and only while the sidebar is there", () => {
     /* Measured live (`sidebar-edge-live.mjs`): as an inset box-shadow this line computed perfectly
        and painted nothing at all. An inset shadow sits below the element's children, and `.main`'s

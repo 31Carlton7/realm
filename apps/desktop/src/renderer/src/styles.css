@@ -1653,7 +1653,7 @@ kbd { font: 11px var(--font-mono); }
    window drag the top edge would otherwise lose, with its own controls opted back out. */
 /* Seamless for the same reason the pane bar is: a `flex: none` row above the host, with nothing
    passing under it. Two stacked hairlines at the top of the window was the worst case of it. */
-.group-bar { flex: none; display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 10px 0 12px;
+.group-bar { flex: none; display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 0 14px 0 16px;
   background: var(--rl-panel); -webkit-app-region: drag; }
 .group-bar button, .group-bar input { -webkit-app-region: no-drag; }
 /* The padding is for the FOCUS RING, and the negative margin is so paying for it costs no height.
@@ -1661,10 +1661,10 @@ kbd { font: 11px var(--font-mono); }
    them scrolls — so the global `:focus-visible` outline (2px at +1px offset) was being sliced off
    the top and bottom of a focused tab, which is what made the highlight look cut into. The padding
    gives the ring room inside the clip box; the margin takes the same amount back out of the layout,
-   so the bar keeps its 34px and nothing below it moves. */
+   so the bar keeps its 38px and nothing below it moves. */
 .group-tabs { display: flex; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none;
   padding-block: 4px; margin-block: -4px; }
-.group-tab { display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: var(--r-ctl); corner-shape: squircle;
+.group-tab { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: var(--r-ctl); corner-shape: squircle;
   font-size: 12.5px; color: var(--rl-text-dim); white-space: nowrap; }
 .group-tab:hover { background: var(--rl-hover); }
 .group-tab[data-active] { background: var(--rl-active); color: var(--rl-text-bright); }

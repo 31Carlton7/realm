@@ -105,7 +105,7 @@ describe("group set edits", () => {
     expect(allItems(activeLayout(gs))).toEqual([]);
   });
   it("nextGroupName skips names the space already uses", () => {
-    expect(nextGroupName({ groups: [group(1, leaf(null), { name: "Group 2" })], activeGroupId: ULID(1) })).toBe("Group 3");
+    expect(nextGroupName({ groups: [group(1, leaf(null), { name: "Split 2" })], activeGroupId: ULID(1) })).toBe("Split 3");
   });
   it("removeGroup drops it and its panes stop being open — nothing is deleted", () => {
     const gs = removeGroup(two(), ULID(2));

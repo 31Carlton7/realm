@@ -300,13 +300,13 @@ function PaletteBody({ closing }: { closing: boolean }) {
         id: `act:space-${sp.id}`, label: `Switch to ${sp.name}`, icon: <SpaceIcon icon={sp.icon} size={16} />,
         run: () => run(() => selectSpace(sp.id)), section: "Actions", hint: sp.id === activeSpaceId ? "current" : undefined,
       })),
-      // Pane groups sit right beside the space switches: they are the same gesture one level in —
+      // Splits sit right beside the space switches: they are the same gesture one level in —
       // "put a different arrangement on screen" — and the reason the feature exists is cheap switching.
       // Only offered once there is more than one, like the GroupBar itself.
       ...((groups?.groups.length ?? 0) > 1 ? groups!.groups.map((g): Entry =>
-        act(`group-${g.id}`, `Group: ${g.name}`, "group", () => run(() => activatePaneGroup(g.id)),
+        act(`group-${g.id}`, `Split: ${g.name}`, "group", () => run(() => activatePaneGroup(g.id)),
           g.id === groups!.activeGroupId ? "current" : undefined)) : []),
-      ...(activeSpaceId ? [act("new-group", "New pane group", "group", () => run(() => newPaneGroup()))] : []),
+      ...(activeSpaceId ? [act("new-group", "New split", "group", () => run(() => newPaneGroup()))] : []),
       act("new-terminal", "New terminal", "terminal", () => run(() => newTerminal()), kbd("terminal.new")),
       act("new-browser", "New browser", "browser", () => run(() => newBrowser())),
       /* "Connect", not "New machine": what this makes is a pane with a connect flow in it, and a

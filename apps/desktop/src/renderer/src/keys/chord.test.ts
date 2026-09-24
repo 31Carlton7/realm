@@ -91,6 +91,7 @@ describe("chordFromEvent", () => {
       chordFromEvent(press({ code: "BracketRight", key: "]", metaKey: true })),
       chordFromEvent(press({ code: "BracketLeft", key: "{", metaKey: true, shiftKey: true })),
       chordFromEvent(press({ code: "BracketRight", key: "}", metaKey: true, shiftKey: true })),
+      chordFromEvent(press({ code: "KeyG", key: "G", metaKey: true, shiftKey: true })),
       chordFromEvent(press({ code: "Tab", key: "Tab", ctrlKey: true })),
       chordFromEvent(press({ code: "Tab", key: "Tab", ctrlKey: true, shiftKey: true })),
       ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => chordFromEvent(press({ code: `Digit${n}`, key: String(n), metaKey: true }))),

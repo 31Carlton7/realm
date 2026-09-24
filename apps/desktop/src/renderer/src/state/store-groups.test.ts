@@ -48,7 +48,7 @@ describe("pane groups", () => {
     const before = persists(api);
     await store.getState().newPaneGroup();
     const s = store.getState();
-    expect(s.groups!.groups.map((g) => g.name)).toEqual(["Main", "Group 2"]);
+    expect(s.groups!.groups.map((g) => g.name)).toEqual(["Main", "Split 2"]);
     expect(s.groups!.activeGroupId).toBe(s.groups!.groups[1]!.id);
     expect(allItems(s.layout!)).toEqual([]);            // the new arrangement is empty…
     expect(allGroupItems(s.groups!)).toEqual(["i1"]);   // …and Main still holds i1
