@@ -1248,7 +1248,7 @@ describe("prompter model picker", () => {
     // agent. Assert the ordered pair, not just that something happened.
     const { api, store } = await mountKindFresh("codex");
     openPicker();
-    fireEvent.click(screen.getByRole("option", { name: /Claude Opus 5/ }));
+    fireEvent.click(screen.getByRole("option", { name: /Claude Opus 5(?!\.)/ }));
     await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-opus-5"));
     expect(store.getState().sessions.se1?.agentKind).toBe("claude");
     const picks = api.calls.filter((c) => c.startsWith("setSessionAgent") || c.startsWith("setSessionOptions"));
@@ -1278,7 +1278,7 @@ describe("prompter model picker", () => {
   it("lists every agent's models, current agent first, each carrying its provider's brand mark", async () => {
     await mountKindFresh("codex");
     openPicker();
-    expect(rowNames()).toEqual(["GPT-5.6", "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5",
+    expect(rowNames()).toEqual(["GPT-5.6", "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5.5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5",
       // Then the rest of SELECTABLE_AGENT_KINDS, in its order. The Plan 18 agents each contribute
       // one "Default" row: their real catalogs are enumerated live by the probe, and naming a guess
       // here would put a model the session is not on into the picker. DeepSeek is the exception —
@@ -1292,7 +1292,7 @@ describe("prompter model picker", () => {
     const marks = screen.getAllByRole("option").map((n) => n.querySelector("[data-brand]")?.getAttribute("data-brand"));
     // Hermes' row is the one with no `data-brand`: Nous Research publishes no vector mark, so it
     // wears Realm's own caduceus from the Hugeicons set instead of a vendored brand path.
-    expect(marks).toEqual(["openai", "claude", "claude", "claude", "claude", "claude", "cursor", "gemini",
+    expect(marks).toEqual(["openai", "claude", "claude", "claude", "claude", "claude", "claude", "cursor", "gemini",
       "opencode", "githubCopilot", "goose", "qwen", "grok", "fx", "deepseek", "deepseek", "openhands", undefined]);
     expect(document.querySelector("[data-brand='qwen']")).toHaveAttribute("viewBox", "0 0 141.38 140");
     expect(document.querySelector("[data-brand='githubCopilot']")?.querySelectorAll("path")).toHaveLength(3);
@@ -1319,7 +1319,7 @@ describe("prompter model picker", () => {
     // see itself would show a list with nothing selected.
     await mountFresh({ agentKind: "fake" });
     openPicker();
-    expect(rowNames()).toEqual(["Fake", "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5",
+    expect(rowNames()).toEqual(["Fake", "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5.5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5",
       "GPT-5.6", "Composer", "Gemini", "Default", "Default", "Default", "Default", "Default", "Default",
       "DeepSeek V4 Pro", "DeepSeek V4 Flash", "Default", "Default"]);
     expect(screen.getByRole("option", { name: /Fake agent/ })).toHaveAttribute("aria-selected", "true");
@@ -1358,7 +1358,7 @@ describe("prompter model picker", () => {
     it("keeps models within the current agent selectable", async () => {
       const { store } = await mountFresh({}, 1);
       openPicker();
-      const opus = screen.getByRole("option", { name: /Claude Opus 5/ });
+      const opus = screen.getByRole("option", { name: /Claude Opus 5(?!\.)/ });
       expect(opus).not.toHaveAttribute("aria-disabled");
       fireEvent.click(opus);
       await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-opus-5"));
@@ -1389,7 +1389,7 @@ describe("prompter model picker", () => {
       openPicker();
       const search = screen.getByRole("combobox", { name: "Search models" });
       fireEvent.change(search, { target: { value: "opus" } }); // model name only
-      expect(rowNames()).toEqual(["Claude Opus 5"]);
+      expect(rowNames()).toEqual(["Claude Opus 5.5", "Claude Opus 5"]);
       fireEvent.change(search, { target: { value: "cursor" } }); // agent name only
       expect(rowNames()).toEqual(["Composer"]);
       // Model *ids* are deliberately not searched: `claude-haiku-4-5` would make this match.
@@ -1450,7 +1450,7 @@ describe("prompter model picker", () => {
       // Cursor first (session's own kind): default row, then the catalog verbatim; Claude's static
       // list and Codex's default row are untouched by Cursor's probe models.
       expect(rowNames()).toEqual(["Composer", "Auto", "composer-2.5", "gpt-5.3-codex",
-        "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "GPT-5.6",
+        "Claude Fable 5.1", "Claude Fable 5", "Claude Opus 5.5", "Claude Opus 5", "Claude Sonnet 5", "Claude Haiku 4.5", "GPT-5.6",
         // Every other offered kind still contributes exactly its own rows: one agent's probe catalog
         // must not leak onto another's.
         "Gemini", "Default", "Default", "Default", "Default", "Default", "Default",
@@ -1520,7 +1520,7 @@ describe("prompter model picker", () => {
       // A key is what survives the model being reached through a different harness later.
       const { api, store } = await mountFresh();
       openPicker();
-      fireEvent.click(starOn(/Claude Opus 5/));
+      fireEvent.click(starOn(/Claude Opus 5(?!\.)/));
       await waitFor(() => expect(store.getState().modelFavorites).toEqual([OPUS]));
       expect(api.calls.some((c) => c.startsWith("setSetting:models.favorites"))).toBe(true);
       expect(OPUS).not.toBe("claude-opus-5"); // the id would have been the lazy thing to store
@@ -1531,7 +1531,7 @@ describe("prompter model picker", () => {
       // as a side effect of bookmarking it.
       const { store } = await mountFresh({ model: "claude-fable-5-1" });
       openPicker();
-      fireEvent.click(starOn(/Claude Opus 5/));
+      fireEvent.click(starOn(/Claude Opus 5(?!\.)/));
       await waitFor(() => expect(store.getState().modelFavorites).toEqual([OPUS]));
       expect(store.getState().sessions.se1?.model).toBe("claude-fable-5-1");
       expect(screen.getByRole("dialog", { name: "Model picker" })).toBeInTheDocument(); // and stays open
@@ -1542,9 +1542,9 @@ describe("prompter model picker", () => {
       openPicker();
       // aria-pressed is not decoration here: it is the hook the filled-star CSS keys on, so a
       // starred row that failed to set it would look unstarred with no test noticing.
-      expect(starOn(/Claude Opus 5/)).toHaveAttribute("aria-pressed", "true");
+      expect(starOn(/Claude Opus 5(?!\.)/)).toHaveAttribute("aria-pressed", "true");
       expect(starOn(/Claude Sonnet 5/)).toHaveAttribute("aria-pressed", "false");
-      fireEvent.click(starOn(/Claude Opus 5/));
+      fireEvent.click(starOn(/Claude Opus 5(?!\.)/));
       await waitFor(() => expect(store.getState().modelFavorites).toEqual([HAIKU]));
     });
 
@@ -1601,6 +1601,7 @@ describe("prompter model picker", () => {
       openPicker();
       fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
       fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
+      fireEvent.keyDown(searchBox(), { key: "ArrowDown" }); // Claude Opus 5, now one row further down
       fireEvent.keyDown(searchBox(), { key: "Enter", altKey: true });
       await waitFor(() => expect(store.getState().modelFavorites).toEqual([canonicalModelKey("Claude Opus 5")]));
       expect(store.getState().sessions.se1?.model).toBeNull(); // ⌥↩ stars; it does not pick
@@ -1613,7 +1614,8 @@ describe("prompter model picker", () => {
       const { store } = await mountFresh();
       openPicker();
       fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
-      fireEvent.keyDown(searchBox(), { key: "ArrowDown" }); // Claude Opus 5, row 3 of the list
+      fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
+      fireEvent.keyDown(searchBox(), { key: "ArrowDown" }); // Claude Opus 5, row 4 since 5.5 joined
       fireEvent.keyDown(searchBox(), { key: "Enter", altKey: true });
       await waitFor(() => expect(store.getState().modelFavorites).toEqual([OPUS]));
       expect(rowNames()[0]).toBe("Claude Opus 5"); // it moved
