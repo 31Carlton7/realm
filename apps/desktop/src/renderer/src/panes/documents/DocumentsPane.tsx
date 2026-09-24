@@ -489,18 +489,21 @@ function Editor({ buffer, kind, mode, documentsId, onChange, onSave }: {
      (scroll-memory.ts). Per VIEW as well as per file: the rich column and the source text are two
      different heights of the same document, and an offset taken in one is meaningless in the other. */
   const sourceScroll = useScrollMemory(`doc:${documentsId}:source:${buffer.path}`);
+  const blinkCaret = useApp((s) => s.editorCursorBlink);
   // A PDF and a Quick Look render have no text at all, so neither has a source view to toggle to.
   const showStructured = structured !== null && (mode === "rich" || structured === "pdf" || structured === "render");
   return (
     <div className="documents-editor" data-kind={kind}>
       <div className="documents-surface">
         {showStructured && structured === "render" ? (
-          <QuickLookView key={buffer.path} documentsId={documentsId} path={buffer.path} version={buffer.baseHash} />
+          <QuickLookView key={buffer.path} documentsId={documentsId} path={buffer.path} version={buffer.baseHash}
+            scrollKey={`doc:${documentsId}:render:${buffer.path}`} />
         ) : showStructured && (structured === "preview" || structured === "pdf") ? (
           // The frame reloads on the DISK hash: while the user edits the source, the preview keeps
           // showing the last saved version, and the autosave tick (or an agent's write) refreshes it.
           <PreviewFrame key={buffer.path} documentsId={documentsId} path={buffer.path}
-            kind={structured === "pdf" ? "pdf" : "html"} version={buffer.baseHash} />
+            kind={structured === "pdf" ? "pdf" : "html"} version={buffer.baseHash}
+            scrollKey={`doc:${documentsId}:preview:${buffer.path}`} />
         ) : showStructured ? (
           <Suspense fallback={<div className="pane-placeholder muted">Loading editor…</div>}>
             {/* Keyed by path so switching documents remounts the editor rather than diffing one
@@ -515,7 +518,7 @@ function Editor({ buffer, kind, mode, documentsId, onChange, onSave }: {
             {/* Keyed by path for the same reason the rich editor is: a new file gets a new editor
                 rather than one document's undo history diffed onto another's. */}
             <CodeEditor key={buffer.path} path={buffer.path} text={buffer.text}
-              onChange={onChange} onSave={onSave}
+              onChange={onChange} onSave={onSave} blinkCaret={blinkCaret}
               scrollKey={`doc:${documentsId}:code:${buffer.path}`} />
           </Suspense>
         ) : (

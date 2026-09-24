@@ -130,6 +130,13 @@ export function electronViewFactory(
       stop: () => wc.stop(),
       canGoBack: () => wc.navigationHistory.canGoBack(),
       canGoForward: () => wc.navigationHistory.canGoForward(),
+      history: () => ({
+        // `getAllEntries` carries a `pageState` blob as well; only the two fields a menu row needs
+        // cross into the host, which keeps the handle's shape the thing the fake has to satisfy.
+        entries: wc.navigationHistory.getAllEntries().map((e) => ({ url: e.url, title: e.title })),
+        activeIndex: wc.navigationHistory.getActiveIndex(),
+      }),
+      goToIndex: (index) => wc.navigationHistory.goToIndex(index),
       getURL: () => {
         const live = wc.getURL();
         return live === "about:blank" || live === "" ? wanted ?? "" : live;

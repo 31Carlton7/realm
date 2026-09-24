@@ -32,12 +32,19 @@ describe("ProfilePage · header", () => {
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s3"));
   });
 
-  it("the chip strip is a BAND of the page, a sibling of the head and the body", async () => {
-    // It takes the page's measure and gutter from the band rule in styles.css, which reaches it only
-    // as a direct child of `.page`. Nested inside the head or the body it would take the gutter
-    // twice and sit 24px inside the column every other band starts at.
+  it("the spaces are a second list IN the rail, under its own heading, beside the sections", async () => {
+    /* THE MUTANT: leave them as a band over the title. They are navigation, and above the head they
+       read as decoration on the page's name rather than as the other half of the rail's list. */
     const { container } = await mount();
-    expect(container.querySelector(".page > .profile-spaces")).toBe(screen.getByLabelText("Spaces of Work"));
+    const spaces = screen.getByLabelText("Spaces of Work");
+    expect(container.querySelector(".page-rail")!.contains(spaces)).toBe(true);
+    expect(container.querySelector(".page > .profile-spaces")).toBeNull();
+    // Its own heading, not a rule: the rail holds two lists and one of them needs saying which.
+    expect(within(spaces).getByText("Spaces")).toBeInTheDocument();
+    // Buttons, not radios — the sections are a choice of what this page shows, a space is somewhere
+    // to go, and a space wearing `role=radio` would promise the rail keeps one of them lit.
+    expect(within(spaces).queryByRole("radio")).toBeNull();
+    expect(within(spaces).getAllByRole("button").length).toBeGreaterThan(0);
   });
 
   it("derives the profile LIVE from the item's space — a space moved between profiles moves the page's subject", async () => {

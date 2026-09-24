@@ -380,6 +380,36 @@ ipcMain.handle("browser:destroy", (_e, id: string) => { browserHost?.destroy(id)
 ipcMain.handle("browser:retain", (_e, id: string) => { browserHost?.retain(id); });
 ipcMain.handle("browser:navigate", (_e, id: string, input: string): string | null => browserHost?.navigate(id, input) ?? null);
 ipcMain.handle("browser:nav", (_e, id: string, action: "back" | "forward" | "reload" | "stop") => { browserHost?.navAction(id, action); });
+/** How many rows a back menu offers. Safari shows a dozen or so and then stops; a trail of 300 is a
+ *  scroll, not a menu, and nobody navigates by it. */
+const HISTORY_MENU_MAX = 12;
+
+/**
+ * The back/forward trail, as an OS menu.
+ *
+ * Native rather than a renderer popover, and that is the whole design. A `WebContentsView` composites
+ * over every piece of renderer DOM inside its rectangle, which is why `BrowserPane` bans dropdowns
+ * outright — but an OS menu is not renderer DOM, it is a window above the app, so it lands over the
+ * page the way Safari's and Chrome's own back menus do. Building it here also keeps the entry list in
+ * main: the trail is `webContents` state, and copying it to the renderer every navigation to render a
+ * menu nobody has opened would be a broadcast per page load for a list most people never ask for.
+ *
+ * `x`/`y` come from the renderer because only it knows where the button is. Window-relative, which is
+ * what `popup` takes.
+ */
+ipcMain.handle("browser:history-menu", (e, id: string, dir: "back" | "forward", at: { x: number; y: number }) => {
+  const trail = browserHost?.historyTrail(id, dir) ?? [];
+  if (trail.length === 0) return;
+  const win = BrowserWindow.fromWebContents(e.sender) ?? undefined;
+  const template: MenuItemConstructorOptions[] = trail.slice(0, HISTORY_MENU_MAX).map((row) => ({
+    // A title is a whole `<title>`, which is routinely a sentence and occasionally a paragraph. The
+    // menu is a list of places, so each row is cut to something scannable rather than allowed to set
+    // the menu's width from the worst page in the trail.
+    label: row.label.length > 64 ? `${row.label.slice(0, 63)}…` : row.label,
+    click: () => browserHost?.goToIndex(id, row.index),
+  }));
+  Menu.buildFromTemplate(template).popup({ window: win, x: Math.round(at.x), y: Math.round(at.y) });
+});
 ipcMain.handle("browser:set-allowlist", (_e, id: string, allowlist: string[] | null) => { browserHost?.setAllowlist(id, allowlist); });
 ipcMain.on("browser:set-bounds", (_e, id: string, rect: ViewRect, dpr: number, visible: boolean) => { browserHost?.setBounds(id, rect, dpr, visible); });
 

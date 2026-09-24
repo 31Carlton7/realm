@@ -173,6 +173,7 @@ function ScheduleRow({ schedule, onEdit }: { schedule: Schedule; onEdit: () => v
   const deleteSchedule = useApp((s) => s.deleteSchedule);
   const runScheduleNow = useApp((s) => s.runScheduleNow);
   const run = useApp((s) => s.run);
+  const confirmDelete = useApp((s) => s.confirmDelete);
   // Two-step destructive confirm, the pattern the sidebar's item menu and the pane bar both use.
   const [confirming, setConfirming] = useState(false);
   return (
@@ -213,7 +214,7 @@ function ScheduleRow({ schedule, onEdit }: { schedule: Schedule; onEdit: () => v
               onBlur={() => setConfirming(false)}
               onClick={() => run(() => deleteSchedule(schedule.id, schedule.spaceId))}>Really delete?</button>
           : <button className="icon-btn danger" title="Delete" aria-label={`Delete ${schedule.title}`}
-              onClick={() => setConfirming(true)}><Icon name="trash" size={14} /></button>}
+              onClick={() => (confirmDelete ? setConfirming(true) : run(() => deleteSchedule(schedule.id, schedule.spaceId)))}><Icon name="trash" size={14} /></button>}
       </div>
     </div>
   );

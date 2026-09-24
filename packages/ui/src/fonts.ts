@@ -61,9 +61,28 @@ export const FONT_WEIGHTS: { id: FontWeight; label: string }[] = [
   { id: "regular", label: "Regular" }, { id: "medium", label: "Medium" },
 ];
 
-export type FontPref = { ui: FontId; uiWeight: FontWeight; code: FontId };
+export type FontPref = { ui: FontId; uiWeight: FontWeight; code: FontId; leading: number };
 
-export const DEFAULT_FONTS: FontPref = { ui: "bundled", uiWeight: "regular", code: "bundled" };
+export const DEFAULT_FONTS: FontPref = { ui: "bundled", uiWeight: "regular", code: "bundled", leading: 0 };
+
+/**
+ * Line height, as an OFFSET in hundredths — the same argument `--fw-shift` makes one block up.
+ *
+ * Prose is 1.6, markdown 1.55, a code block 1.65, and those three ratios are a judgement about each
+ * surface rather than an accident. A control that set an absolute line-height would flatten them into
+ * one number and lose the reason a code block breathes more than a paragraph; an offset moves all of
+ * them together and keeps the distances between them.
+ *
+ * Stepped rather than continuous because leading is not a thing anyone dials in by eye at 1/100th —
+ * five steps is the whole useful range, and every stop is a ratio somebody would choose on purpose.
+ */
+export const LEADING_RANGE = { min: -10, max: 30, step: 5, default: 0 } as const;
+
+export const clampLeading = (x: number): number => {
+  if (!Number.isFinite(x)) return LEADING_RANGE.default;
+  const held = Math.min(LEADING_RANGE.max, Math.max(LEADING_RANGE.min, x));
+  return Math.round(held / LEADING_RANGE.step) * LEADING_RANGE.step;
+};
 
 /** A family name that can go in a CSS stack without escaping games: letters, digits, spaces and the
  *  punctuation real family names use. A name outside this is dropped rather than quoted, because the
@@ -79,15 +98,18 @@ const isFontWeight = (x: unknown): x is FontWeight => x === "regular" || x === "
  *  window with no text in it. */
 export function parseFontPref(raw: unknown): FontPref {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return DEFAULT_FONTS;
-  const { ui, uiWeight, code } = raw as Record<string, unknown>;
+  const { ui, uiWeight, code, leading } = raw as Record<string, unknown>;
   return {
     ui: isFontId(ui) ? ui : DEFAULT_FONTS.ui,
     uiWeight: isFontWeight(uiWeight) ? uiWeight : DEFAULT_FONTS.uiWeight,
     code: isFontId(code) ? code : DEFAULT_FONTS.code,
+    // Field by field like the rest: a row stored before this setting existed has no `leading`, and
+    // the answer to that is the default rather than `NaN` written into a line-height.
+    leading: typeof leading === "number" ? clampLeading(leading) : DEFAULT_FONTS.leading,
   };
 }
 
-export const FONT_VARS = ["--font-ui", "--font-mono", "--fw-shift"] as const;
+export const FONT_VARS = ["--font-ui", "--font-mono", "--fw-shift", "--lh-shift"] as const;
 
 /** The fallbacks each role lands on — the "System default" stack, which is what a family that fails
  *  to load should degrade to rather than to nothing. */
@@ -113,5 +135,7 @@ export function fontVars(pref: FontPref): Record<string, string> {
     "--font-ui": stack("ui", pref.ui),
     "--font-mono": stack("code", pref.code),
     "--fw-shift": String(FONT_WEIGHT_SHIFT[pref.uiWeight]),
+    // Hundredths on the way in, a ratio on the way out — the stylesheet adds it to each surface's own.
+    "--lh-shift": String(clampLeading(pref.leading) / 100),
   };
 }

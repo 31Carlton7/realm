@@ -16,6 +16,8 @@ export function useItemContextMenu(onRename: (item: Item) => void) {
   // Two-step destructive confirm (U-H2): the first Delete click arms this in place; only the second
   // click, within the same open menu, deletes. Opening or closing the menu disarms.
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // ...unless the user has turned the asking off, when the first click is the only one.
+  const confirmDelete = useApp((s) => s.confirmDelete);
   // "Move to space…" swaps the menu's own item list in place, the same trick — no submenu primitive
   // exists on `Menu`, so a second render of the SAME menu is the picker.
   const [movingToSpace, setMovingToSpace] = useState(false);
@@ -114,7 +116,9 @@ export function useItemContextMenu(onRename: (item: Item) => void) {
               : []),
             confirmingDelete
               ? { label: <strong>Really delete?</strong>, danger: true, onSelect: () => run(() => deleteItem(menu.item.id)) }
-              : { label: "Delete", danger: true, keepOpen: true, onSelect: () => setConfirmingDelete(true) },
+              : confirmDelete
+                ? { label: "Delete", danger: true, keepOpen: true, onSelect: () => setConfirmingDelete(true) }
+                : { label: "Delete", danger: true, onSelect: () => run(() => deleteItem(menu.item.id)) },
           ]
     } />
   ) : null;

@@ -19,6 +19,7 @@ export function fakeBrowserBridges(over: {
     retain: async () => {},
     navigate: async () => null,
     nav: async () => {},
+    historyMenu: async () => {},
     setAllowlist: async () => {},
     setBounds: () => {},
     onState: () => () => {},

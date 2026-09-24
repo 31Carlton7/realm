@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, createEvent, fireEvent, render, screen } from "@testing-library/react";
 import type { BlockedDownload, Browser, BrowserDownloadResult, BrowserPickedElement, PasskeyNotice } from "@realm/contracts";
 import { BrowserPane } from "./BrowserPane";
 import { setBrowserBridgesForTests, type BrowserBridges, type BrowserHostBridge, type BrowserServerBridge } from "./browser-client";
@@ -29,6 +29,7 @@ function fakeBridges(row: Partial<Browser> = {}) {
     retain: async (id) => { calls.push(`retain:${id}`); },
     navigate: async (id, input) => { calls.push(`navigate:${id}:${input}`); return input.trim() === "" ? null : `https://${input}`; },
     nav: async (id, a) => { calls.push(`nav:${id}:${a}`); },
+    historyMenu: async (id, dir, at) => { calls.push(`historyMenu:${id}:${dir}:${Math.round(at.x)},${Math.round(at.y)}`); },
     setAllowlist: async () => {},
     setBounds: (id, rect, dpr, visible) => { bounds.push({ id, rect, dpr, visible }); },
     onState: (cb) => { cbs.add(cb); return () => cbs.delete(cb); },
@@ -153,6 +154,27 @@ describe("BrowserPane", () => {
     fireEvent.click(screen.getByLabelText("Forward"));
     fireEvent.click(screen.getByLabelText("Reload"));
     expect(f.calls).toEqual(expect.arrayContaining(["nav:b1:back", "nav:b1:forward", "nav:b1:reload"]));
+  });
+
+  it("right-clicking an arrow asks main for the OS trail menu, anchored under that button", async () => {
+    /* The pane bans dropdowns because the native view composites over every piece of renderer DOM in
+       its rect, so this menu is the OS's and main pops it. THE MUTANT: leave the default context
+       menu through — the page's own menu appears over a toolbar button that is not part of the page. */
+    const f = fakeBridges();
+    setBrowserBridgesForTests(f.bridges);
+    render(<BrowserPane item={browserItem()} visible />);
+    await settle();
+    act(() => f.emit(state({ url: "https://example.com", canGoBack: true, canGoForward: true })));
+
+    const back = screen.getByLabelText("Back");
+    const ev = createEvent.contextMenu(back);
+    fireEvent(back, ev);
+    expect(ev.defaultPrevented).toBe(true);
+    fireEvent.contextMenu(screen.getByLabelText("Forward"));
+    expect(f.calls.some((c) => c.startsWith("historyMenu:b1:back:"))).toBe(true);
+    expect(f.calls.some((c) => c.startsWith("historyMenu:b1:forward:"))).toBe(true);
+    // A right-click must not also navigate — the arrow's own click is the one-step gesture.
+    expect(f.calls).not.toContain("nav:b1:back");
   });
 
   it("bounds sync: hidden until settle + first page; visible with the placeholder rect after", async () => {

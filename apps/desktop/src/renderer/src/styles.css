@@ -600,14 +600,20 @@ kbd { font: 11px var(--font-mono); }
 /* Panes are neutral; the row's own pane lifts to ink (accent = ink now, V-C1 kept). */
 .item-glyph rect[data-on] { fill: var(--rl-text-dim); }
 .item[data-active] .item-glyph rect[data-on] { fill: var(--rl-text-bright); } /* W3: BUI active icons are ink, not accent */
-.item-close, .item-shelf { opacity: 0; display: grid; place-items: center; width: 22px; height: 22px; margin-right: 3px; border-radius: var(--r-chip); color: var(--rl-text-dim); }
-.item:hover .item-close, .item:hover .item-shelf { opacity: 1; }
+.item-close, .item-shelf, .item-delete { opacity: 0; display: grid; place-items: center; width: 22px; height: 22px; margin-right: 3px; border-radius: var(--r-chip); color: var(--rl-text-dim); }
+.item:hover .item-close, .item:hover .item-shelf, .item:hover .item-delete { opacity: 1; }
 .item-close:hover, .item-shelf:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
-/* the hover-only x and archive box must also appear for keyboard focus (A-M8) */
-.item-close:focus-visible, .item-shelf:focus-visible { opacity: 1; }
+/* the hover-only x, archive box and trash must also appear for keyboard focus (A-M8) */
+.item-close:focus-visible, .item-shelf:focus-visible, .item-delete:focus-visible { opacity: 1; }
 /* The shelf sits left of the x and gives back the 3px gutter the x owns, so the pair reads as one
-   cluster rather than two widely spaced buttons. */
-.item-shelf { margin-right: 0; }
+   cluster rather than two widely spaced buttons. The trash takes the shelf's place for the kinds
+   that have no shelf, so it inherits the same gutter. */
+.item-shelf, .item-delete { margin-right: 0; }
+/* Danger only on the way in and while armed — a row of red trash cans at rest would read as a list
+   of problems rather than a list of things. Armed is filled, because the second click is the one
+   that spends, and an armed control that looked like the resting one would be a trap. */
+.item-delete:hover { background: var(--rl-hover); color: var(--rl-danger); }
+.item-delete[data-confirming] { opacity: 1; background: var(--rl-danger); color: var(--rl-panel); }
 .item[data-dragging], .new-item[data-dragging] { opacity: .45; }
 .rename { width: 100%; height: 28px; padding: 0 8px; border-radius: var(--r-chip); border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
 .space-empty { font-size: 12px; color: var(--rl-text-faint); padding: 4px 5px 8px; } /* A-L6 */
@@ -2680,6 +2686,11 @@ button.panel-title:hover { background: var(--rl-hover); }
  * The depths are registered so they interpolate. An unregistered custom property computes to a token
  * stream, and token streams do not animate — the same registration the painter's inputs need, and
  * the same failure if it is skipped. */
+/* Leading, written by `fontVars()` as a ratio to ADD to each surface's own. Registered for the same
+   reason `--zoom` is: unregistered and unset, `calc(1.6 + var(--lh-shift))` is invalid at
+   computed-value time and the declaration is dropped entirely — a renderer with no preload bridge
+   would lay its prose out on the UA's default leading rather than on 1.6. */
+@property --lh-shift { syntax: "<number>"; inherits: true; initial-value: 0; }
 /* The page zoom, written by `theme/zoom.ts`. Registered so it has a TYPED initial value: unregistered
    and unset, `calc(720px * var(--zoom))` is invalid at computed-value time and takes `--prompter-w`
    with it — a renderer with no preload bridge (a test, a browser) would have no prompter column at
@@ -2747,7 +2758,7 @@ a.msg-chip:hover { text-decoration: underline; text-underline-offset: 2px; }
    (see the squircle block below). */
 .msg-user { max-width: 85%; padding: 14px 16px; border-radius: var(--r-squircle-msg); corner-shape: squircle;
   background: var(--rl-raised); text-align: left;
-  font-size: 15px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+  font-size: 15px; line-height: calc(1.6 + var(--lh-shift)); white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Plan 20: a message another SESSION delivered. An attribution line plus a muted accent ring, so it
    reads as "an agent asked this" rather than as something the user typed. */
 .msg-user-row[data-from] { gap: 3px; }
@@ -2774,7 +2785,7 @@ a.msg-chip:hover { text-decoration: underline; text-underline-offset: 2px; }
 /* The message and everything the message owns — its media strip, its action bar — in one column, at
    the gap `.transcript-col` used to give them as siblings, so growing the wrapper moved nothing. */
 .msg-assistant-row { display: flex; flex-direction: column; gap: 8px; }
-.msg-assistant { max-width: 72ch; font-size: 15px; line-height: 1.6; }
+.msg-assistant { max-width: 72ch; font-size: 15px; line-height: calc(1.6 + var(--lh-shift)); }
 /* The bar under a finished message. The negative inset is optical, not spacing: the first glyph is
    14px inside a 26px box, so without it the row of buttons would hang 6px right of the prose it
    belongs to and read as indented. */
@@ -2838,8 +2849,8 @@ a.msg-chip:hover { text-decoration: underline; text-underline-offset: 2px; }
    above, so [2] in a sentence and 2 in the disclosure are one page. */
 .md-cite { margin-left: 1px; padding: 0 3px; border-radius: var(--r-chip); vertical-align: super;
   font-size: 9px; font-variant-numeric: tabular-nums; color: var(--rl-text-dim); background: var(--rl-raised); }
-.md { line-height: 1.55; overflow-wrap: anywhere; }
-.msg-assistant.md { line-height: 1.6; }
+.md { line-height: calc(1.55 + var(--lh-shift)); overflow-wrap: anywhere; }
+.msg-assistant.md { line-height: calc(1.6 + var(--lh-shift)); }
 .md > div > :first-child { margin-top: 0; } .md > div > :last-child { margin-bottom: 0; }
 .md p { margin: 0 0 8px; text-wrap: pretty; } .md ul, .md ol { margin: 0 0 8px; padding-left: 20px; }
 /* Tailwind v4 preflight strips list markers app-wide; markdown lists must keep theirs. */
@@ -2879,7 +2890,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .md-code-head { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 12px 0 18px; }
 .md-code-lang { font: 11px var(--font-mono); color: var(--ink-3); }
 /* 18px in, matching the head, because a 36px corner eats the first character of a line set at 12. */
-.md-code pre { margin: 0; padding: 4px 18px 14px; border-radius: 0; background: none; font-size: 12.5px; line-height: 1.65; color: var(--syn-fg); }
+.md-code pre { margin: 0; padding: 4px 18px 14px; border-radius: 0; background: none; font-size: 12.5px; line-height: calc(1.65 + var(--lh-shift)); color: var(--syn-fg); }
 /* A link is colour and weight, no underline: the accent already says "this goes somewhere", and an
    underline under every link in a paragraph of prose is a paragraph of rules. Hover restores it. */
 .md a { color: var(--rl-accent); font-weight: var(--fw-label); text-decoration: none; }
@@ -3640,9 +3651,9 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    or the painted glyphs slide off the caret sitting above them. `pre-wrap` + `break-word` is exactly
    the UA's own textarea wrapping. Runs may change colour, background and underline, and nothing else. */
 .composer-highlight { position: absolute; inset: 0; overflow: hidden; pointer-events: none;
-  font: inherit; font-size: 15px; line-height: 1.55; padding: 14px 16px 10px;
+  font: inherit; font-size: 15px; line-height: calc(1.55 + var(--lh-shift)); padding: 14px 16px 10px;
   white-space: pre-wrap; overflow-wrap: break-word; color: var(--rl-text-bright); }
-.composer-input { border: none; outline: none; resize: none; background: transparent; color: transparent; font: inherit; font-size: 15px; line-height: 1.55; padding: 14px 16px 10px; min-height: 44px; max-height: 186px; caret-color: var(--rl-accent); position: relative; z-index: 1; }
+.composer-input { border: none; outline: none; resize: none; background: transparent; color: transparent; font: inherit; font-size: 15px; line-height: calc(1.55 + var(--lh-shift)); padding: 14px 16px 10px; min-height: 44px; max-height: 186px; caret-color: var(--rl-accent); position: relative; z-index: 1; }
 /* The glyphs are the mirror's job. `-webkit-text-fill-color` is what actually hides them in Chromium;
    `color` alone still paints the text on some platforms. The placeholder has to opt back IN, since it
    has no mirror behind it — the mirror is empty in exactly the state the placeholder shows. */
@@ -3654,7 +3665,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    on purpose: pressing ⇥ is the gesture, and a click here must still just place the caret. */
 .composer-hint { position: absolute; inset: 0; overflow: hidden; pointer-events: none;
   display: flex; align-items: baseline; gap: 8px;
-  font: inherit; font-size: 15px; line-height: 1.55; padding: 14px 16px 10px; color: var(--rl-text-faint); }
+  font: inherit; font-size: 15px; line-height: calc(1.55 + var(--lh-shift)); padding: 14px 16px 10px; color: var(--rl-text-faint); }
 .composer-hint-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-hint kbd { flex: none; padding: 1px 5px; border: var(--hairline-w) solid var(--rl-line-strong); border-radius: var(--r-chip); color: var(--rl-text-faint); }
 /* No scrollbar past the 10-line cap: a classic (non-overlay) scrollbar takes width from the textarea's
@@ -5442,11 +5453,7 @@ select { appearance: none; padding-right: 22px;
 .page:has(.page-content[data-wide]) { --page-measure: 1348px; }  /* the Tasks lens's own 1100px cap */
 /* `width: 100%` is load-bearing: an auto cross-axis margin switches off a flex item's stretch, so
    without it each band would shrink to fit its own longest line instead of filling the cap. */
-.page-head, .page-body, .profile-spaces { width: 100%; max-width: var(--page-measure); margin-inline: auto; }
-/* The profile page's chip strip is a third band between the head and the body, so its gutter is
-   stated here rather than with its own look — after the narrow block below, it could not be
-   overridden there (a container query carries no extra specificity). */
-.profile-spaces { padding-inline: 24px; }
+.page-head, .page-body { width: 100%; max-width: var(--page-measure); margin-inline: auto; }
 /* A page's title sits where its CONTENT starts, not where the window does. On a railed page the
    content column begins past the rail, and a title left-aligned to the window instead pointed at the
    tab list rather than at the thing it names. The two rail measurements are variables so the indent
@@ -5481,6 +5488,17 @@ select { appearance: none; padding-right: 22px;
 .page-rail { flex: none; width: var(--page-rail-w); display: flex; flex-direction: column; gap: 2px; align-self: flex-start;
   margin: 0; padding: 0; border: none; background: none; }
 .page-rail .settings-tab { flex: none; text-align: left; padding: 6px 10px; font-size: 13px; border-radius: var(--r-ctl); corner-shape: squircle; }
+/* The profile page's spaces (Plan 14 W2), now a second list in the rail rather than a chip strip
+   over the title. One list per kind of destination; the rail's own gap separates the rows inside a
+   list, and the bigger gap between the lists is what says they are not the same question.
+   `.page-rail-list` carries the fieldset reset too, because one of the two IS a fieldset. */
+.page-rail-list { display: flex; flex-direction: column; gap: 2px; min-width: 0; margin: 0; padding: 0; border: none; background: none; }
+.page-rail:has(.page-rail-list) { gap: 16px; }
+/* Aligned to the rows' own text, not to the rail's edge, so the heading sits over the column it
+   names rather than 10px to the left of it. */
+.page-rail-head { padding: 0 10px 2px; font-size: 11.5px; font-weight: var(--fw-medium); color: var(--rl-text-faint); }
+.page-rail-space { display: flex; align-items: center; gap: 7px; }
+.page-rail-space-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* `min-height: 0` matters once the narrow block below turns `.page-body` into a column: without it
    the content column's auto minimum keeps it at full content height, and it overflows the pane
    instead of scrolling inside it. */
@@ -5534,11 +5552,14 @@ select { appearance: none; padding-right: 22px;
   .page-rail { flex-direction: row; width: auto; min-width: 0; align-self: stretch; gap: 4px;
     overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
   .page-rail .settings-tab { white-space: nowrap; }
+  /* The rail lies down here, so its lists have to as well — left as columns they would stand two
+     short stacks side by side in a strip that is meant to read as one row of destinations. */
+  .page-rail-list { flex-direction: row; gap: 4px; }
+  .page-rail-head { align-self: center; padding: 0 2px 0 6px; }
   /* The contents rail's indent says "under the heading above" — a claim a horizontal strip cannot
      make, where it only reads as uneven spacing between peers. */
   .skill-toc-link[data-level="2"] { padding-left: 10px; }
   .page-content { max-width: none; padding-right: 0; }
-  .profile-spaces { padding-inline: 16px; }
   /* The `1fr auto` row grid, stood up: the actions keep their own width and the path/name column
      gets all of it back. */
   .env-row { grid-template-columns: minmax(0, 1fr); }
@@ -5927,13 +5948,6 @@ select { appearance: none; padding-right: 22px;
 .task-attempt-outcome[data-outcome="succeeded"] { color: var(--rl-text-bright); }
 .task-attempt-outcome[data-outcome="failed"], .task-attempt-outcome[data-outcome="expired"] { color: var(--rl-danger); }
 
-/* The profile page's space chips (Plan 14 W2): the profile's spaces as jump targets, under the head. */
-/* The inline margin is left to the band rule up in the page section — a `margin` shorthand here
-   would zero the auto that centres it. */
-.profile-spaces { display: flex; flex-wrap: wrap; gap: 6px; margin-block: 2px 10px; }
-.profile-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; font-size: 12px;
-  border: var(--hairline-w) solid var(--rl-line-strong); border-radius: 999px; background: none; color: var(--rl-text-dim); cursor: pointer; }
-.profile-chip:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* The sidebar header's whole title row is the page's front door. */
 .space-title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 4px; margin: -2px -4px;
   border: none; border-radius: var(--r-chip); corner-shape: squircle; background: none; color: inherit; font: inherit; cursor: pointer; }
@@ -6377,7 +6391,7 @@ select { appearance: none; padding-right: 22px;
 .documents-surface > * { min-height: 0; }
 .documents-rich .tiptap, .documents-rich-surface { outline: none; padding: 18px 22px; }
 /* Soft line breaks are preserved as real newlines in the model, so they must render as breaks. */
-.documents-rich-surface { white-space: pre-wrap; line-height: 1.65; font-size: 14px; }
+.documents-rich-surface { white-space: pre-wrap; line-height: calc(1.65 + var(--lh-shift)); font-size: 14px; }
 .documents-rich-surface > * + * { margin-top: 0.7em; }
 .documents-rich-surface h1 { font-size: 1.55em; font-weight: var(--fw-title); letter-spacing: -1.5%; }
 .documents-rich-surface h2 { font-size: 1.3em; font-weight: var(--fw-title); letter-spacing: -1.5%; }

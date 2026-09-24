@@ -133,7 +133,12 @@ export function ItemList({ items, variant, layout: groupLayout }: {
   const openItem = useApp((s) => s.openItem);
   const closeFromLayout = useApp((s) => s.closeFromLayout);
   const archiveItem = useApp((s) => s.archiveItem);
+  const deleteItem = useApp((s) => s.deleteItem);
+  const confirmDelete = useApp((s) => s.confirmDelete);
   const run = useApp((s) => s.run);
+  /* Which row's trash is armed, by id rather than a boolean: the rows share this component, and a
+     flag would arm every one of them at once. Cleared on blur, the same disarm the pane bar uses. */
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<Item | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const { onContextMenu, element } = useItemContextMenu(setRenaming);
@@ -210,6 +215,21 @@ export function ItemList({ items, variant, layout: groupLayout }: {
                   onClick={() => run(() => archiveItem(it.id, variant !== "archived"))}>
                   <Icon name={variant === "archived" ? "unarchive" : "archive"} size={12} />
                 </button>
+              )}
+              {/* Every other kind gets the trash in the shelf's place. Archiving is the answer for a
+                  conversation you are done with; for a terminal, a browser, a documents pane or a
+                  page there is no "done with" to put away, and the only thing the row could offer
+                  was a right-click most people never try. Same two-step as everywhere else, and it
+                  reads the same switch — a user who turned the asking off is not asked here either. */}
+              {it.kind !== "session" && (
+                confirmingId === it.id ? (
+                  <button className="item-delete" data-confirming="" aria-label={`Really delete ${it.title}?`}
+                    title="Click again to delete" onBlur={() => setConfirmingId(null)}
+                    onClick={() => run(() => deleteItem(it.id))}><Icon name="trash" size={12} /></button>
+                ) : (
+                  <button className="item-delete" aria-label={`Delete ${it.title}`} title="Delete — removes it from the space"
+                    onClick={() => (confirmDelete ? setConfirmingId(it.id) : run(() => deleteItem(it.id)))}><Icon name="trash" size={12} /></button>
+                )
               )}
               {variant === "open" && (
                 <button className="item-close" aria-label={`Close ${it.title}`} onClick={() => run(() => closeFromLayout(it.id))}><Icon name="close" size={12} /></button>

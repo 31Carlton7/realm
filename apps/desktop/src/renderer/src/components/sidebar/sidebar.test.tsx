@@ -317,6 +317,61 @@ describe("Arc sidebar", () => {
     expect(api.calls).toContain("deleteItem:i1");
   });
 
+  it("gives a non-session row a trash of its own", async () => {
+    /* A terminal, a browser, a documents pane and a page have no "done with" to be put away into,
+       so the shelf is not theirs — and before this the only way to end one from the sidebar was a
+       right-click most people never try. */
+    await mount();
+    expect(screen.getByRole("button", { name: "Delete Terminal" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Archive Terminal/ })).not.toBeInTheDocument();
+  });
+
+  it("leaves a session its shelf and no trash, so one row never offers two answers", async () => {
+    // THE MUTANT: drop the kind check. A session row grows a trash beside its archive box, and
+    // "put this away" and "end this" sit a pixel apart wearing the same hover.
+    await mount(fakeApi({
+      sessions: [session("sess1", "s1", { status: "idle" })],
+      items: { s1: [item("i2", "s1", { kind: "session" as const, refId: "sess1", title: "Agent" })] },
+    }));
+    expect(screen.getByRole("button", { name: "Archive Agent" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete Agent" })).not.toBeInTheDocument();
+  });
+
+  it("the row's trash is two-step, and arms only the row that was clicked", async () => {
+    const api = fakeApi({ items: { s1: [item("i1", "s1", { title: "Terminal" }), item("i2", "s1", { title: "Notes" })] } });
+    const { store } = await mount(api);
+    fireEvent.click(screen.getByRole("button", { name: "Delete Terminal" }));
+    // THE MUTANT: hold the armed state in a boolean. Both rows would arm on one click.
+    expect(screen.getByRole("button", { name: "Really delete Terminal?" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete Notes" })).toBeInTheDocument();
+    expect(store.getState().items.map((i) => i.id)).toContain("i1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Really delete Terminal?" }));
+    await waitFor(() => expect(store.getState().items.map((i) => i.id)).not.toContain("i1"));
+    expect(api.calls).toContain("deleteItem:i1");
+  });
+
+  it("the row's trash deletes on one click once the user has turned the asking off", async () => {
+    const { store, api } = await mount();
+    act(() => store.setState({ confirmDelete: false }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Terminal" }));
+    await waitFor(() => expect(store.getState().items.map((i) => i.id)).not.toContain("i1"));
+    expect(api.calls).toContain("deleteItem:i1");
+  });
+
+  it("deletes on the first click once the user has turned the asking off", async () => {
+    /* The whole point of the setting: someone who deletes often enough that the second click has
+       stopped being a question should not keep paying for it. THE MUTANT: leave the menu row armed
+       regardless — "Really delete?" would appear and the item would survive the click that was
+       supposed to end it. */
+    const { store, api } = await mount();
+    act(() => store.setState({ confirmDelete: false }));
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Terminal" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+    await waitFor(() => expect(store.getState().items.map((i) => i.id)).not.toContain("i1"));
+    expect(api.calls).toContain("deleteItem:i1");
+  });
+
   it("Delete is two-step: the first click arms 'Really delete?' without deleting; reopening the menu disarms; the second click deletes", async () => {
     const { store, api } = await mount();
     fireEvent.contextMenu(screen.getByRole("button", { name: "Terminal" }));

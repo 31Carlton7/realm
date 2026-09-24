@@ -152,6 +152,10 @@ export type ViewHandle = {
   loadURL(url: string): void;
   goBack(): void; goForward(): void; reload(): void; stop(): void;
   canGoBack(): boolean; canGoForward(): boolean;
+  /** Every entry this view can reach, oldest first, and where in that list it is standing. The pair
+   *  is read together — an index means nothing without the list it indexes. */
+  history(): { entries: { url: string; title: string }[]; activeIndex: number };
+  goToIndex(index: number): void;
   getURL(): string; getTitle(): string; isLoading(): boolean;
   destroy(): void;
 };
@@ -230,6 +234,27 @@ export class BrowserPaneHost {
     if (!url || !originAllowed(url, v.allowlist)) return null;
     v.handle.loadURL(url);
     return url;
+  }
+
+  /**
+   * The back/forward trail, split at where the view is standing.
+   *
+   * `back` is oldest-first reversed — nearest first, the order a person reads a back menu in — and
+   * `forward` is the entries past the active one in the order they would be walked. Titles fall back
+   * to the URL: a page that never set one would otherwise be a blank row in the menu.
+   */
+  historyTrail(id: string, dir: "back" | "forward"): { index: number; label: string }[] {
+    const v = this.views.get(id); if (!v) return [];
+    const { entries, activeIndex } = v.handle.history();
+    const range = dir === "back"
+      ? entries.map((e, i) => ({ e, i })).slice(0, Math.max(0, activeIndex)).reverse()
+      : entries.map((e, i) => ({ e, i })).slice(activeIndex + 1);
+    return range.map(({ e, i }) => ({ index: i, label: e.title?.trim() || e.url }));
+  }
+
+  goToIndex(id: string, index: number): void {
+    const v = this.views.get(id); if (!v) return;
+    v.handle.goToIndex(index);
   }
 
   navAction(id: string, action: "back" | "forward" | "reload" | "stop"): void {

@@ -1,13 +1,11 @@
 import { PageScroll } from "../../components/ScrollFades";
-import {
-  AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
+import { EDITOR_CURSOR_BLINK_COPY, TERMINAL_CURSOR_STYLES, TERMINALS_CURSOR_STYLE_COPY, type TerminalCursorStyle, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
-  PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, type NotificationCategory,
-} from "@realm/contracts";
+  PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, type NotificationCategory, } from "@realm/contracts";
 import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED,
   THEMES, contrastMisses, deriveVars, exportTheme, importTheme, isHexColour, isOverridden, overrideKey,
   allThemes, paletteFor, seedFor, themeModes, themeSwatches,
-  type FontId, type FontRole, type FontWeight, type Mode, type ThemeName, type ThemeOverride } from "@realm/ui";
+  type FontId, type FontRole, type FontWeight, type Mode, type ThemeName, type ThemeOverride, LEADING_RANGE } from "@realm/ui";
 import type { ThemeSeed } from "@realm/contracts";
 import { useEffect, useReducer, useRef, useState, type CSSProperties } from "react";
 import { Sheet } from "../../components/Sheet";
@@ -757,6 +755,10 @@ function AppTab() {
   const terminalHistory = useApp((s) => s.terminalHistory);
   const setTerminalHistory = useApp((s) => s.setTerminalHistory);
   const terminalCursorBlink = useApp((s) => s.terminalCursorBlink);
+  const terminalCursorStyle = useApp((s) => s.terminalCursorStyle);
+  const setTerminalCursorStyle = useApp((s) => s.setTerminalCursorStyle);
+  const editorCursorBlink = useApp((s) => s.editorCursorBlink);
+  const setEditorCursorBlink = useApp((s) => s.setEditorCursorBlink);
   const setTerminalCursorBlink = useApp((s) => s.setTerminalCursorBlink);
   const setDesktopNotifications = useApp((s) => s.setDesktopNotifications);
   const soundCues = useApp((s) => s.soundCues);
@@ -772,6 +774,8 @@ function AppTab() {
   const lowPower = useApp((s) => s.lowPower);
   const setLowPower = useApp((s) => s.setLowPower);
   const sidebarActivityOrder = useApp((s) => s.sidebarActivityOrder);
+  const confirmDelete = useApp((s) => s.confirmDelete);
+  const setConfirmDelete = useApp((s) => s.setConfirmDelete);
   const setSidebarActivityOrder = useApp((s) => s.setSidebarActivityOrder);
   const setEasterEggs = useApp((s) => s.setEasterEggs);
   const run = useApp((s) => s.run);
@@ -914,6 +918,31 @@ function AppTab() {
           </div>
         </div>
         <div className="settings-row">
+          <div className="settings-row-main"><span className="settings-row-name">Line height</span></div>
+          {/* An OFFSET, not a value. Prose is 1.6, markdown 1.55 and a code block 1.65, and those
+              three are a judgement about each surface — a control that set one number would flatten
+              them and lose the reason a code block breathes more than a paragraph. The readout names
+              the ratio prose lands on, because "+10" is a number about the control and 1.70 is a
+              number about the text. */}
+          <div className="slider-row" title="Moves the leading of messages, markdown and the prompter together, each from its own starting ratio. Code panes, terminals and diffs keep theirs — their line box is a grid the gutter is measured against.">
+            <Slider aria-label="Line height"
+              min={LEADING_RANGE.min} max={LEADING_RANGE.max} step={LEADING_RANGE.step}
+              value={fonts.leading} onChange={(e) => run(() => setFonts({ leading: Number(e.target.value) }))} />
+            <span className="slider-value">{(1.6 + fonts.leading / 100).toFixed(2)}</span>
+          </div>
+        </div>
+        <div className="settings-row">
+          <div className="settings-row-main">
+            <span className="settings-row-name">{EDITOR_CURSOR_BLINK_COPY.label}</span>
+            {/* The exclusion is a fact about Chromium, not a choice, and it belongs where someone
+                would otherwise go looking for the control that is missing. */}
+            <span className="settings-row-detail">{EDITOR_CURSOR_BLINK_COPY.detail}</span>
+          </div>
+          <input type="checkbox" role="switch" className="switch" aria-label={EDITOR_CURSOR_BLINK_COPY.label}
+            checked={editorCursorBlink}
+            onChange={(e) => run(() => setEditorCursorBlink(e.target.checked))} />
+        </div>
+        <div className="settings-row">
           <div className="settings-row-main"><span className="settings-row-name">Code font</span></div>
           <div className="font-row" title="Code, diffs, terminals and keyboard hints. Open terminals change face with this setting; their font size does not follow it.">
             <FontSelect role="code" value={fonts.code} onPick={(id) => run(() => setFonts({ code: id }))} />
@@ -1033,6 +1062,19 @@ function AppTab() {
         </li>
       </ul>
 
+      <h3 className="settings-head">Deleting</h3>
+      <ul className="settings-list">
+        <li className="settings-row" title="Applies to deleting an item or a schedule. Removing a split and discarding a quick chat still ask, because neither is a delete — the panes come back and the draft was never saved.">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Ask before deleting</span>
+            <span className="settings-row-detail">A delete takes the object with it, and nothing here brings one back</span>
+          </div>
+          <input type="checkbox" role="switch" className="switch" aria-label="Ask before deleting"
+            checked={confirmDelete}
+            onChange={(e) => run(() => setConfirmDelete(e.target.checked))} />
+        </li>
+      </ul>
+
       <h3 className="settings-head">Terminals</h3>
       <ul className="settings-list">
         <li className="settings-row">
@@ -1054,6 +1096,20 @@ function AppTab() {
           <input type="checkbox" role="switch" className="switch" aria-label={TERMINALS_CURSOR_BLINK_COPY.label}
             checked={terminalCursorBlink}
             onChange={(e) => run(() => setTerminalCursorBlink(e.target.checked))} />
+        </li>
+        <li className="settings-row" title="A block is what a full-screen program is drawn against; a bar is what an editor trains you to look for; an underline never covers the character it is standing on.">
+          <div className="settings-row-main">
+            <span className="settings-row-name">{TERMINALS_CURSOR_STYLE_COPY.label}</span>
+          </div>
+          {/* Its own control rather than a mode of the blink above: a bar that holds still and a
+              block that pulses are both things people ask for, and one list of four would make half
+              the pairs unreachable. */}
+          <select aria-label={TERMINALS_CURSOR_STYLE_COPY.label} value={terminalCursorStyle}
+            onChange={(e) => run(() => setTerminalCursorStyle(e.target.value as TerminalCursorStyle))}>
+            {TERMINAL_CURSOR_STYLES.map((st) => (
+              <option key={st} value={st}>{TERMINALS_CURSOR_STYLE_COPY.options[st]}</option>
+            ))}
+          </select>
         </li>
       </ul>
 

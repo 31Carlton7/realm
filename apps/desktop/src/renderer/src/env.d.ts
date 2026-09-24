@@ -142,6 +142,7 @@ interface Window {
       /** Resolves the normalized URL actually loaded, or null when refused (allowlist) / empty. */
       navigate(id: string, input: string): Promise<string | null>;
       nav(id: string, action: "back" | "forward" | "reload" | "stop"): Promise<void>;
+      historyMenu(id: string, dir: "back" | "forward", at: { x: number; y: number }): Promise<void>;
       /** Arms the element picker. See `BrowserHostBridge` for the promise's lifetime. */
       pickElement(id: string): Promise<import("@realm/contracts").BrowserPickedElement | null>;
       cancelPick(id: string): Promise<void>;

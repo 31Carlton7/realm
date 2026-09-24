@@ -45,6 +45,7 @@ export * from "./documents";
 export * from "./library";
 export * from "./runs";
 export * from "./daemon";
+export * from "./editor";
 export * from "./terminals";
 export * from "./schedules";
 export * from "./failover";

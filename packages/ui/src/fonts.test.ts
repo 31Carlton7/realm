@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_FONTS, FONT_FACES, FONT_VARS, FONT_WEIGHT_SHIFT, fontVars, parseFontPref } from "./fonts";
+import { clampLeading, DEFAULT_FONTS, FONT_FACES, FONT_VARS, FONT_WEIGHT_SHIFT, fontVars, LEADING_RANGE, parseFontPref } from "./fonts";
 
 describe("the faces on offer", () => {
   it("are ones the app can actually deliver: a bundled family, or a real system stack", () => {
@@ -30,7 +30,7 @@ describe("what a font preference writes", () => {
     for (const ui of ["bundled", "system"] as const) {
       for (const code of ["bundled", "system"] as const) {
         for (const uiWeight of ["regular", "medium"] as const) {
-          expect(Object.keys(fontVars({ ui, code, uiWeight })).sort()).toEqual([...FONT_VARS].sort());
+          expect(Object.keys(fontVars({ ui, code, uiWeight, leading: 0 })).sort()).toEqual([...FONT_VARS].sort());
         }
       }
     }
@@ -47,9 +47,33 @@ describe("what a font preference writes", () => {
     expect(600 + FONT_WEIGHT_SHIFT.medium).toBeLessThanOrEqual(900);
   });
 
+  it("leading is a SHIFT too, so the surfaces keep the distances between them", () => {
+    /* THE absolute-leading mutant: write a line-height instead of an offset. Prose (1.6), markdown
+       (1.55) and a code block (1.65) would collapse onto one number, and the reason a code block
+       breathes more than a paragraph would go with it. The stylesheet adds this to each surface's
+       own ratio, so the only thing that can be asserted here is that it IS the offset, in ratio. */
+    expect(fontVars({ ...DEFAULT_FONTS, leading: 0 })["--lh-shift"]).toBe("0");
+    expect(fontVars({ ...DEFAULT_FONTS, leading: 10 })["--lh-shift"]).toBe("0.1");
+    expect(fontVars({ ...DEFAULT_FONTS, leading: -10 })["--lh-shift"]).toBe("-0.1");
+  });
+
+  it("refuses a stored leading that would write a broken line-height", () => {
+    // Same argument as the family regex above: the one thing this preference must never do is put a
+    // value in `calc()` that drops the declaration and lays the app out on the UA's default.
+    expect(clampLeading(Number.NaN)).toBe(LEADING_RANGE.default);
+    expect(clampLeading(Number.POSITIVE_INFINITY)).toBe(LEADING_RANGE.default);
+    expect(clampLeading(9999)).toBe(LEADING_RANGE.max);
+    expect(clampLeading(-9999)).toBe(LEADING_RANGE.min);
+    // Snapped to the step, so every stop is one somebody would choose on purpose.
+    expect(clampLeading(7)).toBe(5);
+    // A row stored before this setting existed carries no `leading` at all.
+    expect(parseFontPref({ ui: "bundled", uiWeight: "regular", code: "bundled" }).leading).toBe(LEADING_RANGE.default);
+    expect(parseFontPref({ ...DEFAULT_FONTS, leading: "big" }).leading).toBe(LEADING_RANGE.default);
+  });
+
   it("the two roles are independent — a code face cannot move the chrome", () => {
-    const a = fontVars({ ui: "bundled", code: "system", uiWeight: "regular" });
-    const b = fontVars({ ui: "bundled", code: "bundled", uiWeight: "regular" });
+    const a = fontVars({ ui: "bundled", code: "system", uiWeight: "regular", leading: 0 });
+    const b = fontVars({ ui: "bundled", code: "bundled", uiWeight: "regular", leading: 0 });
     expect(a["--font-ui"]).toBe(b["--font-ui"]);
     expect(a["--font-mono"]).not.toBe(b["--font-mono"]);
   });
@@ -60,10 +84,10 @@ describe("read back off a user-editable settings row", () => {
     // THE trusted-row mutant: cast it. A value this does not vet reaches `fontVars` and can write
     // the literal string "undefined" into --font-ui — a window with no text in it.
     expect(parseFontPref({ ui: "system", uiWeight: "medium", code: "system" }))
-      .toEqual({ ui: "system", uiWeight: "medium", code: "system" });
+      .toEqual({ ui: "system", uiWeight: "medium", code: "system", leading: 0 });
     // A FAMILY NAME is a real answer now — the two reserved words are no longer the whole offer.
     expect(parseFontPref({ ui: "Comic Sans MS", uiWeight: 700, code: "system" }))
-      .toEqual({ ui: "Comic Sans MS", uiWeight: "regular", code: "system" });
+      .toEqual({ ui: "Comic Sans MS", uiWeight: "regular", code: "system", leading: 0 });
     for (const junk of [null, undefined, "bundled", 3, []]) expect(parseFontPref(junk)).toEqual(DEFAULT_FONTS);
     // Whatever comes back is a family the app has a stack for.
     expect(fontVars(parseFontPref({ ui: "nope" }))["--font-ui"]).toContain("sans-serif");

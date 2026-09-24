@@ -8,7 +8,7 @@ import {
   activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveGroup as groupsMove, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo,
+  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, EDITOR_CURSOR_BLINK_DEFAULT, EDITOR_CURSOR_BLINK_KEY, isTerminalCursorStyle, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, type TerminalCursorStyle, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
   type AgentKind, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageSummary,
@@ -676,6 +676,8 @@ const SETTING_SIDEBAR_WIDTH = "ui.sidebarWidth";
 /** Whether the space strip sorts by activity instead of the user's own drag order. See
  *  `sidebarActivityOrder`. */
 const SETTING_SIDEBAR_ACTIVITY_ORDER = "ui.sidebarActivityOrder";
+/** Whether a delete asks first. On unless the user has said otherwise — see `confirmDelete`. */
+const SETTING_CONFIRM_DELETE = "ui.confirmDelete";
 /** Per-session terminal-panel state (open + width), keyed by session id. */
 export const SETTING_TERMINAL_PANEL = "ui.terminalPanel";
 /** The quick chat: which session it is, and where its window sits. One key, because the two are only
@@ -846,6 +848,19 @@ export type AppState = {
    * strip picks up exactly where it was left.
    */
   sidebarActivityOrder: boolean;
+  /**
+   * Whether deleting something asks first.
+   *
+   * On by default, because a delete here is not a close: the object goes, and nothing in the app
+   * brings it back. Off is for someone who deletes often enough that the second click has stopped
+   * being a question and become a keystroke they spend — at which point the guard is costing them
+   * real time and protecting nothing, since a guard you answer without reading is not one.
+   *
+   * Scope is the two-step "Really delete?" on an ITEM and on a schedule. It does not reach the
+   * confirms that are not deletes — removing a split keeps its panes, discarding a quick chat
+   * throws away a draft — nor the ones that spell out a named object and offer an explicit Cancel.
+   */
+  confirmDelete: boolean;
   /** Which list the sidebar's body is showing: the space's own items, or the gateway's call log.
    *
    *  Store-held rather than local to the column because `applyMcpCall` reads it — a live call has to
@@ -1361,6 +1376,7 @@ export type AppState = {
   setSidebarActivityOrder(v: boolean): Promise<void>;
   setLowPower(v: boolean): Promise<void>;
   setSidebarActivityOrder(v: boolean): Promise<void>;
+  setConfirmDelete(v: boolean): Promise<void>;
   /** The window gained or lost focus. Called by App's own listeners; nothing else writes it. */
   setWindowActive(v: boolean): void;
   setEasterEggs(v: boolean): Promise<void>;
@@ -2026,8 +2042,14 @@ export type AppState = {
   terminalHistory: boolean;
   /** Whether a terminal's cursor blinks (Settings ▸ App). Reaches live terminals through the hub. */
   terminalCursorBlink: boolean;
+  /** What shape a terminal's cursor is (Settings ▸ App). Reaches live terminals through the hub. */
+  terminalCursorStyle: TerminalCursorStyle;
+  /** Whether the CODE editor's caret blinks — not the prompter's, which is the platform's. */
+  editorCursorBlink: boolean;
   setTerminalHistory(enabled: boolean): Promise<void>;
   setTerminalCursorBlink(on: boolean): Promise<void>;
+  setTerminalCursorStyle(style: TerminalCursorStyle): Promise<void>;
+  setEditorCursorBlink(on: boolean): Promise<void>;
   /** The Settings→App sound switch and its level (0…1). Each writes its key and holds the answer, so
    *  the next broadcast sounds under the new one without waiting for a settings refresh. */
   setSoundCues(enabled: boolean): Promise<void>;
@@ -2831,7 +2853,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, sidebarActivityOrder: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
+      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, sidebarActivityOrder: false, confirmDelete: true, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
@@ -2846,7 +2868,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
-      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, notificationsSelectedId: null, paneHistory: {},
+      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, editorCursorBlink: EDITOR_CURSOR_BLINK_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, notificationsSelectedId: null, paneHistory: {},
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       activeProfileId() { return get().activeSpace()?.profileId ?? null; },
@@ -2854,9 +2876,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, swipeInvert, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, lastAgent, eggs, konami, panels, quick, system] = await Promise.all([
+        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, swipeInvert, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, panels, quick, system] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME),
-          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_LAST_AGENT),
+          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
           api.getSetting(SETTING_TERMINAL_PANEL),
           api.getSetting(SETTING_QUICK_CHAT),
@@ -2873,6 +2895,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           // Defaulted OFF: the strip's resting order is the one the user dragged it into, and a
           // preference nobody could read must not rearrange their spaces on them at launch.
           sidebarActivityOrder: activityOrder === true,
+          // Only an explicit false turns it off: an unset key and a missing row both mean "nobody
+          // has said", and the answer to that for a destructive step is to keep asking.
+          confirmDelete: askDelete !== false,
           lastAgentKind: agent.success ? agent.data : null,
           easterEggs: eggs === true, konamiUnlocked: konami === true,
           terminalPanel: parseTerminalPanels(panels), machineName: system.machineName, userName: system.userName, detachedSince: system.detachedSince });
@@ -2912,6 +2937,12 @@ await get().refreshCustomThemes().catch(() => {});
         // both mean "nobody has said", which is the blinking cursor every other terminal draws.
         const cursorBlink = await api.getSetting(TERMINALS_CURSOR_BLINK_KEY).catch(() => null);
         set({ terminalCursorBlink: cursorBlink !== false });
+        // Same polarity argument for the editor's caret; the style is a word, so an unrecognised one
+        // is the default rather than a shape xterm would refuse.
+        const editorBlink = await api.getSetting(EDITOR_CURSOR_BLINK_KEY).catch(() => null);
+        set({ editorCursorBlink: editorBlink !== false });
+        const cursorStyle = await api.getSetting(TERMINALS_CURSOR_STYLE_KEY).catch(() => null);
+        set({ terminalCursorStyle: isTerminalCursorStyle(cursorStyle) ? cursorStyle : TERMINALS_CURSOR_STYLE_DEFAULT });
         const str = (v: unknown) => (typeof v === "string" ? v : "");
         set({ desktopNotifications: desktop !== false, soundCues: sound !== false, soundVolume: cueVolume(volume),
           notificationRelay: { imessage: str(imessage), slackWebhook: str(slackWebhook) }, midTurnMode: resolveMidTurnMode(midTurn) });
@@ -3203,6 +3234,10 @@ await get().refreshCustomThemes().catch(() => {});
       async setSidebarActivityOrder(v) {
         set({ sidebarActivityOrder: v });
         await api.setSetting(SETTING_SIDEBAR_ACTIVITY_ORDER, v);
+      },
+      async setConfirmDelete(v) {
+        set({ confirmDelete: v });
+        await api.setSetting(SETTING_CONFIRM_DELETE, v);
       },
       async setLowPower(v) {
         set({ lowPower: v });
@@ -5273,6 +5308,14 @@ await get().refreshCustomThemes().catch(() => {});
       async setTerminalCursorBlink(on) {
         set({ terminalCursorBlink: on });
         await api.setSetting(TERMINALS_CURSOR_BLINK_KEY, on);
+      },
+      async setTerminalCursorStyle(style) {
+        set({ terminalCursorStyle: style });
+        await api.setSetting(TERMINALS_CURSOR_STYLE_KEY, style);
+      },
+      async setEditorCursorBlink(on) {
+        set({ editorCursorBlink: on });
+        await api.setSetting(EDITOR_CURSOR_BLINK_KEY, on);
       },
       async setTerminalHistory(enabled) {
         // Set the server first. Turning it OFF also purges what was kept, server-side, and a switch

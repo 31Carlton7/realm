@@ -7,6 +7,7 @@ import {
   EditorView, drawSelection, dropCursor, highlightActiveLine, highlightActiveLineGutter,
   highlightSpecialChars, keymap, lineNumbers, rectangularSelection,
 } from "@codemirror/view";
+import { EDITOR_CURSOR_BLINK_RATE } from "@realm/contracts";
 import { codeLanguageFor, type CodeLanguage } from "./code-languages";
 import { loadCodeMode } from "./code-modes";
 import { realmCodeTheme } from "./code-theme";
@@ -28,7 +29,7 @@ import { useScrollMemory } from "../scroll-memory";
  * tab that inserts a character instead of a level — which is why editing two wrong characters in a
  * source file meant leaving Realm for a real editor and coming back.
  */
-export function CodeEditor({ path, text, onChange, onSave, revealLine = null, scrollKey = null }: {
+export function CodeEditor({ path, text, onChange, onSave, revealLine = null, scrollKey = null, blinkCaret = true }: {
   /** The document's path. Decides the grammar, and names the editor for a screen reader. */
   path: string;
   text: string;
@@ -41,12 +42,18 @@ export function CodeEditor({ path, text, onChange, onSave, revealLine = null, sc
   revealLine?: number | null;
   /** Where the reader was in this file, across the unmount a space switch causes (scroll-memory.ts). */
   scrollKey?: string | null;
+  /** Whether the caret pulses. CodeMirror draws its own, so unlike the prompter's it can be told. */
+  blinkCaret?: boolean;
 }) {
   const host = useRef<HTMLDivElement | null>(null);
   const view = useRef<EditorView | null>(null);
   /** Everything about the file that changes when the file changes: grammar, wrapping, accessible
    *  name. One compartment rather than three, because they are reconfigured by one event. */
   const perFile = useRef(new Compartment());
+  /* The caret's own compartment. `drawSelection` takes its rate at construction, so a preference
+     that only reached the NEXT file opened is one somebody flips, sees nothing, and gives up on —
+     the same argument the terminal hub makes for pushing the blink into live terminals. */
+  const caret = useRef(new Compartment());
   /** The handlers, read through a ref so a new `onChange` identity never rebuilds the editor —
    *  rebuilding would throw away the undo history and the cursor on every keystroke. */
   const handlers = useRef({ onChange, onSave });
@@ -76,7 +83,7 @@ export function CodeEditor({ path, text, onChange, onSave, revealLine = null, sc
           highlightActiveLine(),
           highlightSpecialChars(),
           history(),
-          drawSelection(),
+          caret.current.of(drawSelection({ cursorBlinkRate: blinkCaret ? EDITOR_CURSOR_BLINK_RATE : 0 })),
           dropCursor(),
           rectangularSelection(),
           EditorState.allowMultipleSelections.of(true),
@@ -161,6 +168,13 @@ export function CodeEditor({ path, text, onChange, onSave, revealLine = null, sc
       .catch(() => {});
     return () => { cancelled = true; };
   }, [path]);
+
+  // ---- the caret's blink, into the editor that is already open ------------------------------------
+  useEffect(() => {
+    view.current?.dispatch({
+      effects: caret.current.reconfigure(drawSelection({ cursorBlinkRate: blinkCaret ? EDITOR_CURSOR_BLINK_RATE : 0 })),
+    });
+  }, [blinkCaret]);
 
   // ---- land on the line a search sent us to --------------------------------------------------------
   useEffect(() => {

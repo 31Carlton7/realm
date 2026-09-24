@@ -1,6 +1,6 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { TERMINALS_CURSOR_BLINK_DEFAULT, type EventName, type EventPayload, type MethodName, type MethodParams, type MethodResult } from "@realm/contracts";
+import { TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_STYLE_DEFAULT, type TerminalCursorStyle, type EventName, type EventPayload, type MethodName, type MethodParams, type MethodResult } from "@realm/contracts";
 import { rpc } from "../rpc/client";
 import { TerminalBuffer } from "./terminal-buffer";
 import { replayString, terminalStateWord, type TerminalStateWord } from "./terminal-replay";
@@ -17,7 +17,7 @@ export type TerminalLike = {
   /** xterm's live options bag. Optional because the only things the hub writes back into it are the
    *  code face and whether the cursor blinks, and a fake that cares about neither should not have to
    *  carry one. */
-  options?: { fontFamily?: string; cursorBlink?: boolean };
+  options?: { fontFamily?: string; cursorBlink?: boolean; cursorStyle?: TerminalCursorStyle };
 };
 export type FitLike = { fit(): void };
 export type TerminalFactory = () => { term: TerminalLike; fit: FitLike };
@@ -94,6 +94,7 @@ export class TerminalHub {
   /** Whether a terminal's cursor blinks (Settings ▸ App). Held here rather than read at construction
    *  because it has to reach the terminals that are ALREADY open — see `setCursorBlink`. */
   private cursorBlink = TERMINALS_CURSOR_BLINK_DEFAULT;
+  private cursorStyle: TerminalCursorStyle = TERMINALS_CURSOR_STYLE_DEFAULT;
   private notRunning = new Set<string>();
   private stateListeners = new Set<(terminalId: string) => void>();
   /** Terminals that have produced any output (data, exit banner, dead-terminal notice) — drives the
@@ -240,7 +241,7 @@ export class TerminalHub {
     const existing = this.entries.get(terminalId);
     if (existing) return existing;
     const { term, fit } = this.factory();
-    if (term.options) term.options.cursorBlink = this.cursorBlink;
+    if (term.options) { term.options.cursorBlink = this.cursorBlink; term.options.cursorStyle = this.cursorStyle; }
     const host = this.doc.createElement("div");
     host.className = "terminal-host";
     const buf = this.buffer(terminalId);
@@ -317,6 +318,13 @@ export class TerminalHub {
   setCursorBlink(on: boolean) {
     this.cursorBlink = on;
     for (const e of this.entries.values()) if (e.term.options) e.term.options.cursorBlink = on;
+  }
+
+  /** Live for the same reason the blink is — and no re-fit for the same reason either: a cursor's
+   *  shape is drawn inside one cell and changes none of the grid's metrics. */
+  setCursorStyle(style: TerminalCursorStyle) {
+    this.cursorStyle = style;
+    for (const e of this.entries.values()) if (e.term.options) e.term.options.cursorStyle = style;
   }
 
   refreshFont() {

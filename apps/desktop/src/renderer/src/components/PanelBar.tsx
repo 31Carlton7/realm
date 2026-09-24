@@ -57,8 +57,10 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
   const requestRename = useApp((s) => s.requestRename);
   const [renaming, setRenaming] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  // Two-step destructive confirm (U-H2), same pattern as the sidebar's item menu.
+  // Two-step destructive confirm (U-H2), same pattern as the sidebar's item menu — unless the user
+  // has turned the asking off, in which case the first click is the only one.
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const confirmDelete = useApp((s) => s.confirmDelete);
   const menuBtn = useRef<HTMLButtonElement>(null);
   const bar = useRef<HTMLDivElement>(null);
   const isBrowser = item.kind === "browser";
@@ -75,7 +77,7 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
   /* The confirm is owed by the OBJECT, not by the button. A pty, a live web view and a document
      workspace are each something a stray click would cost you, so those arm first; a page has
      nothing under it, and a step that guards nothing is the dead chrome this bar bans. */
-  const confirmFirst = !PAGE_KINDS.has(item.kind);
+  const confirmFirst = confirmDelete && !PAGE_KINDS.has(item.kind);
   const deleteNow = () => run(() => deleteItem(item.id));
   /**
    * Focus (fill the host) and Unfocus (back to the split) as ONE toggle, filled while it is on —
@@ -189,7 +191,9 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
             { kind: "separator" as const },
             confirmingDelete
               ? { label: <strong>Really delete?</strong>, icon: <Icon name="trash" size={14} />, danger: true, onSelect: () => run(() => deleteItem(item.id)) }
-              : { label: "Delete", icon: <Icon name="trash" size={14} />, danger: true, keepOpen: true, onSelect: () => setConfirmingDelete(true) },
+              : confirmDelete
+                ? { label: "Delete", icon: <Icon name="trash" size={14} />, danger: true, keepOpen: true, onSelect: () => setConfirmingDelete(true) }
+                : { label: "Delete", icon: <Icon name="trash" size={14} />, danger: true, onSelect: deleteNow },
           ]),
         ]} />
       )}
