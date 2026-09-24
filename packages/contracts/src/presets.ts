@@ -69,7 +69,7 @@ export type AgentModel = { id: string; label: string };
  *  - **acp:gemini** is empty because the kind is no longer offered (see SELECTABLE_AGENT_KINDS).
  */
 export const AGENT_MODELS = {
-  claude: [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-fable-5", label: "Claude Fable 5" }, { id: "claude-opus-5", label: "Claude Opus 5" }, { id: "claude-sonnet-5", label: "Claude Sonnet 5" }, { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" }],
+  claude: [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-fable-5", label: "Claude Fable 5" }, { id: "claude-opus-5-5", label: "Claude Opus 5.5" }, { id: "claude-opus-5", label: "Claude Opus 5" }, { id: "claude-sonnet-5", label: "Claude Sonnet 5" }, { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" }],
   codex: [], "acp:gemini": [], "acp:cursor": [],
   // Plan 18's ACP agents: empty for the same reason as Cursor's — where a catalog exists it is
   // enumerated live by the probe (through `configOptions` now, see acpSessionConfig), so a hardcoded

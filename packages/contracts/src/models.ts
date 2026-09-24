@@ -98,6 +98,7 @@ export const MODEL_ALIASES: Record<string, string> = {
 export const MODEL_NOTES: ReadonlyMap<string, string> = new Map(([
   ["Claude Fable 5.1", "Anthropic's newest — strongest here at long agentic runs, big refactors and front-end work."],
   ["Claude Fable 5", "The previous Fable. Same shape as 5.1 and usually a step behind it on agentic coding."],
+  ["Claude Opus 5.5", "The newest Opus: long-running coding agents and research, at a lower price than the Fables."],
   ["Claude Opus 5", "Deep reasoning over long horizons: end-to-end tasks, code review, bug hunts."],
   ["Claude Sonnet 5", "Frontier coding at a fifth of Fable's price — the sensible everyday default."],
   ["Claude Haiku 4.5", "Fastest Claude. For small edits, lookups and subagents, where latency beats depth."],
