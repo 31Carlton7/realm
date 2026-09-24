@@ -7,7 +7,7 @@ import { SessionPanelActions } from "./SessionPane";
 import { crumbsOf, fileSize, type BrowseRow } from "./SessionFiles";
 import { reduceAll } from "./transcript-model";
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 const HOUR = 3_600_000;
 const row = (name: string, over: Partial<BrowseRow> = {}): BrowseRow =>
@@ -61,6 +61,12 @@ describe("the session file browser", () => {
   });
 
   it("lists what is on disk, newest first, grouped by day", async () => {
+    /* Pinned to the middle of a day, because the offsets below are hours and the buckets are DAYS.
+       Run at 00:43 and the file stamped an hour ago is genuinely yesterday, so this failed every
+       night between midnight and 03:00 — a test that is wrong about the clock rather than about the
+       panel, and the kind that teaches people to re-run a red suite instead of reading it. */
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-03-12T12:00:00"));
     const now = Date.now();
     await mount({
       "": [
