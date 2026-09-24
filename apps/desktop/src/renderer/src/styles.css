@@ -1702,7 +1702,7 @@ kbd { font: 11px var(--font-mono); }
 .group-head-badge { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--rl-text-faint);
   border: var(--hairline-w) solid var(--rl-hairline); border-radius: 999px; padding: 0 5px; }
 /* The shelf's heading: a disclosure triangle wearing the group heading's own type, so it reads as a
-   sibling of "Space" rather than a control bolted under it. */
+   sibling of "Sessions" rather than a control bolted under it. */
 .archived-head { padding-top: 14px; }
 .archived-toggle { display: flex; align-items: center; gap: 6px; }
 .archived-toggle:hover { color: var(--rl-text-dim); }

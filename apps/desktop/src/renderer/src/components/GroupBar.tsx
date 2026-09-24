@@ -179,7 +179,7 @@ function GroupMenu({ group, at, onClose }: { group: PaneGroup; at: { x: number; 
       { label: "Rename group", onSelect: () => requestGroupRename(group.id) },
       { kind: "separator" },
       confirming
-        // Two-step (U-H2) even though nothing is deleted: the panes come back in the SPACE list, but
+        // Two-step (U-H2) even though nothing is deleted: the panes come back in the SESSIONS list, but
         // an arrangement someone built is still work, and it is not restorable.
         ? { label: <strong>Remove group?</strong>, danger: true, onSelect: () => run(() => removePaneGroup(group.id)) }
         : { label: "Remove group", danger: true, keepOpen: true, disabled: last,
