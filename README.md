@@ -1,4 +1,20 @@
+<div align="center">
+
+<img src="site/public/app-icon.png" alt="" width="96" height="96">
+
 # Realm
+
+**One workspace for every coding agent, on your Mac.**
+
+[realm.computer](https://realm.computer) &nbsp;·&nbsp; [Download](https://github.com/31Carlton7/realm/releases/latest) &nbsp;·&nbsp; [Changelog](https://realm.computer/changelog)
+
+macOS · Apple silicon · in active development
+
+</div>
+
+![A Realm space: the sidebar on the left, a release brief open in the documents pane, and an agent session working through a plan in the pane beside it.](docs/images/workspace.png)
+
+*One space: the sidebar, a release brief open in the documents pane, and a session working through a plan beside it.*
 
 Local-first agent control plane for macOS — profiles → spaces, split panes for agents / terminals / browser / simulator / artifacts, a context pool, and an MCP gateway. See `docs/superpowers/specs/2026-08-17-realm-v1-design.md`.
 
@@ -173,6 +189,34 @@ Two scripts, from `apps/server`:
   or written. Worth knowing about before a big import: an imported session cannot be re-targeted
   afterwards, and the environment rows an import leaves behind will out-match everything on the next
   run if they are not swept with it.
+
+## Screens
+
+Real captures of a real space, taken against the built app by `site/scripts/capture-product.mjs`.
+These are the site's frames with Realm's page colour painted in behind them — the window is made of
+translucent material, so a capture laid straight onto GitHub's white theme washes its sidebar out.
+`node scripts/readme-images.mjs` repaints them after a re-capture.
+
+**Bring the agent you already use.** Claude Code, Codex, Cursor, Gemini, OpenCode, GitHub Copilot,
+goose, Qwen Code and Grok all run here, each keeping its own login, models and permission modes.
+
+![The model picker open, listing every model the installed agents advertise, grouped by harness, with per-model pricing, context window and effort range beside the selected one.](docs/images/models.png)
+
+*Every model the installed agents advertise, in one picker, grouped by the harness that offers it.*
+
+**Your tools, without your credentials.** Connections belong to the space rather than to an agent,
+so a session is handed the tools and never the token — it calls Realm, and Realm calls the server.
+
+![The Connections page of a space, showing Linear, Notion, Slack, GitHub, Jira & Confluence and Figma as cards, each with what it grants and a Connect button.](docs/images/connections.png)
+
+*Connecting an app to a space. One click each, and every session in the space can use them.*
+
+**Confine what an agent can touch.** A space can put its agents and terminals behind a macOS
+Seatbelt policy. It ships off, per space — Seatbelt is not a container, and the network stays open.
+
+![The Sandbox settings page for a space, showing its three postures — Workspace write, Read only and No sandbox — with No sandbox selected.](docs/images/sandbox.png)
+
+*The three postures a space can take, on the one it ships with.*
 
 ## Skills
 

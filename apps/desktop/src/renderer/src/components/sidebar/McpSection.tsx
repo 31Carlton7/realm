@@ -87,6 +87,7 @@ export function McpSection({ spaceId }: { spaceId: string }) {
           </Sheet>
         )}
         <RealmProviders spaceId={spaceId} />
+        <SignInSwitch spaceId={spaceId} />
         {agentKinds.length > 0 && (
           <ul className="mcp-agent-notes">
             {agentKinds.map((k) => (
@@ -110,7 +111,12 @@ export function McpSection({ spaceId }: { spaceId: string }) {
  * Realm-native gateway toolsets (`realm-browser`, `realm-agent`), rendered as rows like the servers
  * above but honestly different: no status dot (they are in-process — there is no connection to have
  * checked), no editor, no scope moves (they are code, not config — the same in every profile), just
- * this space's switch. Default ON, per `mcp.setProviderEnabled`'s rationale.
+ * this space's switch.
+ *
+ * The rows are built from whatever the gateway reports, so a provider added in app.ts appears here
+ * without a line of work — which is also why the hint below does not say "on by default" flatly any
+ * more. Three of them are not: `realm-computer`, `realm-vm` and `realm-app` start off, and the hint
+ * names the property they share rather than listing them, so it stays true as the list grows.
  */
 function RealmProviders({ spaceId }: { spaceId: string }) {
   const providers = useApp((s) => s.mcpProviders);
@@ -120,7 +126,7 @@ function RealmProviders({ spaceId }: { spaceId: string }) {
   return (
     <div className="field">
       <span>Realm's own tools</span>
-      <p className="settings-hint">Built into Realm and served through the same gateway. On by default — they run under Realm's own permission flow, not as a process you configured. The switch is this space's.</p>
+      <p className="settings-hint">Built into Realm and served through the same gateway — they run under Realm's own permission flow, not as a process you configured. The switch is this space's. Most are on by default; the ones that reach outside a pane Realm made — other Mac apps, another machine, Realm's own interface — start off.</p>
       <ul className="env-list">
         {providers.map((p) => (
           <li key={p.name} className="env-row mcp-row">
@@ -521,6 +527,60 @@ function McpOauthControls({ server }: { server: McpServer }) {
       <div className="form-actions" style={{ justifyContent: "flex-start" }}>
         <button type="button" className="btn-quiet" onClick={connect}>Connect</button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Whether Realm may finish a sign-in it started — including the click on Authorize.
+ *
+ * Here rather than in Settings because it is a per-SPACE decision, and this panel is the one surface
+ * that already mounts for a single space; an app-level page would have to grow a space picker to ask
+ * a question this tab already knows the answer to.
+ *
+ * Off is the real default and the copy says what off MEANS, because a switch whose label only
+ * describes the on state leaves a reader guessing whether the feature works at all without it. It
+ * does: Realm opens the terminal, runs the login, and puts the consent page in front of them either
+ * way. The switch decides only who presses the button.
+ */
+function SignInSwitch({ spaceId }: { spaceId: string }) {
+  const spaceSignInEnabled = useApp((s) => s.spaceSignInEnabled);
+  const setSpaceSignInEnabled = useApp((s) => s.setSpaceSignInEnabled);
+  const run = useApp((s) => s.run);
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+
+  // Loaded per space, for the reason the store action gives. Null until it lands: rendering a switch
+  // as OFF while its real value is still in flight is a claim about a permission, and it would flip
+  // under the pointer a moment later.
+  useEffect(() => {
+    let live = true;
+    void spaceSignInEnabled(spaceId).then((v) => { if (live) setEnabled(v); }).catch(() => { if (live) setEnabled(false); });
+    return () => { live = false; };
+  }, [spaceId, spaceSignInEnabled]);
+
+  if (enabled === null) return null;
+  return (
+    <div className="field">
+      <span>Finishing sign-ins</span>
+      <p className="settings-hint">
+        When an agent CLI is signed out, Realm can open a terminal, run its login command and open the
+        sign-in page in a pane. It stops there: approving the sign-in is yours. Turn this on and Realm
+        will also press Approve — but only on the page it opened, from a login it started itself, for
+        a few minutes.
+      </p>
+      <label className="mcp-enable">
+        <input type="checkbox" role="switch" className="switch" aria-label="Let Realm finish sign-ins in this space"
+          checked={enabled}
+          onChange={(e) => {
+            const next = e.target.checked;
+            setEnabled(next); // answer the gesture now; the write is the slow part
+            run(async () => {
+              try { await setSpaceSignInEnabled(spaceId, next); }
+              catch (err) { setEnabled(!next); throw err; } // put the switch back rather than lie
+            });
+          }} />
+        Let Realm finish sign-ins it started
+      </label>
     </div>
   );
 }

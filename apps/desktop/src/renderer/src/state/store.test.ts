@@ -1240,12 +1240,23 @@ describe("app store", () => {
       expect(store.getState().sessionStatus.unknown).toBe("idle");
     });
 
-    it("applySessionStatus bumps sessionUpdatedAt too — a live status change IS activity, on the strip's own clock", async () => {
+    it("applySessionStatus bumps sessionUpdatedAt on a CHANGE — a live status change IS activity, on the strip's own clock", async () => {
+      /* `seed()` boots se1 as running, so the status applied here has to be a different one: the
+         stamp is guarded on `prev !== status`, and a repeat is a broadcast rather than movement
+         (`space-strip.test.tsx` owns that half). Applying "running" to a running session tested the
+         clock and nothing else. */
       api = seed(); const store = createAppStore(api); await store.getState().boot();
       const before = store.getState().sessionUpdatedAt.se1 ?? 0;
       vi.setSystemTime(before + 1000);
-      store.getState().applySessionStatus("se1", "running");
+      store.getState().applySessionStatus("se1", "idle");
       expect(store.getState().sessionUpdatedAt.se1).toBeGreaterThan(before);
+
+      // THE MUTANT: drop the guard. The same status arriving again would move the space up the
+      // strip, and a rebroadcast would reorder the sidebar under a reader who did nothing.
+      const stamped = store.getState().sessionUpdatedAt.se1 ?? 0;
+      vi.setSystemTime(stamped + 1000);
+      store.getState().applySessionStatus("se1", "idle");
+      expect(store.getState().sessionUpdatedAt.se1).toBe(stamped);
     });
 
     it("refreshAllSessions seeds sessionUpdatedAt from the server's own updatedAt", async () => {
@@ -2791,6 +2802,24 @@ describe("browser watching state (Plan 11 W4)", () => {
     // Clearing what was never set is a no-op, not an entry.
     store.getState().applyBrowserDriving({ browserId: "bX", driving: false });
     expect(store.getState().browserDriving).toEqual({});
+  });
+
+  it("applyTerminalDriving keeps the browser's contract: set on true, REMOVE on false", () => {
+    const store = createAppStore(fakeApi());
+    store.getState().applyTerminalDriving({ terminalId: "t1", driving: true });
+    expect(store.getState().terminalDriving).toEqual({ t1: true });
+    store.getState().applyTerminalDriving({ terminalId: "t1", driving: false });
+    expect(store.getState().terminalDriving).toEqual({});
+    store.getState().applyTerminalDriving({ terminalId: "tX", driving: false });
+    expect(store.getState().terminalDriving).toEqual({});
+  });
+
+  it("deleting a terminal item drops its driving flag, so a reused id starts blank", async () => {
+    const store = createAppStore(fakeApi({ items: { s1: [item("i1", "s1", { kind: "terminal", refId: "t1", title: "work" })] } }));
+    await store.getState().boot();
+    store.getState().applyTerminalDriving({ terminalId: "t1", driving: true });
+    await store.getState().deleteItem("i1");
+    expect(store.getState().terminalDriving.t1).toBeUndefined();
   });
 
   it("deleting a browser item drops its ticker ring and driving flag", async () => {

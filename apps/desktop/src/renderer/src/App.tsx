@@ -379,6 +379,7 @@ export function App() {
     // back should find the ticker already truthful.
     const offBA = rpc().on("browser.action", (p) => store.getState().applyBrowserAction(p));
     const offBD = rpc().on("browser.driving", (p) => store.getState().applyBrowserDriving(p));
+    const offTD = rpc().on("terminal.driving", (p) => store.getState().applyTerminalDriving(p));
     // Machines (Plan 25 W3), on the same terms and for the same reason: the sidebar's dot and the
     // pane's body read one map, and a switch back to a space should find it already truthful.
     const offMach = rpc().on("machine.status", (p) => store.getState().applyMachineState(p));
@@ -453,7 +454,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offSc(); offI(); offV(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offMem(); offB(); offDO(); offSA(); offBA(); offBD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offMC(); offCO(); offCD(); offC();
+      offS(); offSc(); offI(); offV(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offMem(); offB(); offDO(); offSA(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

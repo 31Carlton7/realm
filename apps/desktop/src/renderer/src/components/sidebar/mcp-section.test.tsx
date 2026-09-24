@@ -331,3 +331,40 @@ describe("scoped server groups (W4)", () => {
     await waitFor(() => expect(within(row).getByText("initialized in 42ms")).toBeInTheDocument());
   });
 });
+
+/**
+ * The per-space switch for whether Realm may press Approve on a sign-in it started. Its default is
+ * the load-bearing part: the server reads an unset key as OFF (`SignInTickets.enabled`), and a
+ * switch that rendered ON against that would be wrong about a permission in the direction that
+ * matters.
+ */
+describe("finishing sign-ins", () => {
+  const SWITCH = "Let Realm finish sign-ins in this space";
+
+  it("is off in a space that has never been asked", async () => {
+    await mount();
+    await waitFor(() => expect(screen.getByRole("switch", { name: SWITCH })).toBeInTheDocument());
+    expect(screen.getByRole("switch", { name: SWITCH })).not.toBeChecked();
+  });
+
+  it("reads the space's own key, so one space's answer is not another's", async () => {
+    const { api } = await mount({ settings: { "browsers.agentSignIn:s1": true } });
+    await waitFor(() => expect(screen.getByRole("switch", { name: SWITCH })).toBeChecked());
+    expect(api.calls).toContain("getSetting:browsers.agentSignIn:s1");
+  });
+
+  it("writes the space's key when flipped", async () => {
+    const { api } = await mount();
+    await waitFor(() => expect(screen.getByRole("switch", { name: SWITCH })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("switch", { name: SWITCH }));
+    await waitFor(() => expect(api.calls).toContain("setSetting:browsers.agentSignIn:s1=true"));
+  });
+
+  it("says what happens with it OFF, not only what happens with it on", async () => {
+    // A label that described only the on state would leave a reader unsure the feature works at all
+    // without it. It does — the terminal and the consent page arrive either way.
+    await mount();
+    await waitFor(() => expect(screen.getByRole("switch", { name: SWITCH })).toBeInTheDocument());
+    expect(screen.getByText(/approving the sign-in is yours/)).toBeInTheDocument();
+  });
+});

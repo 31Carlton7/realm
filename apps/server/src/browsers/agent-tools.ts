@@ -75,6 +75,11 @@ export type BrowserAgentToolsDeps = {
    * non-child sessions always pass. Optional — a harness without browser agents behaves as before.
    */
   constraints?: { checkMutation(sessionId: string, tool: string, url?: string): string | null };
+  /**
+   * The consent-page gate for ACTS (`signin.ts`). Optional so a harness built without it behaves as
+   * this file did before — which, for consent pages, was to allow the click.
+   */
+  signIn?: { allowsAct(spaceId: string, browserId: string, url: string | undefined): boolean };
 };
 
 export function createBrowserAgentProvider(d: BrowserAgentToolsDeps): RealmToolProvider {
@@ -348,6 +353,7 @@ const HANDLERS: Record<string, Handler> = {
     const args = parseArgs(ActArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
     const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_act"); if (limited) return err(limited);
+    const consent = await refuseConsentAct(d, ctx, row.value.id); if (consent) return consent;
     const title = await describeAct(d, row.value.id, args.value.action);
     const gate = await d.broker.gate(ctx.sessionId, "browser_act", title, { browserId: row.value.id, action: args.value.action });
     if (!gate.allowed) return err(gate.reason);
@@ -565,6 +571,7 @@ async function runBatchMutation(d: Deps, ctx: ProviderCallContext, tool: string,
     const args = parseArgs(ActArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
     const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_act"); if (limited) return err(limited);
+    const consent = await refuseConsentAct(d, ctx, row.value.id); if (consent) return consent;
     const title = await describeAct(d, row.value.id, args.value.action);
     return runTracked(d, ctx.spaceId, row.value.id, title, () => runAct(d, row.value.id, args.value.action));
   }
@@ -794,6 +801,35 @@ function normalizeToolUrl(input: string): string | null {
   const s = input.trim();
   if (!/^https?:\/\//i.test(s)) return null;
   try { return new URL(s).toString(); } catch { return null; }
+}
+
+/**
+ * Refuse to ACT on a pane that is sitting on a consent screen.
+ *
+ * `refuseOAuth` below guards the two tools that carry a URL, and its own comment says what it cannot
+ * see: "a same-site link the agent CLICKS (click targets come from the page, not from tool args —
+ * `browser_act` has no URL to test)". The gap that admission leaves is the whole point of the guard,
+ * because the act it exists to prevent is pressing the button — and any pane that reached a consent
+ * screen by a redirect, a click, or the user's own address bar could be acted on freely, in every
+ * mode.
+ *
+ * So the URL is fetched rather than read off the arguments: `describe` already runs on this path for
+ * the permission card's title, and where the pane IS is a fact about the pane, not about what the
+ * caller said. A pane whose URL cannot be read at all is treated as fine — this is a guard against
+ * the common case, not a boundary, exactly as `isOAuthConsentUrl` says of itself.
+ *
+ * `SignInTickets` is what can say yes: see `signin.ts` for why provenance, and not a mode, is what
+ * makes one of these clicks defensible.
+ */
+async function refuseConsentAct(d: Deps, ctx: ProviderCallContext, browserId: string): Promise<CallToolResult | null> {
+  if (!d.signIn) return null;
+  const url = (await describeSafe(d, browserId))?.url;
+  if (d.signIn.allowsAct(ctx.spaceId, browserId, url)) return null;
+  return err(
+    "refused: this pane is showing an OAuth consent screen, and Realm does not press Authorize on a user's behalf. "
+    + "A grant made here is durable and no per-action approval can express it. Tell the user what is being asked for and let them click it in the pane. "
+    + "(Realm can finish a sign-in it started itself, when the space has that switched on.)",
+  );
 }
 
 function refuseOAuth(url: string): CallToolResult | null {

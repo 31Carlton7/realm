@@ -128,6 +128,7 @@ export function ItemList({ items, variant, layout: groupLayout }: {
   const sessionRows = useApp((s) => s.sessions);
   const unseen = useMemo(() => unseenSessions(sessionRows), [sessionRows]);
   const browserDriving = useApp((s) => s.browserDriving);
+  const terminalDriving = useApp((s) => s.terminalDriving);
   const machineState = useApp((s) => s.machineState);
   const openItem = useApp((s) => s.openItem);
   const closeFromLayout = useApp((s) => s.closeFromLayout);
@@ -167,6 +168,7 @@ export function ItemList({ items, variant, layout: groupLayout }: {
                 aria-label={it.kind === "session" && sessionStatus[it.refId] ? `${it.title} — ${STATUS_LABEL[sessionStatus[it.refId]!]}`
                   : it.kind === "session" && unseen.has(it.refId) ? `${it.title} — new since you were here`
                   : it.kind === "browser" && browserDriving[it.refId] ? `${it.title} — agent is driving`
+                  : it.kind === "terminal" && terminalDriving[it.refId] ? `${it.title} — agent is driving`
                   : it.kind === "machine" ? `${it.title} — ${MACHINE_WORDS[machineState[it.refId]?.status ?? "off"]}` : it.title}
                 onClick={() => activate(it)}>
                 <Icon name={it.kind} size={16} /><span className="item-title">{it.title}</span>
@@ -185,6 +187,12 @@ export function ItemList({ items, variant, layout: groupLayout }: {
                 {/* W4: a browser row wears the driving dot only WHILE an agent act is in flight —
                     the same status-dot idiom sessions use, a new `driving` state on the same rail. */}
                 {it.kind === "browser" && browserDriving[it.refId] && (
+                  <span className="status-dot item-status" data-status="driving" title="Agent is driving" />
+                )}
+                {/* A terminal row wears the same dot on the same terms, because it is the same fact:
+                    an agent is acting HERE, watch. A second vocabulary for it would make a reader
+                    scanning the sidebar decide whether two marks mean two things. */}
+                {it.kind === "terminal" && terminalDriving[it.refId] && (
                   <span className="status-dot item-status" data-status="driving" title="Agent is driving" />
                 )}
                 {/* Plan 25 W3: a machine row wears its state ALWAYS, not only while a pane is open.

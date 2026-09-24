@@ -358,6 +358,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const cliStatus = useApp((s) => s.cliStatus);
   const cliJob = useApp((s) => (session ? s.cliJobs[session.agentKind] : undefined));
   const runCliAction = useApp((s) => s.runCliAction);
+  const startSignIn = useApp((s) => s.startSignIn);
   const dismissCliJob = useApp((s) => s.dismissCliJob);
   const refreshCliStatus = useApp((s) => s.refreshCliStatus);
   const cliRow = session ? cliStatus.find((r) => r.kind === session.agentKind) : undefined;
@@ -534,6 +535,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onOpenInTerminal={(command) => run(() => prefillTerminal(id, command))}
             offer={cliOffer} job={cliJob ?? null}
             onInstall={() => run(() => runCliAction(session.agentKind, "install"))}
+            onSignIn={() => run(() => startSignIn(session.agentKind))}
             onDismissJob={() => dismissCliJob(session.agentKind)} />
         : <Composer session={session} status={status} gitInfo={gitInfo} todos={todos} quote={quote}
             onOpenDiff={() => run(() => openDiff(session.environmentId))} draft={draft} onDraftChange={(t) => setDraft(id, t)}
