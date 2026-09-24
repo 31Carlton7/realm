@@ -458,6 +458,7 @@ export const KEY_COMMANDS: readonly KeyCommand[] = [
 
   { id: "session.new", label: "New session", group: "Sessions" },
   { id: "session.newInWorktree", label: "New session in a worktree", group: "Sessions" },
+  { id: "session.quickChat", label: "Quick chat", group: "Sessions" },
   { id: "session.attachFiles", label: "Add files to this session", group: "Sessions" },
   { id: "session.dispatchDraft", label: "Dispatch the draft", group: "Sessions" },
   { id: "session.interrupt", label: "Interrupt the running session", group: "Sessions" },
@@ -536,6 +537,7 @@ export const DEFAULT_KEYBINDINGS: readonly Keybinding[] = [
 
   { key: "mod+t", command: "terminal.new", when: WHEN_IDLE },
   { key: "mod+n", command: "session.new", when: WHEN_IDLE },
+  { key: "mod+shift+n", command: "session.quickChat", when: WHEN_IDLE },
   { key: "mod+u", command: "session.attachFiles", when: "!overlayOpen && sessionFocus" },
   { key: "mod+j", command: "terminal.toggle", when: "!overlayOpen && sessionFocus" },
   { key: "mod+shift+enter", command: "session.dispatchDraft", when: "!overlayOpen && sessionFocus" },
