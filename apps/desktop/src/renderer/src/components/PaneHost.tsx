@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type DragEvent as ReactDragEvent, type JSX } from "react";
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelGroupHandle } from "react-resizable-panels";
-import { findLeaf, firstLeaf, type Item, type Layout, type LayoutSplit } from "@realm/contracts";
+import { findLeaf, firstLeaf, topRightLeaf, type Item, type Layout, type LayoutSplit } from "@realm/contracts";
 import type { DropEdge } from "../state/store";
 import { Icon } from "@realm/ui";
 import { PanelBar } from "./PanelBar";
@@ -119,6 +119,9 @@ export function PaneHost(p: PaneHostProps) {
   // With the sidebar collapsed its bar is what sits under the macOS traffic lights, and it is the
   // only pane that has to leave room for them — a fact about where a pane IS, which CSS cannot ask.
   const firstLeafId = firstLeaf(root).id;
+  // And its mirror at the top-RIGHT, for the same reason on the other side: with the agents rail
+  // closed, its toggle sits in that corner, and only the pane under it has to make room.
+  const topRightLeafId = topRightLeaf(root).id;
   /* A group with ONE leaf looks identical focused and unfocused, so its bar takes no focus toggle —
      a control whose entire effect is invisible is the dead chrome the pane bar bans, and it would be
      on screen for the app's most common shape (one pane, full width). Still offered while a zoom is
@@ -133,6 +136,7 @@ export function PaneHost(p: PaneHostProps) {
       return (
         <div className="panel" data-leaf-id={n.id} data-focused={n.id === p.focusedLeafId || undefined}
           data-first-leaf={n.id === firstLeafId || undefined}
+          data-top-right-leaf={n.id === topRightLeafId || undefined}
           data-empty={!item || undefined} onPointerDownCapture={() => p.onFocus(n.id)}>
           {item && <PanelBar item={item} leafId={n.id} onSplit={(dir) => p.onSplit(n.id, dir)} onClose={() => p.onClose(item.id)}
             zoomed={n.id === p.zoomedLeafId}

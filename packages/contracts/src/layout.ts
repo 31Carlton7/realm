@@ -97,6 +97,14 @@ export function firstLeaf(l: Layout): LayoutLeaf {
   return l.type === "leaf" ? l : firstLeaf(l.children[0]!);
 }
 
+/** The leaf at the layout's top-RIGHT corner: the last child of a row (the rightmost), the first of
+ *  a column (the topmost). `firstLeaf`'s mirror, and not derivable from it — for a single row the
+ *  two are different panes, and for a single column they are the same one. */
+export function topRightLeaf(l: Layout): LayoutLeaf {
+  if (l.type === "leaf") return l;
+  return topRightLeaf(l.dir === "row" ? l.children[l.children.length - 1]! : l.children[0]!);
+}
+
 export function findLeafOfItem(l: Layout, itemId: string): LayoutLeaf | null {
   if (l.type === "leaf") return l.itemId === itemId ? l : null;
   for (const c of l.children) { const f = findLeafOfItem(c, itemId); if (f) return f; }
