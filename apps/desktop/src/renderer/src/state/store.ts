@@ -1001,6 +1001,16 @@ export type AppState = {
    * profile. Seeded from `listAllSessions` at boot and kept current by the status broadcasts.
    */
   sessionUpdatedAt: Record<string, number>;
+  /**
+   * Every session's row, by id, across every space — what `listAllSessions` answered last.
+   *
+   * `sessions` holds only the ACTIVE space's rows, and the right rail lists agents from every space,
+   * so it needs a title and an agent kind for sessions nobody here has opened. `refreshAllSessions`
+   * was already fetching exactly these rows and keeping three fields of each; this keeps the rest.
+   * Status is NOT read from here — `sessionStatus` is the live answer, and a row is only as fresh as
+   * the last list.
+   */
+  sessionRows: Record<string, Session>;
   /** Transcripts by session id, kept across space switches (cheap, and a session pane may be revisited). */
   transcripts: Record<string, TranscriptEntry>;
   /** The fetched slice of the GLOBAL notifications feed (W5), newest first — what the page renders.
@@ -2859,7 +2869,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
       spacePageTab: {}, profilePageTab: {}, librarySkill: {}, mcpPanelSpaceId: null, agentsView: "list", officeWorld: null,
-      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
+      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionRows: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -3858,9 +3868,9 @@ await get().refreshCustomThemes().catch(() => {});
         // The list is the truth for existence and mapping; server-persisted statuses are fresh (they
         // are written before each session.status broadcast), so they simply overwrite.
         const sessionSpace: Record<string, string> = {}; const sessionStatus: Record<string, SessionStatus> = {};
-        const sessionUpdatedAt: Record<string, number> = {};
-        for (const s of all) { sessionSpace[s.id] = s.spaceId; sessionStatus[s.id] = s.status; sessionUpdatedAt[s.id] = s.updatedAt; }
-        set({ sessionSpace, sessionStatus, sessionUpdatedAt });
+        const sessionUpdatedAt: Record<string, number> = {}; const sessionRows: Record<string, Session> = {};
+        for (const s of all) { sessionSpace[s.id] = s.spaceId; sessionStatus[s.id] = s.status; sessionUpdatedAt[s.id] = s.updatedAt; sessionRows[s.id] = s; }
+        set({ sessionSpace, sessionStatus, sessionUpdatedAt, sessionRows });
       },
       async jumpToPermission(sessionId = null) {
         const spaceOf = (id: string) => get().sessionSpace[id] ?? get().sessions[id]?.spaceId ?? null;

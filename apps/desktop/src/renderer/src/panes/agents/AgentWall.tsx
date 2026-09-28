@@ -1,6 +1,7 @@
 import { AGENT_META, DEFAULT_MODEL_LABEL, type Session, type SessionStatus } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useApp } from "../../state/store";
+import { AT_WORK } from "../../state/session-activity";
 import { basenameOf, ago, type groupAgents } from "./AgentsPage";
 
 /**
@@ -60,7 +61,7 @@ export function AgentWall({ groups, spaceName, onOpen, visible }: {
   onOpen: (session: Session) => void;
   visible: boolean;
 }) {
-  const live = groups.filter((g) => LIVE.has(g.state.status));
+  const live = groups.filter((g) => AT_WORK.has(g.state.status));
   if (live.length === 0) {
     return <p className="env-empty">No agents are working right now. The list has every session that has finished.</p>;
   }
@@ -87,4 +88,3 @@ export function AgentWall({ groups, spaceName, onOpen, visible }: {
 /** The three states a wall is for: blocked on you, working, or stopped on an error. Typed against
  *  `SessionStatus` so a status renamed out from under this set is a build error rather than a group
  *  that quietly stops being drawn. */
-const LIVE = new Set<SessionStatus>(["waiting_permission", "running", "error"]);
