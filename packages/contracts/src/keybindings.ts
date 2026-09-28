@@ -475,6 +475,7 @@ export const KEY_COMMANDS: readonly KeyCommand[] = [
   { id: "palette.files", label: "Open a file", group: "App" },
   { id: "palette.grep", label: "Find in files", group: "App" },
   { id: "sidebar.toggle", label: "Show/hide the sidebar", group: "App" },
+  { id: "rail.toggle", label: "Show/hide the agents at work", group: "App" },
   { id: "activity.open", label: "MCP Activity", group: "App" },
 ];
 
@@ -517,6 +518,7 @@ export const DEFAULT_KEYBINDINGS: readonly Keybinding[] = [
   { key: "mod+shift+p", command: "palette.grep", when: "!sheetOpen" },
   { key: "mod+shift+space", command: "spaces.toggle", when: "!sheetOpen" },
   { key: "mod+b", command: "sidebar.toggle", when: WHEN_IDLE },
+  { key: "mod+alt+b", command: "rail.toggle", when: WHEN_IDLE },
 
   { key: "mod+\\", command: "pane.splitRight", when: WHEN_IDLE },
   { key: "mod+shift+\\", command: "pane.splitDown", when: WHEN_IDLE },

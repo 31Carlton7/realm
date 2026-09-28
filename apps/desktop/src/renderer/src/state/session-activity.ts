@@ -1,4 +1,4 @@
-import type { SessionEvent } from "@realm/contracts";
+import type { SessionEvent, SessionStatus } from "@realm/contracts";
 import type { IconName } from "@realm/ui";
 import { clip, toolIcon, toolSummary } from "../panes/session/tool-summary";
 
@@ -9,6 +9,20 @@ import { clip, toolIcon, toolSummary } from "../panes/session/tool-summary";
  *  questions and only one of them is prose. The wall prints `text` ("pnpm vitest run"); the office
  *  animates on `tool` ("Bash"), which decides whether a character types or reads. Deriving either
  *  from the other means a renderer guessing at a string it did not build. */
+/**
+ * The statuses that mean an agent is AT WORK — doing something, or stopped on something that needs
+ * a person. Idle and ended are the two that mean neither.
+ *
+ * `error` is in on purpose. An errored session is not running, but it stopped on a problem, and the
+ * surfaces that read this set exist to answer "what should I look at": a failure is the clearest
+ * possible answer to that.
+ *
+ * One copy. The office seats exactly these, the wall draws exactly these, and the right rail lists
+ * exactly these — three surfaces that would drift the day one of them grew a fourth status and the
+ * other two did not.
+ */
+export const AT_WORK: ReadonlySet<SessionStatus> = new Set<SessionStatus>(["waiting_permission", "running", "error"]);
+
 export type SessionActivity = { text: string; icon: IconName; ts: number; tool: string | null };
 
 /**

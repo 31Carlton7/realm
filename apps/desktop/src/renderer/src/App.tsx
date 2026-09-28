@@ -3,6 +3,7 @@ import { dismissBootSplash } from "./boot-splash";
 import { bannerFor, type DaemonUiState } from "./components/daemon-banner";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { SidebarToggle } from "./components/sidebar/SidebarToggle";
+import { AgentsRail, RailToggle } from "./components/rail/AgentsRail";
 import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
 import { NewLectureSheet, WrapUpLectureSheet } from "./components/LectureSheets";
 import { ArtifactSheet, SessionPlanSheet } from "./panes/session/SessionSummary";
@@ -51,12 +52,13 @@ import "./panes";
  */
 export function AppShell() {
   const collapsed = useApp((s) => s.sidebarCollapsed);
+  const railOpen = useApp((s) => s.railOpen);
   // The column's width is painted here rather than on the sidebar itself because the collapse
   // animation is a negative margin of exactly this number, and `.sb-corner` is placed against the
   // same edge: one variable on the shell, read by everything that has to agree with it.
   const width = useApp((s) => s.sidebarWidth);
   return (
-    <div className="app" data-sidebar-collapsed={collapsed || undefined}
+    <div className="app" data-sidebar-collapsed={collapsed || undefined} data-rail-open={railOpen || undefined}
       style={{ "--sidebar-w": `${width}px` } as CSSProperties}>
       {/* Mounted whether or not it is showing, so collapsing is a MOVE rather than an unmount —
           there is no exit animation for an element React has already removed. `inert` is what makes
@@ -67,6 +69,10 @@ export function AppShell() {
       <Sidebar collapsed={collapsed} />
       <main className="main"><Main /></main>
       {collapsed && <div className="sb-corner"><SidebarToggle /></div>}
+      {/* The rail's toggle when the rail is closed — top-right, the left corner's mirror. After
+          `.sb-corner` because both are absolute and `.sb-corner` must follow `.main` directly. */}
+      {!railOpen && <div className="rail-corner"><RailToggle /></div>}
+      <AgentsRail />
     </div>
   );
 }

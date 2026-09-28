@@ -1036,6 +1036,48 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(tabs).toContain("margin-block: -4px");
   });
 
+  it("the rail closes by WIDTH, never by a negative end margin", () => {
+    /* The left sidebar hides with a negative START margin, which overflows to negative x where
+       nothing can scroll to it. THE MUTANT is its mirror on the right: a negative END margin
+       overflows to POSITIVE x, and nothing clips the shell, so the whole window turns horizontally
+       scrollable by exactly the rail's width. Measured live as scrollWidth === innerWidth, both ways. */
+    expect(RULES.some((r) => r.selectors.some((sel) => sel.includes(".rail")) && /margin-(inline-end|right):\s*calc\(-/.test(r.body))).toBe(false);
+    expect(bodiesFor(".rail:not([data-open])").join(" ")).toContain("width: 0");
+    expect(bodiesFor(".rail").join(" ")).toContain("overflow: hidden");
+    // Rows clip rather than re-wrap while it animates, because the inner column keeps its width.
+    expect(bodiesFor(".rail-inner").join(" ")).toContain("width: var(--rail-w)");
+  });
+
+  it("the rail's corner is the left corner's mirror — the same three strips make room, on the right", () => {
+    const owners = RULES.filter((r) => r.body.includes("padding-right: var(--rail-corner-w)")).flatMap((r) => r.selectors);
+    // THE MUTANT: reserve on the FIRST leaf, as the left rule does. That pane is on the wrong side
+    // of the window, and the top-right pane's own ⋯ and × would sit under the toggle.
+    expect(owners).toEqual(expect.arrayContaining([
+      ".app:not([data-rail-open]) .main > .error-bar:first-child",
+      ".app:not([data-rail-open]) .main > .group-bar:first-child",
+      ".app:not([data-rail-open]) .main > .panehost:first-child .panel[data-top-right-leaf] > .panel-bar",
+      ".page-overlay:not([data-rail-open]) .page-overlay-bar",
+    ]));
+    expect(owners.some((sel) => sel.includes("data-first-leaf"))).toBe(false);
+  });
+
+  it("the rail's edge is a border on .main, and only while the rail is open", () => {
+    /* The sidebar's rule on the other side, and for the sidebar's measured reason: an inset shadow
+       on the column paints under its own children and shows nothing. Gated on the rail being open —
+       closed, the same line would be a stray rule down the window's right edge. */
+    expect(bodiesFor(".app[data-rail-open] .main").join(" ")).toMatch(/border-right:[^;]*var\(--rl-line\)/);
+    expect(RULES.some((r) => r.selectors.includes(".main") && /border-right/.test(r.body))).toBe(false);
+  });
+
+  it("a page stops at the rail and draws its own edge there", () => {
+    /* The rail's usual edge is a border on .main, which a page covers — and the page and the rail
+       are the same chrome tone, so without a line of the page's own the two read as one surface.
+       Found in the live capture, not by any rule: measured, the geometry was already right. */
+    const body = bodiesFor(".page-overlay[data-rail-open]").join(" ");
+    expect(body).toContain("right: var(--rail-w)");
+    expect(body).toMatch(/border-right:[^;]*var\(--rl-line\)/);
+  });
+
   it("the sidebar's right edge is a BORDER on .main, and only while the sidebar is there", () => {
     /* Measured live (`sidebar-edge-live.mjs`): as an inset box-shadow this line computed perfectly
        and painted nothing at all. An inset shadow sits below the element's children, and `.main`'s

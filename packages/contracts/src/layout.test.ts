@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  LayoutSchema, allItems, closeItem, closeLeaf, emptyLayout, findLeafOfItem, firstLeaf,
+  LayoutSchema, allItems, closeItem, closeLeaf, emptyLayout, findLeafOfItem, firstLeaf, topRightLeaf,
   equalSizes, equalizeSplit, gridPreset, migrateLayout, openItem, splitLeaf, updateSizes,
   type Layout, type LayoutLeaf, type LayoutSplit,
 } from "./layout";
@@ -351,6 +351,27 @@ describe("gridPreset", () => {
 });
 
 describe("plumbing", () => {
+  it("topRightLeaf is the rightmost of a row and the topmost of a column, and not firstLeaf", () => {
+    const leaf = (id: string): Layout => ({ type: "leaf", id, itemId: id });
+    // A single leaf is every corner at once.
+    expect(topRightLeaf(leaf("only")).id).toBe("only");
+    // Side by side: the top-right is the LAST pane, which is exactly where firstLeaf is not.
+    const row: Layout = { type: "split", id: "r", dir: "row", sizes: [50, 50], children: [leaf("L"), leaf("R")] };
+    expect(topRightLeaf(row).id).toBe("R");
+    expect(firstLeaf(row).id).toBe("L");
+    // Stacked: the top pane is both corners.
+    const col: Layout = { type: "split", id: "c", dir: "col", sizes: [50, 50], children: [leaf("T"), leaf("B")] };
+    expect(topRightLeaf(col).id).toBe("T");
+    /* THE MUTANT: always take the last child. A left column holding a top/bottom stack beside a
+       right pane is fine either way; a RIGHT column holding the stack is where it goes wrong — the
+       last child there is the BOTTOM-right pane, and its bar is nowhere near the corner. */
+    const nested: Layout = { type: "split", id: "n", dir: "row", sizes: [50, 50], children: [
+      leaf("left"),
+      { type: "split", id: "rc", dir: "col", sizes: [50, 50], children: [leaf("top-right"), leaf("bottom-right")] },
+    ] };
+    expect(topRightLeaf(nested).id).toBe("top-right");
+  });
+
   it("emptyLayout / firstLeaf / findLeafOfItem / updateSizes", () => {
     expect(emptyLayout().itemId).toBeNull();
     const l = row([leaf("a"), leaf("b")], [30, 70]);

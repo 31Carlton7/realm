@@ -2,11 +2,11 @@ import { useMemo } from "react";
 import { DEFAULT_LAYOUT, OfficeView, type OfficeAgent } from "@realm/pixel-office";
 import type { Session, SessionStatus } from "@realm/contracts";
 import { useApp } from "../../state/store";
+import { AT_WORK } from "../../state/session-activity";
 import { OfficePrompter } from "./OfficePrompter";
 
 /** The statuses the office draws. History has no place in a room: a session that finished is not
  *  a character sitting at an empty desk, it is a person who went home. */
-const AT_WORK = new Set<SessionStatus>(["waiting_permission", "running", "error"]);
 
 /**
  * Realm's live agents, as people working in a room.
