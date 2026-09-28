@@ -1,5 +1,77 @@
 # Changelog
 
+## v1.5.0 — 2026-09-27
+
+**Realm can use itself.** A session in a space can now open a terminal pane and read what it is
+actually displaying — the rendered screen, so a full-screen program's repaints resolve instead of
+replaying as escape codes — and it can read Realm's own interface as elements and click in it. The
+terminal provider is on by default and the interface one is off, and the asymmetry is the point:
+every harness already has a shell tool, so a terminal that talks back adds a capability rather than
+a second way to run commands, while reaching the window you are reading in is a different kind of
+thing to hand out. A sign-in is the case that pays for all of it: `claude auth login` under a
+non-interactive shell hangs forever, because there is nothing on the other end to answer the code it
+prints. Here it runs, and Realm can read the URL, open the consent page, and stop at the one act
+that grants a durable capability — which stays yours unless you say otherwise, per space.
+
+**The Agents page is a room, not only a list.** Three views over the same agents, because "what is
+everything doing" and "what did that one just say" are different questions and a list only answers
+the second. The wall is tiles with state on their faces; the office is a drawn room with a figure per
+agent in a seat, redrawn from a sentence you type at it. Ordering comes from what actually moved,
+which is also what the new "Sort spaces by activity" switch reads.
+
+**Two things are called what they are.** The sidebar's catch-all section said "Space" — a container's
+name sitting under "Open", which names what its rows *are* — and now says Sessions. And a pane group
+is a split: the strip above the panes, the sidebar's button, the palette's row, the ⌘⇧[ / ⌘⇧] labels
+and the names new ones are given all say so. The strip also stopped crowding the traffic lights.
+
+**The cursor has the controls it should have had.** A terminal's cursor gets a shape — block, bar or
+underline — as its own setting rather than a mode of the blink, because a bar that holds still and a
+block that pulses are both pairs people ask for. The code editor's caret gets its own blink switch,
+separate from the terminal's, the same split VS Code makes. The prompter's caret still cannot be
+told either way: it is the platform's, and Chromium exposes no way to hold it still until
+`caret-animation` lands. The switch says so rather than quietly covering half of what it names.
+
+**Claude Opus 5.5** is in the model picker. Adding a Claude model is not just a row — the bundled CLI
+has to know the id, or the API answers with a 400 and the session quietly runs something else. That
+rule had been written in three comments and enforced by none of them, and it had already gone wrong
+once. It is a test now: every model Realm offers is checked against the binary that will be asked to
+run it.
+
+### Reading and writing
+
+- Line height is adjustable, as an offset rather than a value. Prose is 1.6, markdown 1.55 and a
+  code block 1.65, and one slider moves all of them from their own starting point — a control that
+  set a single number would flatten the distances that are the reason a code block breathes more
+  than a paragraph.
+- A Quick Look render and a guide come back to where you were reading. A PDF still does not, and
+  cannot: Chromium renders it in a nested viewer that runs no script of ours.
+- An answer's own passage can be quoted back instead of described.
+- The prompter's pickers show a scrollbar while they scroll and not the rest of the time.
+
+### Getting rid of things
+
+- "Really delete?" is optional, in Settings ▸ App ▸ Deleting. On unless you say otherwise, and read
+  so that an unset preference keeps asking.
+- Sidebar rows that are not sessions have a trash of their own. Archiving is a session's answer to
+  being finished; a terminal or a documents pane had no way out but a right-click.
+- Downloads no longer refuse a file because of its extension. The boundary that matters is the
+  grant, not whether someone has heard of `.parquet`.
+
+### Elsewhere
+
+- A schedule can name a single moment — "in two weeks, open the PR" — instead of being written as a
+  cron expression that fires once in 2031 and is forgotten.
+- A signed-out session says what to do about it, with the command to run, instead of showing the raw
+  failure. It only says so after re-checking, because the credentials file cannot answer "signed
+  out" on macOS and a remedy offered on a guess is worse than none.
+- A passkey works in a browser pane. Electron ships the WebAuthn API without an authenticator behind
+  it, so Realm is the authenticator: the key is held encrypted and reaches the page for the length of
+  one request you approved with Touch ID.
+- Right-click either arrow in a browser pane for the pages behind or ahead of it.
+- ⌘⇧N opens Quick Chat; ⌘⇧G makes a split. Both were reachable only by mouse.
+- A profile's spaces moved into that page's rail, beside Skills, Connections and Memory, instead of
+  sitting over the title as a strip of chips.
+
 ## v1.4.1 — 2026-09-21
 
 **A packaging fix for v1.4.0, which could not start.** The terminal renderer that v1.4.0 introduced
