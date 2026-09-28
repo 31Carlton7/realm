@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { PaneFor } from "../panes/registry";
 import { PAGE_LABEL, pageItemOf } from "../state/page-item";
@@ -28,6 +28,12 @@ export function PageOverlay() {
   // The overlay is portalled to `body`, so it cannot read the collapse off `.app` as a descendant —
   // it carries the attribute itself, and the stylesheet takes the left inset back when it is set.
   const sidebarCollapsed = useApp((s) => s.sidebarCollapsed);
+  /* The sidebar's WIDTH, carried for the same reason as its collapse. `--sidebar-w` is painted on
+     `.app`, and a portal is not its descendant, so this read the stylesheet's 280px default no matter
+     how wide the column had been dragged — the page's left edge sat under the sidebar, or left a
+     gap beside it. And the rail, which the page must stop short of on the other side. */
+  const sidebarWidth = useApp((s) => s.sidebarWidth);
+  const railOpen = useApp((s) => s.railOpen);
   const ref = useRef<HTMLDivElement>(null);
 
   /* Escape closes, and nothing else does from the keyboard. Registered while the overlay is up, so
@@ -49,7 +55,8 @@ export function PageOverlay() {
 
   return createPortal(
     <div className="page-overlay" role="dialog" aria-modal="true" aria-label={PAGE_LABEL[page.kind] ?? "Page"}
-      data-sidebar-collapsed={sidebarCollapsed || undefined} ref={ref} tabIndex={-1}>
+      data-sidebar-collapsed={sidebarCollapsed || undefined} data-rail-open={railOpen || undefined}
+      style={{ "--sidebar-w": `${sidebarWidth}px` } as CSSProperties} ref={ref} tabIndex={-1}>
       <header className="page-overlay-bar">
         <Icon name={page.kind} size={14} className="page-overlay-mark" />
         <span className="page-overlay-title">{PAGE_LABEL[page.kind] ?? "Page"}</span>

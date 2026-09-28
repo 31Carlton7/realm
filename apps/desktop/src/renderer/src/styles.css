@@ -393,6 +393,62 @@ kbd { font: 11px var(--font-mono); }
 .sb-toggle { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px;
   border-radius: var(--r-ctl); corner-shape: squircle; color: var(--rl-text-faint); }
 .sb-toggle:hover { color: var(--rl-text-bright); background: var(--field); }
+
+/* ── The agents rail (components/rail/AgentsRail.tsx) ─────────────────────────────────────────────
+   The right column. Hidden by WIDTH rather than by the left sidebar's negative margin, and that is
+   not a style choice: a negative START margin overflows to negative x, where nothing can scroll to
+   it, but its mirror — a negative END margin — overflows to positive x, and nothing clips the shell,
+   so the whole window would turn horizontally scrollable by exactly the rail's width. A column that
+   closes to zero width has nothing to overflow. */
+:root { --rail-w: 264px; --rail-corner-w: 44px; }
+.rail { flex: none; width: var(--rail-w); min-height: 0; overflow: hidden; background: var(--rl-panel);
+  -webkit-app-region: drag;
+  transition: width var(--dur-move) var(--ease-in-out-strong); }
+.rail:not([data-open]) { width: 0; }
+.rail button { -webkit-app-region: no-drag; }
+/* The content keeps its own width while the column animates, so rows are CLIPPED on the way in and
+   out rather than re-wrapped at every width the column passes through. */
+.rail-inner { width: var(--rail-w); height: 100%; display: flex; flex-direction: column; }
+/* Its edge is a border on .main, as the sidebar's is — an inset shadow on the column paints under
+   its own children and shows nothing (measured for the sidebar). Only while open: closed, it would
+   be a stray line down the window's right edge. */
+.app[data-rail-open] .main { border-right: var(--hairline-w) solid var(--rl-line); }
+/* The sidebar's head row, mirrored: 40px, the toggle at the end. */
+.rail-head { flex: none; height: 40px; display: flex; align-items: center; gap: 6px; padding: 0 10px 0 16px; }
+.rail-title { flex: 1; min-width: 0; font-size: 12.5px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
+.rail-count { font-size: 11.5px; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
+.rail-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 12px; }
+.rail-empty { margin: 0; padding: 12px 8px; font-size: 12.5px; color: var(--rl-text-faint); }
+/* The group heading wears .group-label's type, so "Needs you" here reads as a sibling of the
+   sidebar's "Open" rather than as a new kind of heading. */
+.rail-group-label { margin: 0; font-size: 12.5px; font-weight: var(--fw-medium); color: var(--rl-text-faint); padding: 12px 8px 4px; }
+.rail-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.rail-row { display: flex; flex-direction: column; gap: 3px; width: 100%; min-width: 0; text-align: left;
+  padding: 7px 8px; border-radius: var(--r-ctl); corner-shape: squircle; color: var(--rl-text-dim); }
+.rail-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+/* The session under the keyboard right now — "you are here", in the pane bar's own active fill. */
+.rail-row[aria-current] { background: var(--rl-active); color: var(--rl-text-bright); }
+.rail-row-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rail-row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--fw-medium); }
+.rail-row-when { flex: none; font-size: 11.5px; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
+/* The two sub-lines hang under the title, clearing the status dot, so the dot marks the row rather
+   than the first word of each line. */
+.rail-row-doing, .rail-row-space { display: flex; align-items: center; gap: 6px; min-width: 0; padding-left: 15px;
+  font-size: 12px; color: var(--rl-text-faint); }
+.rail-row-doing-text, .rail-row-space > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-row-doing-mark { flex: none; }
+/* Closed, the toggle takes the window's top-right corner — the left corner's mirror, on the same
+   40px band and fading in the same way. */
+.rail-corner { position: absolute; top: 0; right: 0; z-index: 36; height: 40px; display: flex; align-items: center;
+  padding-right: 10px; -webkit-app-region: drag;
+  animation: rl-corner-in var(--dur-base) var(--ease-out-strong); }
+.rail-corner button { -webkit-app-region: no-drag; }
+/* ...and whichever strip is first in the main column gives that corner room on its RIGHT, exactly as
+   the traffic-light rule above does on the left — the top-right pane where that rule takes the first
+   leaf. */
+.app:not([data-rail-open]) .main > .error-bar:first-child,
+.app:not([data-rail-open]) .main > .group-bar:first-child,
+.app:not([data-rail-open]) .main > .panehost:first-child .panel[data-top-right-leaf] > .panel-bar { padding-right: var(--rail-corner-w); }
 /* Activity's button shares the collapse toggle's size and band, and needs the on-state the toggle
    does not: the column is showing one lens or the other, and the glyph cannot say which. One rung
    past hover, the same step `.icon-btn` takes, so "on" always reads as more than "under the
@@ -1914,6 +1970,12 @@ button.panel-title:hover { background: var(--rl-hover); }
    cannot join that rule: it is portalled to <body>, so `.app[data-sidebar-collapsed] .main > …`
    cannot reach it. Without this the page's own title is drawn underneath the lights. */
 .page-overlay[data-sidebar-collapsed] .page-overlay-bar { padding-left: var(--corner-w); }
+/* The page stops short of the rail on the right, as it stops short of the sidebar on the left: the
+   rail is the one thing on screen that should stay visible whatever page is up. After the collapsed
+   rule on purpose — the two have equal weight, and this one must win the right edge. */
+.page-overlay[data-rail-open] { right: var(--rail-w); }
+/* Closed, the rail's corner toggle sits over the page's top-right, so its bar makes room for it. */
+.page-overlay:not([data-rail-open]) .page-overlay-bar { padding-right: var(--rail-corner-w); }
 .page-overlay-mark { flex: none; color: var(--rl-text-faint); }
 .page-overlay-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 12.5px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
@@ -4602,7 +4664,7 @@ select { appearance: none; padding-right: 22px;
 :hover { scrollbar-color: var(--rl-line-strong) transparent; }
 :where(
   /* chrome and navigation. `.space-body` is NOT here — see the carve-out below. */
-  .menu, .mention-picker, .skill-picker-list, .mp-list, .mp-detail-body, .ip-grid,
+  .menu, .rail-body, .mention-picker, .skill-picker-list, .mp-list, .mp-detail-body, .ip-grid,
   .palette-list, .spaces-list, .sheet, .onboarding-stage, .onboarding-body, .page-content, .summary-scroll, .ql-view,
   /* the transcript and everything it draws inside itself */
   .transcript, .md pre, .msg-error pre, .tool-well, .tool-body pre, .permission-details pre,
