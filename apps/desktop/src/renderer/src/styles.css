@@ -1972,8 +1972,11 @@ button.panel-title:hover { background: var(--rl-hover); }
 .page-overlay[data-sidebar-collapsed] .page-overlay-bar { padding-left: var(--corner-w); }
 /* The page stops short of the rail on the right, as it stops short of the sidebar on the left: the
    rail is the one thing on screen that should stay visible whatever page is up. After the collapsed
-   rule on purpose — the two have equal weight, and this one must win the right edge. */
-.page-overlay[data-rail-open] { right: var(--rail-w); }
+   rule on purpose — the two have equal weight, and this one must win the right edge.
+   It draws its own line against the rail, because the rail's usual edge is a border on `.main`,
+   which the page covers — and page and rail are the same chrome tone, so without it the two read
+   as one dark surface. On the left the sidebar's own ground does that work. */
+.page-overlay[data-rail-open] { right: var(--rail-w); border-right: var(--hairline-w) solid var(--rl-line); }
 /* Closed, the rail's corner toggle sits over the page's top-right, so its bar makes room for it. */
 .page-overlay:not([data-rail-open]) .page-overlay-bar { padding-right: var(--rail-corner-w); }
 .page-overlay-mark { flex: none; color: var(--rl-text-faint); }
