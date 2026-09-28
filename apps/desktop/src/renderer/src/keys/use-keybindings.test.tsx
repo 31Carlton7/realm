@@ -186,6 +186,23 @@ describe("useKeybindings", () => {
     await waitFor(() => expect(store.getState().groups!.groups).toHaveLength(before + 1));
   });
 
+  it("toggles the rail of working agents on \u2325\u2318B, and remembers it", async () => {
+    /* VS Code's chord for its secondary sidebar, beside the primary's \u2318B — the same pairing,
+       the same muscle memory. THE MUTANT: toggle state without writing the setting, and the rail a
+       person opened is closed again on the next launch. */
+    const { api, store } = await mount();
+    expect(store.getState().railOpen).toBe(false);
+    key({ key: "\u222b", code: "KeyB", metaKey: true, altKey: true });
+    await waitFor(() => expect(store.getState().railOpen).toBe(true));
+    expect(api.calls).toContain("setSetting:ui.railOpen=true");
+    key({ key: "\u222b", code: "KeyB", metaKey: true, altKey: true });
+    await waitFor(() => expect(store.getState().railOpen).toBe(false));
+    // And it is not the left sidebar's chord wearing a modifier: \u2318B still moves only the left.
+    key({ key: "b", code: "KeyB", metaKey: true });
+    await waitFor(() => expect(store.getState().sidebarCollapsed).toBe(true));
+    expect(store.getState().railOpen).toBe(false);
+  });
+
   it("picks up a new keymap without missing a keystroke", async () => {
     // Rules arrive from the server after boot and change again whenever the file does. THE MUTANT:
     // capture `rules` in the listener's closure — the first keymap would be the only one that ever ran.

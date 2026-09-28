@@ -126,6 +126,7 @@ export function appCommands(store: StoreApi<AppState>): Readonly<Record<string, 
     "palette.files": () => get().setPaletteOpen(true, "files"),
     "palette.grep": () => get().setPaletteOpen(true, "grep"),
     "sidebar.toggle": () => { const s = get(); s.run(() => s.toggleSidebar()); },
+    "rail.toggle": () => { const s = get(); s.run(() => s.toggleRail()); },
     "activity.open": () => { const s = get(); s.run(() => s.openActivity()); },
   };
 }
