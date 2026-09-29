@@ -31,6 +31,8 @@ const vec3 = (rgb: readonly number[]) => `vec3f(${rgb.map((c) => c.toFixed(4)).j
  *   ripple   x, y (CSS px) of the last click, its age in seconds (negative: none), unused
  *   faces    presence 0..1, progress 0..1 through the pinned section, CSS px per mark unit, unused
  *   facesAt  the rect the assembling mark is centred in (CSS px, viewport)
+ *   windows  up to four capture frames on screen, as rects (CSS px, viewport)
+ *   counts   how many of `windows` are real, unused, unused, unused
  */
 export type FieldUniforms = {
   view: [number, number, number, number]
@@ -40,6 +42,8 @@ export type FieldUniforms = {
   ripple: [number, number, number, number]
   faces: [number, number, number, number]
   facesAt: [number, number, number, number]
+  windows: [number, number, number, number][]
+  counts: [number, number, number, number]
 }
 
 export const fieldShader = /* wgsl */ `
@@ -51,6 +55,8 @@ struct Field {
   ripple: vec4f,
   faces: vec4f,
   facesAt: vec4f,
+  windows: array<vec4f, 4>,
+  counts: vec4f,
 }
 @group(0) @binding(0) var<uniform> field: Field;
 
@@ -195,6 +201,28 @@ fn heroLight(p: vec2f, t: f32) -> vec3f {
   return light * outside;
 }
 
+// The product captures further down the page are windows into the same realm the hero looks into,
+// so they wear the portal's edge — the hairline, the glow and the energy running round it — without
+// its corridor, which would crowd the evidence it frames.
+fn windowLight(p: vec2f, t: f32) -> vec3f {
+  var light = vec3f(0.0);
+  let count = i32(field.counts.x);
+  for (var i = 0; i < 4; i++) {
+    if (i >= count) { break; }
+    let r = field.windows[i];
+    let half = max(r.zw * 0.5, vec2f(1.0));
+    let c = r.xy + half;
+    let edge = sdRoundRect(p - c, half, PORTAL_RADIUS);
+    let sd = max(edge, 0.0);
+    let dir = normalize((p - c) / half + vec2f(1e-4));
+    let energy = smoothstep(0.45, 0.9, fbm(dir * 2.0 + vec2f(t * 0.18 + f32(i) * 3.1, -t * 0.13)));
+    let rim = ACCENT * (exp(-sd / 22.0) * 0.3 + exp(-sd / 120.0) * 0.06)
+      + INK * exp(-sd / 1.3) * (0.16 + energy * 0.55) + ACCENT_INK * exp(-sd / 22.0) * energy * 0.35;
+    light += rim * smoothstep(-1.0, 0.5, edge);
+  }
+  return light;
+}
+
 ${facesWgsl}
 
 @fragment fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
@@ -205,6 +233,7 @@ ${facesWgsl}
   var light = vec3f(0.0);
   if (field.hero.x > 0.001) { light += heroLight(p, t) * field.hero.x; }
   if (field.faces.x > 0.001) { light += facesLight(p, t) * field.faces.x; }
+  if (field.counts.x > 0.5) { light += windowLight(p, t); }
   // Light is added to the page and then compressed, so where there is none the result is exactly
   // --color-page and the canvas never reads as a rectangle.
   let lit = vec3f(1.0) - exp(-light * 1.15);

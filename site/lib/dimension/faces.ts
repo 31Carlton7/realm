@@ -9,8 +9,13 @@ import { FACES, MARK_CENTER } from "../mark"
  * into the cells it was always drawn on, while the ones still to come show as empty slots.
  */
 
-/** One step per face, then a seventh where the whole mark is lit. */
-export const FACE_STEPS = 7
+/**
+ * The pinned track's steps: one per face, then one where the whole mark is lit, then one where the
+ * view pulls back and it becomes one realm among many.
+ */
+export const TRACK_STEPS = 8
+const LIT_STEP = 6
+const MANY_STEP = 7
 
 /**
  * Which face arrives at which step, top of the mark to bottom — `ORDER[step]` is an index into
@@ -95,16 +100,32 @@ var<private> FACE_SPIN: array<f32, 6> = array<f32, 6>(${spins.map(f).join(", ")}
 const MARK_CENTER = ${v2(MARK_CENTER)};
 const LATTICE_SPACING = ${f(SPACING)};
 
+// The last step: 0 while the one mark fills its area, 1 once the view has pulled back to many.
+fn manyPhase() -> f32 {
+  return smoothstep(${MANY_STEP}.0, ${MANY_STEP}.85, field.faces.y * ${TRACK_STEPS}.0);
+}
+
+// CSS pixels per mark unit, shrinking as the view pulls back.
+fn markScale() -> f32 {
+  // Far enough out for three rings of realms — a few dozen — inside the mark's square. The cluster
+  // is bounded by that square, so pulling back further adds realms rather than wallpaper.
+  let many = manyPhase();
+  // Under reduced motion the pull-back is a cut, not a camera move: one mark until halfway, then the
+  // hive, with its rings fading in. A continuous zoom tied to scroll is the thing the setting is for.
+  let pulled = select(many, step(0.5, many), field.view.w > 0.5);
+  return max(field.faces.z * mix(1.0, 0.25, pulled), 1e-3);
+}
+
 // A pixel, in the mark's own units: the mark sits centred in its area, 48 units tall.
 fn toMark(p: vec2f) -> vec2f {
   let c = field.facesAt.xy + field.facesAt.zw * 0.5;
-  return (p - c) / max(field.faces.z, 1e-3) + MARK_CENTER;
+  return (p - c) / markScale() + MARK_CENTER;
 }
 
 // Where face i is along its arrival: 0 not yet begun, 1 settled. Eased so it arrives fast and lands
 // soft. Every input is a uniform, so branching on it keeps control flow uniform.
 fn arrival(i: i32) -> f32 {
-  let raw = saturate(field.faces.y * ${FACE_STEPS}.0 - FACE_STEP[i]);
+  let raw = saturate(field.faces.y * ${TRACK_STEPS}.0 - FACE_STEP[i]);
   return 1.0 - pow(1.0 - raw, 3.0);
 }
 
@@ -147,11 +168,24 @@ fn lattice(m: vec2f, unit: f32, t: f32) -> f32 {
 // Additive light: the lattice, the empty slots, the arriving faces' trails and the lit mark's glow.
 fn facesLight(p: vec2f, t: f32) -> vec3f {
   let m = toMark(p);
-  let unit = 1.0 / max(field.faces.z, 1e-3);
-  let steps = field.faces.y * ${FACE_STEPS}.0;
-  let complete = smoothstep(${FACE_STEPS - 1}.0, ${FACE_STEPS - 1}.6, steps);
+  let unit = 1.0 / markScale();
+  let steps = field.faces.y * ${TRACK_STEPS}.0;
+  let complete = smoothstep(${LIT_STEP}.0, ${LIT_STEP}.6, steps);
 
-  var light = ACCENT * lattice(m, unit, t) * 0.24;
+  let many = manyPhase();
+  var light = ACCENT * lattice(m, unit, t) * 0.24 * (1.0 - many);
+  if (many > 0.001) {
+    let cell = realmCell(m);
+    let life = realmActivity(cell, t);
+    let glowAt = length(m - cell - MARK_CENTER);
+    light += ACCENT * exp(-glowAt / 22.0) * 0.3 * life.x * realmPresence(cell, many);
+    // The lit mark's halo hands over rather than vanishing when the branch changes, and home keeps a
+    // glow of its own, so the realm you just built is the one you can still find.
+    let dm = length(m - MARK_CENTER);
+    light += (ACCENT * exp(-dm / 20.0) * 0.34 + ACCENT_INK * exp(-dm / 55.0) * 0.12) * (1.0 - many);
+    light += ACCENT_INK * exp(-dm / 16.0) * 0.42 * many;
+    return light;
+  }
 
   for (var i = 0; i < 6; i++) {
     let e = arrival(i);
@@ -205,12 +239,87 @@ fn markStreams(point: vec2f, seconds: f32) -> vec3f {
   return color + ACCENT * 0.5 * exp(-abs(across) * 7.5) * (0.16 + 0.22 * convergence);
 }
 
+// The mark's outline is a flat-topped hexagon 40 wide and 35.6 tall, and hexagons tile: columns
+// three quarters of a width apart, every other one dropped half a height. With a little air between.
+const CELL = vec2f(${f(30 * 1.12)}, ${f(35.6 * 1.12)});
+
+// The centre of the realm a mark-space point falls in, as an offset from the home realm's.
+fn realmCell(m: vec2f) -> vec2f {
+  let d = m - MARK_CENTER;
+  let column = round(d.x / CELL.x);
+  var best = vec2f(0.0);
+  var bestDistance = 1e9;
+  for (var k = -1; k <= 1; k++) {
+    let c = column + f32(k);
+    let drop = select(0.0, CELL.y * 0.5, abs(c % 2.0) > 0.5);
+    let centre = vec2f(c * CELL.x, round((d.y - drop) / CELL.y) * CELL.y + drop);
+    let distance = length(d - centre);
+    if (distance < bestDistance) { bestDistance = distance; best = centre; }
+  }
+  return best;
+}
+
+// One realm as the finished glass mark, lit as brightly as its agents are busy. The home realm, at
+// full activity with no seed, is exactly the lit mark the seventh step ends on, so pulling back
+// shows the same object rather than swapping it for a copy.
+fn glassMark(local: vec2f, unit: f32, t: f32, activity: f32, seed: f32) -> vec4f {
+  var color = vec3f(0.0);
+  var cover = 0.0;
+  for (var i = 0; i < 6; i++) {
+    if (length(local - FACE_CENTROID[i]) > FACE_RADIUS[i] + 3.0) { continue; }
+    let d = faceDistance(i, local);
+    let inside = smoothstep(unit, -unit, d);
+    if (inside <= 0.0) { continue; }
+    let shade = FACE_SHADE[i];
+    let bend = normalize(FACE_CENTROID[i] - MARK_CENTER + vec2f(1e-4)) * (0.05 + (1.0 - shade) * 0.07);
+    let through = markStreams((local - MARK_CENTER) / 40.0 + bend, t + seed * 17.0);
+    let rim = exp(-abs(d) / (unit * 1.4));
+    var glass = mix(PAGE, INK, 0.07 + shade * 0.1);
+    glass += through * (0.6 + shade * 0.45) * activity;
+    glass = mix(glass, INK, rim * 0.55) + ACCENT_INK * rim * 0.2;
+    color = mix(color, glass, inside);
+    cover = max(cover, inside);
+  }
+  return vec4f(color, cover);
+}
+
+// Every realm but home has its own seed: how busy it is, and the rate it breathes at, so the field
+// reads as many things working rather than one thing repeated.
+fn realmActivity(cell: vec2f, t: f32) -> vec2f {
+  let home = length(cell) < 1.0;
+  let seed = hash21(cell * 0.137 + vec2f(3.1, 7.7));
+  // Capped below home's full brightness, so the realm you just built stays the one you can find.
+  let busy = 0.2 + seed * 0.62;
+  let breath = 0.62 + 0.38 * sin(t * (0.45 + seed * 0.8) + seed * 6.2831);
+  return vec2f(select(busy * breath, 1.0, home), select(seed, 0.0, home));
+}
+
+// How present a realm is while the view pulls back: the nearer rings first, and only as many rings as
+// fit inside the mark's own square — a hexagonal cluster, not wallpaper. The text sits beside that
+// square (under it, on a phone), so bounding the cluster by it is what keeps glass out from behind the
+// words at every zoom, rather than a fade that a big enough tile can always reach across. Decided per
+// realm, so each one comes and goes whole instead of being sliced by a gradient.
+fn realmPresence(cell: vec2f, many: f32) -> f32 {
+  if (length(cell) < 1.0) { return 1.0; }
+  let ring = length(cell) / CELL.y;
+  let arrive = smoothstep(ring * 0.16, ring * 0.16 + 0.4, many);
+  let fits = min(field.facesAt.z, field.facesAt.w) * 0.5 / (CELL.y * markScale()) - 0.55;
+  return arrive * (1.0 - smoothstep(fits - 0.6, fits, ring));
+}
+
 // The faces themselves, as solid glass: colour and coverage, composited over the light.
 fn facesSolid(p: vec2f, t: f32) -> vec4f {
   let m = toMark(p);
-  let unit = 1.0 / max(field.faces.z, 1e-3);
-  let steps = field.faces.y * ${FACE_STEPS}.0;
-  let complete = smoothstep(${FACE_STEPS - 1}.0, ${FACE_STEPS - 1}.6, steps);
+  let unit = 1.0 / markScale();
+  let many = manyPhase();
+  if (many > 0.001) {
+    let cell = realmCell(m);
+    let life = realmActivity(cell, t);
+    let g = glassMark(m - cell, unit, t, life.x, life.y);
+    return vec4f(g.rgb, g.a * realmPresence(cell, many));
+  }
+  let steps = field.faces.y * ${TRACK_STEPS}.0;
+  let complete = smoothstep(${LIT_STEP}.0, ${LIT_STEP}.6, steps);
   var color = vec3f(0.0);
   var cover = 0.0;
   for (var i = 0; i < 6; i++) {
