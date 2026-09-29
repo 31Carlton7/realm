@@ -45,6 +45,16 @@ const bodiesFor = (selector: string): string[] => {
 const partsOf = (r: { selectors: string[] }): string[] =>
   r.selectors.map((s) => s.replace(/\/\*[\s\S]*?\*\//g, "").trim()).filter(Boolean);
 
+/* Tailwind v4's preflight takes the marker off every ul and ol in the app, so a surface that renders
+   someone's document has to put it back. The transcript's `.md` always did; the rich document editor
+   did not, and a bulleted list there read as a run of indented lines. */
+it("puts list markers back on every surface that renders a document's lists", () => {
+  for (const surface of [".md", ".documents-rich-surface"]) {
+    expect(bodiesFor(`${surface} ul`).join(" "), surface).toMatch(/list-style:\s*disc/);
+    expect(bodiesFor(`${surface} ol`).join(" "), surface).toMatch(/list-style:\s*decimal/);
+  }
+});
+
 /* Ligatures render only where tracking is zero (Chromium suppresses them on any spaced run, and
    `font-variant-ligatures` cannot override it — measured in the real window). So the reset is not
    decoration: a mono surface missing from it silently loses `=>` and `!==`. THE mutant this kills is

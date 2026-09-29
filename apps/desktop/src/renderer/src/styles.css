@@ -6397,6 +6397,8 @@ select { appearance: none; padding-right: 22px;
 .documents-rich-surface h2 { font-size: 1.3em; font-weight: var(--fw-title); letter-spacing: -1.5%; }
 .documents-rich-surface h3 { font-size: 1.12em; font-weight: var(--fw-title); letter-spacing: -1.5%; }
 .documents-rich-surface ul, .documents-rich-surface ol { padding-left: 1.4em; }
+/* Preflight strips list markers app-wide (see `.md ul`), and a document's lists keep theirs too. */
+.documents-rich-surface ul { list-style: disc; } .documents-rich-surface ol { list-style: decimal; }
 .documents-rich-surface li > p { margin: 0; }
 .documents-rich-surface blockquote { border-left: 2px solid var(--rl-line); padding-left: 0.9em; color: var(--rl-text-dim); }
 .documents-rich-surface code { font-family: var(--font-mono); font-size: 0.9em; background: var(--field); padding: 0.1em 0.3em; border-radius: var(--r-sm); }
