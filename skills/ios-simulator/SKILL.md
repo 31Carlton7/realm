@@ -1,6 +1,6 @@
 ---
 name: ios-simulator
-description: Run, show and check an iOS or Android app on a simulator in Realm's simulator pane — open the device beside the session with the realm-simulator tools, install and launch a build, read the screen by element and screenshot it, and tap and type through serve-sim's CLI. Use when the task needs to see or interact with an iOS/iPadOS/watchOS app, check a SwiftUI screen outside Xcode, or capture proof of what an app actually renders.
+description: Run, show and check an iOS or Android app on a simulator in Realm's simulator pane — open the device beside the session with the realm-simulator tools, install and launch a build, read the screen by element and screenshot it, and tap, swipe, type and press buttons with the input tools. Use when the task needs to see or interact with an iOS/iPadOS/watchOS app, check a SwiftUI screen outside Xcode, or capture proof of what an app actually renders.
 ---
 
 # Running an app on a simulator in Realm
@@ -39,33 +39,43 @@ Verify against the tree, not the picture. After a step, read `simulator_elements
 content changed: the stream can lag a transition by a beat, so a screenshot taken straight after a
 tap may still show the old screen.
 
-## Tap and type
+## Tap, swipe and type
 
-The tools do not tap or type. serve-sim's own CLI does, against the stream the pane is already
-running — these commands start nothing (iOS only; on Android the pane itself is the input channel):
+`simulator_tap`, `simulator_double_tap`, `simulator_long_press`, `simulator_swipe`, `simulator_type`
+and `simulator_press` drive the device the pane is showing — iOS through the same serve-sim socket the
+pane's own touches take, Android through `adb shell input`. Every one takes an `intent`: a few words
+on what the step is for, such as "open the Wi-Fi settings". The user sees it with the step.
 
-```bash
-npx --yes serve-sim@latest tap 0.50 0.37 -d <udid>   # normalized 0..1 of the SCREEN
-npx --yes serve-sim@latest type "hello" -d <udid>     # US keyboard only
-npx --yes serve-sim@latest button home -d <udid>
-npx --yes serve-sim@latest rotate landscape_left -d <udid>
-npx --yes serve-sim@latest gesture '<json>' -d <udid> # swipes, pinches
-```
+- **Tap the element, not a guess.** Pass `element` with the `[path]` `simulator_elements` printed for
+  it. Realm reads the screen again at the moment of the tap and taps the centre of that element's
+  frame as it is now. If the screen has changed since you read it, nothing is tapped and you are told
+  to read the elements again: do that, and take the path from the new list.
+- **A point** (`x`, `y`) is for what the tree does not describe — a canvas, a map, a game. It is in
+  the units the elements are: points on iOS, pixels on Android, from the top-left.
+- **Swipe** with a `direction` across the screen (`up` scrolls toward the end of a list), or across
+  one element — a row, for its swipe actions. `from` and `to` points move something exactly, and
+  `holdMs` picks it up first. A quick swipe (the default 300 ms) keeps scrolling after the finger
+  lifts; one of a second or more moves exactly as far as the finger did.
+- **Type** into whatever has focus, so tap the field first. US keyboard characters only; a new line
+  presses return.
+- **Press** `home`, `lock`, `volume-up`, `volume-down`, `back` (Android only) and the keys `return`,
+  `delete`, `tab`, `escape`, `space`, `up`, `down`, `left` and `right`.
 
-Always pass `-d <udid>`. **Tap the element, not a guess**: take its frame from `simulator_elements`
-and convert its centre against the screen size stated above the elements:
+The first input on a device in a session asks the user; after that the session drives that device
+without asking again. Plan and Ask refuse input. After each step, read `simulator_elements` to see
+what it did — the tools say what they sent, not what the app made of it.
 
-```
-x = (frame.x + frame.width  / 2) / screen.width
-y = (frame.y + frame.height / 2) / screen.height
-```
+Do not drive a device through serve-sim's CLI or `adb shell input` while these tools are there: that
+input skips the card, carries no intent, and taps a coordinate nobody checked against the screen.
 
-The CLI also has `camera` (inject a synthetic feed), `permissions`, `event-log`, `ui`,
-`memory-warning` and `ca-debug`. The pane's Device settings menu drives `ui`, `memory-warning` and
-`ca-debug` too, so prefer the pane for those when a human is watching. `ui` takes its values from its
-own table; hand it one it rejects and it prints the accepted set, which is how
+## The rest of serve-sim's CLI
+
+serve-sim also has `camera` (inject a synthetic feed), `permissions`, `event-log`, `ui`,
+`memory-warning` and `ca-debug`, which no tool covers. The pane's Device settings menu drives `ui`,
+`memory-warning` and `ca-debug` too, so prefer the pane for those when a human is watching. `ui` takes
+its values from its own table; hand it one it rejects and it prints the accepted set, which is how
 `SIMULATOR_UI_OPTIONS` in `packages/contracts/src/simulator.ts` was written. Do not guess at
-`text-size`'s twelve content-size categories.
+`text-size`'s twelve content-size categories. Always pass `-d <udid>`.
 
 ## What the pane does for the person watching
 
@@ -76,7 +86,7 @@ own table; hand it one it rejects and it prints the accepted set, which is how
 - **Elements** draws a box per accessibility element over the picture, each named by what the device
   calls it and each a control that taps the middle of the real thing. The device screen itself is one
   DOM node — Realm's element picker over a phone resolves to "the simulator" and nothing finer — so
-  never claim to have clicked a named control "by ref" when what you sent was a coordinate.
+  never claim to have tapped a named control when what you sent was a point.
 - **Screenshot** writes a full-resolution PNG into the space's `simulator/` folder. **Apps** lists
   every installed app, the user's own first, with launch, the sixteen permissions and camera
   injection per app. **Dropping a file on the device** installs a `.app` or `.ipa`, or puts a picture
@@ -89,9 +99,22 @@ own table; hand it one it rejects and it prints the accepted set, which is how
 ## When the realm-simulator tools are not there
 
 A space can switch them off. Then boot with `xcrun simctl boot <udid>`, start a stream scoped to it
-with `npx --yes serve-sim@latest --detach <udid>`, and drive it with the CLI above. If the user wants
-to watch, the phone button in the session's pane bar opens the simulator pane, which adopts the
-stream you started instead of starting another. Still never open the stream in a browser pane.
+with `npx --yes serve-sim@latest --detach <udid>`, and drive it with serve-sim's CLI, which talks to
+that stream and starts nothing (iOS only):
+
+```bash
+npx --yes serve-sim@latest tap 0.50 0.37 -d <udid>   # normalized 0..1 of the SCREEN
+npx --yes serve-sim@latest type "hello" -d <udid>     # US keyboard only
+npx --yes serve-sim@latest button home -d <udid>
+npx --yes serve-sim@latest rotate landscape_left -d <udid>
+npx --yes serve-sim@latest gesture '<json>' -d <udid> # swipes, pinches
+```
+
+A tap there is a point, not an element: take the element's frame from the accessibility tree and
+divide its centre by the screen's size, both in points — `x = (frame.x + frame.width / 2) /
+screen.width`, and the same for `y`. If the user wants to watch, the phone button in the session's
+pane bar opens the simulator pane, which adopts the stream you started instead of starting another.
+Still never open the stream in a browser pane.
 
 ## Stop it
 

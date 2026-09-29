@@ -62,3 +62,18 @@ describe("the computer-use card's own words", () => {
     expect(screen.getByText('Type "hello" into TextEdit')).toBeTruthy();
   });
 });
+
+describe("the simulator input card", () => {
+  it("shows the step it was raised by as the agent's intent, under a title naming the device and the session", () => {
+    // One card covers the rest of the session on the device, so the step that raised it is the only
+    // one the user sees asked about — it has to say what the step is FOR, not where it lands.
+    vi.stubGlobal("scrollTo", () => {});
+    const { root } = card({
+      toolName: "simulator_tap", title: "Tap, swipe and type on iPhone Air for the rest of this session",
+      // The intent last: the card finds it by name, not by being the first string in the payload.
+      input: { device: "iPhone Air", element: "0.3", intent: "open the Wi-Fi settings" },
+    });
+    expect(within(root).getByText("open the Wi-Fi settings").tagName).toBe("CODE");
+    expect(within(root).getByText("simulator_tap")).toBeTruthy();
+  });
+});

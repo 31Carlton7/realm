@@ -947,6 +947,16 @@ describe("markdown + summaries", () => {
     expect(toolSummary("apply_patch", { changes: [{ path: "/src/a.ts" }, { path: "/src/b.ts" }] })).toBe("/src/a.ts");
     expect(toolSummary("mcp__acp__some_tool", { foo: 1, note: "do the thing" })).toBe("do the thing");
   });
+  it("shows a simulator step by what it is for, prefixed in the transcript and bare on a permission card", () => {
+    // The agent's arguments arrive in its own order, and the first string of a tap is the device's id.
+    // THE MUTANT: fall through to the first string field, and every step reads as a ULID.
+    const tap = { simulatorId: "01JSIMULATOR", element: "0.3", intent: "open the Wi-Fi settings" };
+    expect(toolSummary("mcp__realm__realm-simulator__simulator_tap", tap)).toBe("open the Wi-Fi settings");
+    expect(toolSummary("simulator_tap", tap)).toBe("open the Wi-Fi settings");
+    expect(toolSummary("simulator_type", { simulatorId: "01JSIMULATOR", text: "hello", intent: "search for Wallpaper" })).toBe("search for Wallpaper");
+    // The other simulator tools keep the ordinary rule.
+    expect(toolSummary("simulator_launch", { simulatorId: "01JSIMULATOR", bundleId: "com.acme" })).toBe("01JSIMULATOR");
+  });
 });
 
 describe("fenced code (Plan 9 W2 — BUI CodeBlock)", () => {

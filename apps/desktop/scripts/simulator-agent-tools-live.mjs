@@ -20,7 +20,10 @@
  *      and it is painting — sampled from the window, where the stream is an ordinary <img>.
  *   3. simulator_screenshot's picture is a real screen, shrunk to the budget; simulator_elements and
  *      simulator_apps read the real device; simulator_launch opens Settings and the tree says so.
- *   4. browser_open refuses serve-sim's stream — this one, and any other already running — and still
+ *   4. The input tools drive it: a row tapped BY ELEMENT, back by the Back button, text typed into
+ *      Search, the list swiped — each step checked by reading the elements again — behind one card
+ *      for the whole session, and a path from a screen that has since changed is refused.
+ *   5. browser_open refuses serve-sim's stream — this one, and any other already running — and still
  *      opens a loopback URL that is not one.
  *
  * It boots a SHUT-DOWN iPhone (never one somebody has up), and at the end stops the stream Realm
@@ -238,7 +241,7 @@ async function main() {
   const call = async (name, args = {}) => client.callTool({ name: `realm-simulator__${name}`, arguments: args }, undefined, { timeout: 180_000 });
 
   const tools = (await client.listTools()).tools.map((t) => t.name).filter((n) => n.startsWith("realm-simulator__"));
-  check("a real session's gateway lists the eight simulator tools", tools.length === 8, tools);
+  check("a real session's gateway lists the fourteen simulator tools", tools.length === 14, tools);
 
   // ── 2. The device list, and a device nobody has up ──────────────────────────────────────
   const listed = text(await call("simulator_list"));
@@ -325,40 +328,107 @@ async function main() {
   fs.writeFileSync(OUT("window-settings"), Buffer.from((await c.send("Page.captureScreenshot", { format: "png" })).data, "base64"));
   console.log(`SCREENSHOT window-settings ${OUT("window-settings")}`);
 
-  // ── 7. The tap the preamble sends agents to serve-sim for ───────────────────────────────
-  /* The tools do not tap, and the preamble says serve-sim's own `tap -d <udid>` drives the device the
-     pane is streaming and starts nothing. That is a claim agents act on, so it is exercised here the
-     way the skill says to: the element's centre from the tree, over the screen size the tree states. */
-  /* Measured once, and wrong: Settings is still laying itself out when it first reports a tree — a card
-     above General arrives a beat later and pushes it down — so a tap aimed off the first read landed on
-     a different row. The tree is read until General's frame holds still across two reads, and the tap
-     is judged by the screen LEAVING the Settings root, which any landed tap on a row does. */
-  const generalAt = (tree) => tree?.match(/\[[\d.]+\] Button "General"[^\n]*\((\d+),(\d+) (\d+)×(\d+)\)/)?.slice(1).join(",") ?? null;
+  // ── 7. Driving it with the input tools ─────────────────────────────────────────────────
+  /* Settings reports a tree before it has finished laying itself out — a card above General arrives a
+     beat later and pushes the rows down — so the tree is read until General's frame holds still across
+     two reads, and every step below is judged by reading the elements again, which is what the tools
+     tell an agent to do: they say what they sent, never what the app made of it. */
+  const rowAt = (tree, label) => tree?.match(new RegExp(`\\[([\\d.]+)\\] Button "${label}"[^\\n]*\\((\\d+),(\\d+) (\\d+)×(\\d+)\\)`)) ?? null;
+  const read = async () => text(await call("simulator_elements", { simulatorId }));
   let settled = inSettings;
   await until(async () => {
-    const again = text(await call("simulator_elements", { simulatorId }));
-    const still = generalAt(again) !== null && generalAt(again) === generalAt(settled);
+    const again = await read();
+    const still = rowAt(again, "General")?.slice(2).join(",") === rowAt(settled, "General")?.slice(2).join(",");
     settled = again;
-    return still;
+    return still && !!rowAt(again, "General");
   }, 15_000, "Settings holding still").catch(() => {});
-  const general = settled?.match(/\[[\d.]+\] Button "General"[^\n]*\((\d+),(\d+) (\d+)×(\d+)\)/);
-  const screen = settled?.match(/on a (\d+)×(\d+) screen/);
-  if (general && screen) {
-    const [x, y, w, h] = general.slice(1).map(Number), [sw, sh] = screen.slice(1).map(Number);
-    const nx = ((x + w / 2) / sw).toFixed(3), ny = ((y + h / 2) / sh).toFixed(3);
-    execFileSync("npx", ["--yes", "serve-sim@latest", "tap", nx, ny, "-d", target], { stdio: "ignore", timeout: 60_000 });
-    const moved = await until(async () => {
-      const r = text(await call("simulator_elements", { simulatorId }));
-      return !/\] Heading "Settings"/.test(r) ? r : null;
-    }, 20_000, "a screen past the Settings root").catch(() => null);
-    check("serve-sim's tap on the element's centre lands on the device the pane shows", !!moved,
-      { tapped: [nx, ny], landedOn: moved?.split("\n").filter((l) => /Heading|"About"/.test(l)).slice(0, 3) });
-    const streams = serveSimList();
-    const forTarget = (streams.streams ?? (streams.device ? [streams] : [])).filter((s) => s.device === target);
-    check("…and started nothing: still one stream for that device, the pane's", forTarget.length === 1, forTarget.map((s) => s.port));
-  } else {
-    check("the Settings tree carries a General row to tap", false, inSettings?.split("\n").slice(0, 8));
+  const INPUT = ["simulator_tap", "simulator_double_tap", "simulator_long_press", "simulator_swipe", "simulator_type", "simulator_press"];
+  const inputCards = () => cards.filter((k) => INPUT.includes(k.tool));
+  const capture = async (tag) => {
+    await sleep(1200); // the stream can lag the tree by a beat
+    fs.writeFileSync(OUT(tag), Buffer.from((await c.send("Page.captureScreenshot", { format: "png" })).data, "base64"));
+    console.log(`SCREENSHOT ${tag} ${OUT(tag)}`);
+  };
+  const timed = async (fn) => { const t = Date.now(); const v = await fn(); return [v, Date.now() - t]; };
+
+  // a. A row, tapped by element. Wi-Fi if this runtime's Settings has one; the simulator has no radios,
+  //    so its Settings may not — then the first row that opens a screen of its own.
+  const [, readMs] = await timed(read);
+  console.log(`(simulator_elements answered in ${readMs} ms)`);
+  const first = ["Wi-Fi", "General", "Accessibility"].map((label) => ({ label, row: rowAt(settled, label) })).find((x) => x.row);
+  check("Settings lists a row to open", !!first, settled?.split("\n").slice(0, 12));
+  if (!first) return;
+  console.log(`(tapping "${first.label}" — Wi-Fi ${rowAt(settled, "Wi-Fi") ? "is" : "is NOT"} in this Settings)`);
+  const [tapped, tapMs] = await timed(() => call("simulator_tap", { simulatorId, intent: `open the ${first.label} settings`, element: first.row[1] }));
+  console.log(`(simulator_tap answered in ${tapMs} ms) ${text(tapped)}`);
+  check(`simulator_tap by element opens ${first.label}`, !tapped.isError && text(tapped).includes(`Tapped [${first.row[1]}]`), text(tapped));
+  check("…behind a card that names the device and the rest of the session, with the step's intent",
+    inputCards().length === 1 && / for the rest of this session$/.test(inputCards()[0].title), cards.slice(-2));
+  const pushed = await until(async () => {
+    const r = await read();
+    return !rowAt(r, "General") || !/\] Heading "Settings"/.test(r) ? r : null;
+  }, 20_000, `the ${first.label} screen`).catch(() => null);
+  check(`the elements say the ${first.label} screen is up`, !!pushed, pushed?.split("\n").slice(0, 8));
+  await capture("input-opened");
+
+  // b. Back, by the Back button — an element too, named by the screen it goes back to.
+  const back = pushed?.match(/\[([\d.]+)\] Button "(Settings|Back)"/);
+  check("the pushed screen has a Back button to tap", !!back, pushed?.split("\n").slice(0, 10));
+  if (back) {
+    const r = await call("simulator_tap", { simulatorId, intent: "go back to the Settings list", element: back[1] });
+    check("simulator_tap on Back goes back", !r.isError, text(r));
+    const list = await until(async () => { const t = await read(); return rowAt(t, "General") ? t : null; }, 20_000, "the Settings list again").catch(() => null);
+    check("…and the elements say the Settings list is back", !!list, list?.split("\n").slice(0, 6));
+    settled = list ?? settled;
   }
+
+  // c. Type into Search: tap the field by element, then type into whatever has focus.
+  const field = settled?.match(/\[([\d.]+)\] SearchField[^\n]*/);
+  check("the Settings list has a search field", !!field, settled?.split("\n").slice(0, 8));
+  if (field) {
+    const focus = await call("simulator_tap", { simulatorId, intent: "focus the Settings search field", element: field[1] });
+    check("simulator_tap focuses Search", !focus.isError, text(focus));
+    await sleep(800);
+    const typed = await call("simulator_type", { simulatorId, intent: "search Settings for Wallpaper", text: "Wallpaper" });
+    check("simulator_type types into it", !typed.isError, text(typed));
+    const found = await until(async () => { const t = await read(); return /SearchField[^\n]*value="Wallpaper"/.test(t) ? t : null; }, 20_000, "the typed search").catch(() => null);
+    check("…and the elements show the field holding what was typed", !!found, found?.split("\n").filter((l) => /Search|Wallpaper/.test(l)).slice(0, 6));
+    await capture("input-typed");
+    const cancel = found?.match(/\[([\d.]+)\] Button "Cancel"/);
+    if (cancel) await call("simulator_tap", { simulatorId, intent: "leave search", element: cancel[1] });
+    else await call("simulator_press", { simulatorId, intent: "leave search", key: "escape" });
+    settled = await until(async () => { const t = await read(); return rowAt(t, "General") && !/value="Wallpaper"/.test(t) ? t : null; }, 20_000, "search dismissed").catch(() => settled);
+  }
+
+  // d. Swipe the list, and see it move.
+  const labelsOf = (t) => [...(t ?? "").matchAll(/\] \w+ "([^"]+)"/g)].map((m) => m[1]);
+  const beforeSwipe = settled;
+  const swiped = await call("simulator_swipe", { simulatorId, intent: "scroll down the Settings list", direction: "up" });
+  check("simulator_swipe scrolls the list", !swiped.isError, text(swiped));
+  const moved = await until(async () => {
+    const t = await read();
+    const was = rowAt(beforeSwipe, "General"), now = rowAt(t, "General");
+    const shifted = !now || !was || Number(now[3]) < Number(was[3]);
+    const fresh = labelsOf(t).filter((l) => !labelsOf(beforeSwipe).includes(l));
+    return shifted && fresh.length > 0 ? { t, fresh } : null;
+  }, 20_000, "the list to move").catch(() => null);
+  check("…and the elements say it moved: rows scrolled up and new ones came in", !!moved, moved?.fresh.slice(0, 6));
+  await capture("input-swiped");
+
+  // e. A path from a screen that has changed since is refused, and nothing is sent.
+  const stale = await read();
+  const staleRow = rowAt(stale, "[^\"]+");
+  await call("simulator_press", { simulatorId, intent: "go to the home screen", key: "home" });
+  /* A wait, not a read: reading the elements here would make the home screen the session's own view,
+     and the old path would then mean whatever sits at it on the home screen — legitimately. The agent
+     in this step still holds `stale`, and acts on it. */
+  await sleep(2500);
+  const refusedTap = staleRow ? await call("simulator_tap", { simulatorId, intent: "open a row that is gone", element: staleRow[1] }) : null;
+  check("a tap on a path from a screen that has since changed is refused, saying to read again",
+    !!refusedTap && refusedTap.isError && text(refusedTap).includes("Read simulator_elements again"), refusedTap && text(refusedTap));
+  check("one card for the whole run of input on this device", inputCards().length === 1, inputCards());
+  const springboard = await read();
+  check("…and home went home: the elements are the home screen's", /^app: \(no name\)$/m.test(springboard) && !/"General"/.test(springboard), springboard.split("\n").slice(0, 4));
 
   // ── 8. The browser guard ────────────────────────────────────────────────────────────────
   const browse = async (url) => client.callTool({ name: "realm-browser__browser_open", arguments: { url } }, undefined, { timeout: 60_000 });
