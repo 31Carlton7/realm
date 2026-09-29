@@ -203,7 +203,8 @@ describe("simulator_list", () => {
     const mine = await running();
     const theirs = await running(otherSpaceId, "UDID-OFF");
     const out = text(await call("simulator_list"));
-    expect(out).toContain("UDID-OFF — iPhone 17 Pro · iOS 27.0 · not running");
+    // Anchored to the line's end: a device with no pane here carries no pane annotation at all.
+    expect(out).toMatch(/UDID-OFF — iPhone 17 Pro · iOS 27\.0 · not running$/m);
     expect(out).toMatch(/UDID-UP — iPhone Air · iOS 27\.0 · booted · in pane \w+ \(running\)/);
     expect(out).toContain(`in pane ${mine}`);
     // THE MUTANT: list panes from every space. A simulatorId from another space is refused by every
@@ -415,6 +416,7 @@ describe("simulator_elements and simulator_apps", () => {
     const simulatorId = await running();
     const out = text(await call("simulator_apps", { simulatorId }));
     expect(out).toContain("com.acme.app — Acme");
+    expect(out.indexOf("<<<")).toBeGreaterThan(-1);
     expect(out.indexOf("com.acme.app")).toBeGreaterThan(out.indexOf("<<<"));
   });
 });
@@ -531,10 +533,10 @@ describe("through the real gateway", () => {
 
   /** A real app, with the simulator CLIs faked through `createApp`'s seam — the gateway, the provider
    *  registry and the space's switch are all production wiring. */
-  async function boot(simctl?: Partial<Simctl>) {
+  async function boot(simctl?: Partial<Simctl>, serveSim?: Partial<ServeSim>) {
     const home = tempDir("realm-sim-gw-");
     vi.stubEnv("REALM_BUNDLED_SKILLS", join(home, "no-bundle"));
-    const clis = fakeClis({ simctl });
+    const clis = fakeClis({ simctl, serveSim });
     app = await createApp({ home, port: 0, simulator: { simctl: clis.simctl, serveSim: clis.serveSim, android: clis.android } });
     const profile = new ProfilesStore(app.db).create({ name: "P", icon: "x", color: "#000" });
     const space = new SpacesStore(app.db, home).create({ profileId: profile.id, name: "S", icon: "folder" });
@@ -557,6 +559,19 @@ describe("through the real gateway", () => {
     expect((await client.listTools()).tools.some((t) => t.name.startsWith(`${SIMULATOR_PROVIDER_NAME}__`))).toBe(false);
     const refused = (await client.callTool({ name: "realm-simulator__simulator_list", arguments: {} })) as CallToolResult;
     expect(refused.isError).toBe(true);
+    await client.close();
+  });
+
+  it("refuses browser_open on serve-sim's stream through the real wiring, naming simulator_open", async () => {
+    // app.ts has to hand the browser provider the simulator provider's question; the unit tests on
+    // either side build their providers by hand and would pass with that line gone.
+    const { client } = await boot(undefined, {
+      claims: async () => [{ device: "UDID-UP", port: 3100 }],
+      find: async (udid) => (udid === "UDID-UP" ? STREAM("UDID-UP") : NOTHING),
+    });
+    const r = (await client.callTool({ name: "realm-browser__browser_open", arguments: { url: "http://127.0.0.1:3100/" } })) as CallToolResult;
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain('simulator_open with udid "UDID-UP"');
     await client.close();
   });
 
