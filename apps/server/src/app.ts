@@ -639,7 +639,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // `realm-browser` provider on the gateway. The broker's callbacks are late-bound to `sessionService`
   // (the checkpoints knot again): nothing in it runs before a session exists to run it for.
   const computerAllowlist = new ComputerAppAllowlist({ settings });
-  /* Laya in shadow: asked about every computer (and, once it lands, device) step, heard by nobody,
+  /* Laya in shadow: asked about every computer and device step, heard by nobody,
      and logged beside what actually happened (docs/superpowers/specs/2026-09-29-laya-local-decisions.md).
      The service owns the runtime and the log; the shadow is the observer the acting tools report to. */
   const layaLog = new DecisionLog({ path: opts.laya?.logPath ?? join(opts.home, "laya", "decisions.jsonl") });
@@ -760,6 +760,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      further down, beside `realm-vm`, so the settings list keeps the panes that show a screen together. */
   const simulatorTools = createSimulatorAgentProvider({
     mcp, simulators, items, broker: browserBroker, rpc, probe: opts.simulatorToolchain,
+    // Laya's shadow hears every tap, swipe, key and keystroke the input tools send, as it hears
+    // realm-computer's acts: asked off the step's path, answered to nobody, logged beside what the
+    // agent actually did.
+    observe: layaShadow.observe,
     // A toolchain that turns up (or goes) changes what sessions may list, and what the provider's
     // settings row has to say — both are told rather than left to find out on their next fetch.
     onOfferedChange: () => { mcpGateway.notifyToolsChanged(); rpc.broadcast("mcp.changed", {}); },
@@ -785,7 +789,6 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp, agentRuns, reviews, asks));
   // The one provider a space has to switch ON: it reaches every app on the Mac.
   mcpGateway.registerProvider(createComputerAgentProvider({ mcp, bridge: browserBridge, broker: browserBroker, allowlist: computerAllowlist, observe: layaShadow.observe }));
-  // realm-simulator's input tools take the same observer when they land: `observe: layaShadow.observe`.
   /* The `realm-terminal` provider: a pty an agent can type into and read back. On by default, and
      the reasoning is the blast radius — every harness already has a shell tool, so this adds no
      ability to run commands that was not there. What it adds is a terminal that TALKS BACK, which is

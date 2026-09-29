@@ -119,6 +119,10 @@ function rpc(port, token, onEvent) {
   };
 }
 
+const LIVE_LAYA = process.env.LIVE_LAYA === "1";
+const LIVE_LAYA_VENV = process.env.LIVE_LAYA_VENV ?? "/tmp/laya-spike/.venv";
+const LIVE_LAYA_HF = process.env.LIVE_LAYA_HF ?? "/tmp/laya-spike/hf";
+const note = (name, detail) => console.log(`INFO ${name} ${JSON.stringify(detail)}`);
 const check = (name, cond, detail) => {
   if (!cond) process.exitCode = 1;
   console.log(`${cond ? "PASS" : "FAIL"} ${name}${detail !== undefined ? " " + JSON.stringify(detail) : ""}`);
@@ -181,6 +185,9 @@ async function main() {
       REALM_DEVTOOLS_PORT: String(CDP_PORT),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"),
       REALM_GEMINI_BIN: agent,
+      // LIVE_LAYA=1: Laya's shadow on every input step, through the runtime's dev seam — an existing venv
+      // and checkpoint cache, so the check downloads nothing (see apps/server/src/laya/runtime.ts).
+      ...(LIVE_LAYA ? { REALM_LAYA_VENV: LIVE_LAYA_VENV, REALM_LAYA_HF_HOME: LIVE_LAYA_HF } : {}),
       LIVE_USER_DATA: path.join(scratch, "userData"),
       LIVE_MAIN: mainEntry,
     },
@@ -218,6 +225,14 @@ async function main() {
     void api.call("sessions.respondPermission", { id: sessionId, requestId: card.requestId, decision }).catch(() => {});
   });
   await api.ready;
+  if (LIVE_LAYA) {
+    await api.call("laya.setMode", { mode: "shadow" });
+    const ready = await until(async () => {
+      const st = (await api.call("laya.status", {})).runtime;
+      return st.state === "ready" ? st : st.state === "failed" ? { failed: st } : null;
+    }, 120_000, "Laya ready");
+    check("Laya is running locally in shadow before the first input step", !ready.failed, ready);
+  }
   const [space] = await api.call("spaces.list", {});
   const { session } = await api.call("sessions.create", { spaceId: space.id, agentKind: "acp:gemini", title: TITLE, permissionMode: "default" });
   sessionId = session.id;
@@ -461,6 +476,30 @@ async function main() {
   check("one card for the whole run of input on this device", inputCards().length === 1, inputCards());
   const springboard = await steady(() => true, "the home screen's tree") ?? "";
   check("…and home went home: the elements are the home screen's", /^app: \(no name\)$/m.test(springboard) && !/"General"/.test(springboard), springboard.split("\n").slice(4, 8));
+
+  // ── 7b. Laya heard every input step (LIVE_LAYA=1) ─────────────────────────────────────────
+  if (LIVE_LAYA) {
+    /* A row is written when the step after it arrives (that is what labels "did it work"), so the last
+       step's row may still be pending here; every earlier one must be in the log already. */
+    const logPath = path.join(home, "laya", "decisions.jsonl");
+    const rows = await until(() => {
+      const r = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : [];
+      return r.filter((x) => x.surface === "simulator").length >= 4 ? r : null;
+    }, 30_000, "Laya's rows for the input steps").catch(() => []);
+    const sim = rows.filter((x) => x.surface === "simulator");
+    check("Laya logged a row for the simulator's input steps", sim.length >= 4, sim.map((x) => `${x.tool}: ${x.intent}`));
+    check("…each carrying the step's own intent", sim.every((x) => typeof x.intent === "string" && x.intent.length > 0), sim.map((x) => x.intent));
+    const byElement = sim.filter((x) => x.chosen && "id" in x.chosen);
+    check("…and for a tap on an element, Laya's pick and the agent's actual element side by side",
+      byElement.length >= 2 && byElement.every((x) => x.laya?.target && typeof x.laya.target.choice === "string" && x.truth?.target?.source === "agent"),
+      byElement.map((x) => ({ intent: x.intent, agent: x.truth?.target?.id, laya: x.laya?.target?.choice, p: x.laya?.target?.confidence, ms: x.laya?.target?.ms })));
+    const agreed = byElement.filter((x) => x.laya.target.choice === x.truth.target.id).length;
+    note("Laya agreed with the agent's element", `${agreed}/${byElement.length}`);
+    const ms = sim.flatMap((x) => [x.laya?.target?.ms, x.laya?.sensitive?.ms]).filter((v) => typeof v === "number").sort((a, b) => a - b);
+    note("Laya question latency (ms, p50)", ms.length ? ms[Math.floor(ms.length / 2)] : null);
+    check("…and nothing Laya said reached the agent: no tool result mentions it",
+      ![tapped].some((r) => /laya/i.test(text(r))), text(tapped));
+  }
 
   // ── 8. The browser guard ────────────────────────────────────────────────────────────────
   const browse = async (url) => client.callTool({ name: "realm-browser__browser_open", arguments: { url } }, undefined, { timeout: 60_000 });
