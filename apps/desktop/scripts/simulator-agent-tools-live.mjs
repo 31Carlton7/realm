@@ -264,14 +264,22 @@ async function main() {
   check("the device comes up streaming in a pane", !opened.isError && /Opened .* in simulator pane/.test(text(opened)), text(opened));
 
   // ── 4. BESIDE the session, and painting ─────────────────────────────────────────────────
-  const layout = await until(() => evalIn(c, `(() => {
-    const box = (el) => { if (!el) return null; const b = el.getBoundingClientRect(); return { x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height) }; };
-    const pic = document.querySelector('.sim-picture');
-    const composer = document.querySelector('.composer');
-    return pic && composer ? { sim: box(document.querySelector('.sim-pane')), picture: box(pic), composer: box(composer) } : null;
-  })()`), 30_000, "the simulator pane in the layout");
+  /* The PANE, not the picture: the pane is broadcast into the layout before the stream is up, so
+     whether it arrived beside the session is a question about the renderer alone — a stream that
+     fails to start must not be able to pass or fail it. */
+  const box = `(el) => { if (!el) return null; const b = el.getBoundingClientRect(); return { x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height) }; }`;
+  const beside = await until(() => evalIn(c, `(() => {
+    const box = ${box};
+    const sim = document.querySelector('.sim-pane'), composer = document.querySelector('.composer');
+    return sim && composer ? { sim: box(sim), composer: box(composer) } : null;
+  })()`), 15_000, "the simulator pane in the layout").catch(() => null);
   check("the simulator pane opened beside the session rather than over it",
-    layout.sim.w > 200 && layout.composer.w > 200 && layout.sim.x >= layout.composer.x + layout.composer.w - 2, layout);
+    !!beside && beside.sim.w > 200 && beside.composer.w > 200 && beside.sim.x >= beside.composer.x + beside.composer.w - 2, beside);
+  const layout = await until(() => evalIn(c, `(() => {
+    const box = ${box};
+    const pic = document.querySelector('.sim-picture');
+    return pic ? { picture: box(pic) } : null;
+  })()`), 30_000, "the live picture");
   const shot = await until(async () => {
     const b = layout.picture;
     const s = await c.send("Page.captureScreenshot", { format: "png", clip: { x: b.x, y: b.y, width: b.w, height: b.h, scale: 1 } });
