@@ -95,6 +95,16 @@ export function DimensionField() {
       const presence = closingShown
         ? clamp01((height - closing[1]) / (height * 0.45))
         : clamp01((heroPortal[1] + heroPortal[3] + height * 0.05) / (height * 0.4))
+      // The footer: presence as it arrives from below, and the rise, which completes as the page
+      // reaches its end. The mark is sized from the room above the horizon — at full rise its top sits
+      // 26.8 mark units above it — so it can never reach up into the words over the scene.
+      const footerStage = rectOf('[data-dim-stage="footer"]')
+      const footerAt = rectOf('[data-dim="horizon"]') ?? [0, 0, 0, 0]
+      const footerPresence = footerStage ? clamp01((height - footerStage[1]) / (height * 0.5)) : 0
+      const rise = footerStage ? clamp01((height - footerStage[1]) / Math.max(footerStage[3], 1)) : 0
+      const horizon = width < 640 ? 0.5 : 0.44
+      const footerUnit = Math.min((footerAt[2] * (width < 640 ? 0.42 : 0.3)) / 40, (footerAt[3] * horizon * 0.9) / 26.8)
+
       // The capture frames on or near the screen, in page order — rarely more than two at once, and
       // never more than the four the shader holds.
       const windowRects = [...document.querySelectorAll('[data-dim="window"]')]
@@ -120,12 +130,15 @@ export function DimensionField() {
         height,
         pointer: [pointer.x, pointer.y, pointer.presence, 0],
         portal,
-        hero: [ease(presence), entering, 0, 0],
+        // The closing corridor gives way as the realm rises beneath it: one finale at a time.
+        hero: [ease(presence) * (1 - ease(footerPresence)), entering, 0, 0],
         ripple: [ripple.x, ripple.y, Number.isFinite(ripple.at) ? (now - ripple.at) / 1000 : -1, 0],
         faces: [ease(facesPresence), progress, unit, 0],
         facesAt,
         windows: padded(windowRects),
         counts: [windowRects.length, 0, 0, 0],
+        footer: [ease(footerPresence), rise, footerUnit, horizon],
+        footerAt,
       }
     }
 
