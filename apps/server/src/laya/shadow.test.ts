@@ -325,6 +325,12 @@ describe("candidates", () => {
     expect(picked[picked.length - 1]!.id).toBe("b");
   });
 
+  it("offer no heading or group for Assist to pick, but keep them as the shadow's distractors", () => {
+    const elements = [el("h", "Accessibility", "Heading"), el("g", "Locations", "AXGroup"), el("b", "VoiceOver", "Button")];
+    expect(pickCandidates(elements, null, "screen reader").map((p) => p.id)).toEqual(["b"]);
+    expect(pickCandidates(elements, elements[2]!, "screen reader").map((p) => p.id)).toEqual(["h", "g", "b"]);
+  });
+
   it("leave out elements nobody could name, unless the agent chose one", () => {
     expect(pickCandidates(SETTINGS, null, "x").map((p) => p.id)).not.toContain("6");
   });

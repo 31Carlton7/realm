@@ -37,7 +37,9 @@ import type { LayaChoiceAnswer, LayaClient, LayaNoulAnswer } from "./client";
  * plausible options and its clock and headings are not — and the element the agent actually addressed is ALWAYS added — label or no label, score
  * or no score — so the ground truth is always one of the options. The kept set is then put back into
  * tree order, so where the right answer sits in the list says nothing about which one it is. Picking
- * by overlap makes the options the plausible ones: an easy distractor teaches nothing. (Laya's
+ * by overlap makes the options the plausible ones: an easy distractor teaches nothing. With nothing
+ * chosen — Assist, finding the element for an agent's words — a heading or a group is not offered at
+ * all: neither is ever what a tap is for, and Laya, asked to pick, picked them. (Laya's
  * checkpoint clamps the temperature it ships for choices of 11 or more options, so its confidence on
  * a full set of 20 is uncalibrated — the row records the answer and its probabilities regardless.)
  *
@@ -384,13 +386,16 @@ export class LayaShadow {
  *  `AXCheckBox`) both. The walk ranks its matches by this too. */
 export const TAPPABLE_ROLE = /button|cell|link|switch|toggle|tab|field|menu ?item|bar ?item|slider|segment|check ?box|radio|icon|key|row|pop ?up/i;
 
+/** Roles that title or hold what is tapped, and are never tapped themselves. */
+const NEVER_TAPPED = /heading|group/i;
+
 /** The candidate rule described in the module comment. Exported for its tests. */
 export function pickCandidates(elements: readonly ObservedElement[], chosen: ObservedElement | null, intent: string): ObservedElement[] {
   const goal = new Set(words(intent).map(stem));
   const tappable = (e: ObservedElement) => (TAPPABLE_ROLE.test(e.role) ? 1 : 0);
   const ranked = elements
     .map((e, i) => ({ e, i, score: overlap(goal, e) }))
-    .filter(({ e }) => e.id !== chosen?.id && e.label.trim() !== "")
+    .filter(({ e }) => e.id !== chosen?.id && e.label.trim() !== "" && (chosen !== null || !NEVER_TAPPED.test(e.role)))
     .sort((a, b) => b.score - a.score || tappable(b.e) - tappable(a.e) || a.i - b.i)
     .slice(0, chosen ? MAX_CANDIDATES - 1 : MAX_CANDIDATES);
   if (chosen) {
