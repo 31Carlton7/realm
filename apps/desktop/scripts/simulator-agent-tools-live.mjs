@@ -365,6 +365,20 @@ async function main() {
   check("a loopback URL that is NOT a simulator stream goes on to its card, as before",
     cards.slice(before).some((k) => k.tool === "browser_open") && /denied/.test(text(allowedThrough)), text(allowedThrough));
 
+  // ── 9. The settings row says what the probe said ───────────────────────────────────────
+  /* This Mac can run a simulator, so the row carries the space's switch as every other provider's
+     does. The other answer — "Needs Xcode or Android Studio", with no switch — is
+     `simulator-settings-row-live.mjs`, which boots with both toolchains hidden. */
+  await evalIn(c, `(() => { [...document.querySelectorAll('.sb-destinations .dest-row')].find((b) => b.textContent.trim().startsWith("Connections")).click(); return true; })()`);
+  const row = await until(() => evalIn(c, `(() => {
+    const row = [...document.querySelectorAll('.mcp-row')].find((r) => r.querySelector('.env-name')?.textContent === "realm-simulator");
+    if (!row) return null;
+    const sw = row.querySelector('[role=switch]');
+    return { switch: sw ? { label: sw.getAttribute('aria-label'), checked: sw.checked } : null, actions: row.querySelector('.env-actions')?.textContent.trim() ?? null };
+  })()`), 15_000, "the realm-simulator settings row");
+  check("the settings row carries the simulator tools' switch on a Mac that can run them",
+    row.switch?.checked === true && row.actions === "Enabled", row);
+
   await client.close();
   c.close();
 }
