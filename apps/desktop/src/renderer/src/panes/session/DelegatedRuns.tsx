@@ -1,9 +1,9 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useState } from "react";
-import type { DelegatedRun } from "@realm/contracts";
+import { bareToolName, type DelegatedRun, type DispatchKind, type Session } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { ORIGIN_META, SESSION_STATUS_LABEL } from "../session-labels";
-import { formatDuration } from "./tool-group";
+import { formatDuration, type ToolBlock } from "./tool-group";
 import type { Block } from "./transcript-model";
 import { useElapsed } from "./use-elapsed";
 
@@ -102,6 +102,75 @@ export function labelOf(input: Record<string, unknown>): string {
   return typeof prompt === "string" && prompt.trim() ? prompt.trim() : "Sub-agent";
 }
 
+/** The delegation calls whose RESULT names the sessions they started or collected, by the name every
+ *  harness ends it with (`bareToolName`). The input names none: the child did not exist yet. */
+const DELEGATION_CALLS = new Set(["agent_run", "agent_start", "agent_wait", "browser_agent_run", "agent_review"]);
+/** The dispatch origins that make a session a delegated CHILD — what the call's own trail names. */
+const CHILD_ORIGINS = new Set<DispatchKind>(["agent_run", "browser_agent_run", "review"]);
+const SESSION_ID = /\b[0-9A-HJKMNP-TV-Z]{26}\b/g;
+
+/**
+ * The ids a delegation call's result names, first mention first — the server's own trail after each
+ * report (`Child session: {…}`, `agent_start`'s handle, each `agent_wait` heading, the browser agent's
+ * and the reviewer's). Candidates, not children: `ChildSessions` keeps only the ones this window knows
+ * as a delegated session, so an id that happens to sit inside a child's REPORT is never made a link.
+ */
+export function delegatedChildIds(b: ToolBlock): string[] {
+  if (!b.result || !DELEGATION_CALLS.has(bareToolName(b.name))) return [];
+  return [...new Set(b.result.content.match(SESSION_ID) ?? [])];
+}
+
+/** Open a delegated child BESIDE the pane asking — the point of going to look is to see the child
+ *  with the session that spawned it, and `openItem` would evict the pane the click came from. A
+ *  child this window holds no item for (another space) is revealed instead. One way in, for the dock
+ *  and for the call's own rows, because it is one object. */
+function useOpenChild(): (childId: string) => void {
+  const items = useApp((s) => s.items);
+  const openItemBeside = useApp((s) => s.openItemBeside);
+  const revealSession = useApp((s) => s.revealSession);
+  const run = useApp((s) => s.run);
+  return (childId) => {
+    const it = items.find((i) => i.kind === "session" && i.refId === childId);
+    run(() => (it ? openItemBeside(it.id) : revealSession(childId, null)));
+  };
+}
+
+/**
+ * The delegated sessions a call started or reported, hanging off the call itself.
+ *
+ * The dock above the prompter lists a child only while it RUNS, and Realm takes a finished child's
+ * pane back out of the layout — so without this, the moment a child was done its transcript was one
+ * sidebar search away from the report it produced. The call is where that report lands, so the way
+ * back lives on it: the dock's own row and the dock's own jump, on the trace rail a sub-agent's calls
+ * hang from, because it is the same object reached from a second place.
+ */
+export function ChildSessions({ ids }: { ids: readonly string[] }) {
+  const sessions = useApp((s) => s.sessions);
+  const sessionStatus = useApp((s) => s.sessionStatus);
+  const open = useOpenChild();
+  const children = ids.map((id) => sessions[id])
+    .filter((c): c is Session => c?.dispatchedBy != null && CHILD_ORIGINS.has(c.dispatchedBy.kind));
+  if (children.length === 0) return null;
+  return (
+    <ul className="delegation-list" aria-label="Delegated sessions">
+      {children.map((c) => {
+        const meta = ORIGIN_META[c.dispatchedBy!.kind];
+        const status = sessionStatus[c.id] ?? c.status;
+        return (
+          <li key={c.id}>
+            <button type="button" className="delegation-item" title={meta.label}
+              aria-label={`${c.title} — ${meta.label}`} onClick={() => open(c.id)}>
+              <Icon name={meta.icon} size={14} />
+              <span className="delegation-title">{c.title}</span>
+              <span className="status-dot item-status" data-status={status} title={SESSION_STATUS_LABEL[status]} />
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export function DelegatedRuns({ sessionId }: { sessionId: string }) {
   const running = useApp((s) => s.delegatedRuns[sessionId]);
   const blocks = useApp((s) => s.transcripts[sessionId]?.t.blocks ?? NO_BLOCKS);
@@ -128,12 +197,9 @@ function Dock({ sessionId, running, harness }: {
 }) {
   const sessions = useApp((s) => s.sessions);
   const sessionStatus = useApp((s) => s.sessionStatus);
-  const items = useApp((s) => s.items);
-  const openItemBeside = useApp((s) => s.openItemBeside);
-  const revealSession = useApp((s) => s.revealSession);
   const docked = useApp((s) => s.sessionDock[sessionId]);
   const toggleSessionDock = useApp((s) => s.toggleSessionDock);
-  const run = useApp((s) => s.run);
+  const jump = useOpenChild();
   const [open, setOpen] = useState(true);
   const watched = docked?.kind === "subagent" ? docked.toolUseId : null;
   const rows = [...running].sort((a, b) => a.startedAt - b.startedAt);
@@ -148,14 +214,6 @@ function Dock({ sessionId, running, harness }: {
   const now = since + elapsed;
   const count = total === 1 ? "1 agent" : `${total} agents`;
   const title = sessions[sessionId]?.title ?? "this session";
-
-  const jump = (childId: string) => {
-    const it = items.find((i) => i.kind === "session" && i.refId === childId);
-    // Beside, never in place: the point of going to look is to watch the child WITH the parent that
-    // spawned it, and openItem would evict the pane the user pressed the button in. A child in
-    // another space has no item here, and revealing it is the only way through.
-    run(() => (it ? openItemBeside(it.id) : revealSession(childId, null)));
-  };
 
   return (
     /* The plan strip's tab, not a list of its own: same fill, same inset, same collapse. `data-open`

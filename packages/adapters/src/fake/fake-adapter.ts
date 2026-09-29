@@ -3,7 +3,10 @@ import { AsyncQueue } from "../event-queue";
 import type { AgentAdapter, AgentHandle, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
 
 export type FakeStep =
-  | { kind: "text"; text: string }
+  /** `paceMs` streams the text a word at a time, this far apart — the way a real agent's deltas
+   *  arrive. Without it the whole message lands in one burst, which is all a test needs and too
+   *  fast for anything that animates arrival (the prose's fade) to be seen doing it. */
+  | { kind: "text"; text: string; paceMs?: number }
   | { kind: "tool"; name: string; input: Record<string, unknown>; needsPermission?: boolean; result: string }
   /** A plan, in either shape the `plan` event carries. Re-using a `planId` revises that plan in
    *  place, which is what the real agents do and the one plan behaviour a script must be able to
@@ -64,8 +67,22 @@ export class FakeAdapter implements AgentAdapter {
         if (st.kind === "plan") { q.push(sessionEvent("plan", { planId: st.planId, ...(st.text ? { text: st.text } : {}), ...(st.steps ? { steps: st.steps } : {}) })); continue; }
         if (st.kind === "text") {
           const id = newId();
-          for (const ch of st.text) q.push(sessionEvent("assistant_delta", { messageId: id, delta: ch }));
-          q.push(sessionEvent("assistant_text", { messageId: id, text: st.text }));
+          if (st.paceMs === undefined) {
+            for (const ch of st.text) q.push(sessionEvent("assistant_delta", { messageId: id, delta: ch }));
+            q.push(sessionEvent("assistant_text", { messageId: id, text: st.text }));
+          } else {
+            // A stop mid-sentence ends the message where it got to, as a real one does — the final
+            // text is what was said, never the rest of the script.
+            let said = "";
+            for (const word of st.text.match(/\S+\s*|\s+/g) ?? []) {
+              if (disposed || interrupted) break;
+              said += word;
+              q.push(sessionEvent("assistant_delta", { messageId: id, delta: word }));
+              await new Promise((r) => setTimeout(r, st.paceMs));
+            }
+            if (disposed) return;
+            q.push(sessionEvent("assistant_text", { messageId: id, text: said }));
+          }
         } else {
           const toolUseId = newId();
           q.push(sessionEvent("tool_call", { toolUseId, name: st.name, input: st.input, parentToolUseId: null }));

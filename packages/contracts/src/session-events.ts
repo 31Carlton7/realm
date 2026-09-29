@@ -170,7 +170,12 @@ const P = {
     fastMode: z.enum(["off", "cooldown", "on"]).optional(),
     /** Why it could not serve, verbatim from the harness (`free`, `model_not_allowed`, …). Present
      *  only alongside a `fastMode` that is not `on`, and only when the harness said. */
-    fastModeReason: z.string().optional() }),
+    fastModeReason: z.string().optional(),
+    /** Whether fast mode was ASKED FOR on the turn this reports. The state above answers "what did it
+     *  do"; this answers "what was it asked to do" — and without it a refusal from before the switch
+     *  was flipped is indistinguishable from a refusal of the switch itself. Absent on events written
+     *  before it existed, and on every harness that does not report fast mode at all. */
+    fastModeRequested: z.boolean().optional() }),
   /**
    * The harness replaced the conversation so far with a summary of it, because it stopped fitting.
    *

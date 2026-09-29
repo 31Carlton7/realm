@@ -16,7 +16,7 @@ import { IdSchema } from "./ids";
  * `workspace.ship` or any commit — the plan bans wiring review→ship, structurally (the review module
  * never imports git-write; see delegation/structure.test.ts). Review informs the human's ship click.
  */
-export const ReviewOutcomeSchema = z.enum(["done", "interrupted", "timeout", "failed", "gone"]);
+export const ReviewOutcomeSchema = z.enum(["done", "stopped", "interrupted", "timeout", "failed", "gone"]);
 export type ReviewOutcome = z.infer<typeof ReviewOutcomeSchema>;
 
 export const ReviewResultSchema = z.object({

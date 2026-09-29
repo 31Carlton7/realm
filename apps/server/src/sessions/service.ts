@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementContext, newId, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type ElementChip, type Environment, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent } from "@realm/contracts";
+import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementContext, fastSupportKey, newId, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type ElementChip, type Environment, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, type AdapterRegistry, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -155,8 +155,9 @@ export class SessionService {
     notifications?: { handleSessionEvent(session: Session, ev: SessionEvent): void; probeResults(results: ProbeResult[]): void };
     /** Upgrades the heuristic first-line title (`maybeTitleFrom`) to a short model-written summary.
      *  Optional and OFF by default: it is a real, billed LLM call on every session's first message,
-     *  so only `main.ts`'s real server process wires it — every test and live-check script goes
-     *  through `createApp` without it and gets the heuristic title only, never a live network call. */
+     *  so only `main.ts`'s real server process wires it, and only with the scripted agent off
+     *  (`billed-calls.ts`) — tests go through `createApp` without it, live checks boot `main.ts`
+     *  with the scripted agent on, and both get the heuristic title only, never a live network call. */
     titleGenerator?: (text: string) => Promise<string>;
     /** Writes the model's account of a session when a turn settles (`SessionSummaryService`). Wired
      *  and gated for exactly the same reasons as `titleGenerator` above: it is a billed call, so only
@@ -1132,6 +1133,21 @@ export class SessionService {
   }
 
   /**
+   * Remember what the harness just said about fast mode, for the model this session ASKED for, so
+   * the next session on it can offer the switch before its first message (`MODEL_FAST_SUPPORT_KEY`).
+   *
+   * Keyed by the row's model — the request — and not by the id the harness resolved it to: a
+   * prompter that has not started a session knows only what it is going to ask for. Written only
+   * when the answer changed, so a session's every restated handshake costs a read and no write.
+   */
+  private noteFastSupport(s: Session, can: boolean): void {
+    const key = fastSupportKey(s.agentKind, s.model);
+    const held = readFastSupport(this.d.settings.get(MODEL_FAST_SUPPORT_KEY));
+    if (held[key] === can) return;
+    this.d.settings.set(MODEL_FAST_SUPPORT_KEY, { ...held, [key]: can });
+  }
+
+  /**
    * Say so when the agent under the transcript cannot read it.
    *
    * A resume that silently starts a fresh thread under an old conversation is the one lie this whole
@@ -1173,6 +1189,7 @@ export class SessionService {
     if (ev.type === "init") {
       this.noteContextReset(before, ev.payload);
       this.d.sessions.update({ id, providerSessionId: ev.payload.providerSessionId });
+      if (ev.payload.supportsFastMode !== undefined) this.noteFastSupport(before, ev.payload.supportsFastMode);
     }
     // A refused truncating resume is claimed here FIRST, and deliberately kept away from failover: the
     // refusal is deterministic, so every retry mechanism in the building would re-send a request that

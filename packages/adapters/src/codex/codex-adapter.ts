@@ -422,6 +422,10 @@ export class CodexAdapter implements AgentAdapter {
      *  thread once set, so switching off has to say `null` — but only then: a session that never
      *  touched it must not reset a tier the user's own Codex config may have chosen. */
     let tierAsked = false;
+    /** What the turn in flight was started under. A switch flipped mid-turn is about the NEXT
+     *  `turn/start`, and the usage this turn reports has to say which request it answers — or a thread
+     *  still on the old tier reads as a refusal of the new one. */
+    let turnFast = fastMode;
     const serviceTierParam = (): { serviceTier?: string | null } => {
       if (fastMode) { tierAsked = true; return { serviceTier: CODEX_FAST_TIER }; }
       return tierAsked ? { serviceTier: null } : {};
@@ -453,7 +457,9 @@ export class CodexAdapter implements AgentAdapter {
         // notification is the only place a rejoined session learns one.
         if (method === "turn/started") activeTurnId = str(obj(p.turn).id) || activeTurnId;
         if (method === "turn/completed") activeTurnId = null;
-        for (const e of mapper.map(method, params)) events.push(e);
+        for (const e of mapper.map(method, params)) {
+          events.push(e.type === "usage" ? sessionEvent("usage", { ...e.payload, fastModeRequested: turnFast }) : e);
+        }
       },
       onServerRequest: (id, method, params) => {
         const approval = APPROVAL_METHODS[method];
@@ -633,6 +639,7 @@ export class CodexAdapter implements AgentAdapter {
               activeTurnId = null;
             }
           }
+          turnFast = fastMode;
           const started = obj(await conn.request("turn/start", {
             threadId,
             input,
