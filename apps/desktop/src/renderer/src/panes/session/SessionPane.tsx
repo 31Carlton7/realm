@@ -1,6 +1,6 @@
 import { Icon, type IconName } from "@realm/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AGENT_SKILL_SUPPORT, PLAN_PERMISSION_MODE, offeredModes, sessionModeOf, type Item, type LinkChip, type SessionMode, type Skill, runnableCommands, type UserCommand } from "@realm/contracts";
+import { AGENT_SKILL_SUPPORT, PLAN_PERMISSION_MODE, fastSupportKey, offeredModes, sessionModeOf, type Item, type LinkChip, type SessionMode, type Skill, runnableCommands, type UserCommand } from "@realm/contracts";
 
 /** A stable empty list for the commands selector. A fresh `[]` in the selector is a new reference on
  *  every render, which is how a zustand subscription turns into a render loop. */
@@ -288,6 +288,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // there. `spaceSkills` rows are store-held references, so the memo only re-filters on real change.
   const spaceSkillList = useApp((s) => { const sess = s.sessions[id]; return (sess && s.spaceSkills[sess.spaceId]) || NO_SKILLS; });
   const agentKind = useApp((s) => s.sessions[id]?.agentKind);
+  /* What the last session on this model heard about fast mode — the answer a session that has not
+     started yet can offer the switch on. Its own `init` overrides it the moment it has one. */
+  const rememberedFast = useApp((s) => { const sess = s.sessions[id]; return sess ? s.fastSupport[fastSupportKey(sess.agentKind, sess.model)] : undefined; });
   const mentionSkills = useMemo(
     () => (agentKind && AGENT_SKILL_SUPPORT[agentKind] === "injected" ? spaceSkillList.filter((k) => k.enabled && k.valid) : NO_SKILLS),
     [agentKind, spaceSkillList],
@@ -353,6 +356,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const modelInfo = useApp((s) => s.modelInfo);
   const refreshModelCatalog = useApp((s) => s.refreshModelCatalog);
   const refreshModelFavorites = useApp((s) => s.refreshModelFavorites);
+  const refreshFastSupport = useApp((s) => s.refreshFastSupport);
   const toggleModelFavorite = useApp((s) => s.toggleModelFavorite);
   const prefillTerminal = useApp((s) => s.prefillTerminal);
   const cliStatus = useApp((s) => s.cliStatus);
@@ -397,6 +401,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // One settings read, alongside the probe. Favourites only ever change through this app's own
   // toggle (which writes through and updates the store), so there is nothing to poll for.
   useEffect(() => { run(() => refreshModelFavorites()); }, [refreshModelFavorites, run]);
+  // The remembered fast-mode answers, on the same terms: the store re-reads them whenever a harness
+  // states one, so a mount only has to catch up on whatever was filed before this renderer started.
+  useEffect(() => { run(() => refreshFastSupport()); }, [refreshFastSupport, run]);
   // Prices and context windows for the picker's detail pane. Same shape as the two reads above and
   // just as cheap: the server caches the catalog for a day, the store collapses concurrent calls, and
   // a failure leaves `modelInfo` empty — which the picker renders as rows without prices.
@@ -594,7 +601,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
               onPause={() => run(() => setGoalStatus(id, "paused", "You paused it."))}
               onResume={() => run(() => resumeGoal(id))}
               onDrop={() => run(() => clearGoal(id))} />}
-            supportsFastMode={transcript.init?.supportsFastMode}
+            supportsFastMode={transcript.init?.supportsFastMode ?? rememberedFast}
             links={draftLinks} onLinkPaste={(url) => addLinkChip(id, url)}
             queued={queued ?? []} midTurnMode={midTurnMode} planLimits={planLimits}
             onReleaseQueued={(queuedId) => run(() => releaseQueuedPrompt(id, queuedId))}

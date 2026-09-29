@@ -262,6 +262,25 @@ describe("specialization through existing seams", () => {
     ws.close();
   });
 
+  it("broadcasts session.agentSettled once, with the ids agentOpened carried and how the run ended", async () => {
+    const { spaceId, parentId } = await boot();
+    const ws = await new Promise<WebSocket>((res, rej) => { const w = new WebSocket(`ws://127.0.0.1:${app.port}`); w.once("open", () => res(w)); w.once("error", rej); });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const events: any[] = [];
+    ws.on("message", (d) => { const m = JSON.parse(d.toString()); if (!("id" in m)) events.push(m); });
+    await app.browserAgents.run({ sessionId: parentId, spaceId }, { goal: "go" });
+    const child = childOf(spaceId, parentId);
+    await waitFor(() => events.some((e) => e.event === "session.agentSettled"));
+    await new Promise((r) => setTimeout(r, 150)); // several polls: room for a second one to show up
+    // THE MUTANT: leave this tool out of the settle idiom (agent_run has it, this one is a separate
+    // service) and a browser agent's pane stays however cleanly it finished.
+    const settled = events.filter((e) => e.event === "session.agentSettled");
+    expect(settled).toHaveLength(1);
+    const opened = events.find((e) => e.event === "session.agentOpened")!;
+    expect(settled[0].payload).toEqual({ spaceId, sessionId: child.id, itemId: opened.payload.itemId, outcome: "done" });
+    ws.close();
+  });
+
   it("the child's record — and with it the toolset restriction — survives a server restart", async () => {
     const { home, spaceId, parentId } = await boot();
     await app.browserAgents.run({ sessionId: parentId, spaceId }, { goal: "go" });

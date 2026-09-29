@@ -101,7 +101,10 @@ export type Usage = { costUsd: number; inputTokens: number; outputTokens: number
    *  session asked for. Undefined where the engine does not report it at all. */
   fastMode?: "off" | "cooldown" | "on";
   /** Why it could not serve, in the harness's own vocabulary. */
-  fastModeReason?: string };
+  fastModeReason?: string;
+  /** Whether the turn this reports ASKED for fast mode. Undefined on transcripts written before it
+   *  was stamped, and on engines that do not report fast mode at all. */
+  fastModeRequested?: boolean };
 export type Transcript = {
   blocks: Block[];
   /** Open permission requests, oldest first (an agent may ask for several tools at once). */

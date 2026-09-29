@@ -216,6 +216,18 @@ describe("§6 motion table", () => {
     expect(tokensCss).toContain("--ease-fade: cubic-bezier(0.4, 0, 0.2, 1)");
   });
 
+  /* Streamed prose fades as it arrives (`arrival-fade.ts`), on the system lines' pair: text
+     appearing, not an object landing. THE mutants: a rise (`rl-msg-in`), which would twitch every
+     chunk upward as it lands, dozens of times a second; and a resting `opacity` on the span — reduced
+     motion removes the animation, and whatever the span rests at is all the reader gets. (That it is
+     never paused when the window goes quiet is the quiet list's own test: it ends.) */
+  it("streamed prose fades in where it lands, and rests fully opaque", () => {
+    const body = bodiesFor(".md-arrival").join(" ");
+    expect(body).toContain(`animation: rl-fade-in ${dur("--dur-slow")} var(--ease-fade)`);
+    expect(body).not.toContain("rl-msg-in");
+    expect(body).not.toMatch(/(^|;|\s)opacity:/);
+  });
+
   it("hover fills run on the hover rung, on plain `ease`, and touch background/colour only — never geometry", () => {
     const hover = bodiesFor(".item-row").join(" ");
     expect(hover).toContain(`transition: background-color ${dur("--dur-hover")} ease, color ${dur("--dur-hover")} ease`);
@@ -2271,6 +2283,43 @@ describe("light mode", () => {
     expect(lightBlocks).not.toContain("--fill-bevel");
     for (const sel of [".btn.primary", ".composer-send", ".btn.destructive"])
       expect(bodiesFor(sel).join(" "), sel).toContain("box-shadow: var(--fill-bevel)");
+  });
+
+  it("a file card set into the dock's raised surface takes the raised frame step, and light's is no weaker than dark's", () => {
+    /* One card, two grounds. In the Library it is --rl-frame on the canvas, and stays so; in the Files
+       dock it stands on --surface, where --rl-frame is one rung off white on the light face and
+       measured 1.04:1 — a card with no edge. THE MUTANTS: point the dock's card or its well back at
+       --rl-frame; drop the dock's hover (its fill then out-ranks the Library's `:hover`, and the card
+       stops answering the pointer); or set the light value back up the ladder. */
+    expect(bodiesFor(".library-tile").join(" ")).toContain("background: var(--rl-frame)");
+    expect(bodiesFor(".session-files .library-tile").join(" ")).toContain("background: var(--rl-frame-raised)");
+    expect(bodiesFor(".session-files .library-tile-mark").join(" ")).toContain("background: var(--rl-frame-raised)");
+    expect(bodiesFor(".session-files .library-tile:hover").join(" ")).toContain("background: var(--rl-frame-raised-hover)");
+    expect(bodiesFor(":root").join(" ")).toContain("--rl-frame-raised: var(--page)");
+
+    /* The light value is a number chosen by measurement, so hold it to the measurement: against its
+       own face's --surface, the light step is at least the dark one. For a neutral, OKLab's L is the
+       cube root of relative luminance, which is all the WCAG ratio needs. */
+    const lOf = (src: string, name: string): number => {
+      const m = src.match(new RegExp(`(?<![\\w-])${name}:\\s*oklch\\(([\\d.]+)`));
+      expect(m, `${name} as an oklch() value`).not.toBeNull();
+      return Number(m![1]);
+    };
+    const ratio = (a: number, b: number) => (Math.max(a, b) ** 3 + 0.05) / (Math.min(a, b) ** 3 + 0.05);
+    // Uncommented first: the file's own header names the light selector in prose.
+    const plain = tokens.replace(/\/\*[\s\S]*?\*\//g, "");
+    const darkTokens = plain.slice(0, plain.indexOf(':root[data-mode="light"]'));
+    const lightResidue = bodiesFor(':root[data-mode="light"]').join(" ");
+    const dark = ratio(lOf(darkTokens, "--surface"), lOf(darkTokens, "--page"));
+    const light = ratio(lOf(lightBlocks, "--surface"), lOf(lightResidue, "--rl-frame-raised"));
+    expect(dark).toBeGreaterThan(1.12);
+    expect(light, `light ${light.toFixed(3)} against dark ${dark.toFixed(3)}`).toBeGreaterThanOrEqual(dark);
+    // And the light hover is a step of its own, deeper still — THE MUTANT: a hover equal to rest,
+    // which leaves a card that no longer answers the pointer and no rule anywhere that says so.
+    const rest = lOf(lightResidue, "--rl-frame-raised");
+    const hover = lOf(lightResidue, "--rl-frame-raised-hover");
+    expect(hover).toBeLessThan(rest);
+    expect(ratio(rest, hover)).toBeGreaterThanOrEqual(1.05);
   });
 
   it("a token defined for one mode only is a token that would carry a dark value into light", () => {
