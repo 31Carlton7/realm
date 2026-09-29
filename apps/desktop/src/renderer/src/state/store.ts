@@ -5091,11 +5091,13 @@ await get().refreshCustomThemes().catch(() => {});
         // space's child into that space's layout would put the pane in the wrong room.
         if (spaceId !== get().activeSpaceId) return;
         // A delegated child — agent_run's, a browser agent's, a reviewer — arrives QUIETLY: beside the
-        // pane the user is in, with the keyboard left there. Taking it would send the rest of whatever
-        // they were typing in the lead's prompter into the child's, and the child's permission prompts
-        // do not need it — its card and the sidebar's blocked mark announce them. A durable run's
-        // worker keeps the focusing open it has always had: it is nobody's sub-agent, and how a run's
-        // pane should arrive is not a question this answers.
+        // pane the user is in, with the keyboard left there. The pane holding it is the one whose
+        // permission and question cards take focus the moment they appear (U-H4), and the one ⌘W and
+        // ⌘. act on — so a child handed it could have its prompt answered by the Enter or the digit the
+        // user was typing to the lead, and be closed or stopped by keys meant for the lead. Its prompts
+        // do not need the keyboard to be seen: its card and the sidebar's blocked mark announce them.
+        // A durable run's worker keeps the focusing open it has always had: it is nobody's sub-agent,
+        // and how a run's pane should arrive is not a question this answers.
         if (session?.dispatchedBy?.kind === "run") await get().openItemBeside(itemId);
         else await get().openItemBesideQuiet(itemId);
         // Recorded once the pane is on screen — the leaf it landed in is half of what "still the pane

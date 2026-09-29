@@ -49,9 +49,10 @@ describe("a delegated agent's pane — Realm takes back what it opened, once it 
   afterEach(() => { vi.useRealTimers(); });
 
   it("brings the child in beside the lead without taking the keyboard", async () => {
-    // THE MUTANT: the focusing open (`openItemBeside`). The child takes the keyboard, so the rest of
-    // whatever the user was typing to the lead lands in the child's prompter — and the pane is then
-    // "the one they are in", which keeps it open however cleanly the child finishes.
+    // THE MUTANT: the focusing open (`openItemBeside`). The child's pane takes the keyboard, so its
+    // permission and question cards grab focus as they appear — the Enter the user was typing to the
+    // lead answers the child's prompt — and the pane is then "the one they are in", which keeps it
+    // open however cleanly the child finishes.
     const store = await delegate(api);
     expect(open(store)).toEqual(["i-lead", "i-kid"]); // beside, never in place of, the pane the user is in
     expect(store.getState().focusedLeafId).toBe(leafOf(store, "i-lead"));
