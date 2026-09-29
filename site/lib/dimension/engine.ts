@@ -37,7 +37,7 @@ export async function createDimensionField(
   const zero: [number, number, number, number] = [0, 0, 0, 0]
   const shader = effect(gpu, fieldShader, {
     label: "realm-dimension-field",
-    set: { field: { view: [1, 1, 0, 0], pointer: zero, portal: zero, hero: zero, ripple: [0, 0, -1, 0] } },
+    set: { field: { view: [1, 1, 0, 0], pointer: zero, portal: zero, hero: zero, ripple: [0, 0, -1, 0], faces: zero, facesAt: zero } },
   })
   const timeline = clock(gpu)
   let reduceMotion = options.reduceMotion

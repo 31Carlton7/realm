@@ -99,6 +99,48 @@ export const claims: Claim[] = [
   },
 ]
 
+export type Facet = { title: string; body: string }
+
+/**
+ * What a realm is made of — the six faces of the mark, in the order they arrive (`ORDER` in
+ * lib/dimension/faces.ts), so the sentence beside a face is about the face that is landing.
+ *
+ * A realm is a place rather than a stack of layers, so these are what the place contains — each one
+ * something the shipped app does, with the limit stated wherever there is one.
+ */
+export const facets: Facet[] = [
+  {
+    title: "The agent",
+    body: "Claude Code, Codex, Cursor, Gemini, OpenCode, GitHub Copilot, goose, Qwen Code or Grok, each on its own login, models and permission modes. Realm never asks for an API key.",
+  },
+  {
+    title: "The checkout",
+    body: "A space is pointed at your code \u2014 one checkout or several \u2014 and its sessions work there. Each turn is bracketed by a checkpoint, and restoring one puts the files back.",
+  },
+  {
+    title: "The terminal",
+    body: "Real terminals beside the agent — and the agent can read what one is showing, the rendered screen rather than a raw tail, and answer a prompt waiting in it.",
+  },
+  {
+    title: "The browser",
+    body: "A browser pane that stays signed in, which an agent can read and drive. It stops at a consent screen: approving a sign-in stays yours unless a space says otherwise.",
+  },
+  {
+    title: "The tools",
+    body: "Linear, GitHub, Slack, Notion and your own MCP servers, through one gateway per space. The agent is handed the tools, never the credentials, and every call is logged.",
+  },
+  {
+    title: "The boundary",
+    body: "A macOS sandbox a space can put its agents behind: the checkout writable, credential folders unreadable. It ships off, per space, because one that has not met your toolchain yet can break a build.",
+  },
+]
+
+/** The seventh step, when all six are in. */
+export const facetsCoda: Facet = {
+  title: "That\u2019s a realm.",
+  body: "Open one for every project. They run side by side, none of them reaches another\u2019s tools, and each is where you left it when you come back.",
+}
+
 export type Question = { q: string; a: string }
 
 /**

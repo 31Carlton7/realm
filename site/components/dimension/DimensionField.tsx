@@ -82,6 +82,18 @@ export function DimensionField() {
       // edge is in the lower two thirds of the view, gone once that edge passes the top.
       const portalBottom = portal[1] + portal[3]
       const presence = clamp01((portalBottom + height * 0.05) / (height * 0.4))
+      // The six faces: progress through the pinned track, and presence that rises as the track's
+      // viewport arrives and falls as it leaves, so the corridor and the lattice cross-fade.
+      const track = rectOf('[data-dim-stage="faces"]')
+      const facesAt = rectOf('[data-dim="faces"]') ?? [0, 0, 0, 0]
+      const run = track ? Math.max(track[3] - height, 1) : 1
+      const progress = track ? clamp01(-track[1] / run) : 0
+      const arriving = track ? clamp01((height - track[1]) / (height * 0.7)) : 0
+      const leaving = track ? clamp01((track[1] + track[3]) / (height * 0.7)) : 0
+      const facesPresence = Math.min(arriving, leaving)
+      // The mark is 48 units tall and fills 62% of the shorter side of its area.
+      const unit = (Math.min(facesAt[2], facesAt[3]) * 0.62) / 48
+
       return {
         width,
         height,
@@ -89,6 +101,8 @@ export function DimensionField() {
         portal,
         hero: [presence * presence * (3 - 2 * presence), entering, 0, 0],
         ripple: [ripple.x, ripple.y, Number.isFinite(ripple.at) ? (now - ripple.at) / 1000 : -1, 0],
+        faces: [facesPresence * facesPresence * (3 - 2 * facesPresence), progress, unit, 0],
+        facesAt,
       }
     }
 
