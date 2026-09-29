@@ -2297,10 +2297,17 @@ describe("light mode", () => {
     // Uncommented first: the file's own header names the light selector in prose.
     const plain = tokens.replace(/\/\*[\s\S]*?\*\//g, "");
     const darkTokens = plain.slice(0, plain.indexOf(':root[data-mode="light"]'));
+    const lightResidue = bodiesFor(':root[data-mode="light"]').join(" ");
     const dark = ratio(lOf(darkTokens, "--surface"), lOf(darkTokens, "--page"));
-    const light = ratio(lOf(lightBlocks, "--surface"), lOf(bodiesFor(':root[data-mode="light"]').join(" "), "--rl-frame-raised"));
+    const light = ratio(lOf(lightBlocks, "--surface"), lOf(lightResidue, "--rl-frame-raised"));
     expect(dark).toBeGreaterThan(1.12);
     expect(light, `light ${light.toFixed(3)} against dark ${dark.toFixed(3)}`).toBeGreaterThanOrEqual(dark);
+    // And the light hover is a step of its own, deeper still — THE MUTANT: a hover equal to rest,
+    // which leaves a card that no longer answers the pointer and no rule anywhere that says so.
+    const rest = lOf(lightResidue, "--rl-frame-raised");
+    const hover = lOf(lightResidue, "--rl-frame-raised-hover");
+    expect(hover).toBeLessThan(rest);
+    expect(ratio(rest, hover)).toBeGreaterThanOrEqual(1.05);
   });
 
   it("a token defined for one mode only is a token that would carry a dark value into light", () => {
