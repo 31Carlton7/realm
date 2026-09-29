@@ -22,7 +22,7 @@ import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_SELECTION,
   isThemeName, overrideKey, parseThemeOverrides, themeModes,
   type Mode, type ThemeName, type ThemeOverride, type ThemeOverrides, type ThemeSelection, setCustomThemes, type ThemeDef }  from "@realm/ui";
 import type { ThemePref } from "../theme/useTheme";
-import { emptyTranscript, lastRunStopped, lastUserMessage, reduceTranscript, type Rating, type Transcript } from "../panes/session/transcript-model";
+import { emptyTranscript, lastUserMessage, reduceTranscript, type Rating, type Transcript } from "../panes/session/transcript-model";
 import { activityOf, type SessionActivity } from "./session-activity";
 import { exportFileName, exportSessionMarkdown } from "../panes/session/export-session";
 import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browser/browser-client";
@@ -2741,10 +2741,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       // has it running, and a permission or a question — which rides the permission channel — has it
       // waiting on a person.
       if ((s.sessionStatus[sessionId] ?? s.sessions[sessionId]?.status) !== "idle") return false;
-      // A turn a person STOPPED also settles idle with whatever it had said, and the engine reads the
-      // status, not why it changed. The transcript knows: its last run line says "stopped".
-      const t = s.transcripts[sessionId]?.t;
-      if (t && lastRunStopped(t)) return false;
+      // (A turn a person stopped needs no test here: the engine reads the adapter's stop mark off the
+      // server's own log — whoever pressed stop, loaded transcript or not — and settles it `stopped`,
+      // which `applyAgentSettled` never takes back.)
       // Words the user has started writing to it and not sent yet. They would survive the close (the
       // draft is kept by session, not by pane), but out of sight, which is its own way to lose them.
       return !(s.drafts[sessionId] ?? "").trim() && (s.pendingAttachments[sessionId]?.length ?? 0) === 0;
