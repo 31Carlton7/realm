@@ -1,13 +1,15 @@
 import Image from "next/image"
+import { Fragment } from "react"
 
 import { DimensionField } from "@/components/dimension/DimensionField"
 import { ClaimSection } from "@/components/home/Claim"
+import { Delegation } from "@/components/home/Delegation"
 import { Faq } from "@/components/home/Faq"
 import { Footer } from "@/components/home/Footer"
 import { SixFaces } from "@/components/home/SixFaces"
 import { AppleIcon, GitHubIcon } from "@/components/icons"
 import { SiteHeader } from "@/components/SiteHeader"
-import { claims, facets, facetsCoda, facetsMany } from "@/content/home"
+import { claims, delegation, facets, facetsCoda, facetsMany } from "@/content/home"
 import { macDownload } from "@/lib/release"
 import { site } from "@/lib/site"
 import captured from "@/public/product/manifest.json"
@@ -24,7 +26,8 @@ import captured from "@/public/product/manifest.json"
  *   faces     a pinned track: the mark assembles face by face on its own lattice beside what a realm
  *             holds, is lit as glass, then pulls back into a hive of realms
  *   claims    one claim per section, each with the real capture that is evidence for it, framed as a
- *             window into the same realm
+ *             window into the same realm — and halfway through them, the delegation interlude: one
+ *             agent opening more, as sessions opening sessions, two levels deep and no further
  *   close     the next action, through a portal again
  *   footer    the realm rising over its own lattice, laid flat to a horizon, with who makes it
  *
@@ -118,7 +121,16 @@ export default async function HomePage() {
         <div id="after-faces" className="scroll-mt-8" />
 
         {sections.map((claim, i) => (
-          <ClaimSection key={claim.id} claim={claim} index={i} />
+          <Fragment key={claim.id}>
+            <ClaimSection claim={claim} index={i} />
+            {/* Halfway through the claims, the interlude: one agent opening more. */}
+            {i === 2 ? (
+              <>
+                <Delegation beats={delegation} />
+                <div id="after-delegation" className="scroll-mt-8" />
+              </>
+            ) : null}
+          </Fragment>
         ))}
 
         <Rule />
