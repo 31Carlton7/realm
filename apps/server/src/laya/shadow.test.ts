@@ -330,6 +330,15 @@ describe("after the act", () => {
     expect(row.baseline.verify).toEqual({ value: true, changed: true, alert: false });
   });
 
+  it("logs the rule's verdict as NOT worked when the step left an alert, whatever else changed", async () => {
+    // THE MUTANT: a rule that counts any change as success reads "Cannot Send Mail" as a sent email.
+    const { shadow, rows } = await setup();
+    const after = shadow.observe(step({ intent: "send the email", elements: [el("1", "Send")], chosen: { element: el("1", "Send") } }));
+    after!([el("1", "Send"), el("2", "Cannot Send Mail", "AXStaticText"), el("3", "OK")]);
+    await shadow.flush();
+    expect(rows()[0]!.baseline.verify).toEqual({ value: false, changed: true, alert: true });
+  });
+
   it("asks nothing about the after-state of a tool that never hands one over", async () => {
     const { shadow, server: s, rows } = await setup();
     shadow.observe(step());
