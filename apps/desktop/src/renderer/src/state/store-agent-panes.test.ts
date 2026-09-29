@@ -208,7 +208,11 @@ describe("a delegated agent's pane — Realm takes back what it opened, once it 
     // arrangement the user is not looking at, and they would come back to find it rearranged.
     const store = await delegate(api);
     const main = store.getState().groups!.activeGroupId;
+    // A group with something in it, so this is the group rule and not the last-pane guard at work.
+    api.data.items.s1!.push(item("i-notes", "s1", { title: "Notes" }));
+    await store.getState().refreshItems();
     await store.getState().newPaneGroup();
+    await store.getState().openItem("i-notes");
     await finish(store, api);
     await pastTheBeat();
     await store.getState().activatePaneGroup(main);
