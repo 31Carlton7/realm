@@ -103,6 +103,34 @@ enum Screen {
         return ["bundleId": front.bundleId, "tree": tree, "ms": ["foreground": ms(t0, t1), "snapshot": ms(t1, t2), "walk": ms(t2, Date())]]
     }
 
+    /// Every element of the foreground app whose frame holds a point, smallest first. Not "the one on
+    /// top": the tree's order is not the screen's stacking order — MEASURED on iOS 27, Settings lists
+    /// its floating toolbar BEFORE the list it floats over — so what can be said for certain is which
+    /// elements are at the point at all.
+    static func at(_ point: CGPoint) async throws -> [XCUIElementSnapshot] {
+        let front = await foregroundApp()
+        var here: [XCUIElementSnapshot] = []
+        func walk(_ s: XCUIElementSnapshot) {
+            if s.frame.contains(point) { here.append(s) }
+            for child in s.children { walk(child) }
+        }
+        walk(try front.app.snapshot())
+        return here.sorted { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
+    }
+
+    /// A key or button that starts dictation — the keyboard's microphone, or the one inside a search
+    /// field — by the identifier the system gives it, or else by its name.
+    static func isDictation(_ s: XCUIElementSnapshot) -> Bool {
+        let id = s.identifier.lowercased(), label = s.label.lowercased()
+        return id == "dictation" || label == "dictate" || label.hasPrefix("dictation")
+    }
+
+    /// An element as a refusal names it: its type number, as the tree gives it, its name and its frame.
+    static func describe(_ s: XCUIElementSnapshot) -> String {
+        let name = !s.label.isEmpty ? "\"\(s.label)\"" : !s.identifier.isEmpty ? "id=\(s.identifier)" : "(no name)"
+        return "type \(s.elementType.rawValue) \(name) at \(Int(s.frame.minX)),\(Int(s.frame.minY)) \(Int(s.frame.width))×\(Int(s.frame.height))"
+    }
+
     private static func node(_ s: XCUIElementSnapshot) -> [String: Any] {
         var out: [String: Any] = [
             "type": s.elementType.rawValue,

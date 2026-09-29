@@ -140,8 +140,8 @@ export class PhysicalDevices {
     const { client, points } = this.of(udid);
     const at = (p: { x: number; y: number }) => ({ x: p.x * points.width, y: p.y * points.height });
     switch (input.kind) {
-      case "tap": { const p = at(input.at); return client.tap(p.x, p.y, input.count); }
-      case "hold": { const p = at(input.at); return client.tap(p.x, p.y, 1, input.ms); }
+      case "tap": { const p = at(input.at); return client.tap(p.x, p.y, input.count, undefined, input.expect); }
+      case "hold": { const p = at(input.at); return client.tap(p.x, p.y, 1, input.ms, input.expect); }
       case "swipe": return client.swipe(at(input.from), at(input.to), input.ms, input.holdMs, input.stopMs);
       case "text": return client.text(input.text);
       case "press": {

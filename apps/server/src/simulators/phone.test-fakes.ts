@@ -162,6 +162,13 @@ export class FakePhone {
       case "/tap": {
         const x = Number(body.x), y = Number(body.y);
         const hit = this.layout(this.screens[this.screen]!).find(({ frame: f }) => x >= f.x && x < f.x + f.width && y >= f.y && y < f.y + f.height);
+        // The runner's own look under the finger, as `Routes.underFinger` makes it.
+        if (hit && (hit.row.id === "dictation" || /^dictat/i.test(hit.row.label))) {
+          return json({ error: "the Dictate key is at that point now, and Realm never turns on the microphone — nothing was sent" }, 409);
+        }
+        if (typeof body.expect === "string" && hit?.row.label !== body.expect) {
+          return json({ error: `the screen changed under the tap: "${body.expect}" is not at that point any more — nothing was sent` }, 409);
+        }
         if (hit?.row.to) { this.screen = hit.row.to; if (hit.row.to !== "search") this.typed = ""; }
         return ok;
       }

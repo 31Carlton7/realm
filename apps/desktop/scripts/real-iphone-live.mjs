@@ -381,9 +381,33 @@ async function main() {
   for (let i = 0; i < 20; i++) { const t = performance.now(); await api.call("simulators.ax", { simulatorId }); times.push(Math.round(performance.now() - t)); }
   note("ax latency on Settings' root (ms)", { p50: pct(times, 50), p90: pct(times, 90), all: times });
 
+  /* Never the microphone. MEASURED on the phone: a tap meant for search's close button landed on the
+     keyboard's Dictate key, which had come up between the read and the touch, and dictation came on
+     for a few seconds. A Dictate key is now refused by number before anything is sent — checked on
+     either device, since nothing reaches it — and at its point by the runner itself, looking under
+     the finger at the instant of the touch. That second check aims a touch at a microphone on
+     purpose, so it runs in the rehearsal only, never on somebody's phone. */
+  const mic = root?.match(/\[(\d+)\] (?:Button|Key) "Dictate"[^\n]*\((-?\d+),(-?\d+) (\d+)×(\d+)\)/);
+  if (mic) {
+    const byNumber = await call("simulator_tap", { simulatorId, intent: "dictate", element: Number(mic[1]) });
+    check("a Dictate key tapped by number is refused before anything is sent", byNumber.isError && text(byNumber).includes("Realm never taps one"), text(byNumber));
+    if (REHEARSAL) {
+      const at = { x: Number(mic[2]) + Number(mic[4]) / 2, y: Number(mic[3]) + Number(mic[5]) / 2 };
+      const byPoint = await call("simulator_tap", { simulatorId, intent: "tap there", ...at });
+      check("a tap at a Dictate key's point is refused by the runner, looking under the finger", byPoint.isError && text(byPoint).includes("never turns on the microphone"), text(byPoint));
+    }
+    const heard = await read("after the Dictate checks");
+    check("…and dictation never came on", !!heard && !/Actively dictating/.test(heard), heard?.split("\n").filter((l) => /Dictat/.test(l)));
+  } else {
+    note("no Dictate key on the Settings list to try", null);
+  }
+
   // ── 7. "About" into Settings' search, then cancelled ───────────────────────────────────────
-  const field = root?.match(/\[(\d+)\] (?:SearchField|TextField)[^\n]*/);
-  check("the Settings list has its search field", !!field, root?.split("\n").filter((l) => /Field/.test(l)));
+  // Read afresh: the Dictate checks above read the screen again, and a number is only good for the
+  // latest read.
+  const list = await read("the Settings list, for search");
+  const field = list?.match(/\[(\d+)\] (?:SearchField|TextField)[^\n]*/);
+  check("the Settings list has its search field", !!field, list?.split("\n").filter((l) => /Field/.test(l)));
   if (field) {
     await call("simulator_tap", { simulatorId, intent: "focus Settings search", element: Number(field[1]) });
     await sleep(800);
@@ -394,9 +418,14 @@ async function main() {
     const cancel = ["Cancel", "Close"].map((label) => found?.match(new RegExp(`\\[(\\d+)\\] Button "${label}"`, "i"))).find(Boolean);
     check("search has a way out to tap", !!cancel, found?.split("\n").filter((l) => /\] Button "/.test(l)).slice(-6).map((l) => l.replace(/ \(.*$/, "")));
     if (cancel) {
-      await call("simulator_tap", { simulatorId, intent: "cancel the search", element: Number(cancel[1]) });
-      const cancelled = await steady((t) => !/value="About"/.test(t) && /\] Button "General"/.test(t), "search cancelled");
-      check("…and cancelling it leaves the Settings list, nothing searched", !!cancelled, cancelled?.split("\n").filter((l) => /Field/.test(l)));
+      // Named as the element it means: if the screen moves under it, the runner refuses rather than
+      // touching whatever came up there.
+      const tapped = await call("simulator_tap", { simulatorId, intent: "cancel the search", element: Number(cancel[1]) });
+      const moved = tapped.isError && /screen changed under the tap/.test(text(tapped));
+      const cancelled = moved ? null : await steady((t) => !/value="About"/.test(t) && /\] Button "General"/.test(t), "search cancelled");
+      note("cancelling search", moved ? `refused: ${text(tapped)}` : cancelled ? "back to the Settings list" : "search still open — iOS's close did not end it");
+      const after = await read("after cancelling");
+      check("…and the close tap did not turn dictation on", !!after && !/Actively dictating/.test(after), after?.split("\n").filter((l) => /Dictat|Field/.test(l)));
     }
   }
 

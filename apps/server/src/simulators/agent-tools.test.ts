@@ -1674,6 +1674,20 @@ describe("simulator_do", () => {
   });
 });
 
+describe("a Dictate key on a simulator", () => {
+  it("is never tapped by number, and nothing is sent", async () => {
+    const dev = device();
+    const simulatorId = await dev.running();
+    dev.show(redraw((els) => [...els, { path: "0.3", label: "Dictate", value: "", role: "Button", id: "dictation", enabled: true, frame: { x: 360, y: 820, width: 30, height: 30 }, depth: 1 }]));
+    const list = text(await dev.call("simulator_elements", { simulatorId }));
+    const dictate = Number(list.match(/\[(\d+)\] Button "Dictate"/)![1]);
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "dictate", element: dictate });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("Realm never taps one");
+    expect(dev.calls.sent).toEqual([]);
+  });
+});
+
 describe("a real iPhone", () => {
   const phones: FakePhone[] = [];
   afterEach(async () => { await Promise.all(phones.splice(0).map((p) => p.close())); });
@@ -1761,6 +1775,38 @@ describe("a real iPhone", () => {
     // And the shadow heard every step, the tap by the element the agent chose.
     expect(heard.map((o) => o.tool)).toEqual(steps.map(([t]) => t));
     expect(heard[0]).toMatchObject({ surface: "simulator", intent: "use the phone", chosen: { element: { role: "Button", label: "General" } } });
+  });
+
+  it("names the element a tap means, and is refused when the screen changed under it after the read", async () => {
+    const dev = await onPhone({ broker: { mode: "bypassPermissions", answer: "allow" } });
+    const { simulatorId } = await opened(dev);
+    dev.phone.screen = "root";
+    const list = text(await dev.call("simulator_elements", { simulatorId }));
+    const general = Number(list.match(/\[(\d+)\] Button "General"/)![1]);
+    // A row goes in above General just after the tap's own live read — MEASURED on a phone as the
+    // keyboard coming up between that read and the touch.
+    let reads = 0;
+    dev.phone.afterRead = () => { if (++reads === 1) dev.phone.screens.root!.rows.unshift({ label: "Optimizing Search and Siri" }); };
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "open General", element: general });
+    // THE MUTANT: send the point alone. The runner then taps whatever is there now.
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain('the screen changed under the tap: "General" is not at that point any more');
+    expect(dev.phone.requests.filter((q) => q.path === "/tap").map((q) => q.body.expect)).toEqual(["General"]);
+    expect(dev.phone.screen).toBe("root");
+  });
+
+  it("never taps a Dictate key, refusing it before anything reaches the phone", async () => {
+    const dev = await onPhone({ broker: { mode: "bypassPermissions", answer: "allow" } });
+    const { simulatorId } = await opened(dev);
+    dev.phone.screen = "root";
+    dev.phone.screens.root!.rows.push({ label: "Dictate", id: "dictation" });
+    const list = text(await dev.call("simulator_elements", { simulatorId }));
+    const dictate = Number(list.match(/\[(\d+)\] Button "Dictate"/)![1]);
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "dictate", element: dictate });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("that is a Dictate key, which turns on the microphone");
+    // THE MUTANT: leave it to the runner. It would refuse too — but only once the tap is on its way.
+    expect(dev.phone.acts()).toEqual([]);
   });
 
   it("refuses the side button before any card, and Plan refuses every step on it", async () => {

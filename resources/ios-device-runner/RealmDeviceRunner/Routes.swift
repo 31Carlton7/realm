@@ -64,6 +64,8 @@ final class Routes {
             return .json(["ok": true])
         } catch let error as BadRequest {
             return .error(400, error.message)
+        } catch let error as Refused {
+            return .error(409, error.message)
         } catch {
             return .error(500, String(describing: error))
         }
@@ -75,6 +77,7 @@ final class Routes {
         let at = try point(body, "x", "y")
         let count = max(1, min(2, (body["count"] as? Int) ?? 1))
         let hold = seconds(body["holdMs"], or: 0.05)
+        try await underFinger(at, expect: (body["expect"] as? String).flatMap { $0.isEmpty ? nil : $0 })
         let record = try EventRecord()
         var t: TimeInterval = 0
         for _ in 0..<count {
@@ -85,6 +88,23 @@ final class Routes {
             t += 0.1
         }
         try await Daemon.synthesize(record)
+    }
+
+    /// What is under the finger at the instant of the touch, from a snapshot taken for it — not from
+    /// the read the server chose from, which can be most of a second old by now. MEASURED on a phone:
+    /// the keyboard came up between that read and a tap meant for the search bar's close button, and
+    /// the tap landed on the keyboard's Dictate key. So a touch is refused when the point is on a
+    /// Dictate key or button, whatever was asked for; and, when the server names the element it
+    /// meant, when that element is not what the point is on any more.
+    private func underFinger(_ at: CGPoint, expect: String?) async throws {
+        let here = try await Screen.at(at)
+        if here.contains(where: Screen.isDictation) {
+            throw Refused("the Dictate key is at that point now, and Realm never turns on the microphone — nothing was sent")
+        }
+        if let expect, !here.contains(where: { $0.label == expect || $0.title == expect }) {
+            let there = here.filter { !$0.label.isEmpty || !$0.identifier.isEmpty }.prefix(2).map(Screen.describe).joined(separator: " in ")
+            throw Refused("the screen changed under the tap: \"\(expect)\" is not at that point any more\(there.isEmpty ? "" : " — there now: \(there)") — nothing was sent")
+        }
     }
 
     /// Down at `from`, still for `holdMs`, across to `to` in `durationMs`, and up in the same beat
@@ -176,6 +196,12 @@ final class Routes {
 }
 
 struct BadRequest: Error {
+    let message: String
+    init(_ message: String) { self.message = message }
+}
+
+/// A step the runner will not take, said in words the agent can act on.
+struct Refused: Error {
     let message: String
     init(_ message: String) { self.message = message }
 }

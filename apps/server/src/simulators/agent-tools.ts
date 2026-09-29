@@ -892,10 +892,32 @@ async function touch(c: Call, tool: string, a: z.infer<typeof TapArgs>, input: (
   if (seen && "error" in seen) return seen.error;
   const gate = await askToDrive(c, row.value, tool, a);
   if (!gate.allowed) return err(gate.reason);
-  const spot = seen ? await liveElement(c, row.value, seen.value, a.element!) : await livePoint(c, row.value, { x: a.x!, y: a.y! });
-  if ("error" in spot) return spot.error;
+  let spot: Spot;
+  let meant: SimulatorAxElement | null = null;
+  if (seen) {
+    const live = await liveElement(c, row.value, seen.value, a.element!);
+    if ("error" in live) return live.error;
+    if (isDictation(live.live)) return err(DICTATION_REFUSAL);
+    spot = live;
+    meant = live.live;
+  } else {
+    const point = await livePoint(c, row.value, { x: a.x!, y: a.y! });
+    if ("error" in point) return point.error;
+    spot = point;
+  }
   watch(c, row.value, tool, a.intent, spot.elements, spot.chosen);
-  return landed(row.value, await c.d.simulators.input(row.value.id, input(spot.at)), `${said(spot.target, clip(row.value.name, 60))}${spot.landing}.`);
+  return landed(row.value, await c.d.simulators.input(row.value.id, expecting(input(spot.at), meant?.label)), `${said(spot.target, clip(row.value.name, 60))}${spot.landing}.`);
+}
+
+/** The keyboard's microphone, or the one in a search field: dictation turns on the microphone, and
+ *  Realm never does that on anyone's behalf. By the id the system gives it, or else by its name. */
+const isDictation = (el: SimulatorAxElement): boolean => el.id === "dictation" || /^dictat(e|ion)\b/i.test(el.label.trim());
+const DICTATION_REFUSAL = "that is a Dictate key, which turns on the microphone — Realm never taps one, so nothing was sent. The user can dictate for themselves.";
+
+/** A tap or a press-and-hold that names the element it means, for a device that can check what is
+ *  under the finger at the instant of the touch. Anything else goes as it was. */
+function expecting(input: DeviceInput, label: string | undefined): DeviceInput {
+  return label?.trim() && (input.kind === "tap" || input.kind === "hold") ? { ...input, expect: label } : input;
 }
 
 /**
@@ -930,7 +952,8 @@ async function assisted(c: Call, tool: string, row: Simulator, a: z.infer<typeof
       return err(`nothing was tapped: Laya picked [${n}] for "${words}", but it is off the screen now. Swipe it into view, then try again.`);
     }
     watch(c, row, tool, a.intent, shown, { element: observed(live) }, "laya");
-    const r = await c.d.simulators.input(row.id, input(normalize(centre, tree.screen)));
+    if (isDictation(live)) return err(DICTATION_REFUSAL);
+    const r = await c.d.simulators.input(row.id, expecting(input(normalize(centre, tree.screen)), live.label));
     const label = live.label.trim() ? ` "${clip(live.label.trim(), 60)}"` : "";
     return landed(row, r, `${said(`[${n}]${label}`, name)} — Laya's pick for "${words}" (${outcome.confidence.toFixed(2)}; Assist acts at ${gate.threshold!.toFixed(2)} or above), at the centre of its frame ${at(centre)}.`);
   }
@@ -973,11 +996,11 @@ function deviceIO(c: Call, row: Simulator, intent: string, motion: ScreenMotion 
     if (!now) return send({ kind: "tap", at: normalize(tapPoint(el), tree.screen), count: 1 });
     const same = now.elements.find((e) => e.path === el.path && sameElement(e, el)) ?? findLabel(now, el.label)?.el ?? null;
     if (!same) return { ok: false, detail: `"${clip(el.label, 60)}" was gone from the screen by the time of the tap` };
-    return send({ kind: "tap", at: normalize(tapPoint(same), now.screen), count: 1 });
+    return send(expecting({ kind: "tap", at: normalize(tapPoint(same), now.screen), count: 1 }, same.label));
   };
   return {
     read: () => c.d.simulators.ax(row.id),
-    tap: (el, tree) => (runner ? liveTap(el, tree) : send({ kind: "tap", at: normalize(tapPoint(el), tree.screen), count: 1 })),
+    tap: (el, tree) => (runner ? liveTap(el, tree) : send(expecting({ kind: "tap", at: normalize(tapPoint(el), tree.screen), count: 1 }, el.label))),
     scroll: (direction) => send(row.platform === "android"
       ? { kind: "swipe", ...WALK_SCROLL[direction], ms: 700, holdMs: 0 }
       : { kind: "swipe", ...WALK_SCROLL[direction], ms: 300, holdMs: 0, stopMs: 120 }),
