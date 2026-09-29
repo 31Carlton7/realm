@@ -734,7 +734,7 @@ function requireRunning(d: SimulatorAgentToolsDeps, ctx: ProviderCallContext, si
 /* ---------------------------------- input ---------------------------------- */
 
 /** Where a step's touch goes, found on the screen as it is now; what the observer hears of it; and
- *  how the result names it — `[0.3]`, or a point — with where on the element it landed, if anywhere. */
+ *  how the result names it — `[14]`, or a point — with where on the element it landed, if anywhere. */
 type Spot = { at: DevicePoint; elements: readonly SimulatorAxElement[]; chosen: ActObservation["chosen"]; target: string; landing: string };
 
 /**
