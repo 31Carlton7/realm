@@ -3,9 +3,10 @@ import Image from "next/image"
 import { DimensionField } from "@/components/dimension/DimensionField"
 import { ClaimSection } from "@/components/home/Claim"
 import { Faq } from "@/components/home/Faq"
+import { SixFaces } from "@/components/home/SixFaces"
 import { AppleIcon, GitHubIcon } from "@/components/icons"
 import { SiteHeader } from "@/components/SiteHeader"
-import { claims } from "@/content/home"
+import { claims, facets, facetsCoda } from "@/content/home"
 import { macDownload } from "@/lib/release"
 import { site } from "@/lib/site"
 import captured from "@/public/product/manifest.json"
@@ -108,7 +109,10 @@ export default async function HomePage() {
           </figure>
         </section>
 
-        <Rule />
+        <SixFaces facets={facets} coda={facetsCoda} />
+
+        {/* Where "Skip" lands: the first thing after the pinned track. */}
+        <div id="after-faces" className="scroll-mt-8" />
 
         {sections.map((claim, i) => (
           <ClaimSection key={claim.id} claim={claim} index={i} />

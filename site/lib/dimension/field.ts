@@ -7,9 +7,11 @@
  * and the light lines up with the thing it belongs to at every size, zoom and breakpoint. Nothing
  * here knows where the product image IS; it is told, every frame.
  *
- * Self-contained on purpose: no imports, so the headless renderer in the lab and the page compile
+ * The headless renderer in the lab imports this same module, so the page and the lab compile
  * exactly the same text.
  */
+
+import { facesWgsl } from "./faces"
 
 /** Realm's tokens as the shader sees them, sRGB-encoded because the surface is not an sRGB view. */
 export const PAGE = [23 / 255, 24 / 255, 26 / 255] as const
@@ -27,6 +29,8 @@ const vec3 = (rgb: readonly number[]) => `vec3f(${rgb.map((c) => c.toFixed(4)).j
  *   portal   the product image's rect: left, top, width, height (CSS px, viewport)
  *   hero     presence 0..1, entering 0..1 (how far the hero has scrolled out)
  *   ripple   x, y (CSS px) of the last click, its age in seconds (negative: none), unused
+ *   faces    presence 0..1, progress 0..1 through the pinned section, CSS px per mark unit, unused
+ *   facesAt  the rect the assembling mark is centred in (CSS px, viewport)
  */
 export type FieldUniforms = {
   view: [number, number, number, number]
@@ -34,6 +38,8 @@ export type FieldUniforms = {
   portal: [number, number, number, number]
   hero: [number, number, number, number]
   ripple: [number, number, number, number]
+  faces: [number, number, number, number]
+  facesAt: [number, number, number, number]
 }
 
 export const fieldShader = /* wgsl */ `
@@ -43,6 +49,8 @@ struct Field {
   portal: vec4f,
   hero: vec4f,
   ripple: vec4f,
+  faces: vec4f,
+  facesAt: vec4f,
 }
 @group(0) @binding(0) var<uniform> field: Field;
 
@@ -187,14 +195,24 @@ fn heroLight(p: vec2f, t: f32) -> vec3f {
   return light * outside;
 }
 
+${facesWgsl}
+
 @fragment fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
   let p = uv * field.view.xy;
   let t = field.view.z;
+  // Each dimension costs only while it is on screen. The conditions are uniforms, so control flow
+  // stays uniform and the hero's derivatives stay legal.
   var light = vec3f(0.0);
-  light += heroLight(p, t) * field.hero.x;
+  if (field.hero.x > 0.001) { light += heroLight(p, t) * field.hero.x; }
+  if (field.faces.x > 0.001) { light += facesLight(p, t) * field.faces.x; }
   // Light is added to the page and then compressed, so where there is none the result is exactly
   // --color-page and the canvas never reads as a rectangle.
   let lit = vec3f(1.0) - exp(-light * 1.15);
-  return vec4f(PAGE + lit * (vec3f(1.0) - PAGE), 1.0);
+  var color = PAGE + lit * (vec3f(1.0) - PAGE);
+  if (field.faces.x > 0.001) {
+    let solid = facesSolid(p, t);
+    color = mix(color, solid.rgb, solid.a * field.faces.x);
+  }
+  return vec4f(color, 1.0);
 }
 `
