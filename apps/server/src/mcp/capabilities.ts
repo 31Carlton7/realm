@@ -105,7 +105,11 @@ const BLOCKS: Record<string, string> = {
   "realm-computer":
     "- **Other Mac apps.** `computer_list_apps`, `computer_snapshot` and `computer_act` drive the apps on the " +
     "user's Mac through the accessibility APIs. This space switched them on deliberately, so use them for work " +
-    "that genuinely lives in another app — and reach for the browser instead for anything on the web.",
+    "that genuinely lives in another app — and reach for the browser instead for anything on the web. To get " +
+    "something done in an app, use `computer_do`: give the labels to click in order, such as " +
+    "`[\"File\", \"Export as PDF…\"]`, and it clicks them in one call, waiting for the app each time, then hands " +
+    "back a snapshot of where it ended. It stops rather than guesses, and never buys, deletes, sends or signs in; " +
+    "take those steps yourself with `computer_act`.",
 
   "realm-vm":
     "- **Machines.** `vm_list`, `vm_screenshot` and `vm_act` drive a screen somewhere else — another Mac at an " +

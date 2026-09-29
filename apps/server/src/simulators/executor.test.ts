@@ -309,6 +309,15 @@ describe("where a walk stops", () => {
     expect(d.taps).toEqual(["iOS Version"]);
   });
 
+  it("takes a tap into a field that changed nothing as the field taking focus", async () => {
+    const d = new Device({ form: { rows: [{ label: "Name", role: "TextField", nothing: true }] } }, "form");
+    // THE MUTANT: hold a field to the rule for everything else. On a Mac a click into a field
+    // changes nothing its tree shows, and the walk would stop there, before the typing it came for.
+    const r = await walk(d, { path: ["Name"], text: "Ada" });
+    expect(r.ok).toBe(true);
+    expect(d.typed).toEqual(["Ada"]);
+  });
+
   it("does not take the status bar's clock turning over for a tap that worked", async () => {
     const d = new Device(settings(), "about");
     const io = d.io();

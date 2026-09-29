@@ -27,19 +27,31 @@ import type { MotionMark, ScreenMotion } from "./screen-motion";
  * walked into: the agent takes those one tap at a time, by number.
  */
 
+/**
+ * A screen's tree, as a walk reads it. `screenChecks: false` marks one whose elements are all on
+ * screen and whose clicks are checked, where they are sent, for anything drawn over them — a Mac
+ * app's, through the accessibility helper (`computer/agent-tools.ts`). Its frames are global and can
+ * be negative on a second display, it has no status bar, and the helper refuses an occluded click
+ * itself, so the walk's own screen checks are skipped for it.
+ */
+export type WalkTree = Omit<SimulatorAxTree, "elements"> & { elements: WalkElement[]; screenChecks?: false };
+/** An element as a walk reads it: `focused` where the tree says which element has focus — a Mac app's
+ *  does, so a click into a field shows as the change it is. */
+export type WalkElement = SimulatorAxElement & { focused?: boolean };
+
 export type ExecIO = {
   /** The live tree. May throw while the device is mid-animation; the executor looks again. */
-  read(): Promise<SimulatorAxTree>;
-  tap(el: SimulatorAxElement, tree: SimulatorAxTree): Promise<{ ok: boolean; detail: string }>;
+  read(): Promise<WalkTree>;
+  tap(el: SimulatorAxElement, tree: WalkTree): Promise<{ ok: boolean; detail: string }>;
   /** Move the content by most of a screen: `up` brings what is below into view, `down` what is above. */
-  scroll(direction: "up" | "down", tree: SimulatorAxTree): Promise<{ ok: boolean; detail: string }>;
+  scroll(direction: "up" | "down", tree: WalkTree): Promise<{ ok: boolean; detail: string }>;
   type(text: string): Promise<{ ok: boolean; detail: string }>;
   /** Laya's pick for a label nothing on the screen matches. Present only while its Assist can act. */
   laya?(label: string, elements: readonly ObservedElement[]): Promise<AssistOutcome>;
   /** Each tap, just before it is sent — for Laya's shadow. */
   observe?(step: { label: string; elements: readonly SimulatorAxElement[]; chosen: SimulatorAxElement; by: "agent" | "laya" }): void;
   /** Each screen once it has settled after a step — the "after" the observer is owed. */
-  settled?(tree: SimulatorAxTree): void;
+  settled?(tree: WalkTree): void;
   /** The screen's picture, for telling when it has stopped moving without reading its tree
    *  (`screen-motion.ts`). Absent, the walk reads the tree until two reads agree. */
   motion?: ScreenMotion;
@@ -95,7 +107,7 @@ export type ExecStop = {
   candidates: SimulatorAxElement[];
 };
 
-export type ExecResult = { ok: boolean; steps: ExecStep[]; stop: ExecStop | null; ms: number; final: SimulatorAxTree };
+export type ExecResult = { ok: boolean; steps: ExecStep[]; stop: ExecStop | null; ms: number; final: WalkTree };
 
 export const DEFAULT_SETTLE: Settle = { tapTimeoutMs: 3_000, scrollTimeoutMs: 2_000, pollMs: 30, stillMs: 120 };
 /** A scroll's picture moves while the finger does, so one that has not moved this soon after the
@@ -103,10 +115,11 @@ export const DEFAULT_SETTLE: Settle = { tapTimeoutMs: 3_000, scrollTimeoutMs: 2_
 const SCROLL_CHANGE_WITHIN_MS = 300;
 export const DEFAULT_MAX_SCROLLS = 8;
 
-/** Roles a person taps, ahead of roles that only read — "Settings" the back button over "Settings" the heading. */
-const TAPPABLE = /button|cell|link|switch|toggle|tab|field|menu ?item|slider|segment|check ?box|radio|icon|key/i;
-const READ_ONLY = /heading|static ?text|^text$|label|header/i;
-const FIELD = /text ?field|search ?field|text ?view|secure/i;
+/** Roles a person taps, ahead of roles that only read — "Settings" the back button over "Settings" the
+ *  heading. iOS's own words and the Mac's (`AXMenuBarItem`, `AXCheckBox`) both. */
+const TAPPABLE = /button|cell|link|switch|toggle|tab|field|menu ?item|bar ?item|slider|segment|check ?box|radio|icon|key|row|pop ?up/i;
+const READ_ONLY = /heading|static ?text|^(ax)?text$|label|header/i;
+const FIELD = /text ?field|search ?field|text ?view|text ?area|combo ?box|secure/i;
 
 export async function runPath(io: ExecIO, o: ExecOptions): Promise<ExecResult> {
   const started = io.now();
@@ -174,10 +187,12 @@ export async function runPath(io: ExecIO, o: ExecOptions): Promise<ExecResult> {
     const tapped = await io.tap(found.el, tree);
     if (!tapped.ok) return done({ why: "tap-failed", label, detail: tapped.detail, candidates: likeliest(tree, label) });
     const after = await afterInput(io, mark, before, settle, { timeoutMs: settle.tapTimeoutMs, scroll: false });
-    if (!after) {
+    // A tap into a field focuses it, which a tree need not show: a Mac app's does not, where an
+    // iPhone's brings up its keyboard. So a field that stayed the same is a field with focus.
+    if (!after && !FIELD.test(found.el.role)) {
       return done({ why: "no-change", label, detail: `tapped "${clip(found.el.label.trim() || label, 60)}", and the screen did not change within ${(settle.tapTimeoutMs / 1000).toFixed(1)} s`, candidates: likeliest(tree, label) });
     }
-    tree = after;
+    if (after) tree = after;
     lastTapped = found.el;
     io.settled?.(tree);
     steps.push({ label, how: found.how, matched: found.el.label, scrolls, ms: Math.round(io.now() - t0) });
@@ -233,12 +248,12 @@ export function fold(s: string): string {
  * drawn over — a row under a floating search bar — because a tap there lands on the bar. `covered`
  * is the best of those, so the walk knows which way to scroll to uncover it.
  */
-export function findLabel(tree: SimulatorAxTree, label: string): { el: SimulatorAxElement; how: "exact" | "close" } | null {
+export function findLabel(tree: WalkTree, label: string): { el: SimulatorAxElement; how: "exact" | "close" } | null {
   const hit = locate(tree, label);
   return hit && "el" in hit ? hit : null;
 }
 
-function locate(tree: SimulatorAxTree, label: string): { el: SimulatorAxElement; how: "exact" | "close" } | { covered: SimulatorAxElement } | null {
+function locate(tree: WalkTree, label: string): { el: SimulatorAxElement; how: "exact" | "close" } | { covered: SimulatorAxElement } | null {
   const want = fold(label);
   if (!want) return null;
   const wantTight = want.replace(/ /g, "");
@@ -255,7 +270,7 @@ function locate(tree: SimulatorAxTree, label: string): { el: SimulatorAxElement;
       : 0;
     if (closeness === 0) continue;
     const rank = closeness * 10 + (TAPPABLE.test(el.role) ? 2 : READ_ONLY.test(el.role) ? 0 : 1) - (el.enabled ? 0 : 5);
-    if (isCovered(el, i, leaves)) {
+    if (tree.screenChecks !== false && isCovered(el, i, leaves)) {
       if (!covered || rank > covered.rank) covered = { el, rank };
       continue;
     }
@@ -267,7 +282,7 @@ function locate(tree: SimulatorAxTree, label: string): { el: SimulatorAxElement;
 
 /** Elements with nothing inside them, by their place in the tree — the ones a touch actually lands
  *  on. A container that fills the screen is not drawn OVER anything; its children are. */
-function leafOverlays(tree: SimulatorAxTree): { el: SimulatorAxElement; i: number }[] {
+function leafOverlays(tree: WalkTree): { el: SimulatorAxElement; i: number }[] {
   const parents = new Set<string>();
   for (const el of tree.elements) {
     const cut = el.path.lastIndexOf(".");
@@ -293,37 +308,39 @@ export function tapPoint(el: SimulatorAxElement): { x: number; y: number } {
 }
 
 /** The elements most like a label — what the agent is handed when the walk stops. */
-export function likeliest(tree: SimulatorAxTree, label: string): SimulatorAxElement[] {
+export function likeliest(tree: WalkTree, label: string): SimulatorAxElement[] {
   const want = new Set(fold(label).split(" ").filter((w) => w.length > 1));
   return tree.elements
-    .filter((e) => e.label.trim() && onScreen(e, tree) && !inStatusBar(e))
+    .filter((e) => e.label.trim() && onScreen(e, tree) && !inStatusBar(e, tree))
     .map((e, i) => ({ e, i, s: fold(e.label).split(" ").filter((w) => want.has(w)).length + (TAPPABLE.test(e.role) ? 0.5 : 0) }))
     .sort((a, b) => b.s - a.s || a.i - b.i)
     .slice(0, 8)
     .map((x) => x.e);
 }
 
-function onScreen(el: SimulatorAxElement, tree: SimulatorAxTree): boolean {
+function onScreen(el: SimulatorAxElement, tree: WalkTree): boolean {
+  if (tree.screenChecks === false) return true;
   const p = tapPoint(el);
   return p.x >= 0 && p.y >= 0 && p.x < tree.screen.width && p.y < tree.screen.height;
 }
 
 /** How many labels are on screen in `after` that were not on screen in `before`. */
-function newLabels(before: SimulatorAxTree, after: SimulatorAxTree): number {
+function newLabels(before: WalkTree, after: WalkTree): number {
   const had = new Set(before.elements.filter((e) => onScreen(e, before)).map((e) => e.label));
-  return after.elements.filter((e) => e.label.trim() && onScreen(e, after) && !inStatusBar(e) && !had.has(e.label)).length;
+  return after.elements.filter((e) => e.label.trim() && onScreen(e, after) && !inStatusBar(e, after) && !had.has(e.label)).length;
 }
 
 /** The clock, the battery and the signal: they change on their own, and nobody navigates by them. */
-const inStatusBar = (el: SimulatorAxElement): boolean => el.frame.y + el.frame.height <= 56 && !/button/i.test(el.role);
+const inStatusBar = (el: SimulatorAxElement, tree: WalkTree): boolean =>
+  tree.screenChecks !== false && el.frame.y + el.frame.height <= 56 && !/button/i.test(el.role);
 
 /* ---------------------------------- settling ---------------------------------- */
 
 /** What the screen shows, as one string — minus the status bar, whose clock turning over is not a
  *  tap that worked. Places are rounded: a list that has come to rest reads the same twice. */
-export function signature(tree: SimulatorAxTree): string {
-  return tree.elements.filter((e) => !inStatusBar(e))
-    .map((e) => `${e.role}|${e.label}|${e.value}|${Math.round(e.frame.x)},${Math.round(e.frame.y)}`).join("\n");
+export function signature(tree: WalkTree): string {
+  return tree.elements.filter((e) => !inStatusBar(e, tree))
+    .map((e) => `${e.role}|${e.label}|${e.value}|${Math.round(e.frame.x)},${Math.round(e.frame.y)}${e.focused ? "|focused" : ""}`).join("\n");
 }
 
 /**
@@ -334,13 +351,13 @@ export function signature(tree: SimulatorAxTree): string {
  * because an app can take a moment to answer one. A screen that changed and came back — a list that
  * rubber-banded at its end — counts as no change, never as the half-way frame.
  */
-async function waitForChange(io: ExecIO, before: string, w: { timeoutMs: number; pollMs: number; stillMeansNone: boolean }): Promise<SimulatorAxTree | null> {
+async function waitForChange(io: ExecIO, before: string, w: { timeoutMs: number; pollMs: number; stillMeansNone: boolean }): Promise<WalkTree | null> {
   const deadline = io.now() + w.timeoutMs;
   let prev: string | null = null;
-  let latest: SimulatorAxTree | null = null;
+  let latest: WalkTree | null = null;
   while (io.now() < deadline) {
     await io.sleep(w.pollMs);
-    let tree: SimulatorAxTree;
+    let tree: WalkTree;
     try { tree = await io.read(); } catch { prev = null; continue; }
     const sig = signature(tree);
     const steady = sig === prev;
@@ -364,7 +381,7 @@ async function waitForChange(io: ExecIO, before: string, w: { timeoutMs: number;
  * being answered — is waited past. Without a picture, or when the stream drops mid-step, the tree is
  * read until two reads agree.
  */
-async function afterInput(io: ExecIO, mark: MotionMark | undefined, before: string, settle: Settle, w: { timeoutMs: number; scroll: boolean }): Promise<SimulatorAxTree | null> {
+async function afterInput(io: ExecIO, mark: MotionMark | undefined, before: string, settle: Settle, w: { timeoutMs: number; scroll: boolean }): Promise<WalkTree | null> {
   const motion = io.motion;
   const deadline = io.now() + w.timeoutMs;
   const poll = () => waitForChange(io, before, { timeoutMs: Math.max(0, deadline - io.now()), pollMs: settle.pollMs, stillMeansNone: w.scroll });
@@ -388,7 +405,7 @@ async function afterInput(io: ExecIO, mark: MotionMark | undefined, before: stri
       }
     }
     from = motion.mark();
-    let tree: SimulatorAxTree;
+    let tree: WalkTree;
     try { tree = await io.read(); } catch { continue; }
     if (signature(tree) !== before) return tree;
     // The picture moved and the tree did not: a scroll that bounced off the end of its list, or a
@@ -405,10 +422,10 @@ const LAUNCH_TIMEOUT_MS = 10_000;
  * "not yet" a device answers while it animates. For an app launched just now, read until the screen
  * is that app's and two reads agree.
  */
-async function firstRead(io: ExecIO, settle: Settle, launched: string | undefined): Promise<SimulatorAxTree> {
+async function firstRead(io: ExecIO, settle: Settle, launched: string | undefined): Promise<WalkTree> {
   await io.motion?.rest({ stillMs: settle.stillMs, maxMs: settle.tapTimeoutMs });
   const deadline = io.now() + (launched === undefined ? settle.tapTimeoutMs : LAUNCH_TIMEOUT_MS);
-  const read = async (): Promise<SimulatorAxTree> => {
+  const read = async (): Promise<WalkTree> => {
     for (;;) {
       try { return await io.read(); } catch (e) {
         if (io.now() >= deadline) throw e;
