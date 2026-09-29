@@ -309,6 +309,13 @@ async function main() {
     return /"General"/.test(r) ? r : null;
   }, 30_000, "Settings on screen").catch(() => null);
   check("…and the tree says Settings is what is on screen now", !!inSettings, inSettings?.split("\n").slice(0, 6));
+  // The keepers for the report: the agent's picture and the window, both once Settings is up, so what
+  // they show can be read against the tree above rather than against a boot animation.
+  const settingsShot = (await call("simulator_screenshot", { simulatorId })).content.find((x) => x.type === "image");
+  if (settingsShot) { fs.writeFileSync(OUT("tool-settings"), Buffer.from(settingsShot.data, "base64")); console.log(`SCREENSHOT tool-settings ${OUT("tool-settings")}`); }
+  await sleep(1500); // the stream can lag the tree by a beat
+  fs.writeFileSync(OUT("window-settings"), Buffer.from((await c.send("Page.captureScreenshot", { format: "png" })).data, "base64"));
+  console.log(`SCREENSHOT window-settings ${OUT("window-settings")}`);
 
   // ── 7. The browser guard ────────────────────────────────────────────────────────────────
   const browse = async (url) => client.callTool({ name: "realm-browser__browser_open", arguments: { url } }, undefined, { timeout: 60_000 });

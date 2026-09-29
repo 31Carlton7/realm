@@ -403,7 +403,8 @@ const HANDLERS: Record<string, Handler> = {
     const shown = tree.elements.slice(0, ELEMENTS_MAX);
     const more = tree.elements.length > shown.length ? ` The first ${ELEMENTS_MAX} are listed.` : "";
     const head = `${tree.elements.length} element(s) on ${clip(row.value.name, 60)}. Frames are "(x,y width×height)" in ${tree.units}, on a ${Math.round(tree.screen.width)}×${Math.round(tree.screen.height)} screen with the origin at the top-left.${more}`;
-    const body = [`app: ${clip(tree.app, 80) || "(unnamed)"}`, ...shown.map(elementLine)].join("\n");
+    // SpringBoard names itself nothing — the home screen's root arrives blank — so a blank is said as one.
+    const body = [`app: ${clip(tree.app.trim(), 80) || "(no name)"}`, ...shown.map(elementLine)].join("\n");
     return ok(`${head}\n${fenceUntrusted(body, "WHAT THE APP ON THE SIMULATOR REPORTS ABOUT ITS SCREEN")}`);
   },
 

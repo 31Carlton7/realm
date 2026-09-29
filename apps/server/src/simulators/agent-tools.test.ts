@@ -411,6 +411,13 @@ describe("simulator_elements and simulator_apps", () => {
     expect(appAt).toBeGreaterThan(fenceAt);
   });
 
+  it("says so when the foreground app names itself nothing, as the home screen does", async () => {
+    // MEASURED: SpringBoard's root node arrives with a blank label, which printed as `app:  `.
+    const { call, running } = setup({ serveSim: { ax: async () => ({ ...TREE, app: " " }) } });
+    const simulatorId = await running();
+    expect(text(await call("simulator_elements", { simulatorId }))).toContain("app: (no name)\n");
+  });
+
   it("lists the apps with the bundle ids simulator_launch takes, fenced like the tree", async () => {
     const { call, running } = setup();
     const simulatorId = await running();
