@@ -329,17 +329,30 @@ async function main() {
   /* The tools do not tap, and the preamble says serve-sim's own `tap -d <udid>` drives the device the
      pane is streaming and starts nothing. That is a claim agents act on, so it is exercised here the
      way the skill says to: the element's centre from the tree, over the screen size the tree states. */
-  const general = inSettings?.match(/\[[\d.]+\] Button "General"[^\n]*\((\d+),(\d+) (\d+)×(\d+)\)/);
-  const screen = inSettings?.match(/on a (\d+)×(\d+) screen/);
+  /* Measured once, and wrong: Settings is still laying itself out when it first reports a tree — a card
+     above General arrives a beat later and pushes it down — so a tap aimed off the first read landed on
+     a different row. The tree is read until General's frame holds still across two reads, and the tap
+     is judged by the screen LEAVING the Settings root, which any landed tap on a row does. */
+  const generalAt = (tree) => tree?.match(/\[[\d.]+\] Button "General"[^\n]*\((\d+),(\d+) (\d+)×(\d+)\)/)?.slice(1).join(",") ?? null;
+  let settled = inSettings;
+  await until(async () => {
+    const again = text(await call("simulator_elements", { simulatorId }));
+    const still = generalAt(again) !== null && generalAt(again) === generalAt(settled);
+    settled = again;
+    return still;
+  }, 15_000, "Settings holding still").catch(() => {});
+  const general = settled?.match(/\[[\d.]+\] Button "General"[^\n]*\((\d+),(\d+) (\d+)×(\d+)\)/);
+  const screen = settled?.match(/on a (\d+)×(\d+) screen/);
   if (general && screen) {
     const [x, y, w, h] = general.slice(1).map(Number), [sw, sh] = screen.slice(1).map(Number);
     const nx = ((x + w / 2) / sw).toFixed(3), ny = ((y + h / 2) / sh).toFixed(3);
     execFileSync("npx", ["--yes", "serve-sim@latest", "tap", nx, ny, "-d", target], { stdio: "ignore", timeout: 60_000 });
-    const inGeneral = await until(async () => {
+    const moved = await until(async () => {
       const r = text(await call("simulator_elements", { simulatorId }));
-      return /"About"/.test(r) ? r : null;
-    }, 20_000, "General on screen").catch(() => null);
-    check("serve-sim's tap on the element's centre lands on the device the pane shows", !!inGeneral, { tapped: [nx, ny], after: inGeneral?.split("\n").slice(4, 8) });
+      return !/\] Heading "Settings"/.test(r) ? r : null;
+    }, 20_000, "a screen past the Settings root").catch(() => null);
+    check("serve-sim's tap on the element's centre lands on the device the pane shows", !!moved,
+      { tapped: [nx, ny], landedOn: moved?.split("\n").filter((l) => /Heading|"About"/.test(l)).slice(0, 3) });
     const streams = serveSimList();
     const forTarget = (streams.streams ?? (streams.device ? [streams] : [])).filter((s) => s.device === target);
     check("…and started nothing: still one stream for that device, the pane's", forTarget.length === 1, forTarget.map((s) => s.port));
