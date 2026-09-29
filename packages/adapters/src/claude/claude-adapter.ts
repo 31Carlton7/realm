@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { spawn as nodeSpawn } from "node:child_process";
-import { query as sdkQuery, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type SpawnOptions, type SpawnedProcess, type Query } from "@anthropic-ai/claude-agent-sdk";
+import { query as sdkQuery, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type Settings, type SpawnOptions, type SpawnedProcess, type Query } from "@anthropic-ai/claude-agent-sdk";
 import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, mergeWindows, newId, planWindowLabel, sessionEvent, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { createSdkMapper, type ChainCursor } from "./map-sdk-message";
@@ -8,6 +8,9 @@ import { probeClaude } from "./probe";
 import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
 
 type QueryFn = typeof sdkQuery;
+/** The keys `Settings` actually declares. The SDK's type ends in `[k: string]: unknown`, so a
+ *  `satisfies Settings` passes any misspelling; this is the same type without that catch-all. */
+type DeclaredSettings = { [K in keyof Settings as string extends K ? never : number extends K ? never : K]?: Settings[K] };
 
 /**
  * The truncating half of a resume: put the model back where a checkpoint found it.
@@ -176,6 +179,12 @@ export class ClaudeAdapter implements AgentAdapter {
     let running = false;
     let sawResult = false;
     let disposed = false;
+    /* Fast mode as ASKED: what the session wants right now, and what the turn in flight was sent
+       under. Two, because a switch flipped mid-turn is about the NEXT turn — the report this turn
+       ends with describes the old request, and has to say so or a stale refusal reads as a fresh
+       one. */
+    let fastRequested = opts.fastMode === true;
+    let turnFast = fastRequested;
 
     const onStderr = (data: string) => {
       for (const line of data.split("\n")) {
@@ -290,7 +299,15 @@ export class ClaudeAdapter implements AgentAdapter {
       // than only through `applyFlagSettings` is what makes the FIRST turn of a session that was
       // switched on before it started run fast — the flag layer can only be written once a query
       // exists, and by then the first prompt is already on its way.
-      ...(opts.fastMode ? { fastMode: true } : {}),
+      //
+      // Inside `settings`, which is the flag layer, and NOT as a top-level option. `fastMode` is a
+      // Settings key; `Options` has no field of that name, so the top-level spread this used to be
+      // was dropped without a word and no session ever started fast. The CLI's own gate is the
+      // reason it has to be this layer: running under the SDK, fast mode is offered only when
+      // `flagSettings.fastMode === true`, and otherwise every turn reports `sdk_opt_in_required`.
+      // Checked against the keys `Settings` declares, because nothing else would check it: a spread
+      // is never checked for excess keys (the old line compiled), and `Settings` takes any key.
+      ...(opts.fastMode ? { settings: { fastMode: true } satisfies DeclaredSettings } : {}),
     };
 
     /**
@@ -451,9 +468,16 @@ export class ClaudeAdapter implements AgentAdapter {
             // A cancelled turn still reports its usage — the tokens were spent — but its error is
             // the cancellation, and that is what the settle below says instead.
             let usage: SessionEventPayload<"usage"> | null = null;
-            for (const e of mapper.map(msg)) {
-              if (interrupted && e.type === "error") continue;
-              if (e.type === "usage") usage = e.payload;
+            for (const mapped of mapper.map(msg)) {
+              if (interrupted && mapped.type === "error") continue;
+              let e = mapped;
+              if (e.type === "usage") {
+                // Stamped here rather than in the mapper, which sees only the SDK's message and not
+                // what this session asked for. Carried on the persisted event, so a transcript read
+                // back after a restart still knows which request a refusal was about.
+                e = sessionEvent("usage", { ...e.payload, fastModeRequested: turnFast });
+                usage = e.payload;
+              }
               events.push(e);
             }
             // Off the message loop: the meter is worth a beat of lateness and nothing else on this
@@ -549,6 +573,7 @@ export class ClaudeAdapter implements AgentAdapter {
         catch (e) { events.push(sessionEvent("error", { message: `attachment error: ${(e as Error).message ?? String(e)}` })); return; }
         if (disposed || input.isClosed) { events.push(sessionEvent("error", { message: "session ended" })); return; }
         running = true;
+        turnFast = fastRequested;
         events.push(sessionEvent("status", { status: "running" }));
         // A resolved @-mention (W4) becomes `/realm:<name>` at POSITION 0 — the only place the SDK
         // dispatches a slash command; mid-text it is literal characters. The rest of the message rides
@@ -587,7 +612,7 @@ export class ClaudeAdapter implements AgentAdapter {
         // `fastMode` is a settings key, so the flag layer is how it moves mid-session — the same
         // layer `query()`'s inline `settings` writes, above user and project settings and below
         // managed policy. There is no `setFastMode`, and there does not need to be.
-        if (o.fastMode !== undefined) await q?.applyFlagSettings({ fastMode: o.fastMode });
+        if (o.fastMode !== undefined) { fastRequested = o.fastMode; await q?.applyFlagSettings({ fastMode: o.fastMode }); }
         if (o.permissionMode) {
           // Realm's own record moves FIRST: it is what the gate above reads, and it must hold even
           // if the SDK call throws.

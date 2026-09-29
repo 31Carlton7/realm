@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode } from "./claude-adapter";
+import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import type { SessionEvent } from "@realm/contracts";
 import type { StartOptions } from "../types";
 import { readFileSync, writeFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
@@ -30,6 +31,8 @@ type FakeOpts = {
   models?: { value: string; supportsFastMode?: boolean }[];
   /** record every `applyFlagSettings` merge (the mid-session fast-mode path). */
   flagSettings?: Record<string, unknown>[];
+  /** answer this many prompts with the fixture's turn instead of only the first (multi-turn assertions) */
+  turns?: number;
   /** what `getContextUsage()` answers; omitted means the control request is declined (a CLI may). */
   contextUsage?: { totalTokens: number; maxTokens: number; rawMaxTokens: number };
   /** record the options `getContextUsage` was called with — `detail` is the expensive knob. */
@@ -57,6 +60,13 @@ function fakeQuery(opts: FakeOpts, calls: string[] = []) {
         }
         if ((m as { type: string }).type === "result" && opts.errorResult) { yield { ...(m as object), subtype: "error_during_execution", is_error: true, errors: ["turn failed"] }; break; }
         yield m;
+      }
+      // Each later prompt gets the same turn again, minus the session's `init`, which a session sends once.
+      for (let t = 1; t < (opts.turns ?? 1); t++) {
+        const next = await it.next();
+        if (next.done) return;
+        opts.capture?.push(next.value);
+        for (const m of fixture) if ((m as { type: string }).type !== "system") yield m;
       }
       if (opts.abortable) {
         const signal = (options.abortController as AbortController).signal;
@@ -386,7 +396,20 @@ describe("ClaudeAdapter", () => {
       const c = collectUntil(h.events, () => false);
       await h.send({ text: "hi", attachments: [] });
       await h.dispose(); await c;
-      expect(captureOptions[0]!.fastMode).toBe(true);
+      /* In `settings`, the flag layer, because that is the one the CLI's opt-in gate reads: under the
+         SDK it refuses fast mode as `sdk_opt_in_required` unless `flagSettings.fastMode` is true.
+         THE BUG this pins: this test used to assert a top-level `fastMode`. The fake takes any key,
+         so it agreed; the real SDK has no such option, dropped it without a word, and no session
+         ever started fast. */
+      expect(captureOptions[0]!.settings).toEqual({ fastMode: true });
+      expect("fastMode" in captureOptions[0]!).toBe(false);
+    });
+
+    it("is not an Options key, by the SDK's own types", () => {
+      // The fake above cannot know the SDK's shape, so the compiler holds it instead. An SDK that
+      // grows a top-level `fastMode` fails the typecheck here — the moment to re-decide which to send.
+      // (That it IS a `Settings` key is checked where the adapter writes it.)
+      expectTypeOf<Options>().not.toHaveProperty("fastMode");
     });
 
     it("leaves the option off the start entirely when it was not asked for", async () => {
@@ -399,6 +422,7 @@ describe("ClaudeAdapter", () => {
       await h.send({ text: "hi", attachments: [] });
       await h.dispose(); await c;
       expect("fastMode" in captureOptions[0]!).toBe(false);
+      expect("settings" in captureOptions[0]!).toBe(false);
     });
 
     it("moves it mid-session through the flag settings layer — there is no setFastMode", async () => {
@@ -413,6 +437,42 @@ describe("ClaudeAdapter", () => {
       await h.setOptions({ model: "claude-sonnet-5" });
       await h.dispose(); await c;
       expect(flagSettings).toEqual([{ fastMode: true }, { fastMode: false }]);
+    });
+
+    const requested = (evs: SessionEvent[]) => evs.flatMap((e) => (e.type === "usage" ? [e.payload.fastModeRequested] : []));
+
+    it("says on each turn's report whether that turn asked for it", async () => {
+      // What the picker needs to tell "fast mode was refused" from "fast mode was not asked for".
+      for (const fastMode of [true, false]) {
+        const a = new ClaudeAdapter({ query: fakeQuery({}) as never });
+        const h = a.start({ cwd: "/tmp", mcpServers: [], fastMode });
+        const c = collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle");
+        await h.send({ text: "hi", attachments: [] });
+        const got = await c; await h.dispose();
+        expect(requested(got), String(fastMode)).toEqual([fastMode]);
+      }
+    });
+
+    it("keeps a switch flipped mid-turn off the turn in flight, and puts it on the next", async () => {
+      /* THE BUG this closes: the picker read the last turn's refusal as a verdict on the switch just
+         flipped, and said fast mode could not run — about a turn that never asked for it. Turn one
+         parks on a permission, the switch moves while it waits, and only turn two carries it. */
+      const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "Read", turns: 2, hang: true }) as never });
+      const h = a.start({ cwd: "/tmp", mcpServers: [] });
+      let parked!: (id: string) => void; const asked = new Promise<string>((r) => { parked = r; });
+      let settled!: () => void; const turnOne = new Promise<void>((r) => { settled = r; });
+      const c = collectUntil(h.events, (e, all) => e.type === "status" && e.payload.status === "idle" && requested(all).length === 2, (e) => {
+        if (e.type === "permission_request") parked(e.payload.requestId);
+        if (e.type === "status" && e.payload.status === "idle") settled();
+      });
+      await h.send({ text: "one", attachments: [] });
+      const id = await asked;
+      await h.setOptions({ fastMode: true });
+      h.respondPermission(id, "allow");
+      await turnOne;
+      await h.send({ text: "two", attachments: [] });
+      const got = await c; await h.dispose();
+      expect(requested(got)).toEqual([false, true]);
     });
   });
 
