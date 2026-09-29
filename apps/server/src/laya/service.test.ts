@@ -225,6 +225,23 @@ describe("running in Shadow", () => {
     expect(await state(service)).toEqual({ state: "starting" });
   });
 
+  it("Off while Shadow is still starting leaves nothing running", async () => {
+    // The start was already past its decision when the switch went back to Off — it is waiting on a
+    // free port. It must look again before it spawns, or it leaves a laya-serve nobody asked for.
+    const runtime = installed();
+    let release!: () => void;
+    const portFound = new Promise<void>((r) => { release = r; });
+    const freePort = runtime.freePort.bind(runtime);
+    runtime.freePort = async () => { await portFound; return freePort(); };
+    const { service } = setup({ runtime });
+    void service.setMode("shadow");
+    await service.setMode("off");
+    release();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(runtime.starts).toEqual([]);
+    expect(await state(service)).toEqual({ state: "off" });
+  });
+
   it("Off stops the process", async () => {
     const runtime = installed();
     const { service } = setup({ runtime });

@@ -43,6 +43,17 @@ describe("the decision log", () => {
     expect(log.count()).toBe(5);
   });
 
+  it("drops the oldest file at rotation even when the one before it is missing, so the count stays the disk's", () => {
+    const dir = tempDir("realm-laya-log-");
+    const path = join(dir, "decisions.jsonl");
+    // A gap: someone removed decisions.1.jsonl by hand, and decisions.2.jsonl is the oldest there is.
+    writeFileSync(join(dir, "decisions.2.jsonl"), '{"n":-1}\n{"n":-2}\n');
+    const log = new DecisionLog({ path, maxBytes: 20, keep: 2 });
+    for (let n = 1; n <= 3; n++) log.append({ n });
+    expect(readdirSync(dir).sort()).toEqual(["decisions.1.jsonl", "decisions.jsonl"]);
+    expect(log.count()).toBe(3);
+  });
+
   it("counts every file on disk when it is opened again", () => {
     const dir = tempDir("realm-laya-log-");
     const path = join(dir, "decisions.jsonl");

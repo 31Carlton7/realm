@@ -69,7 +69,7 @@ export function pythonCandidates(d: PythonSearchDeps = {}): string[] {
   for (const root of [join(home, ".pyenv", "versions"), join(home, ".local", "share", "uv", "python")]) {
     for (const entry of list(root).sort().reverse()) out.push(join(root, entry, "bin", "python3"));
   }
-  return [...new Set(out)].filter((p) => !p.startsWith("/usr/bin/") && exists(p));
+  return [...new Set(out)].filter((p) => exists(p));
 }
 
 /**
