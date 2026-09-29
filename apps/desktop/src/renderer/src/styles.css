@@ -4755,6 +4755,14 @@ select { appearance: none; padding-right: 22px;
 .transcript-col > .msg-handoff[data-enter],
 .transcript-col > .msg-error[data-enter] { animation: rl-fade-in var(--dur-slow) var(--ease-fade); }
 
+/* Streamed prose, arriving (`arrival-fade.ts`): each run of new text fades in where it lands rather
+   than stamping onto the column a chunk at a time. The system lines' curve and rung, for their
+   reason — this is text appearing, not an object landing, so nothing travels. A one-shot, and kept
+   OUT of the `data-quiet` pause list on purpose: a fade frozen at its first frame is prose left
+   invisible in an unfocused window while the agent talks into it. The span's resting state is fully
+   opaque, so with reduced motion — which removes the animation — what is left is the text. */
+.md-arrival { animation: rl-fade-in var(--dur-slow) var(--ease-fade); }
+
 /* §6 "do NOT animate": the command palette is a 100×/day action (Raycast rule) — it appears and
    disappears instantly, and neither it nor its scrim may grow an enter animation. Deliberately
    stated rather than merely omitted, so the absence reads as a decision. */
