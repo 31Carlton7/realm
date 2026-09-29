@@ -1,0 +1,198 @@
+{"id":"v0001","split":"heldout","app":"Settings","pair":"v-about-back","tool":"simulator_tap","intent":"go back to General settings","achieved":true,"kind":"ok"}
+{"id":"v0002","split":"train","app":"Settings","pair":"v-app-liquidglass","tool":"simulator_tap","intent":"open the Liquid Glass options","achieved":true,"kind":"ok"}
+{"id":"v0003","split":"train","app":"Settings","pair":"v-app-textsize","tool":"simulator_tap","intent":"open the text size setting","achieved":true,"kind":"ok"}
+{"id":"v0004","split":"heldout","app":"Settings","pair":"v-app-textsize","tool":"simulator_tap","intent":"open Display Zoom","achieved":false,"kind":"wrong-screen"}
+{"id":"v0005","split":"train","app":"Settings","pair":"v-app-zoom","tool":"simulator_tap","intent":"open display zoom options","achieved":true,"kind":"ok"}
+{"id":"v0006","split":"train","app":"Settings","pair":"v-general-about","tool":"simulator_tap","intent":"see which iOS version this phone runs","achieved":true,"kind":"ok"}
+{"id":"v0007","split":"validation","app":"Settings","pair":"v-general-autofill","tool":"simulator_tap","intent":"choose which app fills in my saved passwords","achieved":true,"kind":"ok"}
+{"id":"v0008","split":"train","app":"Settings","pair":"v-general-dictionary","tool":"simulator_tap","intent":"manage dictionaries for looking up words","achieved":true,"kind":"ok"}
+{"id":"v0009","split":"train","app":"Settings","pair":"v-general-fonts","tool":"simulator_tap","intent":"see installed fonts","achieved":true,"kind":"ok"}
+{"id":"v0010","split":"train","app":"Settings","pair":"v-general-fonts","tool":"simulator_tap","intent":"open Keyboard settings","achieved":false,"kind":"wrong-screen"}
+{"id":"v0011","split":"train","app":"Settings","pair":"v-general-keyboard","tool":"simulator_tap","intent":"change keyboard settings like autocorrect","achieved":true,"kind":"ok"}
+{"id":"v0012","split":"train","app":"Settings","pair":"v-general-lang","tool":"simulator_tap","intent":"change the phone's language or region","achieved":true,"kind":"ok"}
+{"id":"v0013","split":"train","app":"Settings","pair":"v-general-screencap","tool":"simulator_tap","intent":"change screenshot settings","achieved":true,"kind":"ok"}
+{"id":"v0014","split":"validation","app":"Settings","pair":"v-general-vpn","tool":"simulator_tap","intent":"open VPN & Device Management","achieved":true,"kind":"ok"}
+{"id":"v0015","split":"train","app":"Settings","pair":"v-kb-autocap-on","tool":"simulator_tap","intent":"turn auto-capitalization back on","achieved":true,"kind":"ok"}
+{"id":"v0016","split":"train","app":"Settings","pair":"v-kb-autocorrect-off-2","tool":"simulator_tap","intent":"turn off autocorrect","achieved":true,"kind":"ok"}
+{"id":"v0017","split":"train","app":"Settings","pair":"v-kb-autocorrect-off","tool":"simulator_tap","intent":"turn off autocorrect","achieved":false,"kind":"no-change"}
+{"id":"v0018","split":"train","app":"Settings","pair":"v-kb-autocorrect-on","tool":"simulator_tap","intent":"turn autocorrect back on","achieved":true,"kind":"ok"}
+{"id":"v0019","split":"train","app":"Settings","pair":"v-kb-haptic-on","tool":"simulator_tap","intent":"make the keyboard vibrate when I type","achieved":false,"kind":"no-change"}
+{"id":"v0020","split":"train","app":"Settings","pair":"v-kb-heading-nochange","tool":"simulator_tap","intent":"turn on caps lock","achieved":false,"kind":"no-change"}
+{"id":"v0021","split":"heldout","app":"Settings","pair":"v-kb-keyboards","tool":"simulator_tap","intent":"open the list of keyboards","achieved":true,"kind":"ok"}
+{"id":"v0022","split":"train","app":"Settings","pair":"v-kb-sound-back","tool":"simulator_tap","intent":"turn keyboard clicks back on","achieved":false,"kind":"no-change"}
+{"id":"v0023","split":"train","app":"Settings","pair":"v-kb-textrepl","tool":"simulator_tap","intent":"open text replacement","achieved":true,"kind":"ok"}
+{"id":"v0024","split":"validation","app":"Settings","pair":"v-kb-wrong-predictive","tool":"simulator_tap","intent":"turn off autocorrect","achieved":false,"kind":"wrong-screen"}
+{"id":"v0025","split":"train","app":"Settings","pair":"v-kb-wrong-sound","tool":"simulator_tap","intent":"turn off predictive text suggestions","achieved":false,"kind":"no-change"}
+{"id":"v0026","split":"train","app":"Settings","pair":"v-nc-general-bottom","tool":"simulator_swipe","intent":"scroll further down the General list","achieved":false,"kind":"no-change"}
+{"id":"v0027","split":"train","app":"Settings","pair":"v-nc-general-desc","tool":"simulator_tap","intent":"open the About page","achieved":false,"kind":"no-change"}
+{"id":"v0028","split":"train","app":"Settings","pair":"v-nc-general-heading","tool":"simulator_tap","intent":"check the iOS version","achieved":false,"kind":"no-change"}
+{"id":"v0029","split":"train","app":"Settings","pair":"v-nc-settings-general","tool":"simulator_tap","intent":"open General settings","achieved":true,"kind":"ok"}
+{"id":"v0030","split":"heldout","app":"Settings","pair":"v-nc-settings-heading","tool":"simulator_tap","intent":"open General settings","achieved":false,"kind":"no-change"}
+{"id":"v0031","split":"train","app":"Settings","pair":"v-priv-camera","tool":"simulator_tap","intent":"see which apps can use the camera","achieved":false,"kind":"no-change"}
+{"id":"v0032","split":"heldout","app":"Settings","pair":"v-priv-location","tool":"simulator_tap","intent":"open location services","achieved":true,"kind":"ok"}
+{"id":"v0033","split":"heldout","app":"Settings","pair":"v-priv-tracking","tool":"simulator_tap","intent":"open the Tracking setting","achieved":true,"kind":"ok"}
+{"id":"v0034","split":"validation","app":"Settings","pair":"v-root-accessibility","tool":"simulator_tap","intent":"open accessibility options","achieved":true,"kind":"ok"}
+{"id":"v0035","split":"train","app":"Settings","pair":"v-root-actionbutton","tool":"simulator_tap","intent":"open the Action Button settings","achieved":true,"kind":"ok"}
+{"id":"v0036","split":"train","app":"Settings","pair":"v-root-appearance","tool":"simulator_tap","intent":"switch the phone to dark mode","achieved":false,"kind":"partial"}
+{"id":"v0037","split":"validation","app":"Settings","pair":"v-root-appearance2","tool":"simulator_tap","intent":"open Appearance settings","achieved":true,"kind":"ok"}
+{"id":"v0038","split":"train","app":"Settings","pair":"v-root-apps","tool":"simulator_tap","intent":"see the list of apps' settings","achieved":true,"kind":"ok"}
+{"id":"v0039","split":"heldout","app":"Settings","pair":"v-root-camera","tool":"simulator_tap","intent":"open Camera settings","achieved":true,"kind":"ok"}
+{"id":"v0040","split":"train","app":"Settings","pair":"v-root-developer","tool":"simulator_tap","intent":"open developer settings","achieved":false,"kind":"no-change"}
+{"id":"v0041","split":"train","app":"Settings","pair":"v-root-gamecenter","tool":"simulator_tap","intent":"open Game Center settings","achieved":true,"kind":"ok"}
+{"id":"v0042","split":"train","app":"Settings","pair":"v-root-homescreen","tool":"simulator_tap","intent":"open Home Screen settings","achieved":true,"kind":"ok"}
+{"id":"v0043","split":"train","app":"Settings","pair":"v-root-icloud","tool":"simulator_tap","intent":"open iCloud settings","achieved":false,"kind":"interrupted"}
+{"id":"v0044","split":"train","app":"Settings","pair":"v-root-passcode","tool":"simulator_tap","intent":"open passcode settings","achieved":false,"kind":"wrong-screen"}
+{"id":"v0045","split":"train","app":"Settings","pair":"v-root-privacy","tool":"simulator_tap","intent":"open privacy settings","achieved":true,"kind":"ok"}
+{"id":"v0046","split":"train","app":"Settings","pair":"v-root-privacy2","tool":"simulator_tap","intent":"open privacy settings","achieved":true,"kind":"ok"}
+{"id":"v0047","split":"train","app":"Settings","pair":"v-root-screentime","tool":"simulator_tap","intent":"open Screen Time","achieved":true,"kind":"ok"}
+{"id":"v0048","split":"train","app":"Settings","pair":"v-root-screentime","tool":"simulator_tap","intent":"open Passcode settings","achieved":false,"kind":"wrong-screen"}
+{"id":"v0049","split":"heldout","app":"Settings","pair":"v-root-search","tool":"simulator_tap","intent":"open search settings","achieved":true,"kind":"ok"}
+{"id":"v0050","split":"train","app":"Settings","pair":"v-root-siri","tool":"simulator_tap","intent":"open Siri settings","achieved":true,"kind":"ok"}
+{"id":"v0051","split":"train","app":"Settings","pair":"v-root-siri","tool":"simulator_tap","intent":"open Search settings","achieved":false,"kind":"wrong-screen"}
+{"id":"v0052","split":"train","app":"Settings","pair":"v-root-standby","tool":"simulator_tap","intent":"open StandBy settings","achieved":true,"kind":"ok"}
+{"id":"v0053","split":"train","app":"Settings","pair":"v-safari-clear","tool":"simulator_tap","intent":"clear Safari's browsing history","achieved":false,"kind":"confirm"}
+{"id":"v0054","split":"train","app":"Settings","pair":"v-search-close","tool":"simulator_tap","intent":"close the search","achieved":true,"kind":"ok"}
+{"id":"v0055","split":"train","app":"Settings","pair":"v-search-type","tool":"simulator_type","intent":"search settings for privacy","achieved":false,"kind":"no-change"}
+{"id":"v0056","split":"heldout","app":"Settings","pair":"v-settings-general","tool":"simulator_tap","intent":"open General settings","achieved":true,"kind":"ok"}
+{"id":"v0057","split":"train","app":"Settings","pair":"v-signin-continue","tool":"simulator_tap","intent":"continue to the password step","achieved":true,"kind":"ok"}
+{"id":"v0058","split":"train","app":"Settings","pair":"v-signin-continue2","tool":"simulator_tap","intent":"submit the sign-in","achieved":false,"kind":"alert"}
+{"id":"v0059","split":"train","app":"Settings","pair":"v-signin-manual","tool":"simulator_tap","intent":"open the manual sign-in form","achieved":true,"kind":"ok"}
+{"id":"v0060","split":"train","app":"Settings","pair":"v-signin-ok","tool":"simulator_tap","intent":"dismiss the error","achieved":true,"kind":"ok"}
+{"id":"v0061","split":"heldout","app":"Settings","pair":"v-tr-add","tool":"simulator_tap","intent":"add a new text replacement","achieved":true,"kind":"ok"}
+{"id":"v0062","split":"train","app":"Settings","pair":"v-tr-back","tool":"simulator_tap","intent":"go back to keyboard settings","achieved":true,"kind":"ok"}
+{"id":"v0063","split":"train","app":"Settings","pair":"v-tr-delete","tool":"simulator_tap","intent":"delete the @@ shortcut","achieved":true,"kind":"ok"}
+{"id":"v0064","split":"train","app":"Settings","pair":"v-tr-done","tool":"simulator_tap","intent":"finish editing the list","achieved":true,"kind":"ok"}
+{"id":"v0065","split":"validation","app":"Settings","pair":"v-tr-edit","tool":"simulator_tap","intent":"edit the list of text replacements","achieved":true,"kind":"ok"}
+{"id":"v0066","split":"validation","app":"Settings","pair":"v-tr-remove","tool":"simulator_tap","intent":"delete the @@ shortcut","achieved":false,"kind":"confirm"}
+{"id":"v0067","split":"train","app":"Settings","pair":"v-tr-save","tool":"simulator_tap","intent":"save the new text replacement","achieved":true,"kind":"ok"}
+{"id":"v0068","split":"train","app":"Settings","pair":"v-tr-type-phrase","tool":"simulator_type","intent":"type the email address as the phrase","achieved":true,"kind":"ok"}
+{"id":"v0069","split":"train","app":"Settings","pair":"v-tr-type-shortcut","tool":"simulator_type","intent":"type @@ as the shortcut","achieved":true,"kind":"ok"}
+{"id":"v0070","split":"train","app":"Settings","pair":"v-ws-general-dictionary","tool":"simulator_tap","intent":"open Language & Region","achieved":false,"kind":"wrong-screen"}
+{"id":"v0071","split":"train","app":"Settings","pair":"v-ws-general-keyboard","tool":"simulator_tap","intent":"open the Fonts settings","achieved":false,"kind":"wrong-screen"}
+{"id":"v0072","split":"train","app":"Safari","pair":"v-safari-address","tool":"simulator_tap","intent":"focus the address bar","achieved":true,"kind":"ok"}
+{"id":"v0073","split":"train","app":"Safari","pair":"v-safari-bm-more-close","tool":"simulator_tap","intent":"close the menu","achieved":true,"kind":"ok"}
+{"id":"v0074","split":"train","app":"Safari","pair":"v-safari-bm-more","tool":"simulator_tap","intent":"open the bookmarks options menu","achieved":true,"kind":"ok"}
+{"id":"v0075","split":"train","app":"Safari","pair":"v-safari-bookmarks","tool":"simulator_tap","intent":"show my bookmarks","achieved":true,"kind":"ok"}
+{"id":"v0076","split":"validation","app":"Safari","pair":"v-safari-cleartext","tool":"simulator_tap","intent":"clear what I typed","achieved":true,"kind":"ok"}
+{"id":"v0077","split":"train","app":"Safari","pair":"v-safari-continue","tool":"simulator_tap","intent":"dismiss the search suggestions notice","achieved":true,"kind":"ok"}
+{"id":"v0078","split":"train","app":"Safari","pair":"v-safari-dismissmenu","tool":"simulator_tap","intent":"close the menu","achieved":false,"kind":"wrong-screen"}
+{"id":"v0079","split":"train","app":"Safari","pair":"v-safari-history","tool":"simulator_tap","intent":"see the pages I visited earlier","achieved":true,"kind":"ok"}
+{"id":"v0080","split":"validation","app":"Safari","pair":"v-safari-history","tool":"simulator_tap","intent":"show my bookmarks","achieved":false,"kind":"wrong-screen"}
+{"id":"v0081","split":"validation","app":"Safari","pair":"v-safari-newtab","tool":"simulator_tap","intent":"open a new blank tab","achieved":true,"kind":"ok"}
+{"id":"v0082","split":"train","app":"Safari","pair":"v-safari-notnow","tool":"simulator_tap","intent":"skip the lock setup and keep browsing privately","achieved":true,"kind":"ok"}
+{"id":"v0083","split":"train","app":"Safari","pair":"v-safari-pagemenu","tool":"simulator_tap","intent":"open the page options menu","achieved":true,"kind":"ok"}
+{"id":"v0084","split":"train","app":"Safari","pair":"v-safari-private","tool":"simulator_tap","intent":"switch to private browsing","achieved":false,"kind":"interrupted"}
+{"id":"v0085","split":"train","app":"Safari","pair":"v-safari-readinglist","tool":"simulator_tap","intent":"find articles I saved to read later","achieved":true,"kind":"ok"}
+{"id":"v0086","split":"heldout","app":"Safari","pair":"v-safari-share-dismiss","tool":"simulator_tap","intent":"close the share sheet","achieved":true,"kind":"ok"}
+{"id":"v0087","split":"validation","app":"Safari","pair":"v-safari-startpage","tool":"simulator_tap","intent":"go back to the start page","achieved":true,"kind":"ok"}
+{"id":"v0088","split":"train","app":"Safari","pair":"v-safari-tabs","tool":"simulator_tap","intent":"see all my open tabs","achieved":true,"kind":"ok"}
+{"id":"v0089","split":"train","app":"Safari","pair":"v-safari-type","tool":"simulator_type","intent":"type weather into the search field","achieved":true,"kind":"ok"}
+{"id":"v0090","split":"heldout","app":"Maps","pair":"v-maps-allow","tool":"simulator_tap","intent":"let Maps use my location while I use it","achieved":true,"kind":"ok"}
+{"id":"v0091","split":"heldout","app":"Maps","pair":"v-maps-close","tool":"simulator_tap","intent":"close the map modes card","achieved":true,"kind":"ok"}
+{"id":"v0092","split":"heldout","app":"Maps","pair":"v-maps-continue","tool":"simulator_tap","intent":"get past the ads notice to the map","achieved":true,"kind":"ok"}
+{"id":"v0093","split":"heldout","app":"Maps","pair":"v-maps-dir-close","tool":"simulator_tap","intent":"close the directions","achieved":true,"kind":"ok"}
+{"id":"v0094","split":"heldout","app":"Maps","pair":"v-maps-directions","tool":"simulator_tap","intent":"get walking directions to Peet's","achieved":true,"kind":"ok"}
+{"id":"v0095","split":"heldout","app":"Maps","pair":"v-maps-modes","tool":"simulator_tap","intent":"switch the map to satellite view","achieved":false,"kind":"partial"}
+{"id":"v0096","split":"heldout","app":"Maps","pair":"v-maps-ok","tool":"simulator_tap","intent":"acknowledge the safety notice","achieved":true,"kind":"ok"}
+{"id":"v0097","split":"heldout","app":"Maps","pair":"v-maps-peets","tool":"simulator_tap","intent":"open Peet's on Market Street","achieved":true,"kind":"ok"}
+{"id":"v0098","split":"heldout","app":"Maps","pair":"v-maps-place-close","tool":"simulator_tap","intent":"close the place card","achieved":true,"kind":"ok"}
+{"id":"v0099","split":"heldout","app":"Maps","pair":"v-maps-satellite","tool":"simulator_tap","intent":"show satellite imagery","achieved":true,"kind":"ok"}
+{"id":"v0100","split":"heldout","app":"Maps","pair":"v-maps-search","tool":"simulator_tap","intent":"search for a place","achieved":true,"kind":"ok"}
+{"id":"v0101","split":"heldout","app":"Maps","pair":"v-maps-search","tool":"simulator_tap","intent":"show the map modes","achieved":false,"kind":"wrong-screen"}
+{"id":"v0102","split":"heldout","app":"Maps","pair":"v-maps-tipclose","tool":"simulator_tap","intent":"close the route options tip","achieved":true,"kind":"ok"}
+{"id":"v0103","split":"heldout","app":"Maps","pair":"v-maps-traffic","tool":"simulator_tap","intent":"show traffic on the map","achieved":false,"kind":"no-change"}
+{"id":"v0104","split":"heldout","app":"Maps","pair":"v-maps-transit","tool":"simulator_tap","intent":"take public transit instead","achieved":true,"kind":"ok"}
+{"id":"v0105","split":"heldout","app":"Maps","pair":"v-maps-type-coffee","tool":"simulator_type","intent":"search for coffee nearby","achieved":true,"kind":"ok"}
+{"id":"v0106","split":"validation","app":"Calendar","pair":"v-cal-add","tool":"simulator_tap","intent":"create a new event","achieved":true,"kind":"ok"}
+{"id":"v0107","split":"validation","app":"Calendar","pair":"v-cal-cal-close","tool":"simulator_tap","intent":"close the calendars list","achieved":true,"kind":"ok"}
+{"id":"v0108","split":"train","app":"Calendar","pair":"v-cal-calendars","tool":"simulator_tap","intent":"open the list of calendars","achieved":true,"kind":"ok"}
+{"id":"v0109","split":"train","app":"Calendar","pair":"v-cal-cancel","tool":"simulator_tap","intent":"throw away this new event","achieved":false,"kind":"confirm"}
+{"id":"v0110","split":"validation","app":"Calendar","pair":"v-cal-continue","tool":"simulator_tap","intent":"open the calendar","achieved":false,"kind":"interrupted"}
+{"id":"v0111","split":"train","app":"Calendar","pair":"v-cal-discard","tool":"simulator_tap","intent":"discard the new event","achieved":true,"kind":"ok"}
+{"id":"v0112","split":"train","app":"Calendar","pair":"v-cal-dontallow","tool":"simulator_tap","intent":"keep my location from Calendar","achieved":true,"kind":"ok"}
+{"id":"v0113","split":"train","app":"Calendar","pair":"v-cal-month","tool":"simulator_tap","intent":"switch to the month view","achieved":true,"kind":"ok"}
+{"id":"v0114","split":"heldout","app":"Calendar","pair":"v-cal-month","tool":"simulator_tap","intent":"open the Inbox","achieved":false,"kind":"wrong-screen"}
+{"id":"v0115","split":"train","app":"Calendar","pair":"v-cal-notif-allow","tool":"simulator_tap","intent":"let Calendar send me notifications","achieved":true,"kind":"ok"}
+{"id":"v0116","split":"train","app":"Calendar","pair":"v-cal-title-tap","tool":"simulator_tap","intent":"start typing the event name","achieved":true,"kind":"ok"}
+{"id":"v0117","split":"heldout","app":"Contacts","pair":"v-contacts-anna","tool":"simulator_tap","intent":"open Anna's contact card","achieved":true,"kind":"ok"}
+{"id":"v0118","split":"heldout","app":"Contacts","pair":"v-contacts-back","tool":"simulator_tap","intent":"go to the list of all contacts","achieved":true,"kind":"ok"}
+{"id":"v0119","split":"heldout","app":"Contacts","pair":"v-contacts-close","tool":"simulator_tap","intent":"stop editing without saving","achieved":true,"kind":"ok"}
+{"id":"v0120","split":"heldout","app":"Contacts","pair":"v-contacts-delete-cancel","tool":"simulator_tap","intent":"back out of deleting the contact","achieved":true,"kind":"ok"}
+{"id":"v0121","split":"heldout","app":"Contacts","pair":"v-contacts-delete","tool":"simulator_tap","intent":"delete Anna from my contacts","achieved":false,"kind":"confirm"}
+{"id":"v0122","split":"heldout","app":"Contacts","pair":"v-contacts-edit","tool":"simulator_tap","intent":"edit Anna's details","achieved":true,"kind":"ok"}
+{"id":"v0123","split":"heldout","app":"Contacts","pair":"v-contacts-edit","tool":"simulator_tap","intent":"call Anna","achieved":false,"kind":"wrong-screen"}
+{"id":"v0124","split":"heldout","app":"Messages","pair":"v-msg-add-close","tool":"simulator_tap","intent":"close the attachment menu","achieved":true,"kind":"ok"}
+{"id":"v0125","split":"train","app":"Messages","pair":"v-msg-add","tool":"simulator_tap","intent":"open the attachment options","achieved":true,"kind":"ok"}
+{"id":"v0126","split":"heldout","app":"Messages","pair":"v-msg-add","tool":"simulator_tap","intent":"send the message","achieved":false,"kind":"wrong-screen"}
+{"id":"v0127","split":"train","app":"Messages","pair":"v-msg-field","tool":"simulator_tap","intent":"start writing a message","achieved":true,"kind":"ok"}
+{"id":"v0128","split":"validation","app":"Messages","pair":"v-msg-thread","tool":"simulator_tap","intent":"open the conversation with 555-1212","achieved":true,"kind":"ok"}
+{"id":"v0129","split":"train","app":"Messages","pair":"v-msg-type","tool":"simulator_type","intent":"write On my way in the message box","achieved":true,"kind":"ok"}
+{"id":"v0130","split":"train","app":"Photos","pair":"v-photos-back","tool":"simulator_tap","intent":"go back to the photo grid","achieved":true,"kind":"ok"}
+{"id":"v0131","split":"train","app":"Photos","pair":"v-photos-collections","tool":"simulator_tap","intent":"browse my albums","achieved":true,"kind":"ok"}
+{"id":"v0132","split":"train","app":"Photos","pair":"v-photos-continue","tool":"simulator_tap","intent":"dismiss the what's new sheet","achieved":true,"kind":"ok"}
+{"id":"v0133","split":"train","app":"Photos","pair":"v-photos-delete-cancel","tool":"simulator_tap","intent":"keep the photo after all","achieved":true,"kind":"ok"}
+{"id":"v0134","split":"train","app":"Photos","pair":"v-photos-delete","tool":"simulator_tap","intent":"delete this photo","achieved":false,"kind":"confirm"}
+{"id":"v0135","split":"train","app":"Photos","pair":"v-photos-dontallow","tool":"simulator_tap","intent":"turn down notifications from Photos","achieved":true,"kind":"ok"}
+{"id":"v0136","split":"heldout","app":"Photos","pair":"v-photos-edit-cancel","tool":"simulator_tap","intent":"leave the editor without changes","achieved":true,"kind":"ok"}
+{"id":"v0137","split":"train","app":"Photos","pair":"v-photos-edit","tool":"simulator_tap","intent":"open the photo editor","achieved":true,"kind":"ok"}
+{"id":"v0138","split":"heldout","app":"Photos","pair":"v-photos-fav","tool":"simulator_tap","intent":"mark this photo as a favorite","achieved":true,"kind":"ok"}
+{"id":"v0139","split":"train","app":"Photos","pair":"v-photos-info","tool":"simulator_tap","intent":"see where and when this photo was taken","achieved":true,"kind":"ok"}
+{"id":"v0140","split":"heldout","app":"Photos","pair":"v-photos-info","tool":"simulator_tap","intent":"edit the photo","achieved":false,"kind":"wrong-screen"}
+{"id":"v0141","split":"train","app":"Photos","pair":"v-photos-open-miss","tool":"simulator_tap","intent":"open the first photo","achieved":false,"kind":"no-change"}
+{"id":"v0142","split":"validation","app":"Photos","pair":"v-photos-open","tool":"simulator_tap","intent":"open the first photo","achieved":true,"kind":"ok"}
+{"id":"v0143","split":"heldout","app":"Files","pair":"v-files-browse","tool":"simulator_tap","intent":"see all my folders and drives","achieved":true,"kind":"ok"}
+{"id":"v0144","split":"heldout","app":"Files","pair":"v-files-more","tool":"simulator_tap","intent":"open the options menu","achieved":true,"kind":"ok"}
+{"id":"v0145","split":"heldout","app":"Files","pair":"v-files-more","tool":"simulator_tap","intent":"open the Browse tab","achieved":false,"kind":"wrong-screen"}
+{"id":"v0146","split":"heldout","app":"Files","pair":"v-files-newfolder","tool":"simulator_tap","intent":"create a new folder here","achieved":true,"kind":"ok"}
+{"id":"v0147","split":"heldout","app":"Files","pair":"v-files-recents","tool":"simulator_tap","intent":"show recently opened files","achieved":true,"kind":"ok"}
+{"id":"v0148","split":"validation","app":"Reminders","pair":"v-rem-back","tool":"simulator_tap","intent":"see all my reminder lists","achieved":true,"kind":"ok"}
+{"id":"v0149","split":"validation","app":"Reminders","pair":"v-rem-delete-cancel","tool":"simulator_tap","intent":"keep the list","achieved":true,"kind":"ok"}
+{"id":"v0150","split":"validation","app":"Reminders","pair":"v-rem-deletelist","tool":"simulator_tap","intent":"delete this reminders list","achieved":false,"kind":"confirm"}
+{"id":"v0151","split":"validation","app":"Reminders","pair":"v-rem-done","tool":"simulator_tap","intent":"save the reminder","achieved":true,"kind":"ok"}
+{"id":"v0152","split":"validation","app":"Reminders","pair":"v-rem-more","tool":"simulator_tap","intent":"open the list's options","achieved":true,"kind":"ok"}
+{"id":"v0153","split":"validation","app":"Reminders","pair":"v-rem-more","tool":"simulator_tap","intent":"add a new reminder","achieved":false,"kind":"wrong-screen"}
+{"id":"v0154","split":"validation","app":"Reminders","pair":"v-rem-new","tool":"simulator_tap","intent":"add a new reminder","achieved":true,"kind":"ok"}
+{"id":"v0155","split":"validation","app":"Reminders","pair":"v-rem-notnow","tool":"simulator_tap","intent":"skip turning on iCloud sync","achieved":true,"kind":"ok"}
+{"id":"v0156","split":"validation","app":"Reminders","pair":"v-rem-openlist","tool":"simulator_tap","intent":"open my Reminders list","achieved":true,"kind":"ok"}
+{"id":"v0157","split":"validation","app":"Reminders","pair":"v-rem-type","tool":"simulator_type","intent":"write the reminder text","achieved":true,"kind":"ok"}
+{"id":"v0158","split":"train","app":"Shortcuts","pair":"v-sc-continue","tool":"simulator_tap","intent":"get into the Shortcuts app","achieved":true,"kind":"ok"}
+{"id":"v0159","split":"train","app":"Shortcuts","pair":"v-sc-gallery","tool":"simulator_tap","intent":"browse ready-made shortcuts","achieved":true,"kind":"ok"}
+{"id":"v0160","split":"train","app":"Shortcuts","pair":"v-sc-library","tool":"simulator_tap","intent":"go to the shortcuts library","achieved":true,"kind":"ok"}
+{"id":"v0161","split":"heldout","app":"Health","pair":"v-health-browse","tool":"simulator_tap","intent":"browse health categories","achieved":true,"kind":"ok"}
+{"id":"v0162","split":"heldout","app":"Health","pair":"v-health-continue","tool":"simulator_tap","intent":"start setting up Health","achieved":true,"kind":"ok"}
+{"id":"v0163","split":"heldout","app":"Health","pair":"v-health-continue2","tool":"simulator_tap","intent":"move past the privacy notice","achieved":true,"kind":"ok"}
+{"id":"v0164","split":"heldout","app":"Health","pair":"v-health-continue3","tool":"simulator_tap","intent":"finish the notification step","achieved":false,"kind":"interrupted"}
+{"id":"v0165","split":"heldout","app":"Health","pair":"v-health-continue4","tool":"simulator_tap","intent":"go on to the Health summary","achieved":true,"kind":"ok"}
+{"id":"v0166","split":"heldout","app":"Health","pair":"v-health-heart-back","tool":"simulator_tap","intent":"go back to the categories","achieved":true,"kind":"ok"}
+{"id":"v0167","split":"heldout","app":"Health","pair":"v-health-heart","tool":"simulator_tap","intent":"open the Heart category","achieved":true,"kind":"ok"}
+{"id":"v0168","split":"heldout","app":"Health","pair":"v-health-heart","tool":"simulator_tap","intent":"open the Sleep category","achieved":false,"kind":"wrong-screen"}
+{"id":"v0169","split":"heldout","app":"Health","pair":"v-health-next","tool":"simulator_tap","intent":"skip the health details for now","achieved":true,"kind":"ok"}
+{"id":"v0170","split":"heldout","app":"Health","pair":"v-health-ok","tool":"simulator_tap","intent":"accept that notifications stay off","achieved":true,"kind":"ok"}
+{"id":"v0171","split":"heldout","app":"Health","pair":"v-health-sharing","tool":"simulator_tap","intent":"open the Sharing tab","achieved":true,"kind":"ok"}
+{"id":"v0172","split":"train","app":"Wallet","pair":"v-wallet-add","tool":"simulator_tap","intent":"add a card to Wallet","achieved":false,"kind":"alert"}
+{"id":"v0173","split":"train","app":"Wallet","pair":"v-wallet-more-close","tool":"simulator_tap","intent":"close the menu","achieved":true,"kind":"ok"}
+{"id":"v0174","split":"train","app":"Wallet","pair":"v-wallet-more","tool":"simulator_tap","intent":"open Wallet's options","achieved":true,"kind":"ok"}
+{"id":"v0175","split":"validation","app":"Wallet","pair":"v-wallet-ok","tool":"simulator_tap","intent":"dismiss the error","achieved":true,"kind":"ok"}
+{"id":"v0176","split":"validation","app":"Wallet","pair":"v-wallet-orders-done","tool":"simulator_tap","intent":"close the orders list","achieved":true,"kind":"ok"}
+{"id":"v0177","split":"heldout","app":"Wallet","pair":"v-wallet-orders","tool":"simulator_tap","intent":"open my orders","achieved":true,"kind":"ok"}
+{"id":"v0178","split":"train","app":"Wallet","pair":"v-wallet-orders","tool":"simulator_tap","intent":"add a card","achieved":false,"kind":"wrong-screen"}
+{"id":"v0179","split":"heldout","app":"Passwords","pair":"v-pw-allow","tool":"simulator_tap","intent":"allow Passwords notifications","achieved":true,"kind":"ok"}
+{"id":"v0180","split":"heldout","app":"Passwords","pair":"v-pw-cancel","tool":"simulator_tap","intent":"abandon the new password","achieved":true,"kind":"ok"}
+{"id":"v0181","split":"heldout","app":"Passwords","pair":"v-pw-continue","tool":"simulator_tap","intent":"get past the welcome screen","achieved":true,"kind":"ok"}
+{"id":"v0182","split":"heldout","app":"Passwords","pair":"v-pw-continue2","tool":"simulator_tap","intent":"move past the notifications explanation","achieved":true,"kind":"ok"}
+{"id":"v0183","split":"heldout","app":"Passwords","pair":"v-pw-new","tool":"simulator_tap","intent":"open the new password form","achieved":true,"kind":"ok"}
+{"id":"v0184","split":"heldout","app":"Passwords","pair":"v-pw-wifi-back","tool":"simulator_tap","intent":"go back to the password categories","achieved":true,"kind":"ok"}
+{"id":"v0185","split":"heldout","app":"Passwords","pair":"v-pw-wifi","tool":"simulator_tap","intent":"see saved Wi-Fi passwords","achieved":true,"kind":"ok"}
+{"id":"v0186","split":"heldout","app":"Passwords","pair":"v-pw-wifi","tool":"simulator_tap","intent":"see my passkeys","achieved":false,"kind":"wrong-screen"}
+{"id":"v0187","split":"train","app":"News","pair":"v-news-audio","tool":"simulator_tap","intent":"open the Audio tab","achieved":true,"kind":"ok"}
+{"id":"v0188","split":"train","app":"News","pair":"v-news-continue","tool":"simulator_tap","intent":"get into Apple News","achieved":true,"kind":"ok"}
+{"id":"v0189","split":"train","app":"News","pair":"v-news-puzzles","tool":"simulator_tap","intent":"open the puzzles section","achieved":true,"kind":"ok"}
+{"id":"v0190","split":"train","app":"News","pair":"v-news-puzzles","tool":"simulator_tap","intent":"show sports news","achieved":false,"kind":"wrong-screen"}
+{"id":"v0191","split":"train","app":"Fitness","pair":"v-fit-continue","tool":"simulator_tap","intent":"see the workout types","achieved":false,"kind":"interrupted"}
+{"id":"v0192","split":"train","app":"Fitness","pair":"v-fit-dontallow","tool":"simulator_tap","intent":"no notifications from Fitness","achieved":true,"kind":"ok"}
+{"id":"v0193","split":"train","app":"Fitness","pair":"v-fit-ok","tool":"simulator_tap","intent":"finish the Workout Buddy intro","achieved":true,"kind":"ok"}
+{"id":"v0194","split":"heldout","app":"Fitness","pair":"v-fit-workout","tool":"simulator_tap","intent":"open the Workout tab","achieved":true,"kind":"ok"}
+{"id":"v0195","split":"train","app":"Fitness","pair":"v-fit-workout","tool":"simulator_tap","intent":"start an outdoor run","achieved":false,"kind":"interrupted"}
+{"id":"v0196","split":"validation","app":"Watch","pair":"v-watch-dontallow","tool":"simulator_tap","intent":"block notifications from the Watch app","achieved":true,"kind":"ok"}
+{"id":"v0197","split":"validation","app":"Watch","pair":"v-watch-faces","tool":"simulator_tap","intent":"browse watch faces","achieved":true,"kind":"ok"}
+{"id":"v0198","split":"train","app":"Remote","pair":"v-remote-choose","tool":"simulator_tap","intent":"pick which TV to control","achieved":false,"kind":"no-change"}

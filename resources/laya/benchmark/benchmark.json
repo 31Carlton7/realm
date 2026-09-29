@@ -1,0 +1,65 @@
+{
+  "version": "2026-09-29.1",
+  "device": "iPhone 17 Pro Max simulator, iOS 27",
+  "apps": [
+    "Calendar",
+    "Contacts",
+    "Files",
+    "Fitness",
+    "Health",
+    "Home Screen",
+    "Maps",
+    "Messages",
+    "News",
+    "Passwords",
+    "Photos",
+    "Preview",
+    "Reminders",
+    "Remote",
+    "Safari",
+    "Settings",
+    "Shortcuts",
+    "Wallet",
+    "Watch"
+  ],
+  "split": {
+    "heldoutApps": [
+      "Maps",
+      "Health",
+      "Contacts",
+      "Files",
+      "Passwords"
+    ],
+    "validationApps": [
+      "Reminders",
+      "Watch"
+    ],
+    "heldoutShare": 0.15,
+    "validationShare": 0.12
+  },
+  "counts": {
+    "screens": 109,
+    "pairs": 181,
+    "target": {
+      "train": 307,
+      "validation": 80,
+      "heldout": 207,
+      "all": 594,
+      "notCopying": 525
+    },
+    "sensitive": {
+      "train": 93,
+      "validation": 22,
+      "heldout": 65,
+      "all": 180,
+      "positive": 82
+    },
+    "verify": {
+      "train": 102,
+      "validation": 30,
+      "heldout": 66,
+      "all": 198,
+      "achieved": 146
+    }
+  }
+}

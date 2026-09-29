@@ -1,0 +1,594 @@
+{"id":"t0001","split":"train","app":"Home Screen","screen":"home","element":"0.11","intent":"browse the web","copies":false}
+{"id":"t0002","split":"heldout","app":"Home Screen","screen":"home","element":"0.11","intent":"open a website","copies":false}
+{"id":"t0003","split":"train","app":"Home Screen","screen":"home","element":"0.11","intent":"the web browser","copies":false}
+{"id":"t0004","split":"train","app":"Home Screen","screen":"home","element":"0.12","intent":"text my mom","copies":false}
+{"id":"t0005","split":"train","app":"Home Screen","screen":"home","element":"0.12","intent":"send an SMS","copies":false}
+{"id":"t0006","split":"train","app":"Home Screen","screen":"home","element":"0.12","intent":"read my texts","copies":false}
+{"id":"t0007","split":"train","app":"Home Screen","screen":"home","element":"0.3","intent":"look at my pictures","copies":false}
+{"id":"t0008","split":"heldout","app":"Home Screen","screen":"home","element":"0.3","intent":"my camera roll","copies":false}
+{"id":"t0009","split":"train","app":"Home Screen","screen":"home","element":"0.6","intent":"check my heart rate history","copies":false}
+{"id":"t0010","split":"heldout","app":"Home Screen","screen":"home","element":"0.6","intent":"see how I slept last night","copies":false}
+{"id":"t0011","split":"train","app":"Home Screen","screen":"home","element":"0.7","intent":"show my boarding pass","copies":false}
+{"id":"t0012","split":"heldout","app":"Home Screen","screen":"home","element":"0.7","intent":"use Apple Pay at the register","copies":false}
+{"id":"t0013","split":"heldout","app":"Home Screen","screen":"home","element":"0.5","intent":"read today's headlines","copies":false}
+{"id":"t0014","split":"train","app":"Home Screen","screen":"home","element":"0.9","intent":"change my wallpaper","copies":false}
+{"id":"t0015","split":"train","app":"Home Screen","screen":"home","element":"0.9","intent":"adjust screen brightness","copies":false}
+{"id":"t0016","split":"train","app":"Home Screen","screen":"home","element":"0.9","intent":"turn on airplane mode","copies":false}
+{"id":"t0017","split":"train","app":"Home Screen","screen":"home","element":"0.0","alsoRight":["0.4"],"intent":"directions to the airport","copies":false}
+{"id":"t0018","split":"train","app":"Home Screen","screen":"home","element":"0.0","alsoRight":["0.4"],"intent":"how long is the drive to work","copies":false}
+{"id":"t0019","split":"train","app":"Home Screen","screen":"home","element":"0.2","alsoRight":["0.1"],"intent":"what's on my schedule today","copies":false}
+{"id":"t0020","split":"heldout","app":"Home Screen","screen":"home","element":"0.2","alsoRight":["0.1"],"intent":"when is my next meeting","copies":false}
+{"id":"t0021","split":"train","app":"Home Screen","screen":"home","element":"0.8","intent":"ask the voice assistant a question","copies":false}
+{"id":"t0022","split":"heldout","app":"Settings","screen":"settings-root-top","element":"0.1.1","intent":"check for a software update","copies":false}
+{"id":"t0023","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.1","intent":"change the phone's language","copies":false}
+{"id":"t0024","split":"heldout","app":"Settings","screen":"settings-root-top","element":"0.1.1","intent":"set up a VPN","copies":false}
+{"id":"t0025","split":"validation","app":"Settings","screen":"settings-root-top","element":"0.1.1","intent":"find my phone's model number","copies":false}
+{"id":"t0026","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.1","intent":"add a keyboard in another language","copies":false}
+{"id":"t0027","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.2","intent":"vision settings","copies":false}
+{"id":"t0028","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.2","intent":"turn on VoiceOver","copies":false}
+{"id":"t0029","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.2","intent":"features for people who are hard of hearing","copies":false}
+{"id":"t0030","split":"heldout","app":"Settings","screen":"settings-root-top","element":"0.1.2","intent":"enable closed captions","copies":false}
+{"id":"t0031","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.2","intent":"make the phone easier to use with low vision","copies":false}
+{"id":"t0032","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.3","intent":"remap the silent switch","copies":false}
+{"id":"t0033","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.3","intent":"choose what the side shortcut key does","copies":false}
+{"id":"t0034","split":"heldout","app":"Settings","screen":"settings-root-top","element":"0.1.4","intent":"turn on dark mode","copies":false}
+{"id":"t0035","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.4","intent":"switch the phone to light mode","copies":false}
+{"id":"t0036","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.4","intent":"make the text bold","copies":false}
+{"id":"t0037","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.4","intent":"night theme with black backgrounds","copies":false}
+{"id":"t0038","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.5","intent":"record video in 4K","copies":false}
+{"id":"t0039","split":"heldout","app":"Settings","screen":"settings-root-top","element":"0.1.5","intent":"turn on the grid lines for photos","copies":false}
+{"id":"t0040","split":"validation","app":"Settings","screen":"settings-root-top","element":"0.1.5","intent":"shoot photos in HEIC or JPEG","copies":false}
+{"id":"t0041","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.6","intent":"keep new downloads off my first page","copies":false}
+{"id":"t0042","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.7","intent":"Spotlight suggestions","copies":false}
+{"id":"t0043","split":"heldout","app":"Settings","screen":"settings-root-top","element":"0.1.8","intent":"change the voice assistant's voice","copies":false}
+{"id":"t0044","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.8","intent":"turn on Hey Siri","copies":true}
+{"id":"t0045","split":"heldout","app":"Settings","screen":"settings-root-top","element":"0.1.9","intent":"nightstand clock mode while charging","copies":false}
+{"id":"t0046","split":"heldout","app":"Settings","screen":"settings-root-top","element":"0.1.9","intent":"the landscape bedside display","copies":false}
+{"id":"t0047","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.10","intent":"parental controls","copies":false}
+{"id":"t0048","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.10","intent":"set limits on my kid's apps","copies":false}
+{"id":"t0049","split":"validation","app":"Settings","screen":"settings-root-top","element":"0.1.10","intent":"see how long I spend on my phone","copies":false}
+{"id":"t0050","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.11","intent":"change my unlock code","copies":false}
+{"id":"t0051","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.11","intent":"Face ID settings","copies":false}
+{"id":"t0052","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.11","intent":"turn off the lock code","copies":false}
+{"id":"t0053","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.12","intent":"see which apps can use my location","copies":false}
+{"id":"t0054","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.12","intent":"stop apps from tracking me","copies":false}
+{"id":"t0055","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.12","intent":"camera and microphone permissions","copies":false}
+{"id":"t0056","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.0","intent":"sign in with my Apple ID","copies":true}
+{"id":"t0057","split":"train","app":"Settings","screen":"settings-root-3","element":"0.1.9","intent":"gaming profile and achievements","copies":false}
+{"id":"t0058","split":"train","app":"Settings","screen":"settings-root-3","element":"0.1.9","intent":"friends I play games with","copies":true}
+{"id":"t0059","split":"heldout","app":"Settings","screen":"settings-root-3","element":"0.1.10","intent":"back up my phone to the cloud","copies":false}
+{"id":"t0060","split":"train","app":"Settings","screen":"settings-root-3","element":"0.1.10","intent":"turn on cloud photo sync","copies":false}
+{"id":"t0061","split":"train","app":"Settings","screen":"settings-root-3","element":"0.1.11","intent":"change Safari's settings","copies":false}
+{"id":"t0062","split":"train","app":"Settings","screen":"settings-root-3","element":"0.1.11","intent":"per-app settings like Messages and Mail","copies":true}
+{"id":"t0063","split":"heldout","app":"Settings","screen":"settings-root-3","element":"0.1.11","intent":"turn off read receipts in Messages","copies":false}
+{"id":"t0064","split":"train","app":"Settings","screen":"settings-root-3","element":"0.1.12","intent":"debugging and testing options","copies":false}
+{"id":"t0065","split":"train","app":"Settings","screen":"settings-root-3","element":"0.1.7","intent":"require a PIN to unlock","copies":false}
+{"id":"t0066","split":"validation","app":"Settings","screen":"settings-root-3","element":"0.1.8","intent":"location services","copies":false}
+{"id":"t0067","split":"validation","app":"Settings","screen":"settings-root-3","element":"0.1.8","intent":"which apps can see my contacts","copies":false}
+{"id":"t0068","split":"heldout","app":"Settings","screen":"settings-accessibility-2","element":"0.2.3","intent":"screen reader for blind users","copies":false}
+{"id":"t0069","split":"train","app":"Settings","screen":"settings-accessibility-2","element":"0.2.3","intent":"have the phone describe what's on the screen","copies":false}
+{"id":"t0070","split":"train","app":"Settings","screen":"settings-accessibility-2","element":"0.2.5","intent":"invert colors","copies":false}
+{"id":"t0071","split":"validation","app":"Settings","screen":"settings-accessibility-2","element":"0.2.5","intent":"color filters for color blindness","copies":false}
+{"id":"t0072","split":"train","app":"Settings","screen":"settings-accessibility-2","element":"0.2.5","intent":"increase contrast","copies":false}
+{"id":"t0073","split":"train","app":"Settings","screen":"settings-accessibility-2","element":"0.2.6","intent":"stop the parallax and animations","copies":false}
+{"id":"t0074","split":"train","app":"Settings","screen":"settings-accessibility-2","element":"0.2.6","intent":"less movement on screen","copies":false}
+{"id":"t0075","split":"train","app":"Settings","screen":"settings-accessibility-2","element":"0.2.7","intent":"have the phone read selected text aloud","copies":false}
+{"id":"t0076","split":"train","app":"Settings","screen":"settings-accessibility-2","element":"0.2.7","intent":"speak the screen","copies":false}
+{"id":"t0077","split":"heldout","app":"Settings","screen":"settings-accessibility-2","element":"0.2.9","intent":"require looking at the phone to unlock","copies":false}
+{"id":"t0078","split":"train","app":"Settings","screen":"settings-accessibility-2","element":"0.2.10","intent":"operate my iPad from this phone","copies":false}
+{"id":"t0079","split":"train","app":"Settings","screen":"settings-accessibility-2","element":"0.2.12","intent":"closed captions on videos","copies":true}
+{"id":"t0080","split":"train","app":"Settings","screen":"settings-accessibility-2","element":"0.2.12","intent":"SDH subtitles","copies":true}
+{"id":"t0081","split":"heldout","app":"Settings","screen":"settings-accessibility-2","element":"0.2.14","intent":"type words and have them said out loud in a call","copies":false}
+{"id":"t0082","split":"train","app":"Settings","screen":"settings-accessibility-2","element":"0.2.16","intent":"sticky keys","copies":false}
+{"id":"t0083","split":"train","app":"Settings","screen":"settings-accessibility-2","element":"0.2.16","intent":"slow keys for a physical keyboard","copies":true}
+{"id":"t0084","split":"heldout","app":"Settings","screen":"settings-accessibility-2","element":"0.2.4","intent":"show a big version of whatever my pointer is over","copies":false}
+{"id":"t0085","split":"train","app":"Settings","screen":"settings-appearance","element":"0.2.2","intent":"night theme with a black background","copies":false}
+{"id":"t0086","split":"train","app":"Settings","screen":"settings-appearance","element":"0.2.2","intent":"the dark look","copies":true}
+{"id":"t0087","split":"validation","app":"Settings","screen":"settings-appearance","element":"0.2.1","intent":"white background theme","copies":false}
+{"id":"t0088","split":"train","app":"Settings","screen":"settings-appearance","element":"0.2.1","intent":"the bright look","copies":false}
+{"id":"t0089","split":"train","app":"Settings","screen":"settings-appearance","element":"0.2.3","intent":"switch themes at sunset by itself","copies":false}
+{"id":"t0090","split":"train","app":"Settings","screen":"settings-appearance","element":"0.2.7","intent":"make words bigger","copies":false}
+{"id":"t0091","split":"train","app":"Settings","screen":"settings-appearance","element":"0.2.7","intent":"larger font everywhere","copies":false}
+{"id":"t0092","split":"train","app":"Settings","screen":"settings-appearance","element":"0.2.8","intent":"heavier font weight","copies":false}
+{"id":"t0093","split":"train","app":"Settings","screen":"settings-appearance","element":"0.2.8","intent":"thicker letters","copies":false}
+{"id":"t0094","split":"train","app":"Settings","screen":"settings-appearance","element":"0.2.9","intent":"make icons and controls bigger","copies":false}
+{"id":"t0095","split":"heldout","app":"Settings","screen":"settings-appearance","element":"0.2.12","intent":"fewer animations","copies":false}
+{"id":"t0096","split":"heldout","app":"Settings","screen":"settings-appearance","element":"0.2.12","intent":"stop things sliding around","copies":false}
+{"id":"t0097","split":"train","app":"Settings","screen":"settings-appearance","element":"0.2.5","intent":"make menus less see-through","copies":false}
+{"id":"t0098","split":"train","app":"Settings","screen":"settings-camera","element":"0.2.2","intent":"shoot in 4K at 60","copies":false}
+{"id":"t0099","split":"train","app":"Settings","screen":"settings-camera","element":"0.2.2","intent":"change the video resolution","copies":true}
+{"id":"t0100","split":"train","app":"Settings","screen":"settings-camera","element":"0.2.3","intent":"slow motion frame rate","copies":false}
+{"id":"t0101","split":"train","app":"Settings","screen":"settings-camera","element":"0.2.3","intent":"240 fps capture","copies":true}
+{"id":"t0102","split":"train","app":"Settings","screen":"settings-camera","element":"0.2.5","intent":"save photos as HEIC or JPEG","copies":false}
+{"id":"t0103","split":"validation","app":"Settings","screen":"settings-camera","element":"0.2.5","intent":"ProRAW settings","copies":false}
+{"id":"t0104","split":"train","app":"Settings","screen":"settings-camera","element":"0.2.8","intent":"rule of thirds lines","copies":false}
+{"id":"t0105","split":"train","app":"Settings","screen":"settings-camera","element":"0.2.8","intent":"guides over the viewfinder","copies":false}
+{"id":"t0106","split":"train","app":"Settings","screen":"settings-camera","element":"0.2.9","intent":"keep the horizon straight when I shoot","copies":false}
+{"id":"t0107","split":"train","app":"Settings","screen":"settings-camera","element":"0.2.10","intent":"stop flipping my selfies","copies":false}
+{"id":"t0108","split":"train","app":"Settings","screen":"settings-camera","element":"0.2.6","intent":"remember the last camera mode I used","copies":false}
+{"id":"t0109","split":"train","app":"Settings","screen":"settings-camera","element":"0.2.11","intent":"show what's beyond the crop while framing","copies":true}
+{"id":"t0110","split":"validation","app":"Settings","screen":"settings-general","element":"0.1.2","intent":"find my serial number","copies":false}
+{"id":"t0111","split":"train","app":"Settings","screen":"settings-general","element":"0.1.2","intent":"what iOS version am I on","copies":false}
+{"id":"t0112","split":"train","app":"Settings","screen":"settings-general","element":"0.1.2","intent":"how much storage does this phone have","copies":false}
+{"id":"t0113","split":"train","app":"Settings","screen":"settings-general","element":"0.1.4","intent":"stop suggesting saved logins","copies":false}
+{"id":"t0114","split":"heldout","app":"Settings","screen":"settings-general","element":"0.1.4","intent":"which app fills in my passwords","copies":true}
+{"id":"t0115","split":"train","app":"Settings","screen":"settings-general","element":"0.1.5","intent":"add a Spanish word lookup","copies":false}
+{"id":"t0116","split":"train","app":"Settings","screen":"settings-general","element":"0.1.6","intent":"installed typefaces","copies":false}
+{"id":"t0117","split":"validation","app":"Settings","screen":"settings-general","element":"0.1.6","intent":"add a custom typeface","copies":false}
+{"id":"t0118","split":"validation","app":"Settings","screen":"settings-general","element":"0.1.7","intent":"turn off autocorrect","copies":false}
+{"id":"t0119","split":"heldout","app":"Settings","screen":"settings-general","element":"0.1.7","intent":"add the emoji keyboard","copies":true}
+{"id":"t0120","split":"train","app":"Settings","screen":"settings-general","element":"0.1.7","intent":"text replacement shortcuts","copies":false}
+{"id":"t0121","split":"train","app":"Settings","screen":"settings-general","element":"0.1.8","intent":"switch the phone to French","copies":false}
+{"id":"t0122","split":"train","app":"Settings","screen":"settings-general","element":"0.1.8","intent":"use Celsius","copies":false}
+{"id":"t0123","split":"train","app":"Settings","screen":"settings-general","element":"0.1.8","intent":"change my country","copies":false}
+{"id":"t0124","split":"heldout","app":"Settings","screen":"settings-general","element":"0.1.9","intent":"remove my work profile","copies":false}
+{"id":"t0125","split":"train","app":"Settings","screen":"settings-general","element":"0.1.9","intent":"MDM profiles","copies":false}
+{"id":"t0126","split":"train","app":"Settings","screen":"settings-general","element":"0.1.3","intent":"what happens after I take a screenshot","copies":true}
+{"id":"t0127","split":"train","app":"Settings","screen":"settings-about","element":"0.2.4","intent":"the device's serial","copies":true}
+{"id":"t0128","split":"heldout","app":"Settings","screen":"settings-about","element":"0.2.1","intent":"which software release is installed","copies":false}
+{"id":"t0129","split":"train","app":"Settings","screen":"settings-about","element":"0.2.10","intent":"how much free space is left","copies":false}
+{"id":"t0130","split":"heldout","app":"Settings","screen":"settings-about","element":"0.2.3","intent":"the part number of this phone","copies":true}
+{"id":"t0131","split":"train","app":"Settings","screen":"settings-about","element":"0.2.11","intent":"trust a root certificate I installed","copies":true}
+{"id":"t0132","split":"train","app":"Settings","screen":"settings-about","element":"0.2.0","intent":"rename this phone","copies":false}
+{"id":"t0133","split":"validation","app":"Settings","screen":"settings-keyboard","element":"0.2.1","intent":"make omw expand to on my way","copies":false}
+{"id":"t0134","split":"train","app":"Settings","screen":"settings-keyboard","element":"0.2.1","intent":"typing shortcuts","copies":false}
+{"id":"t0135","split":"heldout","app":"Settings","screen":"settings-keyboard","element":"0.2.0","intent":"add a Japanese keyboard","copies":true}
+{"id":"t0136","split":"train","app":"Settings","screen":"settings-keyboard","element":"0.2.0","intent":"remove the emoji keyboard","copies":true}
+{"id":"t0137","split":"train","app":"Settings","screen":"settings-keyboard","element":"0.2.2","intent":"shift the keys to one side for typing with a thumb","copies":true}
+{"id":"t0138","split":"train","app":"Settings","screen":"settings-keyboard","element":"0.2.4","intent":"make the keys vibrate","copies":false}
+{"id":"t0139","split":"heldout","app":"Settings","screen":"settings-keyboard","element":"0.2.5","intent":"keyboard click noise","copies":false}
+{"id":"t0140","split":"train","app":"Settings","screen":"settings-keyboard","element":"0.2.8","intent":"stop fixing my spelling as I type","copies":false}
+{"id":"t0141","split":"train","app":"Settings","screen":"settings-keyboard","element":"0.2.8","intent":"turn off autocorrect","copies":true}
+{"id":"t0142","split":"train","app":"Settings","screen":"settings-keyboard","element":"0.2.7","intent":"stop capitalizing the first word of a sentence","copies":true}
+{"id":"t0143","split":"train","app":"Settings","screen":"settings-keyboard","element":"0.2.9","intent":"hide the word suggestions above the keys","copies":false}
+{"id":"t0144","split":"train","app":"Settings","screen":"settings-keyboard","element":"0.2.13","intent":"double-tap shift for all caps","copies":true}
+{"id":"t0145","split":"train","app":"Settings","screen":"settings-keyboard","element":"0.2.14","intent":"use straight quotes instead of curly ones","copies":false}
+{"id":"t0146","split":"heldout","app":"Settings","screen":"settings-keyboard","element":"0.2.12","intent":"underline typos in red","copies":false}
+{"id":"t0147","split":"train","app":"Settings","screen":"settings-fonts","element":"0.2.0","intent":"the typefaces that ship with iOS","copies":false}
+{"id":"t0148","split":"train","app":"Settings","screen":"settings-fonts","element":"0.2.1","intent":"typefaces I installed myself","copies":false}
+{"id":"t0149","split":"validation","app":"Settings","screen":"settings-language","element":"0.2.7","intent":"show degrees in Celsius","copies":false}
+{"id":"t0150","split":"validation","app":"Settings","screen":"settings-language","element":"0.2.8","intent":"use kilometers instead of miles","copies":false}
+{"id":"t0151","split":"train","app":"Settings","screen":"settings-language","element":"0.2.8","intent":"metric units","copies":false}
+{"id":"t0152","split":"train","app":"Settings","screen":"settings-language","element":"0.2.5","intent":"set my country to Canada","copies":false}
+{"id":"t0153","split":"validation","app":"Settings","screen":"settings-language","element":"0.2.3","intent":"add Japanese as a preferred language","copies":true}
+{"id":"t0154","split":"train","app":"Settings","screen":"settings-language","element":"0.2.11","intent":"use commas as decimal separators","copies":false}
+{"id":"t0155","split":"validation","app":"Settings","screen":"settings-language","element":"0.2.9","intent":"start weeks on Monday","copies":true}
+{"id":"t0156","split":"train","app":"Settings","screen":"settings-language","element":"0.2.10","intent":"show dates as day then month","copies":true}
+{"id":"t0157","split":"train","app":"Settings","screen":"settings-language","element":"0.2.6","intent":"use the Hebrew calendar","copies":true}
+{"id":"t0158","split":"train","app":"Settings","screen":"settings-language","element":"0.2.12","intent":"recognize words in pictures","copies":false}
+{"id":"t0159","split":"train","app":"Settings","screen":"settings-privacy-1","element":"0.1.2","intent":"GPS permissions","copies":false}
+{"id":"t0160","split":"train","app":"Settings","screen":"settings-privacy-1","element":"0.1.2","intent":"which apps know where I am","copies":false}
+{"id":"t0161","split":"train","app":"Settings","screen":"settings-privacy-1","element":"0.1.4","intent":"apps that can see my events","copies":false}
+{"id":"t0162","split":"heldout","app":"Settings","screen":"settings-privacy-1","element":"0.1.5","intent":"which apps can read my address book","copies":false}
+{"id":"t0163","split":"train","app":"Settings","screen":"settings-privacy-1","element":"0.1.8","intent":"apps reading my step counts","copies":false}
+{"id":"t0164","split":"train","app":"Settings","screen":"settings-privacy-1","element":"0.1.10","intent":"apps accessing my song library","copies":false}
+{"id":"t0165","split":"train","app":"Settings","screen":"settings-privacy-1","element":"0.1.7","intent":"apps that can see my Do Not Disturb status","copies":false}
+{"id":"t0166","split":"train","app":"Settings","screen":"settings-privacy-1","element":"0.1.9","intent":"apps controlling my smart lights and thermostat","copies":false}
+{"id":"t0167","split":"heldout","app":"Settings","screen":"settings-privacy-1","element":"0.1.6","intent":"apps that can open my documents","copies":false}
+{"id":"t0168","split":"train","app":"Settings","screen":"settings-privacy-2","element":"0.2.5","intent":"which apps can see my pictures","copies":false}
+{"id":"t0169","split":"train","app":"Settings","screen":"settings-privacy-2","element":"0.2.8","intent":"apps allowed to find AirPods and speakers","copies":false}
+{"id":"t0170","split":"train","app":"Settings","screen":"settings-privacy-2","element":"0.2.9","intent":"apps that can take pictures","copies":false}
+{"id":"t0171","split":"heldout","app":"Settings","screen":"settings-privacy-2","element":"0.2.12","intent":"apps that can listen through the mic","copies":false}
+{"id":"t0172","split":"train","app":"Settings","screen":"settings-privacy-2","element":"0.2.13","intent":"apps that read my accelerometer","copies":false}
+{"id":"t0173","split":"train","app":"Settings","screen":"settings-privacy-2","element":"0.2.11","intent":"apps finding devices on my home Wi-Fi","copies":false}
+{"id":"t0174","split":"train","app":"Settings","screen":"settings-privacy-2","element":"0.2.6","intent":"apps that can read my to-dos","copies":false}
+{"id":"t0175","split":"train","app":"Settings","screen":"settings-privacy-2","element":"0.2.7","intent":"apps that can see my passes and cards","copies":false}
+{"id":"t0176","split":"heldout","app":"Settings","screen":"settings-privacy-3","element":"0.2.9","intent":"apps that transcribe what I say","copies":false}
+{"id":"t0177","split":"train","app":"Settings","screen":"settings-privacy-3","element":"0.2.10","intent":"numbers I've stopped from calling me","copies":false}
+{"id":"t0178","split":"heldout","app":"Settings","screen":"settings-privacy-3","element":"0.2.11","intent":"cut off access for an abusive partner","copies":false}
+{"id":"t0179","split":"validation","app":"Settings","screen":"settings-privacy-3","element":"0.2.11","intent":"stop sharing my location with everyone at once","copies":false}
+{"id":"t0180","split":"train","app":"Settings","screen":"settings-privacy-3","element":"0.2.15","intent":"stop sending diagnostic data to Apple","copies":false}
+{"id":"t0181","split":"train","app":"Settings","screen":"settings-privacy-3","element":"0.2.16","intent":"turn off targeted ads in the App Store","copies":false}
+{"id":"t0182","split":"train","app":"Settings","screen":"settings-privacy-3","element":"0.2.13","intent":"blur nude images people send me","copies":false}
+{"id":"t0183","split":"heldout","app":"Settings","screen":"settings-privacy-3","element":"0.2.8","intent":"studies collecting my sensor data","copies":true}
+{"id":"t0184","split":"train","app":"Settings","screen":"settings-screentime","element":"0.1.3","intent":"keep porn off the browser","copies":false}
+{"id":"t0185","split":"validation","app":"Settings","screen":"settings-screentime","element":"0.1.3","intent":"restrict mature sites","copies":false}
+{"id":"t0186","split":"train","app":"Settings","screen":"settings-screentime","element":"0.1.6","intent":"bedtime downtime hours","copies":true}
+{"id":"t0187","split":"train","app":"Settings","screen":"settings-screentime","element":"0.1.6","intent":"hours when the phone is locked down","copies":true}
+{"id":"t0188","split":"train","app":"Settings","screen":"settings-screentime","element":"0.1.4","intent":"who my kid can call and text","copies":false}
+{"id":"t0189","split":"train","app":"Settings","screen":"settings-screentime","element":"0.1.5","intent":"apps usable even during limits","copies":false}
+{"id":"t0190","split":"train","app":"Settings","screen":"settings-screentime","element":"0.1.7","intent":"an hour a day for games","copies":false}
+{"id":"t0191","split":"train","app":"Settings","screen":"settings-screentime","element":"0.1.8","intent":"stop in-app purchases","copies":false}
+{"id":"t0192","split":"train","app":"Settings","screen":"settings-screentime","element":"0.1.8","intent":"block explicit music","copies":true}
+{"id":"t0193","split":"train","app":"Settings","screen":"settings-screentime","element":"0.1.9","intent":"warn my child before they view nudity","copies":false}
+{"id":"t0194","split":"train","app":"Settings","screen":"settings-safari-1","element":"0.2.5","intent":"switch to DuckDuckGo","copies":false}
+{"id":"t0195","split":"heldout","app":"Settings","screen":"settings-safari-1","element":"0.2.5","intent":"use Bing for searches","copies":true}
+{"id":"t0196","split":"validation","app":"Settings","screen":"settings-safari-1","element":"0.2.3","intent":"make Chrome open my links","copies":false}
+{"id":"t0197","split":"train","app":"Settings","screen":"settings-safari-1","element":"0.2.15","intent":"which bookmarks show on a new tab","copies":false}
+{"id":"t0198","split":"validation","app":"Settings","screen":"settings-safari-1","element":"0.2.14","intent":"fill in my address on web forms","copies":false}
+{"id":"t0199","split":"train","app":"Settings","screen":"settings-safari-1","element":"0.2.11","intent":"start loading the best result before I tap it","copies":false}
+{"id":"t0200","split":"train","app":"Settings","screen":"settings-safari-2","element":"0.2.8","intent":"stop windows opening by themselves","copies":false}
+{"id":"t0201","split":"train","app":"Settings","screen":"settings-safari-2","element":"0.2.9","intent":"install an ad blocker","copies":false}
+{"id":"t0202","split":"validation","app":"Settings","screen":"settings-safari-2","element":"0.2.9","intent":"content blockers","copies":false}
+{"id":"t0203","split":"train","app":"Settings","screen":"settings-safari-2","element":"0.2.10","intent":"where saved files go","copies":false}
+{"id":"t0204","split":"heldout","app":"Settings","screen":"settings-safari-2","element":"0.2.18","intent":"auto-close old tabs after a week","copies":true}
+{"id":"t0205","split":"train","app":"Settings","screen":"settings-safari-2","element":"0.2.17","intent":"open links in the background","copies":true}
+{"id":"t0206","split":"train","app":"Settings","screen":"settings-safari-2","element":"0.2.13","intent":"put the address bar at the bottom","copies":true}
+{"id":"t0207","split":"train","app":"Settings","screen":"settings-safari-3","element":"0.2.12","intent":"stop sites following me around the web","copies":true}
+{"id":"t0208","split":"validation","app":"Settings","screen":"settings-safari-3","element":"0.2.15","intent":"warn me about phishing pages","copies":true}
+{"id":"t0209","split":"train","app":"Settings","screen":"settings-safari-3","element":"0.2.15","intent":"alert me about scam sites","copies":false}
+{"id":"t0210","split":"train","app":"Settings","screen":"settings-safari-3","element":"0.2.9","intent":"separate browsing for work and personal","copies":false}
+{"id":"t0211","split":"train","app":"Settings","screen":"settings-safari-3","element":"0.2.14","intent":"lock my incognito tabs with Face ID","copies":false}
+{"id":"t0212","split":"train","app":"Settings","screen":"settings-safari-3","element":"0.2.13","intent":"mask my IP from trackers","copies":true}
+{"id":"t0213","split":"train","app":"Settings","screen":"settings-safari-4","element":"0.2.4","intent":"delete cookies and cache","copies":false}
+{"id":"t0214","split":"train","app":"Settings","screen":"settings-safari-4","element":"0.2.4","intent":"wipe my browsing history","copies":true}
+{"id":"t0215","split":"train","app":"Settings","screen":"settings-safari-4","element":"0.2.2","intent":"bring in bookmarks from Chrome","copies":false}
+{"id":"t0216","split":"train","app":"Settings","screen":"settings-safari-4","element":"0.2.3","intent":"back up my bookmarks to a file","copies":false}
+{"id":"t0217","split":"train","app":"Settings","screen":"settings-safari-4","element":"0.2.11","intent":"let websites use my mic","copies":false}
+{"id":"t0218","split":"train","app":"Settings","screen":"settings-safari-4","element":"0.2.12","intent":"websites asking where I am","copies":false}
+{"id":"t0219","split":"heldout","app":"Settings","screen":"settings-safari-4","element":"0.2.16","intent":"JavaScript and web inspector settings","copies":false}
+{"id":"t0220","split":"validation","app":"Settings","screen":"settings-safari-4","element":"0.2.9","intent":"always open articles in the clean reading view","copies":true}
+{"id":"t0221","split":"validation","app":"Settings","screen":"settings-safari-4","element":"0.2.14","intent":"keep saved articles available without internet","copies":true}
+{"id":"t0222","split":"train","app":"Settings","screen":"settings-clear-history","element":"0.4.1","intent":"just the past 60 minutes","copies":false}
+{"id":"t0223","split":"train","app":"Settings","screen":"settings-clear-history","element":"0.4.4","intent":"everything since I started using Safari","copies":false}
+{"id":"t0224","split":"heldout","app":"Settings","screen":"settings-clear-history","element":"0.4.3","intent":"the past two days","copies":false}
+{"id":"t0225","split":"train","app":"Settings","screen":"settings-siri","element":"0.1.3","intent":"make Siri sound British","copies":false}
+{"id":"t0226","split":"train","app":"Settings","screen":"settings-siri","element":"0.1.3","intent":"a different voice for the assistant","copies":true}
+{"id":"t0227","split":"validation","app":"Settings","screen":"settings-siri","element":"0.1.8","intent":"OpenAI integration","copies":false}
+{"id":"t0228","split":"train","app":"Settings","screen":"settings-siri","element":"0.1.4","intent":"have Siri answer silently with text","copies":false}
+{"id":"t0229","split":"validation","app":"Settings","screen":"settings-siri","element":"0.1.6","intent":"tell Siri which contact card is me","copies":false}
+{"id":"t0230","split":"train","app":"Settings","screen":"settings-siri","element":"0.1.2","intent":"talk to Siri in Spanish","copies":false}
+{"id":"t0231","split":"train","app":"Settings","screen":"settings-siri","element":"0.1.12","intent":"which apps work with the assistant","copies":true}
+{"id":"t0232","split":"validation","app":"Settings","screen":"settings-standby","element":"0.2.2","intent":"keep the bedside screen always on at night","copies":false}
+{"id":"t0233","split":"train","app":"Settings","screen":"settings-standby","element":"0.2.4","intent":"hide alerts while docked on the charger","copies":false}
+{"id":"t0234","split":"train","app":"Settings","screen":"settings-homescreen","element":"0.2.2","intent":"keep new downloads off my home pages","copies":false}
+{"id":"t0235","split":"heldout","app":"Settings","screen":"settings-homescreen","element":"0.2.1","intent":"put every new app on my home pages","copies":true}
+{"id":"t0236","split":"train","app":"Settings","screen":"settings-search","element":"0.2.7","intent":"stop Spotlight showing my old queries","copies":true}
+{"id":"t0237","split":"train","app":"Settings","screen":"settings-search","element":"0.2.9","intent":"share my queries to make results better","copies":false}
+{"id":"t0238","split":"train","app":"Settings","screen":"settings-search","element":"0.2.4","intent":"recommend apps before I type","copies":true}
+{"id":"t0239","split":"train","app":"Settings","screen":"settings-autofill","element":"0.2.7","intent":"remove two-factor codes from Messages once used","copies":false}
+{"id":"t0240","split":"validation","app":"Settings","screen":"settings-autofill","element":"0.2.4","intent":"generate secure random passwords","copies":true}
+{"id":"t0241","split":"train","app":"Settings","screen":"settings-location","element":"0.2.8","intent":"let family see where I am","copies":false}
+{"id":"t0242","split":"validation","app":"Settings","screen":"settings-location","element":"0.2.10","intent":"location use by iOS itself","copies":true}
+{"id":"t0243","split":"heldout","app":"Settings","screen":"settings-location","element":"0.2.1","intent":"reminders that fire when I arrive somewhere","copies":false}
+{"id":"t0244","split":"validation","app":"Settings","screen":"settings-apps","element":"0.2.1","intent":"set Chrome as my browser","copies":false}
+{"id":"t0245","split":"heldout","app":"Settings","screen":"settings-apps","element":"0.2.1","intent":"choose which mail app opens links","copies":true}
+{"id":"t0246","split":"train","app":"Settings","screen":"settings-apps","element":"0.2.12","intent":"iMessage settings","copies":false}
+{"id":"t0247","split":"train","app":"Settings","screen":"settings-apps","element":"0.2.12","intent":"turn off read receipts","copies":false}
+{"id":"t0248","split":"train","app":"Settings","screen":"settings-apps","element":"0.2.7","intent":"activity rings settings","copies":false}
+{"id":"t0249","split":"train","app":"Settings","screen":"settings-apps","element":"0.2.6","intent":"document browser settings","copies":false}
+{"id":"t0250","split":"train","app":"Settings","screen":"settings-apps-2","element":"0.2.11","intent":"PDF viewer settings","copies":false}
+{"id":"t0251","split":"train","app":"Settings","screen":"settings-apps-2","element":"0.2.17","intent":"automation app settings","copies":false}
+{"id":"t0252","split":"train","app":"Settings","screen":"settings-apps-2","element":"0.2.16","intent":"web browser settings","copies":false}
+{"id":"t0253","split":"train","app":"Settings","screen":"settings-apps-2","element":"0.2.14","intent":"settings for controlling my Apple TV","copies":false}
+{"id":"t0254","split":"heldout","app":"Settings","screen":"settings-apps-2","element":"0.2.9","intent":"password manager settings","copies":true}
+{"id":"t0255","split":"train","app":"Settings","screen":"settings-signin-sheet","element":"0.1.3","intent":"sign in using my iPad nearby","copies":true}
+{"id":"t0256","split":"train","app":"Settings","screen":"settings-signin-sheet","element":"0.1.2","intent":"create a new account","copies":true}
+{"id":"t0257","split":"heldout","app":"Settings","screen":"settings-signin-email","element":"0.1.7","intent":"set up an account for my son","copies":false}
+{"id":"t0258","split":"train","app":"Settings","screen":"settings-displayzoom","element":"0.1.0","intent":"bigger controls and text","copies":true}
+{"id":"t0259","split":"heldout","app":"Settings","screen":"settings-liquidglass","element":"0.2.17","intent":"make the glass more opaque","copies":false}
+{"id":"t0260","split":"heldout","app":"Settings","screen":"settings-textsize","element":"0.3.1","intent":"even larger sizes than the slider allows","copies":false}
+{"id":"t0261","split":"train","app":"Safari","screen":"safari-start","element":"0.1","intent":"page options like find and zoom","copies":true}
+{"id":"t0262","split":"train","app":"Safari","screen":"safari-start","element":"0.4","intent":"see all open pages","copies":false}
+{"id":"t0263","split":"train","app":"Safari","screen":"safari-start","element":"0.9","intent":"reload the page","copies":false}
+{"id":"t0264","split":"train","app":"Safari","screen":"safari-pagemenu","element":"0.0.4","intent":"search for a word in this article","copies":false}
+{"id":"t0265","split":"heldout","app":"Safari","screen":"safari-pagemenu","element":"0.0.4","intent":"ctrl-F","copies":false}
+{"id":"t0266","split":"validation","app":"Safari","screen":"safari-pagemenu","element":"0.0.5","intent":"make the text on this site bigger","copies":false}
+{"id":"t0267","split":"train","app":"Safari","screen":"safari-pagemenu","element":"0.0.11","intent":"see the full computer version of this site","copies":false}
+{"id":"t0268","split":"train","app":"Safari","screen":"safari-pagemenu","element":"0.0.7","intent":"remove clutter from the page","copies":false}
+{"id":"t0269","split":"train","app":"Safari","screen":"safari-pagemenu","element":"0.0.12","intent":"full-screen reading without the address bar","copies":false}
+{"id":"t0270","split":"train","app":"Safari","screen":"safari-pagemenu","element":"0.0.13","intent":"let this site use my camera","copies":false}
+{"id":"t0271","split":"train","app":"Safari","screen":"safari-pagemenu","element":"0.0.14","intent":"tell Apple this page is broken","copies":false}
+{"id":"t0272","split":"train","app":"Safari","screen":"safari-pagemenu","element":"0.0.6","intent":"get alerts when this site updates","copies":false}
+{"id":"t0273","split":"train","app":"Safari","screen":"safari-pagemenu","element":"0.0.1","intent":"send this link to a friend","copies":false}
+{"id":"t0274","split":"heldout","app":"Safari","screen":"safari-pagemenu","element":"0.0.15","intent":"rearrange this menu","copies":true}
+{"id":"t0275","split":"train","app":"Safari","screen":"safari-pagemenu","element":"0.0.9","intent":"pin or move this tab","copies":true}
+{"id":"t0276","split":"heldout","app":"Safari","screen":"safari-share","element":"0.8.4","intent":"put the link on the clipboard","copies":false}
+{"id":"t0277","split":"train","app":"Safari","screen":"safari-share","element":"0.8.6","intent":"save it to read offline later","copies":true}
+{"id":"t0278","split":"validation","app":"Safari","screen":"safari-share","element":"0.6","intent":"share as a PDF instead of a link","copies":false}
+{"id":"t0279","split":"train","app":"Safari","screen":"safari-share","element":"0.8.1","intent":"remind me to read this tomorrow","copies":true}
+{"id":"t0280","split":"train","app":"Safari","screen":"safari-tabs","element":"0.7","intent":"open a new tab","copies":false}
+{"id":"t0281","split":"train","app":"Safari","screen":"safari-tabs","element":"0.7","intent":"a blank page","copies":false}
+{"id":"t0282","split":"heldout","app":"Safari","screen":"safari-tabs","element":"0.5","intent":"incognito mode","copies":false}
+{"id":"t0283","split":"heldout","app":"Safari","screen":"safari-tabs","element":"0.5","intent":"browse without saving history","copies":false}
+{"id":"t0284","split":"train","app":"Safari","screen":"safari-tabs","element":"0.8","intent":"go back to the page I was reading","copies":false}
+{"id":"t0285","split":"heldout","app":"Safari","screen":"safari-tabs","element":"0.13","intent":"find a tab by name","copies":false}
+{"id":"t0286","split":"train","app":"Safari","screen":"safari-tabs","element":"0.2","intent":"dismiss the tip about swiping","copies":false}
+{"id":"t0287","split":"train","app":"Safari","screen":"safari-newtab","element":"0.1.4","intent":"Microsoft's search engine","copies":false}
+{"id":"t0288","split":"train","app":"Safari","screen":"safari-newtab","element":"0.1.5","intent":"the search engine owned by Alphabet","copies":false}
+{"id":"t0289","split":"train","app":"Safari","screen":"safari-newtab","element":"0.1.6","intent":"the old purple web portal","copies":false}
+{"id":"t0290","split":"train","app":"Safari","screen":"safari-newtab","element":"0.13","intent":"pages I visited yesterday","copies":false}
+{"id":"t0291","split":"validation","app":"Safari","screen":"safari-newtab","element":"0.12","intent":"articles saved for offline","copies":false}
+{"id":"t0292","split":"train","app":"Safari","screen":"safari-newtab","element":"0.11","intent":"my saved sites","copies":false}
+{"id":"t0293","split":"train","app":"Safari","screen":"safari-newtab","element":"0.1.15","intent":"customize the start page sections","copies":false}
+{"id":"t0294","split":"train","app":"Safari","screen":"safari-newtab","element":"0.5","intent":"switch between open pages","copies":false}
+{"id":"t0295","split":"train","app":"Safari","screen":"safari-address","element":"0.5","intent":"hide the keyboard and stop typing a URL","copies":false}
+{"id":"t0296","split":"train","app":"Safari","screen":"safari-address","element":"0.39","intent":"insert a smiley","copies":false}
+{"id":"t0297","split":"train","app":"Safari","screen":"safari-address","element":"0.37","intent":"load the page I typed","copies":false}
+{"id":"t0298","split":"train","app":"Safari","screen":"safari-address","element":"0.25","intent":"type a capital letter","copies":false}
+{"id":"t0299","split":"train","app":"Safari","screen":"safari-address","element":"0.33","intent":"backspace","copies":false}
+{"id":"t0300","split":"train","app":"Safari","screen":"safari-bookmarks-more","element":"0.0.2","intent":"alphabetize my bookmarks","copies":false}
+{"id":"t0301","split":"heldout","app":"Safari","screen":"safari-bookmarks-more","element":"0.0.1","intent":"a denser list","copies":false}
+{"id":"t0302","split":"train","app":"Safari","screen":"safari-bookmarks-more","element":"0.0.0","intent":"bigger thumbnails","copies":false}
+{"id":"t0303","split":"train","app":"Safari","screen":"safari-bookmarks-more","element":"0.0.3","intent":"list the folders first","copies":true}
+{"id":"t0304","split":"train","app":"Safari","screen":"safari-private","element":"0.3","intent":"skip this","copies":false}
+{"id":"t0305","split":"train","app":"Safari","screen":"safari-typed","element":"0.1","intent":"erase what I typed","copies":false}
+{"id":"t0306","split":"heldout","app":"Maps","screen":"maps-root","element":"0.3","intent":"how hot is it outside","copies":false}
+{"id":"t0307","split":"heldout","app":"Maps","screen":"maps-root","element":"0.3","intent":"today's forecast","copies":false}
+{"id":"t0308","split":"heldout","app":"Maps","screen":"maps-root","element":"0.4","intent":"switch to satellite view","copies":false}
+{"id":"t0309","split":"heldout","app":"Maps","screen":"maps-root","element":"0.4","intent":"show public transit lines","copies":false}
+{"id":"t0310","split":"heldout","app":"Maps","screen":"maps-root","element":"0.6","intent":"street-level imagery","copies":false}
+{"id":"t0311","split":"heldout","app":"Maps","screen":"maps-root","element":"0.9","intent":"my Maps account and preferences","copies":false}
+{"id":"t0312","split":"heldout","app":"Maps","screen":"maps-root","element":"0.37","intent":"save my house address","copies":false}
+{"id":"t0313","split":"heldout","app":"Maps","screen":"maps-root","element":"0.38","intent":"save my office location","copies":false}
+{"id":"t0314","split":"heldout","app":"Maps","screen":"maps-root","element":"0.41","intent":"my saved spots","copies":false}
+{"id":"t0315","split":"heldout","app":"Maps","screen":"maps-root","element":"0.28","intent":"SFMOMA","copies":false}
+{"id":"t0316","split":"heldout","app":"Maps","screen":"maps-root","element":"0.20","intent":"the entrance to Chinatown","copies":false}
+{"id":"t0317","split":"heldout","app":"Maps","screen":"maps-root","element":"0.31","intent":"the Filipino fried chicken place","copies":false}
+{"id":"t0318","split":"heldout","app":"Maps","screen":"maps-root","element":"0.17","intent":"the big church on Nob Hill","copies":false}
+{"id":"t0319","split":"heldout","app":"Maps","screen":"maps-root","element":"0.35","intent":"that famous croissant bakery","copies":false}
+{"id":"t0320","split":"heldout","app":"Maps","screen":"maps-root","element":"0.16","intent":"the waterfront by the Ferry Building","copies":false}
+{"id":"t0321","split":"heldout","app":"Maps","screen":"maps-root","element":"0.25","intent":"the shopping plaza with Macy's","copies":false}
+{"id":"t0322","split":"heldout","app":"Maps","screen":"maps-root","element":"0.30","intent":"the BART station at the cable car turnaround","copies":false}
+{"id":"t0323","split":"heldout","app":"Maps","screen":"maps-search","element":"0.13","intent":"fill up the car","copies":false}
+{"id":"t0324","split":"heldout","app":"Maps","screen":"maps-search","element":"0.14","intent":"trails to walk","copies":false}
+{"id":"t0325","split":"heldout","app":"Maps","screen":"maps-search","element":"0.11","intent":"somewhere for a midday meal","copies":false}
+{"id":"t0326","split":"heldout","app":"Maps","screen":"maps-search","element":"0.19","intent":"tonkotsu noodle soup","copies":false}
+{"id":"t0327","split":"heldout","app":"Maps","screen":"maps-search","element":"0.18","intent":"handmade pasta","copies":false}
+{"id":"t0328","split":"heldout","app":"Maps","screen":"maps-search","element":"0.23","intent":"empanadas and chimichurri","copies":false}
+{"id":"t0329","split":"heldout","app":"Maps","screen":"maps-search","element":"0.25","intent":"date night ideas","copies":false}
+{"id":"t0330","split":"heldout","app":"Maps","screen":"maps-coffee","element":"0.12","intent":"where to get brunch","copies":false}
+{"id":"t0331","split":"heldout","app":"Maps","screen":"maps-coffee","element":"0.2","intent":"erase what I typed in search","copies":false}
+{"id":"t0332","split":"heldout","app":"Maps","screen":"maps-coffee","element":"0.3","intent":"stop searching","copies":false}
+{"id":"t0333","split":"heldout","app":"Maps","screen":"maps-place","element":"0.13","alsoRight":["0.36"],"intent":"ring them up","copies":false}
+{"id":"t0334","split":"heldout","app":"Maps","screen":"maps-place","element":"0.15","intent":"see what drinks they serve","copies":false}
+{"id":"t0335","split":"heldout","app":"Maps","screen":"maps-place","element":"0.12","intent":"how do I get there on foot","copies":false}
+{"id":"t0336","split":"heldout","app":"Maps","screen":"maps-place","element":"0.40","intent":"tell Apple the hours are wrong","copies":false}
+{"id":"t0337","split":"heldout","app":"Maps","screen":"maps-place","element":"0.41","intent":"drop a marker for this place","copies":false}
+{"id":"t0338","split":"heldout","app":"Maps","screen":"maps-place","element":"0.43","intent":"star this place so I can find it again","copies":false}
+{"id":"t0339","split":"heldout","app":"Maps","screen":"maps-place","element":"0.18","intent":"what do people say about it","copies":false}
+{"id":"t0340","split":"heldout","app":"Maps","screen":"maps-place","element":"0.14","alsoRight":["0.37"],"intent":"their homepage","copies":false}
+{"id":"t0341","split":"heldout","app":"Maps","screen":"maps-place","element":"0.9","intent":"send this place to a friend","copies":false}
+{"id":"t0342","split":"heldout","app":"Maps","screen":"maps-place","element":"0.10","intent":"dismiss this place card","copies":false}
+{"id":"t0343","split":"heldout","app":"Maps","screen":"maps-directions","element":"0.29","intent":"get an Uber","copies":false}
+{"id":"t0344","split":"heldout","app":"Maps","screen":"maps-directions","element":"0.28","intent":"bike there","copies":false}
+{"id":"t0345","split":"heldout","app":"Maps","screen":"maps-directions","element":"0.27","intent":"take the bus","copies":false}
+{"id":"t0346","split":"heldout","app":"Maps","screen":"maps-directions","element":"0.25","intent":"go by car","copies":false}
+{"id":"t0347","split":"heldout","app":"Maps","screen":"maps-directions","element":"0.14","intent":"turn-by-turn list of the route","copies":false}
+{"id":"t0348","split":"heldout","app":"Maps","screen":"maps-directions","element":"0.9","intent":"avoid hills and busy roads","copies":false}
+{"id":"t0349","split":"heldout","app":"Maps","screen":"maps-directions","element":"0.6","intent":"tilt the map to see buildings","copies":false}
+{"id":"t0350","split":"heldout","app":"Maps","screen":"maps-modes","element":"0.5","intent":"aerial photo view","copies":false}
+{"id":"t0351","split":"heldout","app":"Maps","screen":"maps-modes","element":"0.3","intent":"show traffic and road conditions","copies":false}
+{"id":"t0352","split":"heldout","app":"Maps","screen":"maps-modes","element":"0.4","intent":"show subway and bus lines","copies":false}
+{"id":"t0353","split":"heldout","app":"Maps","screen":"maps-modes","element":"0.2","intent":"the standard default map","copies":false}
+{"id":"t0354","split":"heldout","app":"Maps","screen":"maps-satellite","element":"0.6.0","intent":"show congestion on roads","copies":false}
+{"id":"t0355","split":"heldout","app":"Maps","screen":"maps-satellite","element":"0.6.1","intent":"hide street names on the aerial image","copies":false}
+{"id":"t0356","split":"heldout","app":"Maps","screen":"maps-permission","element":"0.2","intent":"just this one time","copies":false}
+{"id":"t0357","split":"heldout","app":"Maps","screen":"maps-permission","element":"0.4","intent":"keep my location private from Maps","copies":false}
+{"id":"t0358","split":"heldout","app":"Maps","screen":"maps-ads-notice","element":"0.1","intent":"read how the ads use my data","copies":false}
+{"id":"t0359","split":"train","app":"Calendar","screen":"calendar-root","element":"0.13","intent":"tomorrow","copies":false}
+{"id":"t0360","split":"heldout","app":"Calendar","screen":"calendar-root","element":"0.18","intent":"yesterday","copies":false}
+{"id":"t0361","split":"heldout","app":"Calendar","screen":"calendar-root","element":"0.5","intent":"event invitations","copies":false}
+{"id":"t0362","split":"heldout","app":"Calendar","screen":"calendar-root","element":"0.11","intent":"see the whole month","copies":false}
+{"id":"t0363","split":"train","app":"Calendar","screen":"calendar-root","element":"0.16","intent":"schedule a new meeting","copies":false}
+{"id":"t0364","split":"train","app":"Calendar","screen":"calendar-root","element":"0.15","intent":"find the dentist appointment","copies":false}
+{"id":"t0365","split":"train","app":"Calendar","screen":"calendar-root","element":"0.20","intent":"the end of this work week","copies":false}
+{"id":"t0366","split":"validation","app":"Calendar","screen":"calendar-root","element":"0.3","alsoRight":["0.12"],"intent":"jump back to the current date","copies":false}
+{"id":"t0367","split":"train","app":"Calendar","screen":"calendar-month","element":"0.10","intent":"the whole year view","copies":false}
+{"id":"t0368","split":"train","app":"Calendar","screen":"calendar-month","element":"0.24","intent":"Labor Day","copies":false}
+{"id":"t0369","split":"train","app":"Calendar","screen":"calendar-month","element":"0.39","intent":"a week ago today","copies":false}
+{"id":"t0370","split":"heldout","app":"Calendar","screen":"calendar-month","element":"0.47","intent":"the last day of this month","copies":false}
+{"id":"t0371","split":"train","app":"Calendar","screen":"calendar-month","element":"0.51","intent":"the first day of next month","copies":false}
+{"id":"t0372","split":"heldout","app":"Calendar","screen":"calendar-new-event","element":"0.1.3","intent":"add a Zoom link","copies":false}
+{"id":"t0373","split":"train","app":"Calendar","screen":"calendar-new-event","element":"0.1.3","intent":"where the meeting is","copies":false}
+{"id":"t0374","split":"validation","app":"Calendar","screen":"calendar-new-event","element":"0.1.7","intent":"remind me 10 minutes before","copies":false}
+{"id":"t0375","split":"train","app":"Calendar","screen":"calendar-new-event","element":"0.1.8","intent":"account for the drive there","copies":false}
+{"id":"t0376","split":"validation","app":"Calendar","screen":"calendar-new-event","element":"0.1.11","intent":"attach the agenda PDF","copies":true}
+{"id":"t0377","split":"train","app":"Calendar","screen":"calendar-new-event","element":"0.7","intent":"discard this event","copies":false}
+{"id":"t0378","split":"train","app":"Calendar","screen":"calendar-new-event","element":"0.9","intent":"make it a to-do instead","copies":false}
+{"id":"t0379","split":"train","app":"Calendar","screen":"calendar-new-event","element":"0.1.1","intent":"change when it starts and ends","copies":false}
+{"id":"t0380","split":"train","app":"Calendar","screen":"calendar-calendars","element":"0.2.3","intent":"federal days off","copies":false}
+{"id":"t0381","split":"train","app":"Calendar","screen":"calendar-calendars","element":"0.2.7","intent":"show finished tasks","copies":true}
+{"id":"t0382","split":"train","app":"Calendar","screen":"calendar-calendars","element":"0.2.8","intent":"subscribe to a sports schedule","copies":false}
+{"id":"t0383","split":"train","app":"Calendar","screen":"calendar-calendars","element":"0.0","intent":"done with this list","copies":false}
+{"id":"t0384","split":"train","app":"Calendar","screen":"calendar-discard","element":"0.1","intent":"throw away the draft","copies":false}
+{"id":"t0385","split":"heldout","app":"Contacts","screen":"contacts-card","element":"0.2.2","intent":"text John","copies":false}
+{"id":"t0386","split":"heldout","app":"Contacts","screen":"contacts-card","element":"0.2.2","intent":"send him an iMessage","copies":false}
+{"id":"t0387","split":"heldout","app":"Contacts","screen":"contacts-card","element":"0.2.3","intent":"ring him","copies":false}
+{"id":"t0388","split":"heldout","app":"Contacts","screen":"contacts-card","element":"0.2.4","intent":"FaceTime him","copies":false}
+{"id":"t0389","split":"heldout","app":"Contacts","screen":"contacts-card","element":"0.2.5","intent":"email him","copies":false}
+{"id":"t0390","split":"heldout","app":"Contacts","screen":"contacts-card","element":"0.2.6","intent":"his cell number","copies":false}
+{"id":"t0391","split":"heldout","app":"Contacts","screen":"contacts-card","element":"0.2.9","intent":"directions to his office","copies":false}
+{"id":"t0392","split":"heldout","app":"Contacts","screen":"contacts-card","element":"0.2.10","intent":"drive to his house","copies":false}
+{"id":"t0393","split":"heldout","app":"Contacts","screen":"contacts-card","element":"0.1","intent":"change his details","copies":false}
+{"id":"t0394","split":"heldout","app":"Contacts","screen":"contacts-anna","element":"0.2.10","intent":"when she was born","copies":false}
+{"id":"t0395","split":"heldout","app":"Contacts","screen":"contacts-anna","element":"0.2.11","intent":"her wedding date","copies":false}
+{"id":"t0396","split":"heldout","app":"Contacts","screen":"contacts-anna","element":"0.2.9","intent":"navigate to Anna's place","copies":false}
+{"id":"t0397","split":"heldout","app":"Contacts","screen":"contacts-anna","element":"0.2.5","intent":"FaceTime Anna","copies":false}
+{"id":"t0398","split":"heldout","app":"Contacts","screen":"contacts-list","element":"0.2.11","intent":"my banker","copies":false}
+{"id":"t0399","split":"heldout","app":"Contacts","screen":"contacts-list","element":"0.2.7","intent":"the one who's a junior","copies":false}
+{"id":"t0400","split":"heldout","app":"Contacts","screen":"contacts-list","element":"0.5","intent":"new contact","copies":false}
+{"id":"t0401","split":"heldout","app":"Contacts","screen":"contacts-edit","element":"0.2.0","intent":"give her a profile picture","copies":false}
+{"id":"t0402","split":"heldout","app":"Contacts","screen":"contacts-edit","element":"0.2.9","intent":"a second number for her","copies":false}
+{"id":"t0403","split":"heldout","app":"Contacts","screen":"contacts-edit","element":"0.2.15","intent":"she/her","copies":false}
+{"id":"t0404","split":"heldout","app":"Contacts","screen":"contacts-edit","element":"0.0","intent":"stop editing without saving","copies":false}
+{"id":"t0405","split":"heldout","app":"Contacts","screen":"contacts-edit-2","element":"0.2.6","intent":"note that she's my sister","copies":false}
+{"id":"t0406","split":"heldout","app":"Contacts","screen":"contacts-edit-2","element":"0.2.7","intent":"her Instagram handle","copies":false}
+{"id":"t0407","split":"heldout","app":"Contacts","screen":"contacts-edit-2","element":"0.2.8","intent":"her WhatsApp username","copies":false}
+{"id":"t0408","split":"heldout","app":"Contacts","screen":"contacts-edit-2","element":"0.2.12","intent":"add a middle name","copies":true}
+{"id":"t0409","split":"heldout","app":"Contacts","screen":"contacts-edit-2","element":"0.2.13","intent":"make her my ICE contact","copies":true}
+{"id":"t0410","split":"heldout","app":"Contacts","screen":"contacts-edit-2","element":"0.2.15","intent":"merge with her duplicate card","copies":false}
+{"id":"t0411","split":"heldout","app":"Contacts","screen":"contacts-edit-2","element":"0.2.16","intent":"put her in my family group","copies":false}
+{"id":"t0412","split":"heldout","app":"Contacts","screen":"contacts-edit-2","element":"0.2.17","intent":"remove her from my phone","copies":false}
+{"id":"t0413","split":"heldout","app":"Contacts","screen":"contacts-edit-2","element":"0.2.5","intent":"remember her graduation day","copies":false}
+{"id":"t0414","split":"train","app":"Messages","screen":"messages-thread","element":"0.3","intent":"attach a photo","copies":false}
+{"id":"t0415","split":"train","app":"Messages","screen":"messages-thread","element":"0.1","intent":"see contact details for this chat","copies":false}
+{"id":"t0416","split":"validation","app":"Messages","screen":"messages-thread","element":"0.0","intent":"all conversations","copies":false}
+{"id":"t0417","split":"train","app":"Messages","screen":"messages-compose","element":"0.5","intent":"deliver this text","copies":false}
+{"id":"t0418","split":"train","app":"Messages","screen":"messages-add","element":"0.0.4","intent":"send money","copies":false}
+{"id":"t0419","split":"train","app":"Messages","screen":"messages-add","element":"0.0.2","intent":"record a voice memo","copies":false}
+{"id":"t0420","split":"train","app":"Messages","screen":"messages-add","element":"0.0.3","intent":"find a GIF","copies":false}
+{"id":"t0421","split":"heldout","app":"Messages","screen":"messages-add","element":"0.0.5","intent":"let them know I got home safely","copies":false}
+{"id":"t0422","split":"train","app":"Messages","screen":"messages-add","element":"0.0.0","intent":"take a picture now","copies":false}
+{"id":"t0423","split":"train","app":"Messages","screen":"messages-add","element":"0.0.1","intent":"choose a picture from my library","copies":false}
+{"id":"t0424","split":"train","app":"Messages","screen":"messages-add","element":"0.0.6","intent":"send a sketch or my heartbeat","copies":false}
+{"id":"t0425","split":"heldout","app":"Photos","screen":"photos-root","element":"0.14","intent":"show only favorites","copies":false}
+{"id":"t0426","split":"heldout","app":"Photos","screen":"photos-root","element":"0.15","intent":"choose several pictures","copies":false}
+{"id":"t0427","split":"train","app":"Photos","screen":"photos-root","element":"0.17","intent":"browse my albums","copies":false}
+{"id":"t0428","split":"train","app":"Photos","screen":"photos-root","element":"0.18","intent":"find pictures of dogs","copies":false}
+{"id":"t0429","split":"train","app":"Photos","screen":"photos-photo","element":"0.2","intent":"send this picture to someone","copies":false}
+{"id":"t0430","split":"heldout","app":"Photos","screen":"photos-photo","element":"0.3","intent":"heart this picture","copies":false}
+{"id":"t0431","split":"train","app":"Photos","screen":"photos-photo","element":"0.4","intent":"when was this taken","copies":false}
+{"id":"t0432","split":"validation","app":"Photos","screen":"photos-photo","element":"0.5","intent":"crop this picture","copies":false}
+{"id":"t0433","split":"train","app":"Photos","screen":"photos-photo","element":"0.6","intent":"trash this picture","copies":false}
+{"id":"t0434","split":"train","app":"Photos","screen":"photos-photo","element":"0.13","intent":"return to the grid","copies":false}
+{"id":"t0435","split":"validation","app":"Photos","screen":"photos-info","element":"0.2","intent":"fix the date it was taken","copies":false}
+{"id":"t0436","split":"train","app":"Photos","screen":"photos-info","element":"0.15","intent":"where it was shot","copies":false}
+{"id":"t0437","split":"train","app":"Photos","screen":"photos-info","element":"0.16","intent":"tag it","copies":false}
+{"id":"t0438","split":"heldout","app":"Photos","screen":"photos-edit","element":"0.12","intent":"make it black and white","copies":false}
+{"id":"t0439","split":"train","app":"Photos","screen":"photos-edit","element":"0.12","intent":"a vintage look","copies":false}
+{"id":"t0440","split":"train","app":"Photos","screen":"photos-edit","element":"0.11","intent":"brighten the exposure","copies":false}
+{"id":"t0441","split":"heldout","app":"Photos","screen":"photos-edit","element":"0.13","intent":"trim the edges","copies":false}
+{"id":"t0442","split":"train","app":"Photos","screen":"photos-edit","element":"0.17","intent":"mirror the image","copies":false}
+{"id":"t0443","split":"train","app":"Photos","screen":"photos-edit","element":"0.18","intent":"turn it sideways","copies":false}
+{"id":"t0444","split":"train","app":"Photos","screen":"photos-edit","element":"0.19","intent":"make it square","copies":false}
+{"id":"t0445","split":"train","app":"Photos","screen":"photos-edit","element":"0.16","intent":"leave without saving edits","copies":false}
+{"id":"t0446","split":"train","app":"Photos","screen":"photos-collections","element":"0.12","intent":"recover a picture I trashed","copies":false}
+{"id":"t0447","split":"train","app":"Photos","screen":"photos-collections","element":"0.9","intent":"photos by where they were taken","copies":false}
+{"id":"t0448","split":"train","app":"Photos","screen":"photos-collections","element":"0.10","intent":"clips I recorded","copies":false}
+{"id":"t0449","split":"train","app":"Photos","screen":"photos-collections","element":"0.11","intent":"captures of my display","copies":false}
+{"id":"t0450","split":"train","app":"Photos","screen":"photos-collections","element":"0.15","intent":"start a new album","copies":false}
+{"id":"t0451","split":"train","app":"Photos","screen":"photos-collections","element":"0.7","intent":"my starred pictures","copies":false}
+{"id":"t0452","split":"heldout","app":"Files","screen":"files-root","element":"0.16","intent":"see all my folders and drives","copies":false}
+{"id":"t0453","split":"heldout","app":"Files","screen":"files-browse","element":"0.14","intent":"documents I opened lately","copies":false}
+{"id":"t0454","split":"heldout","app":"Files","screen":"files-browse","element":"0.11","intent":"options for this folder","copies":false}
+{"id":"t0455","split":"heldout","app":"Files","screen":"files-more","element":"0.0.1","intent":"create a directory","copies":false}
+{"id":"t0456","split":"heldout","app":"Files","screen":"files-more","element":"0.0.2","intent":"digitize a paper receipt with the camera","copies":false}
+{"id":"t0457","split":"heldout","app":"Files","screen":"files-more","element":"0.0.3","intent":"open an SMB network share","copies":false}
+{"id":"t0458","split":"heldout","app":"Files","screen":"files-more","element":"0.0.4","intent":"show files as thumbnails","copies":false}
+{"id":"t0459","split":"heldout","app":"Files","screen":"files-more","element":"0.0.5","intent":"show files as rows","copies":false}
+{"id":"t0460","split":"heldout","app":"Files","screen":"files-more","element":"0.0.6","intent":"sort alphabetically","copies":false}
+{"id":"t0461","split":"heldout","app":"Files","screen":"files-more","element":"0.0.7","intent":"group by file type","copies":false}
+{"id":"t0462","split":"heldout","app":"Files","screen":"files-more","element":"0.0.8","intent":"newest first","copies":false}
+{"id":"t0463","split":"heldout","app":"Files","screen":"files-more","element":"0.0.9","intent":"biggest files first","copies":false}
+{"id":"t0464","split":"heldout","app":"Files","screen":"files-more","element":"0.0.10","intent":"sort by color labels","copies":false}
+{"id":"t0465","split":"heldout","app":"Files","screen":"files-more","element":"0.0.0","intent":"pick several files at once","copies":false}
+{"id":"t0466","split":"validation","app":"Reminders","screen":"reminders-lists","element":"0.1.2","intent":"everything on my to-do list","copies":false}
+{"id":"t0467","split":"validation","app":"Reminders","screen":"reminders-lists","element":"0.1.3","intent":"tasks I've finished","copies":false}
+{"id":"t0468","split":"validation","app":"Reminders","screen":"reminders-lists","element":"0.1.7","intent":"turn on iCloud sync","copies":false}
+{"id":"t0469","split":"validation","app":"Reminders","screen":"reminders-lists","element":"0.1.5","intent":"dismiss the sync banner","copies":false}
+{"id":"t0470","split":"validation","app":"Reminders","screen":"reminders-lists","element":"0.2","intent":"new to-do","copies":true}
+{"id":"t0471","split":"validation","app":"Reminders","screen":"reminders-lists","element":"0.1.0","intent":"what's due now","copies":false}
+{"id":"t0472","split":"validation","app":"Reminders","screen":"reminders-new","element":"0.12","intent":"remind me when I get home","copies":false}
+{"id":"t0473","split":"validation","app":"Reminders","screen":"reminders-new","element":"0.13","intent":"mark it as important","copies":false}
+{"id":"t0474","split":"validation","app":"Reminders","screen":"reminders-new","element":"0.14","intent":"attach a picture","copies":false}
+{"id":"t0475","split":"validation","app":"Reminders","screen":"reminders-new","element":"0.1.7","intent":"set priority and tags","copies":false}
+{"id":"t0476","split":"validation","app":"Reminders","screen":"reminders-new","element":"0.10","intent":"save the reminder","copies":false}
+{"id":"t0477","split":"validation","app":"Reminders","screen":"reminders-new","element":"0.8","intent":"never mind","copies":false}
+{"id":"t0478","split":"validation","app":"Reminders","screen":"reminders-more","element":"0.0.0","intent":"rename the list and change its color","copies":true}
+{"id":"t0479","split":"validation","app":"Reminders","screen":"reminders-more","element":"0.0.1","intent":"tick off several at once","copies":false}
+{"id":"t0480","split":"validation","app":"Reminders","screen":"reminders-more","element":"0.0.2","intent":"order by due date","copies":false}
+{"id":"t0481","split":"validation","app":"Reminders","screen":"reminders-more","element":"0.0.3","intent":"see tasks I've finished","copies":false}
+{"id":"t0482","split":"validation","app":"Reminders","screen":"reminders-more","element":"0.0.4","intent":"a paper copy","copies":false}
+{"id":"t0483","split":"validation","app":"Reminders","screen":"reminders-delete-alert","element":"0.3","intent":"yes, remove it","copies":false}
+{"id":"t0484","split":"validation","app":"Reminders","screen":"reminders-delete-alert","element":"0.2","intent":"keep the list","copies":false}
+{"id":"t0485","split":"validation","app":"Reminders","screen":"reminders-icloud-alert","element":"0.2","intent":"skip syncing","copies":false}
+{"id":"t0486","split":"validation","app":"Reminders","screen":"reminders-icloud-alert","element":"0.3","intent":"enable iCloud sync","copies":false}
+{"id":"t0487","split":"train","app":"Shortcuts","screen":"shortcuts-library","element":"0.1.2","intent":"shortcuts on my wrist","copies":false}
+{"id":"t0488","split":"train","app":"Shortcuts","screen":"shortcuts-library","element":"0.1.3","intent":"ready-made shortcuts","copies":false}
+{"id":"t0489","split":"train","app":"Shortcuts","screen":"shortcuts-library","element":"0.1.4","intent":"run something at sunrise","copies":false}
+{"id":"t0490","split":"train","app":"Shortcuts","screen":"shortcuts-library","element":"0.1.1","intent":"shortcuts that appear when I tap the export button","copies":false}
+{"id":"t0491","split":"train","app":"Shortcuts","screen":"shortcuts-root","element":"0.2","intent":"build a custom automation","copies":false}
+{"id":"t0492","split":"validation","app":"Shortcuts","screen":"shortcuts-root","element":"0.8","intent":"see my shortcut folders","copies":false}
+{"id":"t0493","split":"train","app":"Shortcuts","screen":"shortcuts-gallery","element":"0.18","intent":"a focus timer","copies":false}
+{"id":"t0494","split":"train","app":"Shortcuts","screen":"shortcuts-gallery","element":"0.14","intent":"write a short Japanese poem","copies":false}
+{"id":"t0495","split":"train","app":"Shortcuts","screen":"shortcuts-gallery","element":"0.13","intent":"a daily briefing when I wake up","copies":false}
+{"id":"t0496","split":"train","app":"Shortcuts","screen":"shortcuts-gallery","element":"0.20","intent":"create many to-dos at once","copies":false}
+{"id":"t0497","split":"heldout","app":"Shortcuts","screen":"shortcuts-gallery","element":"0.10","intent":"shortcuts for people with disabilities","copies":true}
+{"id":"t0498","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.1","intent":"exercise minutes","copies":false}
+{"id":"t0499","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.2","intent":"my BMI","copies":false}
+{"id":"t0500","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.3","intent":"log my period","copies":false}
+{"id":"t0501","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.4","intent":"headphone volume levels","copies":false}
+{"id":"t0502","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.5","intent":"blood pressure","copies":false}
+{"id":"t0503","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.6","intent":"pills I take","copies":false}
+{"id":"t0504","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.7","intent":"log my mood","copies":false}
+{"id":"t0505","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.8","intent":"walking steadiness","copies":false}
+{"id":"t0506","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.9","intent":"calories I ate","copies":false}
+{"id":"t0507","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.10","intent":"breathing rate","copies":false}
+{"id":"t0508","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.11","intent":"how long I slept","copies":false}
+{"id":"t0509","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.12","intent":"log a headache","copies":false}
+{"id":"t0510","split":"heldout","app":"Health","screen":"health-heart","element":"0.2.1","intent":"atrial fibrillation burden","copies":false}
+{"id":"t0511","split":"heldout","app":"Health","screen":"health-heart","element":"0.2.2","intent":"BP readings","copies":false}
+{"id":"t0512","split":"heldout","app":"Health","screen":"health-heart","element":"0.2.3","intent":"VO2 max","copies":false}
+{"id":"t0513","split":"heldout","app":"Health","screen":"health-heart","element":"0.2.6","intent":"my EKG","copies":false}
+{"id":"t0514","split":"heldout","app":"Health","screen":"health-heart","element":"0.2.8","intent":"HRV","copies":false}
+{"id":"t0515","split":"heldout","app":"Health","screen":"health-heart","element":"0.0","alsoRight":["0.11"],"intent":"back to the categories","copies":false}
+{"id":"t0516","split":"heldout","app":"Health","screen":"health-summary","element":"0.0","intent":"my medical details","copies":false}
+{"id":"t0517","split":"heldout","app":"Health","screen":"health-summary","element":"0.2.5","intent":"how far I walked today","copies":false}
+{"id":"t0518","split":"heldout","app":"Health","screen":"health-summary","element":"0.2.4","intent":"choose what's pinned","copies":false}
+{"id":"t0519","split":"heldout","app":"Health","screen":"health-sharing","element":"0.1.9","intent":"send my records to my physician","copies":false}
+{"id":"t0520","split":"heldout","app":"Health","screen":"health-sharing","element":"0.1.11","intent":"join a clinical trial","copies":false}
+{"id":"t0521","split":"heldout","app":"Health","screen":"health-sharing","element":"0.1.8","intent":"see my mom's health data","copies":false}
+{"id":"t0522","split":"heldout","app":"Health","screen":"health-sharing","element":"0.1.7","intent":"let my partner see my data","copies":false}
+{"id":"t0523","split":"heldout","app":"Health","screen":"health-setup-2","element":"0.2","intent":"skip this step","copies":false}
+{"id":"t0524","split":"heldout","app":"Health","screen":"health-setup-2","element":"0.1.10","intent":"how tall I am","copies":false}
+{"id":"t0525","split":"heldout","app":"Health","screen":"health-setup-2","element":"0.1.8","intent":"my gender","copies":false}
+{"id":"t0526","split":"heldout","app":"Health","screen":"health-setup-2","element":"0.1.4","intent":"my surname","copies":false}
+{"id":"t0527","split":"heldout","app":"Health","screen":"health-setup-1","element":"0.3","intent":"read about data protection","copies":false}
+{"id":"t0528","split":"train","app":"Wallet","screen":"wallet-root","element":"0.13","intent":"add my Visa","copies":true}
+{"id":"t0529","split":"train","app":"Wallet","screen":"wallet-root","element":"0.14","intent":"track my packages","copies":false}
+{"id":"t0530","split":"train","app":"Wallet","screen":"wallet-root","element":"0.15","intent":"Wallet preferences","copies":false}
+{"id":"t0531","split":"train","app":"Wallet","screen":"wallet-root","element":"0.6","intent":"find a pass","copies":false}
+{"id":"t0532","split":"train","app":"Wallet","screen":"wallet-more","element":"0.0.0","intent":"fill my card in automatically when shopping online","copies":false}
+{"id":"t0533","split":"train","app":"Wallet","screen":"wallet-more","element":"0.0.1","intent":"alerts about transactions","copies":false}
+{"id":"t0534","split":"train","app":"Wallet","screen":"wallet-orders","element":"0.0","intent":"close this list","copies":false}
+{"id":"t0535","split":"train","app":"Wallet","screen":"wallet-orders","element":"0.4","intent":"which stores support order tracking","copies":false}
+{"id":"t0536","split":"train","app":"Wallet","screen":"wallet-error","element":"0.2","intent":"dismiss the error","copies":false}
+{"id":"t0537","split":"heldout","app":"Passwords","screen":"passwords-root","element":"0.2.0","intent":"every saved login","copies":false}
+{"id":"t0538","split":"heldout","app":"Passwords","screen":"passwords-root","element":"0.2.2","intent":"my two-factor authenticator","copies":false}
+{"id":"t0539","split":"heldout","app":"Passwords","screen":"passwords-root","element":"0.2.3","intent":"saved network keys","copies":false}
+{"id":"t0540","split":"heldout","app":"Passwords","screen":"passwords-root","element":"0.2.4","intent":"check for leaked or weak passwords","copies":false}
+{"id":"t0541","split":"heldout","app":"Passwords","screen":"passwords-root","element":"0.2.5","intent":"recover a login I removed","copies":false}
+{"id":"t0542","split":"heldout","app":"Passwords","screen":"passwords-root","element":"0.5","intent":"save a new login","copies":true}
+{"id":"t0543","split":"heldout","app":"Passwords","screen":"passwords-root","element":"0.2.1","intent":"FIDO sign-in keys","copies":false}
+{"id":"t0544","split":"heldout","app":"Passwords","screen":"passwords-wifi","element":"0.1.1","intent":"the coffee shop network","copies":false}
+{"id":"t0545","split":"heldout","app":"Passwords","screen":"passwords-wifi","element":"0.1.2","intent":"the office network","copies":false}
+{"id":"t0546","split":"heldout","app":"Passwords","screen":"passwords-wifi","element":"0.9","intent":"back to the categories","copies":false}
+{"id":"t0547","split":"heldout","app":"Passwords","screen":"passwords-new","element":"0.9","intent":"store this login","copies":false}
+{"id":"t0548","split":"heldout","app":"Passwords","screen":"passwords-new","element":"0.7","intent":"abandon it","copies":false}
+{"id":"t0549","split":"train","app":"News","screen":"news-root","element":"0.0","intent":"start the premium trial","copies":false}
+{"id":"t0550","split":"train","app":"News","screen":"news-root","element":"0.2.0","intent":"NBA scores","copies":false}
+{"id":"t0551","split":"train","app":"News","screen":"news-root","element":"0.2.1","intent":"today's crossword","copies":false}
+{"id":"t0552","split":"train","app":"News","screen":"news-root","element":"0.2.2","intent":"news from my city","copies":false}
+{"id":"t0553","split":"train","app":"News","screen":"news-root","element":"0.2.3","intent":"celebrity gossip","copies":false}
+{"id":"t0554","split":"validation","app":"News","screen":"news-root","element":"0.16","intent":"listen to stories","copies":false}
+{"id":"t0555","split":"validation","app":"News","screen":"news-root","element":"0.18","intent":"look up a topic","copies":false}
+{"id":"t0556","split":"train","app":"News","screen":"news-root","element":"0.15","intent":"premium magazines","copies":false}
+{"id":"t0557","split":"train","app":"News","screen":"news-puzzles","element":"0.2.3","intent":"the 9x9 number puzzle","copies":false}
+{"id":"t0558","split":"heldout","app":"News","screen":"news-puzzles","element":"0.10","intent":"how I rank against friends","copies":false}
+{"id":"t0559","split":"train","app":"News","screen":"news-puzzles","element":"0.2.2","intent":"the word tiles game","copies":false}
+{"id":"t0560","split":"train","app":"News","screen":"news-puzzles","element":"0.9","intent":"leave the puzzles page","copies":false}
+{"id":"t0561","split":"validation","app":"News","screen":"news-audio","element":"0.0","intent":"listen to everything in order","copies":false}
+{"id":"t0562","split":"train","app":"News","screen":"news-audio","element":"0.9.6","intent":"sign up for the audio subscription trial","copies":false}
+{"id":"t0563","split":"heldout","app":"Fitness","screen":"fitness-root","element":"0.1","intent":"change my move goal and profile","copies":false}
+{"id":"t0564","split":"validation","app":"Fitness","screen":"fitness-root","element":"0.2.3","intent":"customize this page","copies":false}
+{"id":"t0565","split":"train","app":"Fitness","screen":"fitness-root","element":"0.10","intent":"go for a run","copies":false}
+{"id":"t0566","split":"train","app":"Fitness","screen":"fitness-root","element":"0.11","intent":"compete with friends","copies":false}
+{"id":"t0567","split":"heldout","app":"Fitness","screen":"fitness-root","element":"0.13","intent":"guided workout classes","copies":false}
+{"id":"t0568","split":"train","app":"Fitness","screen":"fitness-root","element":"0.2.6","intent":"how far I walked","copies":false}
+{"id":"t0569","split":"train","app":"Fitness","screen":"fitness-workouts","element":"0.24","intent":"connect to a gym treadmill","copies":false}
+{"id":"t0570","split":"train","app":"Fitness","screen":"fitness-workouts","element":"0.37","intent":"pair a chest strap","copies":false}
+{"id":"t0571","split":"train","app":"Fitness","screen":"fitness-workouts","element":"0.36","intent":"add yoga to my list","copies":true}
+{"id":"t0572","split":"validation","app":"Fitness","screen":"fitness-workouts","element":"0.7","intent":"see the training plan calendar","copies":false}
+{"id":"t0573","split":"validation","app":"Fitness","screen":"fitness-buddy","element":"0.3.0","intent":"turn on voice encouragement during exercise","copies":false}
+{"id":"t0574","split":"validation","app":"Watch","screen":"watch-root","element":"0.4","intent":"connect my Apple Watch","copies":false}
+{"id":"t0575","split":"validation","app":"Watch","screen":"watch-root","element":"0.13","intent":"shop for watch bands and models","copies":false}
+{"id":"t0576","split":"validation","app":"Watch","screen":"watch-faces","element":"0.6","intent":"something for a black-tie wedding","copies":false}
+{"id":"t0577","split":"validation","app":"Watch","screen":"watch-faces","element":"0.12","intent":"stars and space themed","copies":false}
+{"id":"t0578","split":"validation","app":"Watch","screen":"watch-faces","element":"0.15","intent":"the swoosh brand designs","copies":false}
+{"id":"t0579","split":"validation","app":"Watch","screen":"watch-faces","element":"0.4","intent":"as many widgets as possible","copies":false}
+{"id":"t0580","split":"validation","app":"Watch","screen":"watch-faces","element":"0.3","intent":"minimalist","copies":false}
+{"id":"t0581","split":"validation","app":"Watch","screen":"watch-faces","element":"0.17","intent":"an old-fashioned dial","copies":false}
+{"id":"t0582","split":"validation","app":"Watch","screen":"watch-faces","element":"0.16","intent":"numbers instead of hands","copies":false}
+{"id":"t0583","split":"validation","app":"Watch","screen":"watch-faces","element":"0.5","intent":"rainbow designs for June","copies":false}
+{"id":"t0584","split":"validation","app":"Watch","screen":"watch-faces","element":"0.7","intent":"utility faces for divers and pilots","copies":false}
+{"id":"t0585","split":"validation","app":"Watch","screen":"watch-faces","element":"0.9","intent":"fun cartoon-like faces","copies":false}
+{"id":"t0586","split":"validation","app":"Watch","screen":"watch-faces","element":"0.18","intent":"the full catalog","copies":false}
+{"id":"t0587","split":"train","app":"Remote","screen":"remote-root","element":"0.0","intent":"silence the TV","copies":false}
+{"id":"t0588","split":"train","app":"Remote","screen":"remote-root","element":"0.2","intent":"turn the TV off","copies":false}
+{"id":"t0589","split":"train","app":"Remote","screen":"remote-root","element":"0.3","intent":"resume the show","copies":false}
+{"id":"t0590","split":"train","app":"Remote","screen":"remote-root","element":"0.4","intent":"go back a screen on the TV","copies":false}
+{"id":"t0591","split":"train","app":"Preview","screen":"preview-root","element":"0.3","intent":"digitize a paper form","copies":false}
+{"id":"t0592","split":"train","app":"Preview","screen":"preview-root","element":"0.2","intent":"start a blank page","copies":false}
+{"id":"t0593","split":"train","app":"Preview","screen":"preview-root","element":"0.13","intent":"all my folders","copies":false}
+{"id":"t0594","split":"train","app":"Preview","screen":"preview-root","element":"0.12","intent":"files people sent me","copies":false}
