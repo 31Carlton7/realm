@@ -28,7 +28,7 @@ type FakeOpts = {
   /** record the Options object the adapter handed `query` (start-time option assertions) */
   captureOptions?: Record<string, unknown>[];
   /** what `supportedModels()` answers; omitted means the control request is declined (a CLI may). */
-  models?: { value: string; supportsFastMode?: boolean }[];
+  models?: { value: string; resolvedModel?: string; supportsFastMode?: boolean }[];
   /** record every `applyFlagSettings` merge (the mid-session fast-mode path). */
   flagSettings?: Record<string, unknown>[];
   /** answer this many prompts with the fixture's turn instead of only the first (multi-turn assertions) */
@@ -372,6 +372,40 @@ describe("ClaudeAdapter", () => {
       expect(last.type === "init" && last.payload.supportsFastMode).toBe(true);
       expect(last.type === "init" && last.payload.tools).toEqual(inits[0]!.type === "init" ? inits[0]!.payload.tools : null);
       expect(last.type === "init" && last.payload.providerSessionId).toBe(inits[0]!.type === "init" ? inits[0]!.payload.providerSessionId : null);
+    });
+
+    const supportFrom = async (models: NonNullable<FakeOpts["models"]>) => {
+      const a = new ClaudeAdapter({ query: fakeQuery({ models }) as never });
+      const h = a.start({ cwd: "/tmp", mcpServers: [] });
+      // Collected to the END, not to the first idle: the answer is a round trip behind the handshake,
+      // and a restatement that landed after the loop stopped listening would read as "unstated".
+      const seen: SessionEvent[] = [];
+      const c = collectUntil(h.events, () => false, (e) => seen.push(e));
+      await h.send({ text: "hi", attachments: [] });
+      await new Promise<void>((res) => { const t = setInterval(() => { if (statuses(seen).includes("idle")) { clearInterval(t); res(); } }, 5); });
+      await new Promise((r) => setTimeout(r, 20));
+      await h.dispose(); await c;
+      const stated = seen.filter((e) => e.type === "init" && e.payload.supportsFastMode !== undefined).at(-1);
+      return stated?.type === "init" ? stated.payload.supportsFastMode : undefined;
+    };
+
+    it("finds the model where the CLI lists it only under a context-window variant", async () => {
+      /* THE BUG: the CLI lists Opus 5.5 only as `opus[1m]` → `claude-opus-5-5[1m]`, and a session that
+         picked plain `claude-opus-5-5` matched nothing — so its Speed control never appeared at all.
+         Every Opus 5.5 session the user started by name had its answer silently dropped. */
+      expect(await supportFrom([{ value: "opus[1m]", resolvedModel: `${MODEL}[1m]`, supportsFastMode: true }])).toBe(true);
+    });
+
+    it("lets an entry naming this very id outrank a variant of it", async () => {
+      expect(await supportFrom([
+        { value: "opus[1m]", resolvedModel: `${MODEL}[1m]`, supportsFastMode: true },
+        { value: MODEL, supportsFastMode: false },
+      ])).toBe(false);
+    });
+
+    it("does not mistake a different model that shares a prefix for a variant", async () => {
+      // `claude-opus-5-5` is not a build of `claude-opus-5`; only a bracketed suffix is a variant.
+      expect(await supportFrom([{ value: "opus[1m]", resolvedModel: `${MODEL}-5[1m]`, supportsFastMode: true }])).toBeUndefined();
     });
 
     it("says nothing at all when the CLI declines the question, or does not know the model", async () => {

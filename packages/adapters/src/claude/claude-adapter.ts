@@ -11,6 +11,9 @@ type QueryFn = typeof sdkQuery;
 /** The keys `Settings` actually declares. The SDK's type ends in `[k: string]: unknown`, so a
  *  `satisfies Settings` passes any misspelling; this is the same type without that catch-all. */
 type DeclaredSettings = { [K in keyof Settings as string extends K ? never : number extends K ? never : K]?: Settings[K] };
+/** A model id without its bracketed variant: `claude-opus-5-5[1m]` is the 1M-context build of
+ *  `claude-opus-5-5`, the same model to everything but the window. */
+const modelBase = (id: string | undefined): string | undefined => id?.replace(/\[[^\]]*\]$/, "");
 
 /**
  * The truncating half of a resume: put the model back where a checkpoint found it.
@@ -329,7 +332,15 @@ export class ClaudeAdapter implements AgentAdapter {
       try {
         const rows = await q?.supportedModels();
         if (!rows || disposed) return;
-        const hit = rows.find((r) => r.value === init.model || r.resolvedModel === init.model);
+        // Exact first, then the same model under another context window. The CLI lists some models
+        // ONLY as a variant — Opus 5.5 appears as `default` and `opus[1m]`, both resolving to
+        // `claude-opus-5-5[1m]` — so a session that picked plain `claude-opus-5-5` was never found,
+        // and its Speed control never appeared at all. The CLI serves fast mode on the plain id
+        // (checked live: `fast_mode_state: "on"`). An entry naming this very id still wins over a
+        // variant of it.
+        const base = modelBase(init.model);
+        const hit = rows.find((r) => r.value === init.model || r.resolvedModel === init.model)
+          ?? rows.find((r) => modelBase(r.value) === base || modelBase(r.resolvedModel) === base);
         if (hit?.supportsFastMode === undefined) return;
         events.push(sessionEvent("init", { ...init, supportsFastMode: hit.supportsFastMode }));
       } catch { /* the CLI declined; the capability stays unstated */ }
