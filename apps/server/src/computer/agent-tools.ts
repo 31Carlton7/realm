@@ -11,6 +11,7 @@ import type { BrowserHostBridge } from "../browsers/host-bridge";
 import type { BrowserPermissionBroker } from "../browsers/permissions";
 import type { ComputerAppAllowlist } from "./allowlist";
 import type { ActObservation, ActObserver, ObservedElement } from "../mcp/act-observer";
+import type { LayaAssist } from "../laya/assist";
 
 /**
  * The `realm-computer` gateway provider: the agent tool surface over the Mac's own applications,
@@ -71,6 +72,10 @@ export type ComputerAgentToolsDeps = {
    * keeps the elements of each app's latest snapshot, since those are what the agent chose from.
    */
   observe?: ActObserver;
+  /** Laya's Assist: a click on an element the agent describes, resolved against the snapshot it is
+   *  holding, on the same terms as the simulator's (`laya/assist.ts`). Absent or locked, a described
+   *  target is refused with what to do instead. */
+  assist?: LayaAssist;
 };
 
 export function createComputerAgentProvider(d: ComputerAgentToolsDeps): RealmToolProvider {
@@ -86,7 +91,8 @@ export function createComputerAgentProvider(d: ComputerAgentToolsDeps): RealmToo
     name: COMPUTER_PROVIDER_NAME,
     async tools(ctx: ProviderCallContext): Promise<Tool[]> {
       if (!d.mcp.providerEnabled(ctx.spaceId, COMPUTER_PROVIDER_NAME)) return [];
-      return TOOLS;
+      // The `target` field only while Assist can act on it — never a field whose every use is refused.
+      return d.assist?.gate().available ? TOOLS.map(withComputerTarget) : TOOLS;
     },
     async call(ctx: ProviderCallContext, tool: string, args: unknown): Promise<CallToolResult> {
       if (!d.mcp.providerEnabled(ctx.spaceId, COMPUTER_PROVIDER_NAME)) {
@@ -168,7 +174,11 @@ const SnapshotArgs = z.object({ bundleId: z.string().min(1).optional(), screensh
  *  call from an agent that has not learned the field into a refusal — a change to the act path in
  *  the name of a feature that promises never to touch it. It is the goal Laya's `target` question is
  *  asked against, so a step without one is logged without that question. */
-const ActArgs = z.object({ snapshotId: z.string().min(1), action: ComputerActionSchema, intent: z.string().optional() });
+const ActArgs = z.object({
+  snapshotId: z.string().min(1), action: ComputerActionSchema, intent: z.string().optional(),
+  /** Assist: the element in words, for a click that names no index or point. */
+  target: z.string().trim().min(1).max(200).optional(),
+});
 
 /* ---------------------------------- handlers ---------------------------------- */
 
@@ -198,7 +208,8 @@ const HANDLERS: Record<string, Handler> = {
       screenshot: args.value.screenshot,
     })) as ComputerSnapshotResult;
     d.snapshots.remember(ctx.sessionId, snap.snapshotId, { bundleId: snap.bundleId, appName: snap.appName });
-    if (d.observe) d.trees.remember(ctx.sessionId, snap.bundleId, snap.snapshotId, snap.elements.map(observed));
+    // Kept for the observer and for Assist: both read what the agent was shown, never a re-read.
+    if (d.observe || d.assist) d.trees.remember(ctx.sessionId, snap.bundleId, snap.snapshotId, snap.elements.map(observed));
 
     const head = [
       `Snapshot ${snap.snapshotId} of ${clip(snap.appName, 60)} (${snap.bundleId}) — ${snap.elements.length} element(s).`,
@@ -218,7 +229,8 @@ const HANDLERS: Record<string, Handler> = {
   computer_act: async (d, ctx, rawArgs) => {
     const args = parseArgs(ActArgs, rawArgs);
     if ("error" in args) return args.error;
-    const { snapshotId, action } = args.value;
+    const { snapshotId } = args.value;
+    let action = args.value.action;
 
     // The session may only act on a snapshot it took. This is what makes the card able to name the
     // app; it also means a snapshot id from somewhere else drives nothing.
@@ -232,6 +244,36 @@ const HANDLERS: Record<string, Handler> = {
     // approval covers. The helper refuses again in the last process before an event is posted — this
     // copy is about what the user is asked, not about what is finally allowed.
     if ((COMPUTER_FORBIDDEN_BUNDLE_IDS as readonly string[]).includes(app.bundleId)) return err(FORBIDDEN_REFUSAL);
+
+    /* Assist: a click the agent DESCRIBED. Resolved against the snapshot it is holding — the helper
+       re-resolves the index against the live element at act time, as for any index — and BEFORE the
+       card, so the card names what Laya picked. Unsure, sensitive or unanswered is nothing clicked and
+       this snapshot's own indices handed back. */
+    let pickedBy: { words: string; confidence: number; threshold: number } | null = null;
+    if (args.value.target !== undefined) {
+      const words = clip(args.value.target, 80);
+      const gate = d.assist?.gate();
+      if (!d.assist || !gate?.available) {
+        return err(`a target in words needs Laya's Assist, which is not on here (${gate?.reason ?? "Laya is not part of this Realm"}). Use an element's [N] from computer_snapshot.`);
+      }
+      if (action.kind !== "click" || action.index !== undefined || action.x !== undefined || action.y !== undefined) {
+        return err("a target in words is for a click that names no index and no point — give one of the three, not two.");
+      }
+      const elements = d.trees.lookup(ctx.sessionId, app.bundleId, snapshotId);
+      const outcome = await d.assist.resolve(args.value.target, args.value.intent ?? args.value.target, elements, "computer_act");
+      if (outcome.kind !== "pick") {
+        const line = (e: ObservedElement) => `[${e.id}] ${e.label.trim() ? `"${clip(e.label.trim(), 60)}"` : "(no name)"}`;
+        const why = outcome.why === "sensitive"
+          ? `"${words}" looks like a step Laya never chooses on its own (it reads as "${outcome.matched ?? "sensitive"}")${outcome.best ? `; its pick was ${line(outcome.best.element)}` : ""}. If that is the step you mean, click it by its [N].`
+          : outcome.why === "unsure"
+            ? `Laya was not sure which element "${words}" means${outcome.best ? ` — its best guess, ${line(outcome.best.element)}, scored ${outcome.best.confidence.toFixed(2)}` : ""}, and Assist acts only at ${gate.threshold!.toFixed(2)} or above.`
+            : outcome.why === "no-candidates" ? `nothing in this snapshot looks like "${words}".` : "Laya did not answer in time.";
+        const list = outcome.candidates.slice(0, 8).map(line).join("; ");
+        return err(`nothing was clicked: ${why}${list ? ` The likeliest in snapshot ${snapshotId}: ${list}. Click one by its [N] with this snapshotId.` : ""}`);
+      }
+      action = { ...action, index: Number(outcome.element.id) };
+      pickedBy = { words, confidence: outcome.confidence, threshold: gate.threshold! };
+    }
 
     const title = describeAct(action, app.appName);
     // Keyed on the bundle id, not the tool: "the user said this session may drive TextEdit" must not
@@ -259,6 +301,7 @@ const HANDLERS: Record<string, Handler> = {
         d.observe({
           surface: "computer", spaceId: ctx.spaceId, sessionId: ctx.sessionId, tool: "computer_act",
           intent: args.value.intent ?? "", elements, chosen: chosenOf(action, elements),
+          ...(pickedBy ? { chosenBy: "laya" as const } : {}),
         });
       } catch { /* an observer never changes an act */ }
     }
@@ -266,7 +309,11 @@ const HANDLERS: Record<string, Handler> = {
     // `appName` is for main's menu-bar indicator, which has no other way to learn which application
     // is being driven — the snapshot-to-app map that answers that lives in this process.
     const result = (await d.bridge.call("computerAct", { snapshotId, action, appName: app.appName })) as ComputerActResult;
-    if (result.ok) return ok(result.detail);
+    if (result.ok) {
+      return ok(pickedBy
+        ? `${result.detail} — Laya's pick for "${pickedBy.words}" (${pickedBy.confidence.toFixed(2)}; Assist acts at ${pickedBy.threshold.toFixed(2)} or above).`
+        : result.detail);
+    }
     if (result.refused === "secure_field") {
       return err("refused: that is a password field. Realm never types into one, in any mode — tell the user what to enter and let them type it themselves.");
     }
@@ -353,6 +400,15 @@ function observed(e: ComputerElement): ObservedElement {
 
 /** What the act addressed: the element at its index, the point it names, or nothing (a key, a scroll
  *  or a typed string sent to whatever has focus). A drag names the element it picks up. */
+/** computer_act as listed while Assist can act: the same tool, plus a click target in words. */
+function withComputerTarget(t: Tool): Tool {
+  if (t.name !== "computer_act") return t;
+  return { ...t, inputSchema: { ...t.inputSchema, properties: { ...(t.inputSchema.properties ?? {}), target: {
+    type: "string",
+    description: "for a click that names no index or point: describe the element in a few words, such as \"the Save button\" — Laya, on this Mac, picks it from this snapshot when it is confident enough; otherwise nothing is clicked and you get the likeliest [N]s back",
+  } } } };
+}
+
 function chosenOf(action: ComputerAction, elements: ObservedElement[]): ActObservation["chosen"] {
   if (action.index !== undefined) {
     const element = elements.find((e) => e.id === String(action.index));

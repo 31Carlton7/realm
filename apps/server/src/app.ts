@@ -795,7 +795,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   });
   mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp, agentRuns, reviews, asks));
   // The one provider a space has to switch ON: it reaches every app on the Mac.
-  mcpGateway.registerProvider(createComputerAgentProvider({ mcp, bridge: browserBridge, broker: browserBroker, allowlist: computerAllowlist, observe: layaShadow.observe }));
+  mcpGateway.registerProvider(createComputerAgentProvider({ mcp, bridge: browserBridge, broker: browserBroker, allowlist: computerAllowlist, observe: layaShadow.observe, assist: layaAssist }));
   /* The `realm-terminal` provider: a pty an agent can type into and read back. On by default, and
      the reasoning is the blast radius — every harness already has a shell tool, so this adds no
      ability to run commands that was not there. What it adds is a terminal that TALKS BACK, which is

@@ -3,7 +3,8 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { COMPUTER_PROVIDER_NAME } from "@realm/contracts";
 import { createComputerAgentProvider } from "./agent-tools";
 import type { GateOptions, GateResult } from "../browsers/permissions";
-import type { ActObservation, ActObserver } from "../mcp/act-observer";
+import type { ActObservation, ActObserver, ObservedElement } from "../mcp/act-observer";
+import type { AssistOutcome, LayaAssist } from "../laya/assist";
 
 /**
  * The provider's own decisions, over a scripted bridge and gate. What must die here: the per-app
@@ -25,6 +26,7 @@ function setup(over: {
   enabled?: boolean;
   allowed?: string[];
   observe?: ActObserver;
+  assist?: LayaAssist;
 } = {}) {
   const allowed = new Set(over.allowed ?? []);
   const added: { spaceId: string; bundleId: string }[] = [];
@@ -55,6 +57,7 @@ function setup(over: {
       add: (spaceId: string, bundleId: string) => { added.push({ spaceId, bundleId }); },
     },
     ...(over.observe ? { observe: over.observe } : {}),
+    ...(over.assist ? { assist: over.assist } : {}),
   });
   return { provider, gates, ops, added };
 }
@@ -385,5 +388,68 @@ describe("the step observer (the Laya shadow)", () => {
     await w.provider.call(ctx, "computer_act", { snapshotId: SNAPSHOT.snapshotId, action: { kind: "click", index: 0 } });
     expect(calledBack).toBe(false);
     expect(w.ops.filter((o) => o.op === "computerSnapshot")).toHaveLength(1);
+  });
+});
+
+describe("a click described in words (Laya's Assist)", () => {
+  const EL = (index: number, role: string, name: string) => ({ index, role, subrole: "", name, value: "", x: 0, y: 0, w: 10, h: 10, actions: ["AXPress"], enabled: true, focused: false, depth: 2 });
+  const SNAP = { ...SNAPSHOT, elements: [EL(0, "AXTextArea", "Body"), EL(1, "AXButton", "Save"), EL(2, "AXButton", "Don't Save")],
+    text: '[0] AXTextArea "Body"\n[1] AXButton "Save"\n[2] AXButton "Don\'t Save"' };
+  const OPEN = { available: true, reason: null, threshold: 0.8, accuracy: 0.97 };
+  const SHUT = { available: false, reason: "No checkpoint has been evaluated yet.", threshold: null, accuracy: null };
+  const scripted = (gate: typeof OPEN | typeof SHUT, outcome: (els: readonly ObservedElement[]) => AssistOutcome): LayaAssist =>
+    ({ gate: () => gate, resolve: async (_d, _i, els) => outcome(els) });
+  const harness = (assist: LayaAssist, observe?: ActObserver) => setup({
+    assist, ...(observe ? { observe } : {}),
+    ops: { computerSnapshot: SNAP, computerAct: (p: Record<string, unknown>) => ({ ok: true, detail: `clicked [${(p.action as { index?: number }).index}] in TextEdit` }) },
+  });
+  const act = async (s: ReturnType<typeof setup>, args: Record<string, unknown>) => {
+    await s.provider.call(ctx, "computer_snapshot", { bundleId: "com.apple.TextEdit" });
+    return s.provider.call(ctx, "computer_act", { snapshotId: SNAP.snapshotId, ...args });
+  };
+
+  it("lists the field only while Assist can act on one", async () => {
+    const props = async (a: LayaAssist) => Object.keys(((await harness(a).provider.tools(ctx)).find((t) => t.name === "computer_act")!.inputSchema as { properties: Record<string, unknown> }).properties);
+    expect(await props(scripted(OPEN, () => ({ kind: "ask-agent", candidates: [], best: null, why: "no-answer" })))).toContain("target");
+    expect(await props(scripted(SHUT, () => ({ kind: "ask-agent", candidates: [], best: null, why: "no-answer" })))).not.toContain("target");
+  });
+
+  it("clicks Laya's pick from the snapshot the agent holds, names it on the card, and tells the shadow Laya chose it", async () => {
+    const observed: ActObservation[] = [];
+    const s = harness(scripted(OPEN, (els) => ({ kind: "pick", element: els.find((e) => e.id === "1")!, confidence: 0.93, ms: 9 })), (o) => { observed.push(o); });
+    const r = await act(s, { action: { kind: "click" }, target: "the save button", intent: "save the document" });
+    expect(r.isError).toBe(false);
+    expect(text(r)).toBe('clicked [1] in TextEdit — Laya\'s pick for "the save button" (0.93; Assist acts at 0.80 or above).');
+    // The card is raised for the element Laya resolved, not for an index-less click.
+    expect(s.gates).toHaveLength(1);
+    expect(s.ops.find((o) => o.op === "computerAct")!.params).toMatchObject({ action: { kind: "click", index: 1 } });
+    expect(observed[0]).toMatchObject({ chosenBy: "laya", chosen: { element: { id: "1", label: "Save" } } });
+  });
+
+  it("clicks nothing when Laya is unsure or the step is sensitive, and hands back this snapshot's indices", async () => {
+    const cases: [(els: readonly ObservedElement[]) => AssistOutcome, string][] = [
+      [(els) => ({ kind: "ask-agent", why: "unsure", candidates: [...els], best: { element: els[2]!, confidence: 0.5 } }), "Laya was not sure"],
+      [(els) => ({ kind: "ask-agent", why: "sensitive", matched: "delete", candidates: [...els], best: { element: els[1]!, confidence: 0.99 } }), "Laya never chooses on its own"],
+    ];
+    for (const [outcome, says] of cases) {
+      const s = harness(scripted(OPEN, outcome));
+      const r = await act(s, { action: { kind: "click" }, target: "that button", intent: "x" });
+      expect(r.isError).toBe(true);
+      expect(text(r)).toContain(says);
+      expect(text(r)).toContain('[1] "Save"');
+      expect(text(r)).toContain("Click one by its [N] with this snapshotId.");
+      expect(s.gates).toEqual([]);
+      expect(s.ops.some((o) => o.op === "computerAct")).toBe(false);
+    }
+  });
+
+  it("refuses words while Assist is shut, and words beside an index — before any card", async () => {
+    const shut = harness(scripted(SHUT, () => { throw new Error("never asked"); }));
+    const r1 = await act(shut, { action: { kind: "click" }, target: "the save button" });
+    expect(text(r1)).toContain("needs Laya's Assist, which is not on here (No checkpoint has been evaluated yet.)");
+    const open = harness(scripted(OPEN, () => { throw new Error("never asked"); }));
+    const r2 = await act(open, { action: { kind: "click", index: 1 }, target: "the save button" });
+    expect(text(r2)).toContain("give one of the three, not two");
+    expect([...shut.gates, ...open.gates]).toEqual([]);
   });
 });
