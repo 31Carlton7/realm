@@ -1,8 +1,9 @@
-import { Icon, type IconName } from "@realm/ui";
+import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { artifactTypeOf, documentKindFor, type ArtifactType, type Item } from "@realm/contracts";
+import { artifactTypeOf, documentKindFor, extOf, type ArtifactType, type Item } from "@realm/contracts";
 import { useApp } from "../../state/store";
+import { TYPE_ICON } from "../../components/FileCard";
 import { ScrollFades } from "../../components/ScrollFades";
 import { groupByDay } from "../library/LibraryFiles";
 import { DOCK_PIN_MIN_PANE, useDockDismiss, useDockPinned, usePaneRect } from "./pane-dock";
@@ -27,12 +28,14 @@ import { SummaryLightbox } from "./SessionSummary";
  * over each other.
  */
 
-/** One glyph per broad type, the Library's own table — a file reached from here and the same file
- *  reached from the Library must not wear two different marks. */
-const TYPE_ICON: Record<ArtifactType, IconName> = {
-  document: "documents", image: "image", video: "video", audio: "musicNote",
-  data: "table", code: "code", other: "artifact",
-};
+/**
+ * The broad type a listed name reads as — through its EXTENSION, which is what `artifactTypeOf`
+ * takes. It was handed the whole name, so every row came back `other`: each wore the generic file
+ * glyph, and the branch that sends a picture to the lightbox never fired, so a screenshot opened the
+ * sheet that hands a file to the Finder. Nothing tested an image, and a zip — the case that was
+ * tested — is `other` either way.
+ */
+export const typeOf = (name: string): ArtifactType => artifactTypeOf(extOf(name));
 
 export type BrowseRow = { path: string; name: string; isDir: boolean; size: number; mtimeMs: number };
 
@@ -134,7 +137,7 @@ function FilesPanel({ item, anchorRef, barRef, onClose, onLightbox }: {
   const openRow = (row: BrowseRow) => {
     if (row.isDir) { setDir(row.path); return; }
     const abs = root ? `${root.path}/${row.path}` : row.path;
-    const type = artifactTypeOf(row.name);
+    const type = typeOf(row.name);
     if (type === "image" || type === "video") { onLightbox(abs); return; }
     if (documentKindFor(abs) === "unsupported") { openSheet({ kind: "artifact", path: abs }); onClose(); return; }
     onClose();
@@ -207,7 +210,7 @@ function FilesPanel({ item, anchorRef, barRef, onClose, onLightbox }: {
                 <div className="summary-rows">
                   {day.entries.map((row) => (
                     <button key={row.path} className="summary-row" title={row.path} onClick={() => openRow(row)}>
-                      <Icon name={row.isDir ? "folder" : TYPE_ICON[artifactTypeOf(row.name)]} size={12} className="summary-row-glyph" />
+                      <Icon name={row.isDir ? "folder" : TYPE_ICON[typeOf(row.name)]} size={12} className="summary-row-glyph" />
                       <span className="summary-row-name">{row.name}</span>
                       <span className="summary-row-meta">{row.isDir ? "Folder" : fileSize(row.size)}</span>
                     </button>

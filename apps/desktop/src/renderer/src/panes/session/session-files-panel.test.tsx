@@ -1,12 +1,14 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { sessionEvent } from "@realm/contracts";
 import { createAppStore, StoreContext } from "../../state/store";
 import { fakeApi, item } from "../../state/store.test-fakes";
 import { SessionPanelActions } from "./SessionPane";
-import { crumbsOf, fileSize, type BrowseRow } from "./SessionFiles";
+import { resetMediaCache } from "./media/use-media";
+import { crumbsOf, fileSize, typeOf, type BrowseRow } from "./SessionFiles";
 import { reduceAll } from "./transcript-model";
 
+beforeEach(() => { resetMediaCache(); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 const HOUR = 3_600_000;
@@ -14,7 +16,8 @@ const row = (name: string, over: Partial<BrowseRow> = {}): BrowseRow =>
   ({ path: name, name, isDir: false, size: 1024, mtimeMs: Date.now(), ...over });
 
 /** The bridge, standing in for main's directory read. Records what it was asked for, so a test can
- *  assert WHICH folder the panel looked in — the panel's whole job is being pointed at the right one. */
+ *  assert WHICH folder the panel looked in — the panel's whole job is being pointed at the right one.
+ *  It calls every file a picture when the lightbox asks: which files get SENT there is the question. */
 function bridge(folders: Record<string, BrowseRow[]>) {
   const asked: { root: string; dir: string }[] = [];
   vi.stubGlobal("realm", {
@@ -25,6 +28,8 @@ function bridge(folders: Record<string, BrowseRow[]>) {
         return { dir, entries: folders[dir] ?? [], truncated: false };
       },
     },
+    media: { stat: async (c: readonly string[]) => c.map((path) => ({ path, mime: "image/png", kind: "image", size: 4096 })),
+             poster: async () => null, reveal: vi.fn(), open: vi.fn() },
   });
   return asked;
 }
@@ -136,6 +141,19 @@ describe("the session file browser", () => {
     expect((store.getState().sheet as { path: string }).path).toContain("bundle.zip");
   });
 
+  it("opens a picture in the transcript's lightbox, over the panel rather than instead of it", async () => {
+    /* The third of the summary's three answers, and the one nothing exercised: a zip is `other`
+       whichever way its type is read, so the case above passed while every screenshot went to the
+       sheet. THE MUTANT: hand `artifactTypeOf` the whole name again. */
+    const { store } = await mount({ "": [row("shot.png")] });
+    open();
+    await waitFor(() => expect(rowNames()).toEqual(["shot.png"]));
+    fireEvent.click(screen.getByRole("button", { name: /shot\.png/ }));
+    await waitFor(() => expect(document.querySelector(".media-lightbox")).not.toBeNull());
+    expect(store.getState().sheet).toBeNull();
+    expect(document.querySelector(".session-files")).not.toBeNull();
+  });
+
   it("says where it looked when there is nothing there", async () => {
     // Half the time the answer to "where did my file go" is that it went somewhere else, and an
     // empty panel that does not name the folder it read cannot say so.
@@ -146,6 +164,14 @@ describe("the session file browser", () => {
 });
 
 describe("the browser's own arithmetic", () => {
+  it("reads a file's type off its extension, not off its whole name", () => {
+    // THE MUTANT: `artifactTypeOf(name)`. The table is keyed by extension, so every name missed it.
+    expect(typeOf("shot.png")).toBe("image");
+    expect(typeOf("Screen Recording.MOV")).toBe("video");
+    expect(typeOf("notes.md")).toBe("document");
+    expect(typeOf("Makefile")).toBe("other");
+  });
+
   it("says sizes the way a person does", () => {
     expect(fileSize(400)).toBe("400 B");
     expect(fileSize(48 * 1024)).toBe("48 KB");
