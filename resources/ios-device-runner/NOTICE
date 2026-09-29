@@ -1,0 +1,31 @@
+Realm device runner
+===================
+
+An XCUITest that Realm builds, signs with the user's own Apple Development identity, installs on
+their iPhone and runs with `xcodebuild test-without-building`. It serves the phone's screen, its
+element tree and touch, text and button input over HTTP on the phone's loopback interface, which
+Realm reaches through usbmuxd.
+
+This directory contains code derived from Maestro's iOS XCTest runner
+(maestro-ios-xctest-runner/maestro-driver-iosUITests), Copyright mobile.dev, Inc., licensed under
+the Apache License, Version 2.0 (see LICENSE), taken from
+https://github.com/mobile-dev-inc/Maestro at commit 3fd3ea4ee979907e4c5f629603fc32bd55178b2b.
+
+Derived: RealmDeviceRunner/Synthesis.swift, from Routes/XCTest/EventRecord.swift,
+PointerEventPath.swift and RunnerDaemonProxy.swift — the private XCTest calls that synthesize a
+touch, a drag and typed text at a point.
+
+Changed by Realm, 2026:
+  - FlyingFox (the Swift package Maestro's server is built on) is replaced by a small HTTP server on
+    Network.framework (Server.swift), so building the runner fetches nothing from the network.
+  - The routes are Realm's own, and fewer: status, device, hierarchy, screenshot, tap, swipe, text,
+    key, button and open (Routes.swift, Screen.swift).
+  - Maestro's automatic answering of system permission alerts (SystemPermissionHelper) and its
+    setPermissions, launchApp, terminateApp, eraseText, keyboard and setOrientation routes are not
+    carried over. The runner never answers an alert on its own.
+  - The side button (lock) is not exposed: a phone the runner locked is one only its owner can
+    unlock again.
+  - EventRecord passes the interface orientation as an integer through the method's own signature,
+    rather than as a boxed object through `perform(_:with:with:)`.
+  - A double tap is one event record of two touches, so the gap between them is the device's and
+    not an HTTP round trip's.
