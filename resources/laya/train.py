@@ -227,6 +227,7 @@ def main():
     base_valid = score(logits_of(model, valid, tok.pad_token_id, device)) if valid else {}
     emit("start", steps=per_epoch * args.epochs, epochs=args.epochs, trainable=sum(p.numel() for p in enc + head), valid=base_valid)
     best, best_epoch = None, 0
+    history = []
     t0 = time.time()
     step = 0
     for epoch in range(args.epochs):
@@ -265,6 +266,7 @@ def main():
                 emit("progress", epoch=epoch + 1, step=step, steps=per_epoch * args.epochs, loss=round(sum(losses[-50:]) / len(losses[-50:]), 4),
                      seconds=round(elapsed), eta=round(elapsed / step * (per_epoch * args.epochs - step)))
         result = score(logits_of(model, valid, tok.pad_token_id, device)) if valid else {}
+        history.append({"epoch": epoch + 1, "loss": round(sum(losses) / len(losses), 4), "valid": result})
         emit("epoch", epoch=epoch + 1, loss=round(sum(losses) / len(losses), 4), valid=result, seconds=round(time.time() - t0))
         # `target` first — it is what Assist is earned by — and the rest to break a tie; with no
         # validation rows, the last epoch.
@@ -273,7 +275,8 @@ def main():
             best, best_epoch = key, epoch + 1
             trained = dict(cfg)
             trained["training"] = {"recipe": "rlcd-mps", "epochs": epoch + 1, "items": len(train), "freeze": args.freeze, "lr_encoder": args.lr_encoder, "lr_head": args.lr_head,
-                                   "batch": args.batch * args.accum, "seed": args.seed, "fine_tuned_from": cfg.get("model_name", "rl-agent"), "seconds": round(time.time() - t0)}
+                                   "batch": args.batch * args.accum, "seed": args.seed, "fine_tuned_from": cfg.get("model_name", "rl-agent"), "seconds": round(time.time() - t0),
+                                   "valid_before": base_valid, "history": list(history)}
             trained["fine_tuned"] = True
             trained["model_name"] = "laya-realm"
             save(model, args.base, args.out, trained)

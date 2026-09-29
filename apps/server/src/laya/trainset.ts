@@ -27,7 +27,7 @@ import { SENSITIVE_PARTS, pickCandidates, sensitiveQuestion, screenDiff, targetQ
 
 export type TrainRow = {
   kind: "target" | "sensitive" | "verify";
-  source: "lexicon" | "copy" | "template" | "pair" | "log";
+  source: "lexicon" | "copy" | "template" | "pair" | "log" | "benchmark";
   state: string;
   questions: Record<string, LayaQuestion>;
   /** Per question, the answer distribution in option order: a choice's options, or noul's [no, yes]. */
@@ -41,6 +41,9 @@ export type TrainSetOptions = {
   validationApps: readonly string[];
   log?: readonly ShadowRow[];
   seed?: number;
+  /** The benchmark's own `train` cases of these kinds, taught as labelled. Never `target`: its train
+   *  split is what the Assist threshold and the choice temperatures are fitted on, unseen. */
+  benchmarkTrain?: readonly ("sensitive" | "verify")[];
 };
 
 export type TrainSetStats = { rows: number; target: number; sensitive: number; verify: number; fromLog: number; dropped: number; screens: number };
@@ -64,6 +67,8 @@ export function trainingSet(b: Benchmark, lexicon: Lexicon, o: TrainSetOptions):
   for (const screen of screens) rows.push(...unchangedRows(screen, lexicon, guard, random));
   const fromLog = o.log ? logRows(o.log) : [];
   rows.push(...fromLog);
+  const kinds = o.benchmarkTrain ?? [];
+  if (kinds.length) rows.push(...benchmarkRows(b, ["train"]).filter((r) => (kinds as readonly string[]).includes(r.kind)).map((r) => ({ ...r, source: "benchmark" as const })));
 
   shuffle(rows, random);
   const count = (k: TrainRow["kind"]) => rows.filter((r) => r.kind === k).length;

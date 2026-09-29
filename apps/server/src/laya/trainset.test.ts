@@ -144,6 +144,19 @@ describe("the user's log", () => {
   });
 });
 
+describe("teaching the benchmark's own train cases", () => {
+  it("adds only the sensitive and verify cases of its train split — never a target case, never another split", () => {
+    const withBench = trainingSet(bench, lexicon, { heldoutApps: manifest.split.heldoutApps, validationApps: manifest.split.validationApps, benchmarkTrain: ["sensitive", "verify"] });
+    const taught = withBench.rows.filter((r) => r.source === "benchmark");
+    expect(taught.map((r) => r.kind).sort()).toEqual([
+      ...Array(bench.sensitive.filter((c) => c.split === "train").length).fill("sensitive"),
+      ...Array(bench.verify.filter((c) => c.split === "train").length).fill("verify"),
+    ]);
+    const heldout = new Set([...bench.sensitive, ...bench.verify].filter((c) => c.split !== "train").map((c) => c.intent));
+    expect(taught.some((r) => [...heldout].some((i) => r.state.includes(` to ${i}.`) || r.state.startsWith(`Goal: ${i}.`)))).toBe(false);
+  });
+});
+
 describe("the benchmark's own rows", () => {
   it("asks each split's cases as the evaluation does, and leaves out a target the candidates cannot answer", () => {
     const train = benchmarkRows(bench, ["train"]);
