@@ -108,6 +108,37 @@ export const LayaAssistGateSchema = z.object({
 });
 export type LayaAssistGate = z.infer<typeof LayaAssistGateSchema>;
 
+/** The active checkpoint's evaluation in the three numbers Settings shows, from its report. */
+export const LayaEvaluationSchema = z.object({
+  checkpoint: z.string(),
+  createdAt: z.string(),
+  benchmark: z.string(),
+  /** Held-out `target` accuracy, and the same on the steps whose words share none with the label. */
+  targetAccuracy: z.number(),
+  targetNotCopying: z.number().nullable(),
+  sensitiveRecall: z.number(),
+  verifyAccuracy: z.number(),
+});
+export type LayaEvaluation = z.infer<typeof LayaEvaluationSchema>;
+
+/** The three waits of a training run, named for the one line Settings shows. */
+export const LayaTrainStepSchema = z.enum(["preparing", "training", "evaluating"]);
+export type LayaTrainStep = z.infer<typeof LayaTrainStepSchema>;
+
+/**
+ * A training run on this Mac (`laya.train`): running, or how the last one ended. `done` says whether
+ * the new checkpoint became the active one — only when its held-out evaluation beat the active one's —
+ * and why; `failed` carries the trainer's own last line.
+ */
+export const LayaTrainingSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("idle") }),
+  z.object({ state: z.literal("running"), step: LayaTrainStepSchema, detail: z.string(), fraction: z.number().min(0).max(1).nullable(), startedAt: z.string() }),
+  z.object({ state: z.literal("done"), at: z.string(), checkpoint: z.string(), activated: z.boolean(), reason: z.string(), targetAccuracy: z.number() }),
+  z.object({ state: z.literal("failed"), at: z.string(), reason: z.string(), detail: z.string() }),
+  z.object({ state: z.literal("cancelled"), at: z.string() }),
+]);
+export type LayaTraining = z.infer<typeof LayaTrainingSchema>;
+
 export const LayaStatusSchema = z.object({
   mode: LayaModeSchema,
   /** A finished install is on disk. The mode can only be switched to `shadow` once it is. */
@@ -118,5 +149,8 @@ export const LayaStatusSchema = z.object({
   /** `<REALM_HOME>/laya`: the runtime, the checkpoint and the log all live under it. */
   dir: z.string(),
   assist: LayaAssistGateSchema,
+  /** The active checkpoint's held-out evaluation; null when it has none. */
+  evaluation: LayaEvaluationSchema.nullable().optional(),
+  training: LayaTrainingSchema.optional(),
 });
 export type LayaStatus = z.infer<typeof LayaStatusSchema>;

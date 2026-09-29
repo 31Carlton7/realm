@@ -48,6 +48,8 @@ import { DecisionLog } from "./laya/log";
 import { LayaService } from "./laya/service";
 import { LayaShadow } from "./laya/shadow";
 import { createLayaAssist, harnessEvalOverride, type LayaAssist } from "./laya/assist";
+import { bundledLayaDir } from "./laya/benchmark";
+import { readEval, trainCheckpoint } from "./laya/training";
 import type { LayaRuntime } from "./laya/runtime";
 import { createTerminalAgentProvider } from "./terminals/agent-tools";
 import { SignInTickets } from "./browsers/signin";
@@ -643,14 +645,23 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      listed, so every change of it is a re-list. */
   let layaAssist: LayaAssist | null = null;
   let assistListed = false;
+  /* What Realm ships for Laya (`resources/laya`): the benchmark, the training script and its lexicon,
+     and the download's own evaluation — read when no checkpoint trained here is active. */
+  const layaResources = bundledLayaDir();
+  const layaRuntime = opts.laya ?? null;
   const laya = new LayaService({
-    runtime: opts.laya ?? null, settings, log: layaLog,
+    runtime: layaRuntime, settings, log: layaLog,
     publish: (status) => {
       rpc.broadcast("laya.changed", status);
       const listed = layaAssist?.gate().available ?? false;
       if (listed !== assistListed) { assistListed = listed; mcpGateway.notifyToolsChanged(); }
     },
     activeEval: harnessEvalOverride(),
+    baseEval: () => (layaRuntime ? readEval(join(layaRuntime.dir, "evals", "convaiinnovations-laya.json")) : null)
+      ?? (layaResources ? readEval(join(layaResources, "evals", "convaiinnovations-laya.json")) : null),
+    ...(layaRuntime && layaResources
+      ? { train: (o: Parameters<typeof trainCheckpoint>[1]) => trainCheckpoint({ runtime: layaRuntime, resources: layaResources, logFiles: () => layaLog.files() }, o) }
+      : {}),
   });
   layaAssist = createLayaAssist({ laya });
   const layaShadow = new LayaShadow({ laya, log: layaLog, onLogged: () => laya.logged() });
