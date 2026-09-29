@@ -55,9 +55,10 @@ type Call = { pid: number; self: string; args: string[]; env: Record<string, str
 
 /** Every stub this file started, so none outlives it — not even under a mutant that breaks `stop`,
  *  which is exactly how one was once left running for nine minutes with nobody to answer to. */
-const stubs: ReturnType<typeof stubPython>[] = [];
+type Stub = { bin: string; log: string; calls(): Call[]; failPip(): void; ignoreTerm(): void };
+const stubs: Stub[] = [];
 
-function stubPython() {
+function stubPython(): Stub {
   const dir = tempDir("realm-laya-rt-");
   const log = join(dir, "calls.jsonl");
   const bin = join(dir, "python3.13");
