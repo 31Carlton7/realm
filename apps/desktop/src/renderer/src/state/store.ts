@@ -625,6 +625,9 @@ export const patchKey = (cwd: string, path: string, staged: boolean) => `${cwd}\
 /** Which key sends the composer draft. "enter" (default): plain Enter sends, Shift+Enter inserts a
  *  newline. "cmdEnter": plain Enter inserts a newline, only ⌘/Ctrl+Enter sends. */
 export type SubmitKey = "enter" | "cmdEnter";
+/** A session's file browser as rows or as cards. A word rather than a boolean, so the stored row
+ *  says what it means when someone reads the settings table. */
+export type FilesView = "list" | "grid";
 
 export const PERSIST_DEBOUNCE_MS = 300;
 /** Which question the command palette is asking. One surface, three narrowings: ⌘K searches Realm's
@@ -678,6 +681,8 @@ const SETTING_SIDEBAR_WIDTH = "ui.sidebarWidth";
 const SETTING_SIDEBAR_ACTIVITY_ORDER = "ui.sidebarActivityOrder";
 /** Whether a delete asks first. On unless the user has said otherwise — see `confirmDelete`. */
 const SETTING_CONFIRM_DELETE = "ui.confirmDelete";
+/** How a session's file browser lays a folder out — see `filesView`. */
+export const SETTING_FILES_VIEW = "ui.filesView";
 /** Per-session terminal-panel state (open + width), keyed by session id. */
 export const SETTING_TERMINAL_PANEL = "ui.terminalPanel";
 /** The quick chat: which session it is, and where its window sits. One key, because the two are only
@@ -839,6 +844,15 @@ export type AppState = {
   /** The column's width in pixels, inside SIDEBAR_WIDTH's range. Top-level because the shell paints
    *  it and the handle inside the sidebar writes it — the same rule that put `swipeInvert` here. */
   sidebarWidth: number;
+  /**
+   * Whether a session's file browser lists a folder as rows or lays it out as cards.
+   *
+   * One answer for the whole app, not one per session or per folder: it is a statement about how
+   * this person likes to look for a file, and a layout that changed as they moved between sessions
+   * would be one they had to keep re-choosing. Persisted, because a choice that reverts to rows
+   * on every launch is a chore rather than a preference.
+   */
+  filesView: FilesView;
   /**
    * The space strip sorts by activity instead of the order you last dragged it into.
    *
@@ -1391,6 +1405,8 @@ export type AppState = {
   unlockKonami(): Promise<void>;
   /** Flip the sidebar between full column and top rail, and persist it. */
   toggleSidebar(): Promise<void>;
+  /** Lay the session file browser out as `view`, and remember it (`SETTING_FILES_VIEW`). */
+  setFilesView(view: FilesView): Promise<void>;
   /** Show the space's items or the call feed. Turning the feed ON clears any narrowing the sheet
    *  left behind — a filter nobody can see in this column would silently hide rows — and leaves the
    *  reading to the feed itself. */
@@ -2859,7 +2875,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, sidebarActivityOrder: false, confirmDelete: true, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
+      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", sidebarActivityOrder: false, confirmDelete: true, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
@@ -2882,12 +2898,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, swipeInvert, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, panels, quick, system] = await Promise.all([
+        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, swipeInvert, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, panels, quick, filesView, system] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME),
           api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
           api.getSetting(SETTING_TERMINAL_PANEL),
           api.getSetting(SETTING_QUICK_CHAT),
+          api.getSetting(SETTING_FILES_VIEW),
           // Labels, not dependencies: a failure here must not take boot down with it — the strip
           // simply shows no machine name, and the greeting no name.
           api.systemInfo().catch(() => ({ machineName: "", userName: "", detachedSince: null })),
@@ -2898,6 +2915,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           groundAlpha: typeof groundAlpha === "number" ? clampGroundAlpha(groundAlpha) : DEFAULT_GROUND_ALPHA, swipeInvert: swipeInvert === true, lowPower: lowPower === true,
           submitKey: isSubmitKey(submitKey) ? submitKey : "enter", sidebarCollapsed: sidebarCollapsed === true,
           sidebarWidth: typeof sidebarWidth === "number" ? clampSidebarWidth(sidebarWidth) : SIDEBAR_WIDTH.default,
+          // Rows unless the row says cards: an unset key, and a word a newer build wrote that this
+          // one does not know, both get the layout the panel shipped with.
+          filesView: filesView === "grid" ? "grid" : "list",
           // Defaulted OFF: the strip's resting order is the one the user dragged it into, and a
           // preference nobody could read must not rearrange their spaces on them at launch.
           sidebarActivityOrder: activityOrder === true,
@@ -3284,6 +3304,10 @@ await get().refreshCustomThemes().catch(() => {});
         const next = !get().sidebarCollapsed;
         set({ sidebarCollapsed: next });
         await api.setSetting(SETTING_SIDEBAR_COLLAPSED, next);
+      },
+      async setFilesView(view) {
+        set({ filesView: view });
+        await api.setSetting(SETTING_FILES_VIEW, view);
       },
       setSidebarView(view) {
         if (get().sidebarView === view) return;

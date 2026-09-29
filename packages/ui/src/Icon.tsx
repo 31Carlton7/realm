@@ -30,6 +30,8 @@ import {
   KeyboardIcon, ClipboardIcon,
   // Hermes Agent's own mark, in this set's hand — see `caduceus` below.
   CaduceusIcon,
+  // A session's file browser, laid out as cards (SessionFiles.tsx).
+  GridViewIcon,
 } from "@hugeicons-pro/core-stroke-standard";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
 
@@ -69,6 +71,10 @@ export const icons = {
   // Same glyph as `group`, under the name a spreadsheet is actually looking for — a document's
   // icon should not have to borrow the pane system's vocabulary to find a table.
   table: LayoutTable01Icon,
+  /* Four separate tiles: the view-as-icons mark every file browser draws. Not `layout`, which is one
+     square quartered by two rules — at 12px that reads as a single box, and it already stands for
+     "All spaces…" and the simulator's element overlay. */
+  grid: GridViewIcon,
   laptop: LaptopIcon, plug: PlugSocketIcon, download: Download04Icon,
   /* A trace, not a bar chart: `Activity01` and its siblings draw the line inside a framed box, and
      at 14px beside the sidebar toggle the frame is most of what survives — two glyphs that read as

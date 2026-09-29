@@ -55,16 +55,22 @@ function load(path: string, size: ThumbnailSize): Promise<string | null> {
  * asking for at all" belongs to the caller and changes as it re-renders. A Library grid asks only
  * about images and video: everything else would put one `qlmanage` child process behind every tile,
  * and a page of sixty of them is sixty processes for marks nobody is reading.
+ *
+ * `ask` is the other half of that decision — whether a picture NOT yet cached may be fetched now. A
+ * card holds its request until it has been on screen (`FileCard`), but a picture already in the
+ * cache costs nothing and is drawn whatever `ask` says: reopening a folder must not flash every card
+ * it has already drawn back through its glyph for the frame the observer takes to answer.
  */
-export function useThumbnail(path: string | null, size: ThumbnailSize = "tile"): string | null {
+export function useThumbnail(path: string | null, size: ThumbnailSize = "tile", ask = true): string | null {
   const key = path === null ? null : `${size}:${path}`;
   const [url, setUrl] = useState<string | null>(() => (key === null ? null : cache.get(key) ?? null));
   useEffect(() => {
     if (path === null || key === null) { setUrl(null); return; }
     if (cache.has(key)) { setUrl(cache.get(key) ?? null); return; }
+    if (!ask) { setUrl(null); return; }
     let live = true;
     void load(path, size).then((u) => { if (live) setUrl(u); });
     return () => { live = false; };
-  }, [path, key, size]);
+  }, [path, key, size, ask]);
   return url;
 }
