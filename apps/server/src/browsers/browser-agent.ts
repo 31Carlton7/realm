@@ -242,6 +242,8 @@ export class BrowserAgentService {
       switch (settled.outcome) {
         case "done":
           return ok(`Browser agent finished.${trail}\n\n${output}`);
+        case "stopped":
+          return err(`Browser agent was stopped by the user before it finished.${trail}\n\nPartial output: ${output}`);
         case "interrupted":
           // The parent being interrupted usually means nobody reads this — but if the transport
           // still delivers it, it must say exactly what happened, with whatever partial text exists.

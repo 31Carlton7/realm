@@ -518,6 +518,30 @@ describe("cancellation, budgets, and the one-run rule", () => {
     await waitFor(() => app.sessions.get(child.id).status === "idle");
   });
 
+  it("a child the USER stops is reported as stopped, never as finished", async () => {
+    // The stop winds the child down to idle holding its partial text, which is what a finish looks
+    // like, and the parent was told "Delegated agent finished." with status done — the lead then acts
+    // on half a job as though it were the whole one. THE MUTANT: drop the engine's stop check.
+    const { spaceId, parentId } = await boot({ script: longScript(60), delayMs: 50 });
+    const wire = await listen();
+    const running = app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go" });
+    await waitFor(() => app.sessions.list(spaceId).length === 2);
+    const child = childOf(spaceId, parentId);
+    await waitFor(() => app.sessions.events(child.id, 0, 500).some((e) => e.event.type === "assistant_text"));
+    await app.sessions.interrupt(child.id); // the child's own stop — not the parent's
+    const result = await running;
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain("stopped by the user before it finished");
+    expect(text(result)).not.toContain("Delegated agent finished");
+    expect(text(result)).toContain('"status":"stopped"');
+    // What it had said by the stop still reaches the lead, as the partial it is.
+    expect(text(result)).toMatch(/Partial output: [\s\S]*(partial: starting|step \d+)/);
+    // And the renderer is told the same thing, so the pane of a child someone stopped stays put.
+    await waitFor(() => settlesOf(wire.frames, child.id).length === 1);
+    expect(settlesOf(wire.frames, child.id)[0]!.payload.outcome).toBe("stopped");
+    wire.close();
+  });
+
   it("a run that exceeds its budget is reported as timed out (with partial text) and the child is interrupted", async () => {
     const { spaceId, parentId } = await boot({ script: longScript(60), delayMs: 50, timeouts: { baseMs: 400, perTurnMs: 0, pollMs: 20 } });
     const result = await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go" });

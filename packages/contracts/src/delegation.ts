@@ -64,14 +64,15 @@ export const MAX_DELEGATION_DEPTH = 2;
  * the engine without reaching the verdict would fail to compile rather than fail to parse).
  *
  * - `done` — the child's turn ended with a report: its last status was idle and it had said something.
- *   A turn a person stopped on the CHILD itself meets that too, and is reported as `done` today; the
- *   renderer tells the two apart by the transcript's stop marker before it takes a pane back.
+ * - `stopped` — a person stopped the child itself, mid-turn: it went idle with the adapter's
+ *   `interrupted` mark on that status, holding whatever it had said so far. Only as good as that mark —
+ *   an adapter that does not set it reports a stopped turn as `done`.
  * - `interrupted` — the delegating session was interrupted, and the run was cancelled with it.
  * - `timeout` — the child ran past its budget and was interrupted.
  * - `failed` — the child's session errored or ended before it finished.
  * - `gone` — the child's session was deleted mid-run.
  */
-export const DelegationOutcomeSchema = z.enum(["done", "interrupted", "timeout", "failed", "gone"]);
+export const DelegationOutcomeSchema = z.enum(["done", "stopped", "interrupted", "timeout", "failed", "gone"]);
 export type DelegationOutcome = z.infer<typeof DelegationOutcomeSchema>;
 
 /**

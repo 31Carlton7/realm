@@ -174,6 +174,7 @@ export class ReviewService {
       : "(the reviewer produced no output)";
     switch (settled.outcome) {
       case "done": return ok(`Review finished. The verdict below informs the HUMAN's ship decision — you may not act on it by committing or shipping.${trail}\n\n${output}`);
+      case "stopped": return err(`Review stopped: the reviewer was stopped by the user before it finished.${trail}\n\nPartial output: ${output}`);
       case "interrupted": return err(`Review cancelled: the requesting session was interrupted, so the reviewer was stopped mid-run.${trail}\n\nPartial output: ${output}`);
       case "timeout": return err(`Reviewer timed out and was interrupted.${trail}\n\nPartial output: ${output}`);
       case "failed": return err(`Reviewer session ended with status "${settled.lastStatus}" before finishing.${trail}\n\nPartial output: ${output}`);
@@ -267,7 +268,7 @@ export class ReviewService {
 }
 
 const OUTCOME_WORD: Record<SettledRun["outcome"], string> = {
-  done: "finished", interrupted: "was cancelled", timeout: "timed out", failed: "failed", gone: "vanished",
+  done: "finished", stopped: "was stopped", interrupted: "was cancelled", timeout: "timed out", failed: "failed", gone: "vanished",
 };
 
 /** The refutation discipline — the house review posture, stated once, as the reviewer's standing
