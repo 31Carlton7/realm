@@ -350,11 +350,16 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  reach a package registry, and it must read a PATH the test built rather than the developer's own
    *  machine. Production callers pass neither and get the process environment and real fetch. */
   cli?: { fetchImpl?: typeof fetch; env?: NodeJS.ProcessEnv; spawnImpl?: typeof import("node:child_process").spawn };
-  /** The simulator service's CLI seams, for a suite that must say whether this "Mac" has simulators
-   *  rather than inherit the answer from the developer's own Xcode — the simulator tools, and the
-   *  preamble paragraph about them, exist only where one of these says a toolchain is there.
-   *  Production callers pass none and get the real `xcrun simctl`, `serve-sim` and adb. */
+  /** The simulator service's CLI seams, for a suite whose simulator tools must reach a device list or
+   *  a stream without the developer's own Xcode. Production callers pass none and get the real
+   *  `xcrun simctl`, `serve-sim` and adb. */
   simulator?: Pick<import("./simulators/service").SimulatorServiceDeps, "simctl" | "serveSim" | "android">;
+  /** Whether this Mac can run a simulator — the answer behind the simulator tools, the preamble's
+   *  paragraph about them and their settings row. `main.ts` passes the real probe
+   *  (`toolchainAvailable`); left out, nothing is probed and the answer stays "not known", so a suite
+   *  of apps spawns no `xcrun` and behaves the same with or without Xcode. A test that needs an
+   *  answer passes one. */
+  simulatorToolchain?: () => Promise<boolean>;
   /** Upgrades a session's heuristic first-line title to a short model-written summary in the
    *  background (`SessionService.upgradeTitle`). A real, billed LLM call per session — omitted here
    *  on purpose so tests and live-check scripts never make one; the real server process (`main.ts`)
@@ -724,7 +729,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      the browser tools ask it one question before opening a URL — is this serve-sim's stream of a
      simulator? — and a refusal naming `simulator_open` needs the thing that answers for it. Registered
      further down, beside `realm-vm`, so the settings list keeps the panes that show a screen together. */
-  const simulatorTools = createSimulatorAgentProvider({ mcp, simulators, items, broker: browserBroker, rpc });
+  const simulatorTools = createSimulatorAgentProvider({
+    mcp, simulators, items, broker: browserBroker, rpc, probe: opts.simulatorToolchain,
+    // A toolchain that turns up (or goes) changes what sessions may list, and what the provider's
+    // settings row has to say — both are told rather than left to find out on their next fetch.
+    onOfferedChange: () => { mcpGateway.notifyToolsChanged(); rpc.broadcast("mcp.changed", {}); },
+  });
   mcpGateway.registerProvider(createBrowserAgentProvider({
     browsers: browsersStore, projects, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc,
     constraints: browserAgents, signIn: signInTickets, simulatorStreams: simulatorTools,

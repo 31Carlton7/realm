@@ -60,10 +60,20 @@ export const SIMULATOR_PROVIDER_NAME = "realm-simulator";
 export type SimulatorAgentToolsDeps = {
   mcp: Pick<McpService, "providerEnabled">;
   simulators: Pick<SimulatorService,
-    "available" | "devices" | "list" | "stateOf" | "create" | "start" | "ax" | "apps" | "act" | "capture" | "screenshot" | "streamedOn">;
+    "devices" | "list" | "stateOf" | "create" | "start" | "ax" | "apps" | "act" | "capture" | "screenshot" | "streamedOn">;
   items: Pick<ItemsStore, "findByRefId">;
   broker: Pick<BrowserPermissionBroker, "gate">;
   rpc: Pick<RpcServer, "broadcast">;
+  /**
+   * Whether this Mac can run a simulator at all. The real server is handed `toolchainAvailable`
+   * (`main.ts`); left out, nothing is ever asked and the answer stays "not known" — so no tools, no
+   * preamble paragraph and no guard. That is what a suite gets unless a test hands in an answer: an
+   * app per test must not spawn `xcrun` per test, nor behave differently on a machine with Xcode.
+   */
+  probe?: () => Promise<boolean>;
+  /** The answer changed — first known, or Xcode installed or removed since. Sessions re-list their
+   *  tools on it, and an open settings row redraws instead of keeping "Checking…". */
+  onOfferedChange?: () => void;
   /** How long `simulator_open` waits for the stream, and how often it looks. A test seam. */
   wait?: { timeoutMs: number; pollMs: number };
 };
@@ -107,19 +117,26 @@ export function createSimulatorAgentProvider(d: SimulatorAgentToolsDeps): Simula
   const wait = d.wait ?? OPEN_WAIT;
   /* Whether this Mac can run a simulator at all, probed once at construction and kept fresh after.
      `offered` has to answer synchronously — see `RealmToolProvider.offered` — so it reads `known`,
-     the last answer; the probe runs on every boot so that answer exists before the first session
-     is composed, which is what keeps the first session after a launch from being told nothing. */
+     the last answer; the probe runs at construction so that answer exists before the first session
+     is composed, which is what keeps the first session after a launch from being told nothing. With
+     no probe there is nothing to run, and `known` stays null: not known, and so not offered. */
   let known: boolean | null = null;
-  const probe = new ProbeCache<boolean>(() => d.simulators.available(), { ttlMs: AVAILABILITY_TTL_MS });
+  const probe = d.probe ? new ProbeCache<boolean>(d.probe, { ttlMs: AVAILABILITY_TTL_MS }) : null;
+  const learn = (v: boolean): boolean => {
+    const changed = known !== v;
+    known = v;
+    if (changed) d.onOfferedChange?.();
+    return v;
+  };
   const available = (): Promise<boolean> =>
-    probe.get().then((v) => { known = v; return v; }, () => { known = false; return false; });
+    probe ? probe.get().then(learn, () => learn(false)) : Promise.resolve(false);
   void available();
 
   return {
     name: SIMULATOR_PROVIDER_NAME,
     offered() {
       void available();
-      return known === true;
+      return known;
     },
     async tools(ctx: ProviderCallContext): Promise<Tool[]> {
       if (!d.mcp.providerEnabled(ctx.spaceId, SIMULATOR_PROVIDER_NAME)) return [];

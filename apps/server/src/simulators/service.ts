@@ -52,6 +52,19 @@ const ANDROID_BOOT_TIMEOUT_MS = 180_000;
 const OFF = (simulatorId: string, udid: string | null): SimulatorState =>
   ({ simulatorId, status: "off", udid, serial: null, streamUrl: null, wsUrl: null, screen: null, error: null, detail: null });
 
+/**
+ * Whether this Mac can run a simulator at all: `simctl` answers, or an Android SDK is there.
+ *
+ * Standalone rather than only a method, because it is also the production probe behind the simulator
+ * TOOLS (`main.ts` hands it to `createApp`). That probe runs at every boot, and a suite that built an
+ * app per test would otherwise spawn `xcrun` per test and answer with whatever Xcode the machine
+ * running it happens to have — so it is passed in where the real server is built, and nowhere else.
+ */
+export async function toolchainAvailable(cli: Pick<Simctl, "available"> = simctl(), droid: Pick<Android, "available"> = android()): Promise<boolean> {
+  const [ios, droidOk] = await Promise.all([cli.available().catch(() => false), droid.available().catch(() => false)]);
+  return ios || droidOk;
+}
+
 export class SimulatorService {
   private readonly state = new Map<string, SimulatorState>();
   /** Which start is the one anyone is still waiting for. A second press while the first is booting
@@ -136,8 +149,7 @@ export class SimulatorService {
   /** Whether `simctl` answers at all — the honest difference between "no simulators" and "no Xcode". */
   /** Whether ANY toolchain answers. The pane's "nothing installed" state is about both. */
   async available(): Promise<boolean> {
-    const [ios, droid] = await Promise.all([this.cli.available().catch(() => false), this.droid.available().catch(() => false)]);
-    return ios || droid;
+    return toolchainAvailable(this.cli, this.droid);
   }
 
   /**

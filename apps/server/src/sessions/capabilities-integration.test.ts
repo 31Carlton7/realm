@@ -6,8 +6,6 @@ import { AsyncQueue, type AgentAdapter, type AgentHandle, type StartOptions } fr
 import { sessionEvent, type AgentKind, type SessionEvent } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
-import type { Simctl } from "../simulators/simctl";
-import type { Android } from "../simulators/android";
 
 /**
  * The capabilities preamble, end to end: a session started through the ordinary path (create, then
@@ -61,19 +59,17 @@ async function client(port: number) {
   return { call, close: () => ws.close() };
 }
 
-/** Whether this "Mac" has a simulator toolchain — answered by the test, never by the developer's
- *  own Xcode, since the simulator paragraph exists exactly where one of these says yes. */
-const toolchain = (ios: boolean) => ({
-  simctl: { available: async () => ios, devices: async () => [] } as unknown as Simctl,
-  android: { available: async () => false, devices: async () => [] } as unknown as Android,
-});
-
-async function boot(simulator = toolchain(false)) {
+/** Boots an app; `simulators` is what this "Mac" answers when asked whether it can run one — or
+ *  nothing, for an app given no probe, which is what `createApp` is unless `main.ts` builds it. */
+async function boot(simulators?: boolean) {
   const home = tempDir("realm-caps-int-");
   vi.stubEnv("REALM_BUNDLED_SKILLS", join(home, "no-bundle"));
   const claude = new RecordingAdapter("claude");
   const cursor = new RecordingAdapter("acp:cursor");
-  app = await createApp({ home, port: 0, adapters: { claude, "acp:cursor": cursor }, claudeDir: join(home, "claude-home"), simulator });
+  app = await createApp({
+    home, port: 0, adapters: { claude, "acp:cursor": cursor }, claudeDir: join(home, "claude-home"),
+    ...(simulators === undefined ? {} : { simulatorToolchain: async () => simulators }),
+  });
   const c = await client(app.port);
   const p = (await c.call("profiles.create", { name: "W" })).result;
   const space = (await c.call("spaces.create", { profileId: p.id, name: "A" })).result;
@@ -116,7 +112,7 @@ describe("the capabilities preamble reaches an ordinary session", () => {
   });
 
   it("tells a session on a Mac with simulators to use the pane — and not serve-sim in a browser", async () => {
-    const { c, space, claude } = await boot(toolchain(true));
+    const { c, space, claude } = await boot(true);
     await startSession(c, space.id, "claude");
     await waitFor(() => claude.starts.length === 1);
     const ctx = claude.starts[0]!.systemContext!;
@@ -128,7 +124,7 @@ describe("the capabilities preamble reaches an ordinary session", () => {
   it("says nothing about simulators on a Mac that has none, whatever the space's switch says", async () => {
     // THE MUTANT: `realmProvidersFor` ignoring `offered`. The switch is on by default, so without
     // the toolchain's answer every session on a Mac with no Xcode is told how to boot a simulator.
-    const { c, space, claude } = await boot(toolchain(false));
+    const { c, space, claude } = await boot(false);
     await startSession(c, space.id, "claude");
     await waitFor(() => claude.starts.length === 1);
     const ctx = claude.starts[0]!.systemContext!;
@@ -137,8 +133,17 @@ describe("the capabilities preamble reaches an ordinary session", () => {
     c.close();
   });
 
+  it("says nothing about simulators when nobody has asked the Mac — not knowing is not a yes", async () => {
+    // An app built with no probe: the answer is "not known", and the paragraph waits for a yes.
+    const { c, space, claude } = await boot();
+    await startSession(c, space.id, "claude");
+    await waitFor(() => claude.starts.length === 1);
+    expect(claude.starts[0]!.systemContext!).not.toContain("simulator_open");
+    c.close();
+  });
+
   it("stops naming the simulator once the space switches that provider off", async () => {
-    const { c, space, claude } = await boot(toolchain(true));
+    const { c, space, claude } = await boot(true);
     await c.call("mcp.setProviderEnabled", { spaceId: space.id, name: "realm-simulator", enabled: false });
     await startSession(c, space.id, "claude");
     await waitFor(() => claude.starts.length === 1);

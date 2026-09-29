@@ -666,7 +666,7 @@ describe("in-process providers (Plan 11 W3)", () => {
 
   it("realmProvidersFor drops a provider that says it has nothing to offer on this Mac", async () => {
     const app = await setupApp();
-    let installed = true;
+    let installed: boolean | null = true;
     app.gateway.registerProvider({ ...fakeProvider("realm-simulator"), offered: () => installed });
     app.gateway.registerProvider(fakeProvider("realm-docs"));
     expect(app.gateway.realmProvidersFor(app.sessionId, app.spaceId)).toEqual(["realm-simulator", "realm-docs"]);
@@ -677,7 +677,12 @@ describe("in-process providers (Plan 11 W3)", () => {
     // Asked fresh each time, not captured at registration: an Xcode installed while Realm runs counts.
     installed = true;
     expect(app.gateway.realmProvidersFor(app.sessionId, app.spaceId)).toEqual(["realm-simulator", "realm-docs"]);
+    // THE MUTANT: `offered?.() ?? true`. A probe that has not answered is `null`, and `null ?? true`
+    // is a yes — the session composed in that moment is promised simulators on a Mac that may have none.
+    installed = null;
+    expect(app.gateway.realmProvidersFor(app.sessionId, app.spaceId)).toEqual(["realm-docs"]);
     // And the space's switch still wins over a provider that has plenty to offer.
+    installed = true;
     app.mcp.setProviderEnabled(app.spaceId, "realm-simulator", false);
     expect(app.gateway.realmProvidersFor(app.sessionId, app.spaceId)).toEqual(["realm-docs"]);
   });

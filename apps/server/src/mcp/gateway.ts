@@ -43,14 +43,16 @@ export type RealmToolProvider = {
   call(ctx: ProviderCallContext, tool: string, args: unknown): Promise<CallToolResult>;
   /**
    * Whether this provider has anything to offer on this Mac right now, for a provider whose tools
-   * depend on something outside Realm — a toolchain that may not be installed. Omitted means yes,
-   * which is every provider whose tools act on a pane or a folder Realm owns.
+   * depend on something outside Realm — a toolchain that may not be installed. `true` or `false` once
+   * it knows, `null` while its probe has not answered. Not knowing is not a yes: `null` keeps the
+   * provider out of the preamble exactly as `false` does. Omitted means always yes, which is every
+   * provider whose tools act on a pane or a folder Realm owns.
    *
-   * Synchronous because its one reader, `realmProvidersFor`, composes a session's start inside the
+   * Synchronous because its main reader, `realmProvidersFor`, composes a session's start inside the
    * synchronous `ensureLive`. A provider that has to ask a CLI answers from its last probe and keeps
    * that probe fresh itself; its own `tools()` is still where the authoritative, awaited answer lives.
    */
-  offered?(): boolean;
+  offered?(): boolean | null;
 };
 
 /** One registered Realm session: its bearer token, the space it belongs to, and — created lazily on the
@@ -171,14 +173,14 @@ export class McpGateway {
    * skips delegated children entirely, so the gap is not reachable today. A caller that needs the
    * exact tool list must ask `tools()`, which is async and authoritative.
    *
-   * A provider that says it has nothing to offer on this Mac (`offered`) is dropped too: a space with
-   * simulator tools switched on, on a Mac with no Xcode and no Android SDK, has no simulator to tell
-   * the session about.
+   * A provider that has not said it has something to offer on this Mac (`offered`) is dropped too: a
+   * space with simulator tools switched on, on a Mac with no Xcode and no Android SDK, has no simulator
+   * to tell the session about — and one whose probe has not answered yet has not said it has one.
    */
   realmProvidersFor(sessionId: string, spaceId: string): string[] {
     const toolset = this.toolsetOf(sessionId);
     return [...this.providers.values()]
-      .filter((p) => providerVisible(p.name, toolset) && this.d.mcp.providerEnabled(spaceId, p.name) && (p.offered?.() ?? true))
+      .filter((p) => providerVisible(p.name, toolset) && this.d.mcp.providerEnabled(spaceId, p.name) && (p.offered === undefined || p.offered() === true))
       .map((p) => p.name);
   }
 

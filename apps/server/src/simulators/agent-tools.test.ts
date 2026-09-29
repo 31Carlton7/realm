@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
-import { existsSync, readdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import type { SimulatorAxTree, SimulatorDevice } from "@realm/contracts";
@@ -18,7 +18,7 @@ import { pngSize } from "../machines/qmp-driver";
 import { SCREENSHOT_MAX_EDGE } from "../machines/driver";
 import type { GateResult } from "../browsers/permissions";
 import { createApp, type App } from "../app";
-import { SimulatorService } from "./service";
+import { SimulatorService, toolchainAvailable } from "./service";
 import type { Simctl } from "./simctl";
 import type { ServeSim, ServeSimStream } from "./serve-sim";
 import type { Android } from "./android";
@@ -111,6 +111,8 @@ function setup(opts: {
   gate?: GateResult;
   simctl?: Partial<Simctl>; serveSim?: Partial<ServeSim>; android?: Partial<Android>;
   wait?: { timeoutMs: number; pollMs: number };
+  /** Build the provider with no toolchain probe at all — what `createApp` does unless it is given one. */
+  noProbe?: boolean;
 } = {}) {
   const home = tempDir("realm-sim-tools-");
   const db = openDatabase(join(home, "realm.db"));
@@ -128,9 +130,13 @@ function setup(opts: {
   const rpc = { broadcast: (event: string, payload: unknown) => { calls.broadcasts.push({ event, payload: payload as Record<string, unknown> }); } } as never;
   const service = new SimulatorService({ rpc, spaces, items, simulators: new SimulatorsStore(db), simctl: clis.simctl, serveSim: clis.serveSim, android: clis.android, androidStream: fakeStream });
   const switchedOff = new Set<string>();
+  const changes: number[] = [];
   const provider = createSimulatorAgentProvider({
     mcp: { providerEnabled: (spaceId, name) => name === SIMULATOR_PROVIDER_NAME && !switchedOff.has(spaceId) },
     simulators: service, items, rpc,
+    // The service's own question, over the faked CLIs — the same one `main.ts` hands the real server.
+    probe: opts.noProbe ? undefined : () => service.available(),
+    onOfferedChange: () => changes.push(Date.now()),
     broker: {
       gate: async (_sessionId, toolKey, title, input) => {
         calls.gates.push({ toolKey, title, input });
@@ -148,7 +154,7 @@ function setup(opts: {
     for (let i = 0; i < 400 && service.stateOf(simulatorId).status !== "running"; i++) await new Promise((r) => setTimeout(r, 5));
     return simulatorId;
   };
-  return { provider, service, items, ctx, call, calls, running, switchedOff, spaceId: space.id, otherSpaceId: other.id, folder: space.folderPath };
+  return { provider, service, items, ctx, call, calls, running, switchedOff, changes, spaceId: space.id, otherSpaceId: other.id, folder: space.folderPath };
 }
 
 const text = (r: CallToolResult): string =>
@@ -185,15 +191,40 @@ describe("offering the tools", () => {
     expect(text(r)).toContain("no simulators on this Mac");
   });
 
-  it("answers `offered` from a probe that ran at construction, and says no while it has no answer", async () => {
+  it("answers `offered` from a probe that ran at construction, and says it does not know yet until it has", async () => {
     const ready = setup();
     await ready.provider.tools(ready.ctx); // the probe has certainly answered once this has
     expect(ready.provider.offered?.()).toBe(true);
-    // A probe that has not answered yet: nothing is known, so nothing is claimed. THE MUTANT:
-    // `known !== false` — the session composed in that moment is told about simulators on a Mac that
-    // may have none.
+    // A probe that has not answered yet: nothing is known, and that is its own answer — not a yes
+    // (the preamble would promise simulators on a Mac that may have none) and not a no (the settings
+    // row would say "Needs Xcode" on a Mac that has it). THE MUTANT: fold `null` into either.
     const pending = setup({ simctl: { available: () => new Promise<boolean>(() => {}) } });
-    expect(pending.provider.offered?.()).toBe(false);
+    expect(pending.provider.offered?.()).toBe(null);
+  });
+
+  it("asks nothing at all when it was given no probe, and offers nothing", async () => {
+    // What `createApp` builds unless `main.ts` (or a test) hands it an answer. THE MUTANT: fall back to
+    // the service's own question — which, in a suite, is `xcrun` spawned by every app a test builds.
+    let asked = 0;
+    const { provider, ctx } = setup({ noProbe: true, simctl: { available: async () => { asked++; return true; } } });
+    expect(await provider.tools(ctx)).toEqual([]);
+    expect(provider.offered?.()).toBe(null);
+    expect(asked).toBe(0);
+  });
+
+  it("says when its answer changes — once when it first knows, and again only if it moves", async () => {
+    let installed = false;
+    const { provider, ctx, changes } = setup({ simctl: { available: async () => installed } });
+    await provider.tools(ctx);
+    expect(changes).toHaveLength(1); // unknown → no
+    await provider.tools(ctx);
+    // THE MUTANT: tell on every probe. Each connected session is then told to re-list its tools
+    // every minute, for nothing.
+    expect(changes).toHaveLength(1);
+    // The same answer, cached, is not news; a changed one arrives once the cache has aged, which the
+    // switch below stands in for.
+    installed = true;
+    expect(changes).toHaveLength(1);
   });
 });
 
@@ -540,11 +571,15 @@ describe("through the real gateway", () => {
 
   /** A real app, with the simulator CLIs faked through `createApp`'s seam — the gateway, the provider
    *  registry and the space's switch are all production wiring. */
-  async function boot(simctl?: Partial<Simctl>, serveSim?: Partial<ServeSim>) {
+  /** `toolchain` is what the injected probe answers — or "unprobed", for an app given no probe. */
+  async function boot(toolchain: "installed" | "missing" | "unprobed" = "installed", serveSim?: Partial<ServeSim>) {
     const home = tempDir("realm-sim-gw-");
     vi.stubEnv("REALM_BUNDLED_SKILLS", join(home, "no-bundle"));
-    const clis = fakeClis({ simctl, serveSim });
-    app = await createApp({ home, port: 0, simulator: { simctl: clis.simctl, serveSim: clis.serveSim, android: clis.android } });
+    const clis = fakeClis({ serveSim });
+    app = await createApp({
+      home, port: 0, simulator: { simctl: clis.simctl, serveSim: clis.serveSim, android: clis.android },
+      ...(toolchain === "unprobed" ? {} : { simulatorToolchain: async () => toolchain === "installed" }),
+    });
     const profile = new ProfilesStore(app.db).create({ name: "P", icon: "x", color: "#000" });
     const space = new SpacesStore(app.db, home).create({ profileId: profile.id, name: "S", icon: "folder" });
     const { session } = app.sessions.create({ spaceId: space.id, agentKind: "claude", projectId: null, model: null, effort: null, permissionMode: "bypassPermissions" });
@@ -572,7 +607,7 @@ describe("through the real gateway", () => {
   it("refuses browser_open on serve-sim's stream through the real wiring, naming simulator_open", async () => {
     // app.ts has to hand the browser provider the simulator provider's question; the unit tests on
     // either side build their providers by hand and would pass with that line gone.
-    const { client } = await boot(undefined, {
+    const { client } = await boot("installed", {
       claims: async () => [{ device: "UDID-UP", port: 3100 }],
       find: async (udid) => (udid === "UDID-UP" ? STREAM("UDID-UP") : NOTHING),
     });
@@ -583,8 +618,60 @@ describe("through the real gateway", () => {
   });
 
   it("lists nothing on a Mac with no simulators, where the switch alone would have said yes", async () => {
-    const { client } = await boot({ available: async () => false });
+    const { client } = await boot("missing");
     expect((await client.listTools()).tools.some((t) => t.name.startsWith(`${SIMULATOR_PROVIDER_NAME}__`))).toBe(false);
     await client.close();
+  });
+});
+
+describe("createApp's toolchain probe", () => {
+  /**
+   * The probe in a suite, measured at the process: `REALM_XCRUN_BIN` pointed at a script that writes
+   * down every call made to it. A mock of `execFile` would prove less — this is the spawn itself.
+   */
+  function recordingXcrun() {
+    const dir = tempDir("realm-sim-xcrun-");
+    const log = join(dir, "calls.log");
+    const bin = join(dir, "xcrun");
+    writeFileSync(bin, `#!/bin/sh\necho "$@" >> "${log}"\nexit 0\n`);
+    chmodSync(bin, 0o755);
+    vi.stubEnv("REALM_XCRUN_BIN", bin);
+    return { log, calls: () => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : []) };
+  }
+
+  async function bootAndUse(simulatorToolchain?: () => Promise<boolean>) {
+    const home = tempDir("realm-sim-probe-");
+    vi.stubEnv("REALM_BUNDLED_SKILLS", join(home, "no-bundle"));
+    app = await createApp({ home, port: 0, ...(simulatorToolchain ? { simulatorToolchain } : {}) });
+    // Everything that asks the provider whether there are simulators: a session listing its tools,
+    // and the gateway composing what a session is told.
+    const profile = new ProfilesStore(app.db).create({ name: "P", icon: "x", color: "#000" });
+    const space = new SpacesStore(app.db, home).create({ profileId: profile.id, name: "S", icon: "folder" });
+    const { session } = app.sessions.create({ spaceId: space.id, agentKind: "claude", projectId: null, model: null, effort: null, permissionMode: "default" });
+    const cfg = app.gateway.register(session.id, space.id) as Extract<McpServerConfig, { url: string }>;
+    const client = new Client({ name: "t", version: "1.0.0" }, { capabilities: {} });
+    await client.connect(new StreamableHTTPClientTransport(new URL(cfg.url), { requestInit: { headers: cfg.headers } }));
+    // No sleep, and none is needed: `tools/list` awaits every provider's `tools()`, which awaits the
+    // simulator provider's own probe — so a probe that ran has exited, and written its line, by now.
+    const tools = (await client.listTools()).tools.map((t) => t.name);
+    app.gateway.realmProvidersFor(session.id, space.id);
+    await client.close();
+    return tools;
+  }
+
+  it("spawns nothing when it is not given one — the suite's case", async () => {
+    const xcrun = recordingXcrun();
+    const tools = await bootAndUse();
+    // THE MUTANT: default the probe to the real one. Every `createApp` in the suite then runs
+    // `xcrun simctl help` in the background, 68 of them a run, and lists or hides the tools by
+    // whatever Xcode the machine running the tests has.
+    expect(xcrun.calls()).toEqual([]);
+    expect(tools.some((n) => n.startsWith(`${SIMULATOR_PROVIDER_NAME}__`))).toBe(false);
+  });
+
+  it("asks xcrun when it is handed the production probe — so the silence above is not a blind test", async () => {
+    const xcrun = recordingXcrun();
+    await bootAndUse(() => toolchainAvailable());
+    expect(xcrun.calls()).toContain("simctl help");
   });
 });
