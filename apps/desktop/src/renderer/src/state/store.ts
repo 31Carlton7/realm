@@ -5116,8 +5116,9 @@ await get().refreshCustomThemes().catch(() => {});
         // Decided once, here: a run settles once, and whatever happens to the pane after this beat is
         // the user's business.
         agentPanes.delete(sessionId);
-        // Only a clean finish. A failure, a timeout, a cancelled run or a vanished session each leave
-        // something a person has to read in that pane — the partial report, the error, where it stopped.
+        // Only a clean finish. A failure, a person's stop, a timeout, a cancelled run or a vanished
+        // session each leave something to read in that pane — the partial report, the error, where it
+        // stopped.
         if (outcome !== "done" || !mayTakeBack(sessionId, pane)) return;
         setTimeout(() => {
           if (!mayTakeBack(sessionId, pane)) return;
