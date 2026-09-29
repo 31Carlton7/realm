@@ -1,0 +1,26 @@
+name: Dead code
+# Managed by CodexSkills bootstrap-code-quality.py
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  dead-code:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.21.0'
+      - run: cp .npmrc.example .npmrc
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+        env:
+          HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
+      - run: bash scripts/check-dead-code.sh
+        env:
+          QUALITY_BASE_REF: origin/${{ github.base_ref }}
