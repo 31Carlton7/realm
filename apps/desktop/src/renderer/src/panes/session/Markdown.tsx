@@ -10,6 +10,7 @@ import { mediaExtension, mediaRefsIn } from "./media/md-media";
 import { MediaFrame, MediaLightbox } from "./media/MediaView";
 import { useMediaByCandidate } from "./media/use-media";
 import { markPaths } from "./file-paths";
+import { NO_ARRIVALS, arrivalLength, markArrivals, noteArrival, type Arrivals } from "./arrival-fade";
 
 marked.setOptions({ gfm: true, breaks: false });
 /* Fenced code is tokenised here rather than left as plain text (Plan 24 W1). It happens BEFORE
@@ -189,8 +190,11 @@ export function renderMarkdownWithPaths(text: string, cite: readonly string[] = 
  *
  *  §6's entrance is NOT this component's to carry: the rule reaches `.transcript-col`'s direct
  *  children, and the prose has a wrapper above it that owns the mark instead. */
-export function Markdown({ text, className = "", cite = NO_CITATIONS, onPath }: {
+export function Markdown({ text, className = "", cite = NO_CITATIONS, onPath, arrive = false }: {
   text: string; className?: string; cite?: readonly string[];
+  /** Fade in text that arrives after the first render (`arrival-fade.ts`). For prose that STREAMS —
+   *  everything else that renders markdown is written once and has nothing arriving. */
+  arrive?: boolean;
   /** A path in the prose was clicked. Absent (a read-only mount, a plan sheet) leaves paths as plain
    *  text — a control that cannot do anything is worse than none. */
   onPath?: (path: string, at: HTMLElement) => void;
@@ -198,6 +202,9 @@ export function Markdown({ text, className = "", cite = NO_CITATIONS, onPath }: 
   const html = useMemo(() => (onPath ? renderMarkdownWithPaths(text, cite) : renderMarkdown(text, cite)), [text, cite, onPath]);
   const body = useRef<HTMLDivElement>(null);
   const media = useMediaPortals(body, html);
+  // After `useMediaPortals`, whose layout effect writes the markup this one marks: a component's
+  // layout effects run in the order its hooks were called.
+  useArrivalFade(body, html, arrive);
   // Copy buttons live inside dangerouslySetInnerHTML, so they are wired by delegation; the ✓ hold
   // is a DOM attribute (the injected nodes are outside React's tree), timers cleared on unmount.
   const timers = useRef(new Map<Element, ReturnType<typeof setTimeout>>());
@@ -233,6 +240,26 @@ export function Markdown({ text, className = "", cite = NO_CITATIONS, onPath }: 
       {media}
     </div>
   );
+}
+
+/**
+ * Marks the text that arrived since the last write, so it fades in rather than stamping on.
+ *
+ * Runs on every write of the markup, because every write destroys the marks the last one made —
+ * which is why the record lives in a ref and the DOM is only ever its projection. Keyed to the
+ * markup ALONE, so it runs after a write and never without one: `on` is read, not watched, because
+ * a pass over markup that was not rewritten would find the last pass's spans still there and stack
+ * a second fade inside them.
+ */
+function useArrivalFade(body: React.RefObject<HTMLDivElement | null>, html: string, on: boolean) {
+  const seen = useRef<Arrivals>(NO_ARRIVALS);
+  useLayoutEffect(() => {
+    const el = body.current;
+    if (!on || !el) return;
+    const now = performance.now();
+    seen.current = noteArrival(seen.current, arrivalLength(el), now);
+    markArrivals(el, seen.current.runs, now);
+  }, [html, body]);
 }
 
 /**

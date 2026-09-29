@@ -542,9 +542,10 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   /** Hero-greeting lines from an unlocked friend pack. Drawn only with the eggs on, like everything
    *  else a pack brings — the switch is the consent boundary and a pack is not a way around it. */
   packGreetings?: readonly string[];
-  /** Whether the harness has said THIS session's model can run fast mode (the `init` event's own
-   *  answer). Undefined is "not stated", and the picker offers no switch — never a disabled one,
-   *  because there is nothing the user could do about a capability nobody has claimed. */
+  /** Whether the harness has said THIS session's model can run fast mode — its own `init`, or before
+   *  it has one, what the last session on the same model heard (`MODEL_FAST_SUPPORT_KEY`). Undefined
+   *  is "not stated", and the picker offers no switch — never a disabled one, because there is
+   *  nothing the user could do about a capability nobody has claimed. */
   supportsFastMode?: boolean;
   /** The draft's link chips (store `draftLinks`): what a `@[label]` token in the text stands for,
    *  so the mirror can wear the app's mark on it. */
@@ -1030,7 +1031,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
      said the model can run it at all. */
   const fast: FastMode | undefined = supportsFastMode
     ? { on: session.fastMode, state: usage.fastMode ?? null, reason: usage.fastModeReason ?? null,
-        onChange: (on) => onOptions({ fastMode: on }) }
+        requested: usage.fastModeRequested ?? null, onChange: (on) => onOptions({ fastMode: on }) }
     : undefined;
   // Only the modes this agent can actually be put INTO. Build is always offered — it is the absence
   // of the other two, not a capability — and a menu row for a mode nothing would enforce is the lie

@@ -81,6 +81,11 @@
   --rl-frame: var(--page);                       /* BUI --page: window ground + sunken wells */
   --rl-panel: var(--canvas);                     /* BUI --canvas: the working ground */
   --rl-raised: var(--surface);                   /* BUI --surface: cards, menus, sheets, composer */
+  /* --rl-frame's step where the ground is --rl-raised rather than the canvas: a card set INTO a
+     raised surface (the Files dock's cards), and the same card under the pointer. Dark's frame step
+     already reads there; light's does not, so the light face sets its own pair below. */
+  --rl-frame-raised: var(--page);
+  --rl-frame-raised-hover: var(--rl-hover);
   /* borders: BUI hairlines are solid and crisp, not alpha — hairline = line now */
   --rl-line: var(--line);                        /* BUI --line */
   --rl-line-strong: var(--line-strong);          /* BUI --line-strong */
@@ -204,10 +209,18 @@
   --fw-medium: calc(450 + var(--fw-shift)); --fw-label: calc(500 + var(--fw-shift));
   --fw-title: calc(560 + var(--fw-shift)); --fw-strong: calc(600 + var(--fw-shift));
 }
-/* The per-mode residue: the three tokens whose dark/light values do not flow from a BUI var. */
+/* The per-mode residue: the tokens whose dark/light values do not flow from a BUI var. */
 :root[data-mode="light"] {
   --rl-hover: oklch(0 0 0 / 0.05);
   --rl-active: oklch(0 0 0 / 0.07);
+  /* A card set into the raised surface. On this face --surface is white and --page one rung under
+     it, which measured 1.04:1 — a card with no edge — so the value is set by measurement rather
+     than by rung: 1.16:1 on white against dark's 1.15, with the --inset field inside the card and
+     the well inside that each keeping dark's 1.09 step. No BUI rung sits there: --canvas comes to
+     1.12, and --hover-2 is an interaction state. The hover goes one step deeper again, so the card
+     still answers the pointer at least as clearly as it did on the paler fill. */
+  --rl-frame-raised: oklch(0.95 0.002 247.85);
+  --rl-frame-raised-hover: oklch(0.915 0.003 247.86);
   --rl-shadow: var(--shadow-lg);                 /* shadow-plugin's smooth lg stack (BUI light --shadow-overlay, shadow half) */
   /* The terminal stays dark on the light face. It follows `--rl-panel` in dark mode so it matches
      the session pane it sits beside — but xterm draws light-on-dark and Realm sets only its
@@ -4755,6 +4768,14 @@ select { appearance: none; padding-right: 22px;
 .transcript-col > .msg-handoff[data-enter],
 .transcript-col > .msg-error[data-enter] { animation: rl-fade-in var(--dur-slow) var(--ease-fade); }
 
+/* Streamed prose, arriving (`arrival-fade.ts`): each run of new text fades in where it lands rather
+   than stamping onto the column a chunk at a time. The system lines' curve and rung, for their
+   reason — this is text appearing, not an object landing, so nothing travels. A one-shot, and kept
+   OUT of the `data-quiet` pause list on purpose: a fade frozen at its first frame is prose left
+   invisible in an unfocused window while the agent talks into it. The span's resting state is fully
+   opaque, so with reduced motion — which removes the animation — what is left is the text. */
+.md-arrival { animation: rl-fade-in var(--dur-slow) var(--ease-fade); }
+
 /* §6 "do NOT animate": the command palette is a 100×/day action (Raycast rule) — it appears and
    disappears instantly, and neither it nor its scrim may grow an enter animation. Deliberately
    stated rather than merely omitted, so the absence reads as a decision. */
@@ -5813,10 +5834,12 @@ select { appearance: none; padding-right: 22px;
 /* Anchored to the TOP: the field is squarer than most screenshots, and the top of a page is the
    part that names it. A centred crop of a wide capture showed a band of nothing in particular. */
 .library-tile-thumb { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
-/* The caption: name over provenance, on the card's own ground. */
+/* The caption: the name, over whatever the list knows about the file — where it came from in the
+   Library, how big it is in a session's folder (the card is shared, `FileCard.tsx`). One line style
+   for both, so the second line reads as the same kind of fact whichever list drew it. */
 .library-tile-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 10px 12px 12px; }
 .library-tile-name { min-width: 0; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.library-tile-from { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 11.5px; color: var(--rl-text-faint); }
+.library-tile-from, .library-tile-meta { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 11.5px; color: var(--rl-text-faint); }
 .library-tile-kind { flex: none; }
 /* The one item on the row that is user data of unbounded length, so it takes all the slack and gives
    it back first. Everything beside it is a fixed 12px glyph. */
@@ -7278,3 +7301,21 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .files-crumb + .files-crumb::before { content: "/"; margin-right: 5px; color: var(--rl-text-faint); }
 /* Reading, empty, or capped — the three things this panel says in prose. */
 .files-note { margin: 0; padding: 6px 10px 10px; font-size: 11.5px; line-height: 1.45; color: var(--rl-text-faint); }
+/* Laid out as cards. The Library's grid and the Library's card; only the column is the dock's own.
+   The Library's 200px minimum is one card per row in a 320px dock, which is a list with pictures
+   in it. This one puts two across: the grid has 292px once the panel's padding and this inset are
+   taken (282 beside a classic scrollbar, where the cards measured 137px each), three would leave
+   each card under 92px — a caption of eight characters — and the minimum sits between the two so
+   auto-fill lands on two at the dock's width, and on one rather than three cramped ones if
+   `--summary-w`'s viewport clamp ever narrows it.
+   Inset to the day heading's text, so the cards and the label that groups them share a left edge the
+   way they do on the Library's page; the gap is the panel's rhythm rather than the page's 12px. */
+.session-files .library-grid { grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 8px; padding: 0 8px; }
+/* The card's GROUND is the one thing it does not bring from the Library. There it is --rl-frame on
+   the canvas; here it is set into the dock's raised --surface, where that step all but vanished on
+   the light face. So the card takes the raised-surface frame step, and so does the well, which shows
+   the card's own ground through the field exactly as it does in the Library. The hover follows,
+   because a fill at this specificity would otherwise out-rank the Library's `:hover` and the card
+   would stop answering the pointer. */
+.session-files .library-tile, .session-files .library-tile-mark { background: var(--rl-frame-raised); }
+.session-files .library-tile:hover { background: var(--rl-frame-raised-hover); }

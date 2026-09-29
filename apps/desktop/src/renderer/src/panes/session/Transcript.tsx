@@ -150,7 +150,7 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
     // direct children only, and the message stopped being one the moment it grew a wrapper.
     <div className="msg-assistant-row" data-enter={enter || undefined}
       data-state={streaming ? "streaming" : "complete"} aria-busy={streaming}>
-      <Markdown className="msg-assistant" text={text} cite={cite} onPath={onPath} />
+      <Markdown className="msg-assistant" text={text} cite={cite} onPath={onPath} arrive />
       <MediaStrip files={files} />
       {actions && !streaming && <MessageActions text={text} onRetry={onRetry} retryBusy={retryBusy} rating={rating} onRate={onRate} />}
       {!streaming && sources.length > 0 && <MessageSources sources={sources} />}
