@@ -3022,8 +3022,8 @@ await get().refreshCustomThemes().catch(() => {});
         set({ editorCursorBlink: editorBlink !== false });
         const cursorStyle = await api.getSetting(TERMINALS_CURSOR_STYLE_KEY).catch(() => null);
         set({ terminalCursorStyle: isTerminalCursorStyle(cursorStyle) ? cursorStyle : TERMINALS_CURSOR_STYLE_DEFAULT });
-        // The cursor blink's polarity, for the key's own reason (CLOSE_FINISHED_AGENT_PANES_KEY): only
-        // a stored `false` means someone switched it off.
+        // Defaulted ON like the cursor blink: only a stored `false` is someone switching it off (see
+        // CLOSE_FINISHED_AGENT_PANES_KEY for why the default is the point).
         const closeAgents = await api.getSetting(CLOSE_FINISHED_AGENT_PANES_KEY).catch(() => null);
         set({ closeFinishedAgentPanes: closeAgents !== false });
         const str = (v: unknown) => (typeof v === "string" ? v : "");

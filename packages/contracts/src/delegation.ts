@@ -58,21 +58,14 @@ export type AgentRunConstraints = z.infer<typeof AgentRunConstraintsSchema>;
 export const MAX_DELEGATION_DEPTH = 2;
 
 /**
- * A run the delegation engine is holding open for a parent session, as the renderer reads it.
- *
- * Deliberately thin. The child is a REAL session, so its title, agent, status and space already
- * reach the renderer through the session row and the ordinary status stream; copying any of that
- * here would put a second description of the same thing on the wire, free to drift. What is left is
- * exactly what only the engine's in-memory registry knows — that this parent is waiting on this
- * session, since when, and under which of the two waits.
- */
-/**
  * How a delegated run ended — the delegation engine's settle vocabulary, stated once so the engine
  * and `session.agentSettled` cannot describe the same ending two ways (`ReviewOutcomeSchema` is the
  * persisted twin, and the engine's `SettledRun` is typed off this one, so a new ending that reached
  * the engine without reaching the verdict would fail to compile rather than fail to parse).
  *
  * - `done` — the child's turn ended with a report: its last status was idle and it had said something.
+ *   A turn a person stopped on the CHILD itself meets that too, and is reported as `done` today; the
+ *   renderer tells the two apart by the transcript's stop marker before it takes a pane back.
  * - `interrupted` — the delegating session was interrupted, and the run was cancelled with it.
  * - `timeout` — the child ran past its budget and was interrupted.
  * - `failed` — the child's session errored or ended before it finished.
@@ -93,6 +86,15 @@ export type DelegationOutcome = z.infer<typeof DelegationOutcomeSchema>;
  */
 export const CLOSE_FINISHED_AGENT_PANES_KEY = "sessions.closeFinishedAgentPanes";
 
+/**
+ * A run the delegation engine is holding open for a parent session, as the renderer reads it.
+ *
+ * Deliberately thin. The child is a REAL session, so its title, agent, status and space already
+ * reach the renderer through the session row and the ordinary status stream; copying any of that
+ * here would put a second description of the same thing on the wire, free to drift. What is left is
+ * exactly what only the engine's in-memory registry knows — that this parent is waiting on this
+ * session, since when, and under which of the two waits.
+ */
 export const DelegatedRunSchema = z.object({
   sessionId: IdSchema,
   startedAt: z.number().int(),
