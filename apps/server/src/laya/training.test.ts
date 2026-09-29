@@ -92,6 +92,8 @@ describe("a training run", () => {
     expect(rt.starts.at(-1)!.checkpoint).toBe(join(rt.checkpointsDir, "2026-09-29T07-12"));
     expect(result.report.checkpoint).toBe("local:2026-09-29T07-12");
     expect(LayaEvalReportSchema.parse(readEval(join(result.dir, "eval.json")))).toMatchObject({ checkpoint: "local:2026-09-29T07-12", benchmark: { split: "heldout" } });
+    // And the server it scored through is gone: 0.8 GB of weights held for nobody otherwise.
+    await expect(fetch(`http://127.0.0.1:${rt.starts.at(-1)!.port}/health`)).rejects.toThrow();
   }, 60_000);
 
   it("refuses to start without the download to train from", async () => {

@@ -99,7 +99,6 @@ function sameWord(a: string, b: string): boolean {
   const one = (w: string) => (w.length > 3 && w.endsWith("s") ? w.slice(0, -1) : w);
   if (one(a) === one(b)) return true;
   const shorter = Math.min(a.length, b.length);
-  if (shorter < 4) return false;
   let n = 0;
   while (n < shorter && a[n] === b[n]) n++;
   return n >= Math.max(4, shorter - 3);

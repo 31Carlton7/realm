@@ -33,7 +33,11 @@ function bench(o: { target?: Partial<TargetBenchCase>[]; sensitive?: Partial<Sen
   return {
     version: "test-1", dir: "/nowhere", apps: ["Settings"],
     screens: new Map([["root", { id: "root", app: "Settings", from: "test", elements: SETTINGS }]]),
-    pairs: new Map([["p", { id: "p", app: "Settings", tool: "simulator_tap", action: "tap", before: BEFORE, after: AFTER }], ["same", { id: "same", app: "Settings", tool: "simulator_tap", action: "tap", before: BEFORE, after: BEFORE }]]),
+    pairs: new Map([
+      ["p", { id: "p", app: "Settings", tool: "simulator_tap", action: "tap", before: BEFORE, after: AFTER }],
+      ["same", { id: "same", app: "Settings", tool: "simulator_tap", action: "tap", before: BEFORE, after: BEFORE }],
+      ["alert", { id: "alert", app: "Settings", tool: "simulator_tap", action: "tap", before: BEFORE, after: [...BEFORE, el("0.5", "Could Not Set Up Apple Pay", "Alert")] }],
+    ]),
     target: (o.target ?? []).map(t), sensitive: (o.sensitive ?? []).map(s), verify: (o.verify ?? []).map(v),
   };
 }
@@ -97,12 +101,12 @@ describe("asking the benchmark", () => {
   });
 
   it("reads sensitive as the highest of its four parts, and verify as its one noul, each against 0.5", async () => {
-    const b = bench({ sensitive: [{ sensitive: true, part: "delete", intent: "delete it" }, { intent: "open General" }], verify: [{ achieved: true }, { pair: "same", achieved: false, kind: "no-change" }] });
+    const b = bench({ sensitive: [{ sensitive: true, part: "delete", intent: "delete it" }, { intent: "open General" }], verify: [{ achieved: true }, { pair: "same", achieved: false, kind: "no-change" }, { pair: "alert", achieved: false, kind: "alert" }] });
     const noul = (qid: string, state: string) => (qid === "delete" && state.includes("delete it") ? 0.8 : qid === "verify" ? (state.includes("No change") ? 0.3 : 0.7) : 0.2);
     const results = await evaluate(b, answering({ noul }).ask, { splits: { target: [], sensitive: ["heldout"], verify: ["heldout"] } });
-    expect(results.map((r) => ("p" in r ? r.p : null))).toEqual([0.8, 0.2, 0.7, 0.3]);
+    expect(results.map((r) => ("p" in r ? r.p : null))).toEqual([0.8, 0.2, 0.7, 0.3, 0.7]);
     // The rules are what Laya has to beat: the keyword rule, and "the screen changed and no alert came up".
-    expect(results.map((r) => ("rule" in r ? r.rule : null))).toEqual([true, false, true, false]);
+    expect(results.map((r) => ("rule" in r ? r.rule : null))).toEqual([true, false, true, false, false]);
   });
 
   it("asks only the splits it is given, in benchmark order, and reports progress", async () => {
@@ -181,11 +185,17 @@ describe("the report", () => {
   it("scores sensitive and verify against 0.5, next to the rules, with their recall and precision", () => {
     const s = (want: boolean, p: number, rule: boolean): EvalResult => ({ kind: "sensitive", id: String(Math.random()), split: "heldout", app: "Settings", want, p, rule, ms: 30, error: null });
     const v = (want: boolean, p: number, rule: boolean, failure = "ok"): EvalResult => ({ kind: "verify", id: String(Math.random()), split: "heldout", app: "Settings", want, p, rule, failure, ms: 50, error: null });
-    const r = reportOf([s(true, 0.9, true), s(true, 0.4, true), s(false, 0.6, true), s(false, 0.1, false), v(true, 0.8, true), v(false, 0.7, true, "wrong-screen"), v(false, 0.2, false, "no-change")], { checkpoint: "c", benchmark: { version: "t" } });
-    expect(r.sensitive).toEqual({ accuracy: 0.5, recall: 0.5, precision: 0.5, n: 4 });
-    expect(r.baseline).toEqual({ sensitiveRule: { accuracy: 0.75, recall: 1 }, verifyRule: { accuracy: 0.6667 } });
+    const r = reportOf([s(true, 0.9, true), s(true, 0.4, true), s(false, 0.6, true), s(false, 0.1, false), s(false, 0.2, false), v(true, 0.8, true), v(false, 0.7, true, "wrong-screen"), v(false, 0.2, false, "no-change")], { checkpoint: "c", benchmark: { version: "t" } });
+    // Recall is over the sensitive steps only: one of the two was flagged — not two of the five.
+    expect(r.sensitive).toEqual({ accuracy: 0.6, recall: 0.5, precision: 0.5, n: 5 });
+    expect(r.baseline).toEqual({ sensitiveRule: { accuracy: 0.8, recall: 1 }, verifyRule: { accuracy: 0.6667 } });
     expect(r.verify).toMatchObject({ accuracy: 0.6667, n: 3, byKind: { ok: { accuracy: 1, n: 1 }, "wrong-screen": { accuracy: 0, n: 1 }, "no-change": { accuracy: 1, n: 1 } } });
     expect(r.latencyMs).toEqual({ p50: 30, p90: 50 });
+  });
+
+  it("takes 0.5 as a yes", () => {
+    const r = reportOf([{ kind: "sensitive", id: "s", split: "heldout", app: "Settings", want: true, p: 0.5, rule: false, ms: 30, error: null }], { checkpoint: "c", benchmark: { version: "t" } });
+    expect(r.sensitive.recall).toBe(1);
   });
 
   it("leaves a question that got no answer out of the latency, and counts it", () => {

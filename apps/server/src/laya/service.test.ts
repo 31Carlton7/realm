@@ -587,6 +587,11 @@ describe("training", () => {
     expect(service.client()).toBeNull();
     expect(await state(service)).toEqual({ state: "off" });
     await expect(service.train()).rejects.toMatchObject({ code: "LAYA_TRAINING" });
+    // Switching Shadow on again mid-run does not start a second model beside the one training.
+    const starts = runtime.starts.length;
+    await service.setMode("shadow");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(runtime.starts).toHaveLength(starts);
     release();
     await trainingDone(service);
     await until(() => service.client() !== null);
