@@ -264,6 +264,9 @@ async function main() {
     opened = await call("simulator_open", { udid: target });
   }
   console.log(`(open answered in ${Math.round((Date.now() - t0) / 1000)}s) ${text(opened)}`);
+  // The device's name as Realm says it — the card below is checked against this, not a model name
+  // written into the script: which iPhone is shut down to boot differs from one Mac, and run, to the next.
+  const deviceName = text(opened).match(/^Opened (.+?) \(/)?.[1] ?? null;
   check("the device comes up streaming in a pane", !opened.isError && /Opened .* in simulator pane/.test(text(opened)), text(opened));
 
   // ── 4. BESIDE the session, and painting ─────────────────────────────────────────────────
@@ -381,7 +384,7 @@ async function main() {
   console.log(`(simulator_tap answered in ${tapMs} ms) ${text(tapped)}`);
   check(`simulator_tap by element opens ${first.label}`, !tapped.isError && text(tapped).includes(`Tapped [${first.row[1]}]`), text(tapped));
   check("…behind a card that names the device and the rest of the session", inputCards().length === 1
-    && inputCards()[0].title === "Tap, swipe and type on iPhone Air for the rest of this session", inputCards());
+    && inputCards()[0].title === `Tap, swipe and type on ${deviceName} for the rest of this session`, inputCards());
   const pushed = await steady((t) => !rowAt(t, first.label), `the ${first.label} screen`);
   check(`the elements say the ${first.label} screen is up`, !!pushed, pushed?.split("\n").slice(4, 10));
   await capture("input-opened");
