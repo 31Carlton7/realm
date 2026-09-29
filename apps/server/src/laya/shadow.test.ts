@@ -466,6 +466,13 @@ describe("the sensitive rule", () => {
     expect(labelled.map(([text]) => sensitiveRule(text).value)).toEqual(labelled.map(([, want]) => want));
   });
 
+  it("reads clearing data as deleting it, and clearing a search field as neither", () => {
+    expect(sensitiveRule("tap 'Clear History and Website Data'")).toEqual({ value: true, matched: "clear" });
+    expect(sensitiveRule("tap 'Clear All' in Notifications").value).toBe(true);
+    expect(sensitiveRule("tap 'Clear text' in the search field").value).toBe(false);
+    expect(sensitiveRule("tap 'Clear search'").value).toBe(false);
+  });
+
   it("marks a secure text field as a secret", () => {
     // A field macOS marks secure is a secret whatever its label says.
     expect(sensitiveRule(`act on ${plainRole("AXSecureTextField")} 'Code'`)).toEqual({ value: true, matched: "secure text field" });

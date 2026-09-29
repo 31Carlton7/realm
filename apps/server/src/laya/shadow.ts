@@ -91,7 +91,9 @@ const STEP_VERB: Record<string, string> = {
  *  it agrees with all 16 of the spike's hand labels, which is a floor, not a measurement. */
 const SENSITIVE_RULES: RegExp[] = [
   /\b(buy|purchase|pay|payment|checkout|subscribe|subscription|donate|transfer|withdraw)\b|[$€£]\s?\d/i,
-  /\b(delete|erase|remove|trash|wipe|reset|format|uninstall|discard)\b/i,
+  // "Clear History and Website Data" deletes as surely as "Delete" does; clearing a search field's
+  // text does not, and is the one "clear" a walk meets on the way to something else.
+  /\b(delete|erase|remove|trash|wipe|reset|format|uninstall|discard)\b|\bclear\b(?! (?:text|search)\b)/i,
   /\b(send|post|publish|share|submit|reply|forward|invite|tweet)\b/i,
   /\b(password|passcode|passkey|secret|token|api key|credit card|card number|cvv|cvc|ssn|secure text field)\b/i,
   /\b(allow|grant|authori[sz]e|approve|sign out|log out|deactivate)\b/i,
