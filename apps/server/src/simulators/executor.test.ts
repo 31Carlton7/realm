@@ -12,7 +12,7 @@ import type { ScreenMotion } from "./screen-motion";
  */
 
 type Row = { label: string; role?: string; to?: string; value?: string; toggles?: boolean; nothing?: boolean };
-type Screen = { app?: string; rows: Row[]; heading?: string; searchBar?: boolean; topBar?: boolean; fields?: { role: string; label: string }[]; alert?: string };
+type Screen = { app?: string; rows: Row[]; heading?: string; searchBar?: boolean; topBar?: boolean; background?: boolean; fields?: { role: string; label: string }[]; alert?: string };
 
 const SCREEN = { width: 400, height: 800 };
 const PAGE = 13;
@@ -50,6 +50,8 @@ class Device {
     const el = (path: string, label: string, role: string, frame: SimulatorAxElement["frame"], value = ""): SimulatorAxElement =>
       ({ path, label, value, role, id: null, enabled: true, frame, depth: path.split(".").length });
     if (s.heading) els.push(el("0.0", s.heading, "Heading", { x: 20, y: 70, width: 200, height: 40 }));
+    // A picture behind the list, listed before it — drawn first, so under everything after it.
+    if (s.background) els.push(el("0.6", "", "Image", { x: 0, y: 100, width: 400, height: 700 }));
     const dx = this.sliding > 0 ? 200 : 0;
     s.rows.slice(this.offset, this.offset + PAGE).forEach((r, i) =>
       els.push(el(`0.1.${this.offset + i}`, r.label, r.role ?? "Button", { x: 20 + dx, y: rowY(i), width: 360, height: 44 }, r.value ?? "")));
@@ -134,16 +136,12 @@ describe("walking a path", () => {
   });
 
   it("taps what can be tapped over what only reads the same words — the back button, not the heading", async () => {
-    const d = new Device(settings(), "general");
-    // "General" is this screen's heading (StaticText-like) and nothing else here; "Settings" is its
-    // back button. THE MUTANT: rank the heading, which comes first in the tree, as highly.
-    const screens = settings();
-    screens.general!.rows.unshift({ label: "General", role: "Heading", nothing: true });
-    const d2 = new Device(screens, "general");
-    const r = await walk(d2, { path: ["Settings"] });
-    expect(d2.taps).toEqual(["Settings"]);
-    expect(heading(r.final)).toBe("Settings");
-    expect(d.taps).toEqual([]);
+    // The heading "Settings" comes first in the tree; the Back button of the same name is a row below.
+    const d = new Device({ list: { heading: "Settings", rows: [{ label: "Settings", role: "Button", to: "root" }] }, root: settings().root! }, "list");
+    await walk(d, { path: ["Settings"] });
+    // THE MUTANT: rank the heading as highly as the button, and the first in reading order — the
+    // heading, at y 90 — is what gets tapped.
+    expect(d.at.map((p) => p.y)).toEqual([rowY(0) + 22]);
   });
 
   it("reads a label the way a person writes it: case, '&' for 'and', dashes and spaces", async () => {
@@ -162,8 +160,9 @@ describe("walking a path", () => {
 
   it("takes the first of two equal matches in reading order", async () => {
     const d = new Device({ list: { rows: [{ label: "Show", to: "a" }, { label: "Show", to: "b" }] }, a: { heading: "A", rows: [] }, b: { heading: "B", rows: [] } }, "list");
-    // THE MUTANT: let a later match of the same rank replace an earlier one.
-    expect(heading((await walk(d, { path: ["Show"] })).final)).toBe("A");
+    await walk(d, { path: ["Show"] });
+    // THE MUTANT: let a later match of the same rank replace an earlier one — the second row.
+    expect(d.at.map((p) => p.y)).toEqual([rowY(0) + 22]);
   });
 
   it("taps a screen that has stopped moving, not one still sliding in", async () => {
@@ -245,6 +244,19 @@ describe("scrolling to a label", () => {
     const r = await walk(d, { path: ["Wi-Fi"], maxScrolls: 1 });
     expect(d.scrolls[0]).toBe("down");
     void r;
+  });
+
+  it("does not take what is drawn BEHIND a row for something covering it", async () => {
+    const d = new Device({ list: { rows: rows("Alpha", "Beta"), background: true } }, "list");
+    // THE MUTANT: count anything overlapping a row, before it in the tree or after. A list over a
+    // background picture then has nothing that can be tapped.
+    expect(findLabel(d.tree(), "Alpha")?.el.label).toBe("Alpha");
+  });
+
+  it("stops when a scroll does not reach the device, rather than scrolling on blind", async () => {
+    const d = new Device({ list: { rows: rows(...LONG) } }, "list");
+    const r = await walk(d, { path: ["Nowhere"] }, { scroll: async () => ({ ok: false, detail: "the device's input channel did not answer" }) });
+    expect(r.stop).toMatchObject({ why: "tap-failed", detail: "the device's input channel did not answer" });
   });
 
   it("does not take a container drawn over the list for something covering it — only what it holds", async () => {
@@ -415,10 +427,11 @@ describe("the first screen", () => {
     const seq = ["home", "home", "partial", "root", "root"];
     io.read = async () => { if (seq.length) d.current = seq.shift()!; return read(); };
     const r = await runPath(io, { path: ["General"], launched: "Settings" });
-    // THE MUTANT: take the first read as the app's screen. That is the home screen, whose "Settings"
-    // icon matches nothing the path asked for — or worse, something it did.
+    // THE MUTANT: take the first read of the app as its screen. That is Settings with no rows yet, and
+    // General is then looked for by scrolling a list that is still filling in.
     expect(r.steps[0]?.label).toBe("General");
     expect(d.taps).toEqual(["General"]);
+    expect(d.scrolls).toEqual([]);
   });
 
   it("says so when the app never comes to the front", async () => {

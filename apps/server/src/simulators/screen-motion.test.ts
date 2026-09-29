@@ -128,6 +128,20 @@ describe("watchMjpeg", () => {
     }
   });
 
+  it("reports the stream lost when the server refuses it and keeps the connection open", async () => {
+    server = http.createServer((_req, res) => { res.writeHead(503, { "Content-Type": "text/plain" }); res.write("busy"); });
+    await new Promise<void>((r) => server!.listen(0, "127.0.0.1", () => r()));
+    const { port } = server.address() as AddressInfo;
+    const motion = watchMjpeg(`http://127.0.0.1:${port}/stream.mjpeg`);
+    try {
+      // THE MUTANT: read any answer as a stream. This one never ends, so nothing would ever say lost.
+      expect(await motion.settle({ moved: 0, edges: 0, edgeBusy: false }, { changeWithinMs: 400, stillMs: 20, maxMs: 400 })).toBe("lost");
+    } finally {
+      motion.close();
+      server.closeAllConnections();
+    }
+  });
+
   it("reports the stream lost when the server refuses it", async () => {
     server = http.createServer((_req, res) => { res.writeHead(404); res.end("No serve-sim device"); });
     await new Promise<void>((r) => server!.listen(0, "127.0.0.1", () => r()));
@@ -192,13 +206,15 @@ describe("rest, with the edge left out", () => {
   });
 
   it("counts a change at the edge as a step's effect when the edge was quiet — a switch there, flipping", async () => {
-    const { tracker, now } = clocked();
+    const { tracker, now, advance } = clocked();
     tracker.frame(BASE); tracker.frame(BASE);
+    advance(1_000);
     const mark = tracker.motion.mark();
     tracker.frame(INDICATOR);
     expect(await tracker.motion.settle(mark, still)).toBe("still");
     // …and waits stillMs from the change, as for any other: the edge's own motion may still be going.
-    expect(now()).toBeGreaterThanOrEqual(120);
+    // THE MUTANT: time rest from the last move alone, a second ago — rest at once, mid-flip.
+    expect(now() - 1_000).toBeGreaterThanOrEqual(120);
   });
 
   it("does not count one while the edge was already changing — the last step's indicator, still fading", async () => {
