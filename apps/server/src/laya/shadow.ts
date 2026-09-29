@@ -91,7 +91,10 @@ const STEP_VERB: Record<string, string> = {
  *  it agrees with all 16 of the spike's hand labels, which is a floor, not a measurement. */
 const SENSITIVE_RULES: RegExp[] = [
   /\b(buy|purchase|pay|payment|checkout|subscribe|subscription|donate|transfer|withdraw)\b|[$€£]\s?\d/i,
-  /\b(delete|erase|remove|trash|wipe|reset|format|uninstall|discard)\b/i,
+  // "Clear History and Website Data" deletes as surely as "Delete" does; clearing a search field's
+  // text does not, and is the one "clear" a walk meets on the way to something else. Formatting is a
+  // deletion only when it is a disk being formatted: every Mac app with text has a Format menu.
+  /\b(delete|erase|remove|trash|wipe|reset|uninstall|discard)\b|\bclear\b(?! (?:text|search)\b)|\bformat\b(?= (?:the |this |a )?(?:disk|drive|volume|card|partition)\b)/i,
   /\b(send|post|publish|share|submit|reply|forward|invite|tweet)\b/i,
   /\b(password|passcode|passkey|secret|token|api key|credit card|card number|cvv|cvc|ssn|secure text field)\b/i,
   /\b(allow|grant|authori[sz]e|approve|sign out|log out|deactivate)\b/i,
@@ -107,7 +110,8 @@ const ANSWER_FRESH_MS = 10_000;
 
 type Chosen = ActObservation["chosen"];
 type Truth = {
-  target: { id: string; source: "agent" } | null;
+  /** `laya` when Assist chose it from the agent's words: logged, and never trained on as the agent's. */
+  target: { id: string; source: "agent" | "laya" } | null;
   sensitive: { value: boolean; source: "rule"; matched: string | null };
   permission: { decision: "allow" | "allow_always"; source: "user" } | null;
   verify: { value: boolean; source: "heuristic"; why: string } | null;
@@ -248,7 +252,7 @@ export class LayaShadow {
       chosenElement, candidates: [],
       checkpoint: this.d.laya.checkpoint(),
       truth: {
-        target: chosenElement ? { id: chosenElement.id, source: "agent" } : null,
+        target: chosenElement ? { id: chosenElement.id, source: o.chosenBy === "laya" ? "laya" : "agent" } : null,
         sensitive: { ...sensitiveRule(`${intent} ${chosenElement ? describeTarget(chosenElement) : ""}`), source: "rule" },
         permission: answer,
         verify: null,
@@ -295,18 +299,14 @@ export class LayaShadow {
     step.candidates = pickCandidates(step.elements, chosenElement, intent);
 
     if (intent && chosenElement) {
-      const options = optionsFor(step.candidates);
+      const q = targetQuestion(intent, step.candidates, o.tool);
       try {
-        const { answers, ms } = await client.ask(
-          `Goal: ${intent}.`,
-          { target: { type: "choice", instructions: `Which on-screen element should be ${TARGET_VERB[o.tool] ?? "used"} to: ${intent}?`, criteria: options.criteria } },
-          timeout,
-        );
+        const { answers, ms } = await client.ask(q.state, q.questions, timeout);
         const a = answers.target;
         if (a?.type !== "choice") throw new Error("no choice in the answer");
         step.laya.target = {
-          choice: options.idOf.get(a.choice) ?? null,
-          probabilities: Object.fromEntries(Object.entries(a.probabilities).map(([k, p]) => [options.idOf.get(k) ?? k, p])),
+          choice: q.idOf.get(a.choice) ?? null,
+          probabilities: Object.fromEntries(Object.entries(a.probabilities).map(([k, p]) => [q.idOf.get(k) ?? k, p])),
           confidence: a.confidence, ms: Math.round(ms),
         };
       } catch (e) {
@@ -421,6 +421,25 @@ export function sensitiveRule(text: string): { value: boolean; matched: string |
 /** "AXPopUpButton" → "pop up button": the words Laya reads in its own training data, not an API's. */
 export function plainRole(role: string): string {
   return role.replace(/^AX/, "").replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2").toLowerCase().trim() || "element";
+}
+
+/**
+ * The `target` question, exactly as the shadow asks it — and as Assist and the eval harness ask it,
+ * which is why it is one function: a threshold fitted on one wording means nothing for another. The
+ * goal alone is the state and the screen is in the options (22 of the spike's 28, against 10 with
+ * the screen in the state as well). `idOf` maps an answer back to the element it names.
+ */
+export function targetQuestion(goal: string, candidates: ObservedElement[], tool: string): {
+  state: string;
+  questions: { target: { type: "choice"; instructions: string; criteria: Record<string, string> } };
+  idOf: Map<string, string>;
+} {
+  const options = optionsFor(candidates);
+  return {
+    state: `Goal: ${goal}.`,
+    questions: { target: { type: "choice", instructions: `Which on-screen element should be ${TARGET_VERB[tool] ?? "used"} to: ${goal}?`, criteria: options.criteria } },
+    idOf: options.idOf,
+  };
 }
 
 /**

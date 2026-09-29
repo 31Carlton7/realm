@@ -18,7 +18,7 @@ import { useApp } from "../../state/store";
  * allowed; a click that the server would refuse is simply not offered.
  */
 
-const MODE_LABEL: Record<LayaMode, string> = { off: "Off", shadow: "Shadow" };
+const MODE_LABEL: Record<LayaMode, string> = { off: "Off", shadow: "Shadow", assist: "Assist" };
 
 /** The checkpoint's size in MB, for the one step with a real denominator. `LAYA_CHECKPOINT_BYTES`. */
 const CHECKPOINT_MB = 846;
@@ -137,17 +137,27 @@ function ModeRow({ laya }: { laya: LayaStatus }) {
             on: nothing changes for the agent. */}
         <span className="settings-row-desc">
           Shadow asks it on every computer step and logs the answer beside what the agent did. Nothing it says reaches the agent, a permission card or the transcript.
+          Assist also lets an agent name an element in words and uses Laya's pick when it is sure — never for a purchase, a deletion, a message or a password.
         </span>
+        {/* Why Assist is locked, where the locked option can be seen: earned by a measurement, never
+            chosen, and the sentence says which measurement. */}
+        {!laya.assist.available && <span className="settings-row-desc laya-assist-lock">{laya.assist.reason}</span>}
       </div>
       <fieldset className="settings-tabs" aria-label="Laya" disabled={!laya.installed}
         title={laya.installed ? undefined : "Install Laya first."}>
-        {LAYA_MODES.map((m) => (
-          <label key={m} className="settings-tab" data-selected={laya.mode === m || undefined}>
-            <input type="radio" name="settings-laya-mode" value={m} checked={laya.mode === m}
-              onChange={() => run(() => setLayaMode(m))} />
-            {MODE_LABEL[m]}
-          </label>
-        ))}
+        {LAYA_MODES.map((m) => {
+          // Assist stays selectable only while it is already on or the gate is open; the server
+          // refuses it otherwise with the same reason shown above.
+          const locked = m === "assist" && !laya.assist.available && laya.mode !== "assist";
+          return (
+            <label key={m} className="settings-tab" data-selected={laya.mode === m || undefined}
+              title={locked ? laya.assist.reason ?? undefined : undefined}>
+              <input type="radio" name="settings-laya-mode" value={m} checked={laya.mode === m} disabled={locked}
+                onChange={() => run(() => setLayaMode(m))} />
+              {MODE_LABEL[m]}
+            </label>
+          );
+        })}
       </fieldset>
     </li>
   );

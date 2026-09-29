@@ -23,7 +23,10 @@ export type DevicePoint = { x: number; y: number };
 export type DeviceInput =
   | { kind: "tap"; at: DevicePoint; count: 1 | 2 }
   | { kind: "hold"; at: DevicePoint; ms: number }
-  | { kind: "swipe"; from: DevicePoint; to: DevicePoint; ms: number; holdMs: number }
+  /** `stopMs` holds the finger still at `to` before it lifts, so a list stops where the finger does
+   *  rather than flying on — how a walk scrolls by a known amount. iOS only: Android's `input swipe`
+   *  has no pause before the lift. */
+  | { kind: "swipe"; from: DevicePoint; to: DevicePoint; ms: number; holdMs: number; stopMs?: number }
   | { kind: "text"; text: string }
   | { kind: "press"; key: DeviceKey };
 
@@ -111,7 +114,7 @@ export function iosSteps(input: DeviceInput): InputStep[] {
       const n = Math.max(2, Math.round(input.ms / MOVE_EVERY_MS));
       const every = input.ms / n;
       const at = (t: number): DevicePoint => ({ x: input.from.x + (input.to.x - input.from.x) * t, y: input.from.y + (input.to.y - input.from.y) * t });
-      const moves = Array.from({ length: n }, (_, i) => touch("move", at((i + 1) / n), i === n - 1 ? 0 : every));
+      const moves = Array.from({ length: n }, (_, i) => touch("move", at((i + 1) / n), i === n - 1 ? (input.stopMs ?? 0) : every));
       return [touch("begin", input.from, input.holdMs + every), ...moves, touch("end", input.to, 0)];
     }
     case "text":

@@ -256,7 +256,7 @@ async function main() {
   const call = async (name, args = {}) => client.callTool({ name: `realm-simulator__${name}`, arguments: args }, undefined, { timeout: 180_000 });
 
   const tools = (await client.listTools()).tools.map((t) => t.name).filter((n) => n.startsWith("realm-simulator__"));
-  check("a real session's gateway lists the fourteen simulator tools", tools.length === 14, tools);
+  check("a real session's gateway lists the fifteen simulator tools", tools.length === 15, tools);
 
   // ── 2. The device list, and a device nobody has up ──────────────────────────────────────
   const listed = text(await call("simulator_list"));
@@ -367,7 +367,7 @@ async function main() {
       return still && holds(t) ? t : null;
     }, 25_000, tag).catch(() => null);
   };
-  const INPUT = ["simulator_tap", "simulator_double_tap", "simulator_long_press", "simulator_swipe", "simulator_type", "simulator_press"];
+  const INPUT = ["simulator_do", "simulator_tap", "simulator_double_tap", "simulator_long_press", "simulator_swipe", "simulator_type", "simulator_press"];
   const inputCards = () => cards.filter((k) => INPUT.includes(k.tool));
   const capture = async (tag) => {
     await sleep(1200); // the stream can lag the tree by a beat
@@ -500,6 +500,40 @@ async function main() {
     check("…and nothing Laya said reached the agent: no tool result mentions it",
       ![tapped].some((r) => /laya/i.test(text(r))), text(tapped));
   }
+
+  // ── 7c. One walk, one call ──────────────────────────────────────────────────────────────
+  /* simulator_do: Settings opened fresh and General › About walked in ONE call, from the home screen
+     the steps above left it on. Judged the way the rest of this script judges — the answer's own
+     elements, then a number from that answer tapped, then a steady read — and timed, next to the
+     tap-by-tap steps above, which cost the agent a call for every read and every tap. */
+  const walkCardsBefore = inputCards().length;
+  const [walked, walkMs] = await timed(() => call("simulator_do", { simulatorId, intent: "find the iOS version", app: "com.apple.Preferences", path: ["General", "About"] }));
+  const walkText = text(walked);
+  console.log(`WALK General › About: ${walkMs} ms, 1 call`);
+  check("simulator_do opens Settings fresh and walks General › About in one call", !walked.isError && /^Walked "General" → "About" on /.test(walkText), walkText.split("\n").slice(0, 3));
+  check("…and hands back the About screen it ended on, numbered", /\[\d+\] \w+ "(iOS Version|Name)\b/.test(walkText) && walkText.includes("<<<"), walkText.split("\n").filter((l) => /^\[\d+\]/.test(l)).slice(0, 8));
+  check("…asking what simulator_launch asks, and no second input card for the device", cards.some((k) => k.tool === "simulator_launch") && inputCards().length === walkCardsBefore, cards.map((k) => k.tool));
+  // A number from the walk's answer is one the next tap takes: the back button, named for General.
+  const backFromWalk = walkText.match(/\[(\d+)\] Button "General"/);
+  check("the walk's answer has a Back button to General, by number", !!backFromWalk, walkText.split("\n").slice(3, 12));
+  if (backFromWalk) {
+    const r = await call("simulator_tap", { simulatorId, intent: "back to General", element: Number(backFromWalk[1]) });
+    check("simulator_tap takes a number from the walk's answer", !r.isError, text(r));
+    const general = await steady((t) => !!rowAt(t, "About"), "General, after the walk's number");
+    check("…and General is what is up", !!general, general?.split("\n").slice(4, 9));
+  }
+  // A label this Settings does not have: the walk stops where it is, and says what is there instead.
+  const [missing, missingMs] = await timed(() => call("simulator_do", { simulatorId, intent: "open a pane that is not there", path: ["No Such Pane"] }));
+  check("a walk to a label the screen does not have stops, naming the likeliest by number", missing.isError && /stopped|Stopped/.test(text(missing)) && /The likeliest: \[\d+\]/.test(text(missing)), text(missing).split("\n")[0]);
+  console.log(`WALK to a missing label: ${missingMs} ms before it stopped`);
+  // A destructive step: Apps › Safari › Clear History. The walk goes as far as the button and stops.
+  const [clearing, clearMs] = await timed(() => call("simulator_do", { simulatorId, intent: "clear Safari's history", app: "com.apple.Preferences", path: ["Apps", "Safari", "Clear History and Website Data"] }));
+  const clearText = text(clearing);
+  console.log(`WALK Apps › Safari › Clear History: ${clearMs} ms`);
+  check("a walk into Clear History stops before it, and says to take that step by number", clearing.isError && clearText.includes("A walk never takes that kind of step"), clearText.split("\n")[0]);
+  check("…having walked Apps and Safari to get there", /Walked "Apps".* → "Safari"/.test(clearText), clearText.split("\n")[0]);
+  const safari = await steady((t) => /"Clear History and Website Data"/.test(t), "Safari's settings, still up");
+  check("…and Safari's settings are still what is up: nothing was cleared", !!safari, safari?.split("\n").slice(4, 9));
 
   // ── 8. The browser guard ────────────────────────────────────────────────────────────────
   const browse = async (url) => client.callTool({ name: "realm-browser__browser_open", arguments: { url } }, undefined, { timeout: 60_000 });

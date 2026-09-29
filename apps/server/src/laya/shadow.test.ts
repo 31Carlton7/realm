@@ -125,6 +125,15 @@ describe("asking Laya about a step", () => {
     expect(rows().map((r) => r.truth.target)).toEqual([{ id: "2", source: "agent" }, null, null]);
   });
 
+  it("labels a step Laya chose in Assist as Laya's, so it is never learned from as the agent's", async () => {
+    // THE MUTANT: record it as `agent`. Laya would then be trained on its own answers.
+    const { shadow, rows } = await setup();
+    shadow.observe(step({ chosenBy: "laya" }));
+    shadow.observe(step({ intent: "open Bluetooth", chosen: { element: SETTINGS[3]! } }));
+    await shadow.flush();
+    expect(rows().map((r) => r.truth.target)).toEqual([{ id: "2", source: "laya" }, { id: "3", source: "agent" }]);
+  });
+
   it("labels the step sensitive by rule, with the word that matched", async () => {
     const { shadow, rows } = await setup();
     shadow.observe(step({ intent: "buy the upgrade", chosen: { element: el("9", "Buy $4.99") }, elements: [el("9", "Buy $4.99")] }));
@@ -455,6 +464,20 @@ describe("the sensitive rule", () => {
       ["take a screenshot", false], ["tap 'Search' in Settings", false], ["tap 'Reload' in Safari", false],
     ];
     expect(labelled.map(([text]) => sensitiveRule(text).value)).toEqual(labelled.map(([, want]) => want));
+  });
+
+  it("reads clearing data as deleting it, and clearing a search field as neither", () => {
+    expect(sensitiveRule("tap 'Clear History and Website Data'")).toEqual({ value: true, matched: "clear" });
+    expect(sensitiveRule("tap 'Clear All' in Notifications").value).toBe(true);
+    expect(sensitiveRule("tap 'Clear text' in the search field").value).toBe(false);
+    expect(sensitiveRule("tap 'Clear search'").value).toBe(false);
+  });
+
+  it("reads formatting a disk as deleting it, and a Format menu as neither", () => {
+    expect(sensitiveRule("format the disk as APFS").value).toBe(true);
+    expect(sensitiveRule("tap 'Format Drive'").value).toBe(true);
+    expect(sensitiveRule("click 'Format' in TextEdit's menu bar").value).toBe(false);
+    expect(sensitiveRule("click 'Format' then 'Font'").value).toBe(false);
   });
 
   it("marks a secure text field as a secret", () => {

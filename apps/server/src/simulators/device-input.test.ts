@@ -59,6 +59,16 @@ describe("what one input is on an iOS device", () => {
     expect(steps.at(-2)!.waitMs).toBe(0);
   });
 
+  it("holds still at the end before lifting, when asked to — a scroll that stops where the finger does", () => {
+    const stopped = plan(iosSteps({ kind: "swipe", from: { x: 0.5, y: 0.75 }, to: { x: 0.5, y: 0.25 }, ms: 320, holdMs: 0, stopMs: 120 }));
+    const flicked = plan(iosSteps({ kind: "swipe", from: { x: 0.5, y: 0.75 }, to: { x: 0.5, y: 0.25 }, ms: 320, holdMs: 0 }));
+    // The pause is between the last move and the lift, and nowhere else.
+    expect(stopped.at(-2)!.body.type).toBe("move");
+    expect(stopped.at(-2)!.waitMs).toBe(120);
+    expect(stopped.slice(0, -2)).toEqual(flicked.slice(0, -2));
+    expect(stopped.at(-1)).toEqual(flicked.at(-1));
+  });
+
   it("holds still where the finger went down before it moves, when asked to", () => {
     const held = plan(iosSteps({ kind: "swipe", from: { x: 0.2, y: 0.5 }, to: { x: 0.8, y: 0.5 }, ms: 160, holdMs: 700 }));
     const plain = plan(iosSteps({ kind: "swipe", from: { x: 0.2, y: 0.5 }, to: { x: 0.8, y: 0.5 }, ms: 160, holdMs: 0 }));

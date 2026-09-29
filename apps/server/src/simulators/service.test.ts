@@ -12,6 +12,7 @@ import { SimulatorService, toolchainAvailable } from "./service";
 import type { Simctl } from "./simctl";
 import type { ServeSim, ServeSimStream } from "./serve-sim";
 import { iosSteps, type InputChannel, type InputStep } from "./device-input";
+import type { ScreenMotion } from "./screen-motion";
 import type { SimulatorState } from "@realm/contracts";
 
 /* The service, with the two CLIs faked. Both seams exist so a suite never depends on this Mac having
@@ -28,7 +29,7 @@ const SCREEN = { width: 1206, height: 2622, orientation: "portrait" };
 const dbs: Db[] = [];
 afterEach(() => { for (const db of dbs.splice(0)) db.close(); vi.restoreAllMocks(); });
 
-function bring(over: { simctl?: Partial<Simctl>; serveSim?: Partial<ServeSim>; inputChannel?: InputChannel } = {}) {
+function bring(over: { simctl?: Partial<Simctl>; serveSim?: Partial<ServeSim>; inputChannel?: InputChannel; watchScreen?: (url: string) => ScreenMotion } = {}) {
   const home = tempDir("realm-sim-");
   const db = openDatabase(join(home, "realm.db"));
   dbs.push(db);
@@ -45,7 +46,7 @@ function bring(over: { simctl?: Partial<Simctl>; serveSim?: Partial<ServeSim>; i
     screenshot: async (udid, path) => { calls.push(`screenshot:${udid}:${path}`); return { ok: true, detail: "" }; },
     openUrl: async (udid, url) => { calls.push(`openUrl:${udid}:${url}`); return { ok: true, detail: "" }; },
     install: async (udid, path) => { calls.push(`install:${udid}:${path}`); return { ok: true, detail: "" }; },
-    launch: async (udid, bundleId) => { calls.push(`launch:${udid}:${bundleId}`); return { ok: true, detail: "" }; },
+    launch: async (udid, bundleId, fresh) => { calls.push(`launch:${udid}:${bundleId}${fresh ? ":fresh" : ""}`); return { ok: true, detail: "" }; },
     addMedia: async (udid, paths) => { calls.push(`addMedia:${udid}:${paths.join(",")}`); return { ok: true, detail: "" }; },
     pasteTo: async (udid, text) => { calls.push(`pasteTo:${udid}:${text}`); return { ok: true, detail: "" }; },
     copyFrom: async (udid) => { calls.push(`copyFrom:${udid}`); return { ok: true, text: "from the device", detail: "" }; },
@@ -81,6 +82,7 @@ function bring(over: { simctl?: Partial<Simctl>; serveSim?: Partial<ServeSim>; i
   const service = new SimulatorService({
     rpc: { broadcast: (name: string, payload: unknown) => { if (name === "simulator.status") events.push(payload as SimulatorState); } } as never,
     spaces, items, simulators: new SimulatorsStore(db), simctl: cli, serveSim: stream, inputChannel: over.inputChannel,
+    ...(over.watchScreen ? { watchScreen: over.watchScreen } : {}),
   });
   return { service, spaceId: space.id, folder: space.folderPath, items, events, calls, db };
 }
@@ -348,11 +350,13 @@ describe("everything else a device can be told to do", () => {
     const { simulatorId } = service.create({ spaceId, name: "Simulator", udid: "UDID-1" });
     await service.act(simulatorId, { kind: "open-url", url: "https://example.test" });
     await service.act(simulatorId, { kind: "launch", bundleId: "com.acme.app" });
+    await service.act(simulatorId, { kind: "launch", bundleId: "com.acme.app", fresh: true });
     await service.act(simulatorId, { kind: "install", path: "/tmp/Acme.app" });
     await service.act(simulatorId, { kind: "add-media", paths: ["/tmp/a.png", "/tmp/b.mov"] });
     await service.act(simulatorId, { kind: "permission", action: "grant", permission: "camera", bundleId: "com.acme.app" });
     expect(calls).toContain("openUrl:UDID-1:https://example.test");
     expect(calls).toContain("launch:UDID-1:com.acme.app");
+    expect(calls).toContain("launch:UDID-1:com.acme.app:fresh");
     expect(calls).toContain("install:UDID-1:/tmp/Acme.app");
     expect(calls).toContain("addMedia:UDID-1:/tmp/a.png,/tmp/b.mov");
     expect(calls).toContain("permission:UDID-1:grant:camera:com.acme.app");
@@ -458,6 +462,21 @@ describe("an agent's input on an iOS device", () => {
     expect((await service.input(simulatorId, { kind: "text", text: "Zürich" })).detail).toContain('"ü"');
     expect((await service.input(simulatorId, { kind: "press", key: "back" })).ok).toBe(false);
     expect(sent).toEqual([]);
+  });
+});
+
+describe("the motion of an iOS device's screen", () => {
+  it("is watched on the stream the pane is shown, and only once there is one", async () => {
+    const watched: string[] = [];
+    const motion: ScreenMotion = { mark: () => ({ moved: 0, edges: 0, edgeBusy: false }), settle: async () => "still", rest: async () => true, close: () => {} };
+    const { service, spaceId } = bring({ watchScreen: (url) => { watched.push(url); return motion; } });
+    const { simulatorId } = service.create({ spaceId, name: "Simulator" });
+    // THE MUTANT: build a URL from the udid. A pane Realm is not streaming has no picture to watch.
+    expect(service.motion(simulatorId)).toBeNull();
+    service.start(simulatorId, "UDID-1");
+    await settle(() => service.stateOf(simulatorId).status === "running");
+    expect(service.motion(simulatorId)).toBe(motion);
+    expect(watched).toEqual([STREAM.streamUrl]);
   });
 });
 

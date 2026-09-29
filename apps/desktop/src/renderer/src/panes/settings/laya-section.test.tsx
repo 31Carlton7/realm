@@ -16,7 +16,7 @@ import { SettingsPage } from "./SettingsPage";
 afterEach(() => cleanup());
 
 const status = (runtime: LayaRuntimeState, over: Partial<LayaStatus> = {}): LayaStatus => ({
-  mode: "off", installed: false, runtime, stepsLogged: 0, dir: "/Users/u/Realm/laya", ...over,
+  mode: "off", installed: false, runtime, stepsLogged: 0, dir: "/Users/u/Realm/laya", assist: { available: false, reason: "No checkpoint has been evaluated yet. Train Laya on this Mac first; Assist unlocks when one scores 95% on held-out steps.", threshold: null, accuracy: null }, ...over,
 });
 
 async function mount(laya: LayaStatus, over: { confirmDelete?: boolean } = {}) {
@@ -165,5 +165,25 @@ describe("the decision log row", () => {
   it("says what the log holds, where it is, and that it never leaves this Mac", async () => {
     await mount(status({ state: "off" }, { installed: true }));
     expect(screen.getByText("The log holds the labels of what was on screen at each step. It is kept in /Users/u/Realm/laya and never leaves this Mac.")).toBeInTheDocument();
+  });
+});
+
+describe("the Assist option", () => {
+  it("is shown locked, with the measurement that locks it, until a checkpoint earns it", async () => {
+    await mount(status({ state: "off" }, { installed: true }));
+    const assist = screen.getByRole("radio", { name: "Assist" });
+    // THE MUTANT: leave it selectable. The server refuses it — but only after the click.
+    expect(assist).toBeDisabled();
+    expect(screen.getByText(/Train Laya on this Mac first; Assist unlocks when one scores 95%/)).toBeInTheDocument();
+  });
+
+  it("can be chosen once the active checkpoint has earned it", async () => {
+    const { api } = await mount(status({ state: "ready", device: "mps", p50Ms: 40, checkpoint: "local:2026-09-29" }, {
+      installed: true, mode: "shadow", assist: { available: true, reason: null, threshold: 0.82, accuracy: 0.96 },
+    }));
+    const assist = screen.getByRole("radio", { name: "Assist" });
+    expect(assist).not.toBeDisabled();
+    fireEvent.click(assist);
+    await waitFor(() => expect(api.calls).toContain("layaSetMode:assist"));
   });
 });
