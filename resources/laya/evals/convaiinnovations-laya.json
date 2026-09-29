@@ -1,12 +1,12 @@
 {
   "v": 1,
   "checkpoint": "english@55cf4c4",
-  "createdAt": "2026-09-29T19:01:45.859Z",
+  "createdAt": "2026-09-29T21:27:33.385Z",
   "prompt": 2,
   "benchmark": {
-    "version": "2026-09-29.1",
+    "version": "2026-09-29.2",
     "split": "heldout",
-    "cases": 338,
+    "cases": 431,
     "apps": [
       "Calendar",
       "Contacts",
@@ -26,60 +26,60 @@
     ]
   },
   "target": {
-    "accuracy": 0.4203,
-    "n": 207,
+    "accuracy": 0.4167,
+    "n": 300,
     "byApp": {
       "Calendar": {
-        "accuracy": 0,
-        "n": 5
+        "accuracy": 0.3333,
+        "n": 6
       },
       "Contacts": {
-        "accuracy": 0.3793,
-        "n": 29
+        "accuracy": 0.3488,
+        "n": 43
       },
       "Files": {
-        "accuracy": 0.2143,
-        "n": 14
+        "accuracy": 0.3182,
+        "n": 22
       },
       "Fitness": {
         "accuracy": 0,
-        "n": 2
+        "n": 3
       },
       "Health": {
-        "accuracy": 0.6667,
-        "n": 30
+        "accuracy": 0.5962,
+        "n": 52
       },
       "Home Screen": {
         "accuracy": 0.6667,
         "n": 6
       },
       "Maps": {
-        "accuracy": 0.3962,
-        "n": 53
+        "accuracy": 0.3293,
+        "n": 82
       },
       "Messages": {
         "accuracy": 0,
         "n": 1
       },
       "News": {
-        "accuracy": 1,
+        "accuracy": 0,
         "n": 1
       },
       "Passwords": {
-        "accuracy": 0.6667,
-        "n": 12
+        "accuracy": 0.5789,
+        "n": 19
       },
       "Photos": {
         "accuracy": 0.2,
         "n": 5
       },
       "Safari": {
-        "accuracy": 0.4286,
-        "n": 7
+        "accuracy": 0.375,
+        "n": 8
       },
       "Settings": {
-        "accuracy": 0.3659,
-        "n": 41
+        "accuracy": 0.4706,
+        "n": 51
       },
       "Shortcuts": {
         "accuracy": 0,
@@ -96,64 +96,64 @@
       "trainCoverage": 0
     },
     "notCopying": {
-      "accuracy": 0.401,
-      "n": 192,
+      "accuracy": 0.4038,
+      "n": 265,
       "byApp": {
         "Calendar": {
-          "accuracy": 0,
-          "n": 5
+          "accuracy": 0.3333,
+          "n": 6
         },
         "Contacts": {
-          "accuracy": 0.3333,
-          "n": 27
+          "accuracy": 0.3514,
+          "n": 37
         },
         "Files": {
-          "accuracy": 0.2143,
-          "n": 14
+          "accuracy": 0.2857,
+          "n": 21
         },
         "Fitness": {
           "accuracy": 0,
-          "n": 2
+          "n": 3
         },
         "Health": {
-          "accuracy": 0.6667,
-          "n": 30
+          "accuracy": 0.5909,
+          "n": 44
         },
         "Home Screen": {
           "accuracy": 0.6667,
           "n": 6
         },
         "Maps": {
-          "accuracy": 0.3962,
-          "n": 53
+          "accuracy": 0.3506,
+          "n": 77
         },
         "Messages": {
           "accuracy": 0,
           "n": 1
         },
         "News": {
-          "accuracy": 1,
+          "accuracy": 0,
           "n": 1
         },
         "Passwords": {
-          "accuracy": 0.6364,
-          "n": 11
+          "accuracy": 0.5882,
+          "n": 17
         },
         "Photos": {
           "accuracy": 0.2,
           "n": 5
         },
         "Safari": {
-          "accuracy": 0.3333,
-          "n": 6
+          "accuracy": 0.2857,
+          "n": 7
         },
         "Settings": {
-          "accuracy": 0.2903,
-          "n": 31
+          "accuracy": 0.4,
+          "n": 40
         }
       }
     },
-    "candidateRecall": 0.9517
+    "candidateRecall": 0.9633
   },
   "sensitive": {
     "accuracy": 0.6308,
@@ -201,18 +201,18 @@
     }
   },
   "latencyMs": {
-    "p50": 44,
-    "p90": 54
+    "p50": 41,
+    "p90": 53
   },
   "errors": 0,
   "validation": {
     "target": {
-      "accuracy": 0.3125,
-      "n": 80
+      "accuracy": 0.2788,
+      "n": 104
     },
     "targetNotCopying": {
-      "accuracy": 0.2857,
-      "n": 70
+      "accuracy": 0.2444,
+      "n": 90
     },
     "sensitive": {
       "accuracy": 0.7273,

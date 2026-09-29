@@ -1,12 +1,12 @@
 {
   "v": 1,
   "checkpoint": "typed-decisions@1a793eb",
-  "createdAt": "2026-09-29T19:02:33.834Z",
+  "createdAt": "2026-09-29T21:28:24.855Z",
   "prompt": 2,
   "benchmark": {
-    "version": "2026-09-29.1",
+    "version": "2026-09-29.2",
     "split": "heldout",
-    "cases": 338,
+    "cases": 431,
     "apps": [
       "Calendar",
       "Contacts",
@@ -26,36 +26,36 @@
     ]
   },
   "target": {
-    "accuracy": 0.4444,
-    "n": 207,
+    "accuracy": 0.4667,
+    "n": 300,
     "byApp": {
       "Calendar": {
-        "accuracy": 0.2,
-        "n": 5
+        "accuracy": 0.1667,
+        "n": 6
       },
       "Contacts": {
-        "accuracy": 0.3448,
-        "n": 29
+        "accuracy": 0.4419,
+        "n": 43
       },
       "Files": {
-        "accuracy": 0.3571,
-        "n": 14
+        "accuracy": 0.3636,
+        "n": 22
       },
       "Fitness": {
         "accuracy": 0,
-        "n": 2
+        "n": 3
       },
       "Health": {
-        "accuracy": 0.6,
-        "n": 30
+        "accuracy": 0.5577,
+        "n": 52
       },
       "Home Screen": {
         "accuracy": 0.6667,
         "n": 6
       },
       "Maps": {
-        "accuracy": 0.4151,
-        "n": 53
+        "accuracy": 0.4268,
+        "n": 82
       },
       "Messages": {
         "accuracy": 0,
@@ -66,20 +66,20 @@
         "n": 1
       },
       "Passwords": {
-        "accuracy": 0.6667,
-        "n": 12
+        "accuracy": 0.5789,
+        "n": 19
       },
       "Photos": {
         "accuracy": 0.2,
         "n": 5
       },
       "Safari": {
-        "accuracy": 0.5714,
-        "n": 7
+        "accuracy": 0.625,
+        "n": 8
       },
       "Settings": {
-        "accuracy": 0.4634,
-        "n": 41
+        "accuracy": 0.5294,
+        "n": 51
       },
       "Shortcuts": {
         "accuracy": 0,
@@ -96,36 +96,36 @@
       "trainCoverage": 0
     },
     "notCopying": {
-      "accuracy": 0.4219,
-      "n": 192,
+      "accuracy": 0.4377,
+      "n": 265,
       "byApp": {
         "Calendar": {
-          "accuracy": 0.2,
-          "n": 5
+          "accuracy": 0.1667,
+          "n": 6
         },
         "Contacts": {
-          "accuracy": 0.2963,
-          "n": 27
+          "accuracy": 0.4054,
+          "n": 37
         },
         "Files": {
-          "accuracy": 0.3571,
-          "n": 14
+          "accuracy": 0.3333,
+          "n": 21
         },
         "Fitness": {
           "accuracy": 0,
-          "n": 2
+          "n": 3
         },
         "Health": {
-          "accuracy": 0.6,
-          "n": 30
+          "accuracy": 0.5455,
+          "n": 44
         },
         "Home Screen": {
           "accuracy": 0.6667,
           "n": 6
         },
         "Maps": {
-          "accuracy": 0.4151,
-          "n": 53
+          "accuracy": 0.4156,
+          "n": 77
         },
         "Messages": {
           "accuracy": 0,
@@ -136,24 +136,24 @@
           "n": 1
         },
         "Passwords": {
-          "accuracy": 0.6364,
-          "n": 11
+          "accuracy": 0.5882,
+          "n": 17
         },
         "Photos": {
           "accuracy": 0.2,
           "n": 5
         },
         "Safari": {
-          "accuracy": 0.5,
-          "n": 6
+          "accuracy": 0.5714,
+          "n": 7
         },
         "Settings": {
-          "accuracy": 0.3871,
-          "n": 31
+          "accuracy": 0.45,
+          "n": 40
         }
       }
     },
-    "candidateRecall": 0.9517
+    "candidateRecall": 0.9633
   },
   "sensitive": {
     "accuracy": 0.7231,
@@ -201,18 +201,18 @@
     }
   },
   "latencyMs": {
-    "p50": 44,
-    "p90": 56
+    "p50": 41,
+    "p90": 53
   },
   "errors": 0,
   "validation": {
     "target": {
-      "accuracy": 0.3125,
-      "n": 80
+      "accuracy": 0.3077,
+      "n": 104
     },
     "targetNotCopying": {
-      "accuracy": 0.3,
-      "n": 70
+      "accuracy": 0.2889,
+      "n": 90
     },
     "sensitive": {
       "accuracy": 0.7727,
