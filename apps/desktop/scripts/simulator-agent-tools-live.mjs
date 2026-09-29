@@ -325,7 +325,29 @@ async function main() {
   fs.writeFileSync(OUT("window-settings"), Buffer.from((await c.send("Page.captureScreenshot", { format: "png" })).data, "base64"));
   console.log(`SCREENSHOT window-settings ${OUT("window-settings")}`);
 
-  // ── 7. The browser guard ────────────────────────────────────────────────────────────────
+  // ── 7. The tap the preamble sends agents to serve-sim for ───────────────────────────────
+  /* The tools do not tap, and the preamble says serve-sim's own `tap -d <udid>` drives the device the
+     pane is streaming and starts nothing. That is a claim agents act on, so it is exercised here the
+     way the skill says to: the element's centre from the tree, over the screen size the tree states. */
+  const general = inSettings?.match(/\[[\d.]+\] Button "General"[^\n]*\((\d+),(\d+) (\d+)×(\d+)\)/);
+  const screen = inSettings?.match(/on a (\d+)×(\d+) screen/);
+  if (general && screen) {
+    const [x, y, w, h] = general.slice(1).map(Number), [sw, sh] = screen.slice(1).map(Number);
+    const nx = ((x + w / 2) / sw).toFixed(3), ny = ((y + h / 2) / sh).toFixed(3);
+    execFileSync("npx", ["--yes", "serve-sim@latest", "tap", nx, ny, "-d", target], { stdio: "ignore", timeout: 60_000 });
+    const inGeneral = await until(async () => {
+      const r = text(await call("simulator_elements", { simulatorId }));
+      return /"About"/.test(r) ? r : null;
+    }, 20_000, "General on screen").catch(() => null);
+    check("serve-sim's tap on the element's centre lands on the device the pane shows", !!inGeneral, { tapped: [nx, ny], after: inGeneral?.split("\n").slice(4, 8) });
+    const streams = serveSimList();
+    const forTarget = (streams.streams ?? (streams.device ? [streams] : [])).filter((s) => s.device === target);
+    check("…and started nothing: still one stream for that device, the pane's", forTarget.length === 1, forTarget.map((s) => s.port));
+  } else {
+    check("the Settings tree carries a General row to tap", false, inSettings?.split("\n").slice(0, 8));
+  }
+
+  // ── 8. The browser guard ────────────────────────────────────────────────────────────────
   const browse = async (url) => client.callTool({ name: "realm-browser__browser_open", arguments: { url } }, undefined, { timeout: 60_000 });
   const mine = serveSimList(target);
   const refused = mine.port ? await browse(`http://127.0.0.1:${mine.port}/`) : null;
