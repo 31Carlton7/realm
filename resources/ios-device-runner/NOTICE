@@ -18,8 +18,9 @@ touch, a drag and typed text at a point.
 Changed by Realm, 2026:
   - FlyingFox (the Swift package Maestro's server is built on) is replaced by a small HTTP server on
     Network.framework (Server.swift), so building the runner fetches nothing from the network.
-  - The routes are Realm's own, and fewer: status, device, hierarchy, screenshot, tap, swipe, text,
-    key, button and open (Routes.swift, Screen.swift).
+  - The routes are Realm's own, and fewer: status, device, foreground, hierarchy, screenshot, tap,
+    swipe, text, key, button and open (Routes.swift, Screen.swift). The keys are return, delete and
+    space: on iOS the others go through typing and arrive as characters.
   - Maestro's automatic answering of system permission alerts (SystemPermissionHelper) and its
     setPermissions, launchApp, terminateApp, eraseText, keyboard and setOrientation routes are not
     carried over. The runner never answers an alert on its own.

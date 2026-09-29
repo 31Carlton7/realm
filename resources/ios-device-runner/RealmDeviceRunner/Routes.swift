@@ -19,6 +19,8 @@ final class Routes {
                 return .json(["ok": true, "runner": "realm-device-runner", "version": 1])
             case ("GET", "/device"):
                 return .json(Screen.size())
+            case ("GET", "/foreground"):
+                return .json(await Screen.foreground())
             case ("GET", "/hierarchy"):
                 return .json(try await Screen.hierarchy())
             case ("GET", "/screenshot"):
@@ -121,9 +123,11 @@ final class Routes {
         try await Daemon.synthesize(record)
     }
 
+    /// The keys typing can press. MEASURED on iOS 27: the arrows, tab and escape go through the same
+    /// path as text, so the arrows land in a field as the characters ← and →, tab as a tab and escape
+    /// as nothing at all. None of them is offered rather than any of them pretending.
     private static let keys: [String: String] = [
-        "return": XCUIKeyboardKey.return.rawValue, "delete": XCUIKeyboardKey.delete.rawValue,
-        "tab": XCUIKeyboardKey.tab.rawValue, "escape": XCUIKeyboardKey.escape.rawValue, "space": XCUIKeyboardKey.space.rawValue,
+        "return": XCUIKeyboardKey.return.rawValue, "delete": XCUIKeyboardKey.delete.rawValue, "space": XCUIKeyboardKey.space.rawValue,
     ]
 
     private func key(_ body: [String: Any]) async throws {

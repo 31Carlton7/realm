@@ -15,16 +15,29 @@ enum Screen {
     /// Maestro use for the second step, is gone; the daemon's `requestApplicationSpecifierForPID:`
     /// answers instead. The older call is still tried, for an older Xcode. And SpringBoard is never
     /// in the active list at all, so it is the fallback rather than a candidate.
-    static func foregroundApp() async -> XCUIApplication {
-        var candidates: [XCUIApplication] = []
+    static func foregroundApp() async -> (app: XCUIApplication, bundleId: String) {
+        var candidates: [(app: XCUIApplication, bundleId: String)] = []
         for pid in activePids() {
-            if let id = await bundleId(forPid: pid), id != springboardId {
-                candidates.append(XCUIApplication(bundleIdentifier: id))
-            } else if let app = applicationWithPid(pid), bundleId(of: app) != springboardId {
-                candidates.append(app)
-            }
+            guard let id = await knownBundleId(forPid: pid), id != springboardId else { continue }
+            candidates.append((XCUIApplication(bundleIdentifier: id), id))
         }
-        return candidates.first { $0.state == .runningForeground } ?? XCUIApplication(bundleIdentifier: springboardId)
+        return candidates.first { $0.app.state == .runningForeground } ?? (XCUIApplication(bundleIdentifier: springboardId), springboardId)
+    }
+
+    /// A pid's bundle id, asked of the daemon once per process: an app keeps its pid for as long as it
+    /// runs, and every read of the screen would otherwise pay an XPC round trip per active app for an
+    /// answer that has not changed.
+    private static var bundleIds: [Int32: String] = [:]
+
+    private static func knownBundleId(forPid pid: Int32) async -> String? {
+        if let known = bundleIds[pid] { return known }
+        var id = await bundleId(forPid: pid)
+        if id == nil, let app = applicationWithPid(pid) {
+            let named = bundleId(of: app)
+            id = named.isEmpty ? nil : named
+        }
+        if let id { bundleIds[pid] = id }
+        return id
     }
 
     private static func activePids() -> [Int32] {
@@ -70,12 +83,24 @@ enum Screen {
         return ["width": finite(frame.width), "height": finite(frame.height), "scale": Double(UIScreen.main.scale)]
     }
 
+    /// Which app is in front, and nothing about what it shows: the question to answer before anything
+    /// else is asked of a phone somebody may be using.
+    static func foreground() async -> [String: Any] {
+        return ["bundleId": await foregroundApp().bundleId]
+    }
+
     /// The foreground app's tree: every node with its XCUIElement type number, the names the app
-    /// gives it, and its frame in points. Mapping the type numbers to words is Realm's job.
+    /// gives it, and its frame in points. Mapping the type numbers to words is Realm's job. `ms` says
+    /// where the time went, because a read is the step every walk waits on.
     static func hierarchy() async throws -> [String: Any] {
-        let app = await foregroundApp()
-        let snapshot = try app.snapshot()
-        return ["bundleId": bundleId(of: app), "tree": node(snapshot)]
+        let t0 = Date()
+        let front = await foregroundApp()
+        let t1 = Date()
+        let snapshot = try front.app.snapshot()
+        let t2 = Date()
+        let tree = node(snapshot)
+        let ms = { (a: Date, b: Date) in Int((b.timeIntervalSince(a) * 1000).rounded()) }
+        return ["bundleId": front.bundleId, "tree": tree, "ms": ["foreground": ms(t0, t1), "snapshot": ms(t1, t2), "walk": ms(t2, Date())]]
     }
 
     private static func node(_ s: XCUIElementSnapshot) -> [String: Any] {
