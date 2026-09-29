@@ -362,6 +362,12 @@ export function App() {
       const st = store.getState();
       if (spaceId === st.activeSpaceId) st.run(async () => { await st.refreshItems(); await st.openItemBeside(itemId); });
     });
+    // An agent opened a device with `simulator_open`: the same idiom, for the same reason — the user
+    // watches the app the agent is running, and the pane's own "Booting…" is the progress worth seeing.
+    const offSO = rpc().on("simulator.agentOpened", ({ spaceId, itemId }) => {
+      const st = store.getState();
+      if (spaceId === st.activeSpaceId) st.run(async () => { await st.refreshItems(); await st.openItemBeside(itemId); });
+    });
     // A session delegated a browsing goal to a browser-agent session (Plan 11 W5): same idiom — the
     // child is a real session, and the point of it being one is that the user watches its whole
     // trace, so it comes into the layout the moment it exists. Other spaces gain the sidebar item
@@ -457,7 +463,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offSc(); offI(); offV(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offMem(); offB(); offDO(); offSA(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offSc(); offI(); offV(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offMem(); offB(); offSO(); offDO(); offSA(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

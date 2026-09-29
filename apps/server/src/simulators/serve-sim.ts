@@ -1,4 +1,7 @@
 import { execFile } from "node:child_process";
+import { readdir, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { SimulatorAxElement, SimulatorAxTree, SimulatorCameraSource, SimulatorEvent, SimulatorScreen, SimulatorUiState } from "@realm/contracts";
 
 /**
@@ -155,6 +158,26 @@ export function parseEvents(stdout: string): SimulatorEvent[] {
   return [];
 }
 
+/**
+ * Where serve-sim keeps a record of each stream it is running: `server-<udid>.json` in
+ * `<tmpdir>/serve-sim`, read out of its own `state.ts`. `--list` is nothing more than those files
+ * with the dead pids dropped, which is why a child `--list` spawned from this process sees exactly
+ * this directory — it inherits the same TMPDIR. The env var is the test seam.
+ */
+export function serveSimStateDir(env: NodeJS.ProcessEnv = process.env): string {
+  return env.REALM_SERVE_SIM_STATE_DIR?.trim() || join(tmpdir(), "serve-sim");
+}
+
+/** One state file → the device it streams and the loopback port it holds, or null for anything that
+ *  is not one. A record with no port is no claim on any URL, and is dropped rather than guessed at. */
+export function parseClaim(body: string): { device: string; port: number } | null {
+  try {
+    const v = JSON.parse(body) as { device?: unknown; port?: unknown };
+    if (typeof v.device !== "string" || v.device === "" || typeof v.port !== "number" || !Number.isInteger(v.port) || v.port <= 0) return null;
+    return { device: v.device, port: v.port };
+  } catch { return null; }
+}
+
 /** serve-sim reports `{"width":0,"height":0}` until the capture engine has a frame — a number nobody
  *  can scale a pane to. Treated as "not yet", not as a screen. */
 export function parseScreen(body: string): SimulatorScreen | null {
@@ -178,6 +201,14 @@ export type ServeSim = {
    *  this is asked before anything is started — a simulator someone served from a terminal, or from
    *  the ios-simulator skill, is a simulator this pane can just show. */
   find(udid: string): Promise<ServeSimStream>;
+  /**
+   * Every port serve-sim has RECORDED a stream on, read straight off its state files — no process
+   * spawned, and no pid checked. A record can outlive its daemon, so this answers "which device might
+   * be on that port", never "is a stream running": `find` is the one that knows, and a caller that
+   * acts on a claim confirms it there first. What this buys is the negative, for free: a port no
+   * record names is a port serve-sim is not streaming on.
+   */
+  claims(): Promise<{ device: string; port: number }[]>;
   start(udid: string): Promise<{ stream: ServeSimStream; detail: string }>;
   kill(udid: string): Promise<void>;
   /** The device's framebuffer size, once there is one. */
@@ -223,6 +254,14 @@ export function serveSim(env: NodeJS.ProcessEnv = process.env, fetchImpl: typeof
     async find(udid) {
       const r = await run(bin, [...prefix, "--list", udid], 60_000);
       return r.code === 0 ? parseStream(r.stdout) : NOTHING;
+    },
+    async claims() {
+      const dir = serveSimStateDir(env);
+      let names: string[];
+      try { names = await readdir(dir); } catch { return []; } // no directory: serve-sim has never run as this user
+      const files = names.filter((n) => n.startsWith("server-") && n.endsWith(".json"));
+      const read = await Promise.all(files.map((n) => readFile(join(dir, n), "utf8").then(parseClaim, () => null)));
+      return read.filter((c): c is { device: string; port: number } => c !== null);
     },
     async start(udid) {
       // `-q` is JSON-only: the banner is what a human reads and what a parser trips over.

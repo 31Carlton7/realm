@@ -310,6 +310,32 @@ describe("scoped server groups (W4)", () => {
     await waitFor(() => expect(screen.getByRole("switch", { name: "Provider realm-browser in this space" })).not.toBeChecked());
   });
 
+  it("a provider this Mac cannot run says what it needs, where a switch would claim it was enabled", async () => {
+    await mount({ mcpProviders: [
+      { name: "realm-browser", enabled: true, offered: true, needs: null },
+      { name: "realm-simulator", enabled: true, offered: false, needs: "Xcode or Android Studio" },
+    ] });
+    const row = (await screen.findByText("realm-simulator")).closest(".mcp-row") as HTMLElement;
+    expect(within(row).getByText("Needs Xcode or Android Studio")).toBeInTheDocument();
+    // THE MUTANT: draw the switch whatever `offered` says. The space's switch is on, so the row would
+    // read "Enabled" over tools that are doing nothing on this Mac — the request shown as the outcome.
+    expect(within(row).queryByRole("switch")).toBeNull();
+    expect(within(row).queryByText("Enabled")).toBeNull();
+    // A provider that runs here is untouched by its neighbour's state.
+    expect(screen.getByRole("switch", { name: "Provider realm-browser in this space" })).toBeChecked();
+  });
+
+  it("a provider whose answer has not come in says Checking…, not Enabled and not a missing install", async () => {
+    await mount({ mcpProviders: [{ name: "realm-simulator", enabled: true, offered: null, needs: "Xcode or Android Studio" }] });
+    const row = (await screen.findByText("realm-simulator")).closest(".mcp-row") as HTMLElement;
+    expect(within(row).getByText("Checking…")).toBeInTheDocument();
+    // THE MUTANT: `offered !== false`. Not knowing reads as a yes, and the switch says "Enabled".
+    expect(within(row).queryByRole("switch")).toBeNull();
+    // …and the other way to be wrong: telling a Mac that has Xcode that it needs Xcode, a second
+    // before the probe answers.
+    expect(within(row).queryByText(/Needs/)).toBeNull();
+  });
+
   it("a provider row has no status dot — in-process, there is no connection to have checked", async () => {
     await mount();
     const row = (await screen.findByText("realm-browser")).closest(".mcp-row") as HTMLElement;

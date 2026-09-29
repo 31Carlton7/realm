@@ -442,7 +442,9 @@ export function registerMethods(d: Deps): void {
    *  registry, `enabled` from McpService's per-space disable set (default ON). */
   reg("mcp.providers.list", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
-    return { providers: d.gateway.providerNames().map((name) => ({ name, enabled: d.mcp.providerEnabled(p.spaceId, name) })) };
+    // `offered`/`needs` beside `enabled`: the switch is what the space asked for, and a provider that
+    // needs a toolchain this Mac lacks does nothing whatever it says — the row has to show both.
+    return { providers: d.gateway.providerNames().map((name) => ({ name, enabled: d.mcp.providerEnabled(p.spaceId, name), ...d.gateway.providerOffer(name) })) };
   });
   reg("mcp.setProviderEnabled", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);

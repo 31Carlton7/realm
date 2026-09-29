@@ -664,6 +664,41 @@ describe("in-process providers (Plan 11 W3)", () => {
     expect(app.gateway.realmProvidersFor(other.sessionId, other.spaceId).sort()).toEqual(["realm-browser", "realm-docs"]);
   });
 
+  it("realmProvidersFor drops a provider that says it has nothing to offer on this Mac", async () => {
+    const app = await setupApp();
+    let installed: boolean | null = true;
+    app.gateway.registerProvider({ ...fakeProvider("realm-simulator"), offered: () => installed });
+    app.gateway.registerProvider(fakeProvider("realm-docs"));
+    expect(app.gateway.realmProvidersFor(app.sessionId, app.spaceId)).toEqual(["realm-simulator", "realm-docs"]);
+    // THE MUTANT: ignore `offered`. A Mac with no Xcode and no Android SDK then hands every session a
+    // paragraph about booting simulators, and the first thing the agent learns is that it cannot.
+    installed = false;
+    expect(app.gateway.realmProvidersFor(app.sessionId, app.spaceId)).toEqual(["realm-docs"]);
+    // Asked fresh each time, not captured at registration: an Xcode installed while Realm runs counts.
+    installed = true;
+    expect(app.gateway.realmProvidersFor(app.sessionId, app.spaceId)).toEqual(["realm-simulator", "realm-docs"]);
+    // THE MUTANT: `offered?.() ?? true`. A probe that has not answered is `null`, and `null ?? true`
+    // is a yes — the session composed in that moment is promised simulators on a Mac that may have none.
+    installed = null;
+    expect(app.gateway.realmProvidersFor(app.sessionId, app.spaceId)).toEqual(["realm-docs"]);
+    // And the space's switch still wins over a provider that has plenty to offer.
+    installed = true;
+    app.mcp.setProviderEnabled(app.spaceId, "realm-simulator", false);
+    expect(app.gateway.realmProvidersFor(app.sessionId, app.spaceId)).toEqual(["realm-docs"]);
+  });
+
+  it("providerOffer carries a provider's own answer and words to its settings row", async () => {
+    const app = await setupApp();
+    let installed: boolean | null = null;
+    app.gateway.registerProvider({ ...fakeProvider("realm-simulator"), offered: () => installed, needs: "Xcode or Android Studio" });
+    app.gateway.registerProvider(fakeProvider("realm-docs"));
+    expect(app.gateway.providerOffer("realm-simulator")).toEqual({ offered: null, needs: "Xcode or Android Studio" });
+    installed = false;
+    expect(app.gateway.providerOffer("realm-simulator")).toEqual({ offered: false, needs: "Xcode or Android Studio" });
+    // A provider with nothing to ask always has something to offer, and needs nothing.
+    expect(app.gateway.providerOffer("realm-docs")).toEqual({ offered: true, needs: null });
+  });
+
   it("realmProvidersFor honors a delegated session's toolset shape, both only-mode and exclude-mode", async () => {
     const shapes = new Map<string, import("./gateway").SessionToolset>();
     const app = await setupApp({ sessionToolset: (id) => shapes.get(id) ?? null });

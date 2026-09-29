@@ -1,5 +1,6 @@
 import { newId, type Simulator, type SimulatorPlatform, type SimulatorAct, type SimulatorApp, type SimulatorAxTree, type SimulatorCameraSource, type SimulatorDevice, type SimulatorEvent, type SimulatorState, type SimulatorUiState } from "@realm/contracts";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RpcServer } from "../rpc/server";
 import type { ItemsStore } from "../store/items";
@@ -50,6 +51,19 @@ const ANDROID_BOOT_TIMEOUT_MS = 180_000;
 
 const OFF = (simulatorId: string, udid: string | null): SimulatorState =>
   ({ simulatorId, status: "off", udid, serial: null, streamUrl: null, wsUrl: null, screen: null, error: null, detail: null });
+
+/**
+ * Whether this Mac can run a simulator at all: `simctl` answers, or an Android SDK is there.
+ *
+ * Standalone rather than only a method, because it is also the production probe behind the simulator
+ * TOOLS (`main.ts` hands it to `createApp`). That probe runs at every boot, and a suite that built an
+ * app per test would otherwise spawn `xcrun` per test and answer with whatever Xcode the machine
+ * running it happens to have — so it is passed in where the real server is built, and nowhere else.
+ */
+export async function toolchainAvailable(cli: Pick<Simctl, "available"> = simctl(), droid: Pick<Android, "available"> = android()): Promise<boolean> {
+  const [ios, droidOk] = await Promise.all([cli.available().catch(() => false), droid.available().catch(() => false)]);
+  return ios || droidOk;
+}
 
 export class SimulatorService {
   private readonly state = new Map<string, SimulatorState>();
@@ -135,8 +149,7 @@ export class SimulatorService {
   /** Whether `simctl` answers at all — the honest difference between "no simulators" and "no Xcode". */
   /** Whether ANY toolchain answers. The pane's "nothing installed" state is about both. */
   async available(): Promise<boolean> {
-    const [ios, droid] = await Promise.all([this.cli.available().catch(() => false), this.droid.available().catch(() => false)]);
-    return ios || droid;
+    return toolchainAvailable(this.cli, this.droid);
   }
 
   /**
@@ -263,6 +276,50 @@ export class SimulatorService {
     const r = await this.cli.screenshot(udid, absolute);
     if (!r.ok) throw new RpcError("FAILED", r.detail || "the screenshot did not happen");
     return { path: rel, absolute };
+  }
+
+  /**
+   * The screen as PNG bytes, written nowhere anyone looks.
+   *
+   * `screenshot` above is the user's: a file in the space's folder, named to be kept. An agent checks
+   * the screen after every step, and a keeper per check would be a folder of phone screenshots nobody
+   * asked for in the middle of somebody's project. So this is the same capture — `simctl`'s full-size
+   * PNG, or the adb one — into a temporary file that is gone again before the bytes are returned.
+   */
+  async capture(simulatorId: string): Promise<Buffer> {
+    const row = this.get(simulatorId);
+    if (row.platform === "android") {
+      const png = await this.droid.screencap(this.serialOf(simulatorId));
+      if (!png) throw new RpcError("FAILED", "the screenshot did not happen");
+      return png;
+    }
+    const udid = this.udidOf(simulatorId);
+    const path = join(tmpdir(), `realm-simulator-${simulatorId}-${Date.now()}.png`);
+    try {
+      const r = await this.cli.screenshot(udid, path);
+      if (!r.ok) throw new RpcError("FAILED", r.detail || "the screenshot did not happen");
+      return await readFile(path);
+    } finally {
+      await unlink(path).catch(() => { /* never written */ });
+    }
+  }
+
+  /**
+   * The device serve-sim is streaming on this loopback port, or null.
+   *
+   * Two steps, and the order is the point. serve-sim's own records say which device each port is
+   * FOR, and reading them spawns nothing — so a port no record names is answered at once, which is
+   * what almost every port is. A record can outlive its daemon, though, so a port one does name is
+   * put to `--list <udid>`, which checks the daemon is alive and is the same answer the pane adopts
+   * a stream on. Only then is it serve-sim's. Every record naming the port is asked, not the first:
+   * a dead daemon's file and the live one that took its port can both be there.
+   */
+  async streamedOn(port: number): Promise<string | null> {
+    for (const claim of (await this.stream.claims()).filter((c) => c.port === port)) {
+      const live = await this.stream.find(claim.device);
+      if (live.streamUrl && live.port === port) return claim.device;
+    }
+    return null;
   }
 
   /** Everything else a device can be told to do that is one command and one answer. */

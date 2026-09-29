@@ -29,6 +29,8 @@ function setup(opts: {
   /** The consent gate's answer. Omitted = no `signIn` dep at all, which is a harness built before
    *  the gate existed and must behave exactly as this file always did. */
   allowsAct?: boolean;
+  /** The simulator guard's answer for a URL. Omitted = no `simulatorStreams` dep at all. */
+  streamAt?: (spaceId: string, url: string) => Promise<string | null>;
 } = {}) {
   const rows = new Map<string, Browser>();
   rows.set("b1", { id: "b1", spaceId: "space1", url: "https://example.com/", title: "Example", createdAt: 1, updatedAt: 1 });
@@ -98,6 +100,7 @@ function setup(opts: {
     };
   }
   if (opts.allowsAct !== undefined) deps.signIn = { allowsAct: () => opts.allowsAct! };
+  if (opts.streamAt) deps.simulatorStreams = { streamAt: opts.streamAt };
   const provider = createBrowserAgentProvider(deps);
   const ctx = { sessionId: "sess1", spaceId: "space1" };
   const call = (tool: string, args: unknown): Promise<CallToolResult> => provider.call(ctx, tool, args);
@@ -944,5 +947,73 @@ describe("acting on a consent screen", () => {
     const r = await call("browser_act", { browserId: "b1", action: { kind: "click", ref: 11 } });
     expect(r.isError).toBe(false);
     expect(calls.bridge.some((b) => b.op === "act")).toBe(true);
+  });
+});
+
+describe("a simulator's stream is not a web page", () => {
+  /** serve-sim streaming the iPhone on 3100, and nothing else — the answer `SimulatorService.streamedOn`
+   *  gives once serve-sim's `--list` has confirmed its own record. */
+  const STREAM_URL = "http://127.0.0.1:3100/";
+  const streamAt = async (_spaceId: string, url: string) => (new URL(url).port === "3100" ? "75D1511C-5E00-41A6-9CA2-1650DEAAF571" : null);
+
+  it("browser_open on serve-sim's stream is refused with the exact call to make instead", async () => {
+    const { call, calls } = setup({ streamAt });
+    const r = await call("browser_open", { url: STREAM_URL });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain('simulator_open with udid "75D1511C-5E00-41A6-9CA2-1650DEAAF571"');
+    /* THE MUTANT: drop the guard from browser_open. The agent's `npx serve-sim` + `browser_open` then
+       goes through, and the user gets a stream in a web page beside a simulator pane that does it
+       properly. Refused BEFORE the card: asking the user to approve a pane that is about to be
+       refused would be a card about nothing. */
+    expect(calls.gates).toEqual([]);
+    expect(calls.opened).toEqual([]);
+  });
+
+  it("browser_navigate to it is refused the same way, before the bridge hears of it", async () => {
+    const { call, calls } = setup({ streamAt });
+    const r = await call("browser_navigate", { browserId: "b1", url: "http://localhost:3100/helper/x/stream.mjpeg" });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("simulator_open");
+    expect(calls.gates).toEqual([]);
+    expect(calls.bridge.filter((b) => b.op === "navigate")).toEqual([]);
+  });
+
+  it("a batch cannot carry it past the guard — neither an open nor a navigate", async () => {
+    // THE MUTANT: guard the two handlers and forget `runBatchMutation`, which repeats every check but
+    // the prompt. The batch's one card then waves a stream through that the plain call refuses.
+    const open = setup({ streamAt });
+    const r1 = await open.call("browser_batch", { actions: [{ tool: "browser_open", arguments: { url: STREAM_URL } }] });
+    expect(r1.isError).toBe(true);
+    expect(text(r1)).toContain("simulator_open");
+    expect(open.calls.opened).toEqual([]);
+
+    const nav = setup({ streamAt });
+    const r2 = await nav.call("browser_batch", { actions: [{ tool: "browser_navigate", arguments: { browserId: "b1", url: STREAM_URL } }] });
+    expect(r2.isError).toBe(true);
+    expect(text(r2)).toContain("simulator_open");
+    expect(nav.calls.bridge.filter((b) => b.op === "navigate")).toEqual([]);
+  });
+
+  it("leaves every other URL alone, including another server on this Mac", async () => {
+    const { call, calls } = setup({ streamAt });
+    expect((await call("browser_open", { url: "http://127.0.0.1:3000/" })).isError).toBe(false);
+    expect(calls.opened).toEqual(["http://127.0.0.1:3000/"]);
+  });
+
+  it("opens the URL when the guard cannot answer — it is a pointer, not a boundary", async () => {
+    // THE MUTANT: let the guard's failure escape. A serve-sim that will not run, or a state file
+    // nobody can read, would then take down every browser_open of a dev server with it.
+    const { call, calls } = setup({ streamAt: async () => { throw new Error("npx: command not found"); } });
+    expect((await call("browser_open", { url: STREAM_URL })).isError).toBe(false);
+    expect(calls.opened).toEqual([STREAM_URL]);
+  });
+
+  it("is asked about the space the call came from", async () => {
+    const asked: string[] = [];
+    const { call } = setup({ streamAt: async (spaceId, url) => { asked.push(spaceId); return streamAt(spaceId, url); } });
+    await call("browser_open", { url: STREAM_URL });
+    // The switch that decides whether a refusal can name simulator_open is per space; asking about
+    // any other space would answer for a switch this session does not live under.
+    expect(asked).toEqual(["space1"]);
   });
 });

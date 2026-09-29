@@ -1111,7 +1111,16 @@ export const Methods = {
    *  Connections surface renders them as rows). Names come from the gateway registry, never config —
    *  a provider is code compiled into Realm, so this list is the same in every space; only `enabled`
    *  is per-space. */
-  "mcp.providers.list": { params: z.object({ spaceId: IdSchema }), result: z.object({ providers: z.array(z.object({ name: z.string(), enabled: z.boolean() })) }) },
+  "mcp.providers.list": { params: z.object({ spaceId: IdSchema }), result: z.object({ providers: z.array(z.object({
+    name: z.string(), enabled: z.boolean(),
+    /* What the provider can actually do on this Mac, beside what the space asked for: `true` for every
+       provider that acts only inside Realm, the toolchain's answer for one that needs something
+       installed, and `null` while that answer has not come in. The switch is the request; this is
+       what happened, and a row must not show the one as though it were the other. */
+    offered: z.boolean().nullable(),
+    /** What this Mac lacks when `offered` is false, in the provider's own words ("Xcode or Android Studio"). */
+    needs: z.string().nullable(),
+  })) }) },
   /**
    * Actually try the server, now: spawn the stdio command (with its stored env) and wait for an MCP
    * initialize response, or hit the http/sse URL (with its stored headers) and report the status. Run
@@ -1746,6 +1755,10 @@ export const Events = {
    *  (`items.changed` was broadcast too); this tells the renderer to bring the pane INTO the layout —
    *  an agent-driven browser the user cannot see defeats the point of the architecture. */
   "browser.agentOpened": z.object({ spaceId: IdSchema, browserId: IdSchema, itemId: IdSchema }),
+  /** An agent opened a device in a simulator pane via `simulator_open`. The row + item already exist
+   *  (`items.changed` was broadcast too); this brings the pane INTO the layout beside the session, for
+   *  `browser.agentOpened`'s reason — a device an agent is running an app on is one the user watches. */
+  "simulator.agentOpened": z.object({ spaceId: IdSchema, simulatorId: IdSchema, itemId: IdSchema }),
   /** The notifications feed changed (Plan 12 W5). `unread` is the fresh global unread count — the
    *  sidebar pill applies it directly, so the count has exactly one derivation site (the server's).
    *  `notification` is the row an event just created or re-surfaced, so the renderer can react to it

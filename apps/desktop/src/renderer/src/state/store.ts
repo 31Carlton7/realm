@@ -505,7 +505,7 @@ export type Api = {
   promoteMcpServer(spaceId: string, id: string): Promise<void>;
   demoteMcpServer(spaceId: string, id: string): Promise<void>;
   /** `mcp.providers.list` — the gateway's Realm-native toolsets with THIS space's switch state (W4). */
-  listMcpProviders(spaceId: string): Promise<{ name: string; enabled: boolean }[]>;
+  listMcpProviders(spaceId: string): Promise<McpProvider[]>;
   /** `mcp.setProviderEnabled` — providers default ON (Realm's own code); this is the per-space off switch. */
   setMcpProviderEnabled(spaceId: string, name: string, enabled: boolean): Promise<void>;
   /** `memory.getProfile` / `memory.setProfile` — the profile doc at its DEFINING scope; a save applies
@@ -577,8 +577,10 @@ export type McpCallsFilter = { sessionId?: string; serverId?: string };
  *  the defining scope has none (`enabledHere` belongs to `MemoryState.profile`, a space's view). */
 export type ProfileMemoryDoc = { profileId: string; path: string; doc: string };
 
-/** One Realm-native gateway toolset as `mcp.providers.list` reports it for a space (W4). */
-export type McpProvider = { name: string; enabled: boolean };
+/** One Realm-native gateway toolset as `mcp.providers.list` reports it for a space (W4). `enabled` is
+ *  the space's switch; `offered` is whether the provider can do anything on this Mac at all (`null`
+ *  while its probe has not answered), and `needs` what it lacks when it cannot. */
+export type McpProvider = { name: string; enabled: boolean; offered: boolean | null; needs: string | null };
 
 /** Item titles for the destination pages (W4). Static like the space page's "Overview": the page
  *  header renders the live copy, so a snapshot in the item row has nothing to go stale against. */

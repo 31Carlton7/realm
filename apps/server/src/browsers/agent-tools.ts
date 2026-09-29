@@ -80,6 +80,12 @@ export type BrowserAgentToolsDeps = {
    * this file did before — which, for consent pages, was to allow the click.
    */
   signIn?: { allowsAct(spaceId: string, browserId: string, url: string | undefined): boolean };
+  /**
+   * Which simulator, if any, serve-sim is streaming at a URL (`simulators/agent-tools.ts`) — asked
+   * before a pane is opened or pointed at one, so that pane can be refused. See
+   * `refuseSimulatorStream`. Optional: a harness without it opens every URL as this file always did.
+   */
+  simulatorStreams?: { streamAt(spaceId: string, url: string): Promise<string | null> };
 };
 
 export function createBrowserAgentProvider(d: BrowserAgentToolsDeps): RealmToolProvider {
@@ -297,6 +303,7 @@ const HANDLERS: Record<string, Handler> = {
     const url = normalizeToolUrl(args.value.url);
     if (!url) return err(`"${args.value.url}" is not an http(s) URL.`);
     const oauth = refuseOAuth(url); if (oauth) return oauth;
+    const stream = await refuseSimulatorStream(d, ctx, url); if (stream) return stream;
     const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_open", url); if (limited) return err(limited);
     const title = `Open a browser pane at ${url}`;
     const gate = await d.broker.gate(ctx.sessionId, "browser_open", title, { url });
@@ -316,6 +323,7 @@ const HANDLERS: Record<string, Handler> = {
     const url = normalizeToolUrl(args.value.url);
     if (!url) return err(`"${args.value.url}" is not an http(s) URL.`);
     const oauth = refuseOAuth(url); if (oauth) return oauth;
+    const stream = await refuseSimulatorStream(d, ctx, url); if (stream) return stream;
     const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_navigate", url); if (limited) return err(limited);
     const title = `Navigate the browser pane to ${url}`;
     const gate = await d.broker.gate(ctx.sessionId, "browser_navigate", title, { browserId: row.value.id, url });
@@ -548,6 +556,7 @@ async function runBatchMutation(d: Deps, ctx: ProviderCallContext, tool: string,
     const url = normalizeToolUrl(args.value.url);
     if (!url) return err(`"${args.value.url}" is not an http(s) URL.`);
     const oauth = refuseOAuth(url); if (oauth) return oauth;
+    const stream = await refuseSimulatorStream(d, ctx, url); if (stream) return stream;
     const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_open", url); if (limited) return err(limited);
     const opened = d.browserService.open({ spaceId: ctx.spaceId, url });
     // Same as `browser_open` above: opening the pane IS the visible event, so it gets no tick.
@@ -560,6 +569,7 @@ async function runBatchMutation(d: Deps, ctx: ProviderCallContext, tool: string,
     const url = normalizeToolUrl(args.value.url);
     if (!url) return err(`"${args.value.url}" is not an http(s) URL.`);
     const oauth = refuseOAuth(url); if (oauth) return oauth;
+    const stream = await refuseSimulatorStream(d, ctx, url); if (stream) return stream;
     const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_navigate", url); if (limited) return err(limited);
     return runTracked(d, ctx.spaceId, row.value.id, `Navigate the browser pane to ${url}`, async () => {
       const result = (await d.bridge.call("navigate", { browserId: row.value.id, url })) as BrowserNavigateResult;
@@ -829,6 +839,33 @@ async function refuseConsentAct(d: Deps, ctx: ProviderCallContext, browserId: st
     "refused: this pane is showing an OAuth consent screen, and Realm does not press Authorize on a user's behalf. "
     + "A grant made here is durable and no per-action approval can express it. Tell the user what is being asked for and let them click it in the pane. "
     + "(Realm can finish a sign-in it started itself, when the space has that switched on.)",
+  );
+}
+
+/**
+ * Refuse to put serve-sim's stream of a simulator in a browser pane, and say what to call instead.
+ *
+ * The mistake this catches is specific: an agent that knows serve-sim starts one in a terminal and
+ * opens the URL it printed, which makes a second, worse copy of the simulator pane — a web page with
+ * no device controls, beside a pane that does it properly. The preamble already says not to; this is
+ * for the agent that did it anyway, or that is following an older skill.
+ *
+ * It is a refusal and not a redirect. Opening the simulator pane instead would hand back a
+ * simulatorId to a caller that asked for a browserId, behind a permission card that named a browser
+ * pane, and the next `browser_snapshot` would fail on it. One refusal naming the exact call — the
+ * udid is serve-sim's own — costs the agent one round trip and leaves nothing half-done.
+ *
+ * Precise rather than a guess about what the page looks like: the answer comes from serve-sim's own
+ * records, confirmed by its `--list` (`SimulatorService.streamedOn`). A space that switched the
+ * simulator tools off gets no refusal at all, since the call it names would not exist there, and a
+ * guard that cannot answer lets the URL through — it is a pointer, not a boundary.
+ */
+async function refuseSimulatorStream(d: Deps, ctx: ProviderCallContext, url: string): Promise<CallToolResult | null> {
+  const udid = await d.simulatorStreams?.streamAt(ctx.spaceId, url).catch(() => null);
+  if (!udid) return null;
+  return err(
+    `refused: ${url} is serve-sim's stream of the simulator ${udid}, and Realm shows simulators in a pane of its own. `
+    + `Call simulator_open with udid "${udid}" instead — it opens that device beside this session and adopts this same stream, so nothing needs starting or stopping.`,
   );
 }
 

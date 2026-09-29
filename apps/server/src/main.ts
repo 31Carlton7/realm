@@ -6,6 +6,7 @@ delete process.env.ELECTRON_RUN_AS_NODE;
 
 import { billedGenerators } from "./billed-calls";
 import { createApp } from "./app";
+import { toolchainAvailable } from "./simulators/service";
 import { realLayaRuntime } from "./laya/runtime";
 import { DAEMON_PROTOCOL } from "@realm/contracts";
 import { realmHome } from "./paths";
@@ -44,6 +45,10 @@ try {
     // Plan 22: where Plynn's meeting exports are read from. Unset in production (the app's own
     // Application Support folder); live checks point it at a fixture so no real recording is read.
     plynnMeetingsDir: process.env.REALM_PLYNN_MEETINGS_DIR || undefined,
+    // The real server asks whether this Mac can run a simulator, once at boot and then as its answer
+    // ages. Only here: every other `createApp` is a test or a script, and gets no probe unless it
+    // passes one (see the option's own comment).
+    simulatorToolchain: () => toolchainAvailable(),
     // Laya's local runtime. Only here: every other `createApp` is a test or a script and gets none, so
     // nothing but this process ever looks for a Python or starts one. Even here nothing downloads
     // until the user clicks Install, and nothing runs until they switch Laya to Shadow.

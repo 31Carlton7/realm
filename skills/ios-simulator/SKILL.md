@@ -1,171 +1,112 @@
 ---
 name: ios-simulator
-description: Open an Apple Simulator in a Realm pane, read its accessibility tree, and drive it — tap elements by label, type, gestures, hardware buttons, rotation, camera and permissions. Use when the task needs to see or interact with an iOS/iPadOS/watchOS app, check a SwiftUI screen outside Xcode, or capture proof of what an app actually renders.
+description: Run, show and check an iOS or Android app on a simulator in Realm's simulator pane — open the device beside the session with the realm-simulator tools, install and launch a build, read the screen by element and screenshot it, and tap and type through serve-sim's CLI. Use when the task needs to see or interact with an iOS/iPadOS/watchOS app, check a SwiftUI screen outside Xcode, or capture proof of what an app actually renders.
 ---
 
-# Driving an Apple Simulator from a Realm pane
+# Running an app on a simulator in Realm
 
-`serve-sim` captures a booted simulator's framebuffer (direct IOSurface, zero-copy) and serves it over
-loopback. Realm has a **simulator pane** of its own that streams it: the session bar's phone button
-opens one, its empty state lists this Mac's devices, and picking one boots the device, starts
-`serve-sim` and shows the screen. A person can tap and type in that pane directly.
+Realm has a **simulator pane**: it boots the device, streams its screen, and puts it beside the
+session, where the user watches it and can use it. The `realm-simulator` tools are that pane, reached
+from a tool call. Use them. Do not start `serve-sim` yourself, and never open a simulator's stream in
+a browser pane — a stream in a web page is a second, worse copy of the pane, and Realm refuses
+`browser_open` on one.
 
-**Prefer the pane when a human is watching** — it is one button, and it adopts a stream that is
-already running rather than starting a second one. What follows is the same thing done from a shell,
-which is what you want when nobody asked for a pane, when the device has to be driven
-deterministically, or when you need `/ax`.
+## Run an app
 
-Three surfaces, and keeping them straight is most of the skill: the **pane** shows a human what is
-happening, `/ax` is how you **know** what is on screen, and the `serve-sim` CLI is how you **drive**
-the device. Input never goes through the pane's picture.
-
-## Start it, from a shell
-
-1. **Pick a UDID.** `xcrun simctl list devices available` — never guess, and never target "booted"
-   when more than one is up.
-2. **Boot it** if needed: `xcrun simctl boot <udid>`. Already-booted is not an error worth reporting.
-3. **Serve it, detached.** Daemon mode, so nothing depends on a terminal staying alive:
-
-   ```bash
-   npx --yes serve-sim@latest --detach <udid>
-   ```
-
-4. **Read the URL from `--list`**, which prints JSON — do not scrape the human-readable banner:
-
-   ```bash
-   npx --yes serve-sim@latest --list
-   # {"running":true,"url":"http://127.0.0.1:3200", ... ,"device":"<udid>","pid":17016}
-   ```
-
-5. **Show it, if a human wants to watch.** The simulator button in a session's pane bar opens
-   Realm's own pane, which finds the stream you just started and shows it. `browser_open` on `url`
-   still works and gives you serve-sim's own web UI instead — its tools panel and DevTools live
-   there, and nowhere else.
-
-## Verify before reporting
-
-A loaded page is not proof the stream is healthy — the UI renders fine while showing "Connecting…".
-`browser_screenshot` and confirm **both**: the header reads `● live` (not `connecting`), and the device
-frame shows real content. If it is still connecting after a few seconds, the simulator is booted but
-not rendering; opening `Simulator.app` once (`open -a Simulator`) is usually enough.
+1. **Pick a device.** `simulator_list` gives each device's udid, runtime and state, and which are
+   already open in a pane in this space. Never guess a udid.
+2. **Open it.** `simulator_open` with the udid boots it if it is not running, opens the pane beside
+   this session and waits for the screen. It returns the `simulatorId` the other tools take. A device
+   already open in a pane here is brought back rather than opened twice, and a stream somebody else
+   started is adopted rather than duplicated.
+3. **Build it with your own tools**, as usual: `xcodebuild -scheme <App> -destination 'id=<udid>'
+   build`, or Gradle for Android.
+4. **Install and launch.** `simulator_install` with the absolute path to the built `.app` (or `.ipa`,
+   or `.apk`), then `simulator_launch` with its bundle id — `simulator_apps` lists them.
+   `simulator_open_url` follows a link, or a deep link such as `myapp://settings`, into the app.
 
 ## Read the screen
 
-`serve-sim` publishes the simulator's **accessibility tree** — this is how you address things on the
-device, not by guessing at pixels. `GET /ax` on the preview server is an SSE stream; the first
-`data:` line is a complete snapshot:
+- `simulator_elements` is how you **know** what is on screen: the foreground app's accessibility
+  tree, one line per element with its path, role, label, value, id and frame — points on iOS, pixels
+  on Android, origin top-left. Match on `label`, `role` and `id`. For a few seconds after a boot it
+  answers "not yet" while the device's accessibility framework warms up; ask again.
+- `simulator_screenshot` is how you **see** it, shrunk to a size you can read. With `save: true` the
+  full-resolution PNG is also kept in the space's `simulator/` folder — for a picture the user wants
+  as proof, not for every check.
+
+Verify against the tree, not the picture. After a step, read `simulator_elements` again and check the
+content changed: the stream can lag a transition by a beat, so a screenshot taken straight after a
+tap may still show the old screen.
+
+## Tap and type
+
+The tools do not tap or type. serve-sim's own CLI does, against the stream the pane is already
+running — these commands start nothing (iOS only; on Android the pane itself is the input channel):
 
 ```bash
-curl -sN http://127.0.0.1:<port>/ax | head -c 20000
+npx --yes serve-sim@latest tap 0.50 0.37 -d <udid>   # normalized 0..1 of the SCREEN
+npx --yes serve-sim@latest type "hello" -d <udid>     # US keyboard only
+npx --yes serve-sim@latest button home -d <udid>
+npx --yes serve-sim@latest rotate landscape_left -d <udid>
+npx --yes serve-sim@latest gesture '<json>' -d <udid> # swipes, pinches
 ```
 
-```jsonc
-{ "screen": { "width": 402, "height": 874 },       // POINTS, not pixels
-  "elements": [
-    { "id": "com.apple.settings.general", "path": "0.1.1", "label": "General", "value": "",
-      "role": "button", "type": "Button", "enabled": true,
-      "frame": { "x": 16, "y": 293.3, "width": 370, "height": 44 } } ] }
-```
-
-`id` and `path` are stable handles; `label`, `role` and `enabled` are what you match on. Under the
-Connect middleware the route is `{basePath}/ax` (default `/.sim/ax`); standalone it is just `/ax`.
-
-A 503 means the simulator's AX framework is still warming up after boot — poll, do not conclude it
-is unsupported.
-
-## Drive it
-
-Two channels, and each has a job:
-
-- **Realm's own pane** — its bar carries Home, the volume pair, the side button, rotate and stop,
-  and a **Device settings** menu that reaches everything `serve-sim ui` can set (appearance, Liquid
-  Glass, colour filter, text size, Reduce Motion, Increase Contrast, Reduce Transparency, layout
-  borders, VoiceOver) plus the CoreAnimation debug overlays, a memory warning and the Action button.
-  The menu reads its values off the device each time it opens, so it agrees with `serve-sim ui
-  status`. Under the device is the frame picker — a chassis and its finish, which is decoration and
-  changes nothing about the device.
-- **The preview UI's own controls** — `browser_snapshot` lists them, `browser_act` clicks them by ref:
-  `Home`, `Screenshot`, `Rotate device`, `Show accessibility overlay`, `Open tools panel`,
-  `Open WebKit DevTools`, plus hardware `Action` / `Volume Up` / `Volume Down` / `Power`. These are
-  real page elements and behave like any other pane.
-- **The device itself** — the `serve-sim` CLI, always with `-d <udid>`:
-
-  ```bash
-  npx --yes serve-sim@latest tap 0.50 0.37 -d <udid>   # normalized 0..1 of the SCREEN
-  npx --yes serve-sim@latest type "hello" -d <udid>     # US keyboard only
-  npx --yes serve-sim@latest button home -d <udid>
-  npx --yes serve-sim@latest rotate landscape_left -d <udid>
-  npx --yes serve-sim@latest gesture '<json>' -d <udid> # swipes, pinches
-  ```
-
-  Also available: `camera` (inject a synthetic feed), `permissions`, `event-log` — and `ui`,
-  `memory-warning` and `ca-debug`, which the pane's Device settings menu now drives, so prefer the
-  pane for those when a human is watching.
-
-  `ui` takes its values from its own table; hand it one it rejects and it prints the accepted set,
-  which is how `SIMULATOR_UI_OPTIONS` in `packages/contracts/src/simulator.ts` was written. Do not
-  guess at `text-size`'s twelve content-size categories.
-
-**Tap the element, not a guess.** Take the target's `frame` from `/ax` and convert its centre against
-`screen`:
+Always pass `-d <udid>`. **Tap the element, not a guess**: take its frame from `simulator_elements`
+and convert its centre against the screen size stated above the elements:
 
 ```
 x = (frame.x + frame.width  / 2) / screen.width
 y = (frame.y + frame.height / 2) / screen.height
 ```
 
-**Verify against the tree, not the picture.** Re-read `/ax` and check the content changed — a back
-button appeared, the heading is the new screen. The video stream can lag a transition by a beat, so a
-screenshot taken straight after a tap may still show the old screen while the tap has already landed.
-Screenshots are for showing the user; `/ax` is for knowing.
+The CLI also has `camera` (inject a synthetic feed), `permissions`, `event-log`, `ui`,
+`memory-warning` and `ca-debug`. The pane's Device settings menu drives `ui`, `memory-warning` and
+`ca-debug` too, so prefer the pane for those when a human is watching. `ui` takes its values from its
+own table; hand it one it rejects and it prints the accepted set, which is how
+`SIMULATOR_UI_OPTIONS` in `packages/contracts/src/simulator.ts` was written. Do not guess at
+`text-size`'s twelve content-size categories.
 
-## What the pane can and cannot see
+## What the pane does for the person watching
 
-**The device screen is one DOM node.** `browser_snapshot` reports it as a single `generic ""` box;
-every icon, row and control inside it is pixels as far as the page is concerned. So Realm's element
-picker over a phone resolves to "the simulator" and nothing finer — there are no element chips for
-anything on the device, and you must never claim to have clicked a named control "by ref" when what
-you sent was a coordinate.
-
-**The pane's Elements toggle is the answer to that.** It reads the same `/ax` tree and draws a box
-per element over the picture, each named by what the DEVICE calls it, each a control that taps the
-middle of the real thing. A human can point at "General" and hit it; the tree is re-read on demand,
-because it is a snapshot of a screen that moves. Use it when a person is watching. Use `/ax` and the
-CLI when you need to know rather than to show.
-
-The route is `/helper/<udid>/ax`, and what it answers with is a NESTED array of nodes —
-`{ AXLabel, AXValue, AXUniqueId, enabled, frame, type, children }`, frames in POINTS. The flat
-`{screen, elements}` body described above is an older shape; the unscoped `/ax` on this build answers
-with an SSE keepalive and no tree at all, which reads as "no elements" rather than as "wrong route".
-
-## What else the pane does now
-
-- **Screenshot** — `simctl io screenshot` at the device's full resolution, into the space's own
-  `simulator/` folder, revealed in Finder. Not opened in the documents pane: that caps its reads at
-  2 MB and a phone screenshot is three or four.
-- **Apps** — every installed app (`simctl listapps`, the user's own first), and per app: launch,
-  grant/revoke/reset any of the sixteen permissions, and inject a camera feed.
-- **Drop a file on the device** — a `.app` or `.ipa` installs, a picture or video lands in Photos.
+- **Its bar** carries Home, the volume pair, the side button, rotate and stop, and a **Device
+  settings** menu: appearance, Liquid Glass, colour filter, text size, Reduce Motion, Increase
+  Contrast, Reduce Transparency, layout borders, VoiceOver, the CoreAnimation overlays, a memory
+  warning and the Action button. The menu reads its values off the device each time it opens.
+- **Elements** draws a box per accessibility element over the picture, each named by what the device
+  calls it and each a control that taps the middle of the real thing. The device screen itself is one
+  DOM node — Realm's element picker over a phone resolves to "the simulator" and nothing finer — so
+  never claim to have clicked a named control "by ref" when what you sent was a coordinate.
+- **Screenshot** writes a full-resolution PNG into the space's `simulator/` folder. **Apps** lists
+  every installed app, the user's own first, with launch, the sixteen permissions and camera
+  injection per app. **Dropping a file on the device** installs a `.app` or `.ipa`, or puts a picture
+  or video into Photos.
 - **Camera injection needs a NATIVE app, and Safari will not do.** The feed is injected by swizzling
   AVFoundation inside the process that is launched; WebKit captures in its own process, so a page
   calling `getUserMedia` in the simulator's Safari fails with `OverconstrainedError` however the
   injector was started. Measured, not assumed. Point it at the app under test.
 
+## When the realm-simulator tools are not there
+
+A space can switch them off. Then boot with `xcrun simctl boot <udid>`, start a stream scoped to it
+with `npx --yes serve-sim@latest --detach <udid>`, and drive it with the CLI above. If the user wants
+to watch, the phone button in the session's pane bar opens the simulator pane, which adopts the
+stream you started instead of starting another. Still never open the stream in a browser pane.
+
 ## Stop it
 
-Kill **scoped to the UDID you started**, always. An unscoped `--kill` stops every stream on the
-machine, including another session's:
+Closing the pane leaves the device booted and the stream running, because a simulator is usually
+somebody's Xcode session. If you booted a device only for this task, say so and say how to stop it.
+Kill **scoped to its udid**, never unscoped — an unscoped `--kill` stops every stream on the machine,
+including another session's:
 
 ```bash
 npx --yes serve-sim@latest --kill <udid>
 xcrun simctl shutdown <udid>   # only if you booted it
 ```
 
-Leave the simulator running if the user is still looking at the pane; say what you left up and how to
-stop it.
-
 ## Safety
 
-Bind to loopback only. `serve-sim`'s preview exposes a **token-gated shell-exec route**, so
-`--host 0.0.0.0` puts command execution on the local network. The default (`127.0.0.1`) is correct;
-do not change it to share a screen — screenshot instead.
+serve-sim binds loopback, and that is correct. Its preview exposes a **token-gated shell-exec
+route**, so `--host 0.0.0.0` puts command execution on the local network. Do not change it to share a
+screen — screenshot instead.

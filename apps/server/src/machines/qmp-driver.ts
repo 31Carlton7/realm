@@ -166,8 +166,11 @@ export function pngSize(png: Buffer): { width: number; height: number } | null {
  * QEMU's PNG back to RGBA, for the one case that needs it: downscaling a screen larger than the
  * budget. Returns null for anything this cannot read, and the caller then ships the original — a
  * screenshot that is bigger than ideal beats no screenshot.
+ *
+ * Exported for the simulator tools, whose screenshots are the same shape of problem: `simctl` writes
+ * an 8-bit RGBA PNG of the full framebuffer, 1206×2622 and 3.5 MB on an iPhone 17 Pro (measured).
  */
-function decodePngToRgba(png: Buffer): { width: number; height: number; rgba: Buffer } | null {
+export function decodePngToRgba(png: Buffer): { width: number; height: number; rgba: Buffer } | null {
   const dims = pngSize(png);
   if (!dims) return null;
   const depth = png[24], colour = png[25], interlace = png[28];
