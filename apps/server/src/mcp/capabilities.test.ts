@@ -77,7 +77,7 @@ describe("capabilitiesContext", () => {
       expect(text).toContain(`\`${tool}\``);
     }
     expect(text).toContain("say in `intent` what each step is for");
-    expect(text).toContain("by the `[path]`");
+    expect(text).toContain("by the `[number]` your latest `simulator_elements` gave it");
     /* THE MUTANT: keep the old advice. An agent sent to serve-sim's own `tap -d <udid>` still taps —
        past the card, with no intent, at a coordinate nobody checked against the live screen. */
     expect(text).not.toContain("do not tap or type");

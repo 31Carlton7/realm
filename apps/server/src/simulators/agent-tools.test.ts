@@ -471,8 +471,8 @@ describe("simulator_elements and simulator_apps", () => {
     const simulatorId = await running();
     const out = text(await call("simulator_elements", { simulatorId }));
     expect(out).toContain('2 element(s) on iPhone Air. Frames are "(x,y width×height)" in points, on a 402×874 screen');
-    expect(out).toContain('[0.1] Button "General" id=com.apple.settings.general (16,293 370×44)');
-    expect(out).toContain('[0.2] Button "Wi-Fi" value="Off" (16,338 370×44) disabled');
+    expect(out).toContain('[1] Button "General" id=com.apple.settings.general (16,293 370×44)');
+    expect(out).toContain('[2] Button "Wi-Fi" value="Off" (16,338 370×44) disabled');
     /* THE MUTANT: drop `fenceUntrusted`. A simulator's Safari can show any page on the web, and every
        label on it arrives here as text in the model's context, reading as Realm's own. */
     const fenceAt = out.indexOf("<<<"), labelAt = out.indexOf('"General"'), appAt = out.indexOf("app: Settings");
@@ -608,12 +608,12 @@ describe("the input tools' arguments", () => {
   it("takes an element or a point, never both and never half a point", async () => {
     const { call, calls, running } = setup();
     const simulatorId = await running();
-    for (const args of [{ element: "0.1", x: 5, y: 5 }, { x: 5 }, {}]) {
+    for (const args of [{ element: 1, x: 5, y: 5 }, { x: 5 }, {}]) {
       const r = await call("simulator_tap", { simulatorId, intent: "tap it", ...args });
       expect(r.isError, JSON.stringify(args)).toBe(true);
       expect(text(r)).toContain("one of the two");
     }
-    for (const args of [{ direction: "up", from: { x: 1, y: 1 }, to: { x: 2, y: 2 } }, { from: { x: 1, y: 1 } }, { element: "0.1", from: { x: 1, y: 1 }, to: { x: 2, y: 2 } }]) {
+    for (const args of [{ direction: "up", from: { x: 1, y: 1 }, to: { x: 2, y: 2 } }, { from: { x: 1, y: 1 } }, { element: 1, from: { x: 1, y: 1 }, to: { x: 2, y: 2 } }]) {
       expect((await call("simulator_swipe", { simulatorId, intent: "scroll", ...args })).isError, JSON.stringify(args)).toBe(true);
     }
     expect(calls.gates).toEqual([]);
@@ -628,7 +628,7 @@ describe("acting on an element", () => {
     await dev.call("simulator_elements", { simulatorId });
     // The list scrolled a little between the read and the tap: same row, lower down.
     dev.show(redraw((els) => { els[0]!.frame.y = 400; return els; }));
-    const r = await dev.call("simulator_tap", { simulatorId, intent: "open General", element: "0.1" });
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 });
     expect(r.isError).toBe(false);
     const [begin, end] = frames(dev.calls.sent);
     /* THE MUTANT: tap the frame the agent READ. That is (201,315) — which after the scroll is the
@@ -636,7 +636,7 @@ describe("acting on an element", () => {
     expect(begin).toMatchObject({ op: 3, type: "begin", x: 201 / 402 });
     expect(begin!.y).toBeCloseTo(422 / 874, 10);
     expect(end).toMatchObject({ type: "end", x: 201 / 402 });
-    expect(text(r)).toContain("Tapped [0.1] on iPhone Air, at the centre of its frame (201,422).");
+    expect(text(r)).toContain("Tapped [1] on iPhone Air, at the centre of its frame (201,422).");
     expect(text(r)).toContain("Read simulator_elements");
   });
 
@@ -654,7 +654,7 @@ describe("acting on an element", () => {
       const simulatorId = await dev.running();
       await dev.call("simulator_elements", { simulatorId });
       dev.show(redraw(change));
-      const r = await dev.call("simulator_tap", { simulatorId, intent: "open General", element: "0.1" });
+      const r = await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 });
       // THE MUTANT: trust the path. After a screen changes, the same position holds something else.
       expect(r.isError, what).toBe(true);
       expect(text(r), what).toContain("Read simulator_elements again");
@@ -669,7 +669,7 @@ describe("acting on an element", () => {
     await dev.call("simulator_elements", { simulatorId });
     dev.show(redraw((els) => { els[1]!.value = "On"; els[1]!.enabled = true; return els; }));
     // THE MUTANT: compare the value too. Every toggle would be refused the second time it is touched.
-    expect((await dev.call("simulator_tap", { simulatorId, intent: "turn Wi-Fi off", element: "0.2" })).isError).toBe(false);
+    expect((await dev.call("simulator_tap", { simulatorId, intent: "turn Wi-Fi off", element: 2 })).isError).toBe(false);
     expect(dev.calls.sent).toHaveLength(1);
   });
 
@@ -677,24 +677,47 @@ describe("acting on an element", () => {
     const dev = device();
     const simulatorId = await dev.running();
     // Never read at all: a path from a transcript, a guess, another session's read.
-    const unread = await dev.call("simulator_tap", { simulatorId, intent: "open General", element: "0.1" });
+    const unread = await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 });
     expect(text(unread)).toContain("read simulator_elements for iPhone Air first");
     // Read, but not this one.
     await dev.call("simulator_elements", { simulatorId });
-    const unseen = await dev.call("simulator_tap", { simulatorId, intent: "open it", element: "0.9" });
-    expect(text(unseen)).toContain("there is no [0.9]");
+    const unseen = await dev.call("simulator_tap", { simulatorId, intent: "open it", element: 9 });
+    expect(text(unseen)).toContain("there is no [9]");
     // Another session's read means nothing to this one.
-    const theirs = await dev.provider.call({ ...dev.ctx, sessionId: "sess2" }, "simulator_tap", { simulatorId, intent: "open General", element: "0.1" });
+    const theirs = await dev.provider.call({ ...dev.ctx, sessionId: "sess2" }, "simulator_tap", { simulatorId, intent: "open General", element: 1 });
     expect(theirs.isError).toBe(true);
     expect(dev.calls.gates).toEqual([]);
     expect(dev.calls.sent).toEqual([]);
   });
 
-  it("takes the path with the brackets the list prints it in", async () => {
+  it("takes the number as the list prints it, brackets and all, and nothing that is not one", async () => {
     const dev = device();
     const simulatorId = await dev.running();
     await dev.call("simulator_elements", { simulatorId });
-    expect((await dev.call("simulator_tap", { simulatorId, intent: "open General", element: "[0.1]" })).isError).toBe(false);
+    expect((await dev.call("simulator_tap", { simulatorId, intent: "open General", element: "[1]" })).isError).toBe(false);
+    expect((await dev.call("simulator_tap", { simulatorId, intent: "open General", element: "1" })).isError).toBe(false);
+    const path = await dev.call("simulator_tap", { simulatorId, intent: "open General", element: "0.1" });
+    expect(text(path)).toContain("an element is its [number] from simulator_elements");
+    expect(dev.calls.sent).toHaveLength(2);
+  });
+
+  it("refuses a number from an earlier list as old, rather than as whatever the latest list has there", async () => {
+    /* MEASURED on a real device, with tree paths as the handle: a path from the list before last named
+       a different element in the latest one — the same position in another screen's tree — and the
+       tap landed on that. Numbers are never reused, so an old one is recognisably old. */
+    const dev = device();
+    const simulatorId = await dev.running();
+    await dev.call("simulator_elements", { simulatorId });
+    const again = text(await dev.call("simulator_elements", { simulatorId }));
+    // The same two rows, numbered on from the first list: nothing it said is reused.
+    expect(again).toContain('[3] Button "General"');
+    expect(again).toContain('[4] Button "Wi-Fi"');
+    const old = await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 });
+    expect(old.isError).toBe(true);
+    expect(text(old)).toContain("[1] is from an earlier simulator_elements of iPhone Air, and only the latest list can be acted on — its numbers start at 3.");
+    expect(dev.calls.sent).toEqual([]);
+    expect((await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 3 })).isError).toBe(false);
+    expect(frames(dev.calls.sent)[0]!.y).toBeCloseTo((293.3 + 22) / 874, 10);
   });
 
   it("refuses an element whose centre is off the screen rather than touching the edge instead", async () => {
@@ -702,11 +725,44 @@ describe("acting on an element", () => {
     const simulatorId = await dev.running();
     await dev.call("simulator_elements", { simulatorId });
     dev.show(redraw((els) => { els[0]!.frame.y = 860; return els; }));
-    const r = await dev.call("simulator_tap", { simulatorId, intent: "open General", element: "0.1" });
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 });
     // THE MUTANT: send it anyway. The frame clamps to the screen's edge — the home indicator.
     expect(r.isError).toBe(true);
     expect(text(r)).toContain("off the screen");
     expect(dev.calls.sent).toEqual([]);
+  });
+
+  it("asks again, briefly, when the device says its tree is not ready — the moment right after a step", async () => {
+    // MEASURED live: the read straight after a tap that pushed Settings ▸ General answered "not yet".
+    let notYet = 0, asked = 0;
+    const dev = setup({ serveSim: { ax: async () => { asked++; return notYet-- > 0 ? null : TREE; } } });
+    const simulatorId = await dev.running();
+    await dev.call("simulator_elements", { simulatorId });
+    notYet = 1; asked = 0;
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 });
+    // THE MUTANT: one read and done. The tap fails on a screen that was a beat from ready.
+    expect(r.isError).toBe(false);
+    expect(asked).toBe(2);
+    expect(dev.calls.sent).toHaveLength(1);
+
+    // …but only briefly, and with the device's own words when it never comes.
+    notYet = 99; asked = 0;
+    const never = await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 });
+    expect(text(never)).toContain("has not published its accessibility tree yet");
+    expect(asked).toBe(3);
+    expect(dev.calls.sent).toHaveLength(1);
+  });
+
+  it("does not ask again when the read failed for any other reason", async () => {
+    let asked = 0, broken = false;
+    const dev = setup({ serveSim: { ax: async () => { asked++; if (broken) throw new Error("socket hang up"); return TREE; } } });
+    const simulatorId = await dev.running();
+    await dev.call("simulator_elements", { simulatorId });
+    broken = true; asked = 0;
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 });
+    // THE MUTANT: retry everything. An answer that will not change costs every step the retry budget.
+    expect(text(r)).toContain("socket hang up");
+    expect(asked).toBe(1);
   });
 
   it("reads what it is acting on after the card, not before — a card can wait minutes", async () => {
@@ -715,7 +771,7 @@ describe("acting on an element", () => {
     await dev.call("simulator_elements", { simulatorId });
     const before = dev.treeReads();
     dev.calls.order.length = 0;
-    await dev.call("simulator_tap", { simulatorId, intent: "open General", element: "0.1" });
+    await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 });
     expect(dev.treeReads()).toBe(before + 1);
     expect(dev.calls.order).toEqual(["card", "act"]);
   });
@@ -760,8 +816,8 @@ describe("each input tool", () => {
 
   it("long-presses for the duration asked, a second when not told", async () => {
     const { call, calls, simulatorId } = await ready();
-    await call("simulator_long_press", { simulatorId, intent: "open the menu", element: "0.1", durationMs: 1500 });
-    await call("simulator_long_press", { simulatorId, intent: "open the menu", element: "0.1" });
+    await call("simulator_long_press", { simulatorId, intent: "open the menu", element: 1, durationMs: 1500 });
+    await call("simulator_long_press", { simulatorId, intent: "open the menu", element: 1 });
     expect(calls.sent.map((x) => x.steps[0]!.waitMs)).toEqual([1500, 1000]);
   });
 
@@ -778,7 +834,7 @@ describe("each input tool", () => {
 
   it("swipes a direction across one element, found live, the way the finger moves", async () => {
     const { call, calls, simulatorId } = await ready();
-    await call("simulator_swipe", { simulatorId, intent: "show the row's actions", direction: "left", element: "0.1" });
+    await call("simulator_swipe", { simulatorId, intent: "show the row's actions", direction: "left", element: 1 });
     const sent = frames(calls.sent);
     // General is (16,293.3 370×44): from three quarters of the way across to a quarter, through its middle.
     expect(sent[0]!.x).toBeCloseTo((16 + 370 * 0.75) / 402, 10);
@@ -906,7 +962,7 @@ describe("the observer", () => {
     const simulatorId = await dev.running();
     await dev.call("simulator_elements", { simulatorId });
     dev.calls.order.length = 0;
-    await dev.call("simulator_tap", { simulatorId, intent: "open General", element: "0.1" });
+    await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 });
     // THE MUTANT: observe before the card (a denied step is reported as taken), or after the act.
     expect(dev.calls.order).toEqual(["card", "observe", "act"]);
     const general = { id: "0.1", role: "Button", label: "General" };
@@ -1010,7 +1066,7 @@ describe("input on Android", () => {
   it("taps an element at the pixel the tree put its centre on", async () => {
     const { call, simulatorId, adb } = await droid();
     await call("simulator_elements", { simulatorId });
-    await call("simulator_tap", { simulatorId, intent: "open network settings", element: "0.0" });
+    await call("simulator_tap", { simulatorId, intent: "open network settings", element: 1 });
     expect(adb).toEqual(["tap 250,250×1"]);
   });
 

@@ -329,19 +329,26 @@ async function main() {
   console.log(`SCREENSHOT window-settings ${OUT("window-settings")}`);
 
   // ── 7. Driving it with the input tools ─────────────────────────────────────────────────
-  /* Settings reports a tree before it has finished laying itself out — a card above General arrives a
-     beat later and pushes the rows down — so the tree is read until General's frame holds still across
-     two reads, and every step below is judged by reading the elements again, which is what the tools
-     tell an agent to do: they say what they sent, never what the app made of it. */
-  const rowAt = (tree, label) => tree?.match(new RegExp(`\\[([\\d.]+)\\] Button "${label}"[^\\n]*\\((\\d+),(\\d+) (\\d+)×(\\d+)\\)`)) ?? null;
-  const read = async () => text(await call("simulator_elements", { simulatorId }));
-  let settled = inSettings;
-  await until(async () => {
-    const again = await read();
-    const still = rowAt(again, "General")?.slice(2).join(",") === rowAt(settled, "General")?.slice(2).join(",");
-    settled = again;
-    return still && !!rowAt(again, "General");
-  }, 15_000, "Settings holding still").catch(() => {});
+  /* Every step is judged by reading the elements again, which is what the tools tell an agent to do:
+     they say what they sent, never what the app made of it. And every read that a step acts on is a
+     STEADY one — two reads in a row listing the same elements — because MEASURED: a read taken while
+     General was sliding in listed both screens, the old list at x = -126, and the Back button it
+     named had moved by the time it was tapped. The tool refused that tap, correctly; the script, like
+     an agent, has to read a screen that has arrived. */
+  const rowAt = (tree, label) => tree?.match(new RegExp(`\\[(\\d+)\\] Button "${label}"[^\\n]*\\((-?\\d+),(-?\\d+) (\\d+)×(\\d+)\\)`)) ?? null;
+  // A refusal is not a screen: right after a step the device can answer "not yet", and a check that
+  // matched on that sentence would pass for the wrong reason. Null, so every wait below asks again.
+  const read = async () => { const r = await call("simulator_elements", { simulatorId }); return r.isError ? null : text(r); };
+  const shape = (t) => (t ?? "").split("\n").filter((l) => /^\[\d+\] /.test(l)).map((l) => l.replace(/^\[\d+\] /, "")).join("\n");
+  const steady = async (holds, tag) => {
+    let last = null;
+    return until(async () => {
+      const t = await read();
+      const still = t !== null && last !== null && shape(t) === shape(last);
+      last = t;
+      return still && holds(t) ? t : null;
+    }, 25_000, tag).catch(() => null);
+  };
   const INPUT = ["simulator_tap", "simulator_double_tap", "simulator_long_press", "simulator_swipe", "simulator_type", "simulator_press"];
   const inputCards = () => cards.filter((k) => INPUT.includes(k.tool));
   const capture = async (tag) => {
@@ -351,84 +358,106 @@ async function main() {
   };
   const timed = async (fn) => { const t = Date.now(); const v = await fn(); return [v, Date.now() - t]; };
 
-  // a. A row, tapped by element. Wi-Fi if this runtime's Settings has one; the simulator has no radios,
-  //    so its Settings may not — then the first row that opens a screen of its own.
-  const [, readMs] = await timed(read);
+  let settled = await steady((t) => !!rowAt(t, "General"), "Settings holding still") ?? inSettings;
+
+  // a. A number from the list before last is old, and refused as old — not taken to mean whatever the
+  //    latest list has in that place.
+  const [newer, readMs] = await timed(read);
   console.log(`(simulator_elements answered in ${readMs} ms)`);
+  const older = rowAt(settled, "General");
+  const oldTap = older ? await call("simulator_tap", { simulatorId, intent: "open General", element: Number(older[1]) }) : null;
+  check("a number from an earlier list is refused as old, and nothing is sent",
+    !!oldTap && oldTap.isError && text(oldTap).includes("is from an earlier simulator_elements"), oldTap && text(oldTap));
+  // Read again before acting, so the list this session holds is the latest one — steady, as always.
+  settled = await steady((t) => !!rowAt(t, "General"), "Settings, read again") ?? newer ?? settled;
+
+  // b. A row, tapped by element. Wi-Fi if this runtime's Settings has one — MEASURED: the iOS 27
+  //    simulator's has none, having no radios — else the first row that opens a screen of its own.
   const first = ["Wi-Fi", "General", "Accessibility"].map((label) => ({ label, row: rowAt(settled, label) })).find((x) => x.row);
-  check("Settings lists a row to open", !!first, settled?.split("\n").slice(0, 12));
+  check("Settings lists a row to open", !!first, settled?.split("\n").slice(4, 14));
   if (!first) return;
-  console.log(`(tapping "${first.label}" — Wi-Fi ${rowAt(settled, "Wi-Fi") ? "is" : "is NOT"} in this Settings)`);
-  const [tapped, tapMs] = await timed(() => call("simulator_tap", { simulatorId, intent: `open the ${first.label} settings`, element: first.row[1] }));
+  console.log(`(tapping "${first.label}" — Wi-Fi ${rowAt(settled, "Wi-Fi") ? "is" : "is NOT"} a row in this Settings)`);
+  const [tapped, tapMs] = await timed(() => call("simulator_tap", { simulatorId, intent: `open the ${first.label} settings`, element: Number(first.row[1]) }));
   console.log(`(simulator_tap answered in ${tapMs} ms) ${text(tapped)}`);
   check(`simulator_tap by element opens ${first.label}`, !tapped.isError && text(tapped).includes(`Tapped [${first.row[1]}]`), text(tapped));
-  check("…behind a card that names the device and the rest of the session, with the step's intent",
-    inputCards().length === 1 && / for the rest of this session$/.test(inputCards()[0].title), cards.slice(-2));
-  const pushed = await until(async () => {
-    const r = await read();
-    return !rowAt(r, "General") || !/\] Heading "Settings"/.test(r) ? r : null;
-  }, 20_000, `the ${first.label} screen`).catch(() => null);
-  check(`the elements say the ${first.label} screen is up`, !!pushed, pushed?.split("\n").slice(0, 8));
+  check("…behind a card that names the device and the rest of the session", inputCards().length === 1
+    && inputCards()[0].title === "Tap, swipe and type on iPhone Air for the rest of this session", inputCards());
+  const pushed = await steady((t) => !rowAt(t, first.label), `the ${first.label} screen`);
+  check(`the elements say the ${first.label} screen is up`, !!pushed, pushed?.split("\n").slice(4, 10));
   await capture("input-opened");
 
-  // b. Back, by the Back button — an element too, named by the screen it goes back to.
-  const back = pushed?.match(/\[([\d.]+)\] Button "(Settings|Back)"/);
-  check("the pushed screen has a Back button to tap", !!back, pushed?.split("\n").slice(0, 10));
+  // c. Back, by the Back button — an element too, named for the screen it goes back to.
+  const back = pushed?.match(/\[(\d+)\] Button "(Settings|Back)"/);
+  check("the pushed screen has a Back button to tap", !!back, pushed?.split("\n").slice(4, 14));
   if (back) {
-    const r = await call("simulator_tap", { simulatorId, intent: "go back to the Settings list", element: back[1] });
+    const r = await call("simulator_tap", { simulatorId, intent: "go back to the Settings list", element: Number(back[1]) });
     check("simulator_tap on Back goes back", !r.isError, text(r));
-    const list = await until(async () => { const t = await read(); return rowAt(t, "General") ? t : null; }, 20_000, "the Settings list again").catch(() => null);
-    check("…and the elements say the Settings list is back", !!list, list?.split("\n").slice(0, 6));
+    const list = await steady((t) => !!rowAt(t, "General"), "the Settings list again");
+    check("…and the elements say the Settings list is back", !!list, list?.split("\n").slice(4, 9));
     settled = list ?? settled;
   }
 
-  // c. Type into Search: tap the field by element, then type into whatever has focus.
-  const field = settled?.match(/\[([\d.]+)\] SearchField[^\n]*/);
-  check("the Settings list has a search field", !!field, settled?.split("\n").slice(0, 8));
+  // d. Type into Search: tap the field by element, then type into whatever has focus. MEASURED on
+  //    iOS 27: Settings' search is a label-less TextField at the bottom, its placeholder as its value.
+  const field = settled?.match(/\[(\d+)\] (?:SearchField|TextField)[^\n]*value="Search"/);
+  check("the Settings list has a search field", !!field, settled?.split("\n").filter((l) => /Field/.test(l)));
   if (field) {
-    const focus = await call("simulator_tap", { simulatorId, intent: "focus the Settings search field", element: field[1] });
+    const focus = await call("simulator_tap", { simulatorId, intent: "focus the Settings search field", element: Number(field[1]) });
     check("simulator_tap focuses Search", !focus.isError, text(focus));
     await sleep(800);
     const typed = await call("simulator_type", { simulatorId, intent: "search Settings for Wallpaper", text: "Wallpaper" });
     check("simulator_type types into it", !typed.isError, text(typed));
-    const found = await until(async () => { const t = await read(); return /SearchField[^\n]*value="Wallpaper"/.test(t) ? t : null; }, 20_000, "the typed search").catch(() => null);
-    check("…and the elements show the field holding what was typed", !!found, found?.split("\n").filter((l) => /Search|Wallpaper/.test(l)).slice(0, 6));
+    const found = await steady((t) => /(?:SearchField|TextField)[^\n]*value="Wallpaper"/.test(t), "the typed search");
+    check("…and the elements show the field holding what was typed", !!found, found?.split("\n").filter((l) => /Field|Wallpaper/.test(l)).slice(0, 6));
     await capture("input-typed");
-    const cancel = found?.match(/\[([\d.]+)\] Button "Cancel"/);
-    if (cancel) await call("simulator_tap", { simulatorId, intent: "leave search", element: cancel[1] });
+    // Leave search by the button that CLOSES it — the ✕ beside the field — not the one inside the
+    // field, which only clears the text and leaves search open over the list.
+    console.log(`(search buttons: ${JSON.stringify(found?.split("\n").filter((l) => /\] Button "/.test(l)).map((l) => l.replace(/ \(.*$/, "")).slice(-6))})`);
+    // MEASURED on iOS 27: the ✕ is `Button "close"`, lower case, beside `Button "Clear text"`.
+    const cancel = ["Cancel", "Close"].map((label) => found?.match(new RegExp(`\\[(\\d+)\\] Button "${label}"`, "i"))).find(Boolean);
+    if (cancel) await call("simulator_tap", { simulatorId, intent: "leave search", element: Number(cancel[1]) });
     else await call("simulator_press", { simulatorId, intent: "leave search", key: "escape" });
-    settled = await until(async () => { const t = await read(); return rowAt(t, "General") && !/value="Wallpaper"/.test(t) ? t : null; }, 20_000, "search dismissed").catch(() => settled);
+    settled = await steady((t) => !!rowAt(t, "General") && !/value="Wallpaper"/.test(t), "search dismissed") ?? settled;
   }
 
-  // d. Swipe the list, and see it move.
-  const labelsOf = (t) => [...(t ?? "").matchAll(/\] \w+ "([^"]+)"/g)].map((m) => m[1]);
+  // e. Swipe the list, and see it move. Judged by Settings' own rows — each carries a
+  //    `com.apple.settings.*` id — so another screen coming up cannot pass for a scroll: a row on
+  //    screen before and after must sit higher after, or rows the list had not shown must arrive.
+  const rowsOf = (t) => new Map([...(t ?? "").matchAll(/^\[\d+\] Button [^\n]* id=(com\.apple\.settings\.[\w.]+) \((-?\d+),(-?\d+) /gm)].map((m) => [m[1], Number(m[3])]));
+  const movedUp = (before, now) => {
+    const a = rowsOf(before), b = rowsOf(now);
+    const shared = [...b.keys()].filter((k) => a.has(k));
+    return shared.length > 0 ? shared.some((k) => b.get(k) < a.get(k) - 20) : b.size > 0;
+  };
   const beforeSwipe = settled;
+  check("the Settings list is what is up to swipe", rowsOf(beforeSwipe).has("com.apple.settings.general"), beforeSwipe?.split("\n").slice(4, 8));
   const swiped = await call("simulator_swipe", { simulatorId, intent: "scroll down the Settings list", direction: "up" });
   check("simulator_swipe scrolls the list", !swiped.isError, text(swiped));
-  const moved = await until(async () => {
-    const t = await read();
-    const was = rowAt(beforeSwipe, "General"), now = rowAt(t, "General");
-    const shifted = !now || !was || Number(now[3]) < Number(was[3]);
-    const fresh = labelsOf(t).filter((l) => !labelsOf(beforeSwipe).includes(l));
-    return shifted && fresh.length > 0 ? { t, fresh } : null;
-  }, 20_000, "the list to move").catch(() => null);
-  check("…and the elements say it moved: rows scrolled up and new ones came in", !!moved, moved?.fresh.slice(0, 6));
+  const after = await steady((t) => movedUp(beforeSwipe, t), "the list to move");
+  check("…and the elements say it moved: Settings rows sit higher, and new ones came in", !!after,
+    after && [...rowsOf(after)].filter(([k]) => !rowsOf(beforeSwipe).has(k)).map(([k, y]) => `${k.replace("com.apple.settings.", "")}@${y}`).slice(0, 6));
   await capture("input-swiped");
 
-  // e. A path from a screen that has changed since is refused, and nothing is sent.
-  const stale = await read();
+  // f. A number from a screen that has changed since is refused, and nothing is sent.
+  const stale = after ?? await steady(() => true, "a tree to hold");
   const staleRow = rowAt(stale, "[^\"]+");
   await call("simulator_press", { simulatorId, intent: "go to the home screen", key: "home" });
-  /* A wait, not a read: reading the elements here would make the home screen the session's own view,
-     and the old path would then mean whatever sits at it on the home screen — legitimately. The agent
-     in this step still holds `stale`, and acts on it. */
-  await sleep(2500);
-  const refusedTap = staleRow ? await call("simulator_tap", { simulatorId, intent: "open a row that is gone", element: staleRow[1] }) : null;
-  check("a tap on a path from a screen that has since changed is refused, saying to read again",
+  /* Waited for OUTSIDE the session — serve-sim's own tree, read straight off the daemon — because a
+     read through the tools would make the home screen this session's view, and the old number would
+     then be refused as old, a different refusal. MEASURED: a fixed pause was not enough on a loaded
+     Mac; the tree still showed Settings 2.5 s after the press. The agent here still holds `stale`. */
+  const daemon = serveSimList(target).url;
+  await until(async () => {
+    const tree = await fetch(`${daemon}/helper/${target}/ax`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    const root = Array.isArray(tree) ? tree[0] : tree;
+    return root && !root.AXLabel;
+  }, 20_000, "the home screen, seen by the daemon").catch(() => {});
+  const refusedTap = staleRow ? await call("simulator_tap", { simulatorId, intent: "open a row that is gone", element: Number(staleRow[1]) }) : null;
+  check("a tap on a number from a screen that has since changed is refused, saying to read again",
     !!refusedTap && refusedTap.isError && text(refusedTap).includes("Read simulator_elements again"), refusedTap && text(refusedTap));
   check("one card for the whole run of input on this device", inputCards().length === 1, inputCards());
-  const springboard = await read();
-  check("…and home went home: the elements are the home screen's", /^app: \(no name\)$/m.test(springboard) && !/"General"/.test(springboard), springboard.split("\n").slice(0, 4));
+  const springboard = await steady(() => true, "the home screen's tree") ?? "";
+  check("…and home went home: the elements are the home screen's", /^app: \(no name\)$/m.test(springboard) && !/"General"/.test(springboard), springboard.split("\n").slice(4, 8));
 
   // ── 8. The browser guard ────────────────────────────────────────────────────────────────
   const browse = async (url) => client.callTool({ name: "realm-browser__browser_open", arguments: { url } }, undefined, { timeout: 60_000 });

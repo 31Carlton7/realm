@@ -81,9 +81,9 @@ const BLOCKS: Record<string, string> = {
     "the devices it can open. `simulator_install` and `simulator_launch` run your build on it, `simulator_open_url` " +
     "follows a link or deep link there, and `simulator_screenshot` and `simulator_elements` show you the screen — " +
     "the elements by the labels the app gives them. `simulator_tap`, `simulator_double_tap`, `simulator_long_press`, " +
-    "`simulator_swipe`, `simulator_type` and `simulator_press` use it: act on an element by the `[path]` " +
-    "`simulator_elements` gave it, say in `intent` what each step is for, and read the elements again afterwards to " +
-    "see what the step did. Use them whenever the work is to run, show or check an app on a device, and build the " +
+    "`simulator_swipe`, `simulator_type` and `simulator_press` use it: act on an element by the `[number]` your " +
+    "latest `simulator_elements` gave it, say in `intent` what each step is for, and read the elements again " +
+    "afterwards to see what the step did. Use them whenever the work is to run, show or check an app on a device, and build the " +
     "app with your own tools as usual; a web page is checked in the browser pane, without booting anything. Do not " +
     "start a serve-sim stream yourself, do not open one in a browser pane, and do not drive a device through " +
     "serve-sim's CLI or `adb shell input`: the pane already streams the device, and these tools are how you touch " +

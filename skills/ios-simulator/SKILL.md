@@ -28,7 +28,7 @@ a browser pane — a stream in a web page is a second, worse copy of the pane, a
 ## Read the screen
 
 - `simulator_elements` is how you **know** what is on screen: the foreground app's accessibility
-  tree, one line per element with its path, role, label, value, id and frame — points on iOS, pixels
+  tree, one line per element with its number, role, label, value, id and frame — points on iOS, pixels
   on Android, origin top-left. Match on `label`, `role` and `id`. For a few seconds after a boot it
   answers "not yet" while the device's accessibility framework warms up; ask again.
 - `simulator_screenshot` is how you **see** it, shrunk to a size you can read. With `save: true` the
@@ -46,10 +46,13 @@ and `simulator_press` drive the device the pane is showing — iOS through the s
 pane's own touches take, Android through `adb shell input`. Every one takes an `intent`: a few words
 on what the step is for, such as "open the Wi-Fi settings". The user sees it with the step.
 
-- **Tap the element, not a guess.** Pass `element` with the `[path]` `simulator_elements` printed for
-  it. Realm reads the screen again at the moment of the tap and taps the centre of that element's
-  frame as it is now. If the screen has changed since you read it, nothing is tapped and you are told
-  to read the elements again: do that, and take the path from the new list.
+- **Tap the element, not a guess.** Pass `element` with the `[number]` your latest
+  `simulator_elements` printed for it. Every read numbers its elements afresh, so only the latest
+  list's numbers work. Realm reads the screen again at the moment of the tap and taps the centre of
+  that element's frame as it is now. If the screen has changed since you read it, nothing is tapped
+  and you are told to read the elements again: do that, and take the number from the new list. A
+  read taken while a screen is still sliding in can list two screens at once; wait a beat after a
+  step before reading what it did.
 - **A point** (`x`, `y`) is for what the tree does not describe — a canvas, a map, a game. It is in
   the units the elements are: points on iOS, pixels on Android, from the top-left.
 - **Swipe** with a `direction` across the screen (`up` scrolls toward the end of a list), or across

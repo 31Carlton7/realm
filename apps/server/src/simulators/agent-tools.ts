@@ -14,6 +14,7 @@ import { ProbeCache } from "../sessions/probe-cache";
 import { SCREENSHOT_MAX_EDGE } from "../machines/driver";
 import { downscale, encodePng } from "../machines/framebuffer";
 import { decodePngToRgba, pngSize } from "../machines/qmp-driver";
+import { RpcError } from "../store/rows";
 import type { SimulatorService } from "./service";
 import { DEVICE_KEYS, inputRefusal, type DeviceInput, type DevicePoint } from "./device-input";
 
@@ -41,14 +42,16 @@ export const SIMULATOR_PROVIDER_NAME = "realm-simulator";
  *
  * ## Input: by element or by point, and always with an intent
  *
- * An element is named by the `[path]` `simulator_elements` printed for it, and the path alone is not
- * trusted. It means what THIS session was shown, which is remembered per device (`DeviceReads`); at
- * the moment of acting the live tree is read, and the element at that path must still be the one the
- * agent read — same role, label, id and size — or the step is refused with a sentence that says to
- * read the elements again. The touch lands at the centre of the LIVE frame, so a list that scrolled a
- * little since the read is not a miss. This is `realm-computer`'s index re-resolved at act time, for
- * a device whose tree holds no handles to re-resolve through. A point is in the units the elements
- * are measured in: points on iOS, pixels on Android.
+ * An element is named by the `[number]` `simulator_elements` printed for it. Every read numbers its
+ * elements afresh and no number is ever used twice for a session and device, so a number is only
+ * valid for the read that produced it — `realm-computer`'s rule for its snapshot indices — and one
+ * from an older list is refused as old rather than taken to mean whatever the newest list has there.
+ * MEASURED: with tree paths as the handle, a path from the list before last named a different
+ * element in the latest one, and tapped it. At the moment of acting the live tree is read, and the
+ * element at the number's place in the tree must still be the one the agent was shown — same role,
+ * label, id and size — or the step is refused with a sentence that says to read the elements again.
+ * The touch lands at the centre of the LIVE frame, so a list that scrolled a little since the read is
+ * not a miss. A point is in the units the elements are measured in: points on iOS, pixels on Android.
  *
  * Every input tool takes an `intent`: what the step is for, in the agent's own words. It is what the
  * transcript's tool row and the permission card show for the step, and what the observer is told.
@@ -263,7 +266,7 @@ const TOOLS: Tool[] = [
   {
     name: "simulator_elements",
     description:
-      "What is on a simulator's screen, by name: the foreground app's accessibility tree, one line per element with its role, the label and value the app gives it, its id when the app sets one, and its frame. Read this to find out what a screen says and to check that a step worked; a screenshot is for how it looks. Read-only.",
+      "What is on a simulator's screen, by name: the foreground app's accessibility tree, one line per element with the [number] the input tools take it by, its role, the label and value the app gives it, its id when the app sets one, and its frame. Read this to find out what a screen says and to check that a step worked; a screenshot is for how it looks. Read-only.",
     inputSchema: {
       type: "object",
       properties: { simulatorId: { type: "string", description: "from simulator_open or simulator_list" } },
@@ -324,7 +327,7 @@ const TOOLS: Tool[] = [
   {
     name: "simulator_tap",
     description:
-      "Tap a simulator's screen once: an element, by the [path] simulator_elements gave it, or a point. The element is looked up again on the live screen at the moment of the tap and tapped at the centre of its frame; if the screen has changed since you read it, nothing is tapped and you are told to read the elements again. Read simulator_elements afterwards to see what the tap did. Asks the user once per device per session.",
+      "Tap a simulator's screen once: an element, by the [number] simulator_elements gave it, or a point. The element is looked up again on the live screen at the moment of the tap and tapped at the centre of its frame; if the screen has changed since you read it, nothing is tapped and you are told to read the elements again. Read simulator_elements afterwards to see what the tap did. Asks the user once per device per session.",
     inputSchema: touchSchema({}),
   },
   {
@@ -347,7 +350,7 @@ const TOOLS: Tool[] = [
         simulatorId: SIMULATOR_ID,
         intent: INTENT,
         direction: { type: "string", enum: ["up", "down", "left", "right"], description: "which way the finger moves: up scrolls toward the end of a list, left pages forward" },
-        element: { type: "string", description: "with a direction: swipe across this element, by its [path] from simulator_elements, instead of across the screen" },
+        element: { type: "number", description: "with a direction: swipe across this element, by its [number] from your latest simulator_elements, instead of across the screen" },
         from: { ...POINT, description: "instead of a direction: where the finger goes down, in the units simulator_elements reports" },
         to: { ...POINT, description: "where it lifts" },
         durationMs: { type: "number", description: "how long the finger takes, in milliseconds (default 300)" },
@@ -387,7 +390,7 @@ function touchSchema(extra: Record<string, unknown>): Tool["inputSchema"] {
     properties: {
       simulatorId: SIMULATOR_ID,
       intent: INTENT,
-      element: { type: "string", description: "an element's [path] from your latest simulator_elements, such as 0.3.1" },
+      element: { type: "number", description: "an element's [number] from your latest simulator_elements" },
       x: { type: "number", description: "or a point: how far across, in the units simulator_elements reports — points on iOS, pixels on Android" },
       y: { type: "number", description: "and how far down, from the top" },
       ...extra,
@@ -408,14 +411,15 @@ const INTENT_MISSING = 'intent says in a few words what this step is for, such a
 const InputArgs = SimulatorIdArgs.extend({
   intent: z.string({ required_error: INTENT_MISSING }).trim().min(1, INTENT_MISSING).max(200, "intent is a few words, not a paragraph — 200 characters at most"),
 });
-/** `[0.3]` as the elements list prints it, or `0.3`: an agent copies the brackets as often as not. */
-const ElementPath = z.string().trim().transform((p) => p.replace(/^\[(.*)\]$/, "$1"))
-  .pipe(z.string().regex(/^\d+(?:\.\d+)*$/, "an element is its [path] from simulator_elements, such as 0.3.1"));
+/** `12`, or `"12"` or `"[12]"` as the elements list prints it: an agent copies the brackets as often as not. */
+const ELEMENT_NUMBER = "an element is its [number] from simulator_elements, such as 12";
+const ElementNumber = z.preprocess((v) => (typeof v === "string" ? Number(v.trim().replace(/^\[(.*)\]$/, "$1")) : v),
+  z.number({ invalid_type_error: ELEMENT_NUMBER }).int(ELEMENT_NUMBER).positive(ELEMENT_NUMBER));
 const Coordinate = z.number().finite();
-const TouchFields = { element: ElementPath.optional(), x: Coordinate.optional(), y: Coordinate.optional() };
+const TouchFields = { element: ElementNumber.optional(), x: Coordinate.optional(), y: Coordinate.optional() };
 /** An element or a point, never both: a point beside an element is a second opinion about where to
  *  touch, and there is no right one to pick. */
-const oneTarget = (a: { element?: string; x?: number; y?: number }): boolean =>
+const oneTarget = (a: { element?: number; x?: number; y?: number }): boolean =>
   a.element !== undefined ? a.x === undefined && a.y === undefined : a.x !== undefined && a.y !== undefined;
 const ONE_TARGET = { message: "give an element, or a point as both x and y — one of the two", path: ["element"] };
 const TapArgs = InputArgs.extend(TouchFields).refine(oneTarget, ONE_TARGET);
@@ -423,7 +427,7 @@ const LongPressArgs = InputArgs.extend({ ...TouchFields, durationMs: z.number().
 const PointArgs = z.object({ x: Coordinate, y: Coordinate });
 const SwipeArgs = InputArgs.extend({
   direction: z.enum(["up", "down", "left", "right"]).optional(),
-  element: ElementPath.optional(),
+  element: ElementNumber.optional(),
   from: PointArgs.optional(),
   to: PointArgs.optional(),
   durationMs: z.number().int().min(50).max(5_000).default(300),
@@ -565,13 +569,13 @@ const HANDLERS: Record<string, Handler> = {
     const row = requireRunning(d, ctx, args.value.simulatorId); if ("error" in row) return row.error;
     const tree = await d.simulators.ax(row.value.id);
     const shown = tree.elements.slice(0, ELEMENTS_MAX);
-    // What this session was shown is what its element ids mean from now on — see `DeviceReads`.
-    reads.remember(ctx.sessionId, row.value.id, shown);
+    // What this session was shown is what its element numbers mean from now on — see `DeviceReads`.
+    const first = reads.remember(ctx.sessionId, row.value.id, shown);
     const more = tree.elements.length > shown.length ? ` The first ${ELEMENTS_MAX} are listed.` : "";
     const head = `${tree.elements.length} element(s) on ${clip(row.value.name, 60)}. Frames are "(x,y width×height)" in ${tree.units}, on a ${Math.round(tree.screen.width)}×${Math.round(tree.screen.height)} screen with the origin at the top-left.${more}`
-      + " The input tools act on an element by its [path], or on a point measured the same way.";
+      + " The input tools take an element by its [number] in this list — a later read numbers them again — or a point measured the same way.";
     // SpringBoard names itself nothing — the home screen's root arrives blank — so a blank is said as one.
-    const body = [`app: ${clip(tree.app.trim(), 80) || "(no name)"}`, ...shown.map(elementLine)].join("\n");
+    const body = [`app: ${clip(tree.app.trim(), 80) || "(no name)"}`, ...shown.map((el, i) => elementLine(el, first + i))].join("\n");
     return ok(`${head}\n${fenceUntrusted(body, "WHAT THE APP ON THE SIMULATOR REPORTS ABOUT ITS SCREEN")}`);
   },
 
@@ -643,14 +647,14 @@ const HANDLERS: Record<string, Handler> = {
     const name = clip(row.value.name, 60);
     let path: { from: DevicePoint; to: DevicePoint; elements: readonly SimulatorAxElement[]; chosen: ActObservation["chosen"]; where: string };
     if (a.direction && seen) {
-      const spot = await liveElement(c, row.value, seen.value); if ("error" in spot) return spot.error;
+      const spot = await liveElement(c, row.value, seen.value, a.element!); if ("error" in spot) return spot.error;
       // Across the part of the element that is on the screen: a list taller than the screen still
       // scrolls from where the finger can actually go down.
       const f = spot.live.frame, screen = spot.screen;
       const left = Math.max(0, f.x), top = Math.max(0, f.y);
       const box = { x: left, y: top, width: Math.min(screen.width, f.x + f.width) - left, height: Math.min(screen.height, f.y + f.height) - top };
       const [from, to] = stroke(a.direction, box);
-      path = { from: normalize(from, screen), to: normalize(to, screen), elements: spot.elements, chosen: spot.chosen, where: `${a.direction} across [${seen.value.path}] on ${name}` };
+      path = { from: normalize(from, screen), to: normalize(to, screen), elements: spot.elements, chosen: spot.chosen, where: `${a.direction} across ${spot.target} on ${name}` };
     } else if (a.direction) {
       const [from, to] = stroke(a.direction, { x: 0, y: 0, width: 1, height: 1 });
       path = { from, to, elements: lastRead(c, row.value), chosen: null, where: `${a.direction} across the screen of ${name}` };
@@ -747,7 +751,7 @@ async function touch(c: Call, tool: string, a: z.infer<typeof TapArgs>, input: (
   if (seen && "error" in seen) return seen.error;
   const gate = await askToDrive(c, row.value, tool, a);
   if (!gate.allowed) return err(gate.reason);
-  const spot = seen ? await liveElement(c, row.value, seen.value) : await livePoint(c, row.value, { x: a.x!, y: a.y! });
+  const spot = seen ? await liveElement(c, row.value, seen.value, a.element!) : await livePoint(c, row.value, { x: a.x!, y: a.y! });
   if ("error" in spot) return spot.error;
   watch(c, row.value, tool, a.intent, spot.elements, spot.chosen);
   return landed(row.value, await c.d.simulators.input(row.value.id, input(spot.at)), `${said(spot.target, clip(row.value.name, 60))}${spot.landing}.`);
@@ -784,34 +788,38 @@ function askToDrive(c: Call, row: Simulator, tool: string, args: z.infer<typeof 
   );
 }
 
-/** The element an id names, as THIS session was shown it — or why there is none to look for. */
-function recall(c: Call, row: Simulator, path: string): { value: SimulatorAxElement } | { error: CallToolResult } {
+/** The element a number names, as THIS session was shown it in its latest list — or why there is
+ *  none to look for. */
+function recall(c: Call, row: Simulator, n: number): { value: SimulatorAxElement } | { error: CallToolResult } {
   const name = clip(row.name, 60);
   const read = c.reads.read(c.ctx.sessionId, row.id);
-  if (!read) return { error: err(`read simulator_elements for ${name} first: an element is named by the [path] it lists.`) };
-  const seen = read.find((e) => e.path === path);
-  if (!seen) return { error: err(`there is no [${path}] in the simulator_elements you last read of ${name}. Read it again and use a [path] from that list.`) };
+  if (!read) return { error: err(`read simulator_elements for ${name} first: an element is named by the [number] it lists.`) };
+  if (n < read.first) {
+    return { error: err(`[${n}] is from an earlier simulator_elements of ${name}, and only the latest list can be acted on — its numbers start at ${read.first}. Use one from it, or read the elements again.`) };
+  }
+  const seen = read.elements[n - read.first];
+  if (!seen) return { error: err(`there is no [${n}] in the simulator_elements you last read of ${name}. Read it again and use a [number] from that list.`) };
   return { value: seen };
 }
 
 /**
- * The element on the screen NOW. It has to be at the same path and be the same element — see
- * `sameElement` — or the step is refused: a path is only a position in a tree, and after a screen
- * changes the same position holds something else, which is the tap this refusal exists to prevent.
+ * The element on the screen NOW. It has to be at the same place in the tree and be the same element
+ * — see `sameElement` — or the step is refused: a place is only a position in a tree, and after a
+ * screen changes the same position holds something else, which is the tap this refusal exists for.
  */
-async function liveElement(c: Call, row: Simulator, seen: SimulatorAxElement): Promise<(Spot & { live: SimulatorAxElement; screen: SimulatorAxTree["screen"] }) | { error: CallToolResult }> {
-  const tree = await c.d.simulators.ax(row.id);
+async function liveElement(c: Call, row: Simulator, seen: SimulatorAxElement, n: number): Promise<(Spot & { live: SimulatorAxElement; screen: SimulatorAxTree["screen"] }) | { error: CallToolResult }> {
+  const tree = await liveTree(c, row);
   const elements = tree.elements.slice(0, ELEMENTS_MAX);
   c.reads.settle(c.ctx.sessionId, row.id, elements);
   const live = tree.elements.find((e) => e.path === seen.path);
   if (!live || !sameElement(live, seen)) {
-    return { error: err(`the screen has changed since you read it: [${seen.path}] is not the element you were shown any more, so nothing was sent. Read simulator_elements again and use a [path] from what it lists now.`) };
+    return { error: err(`the screen has changed since you read it: [${n}] is not the element you were shown any more, so nothing was sent. Read simulator_elements again and use a [number] from what it lists now.`) };
   }
   const centre = { x: live.frame.x + live.frame.width / 2, y: live.frame.y + live.frame.height / 2 };
   if (!onScreen(centre, tree.screen)) {
-    return { error: err(`[${seen.path}] is off the screen now — the centre of its frame is at ${at(centre)}, on a ${Math.round(tree.screen.width)}×${Math.round(tree.screen.height)} screen — so nothing was sent. Swipe it into view, then read simulator_elements again.`) };
+    return { error: err(`[${n}] is off the screen now — the centre of its frame is at ${at(centre)}, on a ${Math.round(tree.screen.width)}×${Math.round(tree.screen.height)} screen — so nothing was sent. Swipe it into view, then read simulator_elements again.`) };
   }
-  return { at: normalize(centre, tree.screen), elements, chosen: { element: observed(live) }, target: `[${seen.path}]`, landing: `, at the centre of its frame ${at(centre)}`, live, screen: tree.screen };
+  return { at: normalize(centre, tree.screen), elements, chosen: { element: observed(live) }, target: `[${n}]`, landing: `, at the centre of its frame ${at(centre)}`, live, screen: tree.screen };
 }
 
 async function livePoint(c: Call, row: Simulator, p: { x: number; y: number }): Promise<Spot | { error: CallToolResult }> {
@@ -833,10 +841,31 @@ async function screenOf(c: Call, row: Simulator): Promise<{ size: { width: numbe
     if (!size) return { error: err(`${clip(row.name, 60)} has not reported its screen size yet, so nothing was sent. Try again in a few seconds.`) };
     return { size, elements: lastRead(c, row) };
   }
-  const tree = await c.d.simulators.ax(row.id);
+  const tree = await liveTree(c, row);
   const elements = tree.elements.slice(0, ELEMENTS_MAX);
   c.reads.settle(c.ctx.sessionId, row.id, elements);
   return { size: tree.screen, elements };
+}
+
+/** How often a step asks again for a tree the device said it does not have yet, and how far apart. */
+const LIVE_READ_ATTEMPTS = 3;
+const LIVE_READ_RETRY_MS = 400;
+
+/**
+ * The tree a step acts on. A read that lands while a screen is still arriving can get the device's
+ * "not yet" — MEASURED, on the read straight after a tap that pushed Settings ▸ General — and the
+ * moment after one step is exactly when the next one reads. So "not yet" is asked again, briefly, as
+ * the Android driver asks again for its own; anything else is the answer.
+ */
+async function liveTree(c: Call, row: Simulator): Promise<SimulatorAxTree> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await c.d.simulators.ax(row.id);
+    } catch (e) {
+      if (attempt >= LIVE_READ_ATTEMPTS || !(e instanceof RpcError && e.code === "UNAVAILABLE")) throw e;
+      await new Promise((r) => setTimeout(r, LIVE_READ_RETRY_MS));
+    }
+  }
 }
 
 /**
@@ -868,14 +897,16 @@ const onScreen = (p: { x: number; y: number }, screen: { width: number; height: 
 const at = (p: { x: number; y: number }): string => `(${Math.round(p.x)},${Math.round(p.y)})`;
 const offScreen = (row: Simulator, p: { x: number; y: number }, screen: { width: number; height: number }): CallToolResult =>
   err(`${at(p)} is off the screen of ${clip(row.name, 60)}, which is ${Math.round(screen.width)}×${Math.round(screen.height)} ${row.platform === "android" ? "pixels" : "points"} from the top-left, so nothing was sent.`);
-const lastRead = (c: Call, row: Simulator): readonly SimulatorAxElement[] => c.reads.read(c.ctx.sessionId, row.id) ?? [];
+const lastRead = (c: Call, row: Simulator): readonly SimulatorAxElement[] => c.reads.read(c.ctx.sessionId, row.id)?.elements ?? [];
 
 /** A step's answer: what was sent — the tool cannot see whether the app took it, and says where to
  *  look — or what the device said instead. */
 const landed = (row: Simulator, r: { ok: boolean; detail: string }, said: string): CallToolResult =>
   r.ok ? ok(`${said} Read simulator_elements to see what it did.`) : err(`that did not reach ${clip(row.name, 60)}: ${clip(r.detail || "no reason given", 600)}`);
 
-/** One element as the observer sees it: named by the path the agent acts on, never by pixels. */
+/** One element as the observer sees it, never as pixels. Named by its path in the tree rather than
+ *  by the [number] the agent acts on: a path stays the same from one read to the next while the
+ *  screen does, so an observer can line a step's before up with its after. */
 const observed = (el: SimulatorAxElement): ObservedElement =>
   ({ id: el.path, role: el.role, label: el.label, ...(el.value ? { value: el.value } : {}) });
 
@@ -911,8 +942,10 @@ const MAX_REMEMBERED_READS = 256;
  * What each session last read of each device, and what its last input step is still owed.
  *
  * The read is the agent's own view — the elements `simulator_elements` showed it — and it is what an
- * element id means: `[0.3]` is "the Wi-Fi row I was shown", not whatever sits at 0.3 now. It is
- * never replaced by the tree a step reads to act, because the agent never saw that one.
+ * element number means: `[14]` is "the General row I was shown", not whatever sits there now. It is
+ * never replaced by the tree a step reads to act, because the agent never saw that one. Numbers run
+ * on from one read to the next and are never reused, which is what lets `recall` tell a number from
+ * an older list from one that was never shown at all.
  *
  * `after` is the observer's second half: the function a step's observer handed back, waiting for
  * the next tree this session reads of the device — its own `simulator_elements`, or the live read
@@ -922,15 +955,19 @@ const MAX_REMEMBERED_READS = 256;
  * its entries to age out rather than to grow the map for the life of the process.
  */
 class DeviceReads {
-  private readonly byKey = new Map<string, { read: readonly SimulatorAxElement[] | null; after: ((after: readonly ObservedElement[]) => void) | null }>();
+  private readonly byKey = new Map<string, ReadsEntry>();
 
-  read(sessionId: string, simulatorId: string): readonly SimulatorAxElement[] | null {
+  read(sessionId: string, simulatorId: string): Read | null {
     return this.byKey.get(readKey(sessionId, simulatorId))?.read ?? null;
   }
 
-  remember(sessionId: string, simulatorId: string, elements: readonly SimulatorAxElement[]): void {
+  /** Keep a read, and say the number its first element takes. */
+  remember(sessionId: string, simulatorId: string, elements: readonly SimulatorAxElement[]): number {
     this.settle(sessionId, simulatorId, elements);
-    this.put(readKey(sessionId, simulatorId), { read: elements, after: null });
+    const k = readKey(sessionId, simulatorId);
+    const first = this.byKey.get(k)?.next ?? 1;
+    this.put(k, { read: { first, elements }, next: first + elements.length, after: null });
+    return first;
   }
 
   /** Hand the step still waiting for a read the one just made. */
@@ -945,10 +982,11 @@ class DeviceReads {
   /** A newer step's promise replaces an older one's: only the latest step's screen is still coming. */
   owe(sessionId: string, simulatorId: string, after: (after: readonly ObservedElement[]) => void): void {
     const k = readKey(sessionId, simulatorId);
-    this.put(k, { read: this.byKey.get(k)?.read ?? null, after });
+    const entry = this.byKey.get(k);
+    this.put(k, { read: entry?.read ?? null, next: entry?.next ?? 1, after });
   }
 
-  private put(k: string, entry: { read: readonly SimulatorAxElement[] | null; after: ((after: readonly ObservedElement[]) => void) | null }): void {
+  private put(k: string, entry: ReadsEntry): void {
     this.byKey.delete(k);
     this.byKey.set(k, entry);
     while (this.byKey.size > MAX_REMEMBERED_READS) {
@@ -959,13 +997,17 @@ class DeviceReads {
   }
 }
 
+/** One list an agent was shown: its elements, numbered from `first`. */
+type Read = { first: number; elements: readonly SimulatorAxElement[] };
+type ReadsEntry = { read: Read | null; next: number; after: ((after: readonly ObservedElement[]) => void) | null };
+
 /** NUL is in neither id, so no two pairs of them can collide by concatenation. */
 const readKey = (sessionId: string, simulatorId: string): string => `${sessionId}\0${simulatorId}`;
 
-/** One element as a line: the path it can be spoken about by, then what the app says it is. */
-function elementLine(el: SimulatorAxElement): string {
+/** One element as a line: the number an input tool takes it by, then what the app says it is. */
+function elementLine(el: SimulatorAxElement, n: number): string {
   const r = Math.round;
-  return `[${el.path}] ${el.role}${el.label ? ` "${clip(el.label, 80)}"` : ""}${el.value ? ` value="${clip(el.value, 60)}"` : ""}`
+  return `[${n}] ${el.role}${el.label ? ` "${clip(el.label, 80)}"` : ""}${el.value ? ` value="${clip(el.value, 60)}"` : ""}`
     + `${el.id ? ` id=${clip(el.id, 80)}` : ""} (${r(el.frame.x)},${r(el.frame.y)} ${r(el.frame.width)}×${r(el.frame.height)})${el.enabled ? "" : " disabled"}`;
 }
 
