@@ -204,7 +204,9 @@ describe("serve-sim's own records of what it is streaming", () => {
     writeFileSync(join(dir, "server-OTHER.json"), '{"device":"OTHER","port":3101,"pid":1}');
     // The deprecated single-stream file: `--list` itself skips it, since it names no device of its own.
     writeFileSync(join(dir, "server.json"), '{"device":"OLD","port":3099,"pid":1}');
-    writeFileSync(join(dir, "server-OTHER.log"), "helper started");
+    // A helper's log beside its record. Only `.json` files are records — `--list` reads nothing else —
+    // so a log line that happens to parse is still not a claim on a port.
+    writeFileSync(join(dir, "server-OTHER.log"), '{"device":"FROM-A-LOG","port":3102}');
     writeFileSync(join(dir, "server-BROKEN.json"), "{ half a file");
     const claims = await serveSim({ REALM_SERVE_SIM_STATE_DIR: dir }).claims();
     expect(claims.sort((a, b) => a.port - b.port)).toEqual([
