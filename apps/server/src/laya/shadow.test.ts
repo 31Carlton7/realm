@@ -159,6 +159,20 @@ describe("never in the way", () => {
     expect(made).toHaveLength(2);
   });
 
+  it("lets the tool go on to its act before the shadow does any work at all", async () => {
+    // computer_act observes and then awaits the bridge. Whatever the shadow queued must wait behind
+    // that await — a microtask would not, and would run the candidate cut first.
+    const order: string[] = [];
+    const client = { ask: async () => { order.push("laya asked"); return { answers: {}, ms: 1 }; } } as unknown as LayaClient;
+    const path = join(tempDir("realm-laya-shadow-"), "decisions.jsonl");
+    const shadow = new LayaShadow({ laya: { client: () => client, checkpoint: () => null }, log: new DecisionLog({ path }) });
+    shadow.observe(step());
+    await Promise.resolve();
+    order.push("tool went on");
+    await shadow.flush();
+    expect(order[0]).toBe("tool went on");
+  });
+
   it("does not hold a step when laya-serve hangs — the row says it timed out", async () => {
     const { shadow, server: s, rows } = await setup({ requestTimeoutMs: 40 });
     s.hang(true);
