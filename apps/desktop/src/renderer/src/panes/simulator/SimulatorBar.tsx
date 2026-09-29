@@ -1,11 +1,11 @@
 import type { Item, SimulatorAct, SimulatorApp, SimulatorButton, SimulatorEvent, SimulatorOrientation, SimulatorUiState } from "@realm/contracts";
-import { SIMULATOR_CA_DEBUG, SIMULATOR_ORIENTATIONS, SIMULATOR_PERMISSIONS, SIMULATOR_UI_OPTIONS } from "@realm/contracts";
+import { buttonFrame, orientationFrame, SIMULATOR_CA_DEBUG, SIMULATOR_ORIENTATIONS, SIMULATOR_PERMISSIONS, SIMULATOR_UI_OPTIONS } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
 import { useRef, useState } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { useApp } from "../../state/store";
 import { rpc } from "../../rpc/client";
-import { buttonFrame, orientationFrame, SimulatorInput } from "./sim-input";
+import { SimulatorInput } from "./sim-input";
 import { dotFor } from "../machine/MachineBar";
 
 /**

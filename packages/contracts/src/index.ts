@@ -54,6 +54,7 @@ export * from "./links";
 export * from "./connectors";
 export * from "./machine";
 export * from "./simulator";
+export * from "./simulator-input";
 export * from "./goal";
 export * from "./egg-pack";
 export * from "./sandbox";
