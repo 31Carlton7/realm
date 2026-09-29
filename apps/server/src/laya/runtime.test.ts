@@ -20,7 +20,7 @@ const fs = require("fs"), path = require("path"), http = require("http");
 const LOG = ${JSON.stringify(log)};
 const args = process.argv.slice(2);
 const pick = (k) => process.env[k];
-fs.appendFileSync(LOG, JSON.stringify({ pid: process.pid, self: process.argv[1], args, env: Object.fromEntries(["LAYA_HOST", "LAYA_PORT", "LAYA_MODELS", "LAYA_REVISION", "LAYA_DEVICE", "LAYA_PRELOAD", "LAYA_API_KEY", "HF_HOME", "HF_HUB_OFFLINE", "HF_TOKEN", "PYTHONPATH", "PYTORCH_ENABLE_MPS_FALLBACK"].map((k) => [k, pick(k) ?? null])) }) + "\\n");
+fs.appendFileSync(LOG, JSON.stringify({ pid: process.pid, self: process.argv[1], args, env: Object.fromEntries(["LAYA_HOST", "LAYA_PORT", "LAYA_MODELS", "LAYA_REVISION", "LAYA_DEVICE", "LAYA_PRELOAD", "LAYA_API_KEY", "HF_HOME", "HF_HUB_OFFLINE", "HF_TOKEN", "PYTHONPATH", "PYTORCH_ENABLE_MPS_FALLBACK", "REALM_LAYA_WATCH_PARENT"].map((k) => [k, pick(k) ?? null])) }) + "\\n");
 if (args[0] && args[0].endsWith("train.py")) {
   console.log(JSON.stringify({ event: "progress", epoch: 1, step: 1, steps: 2 }));
   process.stdout.write(JSON.stringify({ event: "done" }));
@@ -270,7 +270,7 @@ describe("training", () => {
     expect(call.self).toBe(join(venv, "bin", "python"));
     expect(call.args).toEqual(["/res/laya/train.py", "--out", "/ck/a"]);
     // The cache Realm installed into, offline; nothing of the user's own Python or tokens.
-    expect(call.env).toMatchObject({ HF_HOME: "/cache/hf", HF_HUB_OFFLINE: "1", PYTORCH_ENABLE_MPS_FALLBACK: "1", HF_TOKEN: null, PYTHONPATH: null });
+    expect(call.env).toMatchObject({ HF_HOME: "/cache/hf", HF_HUB_OFFLINE: "1", PYTORCH_ENABLE_MPS_FALLBACK: "1", REALM_LAYA_WATCH_PARENT: "1", HF_TOKEN: null, PYTHONPATH: null });
     expect(lines.map((l) => JSON.parse(l).event)).toEqual(["progress", "done"]);
   });
 

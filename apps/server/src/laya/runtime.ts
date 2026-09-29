@@ -353,6 +353,8 @@ export function trainEnv(env: NodeJS.ProcessEnv, hf: string): NodeJS.ProcessEnv 
     TOKENIZERS_PARALLELISM: "false",
     PYTHONUNBUFFERED: "1",
     PYTORCH_ENABLE_MPS_FALLBACK: "1",
+    // The script exits when Realm's server does, the way laya-serve's launcher does.
+    REALM_LAYA_WATCH_PARENT: "1",
   };
 }
 

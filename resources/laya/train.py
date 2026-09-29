@@ -28,6 +28,7 @@ import random
 import shutil
 import signal
 import sys
+import threading
 import time
 
 import torch
@@ -180,6 +181,17 @@ def main():
     args = ap.parse_args()
 
     signal.signal(signal.SIGTERM, lambda *_: (emit("stopped"), sys.exit(143)))
+    if os.environ.get("REALM_LAYA_WATCH_PARENT") == "1":
+        # Realm started this run: if Realm goes away without stopping it, so does the run, rather than
+        # hold the GPU for half an hour for nobody.
+        parent = os.getppid()
+
+        def watch():
+            while os.getppid() == parent:
+                time.sleep(1)
+            os._exit(0)
+
+        threading.Thread(target=watch, daemon=True).start()
     torch.manual_seed(args.seed)
     rnd = random.Random(args.seed)
     device = torch.device(args.device if args.device != "mps" or torch.backends.mps.is_available() else "cpu")
