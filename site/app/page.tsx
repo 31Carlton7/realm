@@ -1,5 +1,6 @@
 import Image from "next/image"
 
+import { DimensionField } from "@/components/dimension/DimensionField"
 import { ClaimSection } from "@/components/home/Claim"
 import { Faq } from "@/components/home/Faq"
 import { AppleIcon, GitHubIcon } from "@/components/icons"
@@ -40,65 +41,73 @@ export default async function HomePage() {
 
   return (
     <div className="min-h-[100dvh]">
+      <DimensionField />
       <SiteHeader width="max-w-[92rem]" />
 
       <main>
-        {/* The hero: the claim, and the workspace that is evidence for it. Source order is reading
-            order — the claim, then its proof — so the stacked layout reads the right way round. */}
-        <section className="mx-auto flex w-full max-w-[104rem] flex-col gap-10 px-6 pt-8 pb-16 sm:px-10 sm:pt-12 sm:pb-20 lg:flex-row lg:items-center lg:gap-12 lg:px-12">
-          <div className="min-w-0 lg:w-[26rem] lg:shrink-0">
-            <h1 className="text-[clamp(2rem,3.1vw,2.7rem)] leading-[1.06] font-[560] tracking-[-0.04em] text-balance text-ink">
-              {site.tagline}
+        {/* The hero. Tembo's move, read for Realm: say where agents should work, then show the place.
+            The product sits in a portal the field draws around it — `data-dim="portal"` is how the
+            light finds it — and source order stays claim-then-evidence, so it stacks the right way. */}
+        <section data-dim-stage="hero" className="relative pb-24 sm:pb-32">
+          <div className="mx-auto w-full max-w-[92rem] px-6 pt-14 sm:px-10 sm:pt-20 lg:pt-24">
+            <h1 className="max-w-[15ch] text-[clamp(2.7rem,5.6vw,4.9rem)] leading-[0.98] font-[560] tracking-[-0.047em] text-balance text-ink">
+              Give your agents a world to work in.
             </h1>
 
-            <p className="mt-5 max-w-[46ch] text-[16px] leading-[1.55] text-ink-2">
-              Sessions, terminals, browsers and documents sit side by side in one layout that comes
-              back the way you left it. Agents reach your tools through a gateway that keeps the
-              credentials, and can be confined to the checkout they are working in.
-            </p>
+            <div className="mt-7 flex flex-col gap-7 lg:mt-9 lg:flex-row lg:items-end lg:justify-between lg:gap-16">
+              <p className="max-w-[54ch] text-[17px] leading-[1.55] text-ink-2">
+                Bring any coding agent. Every space in Realm is a realm of its own — a checkout, the
+                agents working in it, and the terminals, browsers, documents and tools they use — side
+                by side on your Mac, and still there tomorrow.
+              </p>
 
-            <div className="mt-8 flex flex-wrap items-center gap-2.5">
-              <a
-                href={download.href}
-                className="app-corner inline-flex min-h-11 items-center gap-2 rounded-[20px] bg-accent px-4.5 py-2.5 text-[14px] font-[500] text-white shadow-[inset_0_1px_0_oklch(1_0_0/0.16)] transition-[scale,background-color] duration-150 ease-out hover:bg-accent-ink active:scale-[0.96]"
-              >
-                <AppleIcon className="h-4 w-4" />
-                Download for Mac
-              </a>
-              <a
-                href={site.repo}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="app-corner inline-flex min-h-11 items-center gap-2 rounded-[20px] bg-surface px-4.5 py-2.5 text-[14px] text-ink-2 shadow-[inset_0_1px_0_oklch(1_0_0/0.07)] transition-[scale,background-color,color] duration-150 ease-out hover:bg-raised hover:text-ink active:scale-[0.96]"
-              >
-                <GitHubIcon className="h-4 w-4" />
-                GitHub
-              </a>
+              <div className="flex shrink-0 flex-col items-start gap-3 lg:items-end">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <a
+                    href={download.href}
+                    className="app-corner inline-flex min-h-11 items-center gap-2 rounded-[20px] bg-accent px-4.5 py-2.5 text-[14px] font-[500] text-white shadow-[inset_0_1px_0_oklch(1_0_0/0.16)] transition-[scale,background-color] duration-150 ease-out hover:bg-accent-ink active:scale-[0.96]"
+                  >
+                    <AppleIcon className="h-4 w-4" />
+                    Download for Mac
+                  </a>
+                  <a
+                    href={site.repo}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="app-corner inline-flex min-h-11 items-center gap-2 rounded-[20px] bg-surface px-4.5 py-2.5 text-[14px] text-ink-2 shadow-[inset_0_1px_0_oklch(1_0_0/0.07)] transition-[scale,background-color,color] duration-150 ease-out hover:bg-raised hover:text-ink active:scale-[0.96]"
+                  >
+                    <GitHubIcon className="h-4 w-4" />
+                    GitHub
+                  </a>
+                </div>
+                {/* The qualifiers stay on the page rather than in the small print of a store listing. */}
+                <p className="font-mono text-[12px] text-ink-3">
+                  {download.version ? `${download.version} · ` : ""}Apple silicon · in active development
+                </p>
+              </div>
             </div>
-
-            {/* The qualifiers stay on the page rather than in the small print of a store listing. */}
-            <p className="mt-3.5 font-mono text-[12px] text-ink-3">
-              {download.version ? `${download.version} · ` : ""}Apple silicon · in active development
-            </p>
           </div>
 
-          <figure className="min-w-0 flex-1">
-            <div className="app-corner aspect-4/3 w-full overflow-hidden rounded-[20px] shadow-[0_0_0_1px_oklch(1_0_0/0.09),0_24px_60px_-24px_oklch(0_0_0/0.75)] sm:aspect-[15/8]">
+          <figure className="mx-auto mt-14 w-full max-w-[82rem] px-6 sm:mt-16 sm:px-10">
+            {/* No drop shadow: the light here is the field's, and a resting object casts none. Where
+                WebGPU is unavailable the field never draws, so the edge carries a CSS glow instead. */}
+            <div
+              data-dim="portal"
+              className="app-corner relative aspect-4/3 w-full overflow-hidden rounded-[20px] bg-page shadow-[0_0_0_1px_oklch(1_0_0/0.09)] sm:aspect-[15/8] [html[data-dim-field=off]_&]:shadow-[0_0_0_1px_oklch(1_0_0/0.12),0_0_90px_-18px_oklch(0.68_0.173_253.301/0.55)]"
+            >
               <Image
                 src="/product/workspace.png"
                 alt="A Realm space: the sidebar, a document open beside an agent session, and the session working through a plan."
                 width={2880}
                 height={1800}
                 priority
-                sizes="(max-width: 640px) 180vw, (max-width: 1024px) 100vw, 60vw"
+                sizes="(max-width: 640px) 180vw, (max-width: 1024px) 100vw, 82rem"
                 className="h-auto w-[180%] max-w-none sm:w-full"
               />
             </div>
           </figure>
         </section>
 
-        {/* A hairline between the hero and the argument rather than a change of ground: the page is
-            one surface, and a band of another colour per section is the card stack design.md refuses. */}
         <Rule />
 
         {sections.map((claim, i) => (

@@ -99,7 +99,7 @@ export function ClaimSection({ claim, index }: { claim: Claim; index: number }) 
       </div>
 
       <figure className="min-w-0 flex-1">
-        <div className="app-corner relative aspect-4/3 w-full overflow-hidden rounded-[20px] shadow-[0_0_0_1px_oklch(1_0_0/0.09),0_24px_60px_-24px_oklch(0_0_0/0.75)] sm:aspect-[15/8]">
+        <div className="app-corner relative aspect-4/3 w-full overflow-hidden rounded-[20px] bg-page shadow-[0_0_0_1px_oklch(1_0_0/0.09),0_24px_60px_-24px_oklch(0_0_0/0.75)] sm:aspect-[15/8]">
           <Image
             src={`/product/${claim.capture}.png`}
             alt={claim.caption ?? claim.title}
