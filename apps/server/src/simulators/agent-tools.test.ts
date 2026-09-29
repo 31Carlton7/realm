@@ -121,6 +121,8 @@ function setup(opts: {
   observe?: ActObserver;
   /** What the device's input socket answers. */
   input?: { ok: boolean; detail: string };
+  /** Something that happens while the stub's card is up — the user taking their time. */
+  onCard?: () => void;
 } = {}) {
   const home = tempDir("realm-sim-tools-");
   const db = openDatabase(join(home, "realm.db"));
@@ -168,6 +170,7 @@ function setup(opts: {
     broker: real ?? {
       gate: async (_sessionId, toolKey, title, input, toolName, gateOpts) => {
         calls.order.push("card");
+        opts.onCard?.();
         calls.gates.push({ toolKey, title, input, toolName, opts: gateOpts });
         return opts.gate ?? { allowed: true };
       },
@@ -769,15 +772,19 @@ describe("acting on an element", () => {
     expect(asked).toBe(1);
   });
 
-  it("reads what it is acting on after the card, not before — a card can wait minutes", async () => {
-    const dev = device();
+  it("looks for the element on the screen as it is once the card is answered — a card can wait minutes", async () => {
+    let meanwhile = () => {};
+    const dev = device({ onCard: () => meanwhile() });
     const simulatorId = await dev.running();
     await dev.call("simulator_elements", { simulatorId });
+    // While the card is up, the list scrolls: the same row, lower down.
+    meanwhile = () => dev.show(redraw((els) => { els[0]!.frame.y = 500; return els; }));
     const before = dev.treeReads();
-    dev.calls.order.length = 0;
     await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 });
-    expect(dev.treeReads()).toBe(before + 1);
-    expect(dev.calls.order).toEqual(["card", "act"]);
+    /* THE MUTANT: read the screen, then raise the card. The tap lands where General was before the
+       scroll — on whatever scrolled into its place. */
+    expect(frames(dev.calls.sent)[0]!.y).toBeCloseTo(522 / 874, 10);
+    expect(dev.treeReads()).toBe(before + 1); // one look, the one that counts
   });
 });
 
