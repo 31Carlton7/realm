@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import { join } from "node:path";
+import { existsSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { openDatabase, type Db } from "../db/database";
 import { ItemsStore } from "../store/items";
 import { ProfilesStore } from "../store/profiles";
@@ -50,6 +52,7 @@ function bring(over: { simctl?: Partial<Simctl>; serveSim?: Partial<ServeSim> } 
   };
   const stream: ServeSim = {
     find: async () => { calls.push("find"); return NOTHING; },
+    claims: async () => { calls.push("claims"); return []; },
     start: async (udid) => { calls.push(`start:${udid}`); return { stream: STREAM, detail: "" }; },
     kill: async (udid) => { calls.push(`kill:${udid}`); },
     screen: async () => { calls.push("screen"); return SCREEN; },
@@ -78,7 +81,7 @@ function bring(over: { simctl?: Partial<Simctl>; serveSim?: Partial<ServeSim> } 
     rpc: { broadcast: (name: string, payload: unknown) => { if (name === "simulator.status") events.push(payload as SimulatorState); } } as never,
     spaces, items, simulators: new SimulatorsStore(db), simctl: cli, serveSim: stream,
   });
-  return { service, spaceId: space.id, items, events, calls, db };
+  return { service, spaceId: space.id, folder: space.folderPath, items, events, calls, db };
 }
 
 /** The walk is async and the call that starts it is not. */
@@ -359,7 +362,80 @@ describe("everything else a device can be told to do", () => {
     const { simulatorId } = service.create({ spaceId, name: "Nothing chosen" });
     await expect(service.apps(simulatorId)).rejects.toThrow(/choose a simulator/);
     await expect(service.screenshot(simulatorId)).rejects.toThrow(/choose a simulator/);
+    await expect(service.capture(simulatorId)).rejects.toThrow(/choose a simulator/);
     await expect(service.events(simulatorId, 10)).rejects.toThrow(/choose a simulator/);
     await expect(service.act(simulatorId, { kind: "camera-stop" })).rejects.toThrow(/choose a simulator/);
+  });
+});
+
+describe("the agent's screenshot", () => {
+  /** A `simctl` that really writes the file it was asked for, so the read-back and the cleanup are
+   *  about a file that existed. */
+  const writing = (bytes: Buffer, seen: string[]) => ({
+    screenshot: async (_udid: string, path: string) => { seen.push(path); writeFileSync(path, bytes); return { ok: true, detail: "" }; },
+  });
+
+  it("hands back the capture's bytes and leaves no file behind — least of all in the space's folder", async () => {
+    const seen: string[] = [];
+    const png = Buffer.from("not really a png, but bytes all the same");
+    const { service, spaceId, folder } = bring({ simctl: writing(png, seen) });
+    const { simulatorId } = service.create({ spaceId, name: "Simulator", udid: "UDID-1" });
+    const got = await service.capture(simulatorId);
+    expect(got.equals(png)).toBe(true);
+    /* THE MUTANT: capture through `screenshot`, which is the user's keeper. An agent looks after
+       every step, and each look would then leave a 3 MB PNG in somebody's project. */
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.startsWith(tmpdir())).toBe(true);
+    expect(existsSync(join(folder, "simulator"))).toBe(false);
+    // THE MUTANT: drop the unlink. A temp file per look is the same mess, one folder over.
+    expect(existsSync(seen[0]!)).toBe(false);
+  });
+
+  it("a failed capture says what the command said, and still leaves nothing behind", async () => {
+    const seen: string[] = [];
+    const { service, spaceId } = bring({ simctl: { screenshot: async (_u: string, path: string) => { seen.push(path); writeFileSync(path, "half"); return { ok: false, detail: "device not booted" }; } } });
+    const { simulatorId } = service.create({ spaceId, name: "Simulator", udid: "UDID-1" });
+    await expect(service.capture(simulatorId)).rejects.toThrow(/device not booted/);
+    expect(existsSync(seen[0]!)).toBe(false);
+  });
+});
+
+describe("which simulator a loopback port is streaming", () => {
+  const claimed = (claims: { device: string; port: number }[], live: ServeSimStream) => ({
+    claims: async () => claims,
+    find: async (udid: string) => (udid === live.device ? live : NOTHING),
+  });
+
+  it("names the device serve-sim records AND confirms on that port", async () => {
+    const { service } = bring({ serveSim: claimed([{ device: "UDID-1", port: 3100 }], STREAM) });
+    expect(await service.streamedOn(3100)).toBe("UDID-1");
+  });
+
+  it("answers a port no record names without asking serve-sim anything", async () => {
+    /* The cost this whole shape exists to avoid: every `browser_open` of a loopback URL asks this, and
+       almost none of them are a simulator. THE MUTANT: match any record (`c.port === port` → true) —
+       the answer is still null, but only after an npx spawn per dev-server URL an agent opens. */
+    const asked: string[] = [];
+    const { service } = bring({ serveSim: { claims: async () => [{ device: "UDID-1", port: 3100 }], find: async (u) => { asked.push(u); return STREAM; } } });
+    expect(await service.streamedOn(3000)).toBe(null);
+    expect(asked).toEqual([]);
+  });
+
+  it("does not believe a record whose daemon has moved on — `--list` has the last word", async () => {
+    // A record outlives its daemon; a restarted daemon can be on another port with the old file
+    // still claiming this one. THE MUTANT: trust the record's port without comparing the live one.
+    const moved = { ...STREAM, port: 3101, url: "http://127.0.0.1:3101" };
+    const { service } = bring({ serveSim: claimed([{ device: "UDID-1", port: 3100 }], moved) });
+    expect(await service.streamedOn(3100)).toBe(null);
+    // …and a record whose daemon is gone entirely is no stream at all.
+    const { service: dead } = bring({ serveSim: claimed([{ device: "UDID-1", port: 3100 }], { ...NOTHING, device: "UDID-1" }) });
+    expect(await dead.streamedOn(3100)).toBe(null);
+  });
+
+  it("asks every record on the port, since a dead daemon's file can sit beside the live one that took it", async () => {
+    // THE MUTANT: confirm only the first record naming the port. The stale one says no, and the
+    // stream that really is on that port walks past the guard.
+    const { service } = bring({ serveSim: claimed([{ device: "UDID-GONE", port: 3100 }, { device: "UDID-1", port: 3100 }], STREAM) });
+    expect(await service.streamedOn(3100)).toBe("UDID-1");
   });
 });

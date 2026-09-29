@@ -179,6 +179,9 @@ describe("mcp over rpc", () => {
        terminal that talks back, and the narrowings that matter (a password prompt refused in every
        mode, a terminal the session did not open prompting even under bypass) are inside the provider
        rather than on its switch.
+       `realm-simulator` is ON and sits beside realm-vm, the other pane that shows a screen: a
+       simulator is a device on THIS Mac that the agent's own shell can already drive with `simctl`,
+       so the tools add no reach — they add the pane the device is shown in.
        `goal` and `realm-schedule` are last because they are registered last — both wrap a service
        declared further down `app.ts`. `goal` is on by default because its reach is the narrowest here
        (two tools that appear only on a session already pursuing a goal, and the most either can do is
@@ -188,8 +191,8 @@ describe("mcp over rpc", () => {
       { name: "realm-browser", enabled: true }, { name: "realm-agent", enabled: true },
       { name: "realm-computer", enabled: false }, { name: "realm-terminal", enabled: true },
       { name: "realm-app", enabled: false }, { name: "realm-docs", enabled: true },
-      { name: "realm-vm", enabled: false }, { name: "goal", enabled: true },
-      { name: "realm-schedule", enabled: true },
+      { name: "realm-vm", enabled: false }, { name: "realm-simulator", enabled: true },
+      { name: "goal", enabled: true }, { name: "realm-schedule", enabled: true },
     ]);
     await c.call("mcp.setProviderEnabled", { spaceId: work.id, name: "realm-browser", enabled: false });
     // The disable is per-space: Work reads OFF, School still reads ON.
@@ -197,8 +200,8 @@ describe("mcp over rpc", () => {
       { name: "realm-browser", enabled: false }, { name: "realm-agent", enabled: true },
       { name: "realm-computer", enabled: false }, { name: "realm-terminal", enabled: true },
       { name: "realm-app", enabled: false }, { name: "realm-docs", enabled: true },
-      { name: "realm-vm", enabled: false }, { name: "goal", enabled: true },
-      { name: "realm-schedule", enabled: true },
+      { name: "realm-vm", enabled: false }, { name: "realm-simulator", enabled: true },
+      { name: "goal", enabled: true }, { name: "realm-schedule", enabled: true },
     ]);
     /* And the opt-in provider turns ON through the same switch, for this space alone.
        By NAME rather than by index: these lines each ask about one provider's switch, and an index

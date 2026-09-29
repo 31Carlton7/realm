@@ -49,6 +49,7 @@ import { SignInTickets } from "./browsers/signin";
 import { SignInFlow } from "./browsers/signin-flow";
 import { createAppUiProvider } from "./app-ui/agent-tools";
 import { createMachineAgentProvider } from "./machines/agent-tools";
+import { createSimulatorAgentProvider } from "./simulators/agent-tools";
 import { MachineAllowlist } from "./machines/allowlist";
 import { ComputerAppAllowlist } from "./computer/allowlist";
 import { BrowserAgentService, createRealmAgentProvider, REALM_AGENT_PROVIDER_NAME } from "./browsers/browser-agent";
@@ -349,6 +350,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  reach a package registry, and it must read a PATH the test built rather than the developer's own
    *  machine. Production callers pass neither and get the process environment and real fetch. */
   cli?: { fetchImpl?: typeof fetch; env?: NodeJS.ProcessEnv; spawnImpl?: typeof import("node:child_process").spawn };
+  /** The simulator service's CLI seams, for a suite that must say whether this "Mac" has simulators
+   *  rather than inherit the answer from the developer's own Xcode — the simulator tools, and the
+   *  preamble paragraph about them, exist only where one of these says a toolchain is there.
+   *  Production callers pass none and get the real `xcrun simctl`, `serve-sim` and adb. */
+  simulator?: Pick<import("./simulators/service").SimulatorServiceDeps, "simctl" | "serveSim" | "android">;
   /** Upgrades a session's heuristic first-line title to a short model-written summary in the
    *  background (`SessionService.upgradeTitle`). A real, billed LLM call per session — omitted here
    *  on purpose so tests and live-check scripts never make one; the real server process (`main.ts`)
@@ -463,7 +469,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /* An Apple Simulator in a pane. Nothing is constructed for it beyond this: the pixels come from
      `serve-sim` over loopback and the renderer reads them itself, so there is no proxy, no port and
      no driver — the three things `MachineService` above needs a page of wiring for. */
-  const simulators = new SimulatorService({ rpc, spaces, items, simulators: simulatorsStore });
+  const simulators = new SimulatorService({ rpc, spaces, items, simulators: simulatorsStore, ...opts.simulator });
   // Plan 22: the preview listener guides and PDFs are framed from. Its root lookup is late-bound to
   // the service below (a workspace id → its checkout), which is the only thing it needs to know.
   const preview = new DocumentPreviewServer({ rootOf: (id) => documents.rootOfWorkspace(id) });
@@ -714,9 +720,14 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   reviews = new ReviewService({ settings, sessions, rpc, engine: delegationEngine, environments, notifications,
     otherDelegation: { isChild: (id) => agentRunsFinal.isChild(id) || browserAgentsFinal.isChild(id) },
     fallbackKind: opts.review?.fallbackKind ?? opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind, timeouts: opts.review?.timeouts });
+  /* `realm-simulator`: the simulator pane, as tools. Built here, ahead of the browser provider, because
+     the browser tools ask it one question before opening a URL — is this serve-sim's stream of a
+     simulator? — and a refusal naming `simulator_open` needs the thing that answers for it. Registered
+     further down, beside `realm-vm`, so the settings list keeps the panes that show a screen together. */
+  const simulatorTools = createSimulatorAgentProvider({ mcp, simulators, items, broker: browserBroker, rpc });
   mcpGateway.registerProvider(createBrowserAgentProvider({
     browsers: browsersStore, projects, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc,
-    constraints: browserAgents, signIn: signInTickets,
+    constraints: browserAgents, signIn: signInTickets, simulatorStreams: simulatorTools,
     // The space folder, for `browser_upload`'s default readable root. Same resolver the documents
     // tools use, so "inside this space" means one thing across the app.
     documents: { rootForSpace: (spaceId) => { try { return documents.rootForSpace(spaceId); } catch { return null; } } },
@@ -768,6 +779,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // gateway's own per-space enablement is what decides whether a session sees the tools.
   const machineAllowlist = new MachineAllowlist({ settings });
   mcpGateway.registerProvider(createMachineAgentProvider({ mcp, machines, broker: browserBroker, allowlist: machineAllowlist, rpc }));
+  /* On by default, unlike `realm-vm` above it: a simulator is a device on THIS Mac that the agent's
+     own shell can already boot and install onto with `xcrun simctl`, so the tools add no reach — they
+     add the pane, which is the point. Whether a session sees them at all is the toolchain's answer
+     (`offered`) and the space's switch, like every other provider. */
+  mcpGateway.registerProvider(simulatorTools);
   /* Goal mode's two tools, and they appear only on a session that is actually pursuing a goal — see
      the provider. Registered after the session service exists because the goal service it wraps
      delivers through it. */

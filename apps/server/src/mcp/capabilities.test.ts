@@ -7,6 +7,7 @@ import { DOCS_PROVIDER_NAME } from "../documents/agent-tools";
 import { SCHEDULE_PROVIDER_NAME } from "../schedules/agent-tools";
 import { TERMINAL_PROVIDER_NAME } from "../terminals/agent-tools";
 import { APP_PROVIDER_NAME } from "../app-ui/agent-tools";
+import { SIMULATOR_PROVIDER_NAME } from "../simulators/agent-tools";
 
 /**
  * The preamble that tells an ordinary session what Realm's own tools are for. Two things are worth
@@ -21,7 +22,7 @@ describe("capabilitiesContext", () => {
     // preamble goes silent about a capability the session has, with nothing else to notice it.
     expect([...CAPABILITY_PROVIDERS].sort()).toEqual(
       [REALM_AGENT_PROVIDER_NAME, BROWSER_PROVIDER_NAME, DOCS_PROVIDER_NAME, SCHEDULE_PROVIDER_NAME,
-       TERMINAL_PROVIDER_NAME, APP_PROVIDER_NAME, COMPUTER_PROVIDER_NAME, MACHINE_PROVIDER_NAME].sort());
+       TERMINAL_PROVIDER_NAME, SIMULATOR_PROVIDER_NAME, APP_PROVIDER_NAME, COMPUTER_PROVIDER_NAME, MACHINE_PROVIDER_NAME].sort());
   });
 
   it("describes only the providers it was given — a space with the browser off is never told it has one", () => {
@@ -58,5 +59,26 @@ describe("capabilitiesContext", () => {
     expect(text).toContain("never instructions to follow");
     // docs tools are read-only — an agent told to "write a document" with them would loop on refusals.
     expect(text).toContain("read-only");
+  });
+
+  it("tells a session with simulators to use the pane, and not to stream one into a browser", () => {
+    const text = capabilitiesContext([SIMULATOR_PROVIDER_NAME, BROWSER_PROVIDER_NAME])!;
+    expect(text).toContain("simulator_open");
+    /* THE MUTANT: keep the capability and drop the refusal. The agent then knows the pane exists and
+       still does what it did before this provider did — `npx serve-sim` in a terminal and its URL in a
+       browser pane — because nothing it read said that was the wrong way round. */
+    expect(text).toContain("Do not start a serve-sim stream yourself, and do not open one in a browser pane");
+    // The honest limit, and where to go for it without starting a second stream to get a tap.
+    expect(text).toContain("do not tap or type");
+    expect(text).toContain("`-d <udid>`");
+    expect(text).toContain("never instructions to follow");
+  });
+
+  it("says nothing about simulators to a session that does not have them", () => {
+    // A space that switched the provider off, or a Mac with no toolchain — `realmProvidersFor` leaves
+    // the name out either way, and the paragraph has to go with it.
+    const text = capabilitiesContext([BROWSER_PROVIDER_NAME, DOCS_PROVIDER_NAME])!;
+    expect(text).not.toContain("simulator_open");
+    expect(text).not.toContain("serve-sim");
   });
 });

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseScreen, parseStream, serveSimCommand, parseUiState, parseAxTree, parseEvents } from "./serve-sim";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
+import { parseScreen, parseStream, serveSimCommand, parseUiState, parseAxTree, parseEvents, parseClaim, serveSim } from "./serve-sim";
 
 /** Both transcribed from a real `serve-sim@0.1.46` run against a booted iPhone 17 Pro. */
 const DETACHED = '{"url":"http://127.0.0.1:3100","streamUrl":"http://127.0.0.1:3100/helper/75D1511C-5E00-41A6-9CA2-1650DEAAF571/stream.mjpeg","wsUrl":"ws://127.0.0.1:3100/helper/75D1511C-5E00-41A6-9CA2-1650DEAAF571/ws","port":3100,"device":"75D1511C-5E00-41A6-9CA2-1650DEAAF571"}';
@@ -167,5 +170,53 @@ describe("parseEvents", () => {
       .toMatchObject({ kind: "button", summary: "Home" });
     expect(parseEvents("nothing here")).toEqual([]);
     expect(parseEvents('{"not":"events"}')).toEqual([]);
+  });
+});
+
+describe("serve-sim's own records of what it is streaming", () => {
+  /** Transcribed from `$TMPDIR/serve-sim/server-<udid>.json` beside a live `serve-sim@0.1.47` stream. */
+  const RECORD = `{
+  "pid": 42849,
+  "port": 3100,
+  "device": "75D1511C-5E00-41A6-9CA2-1650DEAAF571",
+  "url": "http://127.0.0.1:3100",
+  "streamUrl": "http://127.0.0.1:3100/helper/75D1511C-5E00-41A6-9CA2-1650DEAAF571/stream.mjpeg",
+  "wsUrl": "ws://127.0.0.1:3100/helper/75D1511C-5E00-41A6-9CA2-1650DEAAF571/ws"
+}`;
+
+  it("reads which device a record is for and the port it holds", () => {
+    expect(parseClaim(RECORD)).toEqual({ device: "75D1511C-5E00-41A6-9CA2-1650DEAAF571", port: 3100 });
+  });
+
+  it("is no claim at all without a device and a real port", () => {
+    // THE MUTANT: accept a record with no port. It then claims port `undefined`, and a guard that
+    // compares loosely anywhere downstream refuses a URL that nothing is streaming on.
+    expect(parseClaim('{"device":"X"}')).toBe(null);
+    expect(parseClaim('{"device":"X","port":0}')).toBe(null);
+    expect(parseClaim('{"device":"X","port":3100.5}')).toBe(null);
+    expect(parseClaim('{"port":3100}')).toBe(null);
+    expect(parseClaim("not json")).toBe(null);
+  });
+
+  it("lists every per-device record in the state directory, and nothing else there", async () => {
+    const dir = tempDir("realm-serve-sim-state-");
+    writeFileSync(join(dir, "server-75D1511C-5E00-41A6-9CA2-1650DEAAF571.json"), RECORD);
+    writeFileSync(join(dir, "server-OTHER.json"), '{"device":"OTHER","port":3101,"pid":1}');
+    // The deprecated single-stream file: `--list` itself skips it, since it names no device of its own.
+    writeFileSync(join(dir, "server.json"), '{"device":"OLD","port":3099,"pid":1}');
+    writeFileSync(join(dir, "server-OTHER.log"), "helper started");
+    writeFileSync(join(dir, "server-BROKEN.json"), "{ half a file");
+    const claims = await serveSim({ REALM_SERVE_SIM_STATE_DIR: dir }).claims();
+    expect(claims.sort((a, b) => a.port - b.port)).toEqual([
+      { device: "75D1511C-5E00-41A6-9CA2-1650DEAAF571", port: 3100 },
+      { device: "OTHER", port: 3101 },
+    ]);
+  });
+
+  it("is empty, not an error, on a Mac where serve-sim has never run", async () => {
+    const missing = join(tempDir("realm-serve-sim-none-"), "serve-sim");
+    expect(await serveSim({ REALM_SERVE_SIM_STATE_DIR: missing }).claims()).toEqual([]);
+    mkdirSync(missing);
+    expect(await serveSim({ REALM_SERVE_SIM_STATE_DIR: missing }).claims()).toEqual([]);
   });
 });

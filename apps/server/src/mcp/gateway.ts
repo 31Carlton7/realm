@@ -41,6 +41,16 @@ export type RealmToolProvider = {
   name: string;
   tools(ctx: ProviderCallContext): Promise<Tool[]>;
   call(ctx: ProviderCallContext, tool: string, args: unknown): Promise<CallToolResult>;
+  /**
+   * Whether this provider has anything to offer on this Mac right now, for a provider whose tools
+   * depend on something outside Realm — a toolchain that may not be installed. Omitted means yes,
+   * which is every provider whose tools act on a pane or a folder Realm owns.
+   *
+   * Synchronous because its one reader, `realmProvidersFor`, composes a session's start inside the
+   * synchronous `ensureLive`. A provider that has to ask a CLI answers from its last probe and keeps
+   * that probe fresh itself; its own `tools()` is still where the authoritative, awaited answer lives.
+   */
+  offered?(): boolean;
 };
 
 /** One registered Realm session: its bearer token, the space it belongs to, and — created lazily on the
@@ -160,10 +170,16 @@ export class McpGateway {
    * `realm-agent` while that provider's own `tools()` narrows it to four of its tools; the one caller
    * skips delegated children entirely, so the gap is not reachable today. A caller that needs the
    * exact tool list must ask `tools()`, which is async and authoritative.
+   *
+   * A provider that says it has nothing to offer on this Mac (`offered`) is dropped too: a space with
+   * simulator tools switched on, on a Mac with no Xcode and no Android SDK, has no simulator to tell
+   * the session about.
    */
   realmProvidersFor(sessionId: string, spaceId: string): string[] {
     const toolset = this.toolsetOf(sessionId);
-    return [...this.providers.keys()].filter((name) => providerVisible(name, toolset) && this.d.mcp.providerEnabled(spaceId, name));
+    return [...this.providers.values()]
+      .filter((p) => providerVisible(p.name, toolset) && this.d.mcp.providerEnabled(spaceId, p.name) && (p.offered?.() ?? true))
+      .map((p) => p.name);
   }
 
   /** Binds 127.0.0.1:0 (OS-assigned — see the plan's port-0 amendment) and returns the bound port. */

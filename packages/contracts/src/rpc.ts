@@ -1721,6 +1721,10 @@ export const Events = {
    *  (`items.changed` was broadcast too); this tells the renderer to bring the pane INTO the layout —
    *  an agent-driven browser the user cannot see defeats the point of the architecture. */
   "browser.agentOpened": z.object({ spaceId: IdSchema, browserId: IdSchema, itemId: IdSchema }),
+  /** An agent opened a device in a simulator pane via `simulator_open`. The row + item already exist
+   *  (`items.changed` was broadcast too); this brings the pane INTO the layout beside the session, for
+   *  `browser.agentOpened`'s reason — a device an agent is running an app on is one the user watches. */
+  "simulator.agentOpened": z.object({ spaceId: IdSchema, simulatorId: IdSchema, itemId: IdSchema }),
   /** The notifications feed changed (Plan 12 W5). `unread` is the fresh global unread count — the
    *  sidebar pill applies it directly, so the count has exactly one derivation site (the server's).
    *  `notification` is the row an event just created or re-surfaced, so the renderer can react to it
