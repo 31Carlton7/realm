@@ -13,7 +13,7 @@ import type { ObservedElement } from "../mcp/act-observer";
  * only when they name the same `version`. Whole apps are held out as well as a share of every other
  * app's cases: a checkpoint trained on Settings is measured on apps it never saw.
  */
-export const BENCHMARK_VERSION = "2026-09-29.1";
+export const BENCHMARK_VERSION = "2026-09-29.2";
 
 export type Split = "train" | "validation" | "heldout";
 /** An element as the benchmark keeps it: what the shadow sees, and its frame for anyone who needs one. */

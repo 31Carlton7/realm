@@ -592,3 +592,185 @@
 {"id":"t0592","split":"train","app":"Preview","screen":"preview-root","element":"0.2","intent":"start a blank page","copies":false}
 {"id":"t0593","split":"train","app":"Preview","screen":"preview-root","element":"0.13","intent":"all my folders","copies":false}
 {"id":"t0594","split":"train","app":"Preview","screen":"preview-root","element":"0.12","intent":"files people sent me","copies":false}
+{"id":"t0595","split":"train","app":"Home Screen","screen":"home","element":"0.11","intent":"look something up online","copies":false}
+{"id":"t0596","split":"train","app":"Home Screen","screen":"home","element":"0.12","intent":"reply to a text","copies":false}
+{"id":"t0597","split":"train","app":"Home Screen","screen":"home","element":"0.3","intent":"see yesterday's snapshots","copies":false}
+{"id":"t0598","split":"train","app":"Home Screen","screen":"home","element":"0.7","intent":"show my loyalty card at checkout","copies":false}
+{"id":"t0599","split":"train","app":"Home Screen","screen":"home","element":"0.5","intent":"catch up on current events","copies":false}
+{"id":"t0600","split":"train","app":"Home Screen","screen":"home","element":"0.8","intent":"talk to the assistant","copies":false}
+{"id":"t0601","split":"heldout","app":"Settings","screen":"settings-root-top","element":"0.1.1","intent":"reset the network settings","copies":false}
+{"id":"t0602","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.2","intent":"zoom the whole display for low vision","copies":false}
+{"id":"t0603","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.5","intent":"shoot ProRAW photos","copies":false}
+{"id":"t0604","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.9","intent":"clock face while charging on its side","copies":false}
+{"id":"t0605","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.10","intent":"downtime for my teenager","copies":false}
+{"id":"t0606","split":"heldout","app":"Settings","screen":"settings-root-top","element":"0.1.12","intent":"which apps can use my microphone","copies":false}
+{"id":"t0607","split":"train","app":"Settings","screen":"settings-root-3","element":"0.1.9","intent":"multiplayer invites from friends","copies":false}
+{"id":"t0608","split":"train","app":"Settings","screen":"settings-root-3","element":"0.1.10","intent":"how much cloud storage I have left","copies":false}
+{"id":"t0609","split":"train","app":"Settings","screen":"settings-accessibility-2","element":"0.2.3","intent":"have every button read to me","copies":false}
+{"id":"t0610","split":"train","app":"Settings","screen":"settings-accessibility-2","element":"0.2.5","intent":"grayscale screen","copies":false}
+{"id":"t0611","split":"train","app":"Settings","screen":"settings-accessibility-2","element":"0.2.6","intent":"stop the wallpaper moving","copies":false}
+{"id":"t0612","split":"train","app":"Settings","screen":"settings-accessibility-2","element":"0.2.12","intent":"caption style for videos","copies":true}
+{"id":"t0613","split":"train","app":"Settings","screen":"settings-appearance","element":"0.2.2","intent":"easier on my eyes at night","copies":false}
+{"id":"t0614","split":"validation","app":"Settings","screen":"settings-appearance","element":"0.2.8","intent":"make every font heavier","copies":false}
+{"id":"t0615","split":"train","app":"Settings","screen":"settings-appearance","element":"0.2.12","intent":"calmer transitions","copies":false}
+{"id":"t0616","split":"train","app":"Settings","screen":"settings-camera","element":"0.2.5","intent":"most compatible photo format","copies":true}
+{"id":"t0617","split":"heldout","app":"Settings","screen":"settings-camera","element":"0.2.8","intent":"composition overlay lines","copies":false}
+{"id":"t0618","split":"train","app":"Settings","screen":"settings-camera","element":"0.2.10","intent":"selfies saved the way I see them","copies":false}
+{"id":"t0619","split":"train","app":"Settings","screen":"settings-general","element":"0.1.2","intent":"the IMEI","copies":false}
+{"id":"t0620","split":"train","app":"Settings","screen":"settings-general","element":"0.1.7","intent":"stop the auto capitalizing","copies":false}
+{"id":"t0621","split":"train","app":"Settings","screen":"settings-general","element":"0.1.6","intent":"fonts I added","copies":true}
+{"id":"t0622","split":"validation","app":"Settings","screen":"settings-keyboard","element":"0.2.1","intent":"expand abbreviations as I type","copies":false}
+{"id":"t0623","split":"heldout","app":"Settings","screen":"settings-keyboard","element":"0.2.9","intent":"hide the suggestion bar","copies":false}
+{"id":"t0624","split":"validation","app":"Settings","screen":"settings-keyboard","element":"0.2.4","intent":"buzz when I press a key","copies":false}
+{"id":"t0625","split":"train","app":"Settings","screen":"settings-language","element":"0.2.7","intent":"switch weather units to metric degrees","copies":false}
+{"id":"t0626","split":"heldout","app":"Settings","screen":"settings-language","element":"0.2.8","intent":"centimeters and kilograms","copies":false}
+{"id":"t0627","split":"train","app":"Settings","screen":"settings-language","element":"0.2.5","intent":"I moved to the UK","copies":false}
+{"id":"t0628","split":"train","app":"Settings","screen":"settings-privacy-1","element":"0.1.2","intent":"stop apps tracking where I go","copies":false}
+{"id":"t0629","split":"train","app":"Settings","screen":"settings-privacy-1","element":"0.1.5","intent":"apps that read my phone book","copies":false}
+{"id":"t0630","split":"train","app":"Settings","screen":"settings-privacy-2","element":"0.2.12","intent":"apps that record audio","copies":false}
+{"id":"t0631","split":"heldout","app":"Settings","screen":"settings-privacy-2","element":"0.2.11","intent":"apps talking to my smart speakers on the LAN","copies":false}
+{"id":"t0632","split":"heldout","app":"Settings","screen":"settings-privacy-3","element":"0.2.11","intent":"an ex can still see where I am","copies":false}
+{"id":"t0633","split":"train","app":"Settings","screen":"settings-privacy-3","element":"0.2.15","intent":"stop sharing usage data with Apple","copies":false}
+{"id":"t0634","split":"train","app":"Settings","screen":"settings-screentime","element":"0.1.6","intent":"lock the phone after 9pm","copies":false}
+{"id":"t0635","split":"train","app":"Settings","screen":"settings-safari-1","element":"0.2.5","intent":"use Ecosia for searches","copies":true}
+{"id":"t0636","split":"heldout","app":"Settings","screen":"settings-safari-2","element":"0.2.9","intent":"add a password manager extension to the browser","copies":true}
+{"id":"t0637","split":"train","app":"Settings","screen":"settings-safari-3","element":"0.2.15","intent":"warn me before I open a fake bank site","copies":true}
+{"id":"t0638","split":"heldout","app":"Settings","screen":"settings-safari-4","element":"0.2.4","intent":"forget every site I've visited","copies":false}
+{"id":"t0639","split":"heldout","app":"Settings","screen":"settings-safari-4","element":"0.2.16","intent":"web developer tools","copies":false}
+{"id":"t0640","split":"train","app":"Settings","screen":"settings-siri","element":"0.1.3","intent":"an Australian accent for the assistant","copies":false}
+{"id":"t0641","split":"train","app":"Settings","screen":"settings-siri","element":"0.1.8","intent":"let the assistant ask an AI chatbot","copies":true}
+{"id":"t0642","split":"train","app":"Safari","screen":"safari-pagemenu","element":"0.0.4","intent":"where does this article mention the price","copies":false}
+{"id":"t0643","split":"heldout","app":"Safari","screen":"safari-pagemenu","element":"0.0.11","intent":"the site I'd see on a laptop","copies":false}
+{"id":"t0644","split":"train","app":"Safari","screen":"safari-pagemenu","element":"0.0.12","intent":"hide the address bar while reading","copies":true}
+{"id":"t0645","split":"validation","app":"Safari","screen":"safari-tabs","element":"0.5","intent":"browse without leaving traces","copies":false}
+{"id":"t0646","split":"train","app":"Safari","screen":"safari-newtab","element":"0.13","intent":"that page I looked at this morning","copies":false}
+{"id":"t0647","split":"train","app":"Safari","screen":"safari-newtab","element":"0.12","intent":"articles I set aside","copies":false}
+{"id":"t0648","split":"heldout","app":"Maps","screen":"maps-root","element":"0.3","intent":"is it smoggy today","copies":false}
+{"id":"t0649","split":"heldout","app":"Maps","screen":"maps-root","element":"0.4","intent":"aerial view of the city","copies":false}
+{"id":"t0650","split":"heldout","app":"Maps","screen":"maps-root","element":"0.6","intent":"see the storefronts from the street","copies":false}
+{"id":"t0651","split":"heldout","app":"Maps","screen":"maps-root","element":"0.37","intent":"mark where I live","copies":false}
+{"id":"t0652","split":"heldout","app":"Maps","screen":"maps-root","element":"0.38","intent":"set my commute destination","copies":false}
+{"id":"t0653","split":"heldout","app":"Maps","screen":"maps-root","element":"0.28","intent":"the modern art museum","copies":true}
+{"id":"t0654","split":"heldout","app":"Maps","screen":"maps-root","element":"0.17","intent":"the Episcopal cathedral","copies":true}
+{"id":"t0655","split":"heldout","app":"Maps","screen":"maps-root","element":"0.16","intent":"the bayfront promenade","copies":false}
+{"id":"t0656","split":"heldout","app":"Maps","screen":"maps-root","element":"0.25","intent":"the square with the big shopping stores","copies":true}
+{"id":"t0657","split":"heldout","app":"Maps","screen":"maps-search","element":"0.13","intent":"I need fuel","copies":false}
+{"id":"t0658","split":"heldout","app":"Maps","screen":"maps-search","element":"0.14","intent":"a nature walk nearby","copies":false}
+{"id":"t0659","split":"heldout","app":"Maps","screen":"maps-search","element":"0.19","intent":"a Japanese noodle bar","copies":false}
+{"id":"t0660","split":"heldout","app":"Maps","screen":"maps-search","element":"0.23","intent":"South American steak","copies":false}
+{"id":"t0661","split":"heldout","app":"Maps","screen":"maps-coffee","element":"0.12","intent":"a place for eggs and pancakes","copies":true}
+{"id":"t0662","split":"heldout","app":"Maps","screen":"maps-place","element":"0.15","intent":"what do they sell","copies":false}
+{"id":"t0663","split":"heldout","app":"Maps","screen":"maps-place","element":"0.12","intent":"walk me there","copies":true}
+{"id":"t0664","split":"heldout","app":"Maps","screen":"maps-place","element":"0.40","intent":"this place has moved","copies":false}
+{"id":"t0665","split":"heldout","app":"Maps","screen":"maps-place","element":"0.9","intent":"send this cafe to someone","copies":false}
+{"id":"t0666","split":"heldout","app":"Maps","screen":"maps-place","element":"0.18","intent":"is it any good","copies":false}
+{"id":"t0667","split":"heldout","app":"Maps","screen":"maps-directions","element":"0.29","intent":"book a Lyft","copies":false}
+{"id":"t0668","split":"heldout","app":"Maps","screen":"maps-directions","element":"0.28","intent":"ride my bicycle there","copies":false}
+{"id":"t0669","split":"heldout","app":"Maps","screen":"maps-directions","element":"0.27","intent":"take the subway","copies":false}
+{"id":"t0670","split":"heldout","app":"Maps","screen":"maps-directions","element":"0.25","intent":"the car route","copies":false}
+{"id":"t0671","split":"heldout","app":"Maps","screen":"maps-directions","element":"0.14","intent":"list every turn","copies":false}
+{"id":"t0672","split":"heldout","app":"Maps","screen":"maps-modes","element":"0.5","intent":"photos from above","copies":false}
+{"id":"t0673","split":"heldout","app":"Maps","screen":"maps-modes","element":"0.3","intent":"traffic view","copies":false}
+{"id":"t0674","split":"heldout","app":"Maps","screen":"maps-modes","element":"0.4","intent":"train lines on the map","copies":false}
+{"id":"t0675","split":"heldout","app":"Maps","screen":"maps-satellite","element":"0.6.0","intent":"show where the roads are jammed","copies":false}
+{"id":"t0676","split":"heldout","app":"Maps","screen":"maps-permission","element":"0.4","intent":"refuse location access","copies":false}
+{"id":"t0677","split":"validation","app":"Calendar","screen":"calendar-root","element":"0.13","intent":"the day after today","copies":false}
+{"id":"t0678","split":"train","app":"Calendar","screen":"calendar-root","element":"0.5","intent":"meeting requests people sent","copies":false}
+{"id":"t0679","split":"heldout","app":"Calendar","screen":"calendar-root","element":"0.16","intent":"put a dentist visit on my calendar","copies":false}
+{"id":"t0680","split":"train","app":"Calendar","screen":"calendar-month","element":"0.24","intent":"the September federal holiday","copies":true}
+{"id":"t0681","split":"train","app":"Calendar","screen":"calendar-month","element":"0.51","intent":"October 1st","copies":true}
+{"id":"t0682","split":"train","app":"Calendar","screen":"calendar-new-event","element":"0.1.7","intent":"a notification before it starts","copies":false}
+{"id":"t0683","split":"train","app":"Calendar","screen":"calendar-new-event","element":"0.1.3","intent":"add the address","copies":false}
+{"id":"t0684","split":"heldout","app":"Contacts","screen":"contacts-card","element":"0.2.2","intent":"send John a text","copies":false}
+{"id":"t0685","split":"heldout","app":"Contacts","screen":"contacts-card","element":"0.2.4","intent":"video chat with John","copies":true}
+{"id":"t0686","split":"heldout","app":"Contacts","screen":"contacts-card","element":"0.2.6","intent":"his cellphone","copies":false}
+{"id":"t0687","split":"heldout","app":"Contacts","screen":"contacts-card","element":"0.2.9","intent":"where he works","copies":true}
+{"id":"t0688","split":"heldout","app":"Contacts","screen":"contacts-anna","element":"0.2.10","intent":"how old she is","copies":false}
+{"id":"t0689","split":"heldout","app":"Contacts","screen":"contacts-anna","element":"0.2.5","intent":"see Anna on a video call","copies":true}
+{"id":"t0690","split":"heldout","app":"Contacts","screen":"contacts-list","element":"0.5","intent":"save someone's number","copies":false}
+{"id":"t0691","split":"heldout","app":"Contacts","screen":"contacts-list","element":"0.2.11","intent":"the person from the finance company","copies":true}
+{"id":"t0692","split":"heldout","app":"Contacts","screen":"contacts-edit","element":"0.2.0","intent":"put her picture on the card","copies":false}
+{"id":"t0693","split":"heldout","app":"Contacts","screen":"contacts-edit","element":"0.2.9","intent":"her work number too","copies":false}
+{"id":"t0694","split":"heldout","app":"Contacts","screen":"contacts-edit-2","element":"0.2.13","intent":"who to call if something happens to me","copies":false}
+{"id":"t0695","split":"heldout","app":"Contacts","screen":"contacts-edit-2","element":"0.2.17","intent":"erase her card entirely","copies":false}
+{"id":"t0696","split":"heldout","app":"Contacts","screen":"contacts-edit-2","element":"0.2.15","intent":"combine two cards for the same person","copies":false}
+{"id":"t0697","split":"heldout","app":"Contacts","screen":"contacts-edit-2","element":"0.2.7","intent":"her LinkedIn","copies":false}
+{"id":"t0698","split":"validation","app":"Messages","screen":"messages-add","element":"0.0.4","intent":"pay them","copies":false}
+{"id":"t0699","split":"train","app":"Messages","screen":"messages-add","element":"0.0.2","intent":"a spoken message","copies":false}
+{"id":"t0700","split":"train","app":"Messages","screen":"messages-add","element":"0.0.3","intent":"an animated reaction","copies":false}
+{"id":"t0701","split":"validation","app":"Photos","screen":"photos-photo","element":"0.4","intent":"the camera settings used","copies":false}
+{"id":"t0702","split":"validation","app":"Photos","screen":"photos-photo","element":"0.6","intent":"get rid of this shot","copies":false}
+{"id":"t0703","split":"train","app":"Photos","screen":"photos-photo","element":"0.5","intent":"brighten this picture","copies":false}
+{"id":"t0704","split":"train","app":"Photos","screen":"photos-edit","element":"0.12","intent":"sepia tone","copies":false}
+{"id":"t0705","split":"validation","app":"Photos","screen":"photos-edit","element":"0.18","intent":"it's upside down","copies":false}
+{"id":"t0706","split":"validation","app":"Photos","screen":"photos-collections","element":"0.12","intent":"bring back a photo I removed","copies":false}
+{"id":"t0707","split":"train","app":"Photos","screen":"photos-collections","element":"0.10","intent":"only my movies","copies":false}
+{"id":"t0708","split":"train","app":"Photos","screen":"photos-collections","element":"0.15","intent":"make an album for the trip","copies":false}
+{"id":"t0709","split":"heldout","app":"Files","screen":"files-more","element":"0.0.1","intent":"make a directory for receipts","copies":false}
+{"id":"t0710","split":"heldout","app":"Files","screen":"files-more","element":"0.0.2","intent":"photograph a contract into a PDF","copies":false}
+{"id":"t0711","split":"heldout","app":"Files","screen":"files-more","element":"0.0.3","intent":"reach my NAS","copies":false}
+{"id":"t0712","split":"heldout","app":"Files","screen":"files-more","element":"0.0.6","intent":"A to Z","copies":false}
+{"id":"t0713","split":"heldout","app":"Files","screen":"files-more","element":"0.0.8","intent":"most recent first","copies":false}
+{"id":"t0714","split":"heldout","app":"Files","screen":"files-more","element":"0.0.9","intent":"largest first","copies":false}
+{"id":"t0715","split":"heldout","app":"Files","screen":"files-more","element":"0.0.5","intent":"a detailed list view","copies":true}
+{"id":"t0716","split":"heldout","app":"Files","screen":"files-browse","element":"0.14","intent":"the last files I touched","copies":false}
+{"id":"t0717","split":"validation","app":"Reminders","screen":"reminders-new","element":"0.12","intent":"alert me when I leave the office","copies":false}
+{"id":"t0718","split":"validation","app":"Reminders","screen":"reminders-new","element":"0.13","intent":"star this task","copies":false}
+{"id":"t0719","split":"validation","app":"Reminders","screen":"reminders-new","element":"0.1.7","intent":"priority and tags","copies":false}
+{"id":"t0720","split":"validation","app":"Reminders","screen":"reminders-more","element":"0.0.0","intent":"change this list's color","copies":true}
+{"id":"t0721","split":"validation","app":"Reminders","screen":"reminders-more","element":"0.0.4","intent":"print the list","copies":true}
+{"id":"t0722","split":"validation","app":"Reminders","screen":"reminders-lists","element":"0.1.3","intent":"finished to-dos","copies":false}
+{"id":"t0723","split":"validation","app":"Reminders","screen":"reminders-lists","element":"0.2","intent":"jot down a task","copies":false}
+{"id":"t0724","split":"train","app":"Shortcuts","screen":"shortcuts-library","element":"0.1.4","intent":"run a shortcut when I get home","copies":false}
+{"id":"t0725","split":"train","app":"Shortcuts","screen":"shortcuts-library","element":"0.1.3","intent":"example shortcuts to add","copies":false}
+{"id":"t0726","split":"train","app":"Shortcuts","screen":"shortcuts-gallery","element":"0.18","intent":"a 25-minute work timer","copies":false}
+{"id":"t0727","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.1","intent":"how active I was this week","copies":true}
+{"id":"t0728","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.2","intent":"my weight trend","copies":false}
+{"id":"t0729","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.3","intent":"track my menstrual cycle","copies":true}
+{"id":"t0730","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.4","intent":"noise exposure","copies":false}
+{"id":"t0731","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.6","intent":"my prescriptions","copies":false}
+{"id":"t0732","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.7","intent":"how I've been feeling emotionally","copies":false}
+{"id":"t0733","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.8","intent":"my gait","copies":false}
+{"id":"t0734","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.9","intent":"what I ate today","copies":false}
+{"id":"t0735","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.10","intent":"my blood oxygen","copies":false}
+{"id":"t0736","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.11","intent":"my bedtime schedule","copies":false}
+{"id":"t0737","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.12","intent":"record a cough","copies":false}
+{"id":"t0738","split":"heldout","app":"Health","screen":"health-heart","element":"0.2.1","intent":"how often I'm in AFib","copies":true}
+{"id":"t0739","split":"heldout","app":"Health","screen":"health-heart","element":"0.2.2","intent":"systolic and diastolic readings","copies":false}
+{"id":"t0740","split":"heldout","app":"Health","screen":"health-heart","element":"0.2.3","intent":"my aerobic fitness level","copies":true}
+{"id":"t0741","split":"heldout","app":"Health","screen":"health-heart","element":"0.2.6","intent":"the heart rhythm recordings from my watch","copies":false}
+{"id":"t0742","split":"heldout","app":"Health","screen":"health-heart","element":"0.2.8","intent":"beat-to-beat variation","copies":false}
+{"id":"t0743","split":"heldout","app":"Health","screen":"health-summary","element":"0.0","intent":"my health details and medical ID","copies":false}
+{"id":"t0744","split":"heldout","app":"Health","screen":"health-summary","element":"0.2.5","intent":"my step count today","copies":true}
+{"id":"t0745","split":"heldout","app":"Health","screen":"health-sharing","element":"0.1.9","intent":"let my clinic see my records","copies":false}
+{"id":"t0746","split":"heldout","app":"Health","screen":"health-sharing","element":"0.1.11","intent":"take part in medical research","copies":true}
+{"id":"t0747","split":"heldout","app":"Health","screen":"health-setup-2","element":"0.1.10","intent":"my height in inches","copies":true}
+{"id":"t0748","split":"heldout","app":"Health","screen":"health-setup-2","element":"0.1.4","intent":"family name","copies":true}
+{"id":"t0749","split":"train","app":"Wallet","screen":"wallet-root","element":"0.13","intent":"put my bank card in the phone","copies":true}
+{"id":"t0750","split":"train","app":"Wallet","screen":"wallet-root","element":"0.14","intent":"where is my delivery","copies":false}
+{"id":"t0751","split":"heldout","app":"Passwords","screen":"passwords-root","element":"0.2.2","intent":"verification codes for two-step login","copies":true}
+{"id":"t0752","split":"heldout","app":"Passwords","screen":"passwords-root","element":"0.2.4","intent":"reused or compromised passwords","copies":false}
+{"id":"t0753","split":"heldout","app":"Passwords","screen":"passwords-root","element":"0.2.5","intent":"logins I removed recently","copies":false}
+{"id":"t0754","split":"heldout","app":"Passwords","screen":"passwords-root","element":"0.5","intent":"add a login for a website","copies":false}
+{"id":"t0755","split":"heldout","app":"Passwords","screen":"passwords-root","element":"0.2.3","intent":"network passwords","copies":false}
+{"id":"t0756","split":"heldout","app":"Passwords","screen":"passwords-wifi","element":"0.1.1","intent":"the coffee place's wireless","copies":false}
+{"id":"t0757","split":"heldout","app":"Passwords","screen":"passwords-wifi","element":"0.1.2","intent":"the network at my job","copies":false}
+{"id":"t0758","split":"train","app":"News","screen":"news-root","element":"0.2.0","intent":"last night's game results","copies":false}
+{"id":"t0759","split":"train","app":"News","screen":"news-root","element":"0.2.1","intent":"word games","copies":false}
+{"id":"t0760","split":"train","app":"News","screen":"news-root","element":"0.2.3","intent":"movie and TV news","copies":false}
+{"id":"t0761","split":"train","app":"News","screen":"news-root","element":"0.2.2","intent":"what's happening in my town","copies":false}
+{"id":"t0762","split":"train","app":"News","screen":"news-puzzles","element":"0.2.3","intent":"the numbers grid game","copies":false}
+{"id":"t0763","split":"validation","app":"News","screen":"news-puzzles","element":"0.10","intent":"top scores","copies":false}
+{"id":"t0764","split":"train","app":"Fitness","screen":"fitness-root","element":"0.10","intent":"record a walk","copies":false}
+{"id":"t0765","split":"validation","app":"Fitness","screen":"fitness-root","element":"0.11","intent":"see my friends' activity","copies":false}
+{"id":"t0766","split":"heldout","app":"Fitness","screen":"fitness-root","element":"0.13","intent":"yoga videos with a trainer","copies":false}
+{"id":"t0767","split":"train","app":"Fitness","screen":"fitness-workouts","element":"0.37","intent":"connect a Polar strap","copies":false}
+{"id":"t0768","split":"train","app":"Fitness","screen":"fitness-workouts","element":"0.24","intent":"link with a gym elliptical","copies":false}
+{"id":"t0769","split":"validation","app":"Watch","screen":"watch-root","element":"0.4","intent":"set up my new watch","copies":false}
+{"id":"t0770","split":"validation","app":"Watch","screen":"watch-faces","element":"0.15","intent":"the running shoe company's designs","copies":false}
+{"id":"t0771","split":"validation","app":"Watch","screen":"watch-faces","element":"0.12","intent":"the solar system face","copies":false}
+{"id":"t0772","split":"validation","app":"Watch","screen":"watch-faces","element":"0.17","intent":"a classic face with hands","copies":true}
+{"id":"t0773","split":"train","app":"Remote","screen":"remote-root","element":"0.0","intent":"turn the sound off on the TV","copies":false}
+{"id":"t0774","split":"validation","app":"Remote","screen":"remote-root","element":"0.3","intent":"pause the movie","copies":true}
+{"id":"t0775","split":"train","app":"Preview","screen":"preview-root","element":"0.3","intent":"turn a paper page into a PDF","copies":false}
+{"id":"t0776","split":"train","app":"Preview","screen":"preview-root","element":"0.2","intent":"an empty file","copies":false}

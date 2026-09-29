@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { HELDOUT_APPS, HELDOUT_SHARE, SCREENS, VALIDATION_APPS, VALIDATION_SHARE, dropElement } from "./bench/screens";
 import { SENSITIVE } from "./bench/sensitive";
 import { TARGET } from "./bench/target";
+import { TARGET_MORE } from "./bench/target-more";
 import { VERIFY } from "./bench/verify";
 import { BENCHMARK_VERSION, labelCopies, splitOf, type BenchElement, type BenchPair, type BenchScreen, type SensitiveBenchCase, type Split, type TargetBenchCase, type VerifyBenchCase } from "../../src/laya/benchmark";
 
@@ -86,7 +87,7 @@ const seen = new Set<string>();
 const once = (key: string) => { if (seen.has(key)) fail(`repeated case: ${key}`); seen.add(key); };
 
 const target: TargetBenchCase[] = [];
-for (const [screenId, byElement] of Object.entries(TARGET)) {
+for (const [screenId, byElement] of [...Object.entries(TARGET), ...Object.entries(TARGET_MORE)]) {
   for (const [selector, intents] of Object.entries(byElement)) {
     const [el, ...also] = resolveAll(screenId, selector);
     if (!el) continue;

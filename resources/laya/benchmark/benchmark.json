@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-29.1",
+  "version": "2026-09-29.2",
   "device": "iPhone 17 Pro Max simulator, iOS 27",
   "apps": [
     "Calendar",
@@ -41,11 +41,11 @@
     "screens": 109,
     "pairs": 181,
     "target": {
-      "train": 307,
-      "validation": 80,
-      "heldout": 207,
-      "all": 594,
-      "notCopying": 525
+      "train": 372,
+      "validation": 104,
+      "heldout": 300,
+      "all": 776,
+      "notCopying": 673
     },
     "sensitive": {
       "train": 93,

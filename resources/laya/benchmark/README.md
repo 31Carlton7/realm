@@ -34,7 +34,9 @@ on the `heldout` split of this directory and names its `version`.
    floating search bar, a list that would not scroll, an Apple Pay error, a sign-in that failed.
    Only what iOS draws on a fresh simulator is kept; the reviews on a map card, the day's headlines
    and the one third-party app on the device were dropped (`scripts/laya/bench/screens.ts`).
-2. **Labelled by hand** in `apps/server/scripts/laya/bench/{target,sensitive,verify}.ts`. A case went
+2. **Labelled by hand** in `apps/server/scripts/laya/bench/{target,sensitive,verify}.ts`, and a second
+   round of `target` phrasings in `target-more.ts` (version 2), each checked against the training
+   lexicon by `scripts/laya/leak-check.ts` so no checkpoint trained before it had seen it. A case went
    in only if a careful person looking at the screen would answer it one way; ambiguous ones were
    dropped rather than guessed. Most `target` intents do not repeat the label ("pair my AirPods",
    "SFMOMA", "VO2 max") because those are the only ones Laya is asked in a walk. `sensitive` is the
@@ -44,9 +46,10 @@ on the `heldout` split of this directory and names its `version`.
 3. **Split** by `scripts/laya/bench-build.ts`: five apps are held out whole (Maps, Health, Contacts,
    Files, Passwords) and two kept whole for validation (Reminders, Watch); of every other app's cases
    15% are held out and 12% go to validation, by a stable hash of the case, so a rebuild never moves
-   a case. Training data is generated only from `train` screens and never repeats a held-out or
-   validation intent. Thresholds and temperatures are fitted on `train`, choices between runs are
-   made on `validation`, and `heldout` is only ever reported.
+   a case. Training data is generated only from `train` apps' screens and never repeats any case's
+   intent; a run may also be taught the `train` split's own `sensitive` and `verify` cases, never its
+   `target` ones. The Assist threshold and the choice temperatures are fitted on `train` `target`
+   cases, choices between runs are made on `validation`, and `heldout` is only ever reported.
 
 Rebuild after changing a case: `pnpm --filter @realm/server exec tsx scripts/laya/bench-build.ts <crawl dir>`
 (it needs the crawl it was built from, kept outside the repo) and bump `BENCHMARK_VERSION` in
