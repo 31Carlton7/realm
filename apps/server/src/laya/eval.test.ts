@@ -130,6 +130,12 @@ describe("the Assist threshold", () => {
     expect(fitThreshold(points, 0.99, 20)).toBe(0.99 - 48 * 0.001);
   });
 
+  it("takes a precision of exactly 98% as reaching 98%", () => {
+    // 49 right and then one wrong, all at their own confidence: at the last, 49 of 50 — 98% on the nose.
+    const points = pts([...Array.from({ length: 49 }, (_, i): [number, boolean] => [0.99 - i * 0.001, true]), [0.3, false]]);
+    expect(fitThreshold(points, 0.98, 20)).toBe(0.3);
+  });
+
   it("claims none on fewer picks than the support it needs, or when no confidence reaches the precision", () => {
     expect(fitThreshold(pts(Array.from({ length: 19 }, (): [number, boolean] => [0.9, true])), 0.98, 20)).toBeNull();
     expect(fitThreshold(pts(Array.from({ length: 40 }, (_, i): [number, boolean] => [1 - i / 100, i % 2 === 0])), 0.98, 20)).toBeNull();
