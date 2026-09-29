@@ -5061,7 +5061,9 @@ select { appearance: none; padding-right: 22px;
 .env-list > .env-row:has(.mcp-form), .env-list > .env-row:has(.mcp-tools) { grid-column: 1 / -1; }
 .env-main { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--rl-text-dim); }
 .env-name { font-size: 12.5px; color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.env-kind { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--rl-text-faint); }
+/* One fixed word of boilerplate: it keeps its width and never breaks. "BUILT-IN" broke at its own hyphen
+   the first time the column beside it needed room, and a kind is not the thing that should give. */
+.env-kind { flex: none; white-space: nowrap; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--rl-text-faint); }
 .env-meta { grid-column: 1; display: flex; flex-wrap: wrap; gap: 8px; font-size: 11px; color: var(--rl-text-faint); }
 .env-path { font-family: var(--font-mono); font-size: 11px; word-break: break-all; }
 .env-actions { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: center; gap: 4px; }
@@ -5073,6 +5075,10 @@ select { appearance: none; padding-right: 22px;
    confirmed in-browser: circuit banner + tools is the routine Retry case, not an edge case). */
 .mcp-row > .mcp-circuit, .mcp-row > .mcp-form, .mcp-row > .mcp-tools { grid-column: 1 / -1; }
 .mcp-enable { display: flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--rl-text-dim); }
+/* What a provider cannot do on this Mac, where its switch would be. It is the one item on the row that
+   runs long, so it is the one that yields: it wraps inside a measure of its own rather than taking the
+   width the provider's name needs — which ellipsized to "realm-simula…" when it did. */
+.mcp-provider-state { max-width: 10em; text-align: right; font-size: 11.5px; line-height: 1.35; color: var(--rl-text-dim); }
 /* §3 status pills: tinted fill + full-strength colored text — the one thing the hub status dot alone
    can't say (auth is a different axis from connectivity; see McpServerRow). */
 .mcp-reauth-badge { font-size: 11px; padding: 1px 6px; border-radius: var(--r-chip); line-height: 1.5;

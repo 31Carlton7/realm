@@ -152,7 +152,7 @@ function RealmProviders({ spaceId }: { spaceId: string }) {
                    install. The space's choice is kept either way; the switch comes back as it was.
                    Dim text rather than a warning pill: on a Mac that will never have Xcode this row
                    says it on every visit, and that is a fact about the Mac, not a fault in Realm. */
-                <span className="mcp-enable" data-state={p.offered === null ? "checking" : "missing"}
+                <span className="mcp-provider-state" data-state={p.offered === null ? "checking" : "missing"}
                   title={p.offered === false ? `This space's switch is kept, and comes back as it was once ${p.needs ?? "what it needs"} is on this Mac.` : undefined}>
                   {p.offered === null ? "Checking…" : p.needs ? `Needs ${p.needs}` : "Not available on this Mac"}
                 </span>

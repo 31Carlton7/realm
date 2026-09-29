@@ -149,9 +149,17 @@ async function main() {
   const browser = await evalIn(c, read("realm-browser"));
   check("a provider that acts inside Realm keeps its switch beside it", browser?.switch === true && browser.actions === "Enabled", browser);
 
-  const top = Math.min(browser.box.y, sim.box.y) - 8;
-  const bottom = Math.max(browser.box.y + browser.box.h, sim.box.y + sim.box.h) + 8;
-  const shot = await c.send("Page.captureScreenshot", { format: "png", clip: { x: sim.box.x - 8, y: top, width: sim.box.w + 16, height: bottom - top, scale: 1 } });
+  // The list sits below the fold on this page, and a clip outside the viewport captures nothing — so
+  // it is scrolled into view first and measured again, then taken whole: the row among its neighbours.
+  const list = await evalIn(c, `(() => {
+    const ul = [...document.querySelectorAll('.mcp-row')].find((r) => r.querySelector('.env-name')?.textContent === "realm-simulator")?.closest('ul');
+    if (!ul) return null;
+    ul.scrollIntoView({ block: "center" });
+    const b = ul.getBoundingClientRect();
+    return { x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height) };
+  })()`);
+  await sleep(300);
+  const shot = await c.send("Page.captureScreenshot", { format: "png", clip: { x: list.x - 8, y: Math.max(0, list.y - 8), width: list.w + 16, height: list.h + 16, scale: 1 } });
   fs.writeFileSync(OUT, Buffer.from(shot.data, "base64"));
   console.log(`SCREENSHOT ${OUT}`);
   c.close();
