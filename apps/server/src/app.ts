@@ -317,6 +317,12 @@ export function defaultAdapters(): AdapterRegistry {
     // session rather than failing it. The surfaces that need a session stopped mid-air — the
     // permission card, the sidebar's blocked mark, the Agents wall — have nothing else to pose for.
     on: "ask me", emit: [{ kind: "tool", name: "Bash", input: { command: "rm -rf build" }, needsPermission: true, result: "removed" }],
+  }, {
+    // An answer that streams at a real agent's pace, a word at a time. Everything above lands in one
+    // burst, and the prose's arrival fade has nothing to show on a message that arrives all at once.
+    on: "stream slowly", emit: [{ kind: "text", paceMs: 45, text: "The mapper reads each **SDK message** once and hands back Realm's own events, so nothing downstream ever sees the wire.\n\n"
+      + "Three things change in this pass:\n\n1. Plans travel as their own event.\n2. A revision replaces the card in place.\n3. `apps/server/src/sessions/service.ts` persists both.\n\n"
+      + "Nothing else moves, and the transcript you already have reads exactly as it did." }],
   }] });
   return reg;
 }

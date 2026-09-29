@@ -216,6 +216,18 @@ describe("§6 motion table", () => {
     expect(tokensCss).toContain("--ease-fade: cubic-bezier(0.4, 0, 0.2, 1)");
   });
 
+  /* Streamed prose fades as it arrives (`arrival-fade.ts`), on the system lines' pair: text
+     appearing, not an object landing. THE mutants: a rise (`rl-msg-in`), which would twitch every
+     chunk upward as it lands, dozens of times a second; and a resting `opacity` on the span — reduced
+     motion removes the animation, and whatever the span rests at is all the reader gets. (That it is
+     never paused when the window goes quiet is the quiet list's own test: it ends.) */
+  it("streamed prose fades in where it lands, and rests fully opaque", () => {
+    const body = bodiesFor(".md-arrival").join(" ");
+    expect(body).toContain(`animation: rl-fade-in ${dur("--dur-slow")} var(--ease-fade)`);
+    expect(body).not.toContain("rl-msg-in");
+    expect(body).not.toMatch(/(^|;|\s)opacity:/);
+  });
+
   it("hover fills run on the hover rung, on plain `ease`, and touch background/colour only — never geometry", () => {
     const hover = bodiesFor(".item-row").join(" ");
     expect(hover).toContain(`transition: background-color ${dur("--dur-hover")} ease, color ${dur("--dur-hover")} ease`);
