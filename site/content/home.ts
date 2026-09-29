@@ -135,6 +135,12 @@ export const facets: Facet[] = [
   },
 ]
 
+/** The eighth step, when the view pulls back and the realm is one of many. */
+export const facetsMany: Facet = {
+  title: "One for every project, all at once.",
+  body: "Spaces sit side by side, each with its own agents at work, and none reaches another\u2019s tools. The Agents page reads every one of them at once \u2014 a wall of tiles, or an office with a figure at every desk \u2014 and the sidebar keeps every chat across them, by the day you last worked on it.",
+}
+
 /** The seventh step, when all six are in. */
 export const facetsCoda: Facet = {
   title: "That\u2019s a realm.",

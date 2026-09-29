@@ -15,6 +15,12 @@ const rectOf = (selector: string): Rect | null => {
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value))
 
+/** Hermite easing on 0..1 — the shader's smoothstep, so a presence ramps in the way its light does. */
+const ease = (value: number) => value * value * (3 - 2 * value)
+
+/** The shader's window array is fixed at four; the unused slots are empty rects it never reads. */
+const padded = (rects: Rect[]): Rect[] => [...rects, ...Array<Rect>(4 - rects.length).fill([0, 0, 0, 0])]
+
 /**
  * The field behind the whole landing page, fixed to the viewport.
  *
@@ -75,13 +81,28 @@ export function DimensionField() {
       pointer.presence += (pointer.target - pointer.presence) * k * 0.6
 
       const hero = rectOf('[data-dim-stage="hero"]')
-      const portal = rectOf('[data-dim="portal"]') ?? [0, 0, 0, 0]
-      // 0 while the hero fills the view, 1 once it has scrolled entirely past the top.
-      const entering = hero ? clamp01(-hero[1] / Math.max(hero[3], 1)) : 1
-      // The corridor belongs to the portal, so it leaves with it: whole while the portal's bottom
-      // edge is in the lower two thirds of the view, gone once that edge passes the top.
-      const portalBottom = portal[1] + portal[3]
-      const presence = clamp01((portalBottom + height * 0.05) / (height * 0.4))
+      const heroPortal = rectOf('[data-dim="portal"]') ?? [0, 0, 0, 0]
+      const closing = rectOf('[data-dim="portal-close"]')
+      // One corridor, and it belongs to whichever portal is on screen: the hero's at the top of the
+      // page, the closing card's at the bottom. They are never on screen together.
+      const closingShown = closing !== null && closing[1] < height && closing[1] + closing[3] > 0
+      const portal = closingShown ? closing : heroPortal
+      // 0 while the hero fills the view, 1 once it has scrolled entirely past the top. The closing
+      // portal is always a little way in, so its frames are already moving when it arrives.
+      const entering = closingShown ? 0.25 : hero ? clamp01(-hero[1] / Math.max(hero[3], 1)) : 1
+      // The corridor leaves with its portal: whole while the portal is well inside the view, gone
+      // once it has passed an edge. The hero's leaves by the top, the closing card's arrives from below.
+      const presence = closingShown
+        ? clamp01((height - closing[1]) / (height * 0.45))
+        : clamp01((heroPortal[1] + heroPortal[3] + height * 0.05) / (height * 0.4))
+      // The capture frames on or near the screen, in page order — rarely more than two at once, and
+      // never more than the four the shader holds.
+      const windowRects = [...document.querySelectorAll('[data-dim="window"]')]
+        .map((node) => node.getBoundingClientRect())
+        .filter((r) => r.bottom > -120 && r.top < height + 120)
+        .slice(0, 4)
+        .map((r): Rect => [r.left, r.top, r.width, r.height])
+
       // The six faces: progress through the pinned track, and presence that rises as the track's
       // viewport arrives and falls as it leaves, so the corridor and the lattice cross-fade.
       const track = rectOf('[data-dim-stage="faces"]')
@@ -99,10 +120,12 @@ export function DimensionField() {
         height,
         pointer: [pointer.x, pointer.y, pointer.presence, 0],
         portal,
-        hero: [presence * presence * (3 - 2 * presence), entering, 0, 0],
+        hero: [ease(presence), entering, 0, 0],
         ripple: [ripple.x, ripple.y, Number.isFinite(ripple.at) ? (now - ripple.at) / 1000 : -1, 0],
-        faces: [facesPresence * facesPresence * (3 - 2 * facesPresence), progress, unit, 0],
+        faces: [ease(facesPresence), progress, unit, 0],
         facesAt,
+        windows: padded(windowRects),
+        counts: [windowRects.length, 0, 0, 0],
       }
     }
 

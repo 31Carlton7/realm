@@ -6,29 +6,30 @@ import { Faq } from "@/components/home/Faq"
 import { SixFaces } from "@/components/home/SixFaces"
 import { AppleIcon, GitHubIcon } from "@/components/icons"
 import { SiteHeader } from "@/components/SiteHeader"
-import { claims, facets, facetsCoda } from "@/content/home"
+import { claims, facets, facetsCoda, facetsMany } from "@/content/home"
 import { macDownload } from "@/lib/release"
 import { site } from "@/lib/site"
 import captured from "@/public/product/manifest.json"
 
 /**
- * The landing page.
+ * The landing page: a journey through dimensions, with the product at both ends.
  *
- * It used to be one screen that only ROUTED — the mark, the name, the download, two links out — and
- * it showed no product on purpose, because it made no argument a screenshot would have to support.
- * It argues now, so it owes the evidence: design.md's rule is that the first viewport of a page that
- * explains shows the product or its central working relationship, and every claim below it carries
- * the capture that supports THAT claim rather than a picture of the app in general.
+ * One WebGPU field sits behind all of it (`DimensionField`), and each section is a region of that
+ * field rather than an owner of a canvas. Sections say where they are with `data-dim-stage`; the
+ * elements light belongs to say so with `data-dim`, and the field reads their rects every frame.
  *
- * The shape is a sequence, not a grid. One claim per section, one large product view each, sides
- * alternating. A three-up of small mock cards is the mosaic design.md refuses — and mock cards would
- * be the wrong evidence anyway, since these are real captures of a real space taken by
- * `capture-product.mjs` against the built app.
+ *   hero      "Give your agents a world to work in" — the workspace capture in a portal, with a
+ *             corridor of frames receding behind it
+ *   faces     a pinned track: the mark assembles face by face on its own lattice beside what a realm
+ *             holds, is lit as glass, then pulls back into a hive of realms
+ *   claims    one claim per section, each with the real capture that is evidence for it, framed as a
+ *             window into the same realm
+ *   close     the next action, through a portal again
  *
- * Every frame here is anchored to the top and cropped at the bottom, losing the prompter band whose
- * model chip reads "Fake" — the capture harness's scripted agent, not Realm. `Claim.tsx` carries the
- * arithmetic; the short version is that the crop must come from an aspect NARROWER than the source's
- * 16/10, which the hero's old 16/9 was not by enough and the claims' old 16/10 was not at all.
+ * design.md carries the rules this follows: the first viewport shows the product, every effect argues
+ * a claim the copy also makes, nothing with area draws behind words, and motion is the reader's to
+ * drive. The captures are real, taken by `capture-product.mjs` against the built app, and each frame
+ * crops out the prompter band whose model chip reads "Fake" — the harness's scripted agent, not Realm.
  */
 export default async function HomePage() {
   const download = await macDownload()
@@ -109,7 +110,7 @@ export default async function HomePage() {
           </figure>
         </section>
 
-        <SixFaces facets={facets} coda={facetsCoda} />
+        <SixFaces facets={facets} coda={facetsCoda} many={facetsMany} />
 
         {/* Where "Skip" lands: the first thing after the pinned track. */}
         <div id="after-faces" className="scroll-mt-8" />
@@ -122,11 +123,15 @@ export default async function HomePage() {
 
         <Faq />
 
-        {/* End with the one concrete next action. */}
-        <section className="mx-auto w-full max-w-[52rem] px-6 pb-20 sm:px-10 sm:pb-28">
-          <div className="app-corner rounded-[20px] bg-surface p-8 shadow-[inset_0_1px_0_oklch(1_0_0/0.07)] sm:p-10">
+        {/* End with the one concrete next action — through a portal, so the page closes where it
+            opened. The field hands its corridor to this card once the hero's portal is off screen. */}
+        <section className="mx-auto w-full max-w-[52rem] px-6 pt-24 pb-32 sm:px-10 sm:pt-32 sm:pb-44">
+          <div
+            data-dim="portal-close"
+            className="app-corner rounded-[20px] bg-surface p-8 shadow-[inset_0_1px_0_oklch(1_0_0/0.07)] sm:p-10 [html[data-dim-field=off]_&]:shadow-[inset_0_1px_0_oklch(1_0_0/0.07),0_0_90px_-18px_oklch(0.68_0.173_253.301/0.5)]"
+          >
             <h2 className="text-[clamp(1.4rem,2.2vw,1.8rem)] leading-[1.15] font-[560] tracking-[-0.03em] text-ink">
-              Run it on your own work.
+              Open your first realm.
             </h2>
             <p className="mt-3 max-w-[52ch] text-[16px] leading-[1.6] text-ink-2">
               Point it at a checkout, start a session with an agent you already have, and leave the
