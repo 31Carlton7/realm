@@ -445,6 +445,9 @@ export function App() {
       st.run(() => st.probeAgents(true));
     });
     const offMS = rpc().on("mcp.serverStatus", (payload) => store.getState().applyMcpServerStatus(payload));
+    // Laya's status, whole: an install narrating its steps, the runtime coming up or going down, and
+    // the step count while agents work — all of it the Settings section's one state line.
+    const offLaya = rpc().on("laya.changed", (status) => store.getState().applyLaya(status));
     // Broadcast for EVERY space/session (binding rule 5) — applyMcpCall itself is the gate on whether
     // Activity is even open and whether the row matches its filter, same as mcp.serverStatus above.
     const offMC = rpc().on("mcp.call", (call) => store.getState().applyMcpCall(call));
@@ -460,7 +463,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offSc(); offI(); offV(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offMem(); offB(); offSO(); offDO(); offSA(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offMC(); offCO(); offCD(); offC();
+      offS(); offSc(); offI(); offV(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offMem(); offB(); offSO(); offDO(); offSA(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

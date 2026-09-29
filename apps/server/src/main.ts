@@ -7,6 +7,7 @@ delete process.env.ELECTRON_RUN_AS_NODE;
 import { generateSessionRecap, generateSessionTitle } from "@realm/adapters";
 import { createApp } from "./app";
 import { toolchainAvailable } from "./simulators/service";
+import { realLayaRuntime } from "./laya/runtime";
 import { DAEMON_PROTOCOL } from "@realm/contracts";
 import { realmHome } from "./paths";
 import { BOOT_ID, acquireLock, clearState, currentBundleId, newToken, readState, releaseLock, writeState } from "./daemon/state";
@@ -47,6 +48,10 @@ try {
     // ages. Only here: every other `createApp` is a test or a script, and gets no probe unless it
     // passes one (see the option's own comment).
     simulatorToolchain: () => toolchainAvailable(),
+    // Laya's local runtime. Only here: every other `createApp` is a test or a script and gets none, so
+    // nothing but this process ever looks for a Python or starts one. Even here nothing downloads
+    // until the user clicks Install, and nothing runs until they switch Laya to Shadow.
+    laya: realLayaRuntime({ home }),
   });
 
   // The state file is written only now, because `createApp` is what binds the port — a file

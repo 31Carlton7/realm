@@ -70,6 +70,7 @@ import type { GitWriteService } from "../workspace/git-write";
 import type { ShipsStore } from "../store/ships";
 import type { PortAllocator } from "../workspace/ports";
 import type { ExecutionSandboxService } from "../sandbox/service";
+import type { LayaService } from "../laya/service";
 import { NotFoundError, RpcError } from "../store/rows";
 
 /** Parsed (post-default) params, i.e. what the handler actually receives. */
@@ -85,6 +86,7 @@ export type Deps = {
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService;
   planLimits: PlanLimitsService;
   delegation: DelegationEngine;
+  laya: LayaService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -910,6 +912,13 @@ export function registerMethods(d: Deps): void {
   reg("sessions.respondPermission", (p) => { d.sessions.respondPermission(p.id, p.requestId, p.decision, p.answers); return { ok: true as const }; });
   reg("sessions.setOptions", (p) => d.sessions.setOptions(p.id, { model: p.model, effort: p.effort, permissionMode: p.permissionMode, fastMode: p.fastMode }));
   reg("sessions.setAgent", (p) => d.sessions.setAgent(p.id, p.agentKind));
+  /* Laya (`laya/service.ts`). The service makes every refusal — an install with no Python to make it
+     from, Shadow before an install — so nothing here decides anything. */
+  reg("laya.status", () => d.laya.status());
+  reg("laya.install", () => d.laya.install());
+  reg("laya.setMode", (p) => d.laya.setMode(p.mode));
+  reg("laya.deleteLog", () => d.laya.deleteLog());
+
   reg("failover.get", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     return d.failover.policy(p.spaceId);

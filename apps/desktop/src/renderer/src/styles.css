@@ -42,7 +42,7 @@
 .theme-import textarea, .tool-body pre, .tool-stat, .tool-summary, .tool-well, .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .composer-queue-item .queue-position, .composer-queue-item .queue-attach, .terminal-dock-title,
-.sim-detail, .sb-chat-mono, .upl-path {
+.sim-detail, .sb-chat-mono, .upl-path, .laya-facts code, .laya-reason {
   letter-spacing: normal;
 }
 
@@ -5334,6 +5334,16 @@ select { appearance: none; padding-right: 22px;
 /* An invalid skill is SHOWN, reason and all — the silence W1 designed against would start here. */
 .settings-row-problem { flex-basis: 100%; display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--rl-warning); }
 .settings-chip { padding: 1px 7px; border-radius: 999px; font: 11px var(--font-mono); color: var(--rl-text-dim); background: var(--rl-hover); white-space: nowrap; }
+/* Laya's section (Settings ▸ Engines). The facts are machine state — a device, a checkpoint — so
+   they are mono, and the numbers beside them are tabular so a latency that updates does not make
+   the line jitter. A failure is the process's own words, verbatim, and reads as such. */
+.laya-facts { font-variant-numeric: tabular-nums; }
+.laya-facts code { font: 11.5px var(--font-mono); color: var(--rl-text-bright); }
+.laya-reason { font: 11.5px/1.5 var(--font-mono); color: var(--rl-text-bright); overflow-wrap: anywhere; }
+.settings-row-main > .laya-meter { flex-basis: 100%; margin-top: 4px; }
+.settings-row-main > .install-cmd, .settings-row-main > .laya-output { flex-basis: 100%; }
+.laya-output > summary { font-size: 12px; color: var(--rl-text-dim); cursor: pointer; }
+.laya-output > pre { max-height: 180px; margin: 6px 0 0; }
 
 .settings-agent-row { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; }
 .settings-agent-row > svg { flex: none; margin-top: 1px; }

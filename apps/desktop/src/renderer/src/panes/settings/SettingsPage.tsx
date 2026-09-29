@@ -19,6 +19,7 @@ import { hasWindowMaterial, useResolvedMode, type ThemePref } from "../../theme/
 import { ImportPanel } from "../../components/settings/ImportPanel";
 import { UsagePanel } from "./usage/UsagePanel";
 import { FailoverPanel } from "./FailoverPanel";
+import { LayaSection } from "./LayaSection";
 import { Signature } from "./Signature";
 import { KeybindingsPanel } from "../../components/settings/KeybindingsPanel";
 
@@ -179,6 +180,10 @@ function EnginesTab() {
           may take over when the one a session is on cannot finish. */}
       <h3 className="settings-head">Failover</h3>
       <FailoverPanel />
+      {/* A model Realm runs itself, beside the ones it runs agents on: installed, started and watched
+          from here, and — unlike every engine above — never handed a turn. */}
+      <h3 className="settings-head">Laya (local decisions)</h3>
+      <LayaSection />
     </div>
   );
 }
