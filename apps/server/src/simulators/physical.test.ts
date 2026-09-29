@@ -13,6 +13,7 @@ import { PhysicalDevices } from "./physical";
 import { FakePhone, PHONE_DEVICE, PHONE_UDID } from "./phone.test-fakes";
 import { SimulatorService } from "./service";
 import type { Simctl } from "./simctl";
+import type { ServeSim } from "./serve-sim";
 
 /**
  * A real iPhone through the REAL simulator service and the REAL physical layer, with the phone
@@ -60,6 +61,14 @@ async function setup(o: { locked?: boolean; ensure?: () => Promise<never>; rehea
     rpc: { broadcast: (event: string, payload: unknown) => { if (event === "simulator.status") broadcasts.push(payload as SimulatorState); } } as never,
     spaces, items, simulators: new SimulatorsStore(db),
     simctl: { ...simctl, available: async () => true } as unknown as Simctl,
+    // A serve-sim that streams any simulator at once — for a row that showed one before the phone.
+    serveSim: {
+      find: async () => ({ running: false, device: null, url: null, streamUrl: null, wsUrl: null, port: null, pid: null }),
+      start: async (udid: string) => ({ stream: { running: true, device: udid, url: "http://127.0.0.1:3100", streamUrl: `http://127.0.0.1:3100/helper/${udid}/stream.mjpeg`, wsUrl: "ws://127.0.0.1:3100/ws", port: 3100, pid: 1 }, detail: "" }),
+      screen: async () => ({ width: 1170, height: 2532, orientation: "portrait" }),
+      kill: async () => {}, claims: async () => [],
+    } as unknown as ServeSim,
+    watchScreen: () => ({ mark: () => ({ moved: 0, edges: 0, edgeBusy: false }), settle: async () => "none", rest: async () => true, close: () => {} }),
     android: { available: async () => false, devices: async () => [] } as never,
     physical,
   });
@@ -176,6 +185,32 @@ describe("reading and driving it", () => {
   it("has no picture to judge motion by, so a walk reads the tree", async () => {
     const { service, open } = await setup();
     expect(service.motion(await open())).toBeNull();
+  });
+
+  it("never watches a simulator's old stream for a pane now pointed at the phone", async () => {
+    const { service, open, space } = await setup();
+    const { simulatorId } = service.create({ spaceId: space.id, name: "Pane", udid: "SIM-17E" });
+    service.start(simulatorId, "SIM-17E", "ios", false);
+    for (let i = 0; i < 400 && service.stateOf(simulatorId).status !== "running"; i++) await new Promise((r) => setTimeout(r, 5));
+    expect(service.motion(simulatorId)).not.toBeNull();
+    void open;
+    service.start(simulatorId, PHONE_UDID, "ios", true);
+    for (let i = 0; i < 400 && !(service.stateOf(simulatorId).status === "running" && service.stateOf(simulatorId).physical); i++) await new Promise((r) => setTimeout(r, 5));
+    // THE MUTANT: find the pane's last serve-sim stream and watch it — the simulator's, not the phone's.
+    expect(service.motion(simulatorId)).toBeNull();
+  });
+
+  it("goes the phone's way again on a plain retry, with nothing but the row to say what it is", async () => {
+    const { service, open, dc, log } = await setup({ locked: true });
+    const id = await open();
+    expect(service.stateOf(id).status).toBe("failed");
+    // Unlocked, and "Try again": no udid, no platform, no flag — the row is the authority.
+    (dc as unknown as { lockState: () => Promise<{ locked: boolean }> }).lockState = async () => ({ locked: false });
+    service.start(id);
+    for (let i = 0; i < 400 && !["running", "failed"].includes(service.stateOf(id).status); i++) await new Promise((r) => setTimeout(r, 5));
+    expect(service.stateOf(id)).toMatchObject({ status: "running", physical: true });
+    expect(service.get(id).physical).toBe(true);
+    expect(log).toEqual([`ensure:${PHONE_UDID}:27.2`]);
   });
 
   it("launches and looks up apps with devicectl, one bundle id at a time, and captures the screen from the runner", async () => {

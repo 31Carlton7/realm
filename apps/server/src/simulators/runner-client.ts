@@ -38,7 +38,7 @@ export async function runnerRequest(open: RunnerSocket, method: "GET" | "POST", 
     const chunks: Buffer[] = [];
     let settled = false;
     const finish = (fn: () => void) => { if (settled) return; settled = true; clearTimeout(timer); fn(); };
-    const timer = setTimeout(() => finish(() => { socket.destroy(); reject(new RunnerUnreachable(`the runner did not answer ${path} within ${Math.round(timeoutMs / 1000)} s`)); }), timeoutMs);
+    const timer = setTimeout(() => finish(() => { socket.destroy(); reject(new RunnerUnreachable(`the runner did not answer ${path} within ${(timeoutMs / 1000).toFixed(timeoutMs < 1_000 ? 1 : 0)} s`)); }), timeoutMs);
     socket.on("data", (c: Buffer) => chunks.push(c));
     socket.once("error", (e: Error) => finish(() => reject(new RunnerUnreachable(e.message))));
     // The runner closes the connection once its answer is written; a reset instead of a close is the

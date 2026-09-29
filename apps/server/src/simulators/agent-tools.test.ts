@@ -1821,6 +1821,18 @@ describe("a real iPhone", () => {
     expect(dev.phone.acts()[0]).toBe("tap 201,238");
   });
 
+  it("spaces a walk's reads on a phone, whose runner answers too fast for two agreeing reads to mean the screen is at rest", async () => {
+    const dev = await onPhone();
+    const { simulatorId } = await opened(dev);
+    dev.phone.screen = "root";
+    const from = dev.phone.requests.length;
+    await dev.call("simulator_do", { simulatorId, intent: "open General", path: ["General"] });
+    const reads = dev.phone.requests.slice(from).filter((r) => r.path === "/hierarchy").map((r) => r.at);
+    const gaps = reads.slice(1).map((t, i) => t - reads[i]!).sort((a, b) => a - b);
+    // THE MUTANT: the simulator's 30 ms — on a runner that answers in ~0.1 s, "at rest" for a blink.
+    expect(gaps[Math.floor(gaps.length / 2)]).toBeGreaterThanOrEqual(150);
+  });
+
   it("lists only what Xcode installed on it, and says how Apple's apps are launched", async () => {
     const dev = await onPhone();
     const { simulatorId } = await opened(dev);

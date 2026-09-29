@@ -54,7 +54,7 @@ const SCREENS: Record<string, Screen> = {
 
 export type { Row as PhoneRow };
 
-export type PhoneRequest = { method: string; path: string; body: Record<string, unknown> };
+export type PhoneRequest = { method: string; path: string; body: Record<string, unknown>; at: number };
 
 export class FakePhone {
   screen = "runner";
@@ -78,7 +78,7 @@ export class FakePhone {
         const url = new URL(req.url ?? "/", "http://phone");
         let body: Record<string, unknown> = {};
         try { body = raw ? JSON.parse(raw) as Record<string, unknown> : {}; } catch { /* not JSON */ }
-        this.requests.push({ method: req.method ?? "", path: url.pathname, body });
+        this.requests.push({ method: req.method ?? "", path: url.pathname, body, at: Date.now() });
         const [status, type, out] = this.answer(req.method ?? "", url, body);
         res.writeHead(status, { "Content-Type": type, "Content-Length": out.length, Connection: "close" });
         res.end(out);

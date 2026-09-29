@@ -64,11 +64,15 @@ describe("runnerRequest", () => {
 
   it("says the runner is unreachable when nothing listens, and when it never answers", async () => {
     await expect(runnerRequest(loopbackSocket(1), "GET", "/status")).rejects.toBeInstanceOf(RunnerUnreachable);
-    const silent = tcpServer((sock) => { open.push(sock); /* accepts, says nothing */ });
+    let hungUp: Promise<void> = Promise.resolve();
+    // Reads what it is sent — so it sees the far end hang up — and answers nothing.
+    const silent = tcpServer((sock) => { open.push(sock); sock.resume(); hungUp = new Promise((r) => sock.once("close", () => r())); });
     servers.push(silent);
     await new Promise<void>((r) => silent.listen(0, "127.0.0.1", () => r()));
     const port = (silent.address() as { port: number }).port;
     await expect(runnerRequest(loopbackSocket(port), "GET", "/hierarchy", undefined, 150)).rejects.toThrow(/did not answer \/hierarchy/);
+    // …and hangs up, rather than holding a connection to a phone open for as long as the process lives.
+    await hungUp;
   });
 });
 
