@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { activeLayout, allItems, CLOSE_FINISHED_AGENT_PANES_KEY, findLeafOfItem, type DelegationOutcome } from "@realm/contracts";
+import { activeLayout, allItems, CLOSE_FINISHED_AGENT_PANES_KEY, findLeafOfItem, sessionEvent, type DelegationOutcome } from "@realm/contracts";
 import { AGENT_PANE_CLOSE_BEAT_MS, createAppStore } from "./store";
-import { fakeApi, item, session, type FakeApi } from "./store.test-fakes";
+import { fakeApi, item, notification, session, type FakeApi } from "./store.test-fakes";
 
 /**
  * A delegated agent's pane, from `session.agentOpened` to `session.agentSettled`: Realm takes back
@@ -304,5 +304,102 @@ describe("a delegated agent's pane — Realm takes back what it opened, once it 
     expect(store.getState().activeSpaceId).toBe("s2");
     expect(open(store)).not.toContain("i-kid");
     expect(allItems(activeLayout(store.getState().groups!))).not.toContain("i-kid");
+  });
+});
+
+/**
+ * Reading a finished child — only as Realm takes its pane back. The two halves of the focused pane's
+ * auto-read: the seen mark behind the sidebar's dot (`markSessionSeen`), and the child's "Finished a
+ * turn" row in the feed (`markNotificationsRead`), which is what the unread count counts. Everything
+ * Realm spares keeps both, for the person who has to come back to it.
+ */
+describe("reading a finished child — only when Realm takes its pane back", () => {
+  let api: FakeApi;
+  beforeEach(() => { api = fakeApi(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  /** The child's transcript, as its mounted pane holds it: four events, so its newest is seq 4. */
+  async function childOnScreen(store: Store) {
+    api.data.sessionEvents.kid = [
+      { seq: 1, sessionId: "kid", event: sessionEvent("user_message", { text: "You are a delegated agent. Accomplish this goal: fix the parser", attachments: [] }) },
+      { seq: 2, sessionId: "kid", event: sessionEvent("status", { status: "running" }) },
+      { seq: 3, sessionId: "kid", event: sessionEvent("assistant_text", { messageId: "m1", text: "Fixed the parser; tests pass." }) },
+      { seq: 4, sessionId: "kid", event: sessionEvent("status", { status: "idle" }) },
+    ];
+    await store.getState().openSession("kid");
+  }
+  /** The server's "Finished a turn" row for the child, as `notifications.changed` delivers it the
+   *  moment the child's turn settles — before the engine can, since it reads the stored log. */
+  const finishedRow = (store: Store) => store.getState().applyNotificationsChanged({
+    notification: notification("n-kid", { sessionId: "kid", refId: "kid", title: "Agent: fix the parser" }), unread: 1,
+  });
+  /** What was read, as the fake Api logs it. */
+  const reads = () => api.calls.filter((c) => c.startsWith("markSessionSeen:kid") || c.startsWith("markNotificationsRead:"));
+
+  it("reads the child as its pane goes — its seen mark and its row, and not a moment before", async () => {
+    const store = await delegate(api);
+    await childOnScreen(store);
+    finishedRow(store);
+    finish(store);
+    await vi.advanceTimersByTimeAsync(AGENT_PANE_CLOSE_BEAT_MS - 1);
+    // THE MUTANT: read on arrival, ahead of the beat's second look. A click in the beat still keeps
+    // the pane, and a child the user had just started reading would be marked read under them.
+    expect(reads()).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(open(store)).toEqual(["i-lead"]);
+    // THE MUTANTS: drop either call, or forget to note the row as it arrives. The seen mark alone
+    // clears the dot and leaves the row unread — and the row is what a fan-out piles up.
+    expect(reads()).toEqual(["markSessionSeen:kid@4", "markNotificationsRead:n-kid"]);
+  });
+
+  it("moves only the seen mark when no row arrived — Sessions finishing switched off in the feed", async () => {
+    // THE MUTANT: drop the guard, and a child with no row asks the server to read `[undefined]`,
+    // which fails validation and puts an error banner over a close that went fine.
+    const store = await delegate(api);
+    await childOnScreen(store);
+    finish(store);
+    await pastTheBeat();
+    expect(open(store)).toEqual(["i-lead"]);
+    expect(reads()).toEqual(["markSessionSeen:kid@4"]);
+    expect(store.getState().error).toBeNull();
+  });
+
+  it.each([
+    ["it failed", { outcome: "failed" as const }],
+    ["someone stopped it", { outcome: "stopped" as const }],
+    ["it timed out", { outcome: "timeout" as const }],
+    ["it is waiting on a permission again", { waiting: true }],
+    ["the user is in its pane", { focused: true }],
+    ["the user clicked into it during the beat", { clickInBeat: true }],
+    ["the user has written to it", { wrote: true }],
+  ])("reads nothing when the pane stays because %s", async (_why, how) => {
+    // Every pane Realm spares is a moment a person may have to come back for, and its row is how they
+    // find it (design.md: a relay carries the moments a person has to come back for). THE MUTANT:
+    // read on every settle, or on every `done` before the pane is actually taken back, and the row
+    // that says "come back to this" is read by the very decision not to close it.
+    const store = await delegate(api);
+    await childOnScreen(store);
+    if ("wrote" in how) { intoChild(store); await store.getState().sendMessage("kid", "also update the changelog"); backToLead(store); }
+    finishedRow(store); // arrives while the user is in the lead, so the focused-pane auto-read passes it by
+    if ("focused" in how) intoChild(store);
+    finish(store, "outcome" in how ? { outcome: how.outcome } : {});
+    if ("waiting" in how) store.getState().applySessionStatus("kid", "waiting_permission");
+    if ("clickInBeat" in how) { await vi.advanceTimersByTimeAsync(AGENT_PANE_CLOSE_BEAT_MS / 2); intoChild(store); }
+    await pastTheBeat();
+    expect(open(store)).toContain("i-kid");
+    expect(reads()).toEqual([]);
+  });
+
+  it("reads nothing when the switch is off", async () => {
+    // THE MUTANT: read a clean finish whether or not its pane goes. The switch would then turn off the
+    // closing and leave its side effect behind — rows marked read for panes still on screen.
+    const store = await delegate(api);
+    await store.getState().setCloseFinishedAgentPanes(false);
+    await childOnScreen(store);
+    finishedRow(store);
+    finish(store);
+    await pastTheBeat();
+    expect(open(store)).toContain("i-kid");
+    expect(reads()).toEqual([]);
   });
 });

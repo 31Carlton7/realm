@@ -1052,7 +1052,7 @@ function AppTab() {
         {/* The one line under the label says what the switch LEAVES alone, because that is the fear a
             switch that closes things raises. The finer print — which endings count, why a pane you
             have written to stays, where a closed child is found again — is the row's title. */}
-        <div className="settings-row" title="Only a pane Realm opened for a delegated agent or a reviewer, once it finishes cleanly. One that failed, timed out, was stopped or is waiting on you stays open, and so does a pane you are in, have moved, or have written to. The session is never deleted: it stays in the sidebar, and its report links back to it.">
+        <div className="settings-row" title="Only a pane Realm opened for a delegated agent or a reviewer, once it finishes cleanly — and its Finished a turn notification is marked read as it closes. One that failed, timed out, was stopped or is waiting on you stays open, notification and all, and so does a pane you are in, have moved, or have written to. The session is never deleted: it stays in the sidebar, and its report links back to it.">
           <div className="settings-row-main">
             <span className="settings-row-name">Close a sub-agent's pane when it finishes</span>
             <span className="settings-row-desc">Never the pane you are in, and never the session itself</span>

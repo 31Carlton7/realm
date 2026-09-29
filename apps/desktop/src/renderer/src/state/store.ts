@@ -1939,8 +1939,8 @@ export type AppState = {
    *  `items.changed`. */
   applyAgentOpened(payload: { spaceId: string; sessionId: string; itemId: string }): Promise<void>;
   /** The `session.agentSettled` handler: after a beat, close the pane Realm opened for a child whose
-   *  run finished — layout-only, the ⌘W close, never a delete — unless the pane has since become the
-   *  user's. Every exception is in `mayTakeBack`. */
+   *  run finished — layout-only, the ⌘W close, never a delete — and read that child, unless the pane
+   *  has since become the user's. Every exception is in `mayTakeBack`. */
   applyAgentSettled(payload: { spaceId: string; sessionId: string; itemId: string; outcome: DelegationOutcome }): void;
   /** Open the space's PAGE (Plan 12 W3) — a `space-page` item whose refId is the space id, one per
    *  space (the diff pane's dedup precedent). `tab` lands the page on a section — the plus-menu's
@@ -2714,8 +2714,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * answers inside the same turn leaves it idle, with nothing on the row to say a person was there.
      * In memory, deliberately: a reload forgets every entry, and a pane nobody is tracking is simply
      * left where it is, which is the safe direction for the only state that can be lost.
+     *
+     * `doneRow` is the child's "Finished a turn" row in the feed, noted as `notifications.changed`
+     * delivers it — which is always before the settle, since the server writes that row as the
+     * child's final status event arrives and the engine only sees the event once it is stored. It is
+     * read only if Realm takes the pane back (`applyAgentSettled`).
      */
-    const agentPanes = new Map<string, { itemId: string; leafId: string }>();
+    const agentPanes = new Map<string, { itemId: string; leafId: string; doneRow?: string }>();
     /**
      * Whether the pane Realm opened for a child that finished is still Realm's to take back.
      *
@@ -5115,7 +5120,17 @@ await get().refreshCustomThemes().catch(() => {});
         // something a person has to read in that pane — the partial report, the error, where it stopped.
         if (outcome !== "done" || !mayTakeBack(sessionId, pane)) return;
         setTimeout(() => {
-          if (mayTakeBack(sessionId, pane)) get().run(() => get().closeFromLayout(pane.itemId));
+          if (!mayTakeBack(sessionId, pane)) return;
+          // Taken back, so read: both halves of the focused pane's auto-read — the seen mark behind the
+          // sidebar's dot, and the child's "Finished a turn" row in the feed. Its report is already in
+          // the lead's transcript and its finish was on screen for the beat; a row per child of a
+          // fan-out would count moments nobody has to come back for. Only HERE: every pane this spares
+          // — failed, stopped, waiting, or the user's — keeps its row for the person who does. Seen
+          // first, while the pane is still mounted and its transcript held.
+          get().run(() => get().markSessionSeen(sessionId));
+          const row = pane.doneRow;
+          if (row) get().run(() => get().markNotificationsRead([row]));
+          get().run(() => get().closeFromLayout(pane.itemId));
         }, AGENT_PANE_CLOSE_BEAT_MS);
       },
       openSpacePage(spaceId, tab) {
@@ -5358,6 +5373,10 @@ await get().refreshCustomThemes().catch(() => {});
             if (focused?.kind === "session" && focused.refId === n.sessionId) {
               void get().run(() => get().markNotificationsRead([n.id]));
             }
+            // A delegated child's row is only NOTED here. Whether it is read is decided with its pane:
+            // if Realm takes the pane back it is read then, and if the pane stays, so does the row.
+            const child = agentPanes.get(n.sessionId);
+            if (child) child.doneRow = n.id;
           }
           // The OS hop. Every SURFACED row is a candidate and nothing is re-filtered here: the server
           // already dropped the categories switched off, and absorbed a repeat of a still-open
