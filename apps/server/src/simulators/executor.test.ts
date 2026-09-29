@@ -1,0 +1,453 @@
+import { describe, expect, it, vi } from "vitest";
+import type { SimulatorAxElement, SimulatorAxTree } from "@realm/contracts";
+import type { AssistOutcome } from "../laya/assist";
+import { findLabel, fold, runPath, signature, type ExecIO, type ExecOptions } from "./executor";
+import type { ScreenMotion } from "./screen-motion";
+
+/**
+ * The walk against a scripted device on a virtual clock: screens of rows, a scroll offset, taps that
+ * navigate, a read that costs half a second. What must die: a tap on the wrong element, a scroll that
+ * runs past the end of its list, a step that buys or deletes, a tap that changed nothing reported as
+ * done, and a walk that reads the tree three times a step when the picture could have told it once.
+ */
+
+type Row = { label: string; role?: string; to?: string; value?: string; toggles?: boolean; nothing?: boolean };
+type Screen = { app?: string; rows: Row[]; heading?: string; searchBar?: boolean; fields?: { role: string; label: string }[]; alert?: string };
+
+const SCREEN = { width: 400, height: 800 };
+const PAGE = 13;
+const ROW_H = 50;
+const rowY = (i: number) => 120 + ROW_H * i;
+
+class Device {
+  current: string;
+  offset = 0;
+  reads = 0;
+  taps: string[] = [];
+  scrolls: ("up" | "down")[] = [];
+  typed: string[] = [];
+  clock = 0;
+  clockLabel = "9:41";
+  /** Reads before a tap shows: an app answering a moment late. */
+  lag = 0;
+  private pending: (() => void) | null = null;
+  private pendingReads = 0;
+  failReads = 0;
+
+  constructor(public screens: Record<string, Screen>, start: string, o: { offset?: number } = {}) {
+    this.current = start;
+    this.offset = o.offset ?? 0;
+  }
+
+  tree(): SimulatorAxTree {
+    const s = this.screens[this.current]!;
+    const els: SimulatorAxElement[] = [];
+    const el = (path: string, label: string, role: string, frame: SimulatorAxElement["frame"], value = ""): SimulatorAxElement =>
+      ({ path, label, value, role, id: null, enabled: true, frame, depth: path.split(".").length });
+    if (s.heading) els.push(el("0.0", s.heading, "Heading", { x: 20, y: 70, width: 200, height: 40 }));
+    s.rows.slice(this.offset, this.offset + PAGE).forEach((r, i) =>
+      els.push(el(`0.1.${this.offset + i}`, r.label, r.role ?? "Button", { x: 20, y: rowY(i), width: 360, height: 44 }, r.value ?? "")));
+    (s.fields ?? []).forEach((f, i) => els.push(el(`0.3.${i}`, f.label, f.role, { x: 20, y: 60 + i * 5, width: 360, height: 4 })));
+    // Drawn over the last rows, the way iOS 27 Settings floats its search bar over its list.
+    if (s.searchBar) els.push(el("0.2", "", "TextField", { x: 20, y: 690, width: 360, height: 60 }, "Search"));
+    if (s.alert) els.push(el("0.4", s.alert, "Alert", { x: 40, y: 300, width: 320, height: 200 }));
+    els.push(el("0.9", this.clockLabel, "StaticText", { x: 20, y: 10, width: 40, height: 20 }));
+    return { screen: SCREEN, units: "points", app: s.app ?? "Settings", elements: els };
+  }
+
+  io(extra: Partial<ExecIO> = {}): ExecIO {
+    return {
+      read: async () => {
+        this.clock += 500;
+        this.reads++;
+        if (this.failReads > 0) { this.failReads--; throw new Error("the device has not published its accessibility tree yet"); }
+        if (this.pending && ++this.pendingReads > this.lag) { this.pending(); this.pending = null; }
+        return this.tree();
+      },
+      tap: async (element) => {
+        this.taps.push(element.label);
+        const row = this.screens[this.current]!.rows.find((r) => r.label === element.label);
+        const apply = () => {
+          if (!row || row.nothing) return;
+          if (row.toggles) row.value = row.value === "1" ? "0" : "1";
+          if (row.to) { this.current = row.to; this.offset = 0; }
+        };
+        if (this.lag > 0) { this.pending = apply; this.pendingReads = 0; } else apply();
+        return { ok: true, detail: "" };
+      },
+      scroll: async (direction) => {
+        this.scrolls.push(direction);
+        const max = Math.max(0, this.screens[this.current]!.rows.length - PAGE);
+        this.offset = direction === "up" ? Math.min(max, this.offset + 6) : Math.max(0, this.offset - 6);
+        return { ok: true, detail: "" };
+      },
+      type: async (text) => { this.typed.push(text); return { ok: true, detail: "" }; },
+      now: () => this.clock,
+      sleep: async (ms) => { this.clock += ms; },
+      ...extra,
+    };
+  }
+}
+
+const rows = (...labels: string[]): Row[] => labels.map((label) => ({ label }));
+const LONG = Array.from({ length: 30 }, (_, i) => `Row ${i + 1}`);
+
+const settings = (): Record<string, Screen> => ({
+  root: { heading: "Settings", rows: [{ label: "General", to: "general" }, { label: "Accessibility", to: "a11y" }, { label: "Privacy & Security", to: "privacy" }, { label: "Wi-Fi", to: "wifi" }, { label: "Display & Brightness", to: "display" }] },
+  general: { heading: "General", rows: [{ label: "Settings", role: "Button", to: "root" }, { label: "About", to: "about" }, { label: "Keyboard", to: "keyboard" }, { label: "Erase All Content and Settings", to: "erase" }] },
+  about: { heading: "About", rows: [{ label: "General", to: "general" }, { label: "iOS Version", role: "StaticText", nothing: true }] },
+  a11y: { heading: "Accessibility", rows: rows("Display & Text Size") },
+  privacy: { heading: "Privacy & Security", rows: rows("Location Services") },
+  wifi: { heading: "Wi-Fi", rows: rows("Other Network") },
+  display: { heading: "Display & Brightness", rows: rows("Text Size") },
+  keyboard: { heading: "Keyboards", rows: rows("All Keyboards") },
+  erase: { heading: "Erase", rows: rows("Continue") },
+});
+
+const walk = (d: Device, o: ExecOptions, extra: Partial<ExecIO> = {}) => runPath(d.io(extra), o);
+const heading = (t: SimulatorAxTree) => t.elements.find((e) => e.role === "Heading")?.label;
+
+describe("walking a path", () => {
+  it("taps each label in turn and ends on the screen the last one opened", async () => {
+    const d = new Device(settings(), "root");
+    const r = await walk(d, { path: ["General", "About"] });
+    expect(r.ok).toBe(true);
+    expect(d.taps).toEqual(["General", "About"]);
+    expect(r.steps.map((s) => [s.label, s.how, s.matched])).toEqual([["General", "exact", "General"], ["About", "exact", "About"]]);
+    expect(heading(r.final)).toBe("About");
+    expect(r.stop).toBeNull();
+  });
+
+  it("taps what can be tapped over what only reads the same words — the back button, not the heading", async () => {
+    const d = new Device(settings(), "general");
+    // "General" is this screen's heading (StaticText-like) and nothing else here; "Settings" is its
+    // back button. THE MUTANT: rank the heading, which comes first in the tree, as highly.
+    const screens = settings();
+    screens.general!.rows.unshift({ label: "General", role: "Heading", nothing: true });
+    const d2 = new Device(screens, "general");
+    const r = await walk(d2, { path: ["Settings"] });
+    expect(d2.taps).toEqual(["Settings"]);
+    expect(heading(r.final)).toBe("Settings");
+    expect(d.taps).toEqual([]);
+  });
+
+  it("reads a label the way a person writes it: case, '&' for 'and', dashes and spaces", async () => {
+    for (const [asked, tapped] of [
+      ["privacy and security", "Privacy & Security"],
+      ["WiFi", "Wi-Fi"],
+      ["Display", "Display & Brightness"],
+      ["Brightness", "Display & Brightness"],
+    ] as const) {
+      const d = new Device(settings(), "root");
+      const r = await walk(d, { path: [asked] });
+      expect(d.taps, asked).toEqual([tapped]);
+      expect(r.steps[0]!.how, asked).toBe(asked.toLowerCase() === "privacy and security" ? "exact" : "close");
+    }
+  });
+
+  it("does not take a fragment of a word for the word", async () => {
+    // THE MUTANT: match by substring. "Gen" then taps General, and "Row 1" taps "Row 10".
+    const d = new Device(settings(), "root");
+    const r = await walk(d, { path: ["Gen"] });
+    expect(r.stop?.why).toBe("not-found");
+    expect(d.taps).toEqual([]);
+    const long = new Device({ list: { rows: rows("Row 10", "Row 1") } }, "list");
+    await walk(long, { path: ["Row 1"] });
+    expect(long.taps).toEqual(["Row 1"]);
+  });
+});
+
+describe("scrolling to a label", () => {
+  it("scrolls down the list until the label is on the screen, then taps it there", async () => {
+    const d = new Device({ list: { rows: [...rows(...LONG.slice(0, 25)), { label: "Developer", to: "dev" }] }, dev: { heading: "Developer", rows: [] } }, "list");
+    const r = await walk(d, { path: ["Developer"] });
+    expect(r.ok).toBe(true);
+    // 26 rows, 13 a page, 6 a scroll: Developer, the 26th, comes into view on the third.
+    expect(d.scrolls).toEqual(["up", "up", "up"]);
+    expect(r.steps[0]!.scrolls).toBe(3);
+    expect(heading(r.final)).toBe("Developer");
+  });
+
+  it("stops at the end of the list rather than scrolling on — a scroll that shows nothing new is the end", async () => {
+    const d = new Device({ list: { rows: rows(...LONG) } }, "list", { offset: 0 });
+    const r = await walk(d, { path: ["Nowhere"], maxScrolls: 8 });
+    expect(r.stop).toMatchObject({ why: "not-found", label: "Nowhere" });
+    // 30 rows, 13 a page, 6 a scroll: three scrolls reach the end and the fourth shows nothing new;
+    // the first screen of a walk is then scanned back to the top the same way.
+    // THE MUTANT: keep scrolling the whole budget. That is 8 + 16 scrolls of a list that ended.
+    expect(d.scrolls.filter((s) => s === "up")).toHaveLength(4);
+    expect(d.scrolls.filter((s) => s === "down")).toHaveLength(4);
+  });
+
+  it("looks back up the list on the walk's first screen, which somebody may have scrolled", async () => {
+    const d = new Device({ list: { rows: rows(...LONG) }, top: { heading: "Top", rows: [] } }, "list", { offset: 12 });
+    d.screens.list!.rows[1] = { label: "Near the top", to: "top" };
+    const r = await walk(d, { path: ["Near the top"] });
+    expect(d.taps).toEqual(["Near the top"]);
+    expect(d.scrolls).toContain("down");
+    expect(r.steps[0]!.label).toBe("Near the top");
+  });
+
+  it("does not look back up a screen the walk opened itself — that one starts at the top", async () => {
+    const d = new Device({ root: { rows: [{ label: "Go", to: "list" }] }, list: { rows: rows(...LONG) } }, "root");
+    const r = await walk(d, { path: ["Go", "Nowhere"] });
+    expect(r.stop?.why).toBe("not-found");
+    // THE MUTANT: scan every screen both ways. A missing label on the second screen then costs a
+    // full second pass over a list the walk has already seen from its top.
+    expect(d.scrolls.every((s) => s === "up")).toBe(true);
+  });
+
+  it("scrolls a row that a floating bar is drawn over into the clear before tapping it", async () => {
+    const list = [...rows(...LONG.slice(0, 11)), { label: "Screen Time", to: "time" }, ...rows(...LONG.slice(11, 20))];
+    const d = new Device({ root: { rows: list, searchBar: true }, time: { heading: "Screen Time", rows: [] } }, "root");
+    // Row 12 sits under the search bar: its centre is inside the bar's frame, so a tap there types
+    // into search instead. THE MUTANT: match it where it is.
+    const covered = findLabel(d.tree(), "Screen Time");
+    expect(covered).toBeNull();
+    const r = await walk(d, { path: ["Screen Time"] });
+    expect(d.scrolls).toEqual(["up"]);
+    expect(d.taps).toEqual(["Screen Time"]);
+    expect(heading(r.final)).toBe("Screen Time");
+  });
+});
+
+describe("where a walk stops", () => {
+  it("never walks into a step that erases, buys, sends or signs out, and hands it back by name", async () => {
+    const d = new Device(settings(), "root");
+    const r = await walk(d, { path: ["General", "Erase All Content and Settings"] });
+    expect(d.taps).toEqual(["General"]);
+    expect(r.stop).toMatchObject({ why: "sensitive", label: "Erase All Content and Settings" });
+    expect(r.stop!.detail).toContain('"erase"');
+    // The element it would have tapped comes first, so the agent can take it by number if it means to.
+    expect(r.stop!.candidates[0]!.label).toBe("Erase All Content and Settings");
+  });
+
+  it("judges the element as well as the words asked for", async () => {
+    const screens = settings();
+    screens.root!.rows.push({ label: "Buy iCloud+ for $0.99", to: "root" });
+    const d = new Device(screens, "root");
+    // "iCloud" asks for nothing sensitive; the row it matches is a purchase.
+    const r = await walk(d, { path: ["iCloud"] });
+    expect(r.stop?.why).toBe("sensitive");
+    expect(d.taps).toEqual([]);
+  });
+
+  it("stops when a tap changes nothing, rather than going on as if it had worked", async () => {
+    const d = new Device(settings(), "about");
+    const r = await walk(d, { path: ["iOS Version", "Anything"] });
+    expect(r.stop).toMatchObject({ why: "no-change", label: "iOS Version" });
+    expect(d.taps).toEqual(["iOS Version"]);
+  });
+
+  it("does not take the status bar's clock turning over for a tap that worked", async () => {
+    const d = new Device(settings(), "about");
+    const io = d.io();
+    const read = io.read;
+    // THE MUTANT: fold the status bar into the screen's signature. The minute changing mid-step
+    // then reads as the tap having done something.
+    io.read = async () => { d.clockLabel = d.clockLabel === "9:41" ? "9:42" : "9:41"; return read(); };
+    const r = await runPath(io, { path: ["iOS Version"] });
+    expect(r.stop?.why).toBe("no-change");
+  });
+
+  it("names the likeliest elements when a label is not there, and an alert that is in the way", async () => {
+    const screens = settings();
+    screens.root!.alert = "Allow “Maps” to use your location?";
+    const d = new Device(screens, "root");
+    const r = await walk(d, { path: ["Privacy settings"] });
+    expect(r.stop?.why).toBe("not-found");
+    expect(r.stop!.candidates[0]!.label).toBe("Privacy & Security");
+    expect(r.stop!.detail).toContain("an alert is up");
+  });
+
+  it("checks the final screen for the label it was told to expect", async () => {
+    const d = new Device(settings(), "root");
+    expect((await walk(d, { path: ["General", "About"], until: "iOS Version" })).ok).toBe(true);
+    const d2 = new Device(settings(), "root");
+    const r = await walk(d2, { path: ["General", "Keyboard"], until: "iOS Version" });
+    expect(r.stop).toMatchObject({ why: "not-there", label: "iOS Version" });
+  });
+});
+
+describe("Laya, for a label nothing on the screen matches", () => {
+  const pick = (label: string, confidence = 0.97): ((l: string, els: readonly { id: string; label: string }[]) => Promise<AssistOutcome>) =>
+    async (_l, els) => {
+      const element = els.find((e) => e.label === label)!;
+      return { kind: "pick", element: element as never, confidence, ms: 12 };
+    };
+
+  it("is asked only after the screen and the scroll have come up empty, and its pick is tapped", async () => {
+    const d = new Device(settings(), "root");
+    const laya = vi.fn(pick("Wi-Fi"));
+    const r = await walk(d, { path: ["General", "About"] }, { laya: laya as never });
+    expect(laya).not.toHaveBeenCalled();
+    expect(r.ok).toBe(true);
+
+    const d2 = new Device(settings(), "root");
+    const r2 = await walk(d2, { path: ["wireless networks"] }, { laya: vi.fn(pick("Wi-Fi")) as never });
+    expect(d2.taps).toEqual(["Wi-Fi"]);
+    expect(r2.steps[0]).toMatchObject({ how: "laya", matched: "Wi-Fi" });
+  });
+
+  it("taps nothing when Laya hands the choice back", async () => {
+    const d = new Device(settings(), "root");
+    const laya = vi.fn(async (): Promise<AssistOutcome> => ({ kind: "ask-agent", candidates: [], best: null, why: "unsure" }));
+    const r = await walk(d, { path: ["wireless networks"] }, { laya });
+    expect(laya).toHaveBeenCalledOnce();
+    expect(r.stop?.why).toBe("not-found");
+    expect(d.taps).toEqual([]);
+  });
+
+  it("still holds a sensitive step back when Laya is the one who picked it", async () => {
+    const screens = settings();
+    screens.root!.rows.push({ label: "Sign Out", to: "root" });
+    const d = new Device(screens, "root");
+    const r = await walk(d, { path: ["leave my account"] }, { laya: vi.fn(pick("Sign Out")) as never });
+    expect(r.stop?.why).toBe("sensitive");
+    expect(d.taps).toEqual([]);
+  });
+});
+
+describe("typing at the end of a walk", () => {
+  it("types into the field the walk's last tap landed on", async () => {
+    const d = new Device({ root: { rows: [{ label: "Search", role: "SearchField", toggles: true }] } }, "root");
+    const r = await walk(d, { path: ["Search"], text: "Siri" });
+    expect(d.taps).toEqual(["Search"]);
+    expect(d.typed).toEqual(["Siri"]);
+    expect(r.steps.at(-1)).toMatchObject({ how: "typed" });
+  });
+
+  it("taps the only field on the screen first when the walk ended elsewhere", async () => {
+    const d = new Device({ root: { rows: [{ label: "Name", role: "TextField", toggles: true }, { label: "Other", nothing: true }] } }, "root");
+    await walk(d, { path: [], text: "Ada" });
+    expect(d.taps).toEqual(["Name"]);
+    expect(d.typed).toEqual(["Ada"]);
+  });
+
+  it("asks which field when there are several, and never types into a password field", async () => {
+    const two = new Device({ root: { rows: [{ label: "First", role: "TextField" }, { label: "Last", role: "TextField" }] } }, "root");
+    expect((await walk(two, { path: [], text: "x" })).stop?.why).toBe("which-field");
+    expect(two.typed).toEqual([]);
+    const secret = new Device({ root: { rows: [{ label: "Password", role: "SecureTextField" }] } }, "root");
+    expect((await walk(secret, { path: [], text: "hunter2" })).stop?.why).toBe("sensitive");
+    expect(secret.typed).toEqual([]);
+  });
+});
+
+describe("the first screen", () => {
+  it("waits out the device's \"not yet\" on the first read", async () => {
+    const d = new Device(settings(), "root");
+    d.failReads = 2;
+    expect((await walk(d, { path: ["General"] })).ok).toBe(true);
+  });
+
+  it("waits for an app just launched to be the one in front, and for its screen to stop filling in", async () => {
+    const screens: Record<string, Screen> = {
+      home: { app: "", rows: rows("Settings", "Maps") },
+      partial: { app: "Settings", rows: [] },
+      root: settings().root!,
+      general: settings().general!,
+    };
+    const d = new Device(screens, "home");
+    const io = d.io();
+    const read = io.read;
+    const seq = ["home", "home", "partial", "root", "root"];
+    io.read = async () => { if (seq.length) d.current = seq.shift()!; return read(); };
+    const r = await runPath(io, { path: ["General"], launched: "Settings" });
+    // THE MUTANT: take the first read as the app's screen. That is the home screen, whose "Settings"
+    // icon matches nothing the path asked for — or worse, something it did.
+    expect(r.steps[0]?.label).toBe("General");
+    expect(d.taps).toEqual(["General"]);
+  });
+
+  it("says so when the app never comes to the front", async () => {
+    const d = new Device({ home: { app: "", rows: rows("Maps") } }, "home");
+    const r = await walk(d, { path: ["General"], launched: "Settings" });
+    expect(r.stop).toMatchObject({ why: "not-found", label: "Settings" });
+    expect(r.stop!.detail).toContain("did not come to the front");
+    expect(d.taps).toEqual([]);
+  });
+});
+
+describe("settling on the picture instead of the tree", () => {
+  const motion = (script: ("still" | "none" | "moving" | "lost")[] = []) => {
+    let n = 0;
+    const m: ScreenMotion & { settles: number } = {
+      settles: 0,
+      mark: () => n,
+      settle: async () => { m.settles++; n++; return script.shift() ?? "still"; },
+      rest: async () => true,
+      close: vi.fn(),
+    };
+    return m;
+  };
+
+  it("reads the tree once a step when the picture says the screen has come to rest", async () => {
+    const polled = new Device(settings(), "root");
+    await walk(polled, { path: ["General", "About"] });
+    const watched = new Device(settings(), "root");
+    const r = await walk(watched, { path: ["General", "About"] }, { motion: motion() });
+    expect(r.ok).toBe(true);
+    // One read to start and one per step. THE MUTANT: ignore the picture and poll the tree, which is
+    // two reads a step at the very least — and each read is the slow part.
+    expect(watched.reads).toBe(3);
+    expect(polled.reads).toBeGreaterThanOrEqual(5);
+  });
+
+  it("waits past a picture that moved while the tree did not — a highlight on a tap still being answered", async () => {
+    const d = new Device(settings(), "root");
+    d.lag = 1;
+    const m = motion(["still", "still"]);
+    const r = await walk(d, { path: ["General"] }, { motion: m });
+    expect(r.ok).toBe(true);
+    expect(m.settles).toBe(2);
+    expect(heading(r.final)).toBe("General");
+  });
+
+  it("calls a tap that moved nothing on the screen a tap that did nothing, without reading the tree", async () => {
+    const d = new Device(settings(), "about");
+    const r = await walk(d, { path: ["iOS Version"] }, { motion: motion(["none"]) });
+    expect(r.stop?.why).toBe("no-change");
+    expect(d.reads).toBe(1);
+  });
+
+  it("takes a scroll that bounced back to the same screen for the end of the list", async () => {
+    const d = new Device({ list: { rows: rows(...LONG.slice(0, 10)) } }, "list");
+    const r = await walk(d, { path: ["Nowhere"] }, { motion: motion() });
+    expect(r.stop?.why).toBe("not-found");
+    expect(d.scrolls).toEqual(["up", "down"]);
+  });
+
+  it("falls back to reading the tree when the stream goes away mid-walk", async () => {
+    const d = new Device(settings(), "root");
+    const r = await walk(d, { path: ["General", "About"] }, { motion: motion(["lost", "lost"]) });
+    expect(r.ok).toBe(true);
+    expect(heading(r.final)).toBe("About");
+  });
+});
+
+describe("what the observer hears", () => {
+  it("each tap before it is sent, with the element chosen, and each screen once it has settled", async () => {
+    const d = new Device(settings(), "root");
+    const order: string[] = [];
+    const observe = vi.fn((s: { label: string; chosen: SimulatorAxElement; by: string }) => { order.push(`observe:${s.chosen.label}:${s.by}:${d.taps.length}`); });
+    const settled = vi.fn((t: SimulatorAxTree) => { order.push(`settled:${heading(t)}`); });
+    await walk(d, { path: ["General", "About"] }, { observe, settled });
+    expect(order).toEqual(["observe:General:agent:0", "settled:General", "observe:About:agent:1", "settled:About"]);
+  });
+});
+
+describe("fold and signature", () => {
+  it("folds what a person would not tell apart", () => {
+    expect(fold("Privacy & Security")).toBe("privacy and security");
+    expect(fold("Wi‑Fi")).toBe("wi fi");
+    expect(fold("  Screen  Time ")).toBe("screen time");
+  });
+
+  it("leaves the status bar out of what counts as the screen", () => {
+    const d = new Device(settings(), "root");
+    const a = signature(d.tree());
+    d.clockLabel = "9:42";
+    expect(signature(d.tree())).toBe(a);
+  });
+});

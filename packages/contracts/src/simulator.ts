@@ -256,7 +256,9 @@ export type SimulatorEvent = z.infer<typeof SimulatorEventSchema>;
 export const SimulatorActSchema = z.union([
   z.object({ kind: z.literal("open-url"), url: z.string().min(1).max(4096) }),
   z.object({ kind: z.literal("install"), path: z.string().min(1) }),
-  z.object({ kind: z.literal("launch"), bundleId: z.string().min(1).max(256) }),
+  /** `fresh` closes a running copy first, so the app opens on its first screen rather than wherever
+   *  it was left — what a walk that starts from the top of an app needs. */
+  z.object({ kind: z.literal("launch"), bundleId: z.string().min(1).max(256), fresh: z.boolean().optional() }),
   z.object({ kind: z.literal("add-media"), paths: z.array(z.string().min(1)).min(1).max(64) }),
   z.object({ kind: z.literal("paste"), text: z.string().max(100_000) }),
   z.object({ kind: z.literal("copy") }),

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseDevices, runtimeLabel, simctlBin, parseApps } from "./simctl";
+import { chmodSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
+import { parseDevices, runtimeLabel, simctl, simctlBin, parseApps } from "./simctl";
 
 /** Transcribed from a real `xcrun simctl list devices available --json` on a Mac with Xcode 27,
  *  trimmed to the fields the parser reads plus one it must ignore. A hand-written shape would be a
@@ -135,5 +138,23 @@ describe("parseApps", () => {
   it("is empty rather than wrong for anything that is not a dump", () => {
     expect(parseApps("")).toEqual([]);
     expect(parseApps("xcrun: error: unable to find utility")).toEqual([]);
+  });
+});
+
+describe("launching an app, as simctl is actually run", () => {
+  it("closes a running copy first when the launch is fresh, and only then", async () => {
+    const dir = tempDir("realm-simctl-");
+    const log = join(dir, "calls.log"), bin = join(dir, "xcrun");
+    writeFileSync(bin, `#!/bin/sh\necho "$@" >> "${log}"\nexit 0\n`);
+    chmodSync(bin, 0o755);
+    const cli = simctl({ REALM_XCRUN_BIN: bin });
+    expect(await cli.launch("UDID-1", "com.apple.Preferences", true)).toEqual({ ok: true, detail: "" });
+    await cli.launch("UDID-1", "com.apple.Preferences");
+    // THE MUTANT: always terminate. A plain simulator_launch would then throw away the app's state
+    // every time an agent brought it to the front.
+    expect(readFileSync(log, "utf8").trim().split("\n")).toEqual([
+      "simctl launch --terminate-running-process UDID-1 com.apple.Preferences",
+      "simctl launch UDID-1 com.apple.Preferences",
+    ]);
   });
 });

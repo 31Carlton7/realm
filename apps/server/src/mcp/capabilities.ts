@@ -83,7 +83,11 @@ const BLOCKS: Record<string, string> = {
     "the elements by the labels the app gives them. `simulator_tap`, `simulator_double_tap`, `simulator_long_press`, " +
     "`simulator_swipe`, `simulator_type` and `simulator_press` use it: act on an element by the `[number]` your " +
     "latest `simulator_elements` gave it, say in `intent` what each step is for, and read the elements again " +
-    "afterwards to see what the step did. Use them whenever the work is to run, show or check an app on a device, and build the " +
+    "afterwards to see what the step did. To get somewhere in an app, use `simulator_do` instead: give the labels to " +
+    "tap in order, such as `[\"General\", \"About\"]`, and it walks them on this Mac in one call — scrolling to each, " +
+    "waiting for each screen — then hands back the screen it ended on, numbered. It stops rather than guesses, and " +
+    "never buys, deletes, sends or signs in; take those steps yourself by `[number]`. " +
+    "Use them whenever the work is to run, show or check an app on a device, and build the " +
     "app with your own tools as usual; a web page is checked in the browser pane, without booting anything. Do not " +
     "start a serve-sim stream yourself, do not open one in a browser pane, and do not drive a device through " +
     "serve-sim's CLI or `adb shell input`: the pane already streams the device, and these tools are how you touch " +

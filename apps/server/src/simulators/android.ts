@@ -254,7 +254,8 @@ export type Android = {
   key(serial: string, keycode: string): Promise<{ ok: boolean; detail: string }>;
   text(serial: string, s: string): Promise<{ ok: boolean; detail: string }>;
   install(serial: string, apk: string): Promise<{ ok: boolean; detail: string }>;
-  launch(serial: string, pkg: string): Promise<{ ok: boolean; detail: string }>;
+  /** `fresh` stops a running copy first, so the app opens on its first screen. */
+  launch(serial: string, pkg: string, fresh?: boolean): Promise<{ ok: boolean; detail: string }>;
   openUrl(serial: string, url: string): Promise<{ ok: boolean; detail: string }>;
   stop(serial: string): Promise<{ ok: boolean; detail: string }>;
 };
@@ -427,7 +428,11 @@ export function android(env: NodeJS.ProcessEnv = process.env): Android {
       return { ok, detail: ok ? "" : (r.stderr || r.stdout).trim() };
     },
 
-    async launch(serial, pkg) {
+    async launch(serial, pkg, fresh) {
+      if (fresh) {
+        const stopped = await shell(serial, ["am", "force-stop", pkg], 20000);
+        if (stopped.code !== 0) return { ok: false, detail: (stopped.stderr || stopped.stdout).trim() || "the running copy would not stop" };
+      }
       // `monkey` finds the launcher activity itself; `am start` needs the fully qualified component,
       // which nothing here knows without another dumpsys.
       const r = await shell(serial, ["monkey", "-p", pkg, "-c", "android.intent.category.LAUNCHER", "1"], 20000);

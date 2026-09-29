@@ -43,7 +43,7 @@ function fakeAndroid(over: Partial<Android> = {}) {
     key: async (_s, k) => { calls.push(`key:${k}`); return { ok: true, detail: "" }; },
     text: async (_s, t) => { calls.push(`text:${t}`); return { ok: true, detail: "" }; },
     install: async (_s, p) => { calls.push(`install:${p}`); return { ok: true, detail: "" }; },
-    launch: async (_s, p) => { calls.push(`launch:${p}`); return { ok: true, detail: "" }; },
+    launch: async (_s, p, fresh) => { calls.push(`launch:${p}${fresh ? ":fresh" : ""}`); return { ok: true, detail: "" }; },
     openUrl: async (_s, u) => { calls.push(`openUrl:${u}`); return { ok: true, detail: "" }; },
     stop: async () => ({ ok: true, detail: "" }),
     ...over,
@@ -135,8 +135,11 @@ describe("an Android row", () => {
     await new Promise((r) => setTimeout(r, 200));
     await svc.act(simulatorId, { kind: "open-url", url: "https://x.test" });
     await svc.act(simulatorId, { kind: "launch", bundleId: "com.x" });
+    await svc.act(simulatorId, { kind: "launch", bundleId: "com.x", fresh: true });
     await svc.act(simulatorId, { kind: "paste", text: "hi" });
-    expect(calls).toEqual(expect.arrayContaining(["openUrl:https://x.test", "launch:com.x", "text:hi"]));
+    expect(calls).toEqual(expect.arrayContaining(["openUrl:https://x.test", "launch:com.x", "launch:com.x:fresh", "text:hi"]));
+    // No picture to watch on Android: its frames are re-encoded here, and a tree read costs seconds.
+    expect(svc.motion(simulatorId)).toBeNull();
   });
 
   it("leaves the device up when the pane stops — the iOS promise, kept here too", async () => {
