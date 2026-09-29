@@ -473,6 +473,13 @@ describe("the sensitive rule", () => {
     expect(sensitiveRule("tap 'Clear search'").value).toBe(false);
   });
 
+  it("reads formatting a disk as deleting it, and a Format menu as neither", () => {
+    expect(sensitiveRule("format the disk as APFS").value).toBe(true);
+    expect(sensitiveRule("tap 'Format Drive'").value).toBe(true);
+    expect(sensitiveRule("click 'Format' in TextEdit's menu bar").value).toBe(false);
+    expect(sensitiveRule("click 'Format' then 'Font'").value).toBe(false);
+  });
+
   it("marks a secure text field as a secret", () => {
     // A field macOS marks secure is a secret whatever its label says.
     expect(sensitiveRule(`act on ${plainRole("AXSecureTextField")} 'Code'`)).toEqual({ value: true, matched: "secure text field" });
