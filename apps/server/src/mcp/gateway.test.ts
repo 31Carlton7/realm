@@ -687,6 +687,18 @@ describe("in-process providers (Plan 11 W3)", () => {
     expect(app.gateway.realmProvidersFor(app.sessionId, app.spaceId)).toEqual(["realm-docs"]);
   });
 
+  it("providerOffer carries a provider's own answer and words to its settings row", async () => {
+    const app = await setupApp();
+    let installed: boolean | null = null;
+    app.gateway.registerProvider({ ...fakeProvider("realm-simulator"), offered: () => installed, needs: "Xcode or Android Studio" });
+    app.gateway.registerProvider(fakeProvider("realm-docs"));
+    expect(app.gateway.providerOffer("realm-simulator")).toEqual({ offered: null, needs: "Xcode or Android Studio" });
+    installed = false;
+    expect(app.gateway.providerOffer("realm-simulator")).toEqual({ offered: false, needs: "Xcode or Android Studio" });
+    // A provider with nothing to ask always has something to offer, and needs nothing.
+    expect(app.gateway.providerOffer("realm-docs")).toEqual({ offered: true, needs: null });
+  });
+
   it("realmProvidersFor honors a delegated session's toolset shape, both only-mode and exclude-mode", async () => {
     const shapes = new Map<string, import("./gateway").SessionToolset>();
     const app = await setupApp({ sessionToolset: (id) => shapes.get(id) ?? null });

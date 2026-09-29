@@ -45,14 +45,18 @@ export type RealmToolProvider = {
    * Whether this provider has anything to offer on this Mac right now, for a provider whose tools
    * depend on something outside Realm — a toolchain that may not be installed. `true` or `false` once
    * it knows, `null` while its probe has not answered. Not knowing is not a yes: `null` keeps the
-   * provider out of the preamble exactly as `false` does. Omitted means always yes, which is every
-   * provider whose tools act on a pane or a folder Realm owns.
+   * provider out of the preamble exactly as `false` does, and the settings row says which of the two
+   * it is. Omitted means always yes, which is every provider whose tools act on a pane or a folder
+   * Realm owns.
    *
    * Synchronous because its main reader, `realmProvidersFor`, composes a session's start inside the
    * synchronous `ensureLive`. A provider that has to ask a CLI answers from its last probe and keeps
    * that probe fresh itself; its own `tools()` is still where the authoritative, awaited answer lives.
    */
   offered?(): boolean | null;
+  /** What this Mac lacks when `offered` says no, in the provider's own words — "Xcode or Android
+   *  Studio". Its settings row shows this where the switch would be. */
+  needs?: string;
 };
 
 /** One registered Realm session: its bearer token, the space it belongs to, and — created lazily on the
@@ -182,6 +186,13 @@ export class McpGateway {
     return [...this.providers.values()]
       .filter((p) => providerVisible(p.name, toolset) && this.d.mcp.providerEnabled(spaceId, p.name) && (p.offered === undefined || p.offered() === true))
       .map((p) => p.name);
+  }
+
+  /** One provider's own answer, for its settings row (`mcp.providers.list`): whether it has anything
+   *  to offer on this Mac, and what it needs when it does not. A provider with no `offered` always has. */
+  providerOffer(name: string): { offered: boolean | null; needs: string | null } {
+    const p = this.providers.get(name);
+    return { offered: p?.offered ? p.offered() : true, needs: p?.needs ?? null };
   }
 
   /** Binds 127.0.0.1:0 (OS-assigned — see the plan's port-0 amendment) and returns the bound port. */

@@ -134,6 +134,7 @@ export function createSimulatorAgentProvider(d: SimulatorAgentToolsDeps): Simula
 
   return {
     name: SIMULATOR_PROVIDER_NAME,
+    needs: "Xcode or Android Studio",
     offered() {
       void available();
       return known;

@@ -277,7 +277,7 @@ export type FakeData = {
   mcpCalls?: McpCall[];
   /** Realm-native providers `mcp.providers.list` answers with (W4). Flat like `mcpServers`: these
    *  fakes exercise one space at a time. */
-  mcpProviders?: { name: string; enabled: boolean }[];
+  mcpProviders?: { name: string; enabled: boolean; offered: boolean | null; needs: string | null }[];
   /** Profile memory docs by profile id (W4's Library page). */
   profileMemoryDocs?: Record<string, string>;
   /** Per-space disable override for the inherited profile doc — mirrors the server's polarity
@@ -468,7 +468,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     mcpToolsResult: overrides.mcpToolsResult ?? {},
     mcpToolsError: overrides.mcpToolsError ?? {},
     mcpCalls: overrides.mcpCalls ?? [],
-    mcpProviders: overrides.mcpProviders ?? [{ name: "realm-browser", enabled: true }],
+    mcpProviders: overrides.mcpProviders ?? [{ name: "realm-browser", enabled: true, offered: true, needs: null }],
     profileMemoryDocs: overrides.profileMemoryDocs ?? {},
     profileDocDisabled: overrides.profileDocDisabled ?? {},
     documentWorkspaces: overrides.documentWorkspaces ?? {},

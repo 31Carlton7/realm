@@ -117,6 +117,10 @@ export function McpSection({ spaceId }: { spaceId: string }) {
  * without a line of work — which is also why the hint below does not say "on by default" flatly any
  * more. Three of them are not: `realm-computer`, `realm-vm` and `realm-app` start off, and the hint
  * names the property they share rather than listing them, so it stays true as the list grows.
+ *
+ * The switch is what the space ASKED for. A provider that needs something this Mac may not have —
+ * the simulator tools, without Xcode or Android Studio — also reports what HAPPENED (`offered`), and
+ * where the two differ the row shows that instead of a switch claiming otherwise.
  */
 function RealmProviders({ spaceId }: { spaceId: string }) {
   const providers = useApp((s) => s.mcpProviders);
@@ -135,11 +139,24 @@ function RealmProviders({ spaceId }: { spaceId: string }) {
               <span className="env-kind">built-in</span>
             </div>
             <div className="env-actions">
-              <label className="mcp-enable">
-                <input type="checkbox" role="switch" className="switch" aria-label={`Provider ${p.name} in this space`} checked={p.enabled}
-                  onChange={(e) => run(() => setMcpProviderEnabled(spaceId, p.name, e.target.checked))} />
-                Enabled
-              </label>
+              {p.offered === true ? (
+                <label className="mcp-enable">
+                  <input type="checkbox" role="switch" className="switch" aria-label={`Provider ${p.name} in this space`} checked={p.enabled}
+                    onChange={(e) => run(() => setMcpProviderEnabled(spaceId, p.name, e.target.checked))} />
+                  Enabled
+                </label>
+              ) : (
+                /* What actually happened, where the switch would be. A switch here reads "Enabled" over
+                   tools that do nothing on this Mac, so the row says why instead — and tells the two
+                   reasons apart, because one resolves itself in a moment and the other waits on an
+                   install. The space's choice is kept either way; the switch comes back as it was.
+                   Dim text rather than a warning pill: on a Mac that will never have Xcode this row
+                   says it on every visit, and that is a fact about the Mac, not a fault in Realm. */
+                <span className="mcp-enable" data-state={p.offered === null ? "checking" : "missing"}
+                  title={p.offered === false ? `This space's switch is kept, and comes back as it was once ${p.needs ?? "what it needs"} is on this Mac.` : undefined}>
+                  {p.offered === null ? "Checking…" : p.needs ? `Needs ${p.needs}` : "Not available on this Mac"}
+                </span>
+              )}
             </div>
           </li>
         ))}

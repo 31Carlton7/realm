@@ -200,6 +200,7 @@ describe("offering the tools", () => {
     // row would say "Needs Xcode" on a Mac that has it). THE MUTANT: fold `null` into either.
     const pending = setup({ simctl: { available: () => new Promise<boolean>(() => {}) } });
     expect(pending.provider.offered?.()).toBe(null);
+    expect(pending.provider.needs).toBe("Xcode or Android Studio");
   });
 
   it("asks nothing at all when it was given no probe, and offers nothing", async () => {
@@ -621,6 +622,21 @@ describe("through the real gateway", () => {
     const { client } = await boot("missing");
     expect((await client.listTools()).tools.some((t) => t.name.startsWith(`${SIMULATOR_PROVIDER_NAME}__`))).toBe(false);
     await client.close();
+  });
+
+  it("tells the settings row what the probe said, beside what the space asked for", async () => {
+    const provider = async (toolchain: "installed" | "missing" | "unprobed") => {
+      const { client, spaceId } = await boot(toolchain);
+      await client.close();
+      const { result } = await rpcCall(app!.port, "mcp.providers.list", { spaceId }) as { result: { providers: { name: string }[] } };
+      await app!.close(); app = null;
+      return result.providers.find((p) => p.name === SIMULATOR_PROVIDER_NAME);
+    };
+    // The space's switch is on in all three; only the Mac differs.
+    expect(await provider("installed")).toEqual({ name: SIMULATOR_PROVIDER_NAME, enabled: true, offered: true, needs: "Xcode or Android Studio" });
+    expect(await provider("missing")).toEqual({ name: SIMULATOR_PROVIDER_NAME, enabled: true, offered: false, needs: "Xcode or Android Studio" });
+    // No probe: not known — neither the yes a bare switch would imply nor a no nobody measured.
+    expect(await provider("unprobed")).toEqual({ name: SIMULATOR_PROVIDER_NAME, enabled: true, offered: null, needs: "Xcode or Android Studio" });
   });
 });
 

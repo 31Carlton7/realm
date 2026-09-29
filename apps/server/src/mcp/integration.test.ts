@@ -187,21 +187,28 @@ describe("mcp over rpc", () => {
        (two tools that appear only on a session already pursuing a goal, and the most either can do is
        end it); `realm-schedule` because it only writes a row this space's own page can see. */
     const before = (await c.call("mcp.providers.list", { spaceId: work.id })).result.providers;
+    /* `offered`/`needs` ride every row: what the provider can do on this Mac, beside what the space
+       asked for. Every provider acting inside Realm is always offered. realm-simulator depends on a
+       toolchain, and this app was built with no probe — the suite's case — so its answer is not known,
+       which is its own state rather than a yes or a no. */
+    const row = (name: string, enabled: boolean) => (name === "realm-simulator"
+      ? { name, enabled, offered: null, needs: "Xcode or Android Studio" }
+      : { name, enabled, offered: true, needs: null });
     expect(before).toEqual([
-      { name: "realm-browser", enabled: true }, { name: "realm-agent", enabled: true },
-      { name: "realm-computer", enabled: false }, { name: "realm-terminal", enabled: true },
-      { name: "realm-app", enabled: false }, { name: "realm-docs", enabled: true },
-      { name: "realm-vm", enabled: false }, { name: "realm-simulator", enabled: true },
-      { name: "goal", enabled: true }, { name: "realm-schedule", enabled: true },
+      row("realm-browser", true), row("realm-agent", true),
+      row("realm-computer", false), row("realm-terminal", true),
+      row("realm-app", false), row("realm-docs", true),
+      row("realm-vm", false), row("realm-simulator", true),
+      row("goal", true), row("realm-schedule", true),
     ]);
     await c.call("mcp.setProviderEnabled", { spaceId: work.id, name: "realm-browser", enabled: false });
     // The disable is per-space: Work reads OFF, School still reads ON.
     expect((await c.call("mcp.providers.list", { spaceId: work.id })).result.providers).toEqual([
-      { name: "realm-browser", enabled: false }, { name: "realm-agent", enabled: true },
-      { name: "realm-computer", enabled: false }, { name: "realm-terminal", enabled: true },
-      { name: "realm-app", enabled: false }, { name: "realm-docs", enabled: true },
-      { name: "realm-vm", enabled: false }, { name: "realm-simulator", enabled: true },
-      { name: "goal", enabled: true }, { name: "realm-schedule", enabled: true },
+      row("realm-browser", false), row("realm-agent", true),
+      row("realm-computer", false), row("realm-terminal", true),
+      row("realm-app", false), row("realm-docs", true),
+      row("realm-vm", false), row("realm-simulator", true),
+      row("goal", true), row("realm-schedule", true),
     ]);
     /* And the opt-in provider turns ON through the same switch, for this space alone.
        By NAME rather than by index: these lines each ask about one provider's switch, and an index
@@ -211,11 +218,11 @@ describe("mcp over rpc", () => {
     const providerIn = async (spaceId: string, name: string) =>
       (await c.call("mcp.providers.list", { spaceId })).result.providers.find((p: { name: string }) => p.name === name);
     await c.call("mcp.setProviderEnabled", { spaceId: work.id, name: "realm-computer", enabled: true });
-    expect(await providerIn(work.id, "realm-computer")).toEqual({ name: "realm-computer", enabled: true });
-    expect(await providerIn(school.id, "realm-computer")).toEqual({ name: "realm-computer", enabled: false });
-    expect(await providerIn(school.id, "realm-browser")).toEqual({ name: "realm-browser", enabled: true });
+    expect(await providerIn(work.id, "realm-computer")).toEqual(row("realm-computer", true));
+    expect(await providerIn(school.id, "realm-computer")).toEqual(row("realm-computer", false));
+    expect(await providerIn(school.id, "realm-browser")).toEqual(row("realm-browser", true));
     // …and realm-vm is the same shape of switch, off in both until one of them asks.
-    expect(await providerIn(work.id, "realm-vm")).toEqual({ name: "realm-vm", enabled: false });
+    expect(await providerIn(work.id, "realm-vm")).toEqual(row("realm-vm", false));
     // Same ghost-space refusal as every other per-space mcp method.
     expect((await c.call("mcp.providers.list", { spaceId: "01ARZ3NDEKTSV4RRFFQ69G5FAZ" })).error?.code).toBe("NOT_FOUND");
     c.close();
