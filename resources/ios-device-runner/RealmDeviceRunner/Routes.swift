@@ -97,12 +97,13 @@ final class Routes {
     /// Dictate key or button, whatever was asked for; and, when the server names the element it
     /// meant, when that element is not what the point is on any more.
     private func underFinger(_ at: CGPoint, expect: String?) async throws {
-        let chain = try await Screen.chain(at: at)
-        if chain.contains(where: Screen.isDictation) {
+        let here = try await Screen.at(at)
+        if here.contains(where: Screen.isDictation) {
             throw Refused("the Dictate key is at that point now, and Realm never turns on the microphone — nothing was sent")
         }
-        if let expect, !chain.contains(where: { $0.label == expect || $0.title == expect }) {
-            throw Refused("the screen changed under the tap: \"\(expect)\" is not at that point any more — nothing was sent")
+        if let expect, !here.contains(where: { $0.label == expect || $0.title == expect }) {
+            let there = here.filter { !$0.label.isEmpty || !$0.identifier.isEmpty }.prefix(2).map(Screen.describe).joined(separator: " in ")
+            throw Refused("the screen changed under the tap: \"\(expect)\" is not at that point any more\(there.isEmpty ? "" : " — there now: \(there)") — nothing was sent")
         }
     }
 
