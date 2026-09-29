@@ -1,4 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { createApp, defaultAdapters, type App } from "./app";
 import { openDatabase } from "./db/database";
@@ -22,6 +24,37 @@ describe("defaultAdapters", () => {
       // A failed assertion would otherwise leave the flag set for every later test in this process.
       if (before === undefined) delete process.env.REALM_ENABLE_FAKE_AGENT;
       else process.env.REALM_ENABLE_FAKE_AGENT = before;
+    }
+  });
+
+  /* The site's capture harness brings its own turn in a file. Its trigger has to beat the built-in
+     fixture that answers the same word — otherwise the photographed transcript is the fixture's. */
+  it("plays turns brought in REALM_FAKE_AGENT_SCRIPT ahead of its own", async () => {
+    const saved = { enable: process.env.REALM_ENABLE_FAKE_AGENT, script: process.env.REALM_FAKE_AGENT_SCRIPT };
+    const file = join(tempDir("realm-fake-script-"), "turns.json");
+    writeFileSync(file, JSON.stringify([{ on: "plan", emit: [{ kind: "text", text: "Brought from the file." }] }]));
+    try {
+      process.env.REALM_ENABLE_FAKE_AGENT = "1";
+      process.env.REALM_FAKE_AGENT_SCRIPT = file;
+      const handle = defaultAdapters().fake!.start({ cwd: "/tmp", mcpServers: [] });
+      const texts: string[] = [];
+      let ran = false;
+      const collect = (async () => {
+        for await (const e of handle.events) {
+          if (e.type === "assistant_text") texts.push(e.payload.text);
+          if (e.type === "status" && e.payload.status === "running") ran = true;
+          if (e.type === "status" && e.payload.status === "idle" && ran) break;
+        }
+      })();
+      void handle.send({ text: "make a plan", attachments: [] });
+      await collect;
+      expect(texts).toEqual(["Brought from the file."]);
+      await handle.dispose();
+    } finally {
+      for (const [key, value] of [["REALM_ENABLE_FAKE_AGENT", saved.enable], ["REALM_FAKE_AGENT_SCRIPT", saved.script]] as const) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
     }
   });
 
