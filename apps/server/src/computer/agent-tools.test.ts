@@ -3,6 +3,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { COMPUTER_PROVIDER_NAME } from "@realm/contracts";
 import { createComputerAgentProvider } from "./agent-tools";
 import type { GateOptions, GateResult } from "../browsers/permissions";
+import type { ActObservation, ActObserver } from "../mcp/act-observer";
 
 /**
  * The provider's own decisions, over a scripted bridge and gate. What must die here: the per-app
@@ -23,6 +24,7 @@ function setup(over: {
   gate?: GateResult;
   enabled?: boolean;
   allowed?: string[];
+  observe?: ActObserver;
 } = {}) {
   const allowed = new Set(over.allowed ?? []);
   const added: { spaceId: string; bundleId: string }[] = [];
@@ -52,6 +54,7 @@ function setup(over: {
       allows: (spaceId: string, bundleId: string) => allowed.has(`${spaceId} ${bundleId}`),
       add: (spaceId: string, bundleId: string) => { added.push({ spaceId, bundleId }); },
     },
+    ...(over.observe ? { observe: over.observe } : {}),
   });
   return { provider, gates, ops, added };
 }
@@ -289,5 +292,98 @@ describe("computer_act refusals become advice", () => {
     const r = await snapshotThenAct(s, { kind: "click", index: 0 });
     expect(r.isError).toBe(false);
     expect(text(r)).toBe('clicked "Save" in TextEdit');
+  });
+});
+
+describe("the step observer (the Laya shadow)", () => {
+  const element = (index: number, role: string, name: string, value = "") =>
+    ({ index, role, subrole: "", name, value, x: 0, y: 0, w: 1, h: 1, actions: [], enabled: true, focused: false, depth: 1 });
+  const TREE = { ...SNAPSHOT, elements: [element(0, "AXButton", "Save"), element(1, "AXTextField", "Title", "Draft")] };
+
+  /** Every event in the order it happened, so "after the gate, before the act" is an assertion: the
+   *  observer and the act each note how many gates had run by then. */
+  function watched(over: Parameters<typeof setup>[0] = {}) {
+    const order: string[] = [];
+    const seen: ActObservation[] = [];
+    const s: ReturnType<typeof setup> = setup({
+      ops: {
+        computerSnapshot: TREE,
+        computerAct: () => { order.push(`act after ${s.gates.length} gate`); return { ok: true, detail: 'clicked "Save" in TextEdit' }; },
+      },
+      observe: (o) => { order.push(`observe after ${s.gates.length} gate`); seen.push(o); },
+      ...over,
+    });
+    return { ...s, order, seen };
+  }
+
+  it("hears each act after the gate and before the act, with its intent and the element it addressed", async () => {
+    const w = watched();
+    await w.provider.call(ctx, "computer_snapshot", { bundleId: "com.apple.TextEdit" });
+    await w.provider.call(ctx, "computer_act", { snapshotId: SNAPSHOT.snapshotId, action: { kind: "click", index: 0 }, intent: "save the document" });
+    expect(w.order).toEqual(["observe after 1 gate", "act after 1 gate"]);
+    expect(w.seen[0]).toEqual({
+      surface: "computer", spaceId: "sp1", sessionId: "s1", tool: "computer_act", intent: "save the document",
+      elements: [{ id: "0", role: "AXButton", label: "Save" }, { id: "1", role: "AXTextField", label: "Title", value: "Draft" }],
+      chosen: { element: { id: "0", role: "AXButton", label: "Save" } },
+    });
+  });
+
+  it("reports a click by coordinates as a point, and a key sent to the focused app as no element", async () => {
+    const w = watched();
+    await w.provider.call(ctx, "computer_snapshot", {});
+    await w.provider.call(ctx, "computer_act", { snapshotId: SNAPSHOT.snapshotId, action: { kind: "click", x: 40, y: 60 } });
+    await w.provider.call(ctx, "computer_act", { snapshotId: SNAPSHOT.snapshotId, action: { kind: "key", key: "cmd+s" } });
+    expect(w.seen.map((o) => o.chosen)).toEqual([{ point: { x: 40, y: 60 } }, null]);
+    // No intent given is an empty one, not a refusal: the field is optional.
+    expect(w.seen.map((o) => o.intent)).toEqual(["", ""]);
+  });
+
+  it("hears nothing about an act the gate refused", async () => {
+    const w = watched({ gate: { allowed: false, reason: "the user denied this action" } });
+    await w.provider.call(ctx, "computer_snapshot", {});
+    await w.provider.call(ctx, "computer_act", { snapshotId: SNAPSHOT.snapshotId, action: { kind: "click", index: 0 }, intent: "save" });
+    expect(w.seen).toEqual([]);
+  });
+
+  it("hands over no elements for an act on a snapshot that is no longer the app's latest", async () => {
+    // The helper refuses such an act as stale; the tree kept here is the latest one, and it must not
+    // be passed off as the one this act chose from.
+    let n = 0;
+    const seen: ActObservation[] = [];
+    const s = setup({
+      ops: { computerSnapshot: () => ({ ...TREE, snapshotId: `ax_${++n}` }), computerAct: { ok: true, detail: "ok" } },
+      observe: (o) => { seen.push(o); },
+    });
+    await s.provider.call(ctx, "computer_snapshot", {});
+    await s.provider.call(ctx, "computer_snapshot", {});
+    await s.provider.call(ctx, "computer_act", { snapshotId: "ax_1", action: { kind: "click", index: 0 } });
+    await s.provider.call(ctx, "computer_act", { snapshotId: "ax_2", action: { kind: "click", index: 0 } });
+    expect(seen.map((o) => [o.elements.length, o.chosen])).toEqual([[0, null], [2, { element: { id: "0", role: "AXButton", label: "Save" } }]]);
+  });
+
+  it("changes nothing about the act — not its card, its result, or whether it runs — even when the observer throws", async () => {
+    const plain = setup({ ops: { computerSnapshot: TREE, computerAct: { ok: true, detail: 'clicked "Save" in TextEdit' } } });
+    const broken = setup({
+      ops: { computerSnapshot: TREE, computerAct: { ok: true, detail: 'clicked "Save" in TextEdit' } },
+      observe: () => { throw new Error("the observer broke"); },
+    });
+    const args = { snapshotId: SNAPSHOT.snapshotId, action: { kind: "type", index: 1, text: "hello" }, intent: "name the draft" };
+    const results = [];
+    for (const s of [plain, broken]) {
+      await s.provider.call(ctx, "computer_snapshot", {});
+      results.push(await s.provider.call(ctx, "computer_act", args));
+    }
+    expect(results[1]).toEqual(results[0]);
+    expect(broken.gates.map((g) => g.title)).toEqual(plain.gates.map((g) => g.title));
+    expect(broken.ops.filter((o) => o.op === "computerAct")).toEqual(plain.ops.filter((o) => o.op === "computerAct"));
+  });
+
+  it("never calls back with the screen after the act — reading it would replace the agent's snapshot", async () => {
+    let calledBack = false;
+    const w = watched({ observe: () => () => { calledBack = true; } });
+    await w.provider.call(ctx, "computer_snapshot", {});
+    await w.provider.call(ctx, "computer_act", { snapshotId: SNAPSHOT.snapshotId, action: { kind: "click", index: 0 } });
+    expect(calledBack).toBe(false);
+    expect(w.ops.filter((o) => o.op === "computerSnapshot")).toHaveLength(1);
   });
 });

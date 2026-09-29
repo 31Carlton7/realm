@@ -20,7 +20,8 @@ export type LayaTiming = {
   healthMisses: number;
   /** The wait before each restart of a process that died. Past the last, the state is `failed`. */
   backoffMs: number[];
-  /** One question. Off every act's path, so this bounds a queue rather than anyone's wait. */
+  /** One question, or one `/health`. Off every act's path, so this bounds a queue rather than anyone's
+   *  wait. */
   requestTimeoutMs: number;
   /** The warm-up. The first question after a load took 1.2 s here, against a 63 ms p50 after it. */
   warmupTimeoutMs: number;
@@ -200,7 +201,7 @@ export class LayaService {
     const deadline = this.now() + this.t.startupMs;
     while (this.run === run) {
       let health: LayaHealth | null = null;
-      try { health = await run.client.health(2_000); } catch { /* the port opens once the model has loaded */ }
+      try { health = await run.client.health(this.t.requestTimeoutMs); } catch { /* the port opens once the model has loaded */ }
       if (this.run !== run) return;
       if (health?.loaded.includes(LAYA_CHECKPOINT)) return this.warm(run, health);
       if (this.now() >= deadline) {
@@ -241,7 +242,7 @@ export class LayaService {
     let misses = 0;
     const tick = async (): Promise<void> => {
       if (this.run !== run) return;
-      try { await run.client.health(2_000); misses = 0; } catch { misses++; }
+      try { await run.client.health(this.t.requestTimeoutMs); misses = 0; } catch { misses++; }
       if (this.run !== run) return;
       if (misses >= this.t.healthMisses) { void run.proc.stop(); return; }
       this.later(() => void tick(), this.t.healthEveryMs);

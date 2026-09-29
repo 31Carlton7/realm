@@ -168,7 +168,7 @@ const SnapshotArgs = z.object({ bundleId: z.string().min(1).optional(), screensh
  *  call from an agent that has not learned the field into a refusal — a change to the act path in
  *  the name of a feature that promises never to touch it. It is the goal Laya's `target` question is
  *  asked against, so a step without one is logged without that question. */
-const ActArgs = z.object({ snapshotId: z.string().min(1), action: ComputerActionSchema, intent: z.string().max(500).optional() });
+const ActArgs = z.object({ snapshotId: z.string().min(1), action: ComputerActionSchema, intent: z.string().optional() });
 
 /* ---------------------------------- handlers ---------------------------------- */
 
