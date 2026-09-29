@@ -155,8 +155,9 @@ export class SessionService {
     notifications?: { handleSessionEvent(session: Session, ev: SessionEvent): void; probeResults(results: ProbeResult[]): void };
     /** Upgrades the heuristic first-line title (`maybeTitleFrom`) to a short model-written summary.
      *  Optional and OFF by default: it is a real, billed LLM call on every session's first message,
-     *  so only `main.ts`'s real server process wires it — every test and live-check script goes
-     *  through `createApp` without it and gets the heuristic title only, never a live network call. */
+     *  so only `main.ts`'s real server process wires it, and only with the scripted agent off
+     *  (`billed-calls.ts`) — tests go through `createApp` without it, live checks boot `main.ts`
+     *  with the scripted agent on, and both get the heuristic title only, never a live network call. */
     titleGenerator?: (text: string) => Promise<string>;
     /** Writes the model's account of a session when a turn settles (`SessionSummaryService`). Wired
      *  and gated for exactly the same reasons as `titleGenerator` above: it is a billed call, so only
