@@ -613,9 +613,13 @@ describe("the input tools' arguments", () => {
       expect(r.isError, JSON.stringify(args)).toBe(true);
       expect(text(r)).toContain("one of the two");
     }
-    for (const args of [{ direction: "up", from: { x: 1, y: 1 }, to: { x: 2, y: 2 } }, { from: { x: 1, y: 1 } }, { element: 1, from: { x: 1, y: 1 }, to: { x: 2, y: 2 } }]) {
+    for (const args of [{ direction: "up", from: { x: 1, y: 1 }, to: { x: 2, y: 2 } }, { from: { x: 1, y: 1 } }]) {
       expect((await call("simulator_swipe", { simulatorId, intent: "scroll", ...args })).isError, JSON.stringify(args)).toBe(true);
     }
+    /* THE MUTANT: let an element ride along with from and to. The swipe then goes between the points
+       and the element is silently ignored — refused here by name, and before anything is looked up. */
+    const both = await call("simulator_swipe", { simulatorId, intent: "scroll", element: 1, from: { x: 1, y: 1 }, to: { x: 2, y: 2 } });
+    expect(text(both)).toContain("an element is swiped across in a direction");
     expect(calls.gates).toEqual([]);
     expect(calls.sent).toEqual([]);
   });
