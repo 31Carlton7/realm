@@ -117,7 +117,11 @@ describe("the capabilities preamble reaches an ordinary session", () => {
     await waitFor(() => claude.starts.length === 1);
     const ctx = claude.starts[0]!.systemContext!;
     expect(ctx).toContain("simulator_open");
-    expect(ctx).toContain("Do not start a serve-sim stream yourself, and do not open one in a browser pane");
+    expect(ctx).toContain("simulator_tap");
+    expect(ctx).toContain("Do not start a serve-sim stream yourself, do not open one in a browser pane");
+    // …nor reach past the tools for serve-sim's CLI or adb: input sent that way skips the card, the
+    // intent, and the look at the live screen the tools take before every step.
+    expect(ctx).toContain("do not drive a device through serve-sim's CLI or `adb shell input`");
     c.close();
   });
 

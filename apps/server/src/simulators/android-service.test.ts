@@ -37,7 +37,10 @@ function fakeAndroid(over: Partial<Android> = {}) {
     screencap: async () => Buffer.from([0x89, 0x50, 0x4e, 0x47]),
     ax: async (s) => { calls.push(`ax:${s}`); return { screen: { width: 1080, height: 2400 }, units: "pixels" as const, app: "com.x", elements: [] }; },
     apps: async (s) => { calls.push(`apps:${s}`); return [{ bundleId: "com.x", name: "x" }]; },
-    tap: async () => {}, swipe: async () => {}, key: async () => {},
+    tap: async (_s, x, y, times) => { calls.push(`tap:${x},${y}×${times ?? 1}`); return { ok: true, detail: "" }; },
+    swipe: async (_s, a, b, c, d, ms) => { calls.push(`swipe:${a},${b}->${c},${d}:${ms}`); return { ok: true, detail: "" }; },
+    drag: async (_s, a, b, c, d, ms) => { calls.push(`drag:${a},${b}->${c},${d}:${ms}`); return { ok: true, detail: "" }; },
+    key: async (_s, k) => { calls.push(`key:${k}`); return { ok: true, detail: "" }; },
     text: async (_s, t) => { calls.push(`text:${t}`); return { ok: true, detail: "" }; },
     install: async (_s, p) => { calls.push(`install:${p}`); return { ok: true, detail: "" }; },
     launch: async (_s, p) => { calls.push(`launch:${p}`); return { ok: true, detail: "" }; },
@@ -143,6 +146,81 @@ describe("an Android row", () => {
     await svc.stop(simulatorId);
     expect(svc.stateOf(simulatorId).status).toBe("off");
     expect(calls.filter((c) => c.startsWith("stop"))).toEqual([]);
+  });
+
+  /* An agent's input, which on Android is `adb shell input` — what the pane's own frames turn into
+     on this side too. The tool hands over 0..1 of the screen; adb wants pixels. */
+  describe("input", () => {
+    const up = async (over: Partial<Android> = {}) => {
+      const b = bring(over);
+      b.svc.start(b.simulatorId, AVD, "android");
+      await new Promise((r) => setTimeout(r, 200));
+      b.calls.length = 0;
+      return b;
+    };
+
+    it("puts a touch on the pixel it names, on the screen size the device reports", async () => {
+      const { svc, simulatorId, calls } = await up();
+      await svc.input(simulatorId, { kind: "tap", at: { x: 0.5, y: 0.25 }, count: 1 });
+      await svc.input(simulatorId, { kind: "tap", at: { x: 0.1, y: 0.9 }, count: 2 });
+      // THE MUTANT: multiply by the wrong axis, or not at all — every tap lands somewhere else.
+      expect(calls).toEqual(["tap:540,600×1", "tap:108,2160×2"]);
+    });
+
+    it("keeps a touch at the very edge on the screen rather than one pixel past it", async () => {
+      const { svc, simulatorId, calls } = await up();
+      await svc.input(simulatorId, { kind: "tap", at: { x: 1, y: 1 }, count: 1 });
+      expect(calls).toEqual(["tap:1079,2399×1"]);
+    });
+
+    it("holds as a swipe that goes nowhere, and swipes from where it began to where it ends", async () => {
+      const { svc, simulatorId, calls } = await up();
+      await svc.input(simulatorId, { kind: "hold", at: { x: 0.5, y: 0.5 }, ms: 900 });
+      await svc.input(simulatorId, { kind: "swipe", from: { x: 0.5, y: 0.75 }, to: { x: 0.5, y: 0.25 }, ms: 300, holdMs: 0 });
+      expect(calls).toEqual(["swipe:540,1200->540,1200:900", "swipe:540,1800->540,600:300"]);
+    });
+
+    it("picks something up before dragging it when asked to hold first", async () => {
+      // THE MUTANT: ignore holdMs. A plain swipe over an icon scrolls the page instead of moving it.
+      const { svc, simulatorId, calls } = await up();
+      await svc.input(simulatorId, { kind: "swipe", from: { x: 0.2, y: 0.5 }, to: { x: 0.8, y: 0.5 }, ms: 500, holdMs: 600 });
+      expect(calls).toEqual(["drag:216,1200->864,1200:500"]);
+    });
+
+    it("types a new line and a tab as the keys they are, between the runs of text", async () => {
+      const { svc, simulatorId, calls } = await up();
+      expect(await svc.input(simulatorId, { kind: "text", text: "find me\r\nnow\tok" })).toEqual({ ok: true, detail: "" });
+      expect(calls).toEqual(["text:find me", "key:KEYCODE_ENTER", "text:now", "key:KEYCODE_TAB", "text:ok"]);
+    });
+
+    it("refuses text it cannot type before typing any of it", async () => {
+      const { svc, simulatorId, calls } = await up();
+      const r = await svc.input(simulatorId, { kind: "text", text: "first line\ncafé" });
+      expect(r.ok).toBe(false);
+      expect(r.detail).toContain('"é"');
+      // THE MUTANT: refuse only the run that holds it. The first line is typed, then the step fails.
+      expect(calls).toEqual([]);
+    });
+
+    it("presses buttons and keys as keycodes, back included", async () => {
+      const { svc, simulatorId, calls } = await up();
+      for (const key of ["back", "home", "lock", "volume-up", "return", "delete"] as const) await svc.input(simulatorId, { kind: "press", key });
+      expect(calls).toEqual(["key:KEYCODE_BACK", "key:KEYCODE_HOME", "key:KEYCODE_POWER", "key:KEYCODE_VOLUME_UP", "key:KEYCODE_ENTER", "key:KEYCODE_DEL"]);
+    });
+
+    it("says what adb said when the device refuses", async () => {
+      const { svc, simulatorId } = await up({ tap: async () => ({ ok: false, detail: "error: device offline" }) });
+      expect(await svc.input(simulatorId, { kind: "tap", at: { x: 0.5, y: 0.5 }, count: 1 })).toEqual({ ok: false, detail: "error: device offline" });
+    });
+
+    it("sends nothing when the device will not say how big its screen is", async () => {
+      // Up with a size, as a device must be to come up at all — and silent about it afterwards.
+      let asked = 0;
+      const { svc, simulatorId, calls } = await up({ size: async () => (asked++ === 0 ? { width: 1080, height: 2400 } : null) });
+      const r = await svc.input(simulatorId, { kind: "tap", at: { x: 0.5, y: 0.5 }, count: 1 });
+      expect(r.ok).toBe(false);
+      expect(calls.filter((c) => c.startsWith("tap"))).toEqual([]);
+    });
   });
 
   it("says what is missing when there is no SDK, rather than failing with a path", async () => {

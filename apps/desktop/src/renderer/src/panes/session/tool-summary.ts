@@ -1,9 +1,18 @@
 import type { IconName } from "@realm/ui";
 import { fileDiffsFor } from "./rich/diff";
 
+/**
+ * The simulator's input tools, whose line is the agent's `intent` — what the step is for, which says
+ * more than any of its coordinates. They reach the transcript fully prefixed
+ * (`mcp__realm__realm-simulator__simulator_tap`) and a permission card bare, so both are matched.
+ */
+const SIMULATOR_INPUT = new Set(["simulator_tap", "simulator_double_tap", "simulator_long_press", "simulator_swipe", "simulator_type", "simulator_press"]);
+
 /** One-line summary of a tool call's input, per well-known tool; else the first string field. */
 export function toolSummary(name: string, input: Record<string, unknown>): string {
   const str = (k: string) => (typeof input[k] === "string" ? (input[k] as string) : null);
+  const at = name.lastIndexOf("__");
+  if (SIMULATOR_INPUT.has(at < 0 ? name : name.slice(at + 2))) return str("intent") ?? "";
   switch (name) {
     case "Bash": return str("command") ?? "";
     case "Read": case "Write": case "Edit": case "MultiEdit": case "NotebookEdit": return str("file_path") ?? str("notebook_path") ?? "";

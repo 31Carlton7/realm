@@ -13,7 +13,7 @@ const REQUEST_PREFIX = "bperm_";
  *  the agent's own transport gives up at some unhelpful place. */
 const PROMPT_TIMEOUT_MS = 15 * 60 * 1000;
 
-type PendingPrompt = { sessionId: string; toolKey: string; resolve: (d: PermissionDecision) => void; timer: NodeJS.Timeout; alwaysPrompt: boolean; onAlwaysAllow?: () => void };
+type PendingPrompt = { sessionId: string; toolKey: string; resolve: (d: PermissionDecision) => void; timer: NodeJS.Timeout; alwaysPrompt: boolean; perSession: boolean; onAlwaysAllow?: () => void };
 
 /**
  * Per-call gate behaviour.
@@ -54,6 +54,13 @@ export type GateOptions = {
   preapproved?: boolean;
   /** Answered "always": persist it wherever `preapproved` will be read from next time. */
   onAlwaysAllow?: () => void;
+  /**
+   * The card asks for the rest of the SESSION, not for this one call, so a plain "Allow" is kept for
+   * the session and key exactly as "Allow always" is. The simulator input tools set it, keyed per
+   * device: a tap is one step of a run that takes dozens, and a card per tap is a card nobody reads
+   * by the tenth. It records nothing durable — `onAlwaysAllow` still answers to "always" alone.
+   */
+  perSession?: boolean;
 };
 
 export type GateResult = { allowed: true } | { allowed: false; reason: string };
@@ -99,13 +106,14 @@ export class BrowserPermissionBroker {
     clearTimeout(p.timer);
     // An `alwaysPrompt` gate records nothing: the user answering "always" to a credential fill card
     // must not silently license the next one, on whatever origin that turns out to be.
-    if (decision === "allow_always" && !p.alwaysPrompt) {
+    const kept = decision === "allow_always" || (decision === "allow" && p.perSession);
+    if (kept && !p.alwaysPrompt) {
       let set = this.always.get(p.sessionId);
       if (!set) { set = new Set(); this.always.set(p.sessionId, set); }
       set.add(p.toolKey);
       // The session set is kept even for a gate that also persists: it is what answers if the
       // durable write fails, and it keeps the answer working for the rest of THIS session either way.
-      p.onAlwaysAllow?.();
+      if (decision === "allow_always") p.onAlwaysAllow?.();
     }
     this.d.emit(p.sessionId, sessionEvent("permission_response", { requestId, decision }));
     this.d.emit(p.sessionId, sessionEvent("status", { status: "running" }));
@@ -161,7 +169,7 @@ export class BrowserPermissionBroker {
         this.d.emit(sessionId, sessionEvent("status", { status: "running" }));
         resolve("deny");
       }, PROMPT_TIMEOUT_MS);
-      this.pending.set(requestId, { sessionId, toolKey, resolve, timer, alwaysPrompt: opts.alwaysPrompt === true, onAlwaysAllow: opts.onAlwaysAllow });
+      this.pending.set(requestId, { sessionId, toolKey, resolve, timer, alwaysPrompt: opts.alwaysPrompt === true, perSession: opts.perSession === true, onAlwaysAllow: opts.onAlwaysAllow });
       // Emitted AFTER the pending entry exists: a same-tick respondPermission must find it.
       // `toolName` is what the card SHOWS; `toolKey` is what `allow_always` remembers. They differ when
       // the grant must be narrower than the tool — Plan 20's ask keys on `agent_ask:<targetId>` so

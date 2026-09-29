@@ -1,12 +1,12 @@
 import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Simulator, SimulatorAxElement, SimulatorAxTree, SimulatorDevice, SimulatorState, SimulatorPlatform } from "@realm/contracts";
+import { gestureFrame, keystrokeFrames, type Simulator, type SimulatorAxElement, type SimulatorAxTree, type SimulatorDevice, type SimulatorState, type SimulatorPlatform } from "@realm/contracts";
 import type { PaneProps } from "../registry";
 import { useApp } from "../../state/store";
 import { rpc } from "../../rpc/client";
 import { fitFramebuffer, PICTURE_RADIUS } from "../machine/fit";
 import { squirclePath } from "../machine/squircle-path";
-import { SimulatorInput, gestureFrame, keystrokeFrames, normalizedPoint } from "./sim-input";
+import { SimulatorInput, normalizedPoint } from "./sim-input";
 import { fitFramed, frameMetrics } from "./device-frame";
 import { artFor, fitDeviceArt } from "./device-art";
 import { useFileDrop } from "../../components/use-file-drop";

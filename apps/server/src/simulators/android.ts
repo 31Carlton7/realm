@@ -212,6 +212,18 @@ const run = (bin: string, args: string[], timeout: number): Promise<{ code: numb
     });
   });
 
+/**
+ * What one `adb shell input …` run means for whoever asked. adb carries the device's exit status
+ * only over its v2 shell protocol (Android 7 and later) — before that `adb shell` exits 0 whatever
+ * happened — so what `input` printed counts as well as the code. A failed run is never silent: `run`
+ * puts the failure's own message in stderr when the command wrote none.
+ */
+const outcome = (r: { code: number; stdout: string; stderr: string }): { ok: boolean; detail: string } => {
+  const said = `${r.stderr}${r.stdout}`.trim();
+  const ok = r.code === 0 && !/\bError\b|Unknown command/i.test(said);
+  return { ok, detail: ok ? "" : said };
+};
+
 /** Binary output — a screenshot — which `execFile`'s string encoding would corrupt. */
 const runBinary = (bin: string, args: string[], timeout: number): Promise<Buffer | null> =>
   new Promise((resolve) => {
@@ -232,9 +244,14 @@ export type Android = {
   screencap(serial: string): Promise<Buffer | null>;
   ax(serial: string): Promise<SimulatorAxTree | null>;
   apps(serial: string): Promise<SimulatorApp[]>;
-  tap(serial: string, x: number, y: number): Promise<void>;
-  swipe(serial: string, x1: number, y1: number, x2: number, y2: number, ms: number): Promise<void>;
-  key(serial: string, keycode: string): Promise<void>;
+  /** `times` taps at one point, in ONE shell call: two `adb shell` round trips can take longer than
+   *  the gap Android allows between the taps of a double tap. */
+  tap(serial: string, x: number, y: number, times?: number): Promise<{ ok: boolean; detail: string }>;
+  swipe(serial: string, x1: number, y1: number, x2: number, y2: number, ms: number): Promise<{ ok: boolean; detail: string }>;
+  /** Press and hold at the start for the system's long-press time, then drag — `input draganddrop`,
+   *  which is how a list row or a home-screen icon is picked up. Android 11 and later. */
+  drag(serial: string, x1: number, y1: number, x2: number, y2: number, ms: number): Promise<{ ok: boolean; detail: string }>;
+  key(serial: string, keycode: string): Promise<{ ok: boolean; detail: string }>;
   text(serial: string, s: string): Promise<{ ok: boolean; detail: string }>;
   install(serial: string, apk: string): Promise<{ ok: boolean; detail: string }>;
   launch(serial: string, pkg: string): Promise<{ ok: boolean; detail: string }>;
@@ -378,11 +395,18 @@ export function android(env: NodeJS.ProcessEnv = process.env): Android {
 
     async apps(serial) { return parsePackages((await shell(serial, ["pm", "list", "packages", "-3"], 15000)).stdout); },
 
-    async tap(serial, x, y) { await shell(serial, ["input", "tap", String(Math.round(x)), String(Math.round(y))], 8000); },
-    async swipe(serial, x1, y1, x2, y2, ms) {
-      await shell(serial, ["input", "swipe", ...[x1, y1, x2, y2].map((n) => String(Math.round(n))), String(Math.max(1, Math.round(ms)))], 12000);
+    async tap(serial, x, y, times = 1) {
+      const one = ["input", "tap", String(Math.round(x)), String(Math.round(y))];
+      // `;` reaches the DEVICE's shell — adb joins its arguments into one command line there.
+      return outcome(await shell(serial, Array.from({ length: Math.max(1, times) }, (_, i) => (i === 0 ? one : [";", ...one])).flat(), 8000));
     },
-    async key(serial, keycode) { await shell(serial, ["input", "keyevent", keycode], 8000); },
+    async swipe(serial, x1, y1, x2, y2, ms) {
+      return outcome(await shell(serial, ["input", "swipe", ...[x1, y1, x2, y2].map((n) => String(Math.round(n))), String(Math.max(1, Math.round(ms)))], 12000 + ms));
+    },
+    async drag(serial, x1, y1, x2, y2, ms) {
+      return outcome(await shell(serial, ["input", "draganddrop", ...[x1, y1, x2, y2].map((n) => String(Math.round(n))), String(Math.max(1, Math.round(ms)))], 12000 + ms));
+    },
+    async key(serial, keycode) { return outcome(await shell(serial, ["input", "keyevent", keycode], 8000)); },
 
     async text(serial, s) {
       const encoded = encodeInputText(s);

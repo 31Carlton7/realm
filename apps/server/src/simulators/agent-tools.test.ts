@@ -4,7 +4,7 @@ import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync } from 
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import type { SimulatorAxTree, SimulatorDevice } from "@realm/contracts";
-import type { McpServerConfig } from "@realm/adapters";
+import type { McpServerConfig, PermissionDecision } from "@realm/adapters";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -16,7 +16,9 @@ import { SimulatorsStore } from "../store/simulators";
 import { encodePng } from "../machines/framebuffer";
 import { pngSize } from "../machines/qmp-driver";
 import { SCREENSHOT_MAX_EDGE } from "../machines/driver";
-import type { GateResult } from "../browsers/permissions";
+import { BrowserPermissionBroker, type GateOptions, type GateResult } from "../browsers/permissions";
+import type { ActObservation, ActObserver } from "../mcp/act-observer";
+import type { InputChannel, InputStep } from "./device-input";
 import { createApp, type App } from "../app";
 import { SimulatorService, toolchainAvailable } from "./service";
 import type { Simctl } from "./simctl";
@@ -113,6 +115,14 @@ function setup(opts: {
   wait?: { timeoutMs: number; pollMs: number };
   /** Build the provider with no toolchain probe at all — what `createApp` does unless it is given one. */
   noProbe?: boolean;
+  /** The REAL broker, in this mode, answering every card it raises with `answer` — for the rules that
+   *  live in the broker (one card per device per session, Plan refusing). Without it, a stub gate. */
+  broker?: { mode: string; answer?: PermissionDecision };
+  observe?: ActObserver;
+  /** What the device's input socket answers. */
+  input?: { ok: boolean; detail: string };
+  /** Something that happens while the stub's card is up — the user taking their time. */
+  onCard?: () => void;
 } = {}) {
   const home = tempDir("realm-sim-tools-");
   const db = openDatabase(join(home, "realm.db"));
@@ -123,12 +133,32 @@ function setup(opts: {
   const other = spaces.create({ profileId: profile.id, name: "Elsewhere", icon: "folder" });
   const clis = fakeClis(opts);
   const calls = {
-    gates: [] as { toolKey: string; title: string; input: Record<string, unknown> }[],
+    gates: [] as { toolKey: string; title: string; input: Record<string, unknown>; toolName?: string; opts?: GateOptions }[],
     broadcasts: [] as { event: string; payload: Record<string, unknown> }[],
     cli: clis.cli,
+    /** What reached the device's input socket: which socket, and the steps. */
+    sent: [] as { url: string; steps: readonly InputStep[] }[],
+    /** Gate, observer and socket, in the order they happened. */
+    order: [] as string[],
   };
   const rpc = { broadcast: (event: string, payload: unknown) => { calls.broadcasts.push({ event, payload: payload as Record<string, unknown> }); } } as never;
-  const service = new SimulatorService({ rpc, spaces, items, simulators: new SimulatorsStore(db), simctl: clis.simctl, serveSim: clis.serveSim, android: clis.android, androidStream: fakeStream });
+  const inputChannel: InputChannel = async (url, steps) => {
+    calls.order.push("act");
+    calls.sent.push({ url, steps });
+    return opts.input ?? { ok: true, detail: "" };
+  };
+  const service = new SimulatorService({ rpc, spaces, items, simulators: new SimulatorsStore(db), simctl: clis.simctl, serveSim: clis.serveSim, android: clis.android, androidStream: fakeStream, inputChannel });
+  let mode = opts.broker?.mode ?? "default";
+  const real: BrowserPermissionBroker | null = opts.broker ? new BrowserPermissionBroker({
+    permissionMode: () => mode,
+    emit: (_sessionId, ev) => {
+      if (ev.type !== "permission_request") return;
+      calls.order.push("card");
+      calls.gates.push({ toolKey: "", title: ev.payload.title, input: ev.payload.input, toolName: ev.payload.toolName });
+      // Answered the way a user would, once the card is up.
+      queueMicrotask(() => real!.resolve(ev.payload.requestId, opts.broker!.answer ?? "allow"));
+    },
+  }) : null;
   const switchedOff = new Set<string>();
   const changes: number[] = [];
   const provider = createSimulatorAgentProvider({
@@ -137,13 +167,16 @@ function setup(opts: {
     // The service's own question, over the faked CLIs — the same one `main.ts` hands the real server.
     probe: opts.noProbe ? undefined : () => service.available(),
     onOfferedChange: () => changes.push(Date.now()),
-    broker: {
-      gate: async (_sessionId, toolKey, title, input) => {
-        calls.gates.push({ toolKey, title, input });
+    broker: real ?? {
+      gate: async (_sessionId, toolKey, title, input, toolName, gateOpts) => {
+        calls.order.push("card");
+        opts.onCard?.();
+        calls.gates.push({ toolKey, title, input, toolName, opts: gateOpts });
         return opts.gate ?? { allowed: true };
       },
     },
     wait: opts.wait ?? { timeoutMs: 2_000, pollMs: 5 },
+    observe: opts.observe,
   });
   const ctx = { sessionId: "sess1", spaceId: space.id };
   const call = (tool: string, args: unknown = {}): Promise<CallToolResult> => provider.call(ctx, tool, args);
@@ -154,18 +187,23 @@ function setup(opts: {
     for (let i = 0; i < 400 && service.stateOf(simulatorId).status !== "running"; i++) await new Promise((r) => setTimeout(r, 5));
     return simulatorId;
   };
-  return { provider, service, items, ctx, call, calls, running, switchedOff, changes, spaceId: space.id, otherSpaceId: other.id, folder: space.folderPath };
+  return {
+    provider, service, items, ctx, call, calls, running, switchedOff, changes, spaceId: space.id, otherSpaceId: other.id, folder: space.folderPath,
+    /** Change the session's mode under the real broker, the way a mid-session switch does. */
+    setMode: (m: string) => { mode = m; },
+  };
 }
 
 const text = (r: CallToolResult): string =>
   r.content.filter((c): c is { type: "text"; text: string } => c.type === "text").map((c) => c.text).join("\n");
 
 describe("offering the tools", () => {
-  it("lists all eight where there are simulators and the space has them on", async () => {
+  it("lists all fourteen where there are simulators and the space has them on", async () => {
     const { provider, ctx } = setup();
     expect((await provider.tools(ctx)).map((t) => t.name)).toEqual([
       "simulator_list", "simulator_open", "simulator_screenshot", "simulator_elements",
       "simulator_apps", "simulator_install", "simulator_launch", "simulator_open_url",
+      "simulator_tap", "simulator_double_tap", "simulator_long_press", "simulator_swipe", "simulator_type", "simulator_press",
     ]);
   });
 
@@ -351,6 +389,8 @@ describe("the tools that act on an open pane", () => {
     for (const [tool, args] of [
       ["simulator_screenshot", {}], ["simulator_elements", {}], ["simulator_apps", {}],
       ["simulator_install", { path: "/tmp/App.app" }], ["simulator_launch", { bundleId: "com.acme.app" }], ["simulator_open_url", { url: "myapp://x" }],
+      ["simulator_tap", { intent: "x", x: 10, y: 10 }], ["simulator_swipe", { intent: "x", direction: "up" }],
+      ["simulator_type", { intent: "x", text: "hi" }], ["simulator_press", { intent: "x", key: "home" }],
     ] as const) {
       const r = await call(tool, { simulatorId: theirs, ...args });
       // THE MUTANT: look the row up by id alone. A simulatorId that leaked into a transcript then
@@ -359,6 +399,7 @@ describe("the tools that act on an open pane", () => {
       expect(text(r), tool).toContain("this space has no simulator panes");
     }
     expect(calls.gates).toEqual([]);
+    expect(calls.sent).toEqual([]);
   });
 
   it("point a pane that is not streaming back at simulator_open, with its own udid", async () => {
@@ -433,8 +474,8 @@ describe("simulator_elements and simulator_apps", () => {
     const simulatorId = await running();
     const out = text(await call("simulator_elements", { simulatorId }));
     expect(out).toContain('2 element(s) on iPhone Air. Frames are "(x,y width×height)" in points, on a 402×874 screen');
-    expect(out).toContain('[0.1] Button "General" id=com.apple.settings.general (16,293 370×44)');
-    expect(out).toContain('[0.2] Button "Wi-Fi" value="Off" (16,338 370×44) disabled');
+    expect(out).toContain('[1] Button "General" id=com.apple.settings.general (16,293 370×44)');
+    expect(out).toContain('[2] Button "Wi-Fi" value="Off" (16,338 370×44) disabled');
     /* THE MUTANT: drop `fenceUntrusted`. A simulator's Safari can show any page on the web, and every
        label on it arrives here as text in the model's context, reading as Realm's own. */
     const fenceAt = out.indexOf("<<<"), labelAt = out.indexOf('"General"'), appAt = out.indexOf("app: Settings");
@@ -506,6 +547,602 @@ describe("install, launch and open_url", () => {
     const r = await call("simulator_launch", { simulatorId, bundleId: "com.nope" });
     expect(r.isError).toBe(true);
     expect(text(r)).toContain("not installed");
+  });
+});
+
+/* ---------------------------------- input ---------------------------------- */
+
+const INPUT_TOOLS = ["simulator_tap", "simulator_double_tap", "simulator_long_press", "simulator_swipe", "simulator_type", "simulator_press"] as const;
+
+/** One of each input tool, with an intent and whatever else it needs — a point for the touches. */
+const ONE_OF_EACH: [string, Record<string, unknown>][] = [
+  ["simulator_tap", { x: 201, y: 437 }], ["simulator_double_tap", { x: 201, y: 437 }], ["simulator_long_press", { x: 201, y: 437 }],
+  ["simulator_swipe", { direction: "up" }], ["simulator_type", { text: "hi" }], ["simulator_press", { key: "home" }],
+];
+
+/** A frame as the device reads it. */
+const decode = (f: Uint8Array): Record<string, unknown> & { op: number } =>
+  ({ op: f[0]!, ...(JSON.parse(new TextDecoder().decode(f.slice(1))) as Record<string, unknown>) });
+/** Everything the device was sent, frame by frame, across every step. */
+const frames = (sent: { steps: readonly InputStep[] }[]) => sent.flatMap((x) => x.steps.map((st) => decode(st.frame)));
+
+/** Settings' root, re-drawn: the same two rows, and whatever the test changes about them. */
+const redraw = (change: (els: SimulatorAxTree["elements"]) => SimulatorAxTree["elements"]): SimulatorAxTree =>
+  ({ ...TREE, elements: change(TREE.elements.map((e) => ({ ...e, frame: { ...e.frame } }))) });
+
+/**
+ * A device whose screen the test can change between the agent's read and the act — the whole
+ * question element addressing has to answer. `reads` counts the trees asked for.
+ */
+function device(over: Parameters<typeof setup>[0] = {}) {
+  let screen: SimulatorAxTree = TREE;
+  let reads = 0;
+  const s = setup({ ...over, serveSim: { ...over.serveSim, ax: async () => { reads++; return screen; } } });
+  return { ...s, show: (t: SimulatorAxTree) => { screen = t; }, treeReads: () => reads };
+}
+
+describe("the input tools' arguments", () => {
+  it("each one says it needs an intent, in the schema the agent reads", async () => {
+    const { provider, ctx } = setup();
+    const tools = await provider.tools(ctx);
+    for (const name of INPUT_TOOLS) {
+      const schema = tools.find((t) => t.name === name)!.inputSchema as { required: string[] };
+      expect(schema.required, name).toContain("intent");
+    }
+  });
+
+  it("refuses a step with no intent, a blank one or an essay — before any card, and sends nothing", async () => {
+    const { call, calls, running } = setup();
+    const simulatorId = await running();
+    for (const [tool, args] of ONE_OF_EACH) {
+      // THE MUTANT: make intent optional, or let whitespace through. The step then reaches the user's
+      // card and the observer with nothing saying what it is for.
+      for (const intent of [undefined, "   ", "x".repeat(201)]) {
+        const r = await call(tool, { simulatorId, ...args, ...(intent === undefined ? {} : { intent }) });
+        expect(r.isError, `${tool} ${JSON.stringify(intent)?.slice(0, 12)}`).toBe(true);
+        expect(text(r)).toContain("intent");
+      }
+    }
+    expect(text(await call("simulator_tap", { simulatorId, x: 1, y: 1 }))).toContain('what this step is for, such as "open the Wi-Fi settings"');
+    expect(calls.gates).toEqual([]);
+    expect(calls.sent).toEqual([]);
+  });
+
+  it("takes an element or a point, never both and never half a point", async () => {
+    const { call, calls, running } = setup();
+    const simulatorId = await running();
+    for (const args of [{ element: 1, x: 5, y: 5 }, { x: 5 }, {}]) {
+      const r = await call("simulator_tap", { simulatorId, intent: "tap it", ...args });
+      expect(r.isError, JSON.stringify(args)).toBe(true);
+      expect(text(r)).toContain("one of the two");
+    }
+    for (const args of [{ direction: "up", from: { x: 1, y: 1 }, to: { x: 2, y: 2 } }, { from: { x: 1, y: 1 } }]) {
+      expect((await call("simulator_swipe", { simulatorId, intent: "scroll", ...args })).isError, JSON.stringify(args)).toBe(true);
+    }
+    /* THE MUTANT: let an element ride along with from and to. The swipe then goes between the points
+       and the element is silently ignored — refused here by name, and before anything is looked up. */
+    const both = await call("simulator_swipe", { simulatorId, intent: "scroll", element: 1, from: { x: 1, y: 1 }, to: { x: 2, y: 2 } });
+    expect(text(both)).toContain("an element is swiped across in a direction");
+    expect(calls.gates).toEqual([]);
+    expect(calls.sent).toEqual([]);
+  });
+});
+
+describe("acting on an element", () => {
+  it("looks for it on the LIVE screen and taps the centre of its frame there, not where it was read", async () => {
+    const dev = device();
+    const simulatorId = await dev.running();
+    await dev.call("simulator_elements", { simulatorId });
+    // The list scrolled a little between the read and the tap: same row, lower down.
+    dev.show(redraw((els) => { els[0]!.frame.y = 400; return els; }));
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 });
+    expect(r.isError).toBe(false);
+    const [begin, end] = frames(dev.calls.sent);
+    /* THE MUTANT: tap the frame the agent READ. That is (201,315) — which after the scroll is the
+       row above General, and the picture would show nothing wrong. */
+    expect(begin).toMatchObject({ op: 3, type: "begin", x: 201 / 402 });
+    expect(begin!.y).toBeCloseTo(422 / 874, 10);
+    expect(end).toMatchObject({ type: "end", x: 201 / 402 });
+    expect(text(r)).toContain("Tapped [1] on iPhone Air, at the centre of its frame (201,422).");
+    expect(text(r)).toContain("Read simulator_elements");
+  });
+
+  it("refuses an element that is not the one the agent was shown any more, and says to read again", async () => {
+    const changes: [string, (els: SimulatorAxTree["elements"]) => SimulatorAxTree["elements"]][] = [
+      ["another label", (els) => { els[0]!.label = "Bluetooth"; return els; }],
+      ["another role", (els) => { els[0]!.role = "StaticText"; return els; }],
+      ["another id", (els) => { els[0]!.id = "com.apple.settings.bluetooth"; return els; }],
+      ["another size", (els) => { els[0]!.frame.height = 88; return els; }],
+      ["gone", (els) => els.slice(1)],
+    ];
+    for (const [what, change] of changes) {
+      const observed: ActObservation[] = [];
+      const dev = device({ observe: (o) => { observed.push(o); } });
+      const simulatorId = await dev.running();
+      await dev.call("simulator_elements", { simulatorId });
+      dev.show(redraw(change));
+      const r = await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 });
+      // THE MUTANT: trust the path. After a screen changes, the same position holds something else.
+      expect(r.isError, what).toBe(true);
+      expect(text(r), what).toContain("Read simulator_elements again");
+      expect(dev.calls.sent, what).toEqual([]);
+      expect(observed, what).toEqual([]);
+    }
+  });
+
+  it("does not call a changed value a changed element — a switch that flipped is the same switch", async () => {
+    const dev = device();
+    const simulatorId = await dev.running();
+    await dev.call("simulator_elements", { simulatorId });
+    dev.show(redraw((els) => { els[1]!.value = "On"; els[1]!.enabled = true; return els; }));
+    // THE MUTANT: compare the value too. Every toggle would be refused the second time it is touched.
+    expect((await dev.call("simulator_tap", { simulatorId, intent: "turn Wi-Fi off", element: 2 })).isError).toBe(false);
+    expect(dev.calls.sent).toHaveLength(1);
+  });
+
+  it("refuses an id this session was never shown, before any card", async () => {
+    const dev = device();
+    const simulatorId = await dev.running();
+    // Never read at all: a path from a transcript, a guess, another session's read.
+    const unread = await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 });
+    expect(text(unread)).toContain("read simulator_elements for iPhone Air first");
+    // Read, but not this one.
+    await dev.call("simulator_elements", { simulatorId });
+    const unseen = await dev.call("simulator_tap", { simulatorId, intent: "open it", element: 9 });
+    expect(text(unseen)).toContain("there is no [9]");
+    // Another session's read means nothing to this one.
+    const theirs = await dev.provider.call({ ...dev.ctx, sessionId: "sess2" }, "simulator_tap", { simulatorId, intent: "open General", element: 1 });
+    expect(theirs.isError).toBe(true);
+    expect(dev.calls.gates).toEqual([]);
+    expect(dev.calls.sent).toEqual([]);
+  });
+
+  it("forgets the oldest lists rather than every session's last list for the life of the server", async () => {
+    const dev = device();
+    const simulatorId = await dev.running();
+    await dev.call("simulator_elements", { simulatorId });
+    for (let i = 0; i < 256; i++) await dev.provider.call({ ...dev.ctx, sessionId: `other-${i}` }, "simulator_elements", { simulatorId });
+    // THE MUTANT: never evict. A server that stays up for weeks keeps every list every session read.
+    expect(text(await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 }))).toContain("read simulator_elements for iPhone Air first");
+  });
+
+  it("takes the number as the list prints it, brackets and all, and nothing that is not one", async () => {
+    const dev = device();
+    const simulatorId = await dev.running();
+    await dev.call("simulator_elements", { simulatorId });
+    expect((await dev.call("simulator_tap", { simulatorId, intent: "open General", element: "[1]" })).isError).toBe(false);
+    expect((await dev.call("simulator_tap", { simulatorId, intent: "open General", element: "1" })).isError).toBe(false);
+    const path = await dev.call("simulator_tap", { simulatorId, intent: "open General", element: "0.1" });
+    expect(text(path)).toContain("an element is its [number] from simulator_elements");
+    expect(dev.calls.sent).toHaveLength(2);
+  });
+
+  it("refuses a number from an earlier list as old, rather than as whatever the latest list has there", async () => {
+    /* MEASURED on a real device, with tree paths as the handle: a path from the list before last named
+       a different element in the latest one — the same position in another screen's tree — and the
+       tap landed on that. Numbers are never reused, so an old one is recognisably old. */
+    const dev = device();
+    const simulatorId = await dev.running();
+    await dev.call("simulator_elements", { simulatorId });
+    const again = text(await dev.call("simulator_elements", { simulatorId }));
+    // The same two rows, numbered on from the first list: nothing it said is reused.
+    expect(again).toContain('[3] Button "General"');
+    expect(again).toContain('[4] Button "Wi-Fi"');
+    const old = await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 });
+    expect(old.isError).toBe(true);
+    expect(text(old)).toContain("[1] is from an earlier simulator_elements of iPhone Air, and only the latest list can be acted on — its numbers start at 3.");
+    expect(dev.calls.sent).toEqual([]);
+    expect((await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 3 })).isError).toBe(false);
+    expect(frames(dev.calls.sent)[0]!.y).toBeCloseTo((293.3 + 22) / 874, 10);
+  });
+
+  it("refuses an element whose centre is off the screen rather than touching the edge instead", async () => {
+    const dev = device();
+    const simulatorId = await dev.running();
+    await dev.call("simulator_elements", { simulatorId });
+    dev.show(redraw((els) => { els[0]!.frame.y = 860; return els; }));
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 });
+    // THE MUTANT: send it anyway. The frame clamps to the screen's edge — the home indicator.
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("off the screen");
+    expect(dev.calls.sent).toEqual([]);
+  });
+
+  it("asks again, briefly, when the device says its tree is not ready — the moment right after a step", async () => {
+    // MEASURED live: the read straight after a tap that pushed Settings ▸ General answered "not yet".
+    let notYet = 0, asked = 0;
+    const dev = setup({ serveSim: { ax: async () => { asked++; return notYet-- > 0 ? null : TREE; } } });
+    const simulatorId = await dev.running();
+    await dev.call("simulator_elements", { simulatorId });
+    notYet = 1; asked = 0;
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 });
+    // THE MUTANT: one read and done. The tap fails on a screen that was a beat from ready.
+    expect(r.isError).toBe(false);
+    expect(asked).toBe(2);
+    expect(dev.calls.sent).toHaveLength(1);
+
+    // …but only briefly, and with the device's own words when it never comes.
+    notYet = 99; asked = 0;
+    const never = await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 });
+    expect(text(never)).toContain("has not published its accessibility tree yet");
+    expect(asked).toBe(3);
+    expect(dev.calls.sent).toHaveLength(1);
+  });
+
+  it("does not ask again when the read failed for any other reason", async () => {
+    let asked = 0, broken = false;
+    const dev = setup({ serveSim: { ax: async () => { asked++; if (broken) throw new Error("socket hang up"); return TREE; } } });
+    const simulatorId = await dev.running();
+    await dev.call("simulator_elements", { simulatorId });
+    broken = true; asked = 0;
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 });
+    // THE MUTANT: retry everything. An answer that will not change costs every step the retry budget.
+    expect(text(r)).toContain("socket hang up");
+    expect(asked).toBe(1);
+  });
+
+  it("looks for the element on the screen as it is once the card is answered — a card can wait minutes", async () => {
+    let meanwhile = () => {};
+    const dev = device({ onCard: () => meanwhile() });
+    const simulatorId = await dev.running();
+    await dev.call("simulator_elements", { simulatorId });
+    // While the card is up, the list scrolls: the same row, lower down.
+    meanwhile = () => dev.show(redraw((els) => { els[0]!.frame.y = 500; return els; }));
+    const before = dev.treeReads();
+    await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 });
+    /* THE MUTANT: read the screen, then raise the card. The tap lands where General was before the
+       scroll — on whatever scrolled into its place. */
+    expect(frames(dev.calls.sent)[0]!.y).toBeCloseTo(522 / 874, 10);
+    expect(dev.treeReads()).toBe(before + 1); // one look, the one that counts
+  });
+});
+
+describe("acting on a point", () => {
+  it("takes points on iOS and sends the device 0..1 of the screen the live tree states", async () => {
+    const dev = device();
+    const simulatorId = await dev.running();
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 201, y: 437 });
+    expect(r.isError).toBe(false);
+    // THE MUTANT: divide by the stream's size in PIXELS (1206×2622). The tap lands a third of the way.
+    expect(frames(dev.calls.sent).map((f) => [f.type, f.x, f.y])).toEqual([["begin", 0.5, 0.5], ["end", 0.5, 0.5]]);
+    expect(text(r)).toContain("Tapped (201,437) on iPhone Air.");
+  });
+
+  it("refuses a point off the screen, with the screen's size to aim by", async () => {
+    const dev = device();
+    const simulatorId = await dev.running();
+    for (const [x, y] of [[402, 10], [10, 874], [-1, 10]]) {
+      const r = await dev.call("simulator_tap", { simulatorId, intent: "tap", x, y });
+      expect(r.isError, `${x},${y}`).toBe(true);
+      expect(text(r)).toContain("402×874 points");
+    }
+    expect(dev.calls.sent).toEqual([]);
+  });
+});
+
+describe("each input tool", () => {
+  const ready = async (over: Parameters<typeof setup>[0] = {}) => {
+    const dev = device(over);
+    const simulatorId = await dev.running();
+    await dev.call("simulator_elements", { simulatorId });
+    return { ...dev, simulatorId };
+  };
+
+  it("double-taps as two taps at one point", async () => {
+    const { call, calls, simulatorId } = await ready();
+    await call("simulator_double_tap", { simulatorId, intent: "zoom in", x: 201, y: 437 });
+    expect(frames(calls.sent).map((f) => f.type)).toEqual(["begin", "end", "begin", "end"]);
+  });
+
+  it("long-presses for the duration asked, a second when not told", async () => {
+    const { call, calls, simulatorId } = await ready();
+    await call("simulator_long_press", { simulatorId, intent: "open the menu", element: 1, durationMs: 1500 });
+    await call("simulator_long_press", { simulatorId, intent: "open the menu", element: 1 });
+    expect(calls.sent.map((x) => x.steps[0]!.waitMs)).toEqual([1500, 1000]);
+  });
+
+  it("swipes a direction across the middle of the screen without reading the tree", async () => {
+    const { call, calls, simulatorId, treeReads } = await ready();
+    const before = treeReads();
+    const r = await call("simulator_swipe", { simulatorId, intent: "scroll down the list", direction: "up" });
+    const sent = frames(calls.sent);
+    expect(sent[0]).toMatchObject({ type: "begin", x: 0.5, y: 0.75 });
+    expect(sent.at(-1)).toMatchObject({ type: "end", x: 0.5, y: 0.25 });
+    expect(treeReads()).toBe(before);
+    expect(text(r)).toContain("Swiped up across the screen of iPhone Air in 300 ms.");
+  });
+
+  it("swipes a direction across one element, found live, the way the finger moves", async () => {
+    const { call, calls, simulatorId } = await ready();
+    await call("simulator_swipe", { simulatorId, intent: "show the row's actions", direction: "left", element: 1 });
+    const sent = frames(calls.sent);
+    // General is (16,293.3 370×44): from three quarters of the way across to a quarter, through its middle.
+    expect(sent[0]!.x).toBeCloseTo((16 + 370 * 0.75) / 402, 10);
+    expect(sent.at(-1)!.x).toBeCloseTo((16 + 370 * 0.25) / 402, 10);
+    expect(sent[0]!.y).toBeCloseTo((293.3 + 22) / 874, 10);
+  });
+
+  it("swipes from one point to another, and holds first when asked", async () => {
+    const { call, calls, simulatorId } = await ready();
+    const r = await call("simulator_swipe", { simulatorId, intent: "move the row", from: { x: 201, y: 700 }, to: { x: 201, y: 175 }, durationMs: 800, holdMs: 600 });
+    const sent = frames(calls.sent);
+    expect(sent[0]).toMatchObject({ type: "begin", x: 0.5 });
+    expect(sent[0]!.y).toBeCloseTo(700 / 874, 10);
+    expect(sent.at(-1)!.y).toBeCloseTo(175 / 874, 10);
+    expect(calls.sent[0]!.steps[0]!.waitMs).toBeGreaterThanOrEqual(600);
+    expect(text(r)).toContain("from (201,700) to (201,175)");
+    expect(text(r)).toContain("after holding still for 600 ms");
+    // A point off the screen is refused like a tap's.
+    expect((await call("simulator_swipe", { simulatorId, intent: "x", from: { x: 10, y: 10 }, to: { x: 10, y: 900 } })).isError).toBe(true);
+  });
+
+  it("types into whatever has focus, and refuses what it cannot type before any card", async () => {
+    const { call, calls, simulatorId } = await ready();
+    const r = await call("simulator_type", { simulatorId, intent: "search for Wallpaper", text: "Wi\n" });
+    expect(frames(calls.sent).filter((f) => f.type === "down").map((f) => f.usage)).toEqual([225, 26, 12, 40]);
+    expect(text(r)).toContain("Typed 3 character(s) on iPhone Air");
+    calls.gates.length = 0;
+    const refused = await call("simulator_type", { simulatorId, intent: "type a name", text: "José" });
+    expect(text(refused)).toContain('"é"');
+    expect(calls.gates).toEqual([]);
+    expect(calls.sent).toHaveLength(1);
+  });
+
+  it("presses buttons and keys, and refuses back on iOS before any card", async () => {
+    const { call, calls, simulatorId } = await ready();
+    await call("simulator_press", { simulatorId, intent: "go home", key: "home" });
+    await call("simulator_press", { simulatorId, intent: "lock it", key: "lock" });
+    expect(frames(calls.sent)).toEqual([{ op: 4, button: "home" }, { op: 4, button: "power", page: 12, usage: 48 }]);
+    calls.gates.length = 0;
+    const back = await call("simulator_press", { simulatorId, intent: "go back", key: "back" });
+    expect(text(back)).toContain("iOS has no back button");
+    expect(calls.gates).toEqual([]);
+    expect(calls.sent).toHaveLength(2);
+  });
+
+  it("says what the device said when a step does not reach it", async () => {
+    const { call, simulatorId } = await ready({ input: { ok: false, detail: "connect ECONNREFUSED 127.0.0.1:3100" } });
+    const r = await call("simulator_tap", { simulatorId, intent: "tap", x: 10, y: 10 });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("that did not reach iPhone Air: connect ECONNREFUSED");
+  });
+});
+
+describe("the input card", () => {
+  it("names the device and the whole session, and carries the step's intent", async () => {
+    const { call, calls, running } = setup();
+    const simulatorId = await running();
+    await call("simulator_tap", { simulatorId, intent: "open the Wi-Fi settings", x: 201, y: 437 });
+    const [card] = calls.gates;
+    expect(card).toMatchObject({
+      toolKey: "simulator_input:UDID-UP", toolName: "simulator_tap",
+      title: "Tap, swipe and type on iPhone Air for the rest of this session",
+      input: { intent: "open the Wi-Fi settings", device: "iPhone Air", x: 201, y: 437 },
+      opts: { perSession: true, promptUnderBypass: false },
+    });
+  });
+
+  it("is asked ONCE per device per session, whichever tool asks — and again for another device or session", async () => {
+    const dev = setup({ broker: { mode: "default", answer: "allow" } });
+    const up = await dev.running();
+    for (const [tool, args] of ONE_OF_EACH) {
+      expect((await dev.call(tool, { simulatorId: up, intent: "use it", ...args })).isError, tool).toBe(false);
+    }
+    /* THE MUTANTS: key the card per tool (one per tool), drop `perSession` (a plain Allow is not kept,
+       so one per step), or key it per session alone (one device's Allow drives every device). */
+    expect(dev.calls.gates).toHaveLength(1);
+    const other = await dev.running(dev.spaceId, "UDID-OFF");
+    await dev.call("simulator_tap", { simulatorId: other, intent: "use it", x: 10, y: 10 });
+    expect(dev.calls.gates).toHaveLength(2);
+    await dev.provider.call({ ...dev.ctx, sessionId: "sess2" }, "simulator_tap", { simulatorId: up, intent: "use it", x: 10, y: 10 });
+    expect(dev.calls.gates).toHaveLength(3);
+    expect(dev.calls.sent).toHaveLength(ONE_OF_EACH.length + 2);
+  });
+
+  it("a denial sends nothing, and asks again next time", async () => {
+    const dev = setup({ broker: { mode: "default", answer: "deny" } });
+    const simulatorId = await dev.running();
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "tap", x: 10, y: 10 });
+    expect(text(r)).toContain("denied");
+    await dev.call("simulator_tap", { simulatorId, intent: "tap", x: 10, y: 10 });
+    expect(dev.calls.gates).toHaveLength(2);
+    expect(dev.calls.sent).toEqual([]);
+  });
+
+  it("Plan and Ask refuse every input step, and send nothing", async () => {
+    for (const mode of ["plan", "ask"]) {
+      const observed: ActObservation[] = [];
+      const dev = setup({ broker: { mode }, observe: (o) => { observed.push(o); } });
+      const simulatorId = await dev.running();
+      for (const [tool, args] of ONE_OF_EACH) {
+        const r = await dev.call(tool, { simulatorId, intent: "use it", ...args });
+        // THE MUTANT: let the input tools skip the gate, as the read-only tools do.
+        expect(r.isError, `${mode} ${tool}`).toBe(true);
+        expect(text(r)).toContain("read-only");
+      }
+      expect(dev.calls.sent, mode).toEqual([]);
+      expect(observed, mode).toEqual([]);
+    }
+  });
+
+  it("stops at Plan the moment the session switches, whatever it allowed before", async () => {
+    const dev = setup({ broker: { mode: "default" } });
+    const simulatorId = await dev.running();
+    await dev.call("simulator_tap", { simulatorId, intent: "tap", x: 10, y: 10 });
+    dev.setMode("plan");
+    expect((await dev.call("simulator_tap", { simulatorId, intent: "tap", x: 10, y: 10 })).isError).toBe(true);
+    expect(dev.calls.sent).toHaveLength(1);
+  });
+});
+
+describe("the observer", () => {
+  it("hears each step after its card and before it acts, with what was read and what was chosen", async () => {
+    const heard: ActObservation[] = [];
+    const dev = device({ observe: (o) => { dev.calls.order.push("observe"); heard.push(o); } });
+    const simulatorId = await dev.running();
+    await dev.call("simulator_elements", { simulatorId });
+    dev.calls.order.length = 0;
+    await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 });
+    // THE MUTANT: observe before the card (a denied step is reported as taken), or after the act.
+    expect(dev.calls.order).toEqual(["card", "observe", "act"]);
+    const general = { id: "0.1", role: "Button", label: "General" };
+    const wifi = { id: "0.2", role: "Button", label: "Wi-Fi", value: "Off" };
+    expect(heard).toEqual([{
+      surface: "simulator", spaceId: dev.spaceId, sessionId: "sess1", tool: "simulator_tap", intent: "open General",
+      elements: [general, wifi], chosen: { element: general },
+    }]);
+  });
+
+  it("is told a point as a point, and a step that touches nothing as nothing", async () => {
+    const heard: ActObservation[] = [];
+    const dev = device({ observe: (o) => { heard.push(o); } });
+    const simulatorId = await dev.running();
+    await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 201, y: 437 });
+    await dev.call("simulator_elements", { simulatorId });
+    await dev.call("simulator_type", { simulatorId, intent: "search", text: "wifi" });
+    await dev.call("simulator_swipe", { simulatorId, intent: "scroll", direction: "up" });
+    expect(heard.map((o) => [o.tool, o.chosen])).toEqual([
+      ["simulator_tap", { point: { x: 201, y: 437 } }], ["simulator_type", null], ["simulator_swipe", null],
+    ]);
+    // A step that reads no tree of its own is told the one the agent last read, which is what it chose from.
+    expect(heard[1]!.elements.map((e) => e.id)).toEqual(["0.1", "0.2"]);
+  });
+
+  it("gets the screen as the step left it from the next read, once", async () => {
+    const afters: string[][] = [];
+    const dev = device({ observe: () => (after) => { afters.push(after.map((e) => e.label)); } });
+    const simulatorId = await dev.running();
+    await dev.call("simulator_tap", { simulatorId, intent: "open Wi-Fi", x: 201, y: 350 });
+    expect(afters).toEqual([]); // nothing reads the screen just to feed it
+    dev.show({ ...TREE, elements: [{ ...TREE.elements[1]!, path: "0.0", label: "Wi-Fi", role: "Heading" }] });
+    await dev.call("simulator_elements", { simulatorId });
+    await dev.call("simulator_elements", { simulatorId });
+    expect(afters).toEqual([["Wi-Fi"]]);
+  });
+
+  it("hands a step its after once, even when the read that did it belonged to a step that went nowhere", async () => {
+    const afters: string[][] = [];
+    const dev = device({ observe: () => (after) => { afters.push(after.map((e) => e.label)); } });
+    const simulatorId = await dev.running();
+    await dev.call("simulator_elements", { simulatorId });
+    await dev.call("simulator_tap", { simulatorId, intent: "tap", x: 10, y: 10 }); // step A, owed a screen
+    dev.show(redraw((els) => { els[0]!.label = "Bluetooth"; return els; }));
+    // Its live read settles A, then it is refused as stale: no step, nothing owed.
+    expect((await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 })).isError).toBe(true);
+    await dev.call("simulator_tap", { simulatorId, intent: "tap", x: 10, y: 10 });
+    // THE MUTANT: keep the function once it is called. A is told a second, later screen as its after.
+    expect(afters).toEqual([["Bluetooth", "Wi-Fi"]]);
+  });
+
+  it("never holds the step up, and one that throws — or rejects — changes nothing", async () => {
+    const observers: [string, ActObserver][] = [
+      ["waits forever", () => (new Promise(() => {}) as unknown as void)],
+      ["throws", () => { throw new Error("observer broke"); }],
+      ["rejects", () => (Promise.reject(new Error("observer broke later")) as unknown as void)],
+      ["hands back one that throws", () => () => { throw new Error("after broke"); }],
+    ];
+    for (const [what, observe] of observers) {
+      const dev = device({ observe });
+      const simulatorId = await dev.running();
+      const r = await Promise.race([
+        dev.call("simulator_tap", { simulatorId, intent: "tap", x: 10, y: 10 }),
+        new Promise<"held">((res) => setTimeout(() => res("held"), 1_000)),
+      ]);
+      // THE MUTANT: await what the observer returns. The first one holds the tap forever.
+      expect(r, what).not.toBe("held");
+      expect((r as CallToolResult).isError, what).toBe(false);
+      expect(dev.calls.sent, what).toHaveLength(1);
+      // …and the read that settles it still answers.
+      expect((await dev.call("simulator_elements", { simulatorId })).isError, what).toBe(false);
+    }
+  });
+
+  it("is not told about a step that never happened", async () => {
+    const heard: ActObservation[] = [];
+    const dev = device({ gate: { allowed: false, reason: "the user denied this action" }, observe: (o) => { heard.push(o); } });
+    const simulatorId = await dev.running();
+    await dev.call("simulator_tap", { simulatorId, intent: "tap", x: 10, y: 10 });
+    await dev.call("simulator_type", { simulatorId, intent: "type", text: "José" });
+    expect(heard).toEqual([]);
+  });
+});
+
+describe("input on Android", () => {
+  const AVD = "Realm_Pixel";
+  const DROID_TREE: SimulatorAxTree = {
+    screen: { width: 1080, height: 2400 }, units: "pixels", app: "com.android.settings",
+    elements: [{ path: "0.0", label: "Network & internet", value: "", role: "android.widget.TextView", id: null, enabled: true, frame: { x: 100, y: 200, width: 300, height: 100 }, depth: 1 }],
+  };
+
+  async function droid(serial = "emulator-5554", over: Parameters<typeof setup>[0] = {}) {
+    const adb: string[] = [];
+    let trees = 0;
+    const dev = setup({
+      ...over,
+      android: {
+        available: async () => true,
+        devices: async () => [{ udid: AVD, platform: "android", name: "Realm Pixel", runtime: "Android 16", state: "device", serial }],
+        serialFor: async () => serial, waitForBoot: async () => true,
+        size: async () => ({ width: 1080, height: 2400 }),
+        ax: async () => { trees++; return DROID_TREE; },
+        tap: async (_s, x, y, times) => { adb.push(`tap ${x},${y}×${times ?? 1}`); return { ok: true, detail: "" }; },
+        swipe: async (_s, a, b, c, d, ms) => { adb.push(`swipe ${a},${b}->${c},${d} ${ms}`); return { ok: true, detail: "" }; },
+        key: async (_s, k) => { adb.push(`key ${k}`); return { ok: true, detail: "" }; },
+        text: async (_s, t) => { adb.push(`text ${t}`); return { ok: true, detail: "" }; },
+      },
+    });
+    const { simulatorId } = dev.service.create({ spaceId: dev.spaceId, name: "Realm Pixel", udid: AVD });
+    dev.service.start(simulatorId, AVD, "android");
+    for (let i = 0; i < 400 && dev.service.stateOf(simulatorId).status !== "running"; i++) await new Promise((r) => setTimeout(r, 5));
+    return { ...dev, simulatorId, adb, trees: () => trees };
+  }
+
+  it("taps an element at the pixel the tree put its centre on", async () => {
+    const { call, simulatorId, adb } = await droid();
+    await call("simulator_elements", { simulatorId });
+    await call("simulator_tap", { simulatorId, intent: "open network settings", element: 1 });
+    expect(adb).toEqual(["tap 250,250×1"]);
+  });
+
+  it("takes a point in pixels, and spends no tree dump on one", async () => {
+    // A uiautomator dump costs seconds; a point on Android is already what adb takes.
+    const { call, simulatorId, adb, trees } = await droid();
+    await call("simulator_tap", { simulatorId, intent: "tap", x: 540, y: 1200 });
+    await call("simulator_long_press", { simulatorId, intent: "hold", x: 540, y: 1200, durationMs: 800 });
+    expect(adb).toEqual(["tap 540,1200×1", "swipe 540,1200->540,1200 800"]);
+    expect(trees()).toBe(0);
+    expect(text(await call("simulator_tap", { simulatorId, intent: "tap", x: 1080, y: 5 }))).toContain("1080×2400 pixels");
+  });
+
+  it("presses back, which Android has", async () => {
+    const { call, simulatorId, adb } = await droid();
+    expect((await call("simulator_press", { simulatorId, intent: "go back", key: "back" })).isError).toBe(false);
+    expect(adb).toEqual(["key KEYCODE_BACK"]);
+  });
+
+  it("skips the card under bypassPermissions for an emulator, and asks for a phone on a cable", async () => {
+    const emulator = await droid("emulator-5554", { broker: { mode: "bypassPermissions" } });
+    await emulator.call("simulator_tap", { simulatorId: emulator.simulatorId, intent: "tap", x: 10, y: 10 });
+    // THE MUTANT: prompt under bypass for every device — a bypass run testing an app stalls at its first tap.
+    expect(emulator.calls.gates).toEqual([]);
+
+    const phone = await droid("R5CT30XXXXX", { broker: { mode: "bypassPermissions" } });
+    await phone.call("simulator_tap", { simulatorId: phone.simulatorId, intent: "tap", x: 10, y: 10 });
+    await phone.call("simulator_tap", { simulatorId: phone.simulatorId, intent: "tap", x: 10, y: 10 });
+    // THE MUTANT: bypass for the phone too. Somebody's own phone is driven with no card at all.
+    expect(phone.calls.gates).toHaveLength(1);
+    expect(phone.calls.gates[0]!.title).toBe("Tap, swipe and type on Realm Pixel, a physical phone, for the rest of this session");
+    expect(phone.adb).toHaveLength(2);
+  });
+});
+
+describe("an iOS simulator under bypassPermissions", () => {
+  it("is driven without a card, as every other simulator tool is", async () => {
+    const dev = setup({ broker: { mode: "bypassPermissions" } });
+    const simulatorId = await dev.running();
+    await dev.call("simulator_tap", { simulatorId, intent: "tap", x: 10, y: 10 });
+    expect(dev.calls.gates).toEqual([]);
+    expect(dev.calls.sent).toHaveLength(1);
   });
 });
 
@@ -594,7 +1231,8 @@ describe("through the real gateway", () => {
     const { client, spaceId } = await boot();
     const names = (await client.listTools()).tools.map((t) => t.name).filter((n) => n.startsWith(`${SIMULATOR_PROVIDER_NAME}__`));
     expect(names).toContain("realm-simulator__simulator_open");
-    expect(names).toHaveLength(8);
+    expect(names).toContain("realm-simulator__simulator_tap");
+    expect(names).toHaveLength(14);
     const listed = (await client.callTool({ name: "realm-simulator__simulator_list", arguments: {} })) as CallToolResult;
     expect(text(listed)).toContain("UDID-OFF — iPhone 17 Pro");
 

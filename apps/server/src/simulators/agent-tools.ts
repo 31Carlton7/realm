@@ -1,19 +1,22 @@
 import { readFile } from "node:fs/promises";
 import { basename, isAbsolute } from "node:path";
 import { z } from "zod";
-import { fenceUntrusted, type Simulator, type SimulatorAxElement, type SimulatorDevice, type SimulatorState } from "@realm/contracts";
+import { fenceUntrusted, type Simulator, type SimulatorAxElement, type SimulatorAxTree, type SimulatorDevice, type SimulatorState } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
 import { clip, err, ok, parseArgs } from "../mcp/tool-result";
 import type { McpService } from "../mcp/service";
+import type { ActObservation, ActObserver, ObservedElement } from "../mcp/act-observer";
 import type { RpcServer } from "../rpc/server";
 import type { ItemsStore } from "../store/items";
-import type { BrowserPermissionBroker } from "../browsers/permissions";
+import type { BrowserPermissionBroker, GateResult } from "../browsers/permissions";
 import { ProbeCache } from "../sessions/probe-cache";
 import { SCREENSHOT_MAX_EDGE } from "../machines/driver";
 import { downscale, encodePng } from "../machines/framebuffer";
 import { decodePngToRgba, pngSize } from "../machines/qmp-driver";
+import { RpcError } from "../store/rows";
 import type { SimulatorService } from "./service";
+import { DEVICE_KEYS, inputRefusal, type DeviceInput, type DevicePoint } from "./device-input";
 
 export const SIMULATOR_PROVIDER_NAME = "realm-simulator";
 
@@ -29,17 +32,29 @@ export const SIMULATOR_PROVIDER_NAME = "realm-simulator";
  * already running rather than starting another, and puts the phone beside the session. These tools
  * are that pane, reachable from a tool call.
  *
- * ## What is here, and what is not
+ * ## What is here
  *
- * Everything is `SimulatorService` as it already stood — the pane's own calls. `simulator_open` is
- * `create` + `start`; the screenshot is `simctl io screenshot` (or adb's); the elements are the tree
- * behind the pane's Elements overlay; install, launch and open-url are three of `act`'s nine.
+ * Everything is `SimulatorService` — the pane's own calls. `simulator_open` is `create` + `start`; the
+ * screenshot is `simctl io screenshot` (or adb's); the elements are the tree behind the pane's
+ * Elements overlay; install, launch and open-url are three of `act`'s nine. The six input tools are
+ * `input`: an agent's touches and keys, down the same serve-sim socket the pane sends a person's, as
+ * the same frames — and on Android through `adb shell input`, which is where the pane's end up too.
  *
- * There is no tap and no typing, because the service has neither. The pane sends touches and keys
- * over serve-sim's websocket straight from the renderer, and nothing on the server speaks it. The
- * capabilities preamble says where an agent that needs a tap should go instead — serve-sim's own
- * `tap`/`type` against the device the pane is already streaming — rather than leaving it to start a
- * stream of its own to get one.
+ * ## Input: by element or by point, and always with an intent
+ *
+ * An element is named by the `[number]` `simulator_elements` printed for it. Every read numbers its
+ * elements afresh and no number is ever used twice for a session and device, so a number is only
+ * valid for the read that produced it — `realm-computer`'s rule for its snapshot indices — and one
+ * from an older list is refused as old rather than taken to mean whatever the newest list has there.
+ * MEASURED: with tree paths as the handle, a path from the list before last named a different
+ * element in the latest one, and tapped it. At the moment of acting the live tree is read, and the
+ * element at the number's place in the tree must still be the one the agent was shown — same role,
+ * label, id and size — or the step is refused with a sentence that says to read the elements again.
+ * The touch lands at the centre of the LIVE frame, so a list that scrolled a little since the read is
+ * not a miss. A point is in the units the elements are measured in: points on iOS, pixels on Android.
+ *
+ * Every input tool takes an `intent`: what the step is for, in the agent's own words. It is what the
+ * transcript's tool row and the permission card show for the step, and what the observer is told.
  *
  * ## The permission split
  *
@@ -50,6 +65,23 @@ export const SIMULATOR_PROVIDER_NAME = "realm-simulator";
  *     goes through the session's normal permission flow — the same broker the browser tools gate on,
  *     so bypassPermissions skips the card and Plan refuses. Nothing here reaches past what the agent's
  *     own shell could do with `xcrun simctl`; what the card is for is the device and the build.
+ *   - **Input** (tap, double tap, long press, swipe, type, press) asks ONCE per device per session:
+ *     the card names the device and says it is for the rest of the session, and either Allow keeps
+ *     it (`perSession`). It is keyed on the device the way `realm-computer` keys its card on the app,
+ *     so approving one phone approves no other. Plan and Ask refuse. bypassPermissions skips it for a
+ *     simulator or an emulator, as it does every other card here — the device is a sandbox in a pane
+ *     beside the session, and the agent's own shell reaches it anyway, through serve-sim's CLI or
+ *     `adb shell input`. It does not skip it for a physical Android phone on a cable
+ *     (`promptUnderBypass`): that is somebody's phone, with their accounts on it, and computer use's
+ *     reasoning holds there rather than the browser's.
+ *
+ * ## The observer
+ *
+ * `observe`, when there is one, hears about each input step after its card and before it acts: the
+ * tool, the intent, the elements as read, and what was chosen. It is never waited on, and one that
+ * throws changes nothing. The function it may hand back gets the next tree this session reads of the
+ * device — no step reads the screen again just to feed it, because a read at a guessed moment would
+ * report a transition half-drawn, and on Android a read costs seconds.
  *
  * On by default, on the terminal provider's reasoning: every harness has a shell that can already
  * run `simctl`, so this adds no reach — it adds the pane.
@@ -60,7 +92,7 @@ export const SIMULATOR_PROVIDER_NAME = "realm-simulator";
 export type SimulatorAgentToolsDeps = {
   mcp: Pick<McpService, "providerEnabled">;
   simulators: Pick<SimulatorService,
-    "devices" | "list" | "stateOf" | "create" | "start" | "ax" | "apps" | "act" | "capture" | "screenshot" | "streamedOn">;
+    "devices" | "list" | "stateOf" | "create" | "start" | "ax" | "apps" | "act" | "capture" | "screenshot" | "streamedOn" | "input">;
   items: Pick<ItemsStore, "findByRefId">;
   broker: Pick<BrowserPermissionBroker, "gate">;
   rpc: Pick<RpcServer, "broadcast">;
@@ -76,6 +108,8 @@ export type SimulatorAgentToolsDeps = {
   onOfferedChange?: () => void;
   /** How long `simulator_open` waits for the stream, and how often it looks. A test seam. */
   wait?: { timeoutMs: number; pollMs: number };
+  /** Told about every input step as it happens — see "The observer" above. None by default. */
+  observe?: ActObserver;
 };
 
 /** The provider, plus the question the browser tools ask of it before opening a URL. */
@@ -115,6 +149,7 @@ const IMAGE_MAX_BYTES = 3_500_000;
 
 export function createSimulatorAgentProvider(d: SimulatorAgentToolsDeps): SimulatorAgentProvider {
   const wait = d.wait ?? OPEN_WAIT;
+  const reads = new DeviceReads();
   /* Whether this Mac can run a simulator at all, probed once at construction and kept fresh after.
      `offered` has to answer synchronously — see `RealmToolProvider.offered` — so it reads `known`,
      the last answer; the probe runs at construction so that answer exists before the first session
@@ -153,7 +188,7 @@ export function createSimulatorAgentProvider(d: SimulatorAgentToolsDeps): Simula
       const handler = HANDLERS[tool];
       if (!handler) return err(`unknown tool "${tool}" — this provider has: ${TOOLS.map((t) => t.name).join(", ")}`);
       try {
-        return await handler({ d, ctx, wait }, args ?? {});
+        return await handler({ d, ctx, wait, reads }, args ?? {});
       } catch (e) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -186,6 +221,15 @@ export function loopbackPort(url: string): number | null {
 }
 
 /* ---------------------------------- tools ---------------------------------- */
+
+const SIMULATOR_ID = { type: "string", description: "from simulator_open or simulator_list" };
+const INTENT = { type: "string", description: 'what this step is for, in a few words — "open the Wi-Fi settings". The user sees it with the step.' };
+const POINT = {
+  type: "object",
+  properties: { x: { type: "number" }, y: { type: "number" } },
+  required: ["x", "y"],
+  additionalProperties: false,
+};
 
 const TOOLS: Tool[] = [
   {
@@ -222,7 +266,7 @@ const TOOLS: Tool[] = [
   {
     name: "simulator_elements",
     description:
-      "What is on a simulator's screen, by name: the foreground app's accessibility tree, one line per element with its role, the label and value the app gives it, its id when the app sets one, and its frame. Read this to find out what a screen says and to check that a step worked; a screenshot is for how it looks. Read-only.",
+      "What is on a simulator's screen, by name: the foreground app's accessibility tree, one line per element with the [number] the input tools take it by, its role, the label and value the app gives it, its id when the app sets one, and its frame. Read this to find out what a screen says and to check that a step worked; a screenshot is for how it looks. Read-only.",
     inputSchema: {
       type: "object",
       properties: { simulatorId: { type: "string", description: "from simulator_open or simulator_list" } },
@@ -280,7 +324,81 @@ const TOOLS: Tool[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "simulator_tap",
+    description:
+      "Tap a simulator's screen once: an element, by the [number] simulator_elements gave it, or a point. The element is looked up again on the live screen at the moment of the tap and tapped at the centre of its frame; if the screen has changed since you read it, nothing is tapped and you are told to read the elements again. Read simulator_elements afterwards to see what the tap did. Asks the user once per device per session.",
+    inputSchema: touchSchema({}),
+  },
+  {
+    name: "simulator_double_tap",
+    description: "Tap twice in quick succession — to zoom a map or a photo, or to select a word. Takes an element or a point, like simulator_tap. Asks the user once per device per session.",
+    inputSchema: touchSchema({}),
+  },
+  {
+    name: "simulator_long_press",
+    description: "Press and hold — for a context menu, a preview, or to pick up an icon. Takes an element or a point, like simulator_tap, and how long to hold. Asks the user once per device per session.",
+    inputSchema: touchSchema({ durationMs: { type: "number", description: "how long to hold, in milliseconds (default 1000)" } }),
+  },
+  {
+    name: "simulator_swipe",
+    description:
+      "Drag a finger across a simulator's screen — to scroll, to page, to swipe a row for its actions, or to move something. Give a direction, which swipes across the middle of the screen or across one element, or exact from and to points. A quick swipe (the default 300 ms) keeps scrolling after the finger lifts; a slow one of a second or more moves exactly as far as the finger did. Asks the user once per device per session.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        simulatorId: SIMULATOR_ID,
+        intent: INTENT,
+        direction: { type: "string", enum: ["up", "down", "left", "right"], description: "which way the finger moves: up scrolls toward the end of a list, left pages forward" },
+        element: { type: "number", description: "with a direction: swipe across this element, by its [number] from your latest simulator_elements, instead of across the screen" },
+        from: { ...POINT, description: "instead of a direction: where the finger goes down, in the units simulator_elements reports" },
+        to: { ...POINT, description: "where it lifts" },
+        durationMs: { type: "number", description: "how long the finger takes, in milliseconds (default 300)" },
+        holdMs: { type: "number", description: "hold still this long before moving, in milliseconds — how a list row or an icon is picked up to move it (default 0)" },
+      },
+      required: ["simulatorId", "intent"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "simulator_type",
+    description: "Type text into whatever has focus on a simulator — tap a text field first. The printable characters of a US keyboard only; a new line presses return. Asks the user once per device per session.",
+    inputSchema: {
+      type: "object",
+      properties: { simulatorId: SIMULATOR_ID, intent: INTENT, text: { type: "string", description: "what to type, up to 1,000 characters" } },
+      required: ["simulatorId", "intent", "text"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "simulator_press",
+    description:
+      "Press a hardware button or a key: home; lock, the side button, which locks the screen or wakes it; volume-up and volume-down; back, on Android only; and the keys return, delete, tab, escape, space, up, down, left and right, which go to whatever has focus. Asks the user once per device per session.",
+    inputSchema: {
+      type: "object",
+      properties: { simulatorId: SIMULATOR_ID, intent: INTENT, key: { type: "string", enum: [...DEVICE_KEYS] } },
+      required: ["simulatorId", "intent", "key"],
+      additionalProperties: false,
+    },
+  },
 ];
+
+/** The two tap-shaped tools' schema, and the long press's with its duration: an element OR a point. */
+function touchSchema(extra: Record<string, unknown>): Tool["inputSchema"] {
+  return {
+    type: "object",
+    properties: {
+      simulatorId: SIMULATOR_ID,
+      intent: INTENT,
+      element: { type: "number", description: "an element's [number] from your latest simulator_elements" },
+      x: { type: "number", description: "or a point: how far across, in the units simulator_elements reports — points on iOS, pixels on Android" },
+      y: { type: "number", description: "and how far down, from the top" },
+      ...extra,
+    },
+    required: ["simulatorId", "intent"],
+    additionalProperties: false,
+  };
+}
 
 const SimulatorIdArgs = z.object({ simulatorId: z.string().min(1) });
 const OpenArgs = z.object({ udid: z.string().min(1).max(128) });
@@ -289,9 +407,41 @@ const InstallArgs = SimulatorIdArgs.extend({ path: z.string().min(1) });
 const LaunchArgs = SimulatorIdArgs.extend({ bundleId: z.string().min(1).max(256) });
 const OpenUrlArgs = SimulatorIdArgs.extend({ url: z.string().min(1).max(4096) });
 
+const INTENT_MISSING = 'intent says in a few words what this step is for, such as "open the Wi-Fi settings"';
+const InputArgs = SimulatorIdArgs.extend({
+  intent: z.string({ required_error: INTENT_MISSING }).trim().min(1, INTENT_MISSING).max(200, "intent is a few words, not a paragraph — 200 characters at most"),
+});
+/** `12`, or `"12"` or `"[12]"` as the elements list prints it: an agent copies the brackets as often as not. */
+const ELEMENT_NUMBER = "an element is its [number] from simulator_elements, such as 12";
+const ElementNumber = z.preprocess((v) => (typeof v === "string" ? Number(v.trim().replace(/^\[(.*)\]$/, "$1")) : v),
+  z.number({ invalid_type_error: ELEMENT_NUMBER }).int(ELEMENT_NUMBER).positive(ELEMENT_NUMBER));
+const Coordinate = z.number().finite();
+const TouchFields = { element: ElementNumber.optional(), x: Coordinate.optional(), y: Coordinate.optional() };
+/** An element or a point, never both: a point beside an element is a second opinion about where to
+ *  touch, and there is no right one to pick. */
+const oneTarget = (a: { element?: number; x?: number; y?: number }): boolean =>
+  a.element !== undefined ? a.x === undefined && a.y === undefined : a.x !== undefined && a.y !== undefined;
+const ONE_TARGET = { message: "give an element, or a point as both x and y — one of the two", path: ["element"] };
+const TapArgs = InputArgs.extend(TouchFields).refine(oneTarget, ONE_TARGET);
+const LongPressArgs = InputArgs.extend({ ...TouchFields, durationMs: z.number().int().min(100).max(10_000).default(1_000) }).refine(oneTarget, ONE_TARGET);
+const PointArgs = z.object({ x: Coordinate, y: Coordinate });
+const SwipeArgs = InputArgs.extend({
+  direction: z.enum(["up", "down", "left", "right"]).optional(),
+  element: ElementNumber.optional(),
+  from: PointArgs.optional(),
+  to: PointArgs.optional(),
+  durationMs: z.number().int().min(50).max(5_000).default(300),
+  holdMs: z.number().int().min(0).max(5_000).default(0),
+}).refine((a) => (a.direction !== undefined ? a.from === undefined && a.to === undefined : a.from !== undefined && a.to !== undefined),
+  { message: "give a direction, or both from and to — one of the two", path: ["direction"] })
+  .refine((a) => a.element === undefined || a.direction !== undefined,
+    { message: "an element is swiped across in a direction; from and to are points of their own", path: ["element"] });
+const TypeArgs = InputArgs.extend({ text: z.string().min(1).max(1_000) });
+const PressArgs = InputArgs.extend({ key: z.enum(DEVICE_KEYS) });
+
 /* ---------------------------------- handlers ---------------------------------- */
 
-type Call = { d: SimulatorAgentToolsDeps; ctx: ProviderCallContext; wait: { timeoutMs: number; pollMs: number } };
+type Call = { d: SimulatorAgentToolsDeps; ctx: ProviderCallContext; wait: { timeoutMs: number; pollMs: number }; reads: DeviceReads };
 type Handler = (c: Call, args: unknown) => Promise<CallToolResult>;
 
 const NO_TOOLCHAIN =
@@ -414,15 +564,18 @@ const HANDLERS: Record<string, Handler> = {
     };
   },
 
-  simulator_elements: async ({ d, ctx }, raw) => {
+  simulator_elements: async ({ d, ctx, reads }, raw) => {
     const args = parseArgs(SimulatorIdArgs, raw); if ("error" in args) return args.error;
     const row = requireRunning(d, ctx, args.value.simulatorId); if ("error" in row) return row.error;
     const tree = await d.simulators.ax(row.value.id);
     const shown = tree.elements.slice(0, ELEMENTS_MAX);
+    // What this session was shown is what its element numbers mean from now on — see `DeviceReads`.
+    const first = reads.remember(ctx.sessionId, row.value.id, shown);
     const more = tree.elements.length > shown.length ? ` The first ${ELEMENTS_MAX} are listed.` : "";
-    const head = `${tree.elements.length} element(s) on ${clip(row.value.name, 60)}. Frames are "(x,y width×height)" in ${tree.units}, on a ${Math.round(tree.screen.width)}×${Math.round(tree.screen.height)} screen with the origin at the top-left.${more}`;
+    const head = `${tree.elements.length} element(s) on ${clip(row.value.name, 60)}. Frames are "(x,y width×height)" in ${tree.units}, on a ${Math.round(tree.screen.width)}×${Math.round(tree.screen.height)} screen with the origin at the top-left.${more}`
+      + " The input tools take an element by its [number] in this list — a later read numbers them again — or a point measured the same way.";
     // SpringBoard names itself nothing — the home screen's root arrives blank — so a blank is said as one.
-    const body = [`app: ${clip(tree.app.trim(), 80) || "(no name)"}`, ...shown.map(elementLine)].join("\n");
+    const body = [`app: ${clip(tree.app.trim(), 80) || "(no name)"}`, ...shown.map((el, i) => elementLine(el, first + i))].join("\n");
     return ok(`${head}\n${fenceUntrusted(body, "WHAT THE APP ON THE SIMULATOR REPORTS ABOUT ITS SCREEN")}`);
   },
 
@@ -464,6 +617,71 @@ const HANDLERS: Record<string, Handler> = {
     return r.ok
       ? ok(`Launched ${bundleId} on ${name}. simulator_elements shows what it has on screen.`)
       : err(`${clip(bundleId, 80)} did not launch on ${name}: ${clip(r.detail || "no reason given", 600)}`);
+  },
+
+  simulator_tap: async (c, raw) => {
+    const args = parseArgs(TapArgs, raw); if ("error" in args) return args.error;
+    return touch(c, "simulator_tap", args.value, (at) => ({ kind: "tap", at, count: 1 }), (target, name) => `Tapped ${target} on ${name}`);
+  },
+
+  simulator_double_tap: async (c, raw) => {
+    const args = parseArgs(TapArgs, raw); if ("error" in args) return args.error;
+    return touch(c, "simulator_double_tap", args.value, (at) => ({ kind: "tap", at, count: 2 }), (target, name) => `Double-tapped ${target} on ${name}`);
+  },
+
+  simulator_long_press: async (c, raw) => {
+    const args = parseArgs(LongPressArgs, raw); if ("error" in args) return args.error;
+    const ms = args.value.durationMs;
+    return touch(c, "simulator_long_press", args.value, (at) => ({ kind: "hold", at, ms }), (target, name) => `Pressed and held ${target} on ${name} for ${ms} ms`);
+  },
+
+  simulator_swipe: async (c, raw) => {
+    const args = parseArgs(SwipeArgs, raw); if ("error" in args) return args.error;
+    const a = args.value;
+    const row = requireRunning(c.d, c.ctx, a.simulatorId); if ("error" in row) return row.error;
+    const seen = a.element !== undefined ? recall(c, row.value, a.element) : null;
+    if (seen && "error" in seen) return seen.error;
+    const gate = await askToDrive(c, row.value, "simulator_swipe", a);
+    if (!gate.allowed) return err(gate.reason);
+
+    const name = clip(row.value.name, 60);
+    let path: { from: DevicePoint; to: DevicePoint; elements: readonly SimulatorAxElement[]; chosen: ActObservation["chosen"]; where: string };
+    if (a.direction && seen) {
+      const spot = await liveElement(c, row.value, seen.value, a.element!); if ("error" in spot) return spot.error;
+      // Across the part of the element that is on the screen: a list taller than the screen still
+      // scrolls from where the finger can actually go down.
+      const f = spot.live.frame, screen = spot.screen;
+      const left = Math.max(0, f.x), top = Math.max(0, f.y);
+      const box = { x: left, y: top, width: Math.min(screen.width, f.x + f.width) - left, height: Math.min(screen.height, f.y + f.height) - top };
+      const [from, to] = stroke(a.direction, box);
+      path = { from: normalize(from, screen), to: normalize(to, screen), elements: spot.elements, chosen: spot.chosen, where: `${a.direction} across ${spot.target} on ${name}` };
+    } else if (a.direction) {
+      const [from, to] = stroke(a.direction, { x: 0, y: 0, width: 1, height: 1 });
+      path = { from, to, elements: lastRead(c, row.value), chosen: null, where: `${a.direction} across the screen of ${name}` };
+    } else {
+      const screen = await screenOf(c, row.value); if ("error" in screen) return screen.error;
+      for (const p of [a.from!, a.to!]) {
+        if (!onScreen(p, screen.size)) return offScreen(row.value, p, screen.size);
+      }
+      path = { from: normalize(a.from!, screen.size), to: normalize(a.to!, screen.size), elements: screen.elements, chosen: null, where: `from ${at(a.from!)} to ${at(a.to!)} on ${name}` };
+    }
+    watch(c, row.value, "simulator_swipe", a.intent, path.elements, path.chosen);
+    const r = await c.d.simulators.input(row.value.id, { kind: "swipe", from: path.from, to: path.to, ms: a.durationMs, holdMs: a.holdMs });
+    const held = a.holdMs > 0 ? `, after holding still for ${a.holdMs} ms` : "";
+    return landed(row.value, r, `Swiped ${path.where} in ${a.durationMs} ms${held}.`);
+  },
+
+  simulator_type: async (c, raw) => {
+    const args = parseArgs(TypeArgs, raw); if ("error" in args) return args.error;
+    const { text } = args.value;
+    return keys(c, "simulator_type", args.value, { kind: "text", text },
+      (name) => `Typed ${[...text].length} character(s) on ${name}, into whatever had focus.`);
+  },
+
+  simulator_press: async (c, raw) => {
+    const args = parseArgs(PressArgs, raw); if ("error" in args) return args.error;
+    const { key } = args.value;
+    return keys(c, "simulator_press", args.value, { kind: "press", key }, (name) => `Pressed ${key} on ${name}.`);
   },
 
   simulator_open_url: async ({ d, ctx }, raw) => {
@@ -513,10 +731,283 @@ function requireRunning(d: SimulatorAgentToolsDeps, ctx: ProviderCallContext, si
   return { error: err(`${name} is not running in simulator pane ${row.id}${why}. ${again}`) };
 }
 
-/** One element as a line: the path it can be spoken about by, then what the app says it is. */
-function elementLine(el: SimulatorAxElement): string {
+/* ---------------------------------- input ---------------------------------- */
+
+/** Where a step's touch goes, found on the screen as it is now; what the observer hears of it; and
+ *  how the result names it — `[14]`, or a point — with where on the element it landed, if anywhere. */
+type Spot = { at: DevicePoint; elements: readonly SimulatorAxElement[]; chosen: ActObservation["chosen"]; target: string; landing: string };
+
+/**
+ * One tap-shaped step — tap, double tap, long press — which differ only in what they send.
+ *
+ * The order is the point. An element this session was never shown is refused before any card. The
+ * card comes next, and only then is the live screen read: a card can wait minutes for its answer,
+ * and the element is looked for on the screen as it is when the step runs, not as it was when the
+ * agent asked.
+ */
+async function touch(c: Call, tool: string, a: z.infer<typeof TapArgs>, input: (at: DevicePoint) => DeviceInput, said: (target: string, name: string) => string): Promise<CallToolResult> {
+  const row = requireRunning(c.d, c.ctx, a.simulatorId); if ("error" in row) return row.error;
+  const seen = a.element !== undefined ? recall(c, row.value, a.element) : null;
+  if (seen && "error" in seen) return seen.error;
+  const gate = await askToDrive(c, row.value, tool, a);
+  if (!gate.allowed) return err(gate.reason);
+  const spot = seen ? await liveElement(c, row.value, seen.value, a.element!) : await livePoint(c, row.value, { x: a.x!, y: a.y! });
+  if ("error" in spot) return spot.error;
+  watch(c, row.value, tool, a.intent, spot.elements, spot.chosen);
+  return landed(row.value, await c.d.simulators.input(row.value.id, input(spot.at)), `${said(spot.target, clip(row.value.name, 60))}${spot.landing}.`);
+}
+
+/** The steps that touch nothing — text and keys, which go to whatever has focus. */
+async function keys(c: Call, tool: string, a: z.infer<typeof InputArgs> & Record<string, unknown>, input: DeviceInput, said: (name: string) => string): Promise<CallToolResult> {
+  const row = requireRunning(c.d, c.ctx, a.simulatorId); if ("error" in row) return row.error;
+  // Before the card: text the device cannot type, or a button it does not have, is no step at all.
+  const refused = inputRefusal(input, row.value.platform); if (refused) return err(refused);
+  const gate = await askToDrive(c, row.value, tool, a);
+  if (!gate.allowed) return err(gate.reason);
+  watch(c, row.value, tool, a.intent, lastRead(c, row.value), null);
+  return landed(row.value, await c.d.simulators.input(row.value.id, input), said(clip(row.value.name, 60)));
+}
+
+/**
+ * The input card: ONE per device per session, not one per tap — see "The permission split" above.
+ *
+ * Titled with what Allow grants, the rest of the session on that device, because that is the
+ * decision being made; the step that raised it is on the card as its intent, which is the agent's
+ * own words and never the app's. Keyed on the udid, so it outlives the pane and covers a second pane
+ * on the same device, and covers no other device.
+ */
+function askToDrive(c: Call, row: Simulator, tool: string, args: z.infer<typeof InputArgs> & Record<string, unknown>): Promise<GateResult> {
+  // adb calls an emulator `emulator-<port>`; anything else it lists is hardware on a cable.
+  const physical = row.platform === "android" && !/^emulator-\d+$/.test(c.d.simulators.stateOf(row.id).serial ?? "");
+  const { simulatorId: _, intent, ...step } = args;
+  return c.d.broker.gate(
+    c.ctx.sessionId, `simulator_input:${row.udid ?? row.id}`,
+    `Tap, swipe and type on ${clip(row.name, 60)}${physical ? ", a physical phone," : ""} for the rest of this session`,
+    { intent, device: row.name, ...step }, tool,
+    { perSession: true, promptUnderBypass: physical },
+  );
+}
+
+/** The element a number names, as THIS session was shown it in its latest list — or why there is
+ *  none to look for. */
+function recall(c: Call, row: Simulator, n: number): { value: SimulatorAxElement } | { error: CallToolResult } {
+  const name = clip(row.name, 60);
+  const read = c.reads.read(c.ctx.sessionId, row.id);
+  if (!read) return { error: err(`read simulator_elements for ${name} first: an element is named by the [number] it lists.`) };
+  if (n < read.first) {
+    return { error: err(`[${n}] is from an earlier simulator_elements of ${name}, and only the latest list can be acted on — its numbers start at ${read.first}. Use one from it, or read the elements again.`) };
+  }
+  const seen = read.elements[n - read.first];
+  if (!seen) return { error: err(`there is no [${n}] in the simulator_elements you last read of ${name}. Read it again and use a [number] from that list.`) };
+  return { value: seen };
+}
+
+/**
+ * The element on the screen NOW. It has to be at the same place in the tree and be the same element
+ * — see `sameElement` — or the step is refused: a place is only a position in a tree, and after a
+ * screen changes the same position holds something else, which is the tap this refusal exists for.
+ */
+async function liveElement(c: Call, row: Simulator, seen: SimulatorAxElement, n: number): Promise<(Spot & { live: SimulatorAxElement; screen: SimulatorAxTree["screen"] }) | { error: CallToolResult }> {
+  const tree = await liveTree(c, row);
+  const elements = tree.elements.slice(0, ELEMENTS_MAX);
+  c.reads.settle(c.ctx.sessionId, row.id, elements);
+  const live = tree.elements.find((e) => e.path === seen.path);
+  if (!live || !sameElement(live, seen)) {
+    return { error: err(`the screen has changed since you read it: [${n}] is not the element you were shown any more, so nothing was sent. Read simulator_elements again and use a [number] from what it lists now.`) };
+  }
+  const centre = { x: live.frame.x + live.frame.width / 2, y: live.frame.y + live.frame.height / 2 };
+  if (!onScreen(centre, tree.screen)) {
+    return { error: err(`[${n}] is off the screen now — the centre of its frame is at ${at(centre)}, on a ${Math.round(tree.screen.width)}×${Math.round(tree.screen.height)} screen — so nothing was sent. Swipe it into view, then read simulator_elements again.`) };
+  }
+  return { at: normalize(centre, tree.screen), elements, chosen: { element: observed(live) }, target: `[${n}]`, landing: `, at the centre of its frame ${at(centre)}`, live, screen: tree.screen };
+}
+
+async function livePoint(c: Call, row: Simulator, p: { x: number; y: number }): Promise<Spot | { error: CallToolResult }> {
+  const screen = await screenOf(c, row); if ("error" in screen) return screen;
+  if (!onScreen(p, screen.size)) return { error: offScreen(row, p, screen.size) };
+  return { at: normalize(p, screen.size), elements: screen.elements, chosen: { point: { x: p.x, y: p.y } }, target: at(p), landing: "" };
+}
+
+/**
+ * The screen a point is measured against, in the units the elements are. On iOS that is a live
+ * tree's: points are nothing the device takes until they are divided by the screen's size in
+ * points, and only a tree states it — the stream reports pixels. On Android it is the size the
+ * device reported when it came up: pixels are what `adb shell input` takes anyway, and a tree dump
+ * there costs seconds for nothing.
+ */
+async function screenOf(c: Call, row: Simulator): Promise<{ size: { width: number; height: number }; elements: readonly SimulatorAxElement[] } | { error: CallToolResult }> {
+  if (row.platform === "android") {
+    const size = c.d.simulators.stateOf(row.id).screen;
+    if (!size) return { error: err(`${clip(row.name, 60)} has not reported its screen size yet, so nothing was sent. Try again in a few seconds.`) };
+    return { size, elements: lastRead(c, row) };
+  }
+  const tree = await liveTree(c, row);
+  const elements = tree.elements.slice(0, ELEMENTS_MAX);
+  c.reads.settle(c.ctx.sessionId, row.id, elements);
+  return { size: tree.screen, elements };
+}
+
+/** How often a step asks again for a tree the device said it does not have yet, and how far apart. */
+const LIVE_READ_ATTEMPTS = 3;
+const LIVE_READ_RETRY_MS = 400;
+
+/**
+ * The tree a step acts on. A read that lands while a screen is still arriving can get the device's
+ * "not yet" — MEASURED, on the read straight after a tap that pushed Settings ▸ General — and the
+ * moment after one step is exactly when the next one reads. So "not yet" is asked again, briefly, as
+ * the Android driver asks again for its own; anything else is the answer.
+ */
+async function liveTree(c: Call, row: Simulator): Promise<SimulatorAxTree> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await c.d.simulators.ax(row.id);
+    } catch (e) {
+      if (attempt >= LIVE_READ_ATTEMPTS || !(e instanceof RpcError && e.code === "UNAVAILABLE")) throw e;
+      await new Promise((r) => setTimeout(r, LIVE_READ_RETRY_MS));
+    }
+  }
+}
+
+/**
+ * The same element, as far as a tree can say: what it is, what it is called, the id its app gave
+ * it, and its size. Not its value — a switch flips and a field fills, and neither makes it another
+ * control. Not its position either, which is exactly what a scroll changes and what acting on the
+ * LIVE frame is for.
+ */
+const sameElement = (a: SimulatorAxElement, b: SimulatorAxElement): boolean =>
+  a.role === b.role && a.label === b.label && a.id === b.id
+  && Math.round(a.frame.width) === Math.round(b.frame.width) && Math.round(a.frame.height) === Math.round(b.frame.height);
+
+/** A swipe's two ends across a box, the way the finger moves: through its middle, over the middle
+ *  half of it — clear of the edges, where a swipe opens the system's panels instead. */
+function stroke(direction: "up" | "down" | "left" | "right", box: { x: number; y: number; width: number; height: number }): [{ x: number; y: number }, { x: number; y: number }] {
+  const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+  const near = (span: number, start: number) => start + span * 0.25, far = (span: number, start: number) => start + span * 0.75;
+  switch (direction) {
+    case "up": return [{ x: cx, y: far(box.height, box.y) }, { x: cx, y: near(box.height, box.y) }];
+    case "down": return [{ x: cx, y: near(box.height, box.y) }, { x: cx, y: far(box.height, box.y) }];
+    case "left": return [{ x: far(box.width, box.x), y: cy }, { x: near(box.width, box.x), y: cy }];
+    case "right": return [{ x: near(box.width, box.x), y: cy }, { x: far(box.width, box.x), y: cy }];
+  }
+}
+
+const normalize = (p: { x: number; y: number }, screen: { width: number; height: number }): DevicePoint => ({ x: p.x / screen.width, y: p.y / screen.height });
+const onScreen = (p: { x: number; y: number }, screen: { width: number; height: number }): boolean =>
+  p.x >= 0 && p.y >= 0 && p.x < screen.width && p.y < screen.height;
+const at = (p: { x: number; y: number }): string => `(${Math.round(p.x)},${Math.round(p.y)})`;
+const offScreen = (row: Simulator, p: { x: number; y: number }, screen: { width: number; height: number }): CallToolResult =>
+  err(`${at(p)} is off the screen of ${clip(row.name, 60)}, which is ${Math.round(screen.width)}×${Math.round(screen.height)} ${row.platform === "android" ? "pixels" : "points"} from the top-left, so nothing was sent.`);
+const lastRead = (c: Call, row: Simulator): readonly SimulatorAxElement[] => c.reads.read(c.ctx.sessionId, row.id)?.elements ?? [];
+
+/** A step's answer: what was sent — the tool cannot see whether the app took it, and says where to
+ *  look — or what the device said instead. */
+const landed = (row: Simulator, r: { ok: boolean; detail: string }, said: string): CallToolResult =>
+  r.ok ? ok(`${said} Read simulator_elements to see what it did.`) : err(`that did not reach ${clip(row.name, 60)}: ${clip(r.detail || "no reason given", 600)}`);
+
+/** One element as the observer sees it, never as pixels. Named by its path in the tree rather than
+ *  by the [number] the agent acts on: a path stays the same from one read to the next while the
+ *  screen does, so an observer can line a step's before up with its after. */
+const observed = (el: SimulatorAxElement): ObservedElement =>
+  ({ id: el.path, role: el.role, label: el.label, ...(el.value ? { value: el.value } : {}) });
+
+/** Tell the observer about a step, if there is one, and keep what it hands back for the next read. */
+function watch(c: Call, row: Simulator, tool: string, intent: string, elements: readonly SimulatorAxElement[], chosen: ActObservation["chosen"]): void {
+  const observe = c.d.observe;
+  if (!observe) return;
+  const after = quietly(() => observe({ surface: "simulator", spaceId: c.ctx.spaceId, sessionId: c.ctx.sessionId, tool, intent, elements: elements.map(observed), chosen }));
+  if (typeof after === "function") c.reads.owe(c.ctx.sessionId, row.id, after);
+}
+
+/**
+ * Run something an observer handed over. A throw is swallowed and a promise is never waited on —
+ * its rejection is caught here, so an observer written `async` cannot become the server's unhandled
+ * one. Either way the step it watched goes ahead as if nobody had been watching.
+ */
+function quietly<T>(fn: () => T): T | undefined {
+  try {
+    const out = fn();
+    if (out !== null && typeof out === "object" && typeof (out as { then?: unknown }).then === "function") {
+      (out as unknown as Promise<unknown>).catch(() => {});
+      return undefined;
+    }
+    return out;
+  } catch {
+    return undefined;
+  }
+}
+
+const MAX_REMEMBERED_READS = 256;
+
+/**
+ * What each session last read of each device, and what its last input step is still owed.
+ *
+ * The read is the agent's own view — the elements `simulator_elements` showed it — and it is what an
+ * element number means: `[14]` is "the General row I was shown", not whatever sits there now. It is
+ * never replaced by the tree a step reads to act, because the agent never saw that one. Numbers run
+ * on from one read to the next and are never reused, which is what lets `recall` tell a number from
+ * an older list from one that was never shown at all.
+ *
+ * `after` is the observer's second half: the function a step's observer handed back, waiting for
+ * the next tree this session reads of the device — its own `simulator_elements`, or the live read
+ * an element step makes — which is the screen as the step left it.
+ *
+ * Bounded by insertion order, like the computer tools' snapshot owners: a session that ended leaves
+ * its entries to age out rather than to grow the map for the life of the process.
+ */
+class DeviceReads {
+  private readonly byKey = new Map<string, ReadsEntry>();
+
+  read(sessionId: string, simulatorId: string): Read | null {
+    return this.byKey.get(readKey(sessionId, simulatorId))?.read ?? null;
+  }
+
+  /** Keep a read, and say the number its first element takes. */
+  remember(sessionId: string, simulatorId: string, elements: readonly SimulatorAxElement[]): number {
+    this.settle(sessionId, simulatorId, elements);
+    const k = readKey(sessionId, simulatorId);
+    const first = this.byKey.get(k)?.next ?? 1;
+    this.put(k, { read: { first, elements }, next: first + elements.length, after: null });
+    return first;
+  }
+
+  /** Hand the step still waiting for a read the one just made. */
+  settle(sessionId: string, simulatorId: string, elements: readonly SimulatorAxElement[]): void {
+    const entry = this.byKey.get(readKey(sessionId, simulatorId));
+    const after = entry?.after;
+    if (!entry || !after) return;
+    entry.after = null;
+    quietly(() => after(elements.map(observed)));
+  }
+
+  /** A newer step's promise replaces an older one's: only the latest step's screen is still coming. */
+  owe(sessionId: string, simulatorId: string, after: (after: readonly ObservedElement[]) => void): void {
+    const k = readKey(sessionId, simulatorId);
+    const entry = this.byKey.get(k);
+    this.put(k, { read: entry?.read ?? null, next: entry?.next ?? 1, after });
+  }
+
+  private put(k: string, entry: ReadsEntry): void {
+    this.byKey.delete(k);
+    this.byKey.set(k, entry);
+    while (this.byKey.size > MAX_REMEMBERED_READS) {
+      const oldest = this.byKey.keys().next();
+      if (oldest.done) break;
+      this.byKey.delete(oldest.value);
+    }
+  }
+}
+
+/** One list an agent was shown: its elements, numbered from `first`. */
+type Read = { first: number; elements: readonly SimulatorAxElement[] };
+type ReadsEntry = { read: Read | null; next: number; after: ((after: readonly ObservedElement[]) => void) | null };
+
+/** NUL is in neither id, so no two pairs of them can collide by concatenation. */
+const readKey = (sessionId: string, simulatorId: string): string => `${sessionId}\0${simulatorId}`;
+
+/** One element as a line: the number an input tool takes it by, then what the app says it is. */
+function elementLine(el: SimulatorAxElement, n: number): string {
   const r = Math.round;
-  return `[${el.path}] ${el.role}${el.label ? ` "${clip(el.label, 80)}"` : ""}${el.value ? ` value="${clip(el.value, 60)}"` : ""}`
+  return `[${n}] ${el.role}${el.label ? ` "${clip(el.label, 80)}"` : ""}${el.value ? ` value="${clip(el.value, 60)}"` : ""}`
     + `${el.id ? ` id=${clip(el.id, 80)}` : ""} (${r(el.frame.x)},${r(el.frame.y)} ${r(el.frame.width)}×${r(el.frame.height)})${el.enabled ? "" : " disabled"}`;
 }
 

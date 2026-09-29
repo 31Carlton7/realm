@@ -361,9 +361,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  machine. Production callers pass neither and get the process environment and real fetch. */
   cli?: { fetchImpl?: typeof fetch; env?: NodeJS.ProcessEnv; spawnImpl?: typeof import("node:child_process").spawn };
   /** The simulator service's CLI seams, for a suite whose simulator tools must reach a device list or
-   *  a stream without the developer's own Xcode. Production callers pass none and get the real
-   *  `xcrun simctl`, `serve-sim` and adb. */
-  simulator?: Pick<import("./simulators/service").SimulatorServiceDeps, "simctl" | "serveSim" | "android">;
+   *  a stream without the developer's own Xcode — and the input socket, so a tap in a suite is
+   *  recorded rather than sent to whatever serve-sim this Mac is running. Production callers pass
+   *  none and get the real `xcrun simctl`, `serve-sim`, adb and socket. */
+  simulator?: Pick<import("./simulators/service").SimulatorServiceDeps, "simctl" | "serveSim" | "android" | "inputChannel">;
   /** Whether this Mac can run a simulator — the answer behind the simulator tools, the preamble's
    *  paragraph about them and their settings row. `main.ts` passes the real probe
    *  (`toolchainAvailable`); left out, nothing is probed and the answer stays "not known", so a suite

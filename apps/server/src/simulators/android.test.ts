@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { chmodSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import {
-  androidBins, encodeInputText, firstUntypeable, parseAdbDevices, parseAvds,
+  android, androidBins, encodeInputText, firstUntypeable, parseAdbDevices, parseAvds,
   parseBounds, parsePackages, parseUiAutomator, parseWmSize, sdkRoot,
 } from "./android";
 
@@ -129,5 +132,54 @@ describe("input text, the trap", () => {
   it("passes plain ASCII through untouched", () => {
     expect(encodeInputText("")).toBe("");
     expect(encodeInputText("abcXYZ0189")).toBe("abcXYZ0189");
+  });
+});
+
+describe("input, as adb is actually run", () => {
+  /** An `adb` that writes down every command line it is given, and answers what the test tells it to. */
+  function fakeAdb() {
+    const dir = tempDir("realm-adb-");
+    const log = join(dir, "calls.log"), reply = join(dir, "reply"), code = join(dir, "code");
+    const bin = join(dir, "adb");
+    writeFileSync(bin, `#!/bin/sh\necho "$@" >> "${log}"\ncat "${reply}" 2>/dev/null\nexit $(cat "${code}" 2>/dev/null || echo 0)\n`);
+    chmodSync(bin, 0o755);
+    return {
+      droid: android({ REALM_ADB_BIN: bin }),
+      calls: () => readFileSync(log, "utf8").trim().split("\n"),
+      say: (text: string, exit = 0) => { writeFileSync(reply, text); writeFileSync(code, String(exit)); },
+    };
+  }
+
+  it("taps twice in ONE shell call — two round trips can outlast the gap a double tap allows", async () => {
+    const { droid, calls } = fakeAdb();
+    expect(await droid.tap("emulator-5554", 10.4, 20.6, 2)).toEqual({ ok: true, detail: "" });
+    await droid.tap("emulator-5554", 5, 6);
+    // THE MUTANT: two `adb shell` calls. Each is a process on the Mac and one on the device.
+    expect(calls()).toEqual(["-s emulator-5554 shell input tap 10 21 ; input tap 10 21", "-s emulator-5554 shell input tap 5 6"]);
+  });
+
+  it("holds before dragging with draganddrop, swipes with swipe, and presses keys as keyevents", async () => {
+    const { droid, calls } = fakeAdb();
+    await droid.drag("emulator-5554", 1, 2, 3, 4, 500);
+    await droid.swipe("emulator-5554", 1, 2, 3, 4, 300);
+    await droid.key("emulator-5554", "KEYCODE_BACK");
+    expect(calls()).toEqual([
+      "-s emulator-5554 shell input draganddrop 1 2 3 4 500",
+      "-s emulator-5554 shell input swipe 1 2 3 4 300",
+      "-s emulator-5554 shell input keyevent KEYCODE_BACK",
+    ]);
+  });
+
+  it("does not call a step done when input said it failed, whatever adb's exit code", async () => {
+    const { droid, say } = fakeAdb();
+    // An adb older than its v2 shell protocol exits 0 whatever the device did.
+    say("Error: Unknown command: draganddrop", 0);
+    const r = await droid.drag("emulator-5554", 1, 2, 3, 4, 500);
+    expect(r.ok).toBe(false);
+    expect(r.detail).toContain("Unknown command");
+    say("", 1);
+    const failed = await droid.key("emulator-5554", "KEYCODE_HOME");
+    expect(failed.ok).toBe(false);
+    expect(failed.detail).toContain("keyevent KEYCODE_HOME");
   });
 });
