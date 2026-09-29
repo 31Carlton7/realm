@@ -121,3 +121,52 @@ describe("parentInterrupted honours interruptOnCancel", () => {
     expect(interrupted).toEqual(["childA"]);
   });
 });
+
+describe("drain — a turn a person stopped is not a finish", () => {
+  const stoppedAt = (seq: number) => ev({ type: "status", ts: 0, payload: { status: "idle", interrupted: true } } as SessionEvent, seq);
+  const settle = (engine: DelegationEngine, r = run(), deadlineMs = 2000) =>
+    engine.drain("child", 0, r, Date.now() + deadlineMs, 1);
+
+  it("reports a stopped turn as stopped, carrying what the child had said by then", async () => {
+    // Stopping the child winds it down to idle WITH its partial text — exactly what a finish looks
+    // like — and the parent was told "Delegated agent finished." THE MUTANT: drop the stop check,
+    // or read it after the finish.
+    const { engine } = engineOver([[status("running", 1), said("partial: read two files", 2), stoppedAt(3)]]);
+    const settled = await settle(engine);
+    expect(settled.outcome).toBe("stopped");
+    expect(settled.finalText).toBe("partial: read two files");
+  });
+
+  it("settles a child stopped before its first word at once, rather than timing it out", async () => {
+    // Nothing said, so the finish rule never fires. THE MUTANT: demand a report before settling as
+    // stopped, and the wait runs out the whole budget and then reports a timeout — and interrupts a
+    // child that had already been stopped.
+    const { engine, interrupted } = engineOver([[status("running", 1), stoppedAt(2)], []]);
+    const settled = await settle(engine, run(), 80);
+    expect(settled.outcome).toBe("stopped");
+    expect(settled.finalText).toBeNull();
+    expect(interrupted).toEqual([]);
+  });
+
+  it("still reports the parent's own cancel as cancelled — it stops its child the same way", async () => {
+    // `parentInterrupted` interrupts the child, which winds down to the same stopped idle. THE
+    // MUTANT: read the stop before the cancel, and every cancelled run is misreported as the user
+    // stopping its child.
+    const { engine } = engineOver([[status("running", 1), said("partial", 2), stoppedAt(3)]]);
+    const settled = await settle(engine, { ...run(), cancelled: true });
+    expect(settled.outcome).toBe("interrupted");
+  });
+
+  it("judges a slice by how it ENDS — a finish is still a finish, whatever came before it", async () => {
+    // A stop the child was then sent past — a steered message — followed by a turn that finished.
+    // THE MUTANT: let the stop stick once seen, and a child that went on to finish is reported as
+    // stopped. (And the plain finish, with no stop anywhere, must not be touched at all.)
+    const steered = engineOver([[
+      status("running", 1), said("first", 2), stoppedAt(3),
+      status("running", 4), said("second, and final", 5), status("idle", 6),
+    ]]);
+    expect(await settle(steered.engine)).toMatchObject({ outcome: "done", finalText: "second, and final" });
+    const plain = engineOver([[status("running", 1), said("all done", 2), status("idle", 3)]]);
+    expect((await settle(plain.engine)).outcome).toBe("done");
+  });
+});

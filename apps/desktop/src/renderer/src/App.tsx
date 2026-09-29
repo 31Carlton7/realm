@@ -376,10 +376,10 @@ export function App() {
     // Same idiom as the browser and session openings: into the layout if this is the active space,
     // and quietly, so a guide an agent just wrote appears beside the session without stealing focus.
     const offDO = rpc().on("documents.openRequested", (p) => { const st = store.getState(); st.run(() => st.applyDocumentOpenRequested(p)); });
-    const offSA = rpc().on("session.agentOpened", ({ spaceId, itemId }) => {
-      const st = store.getState();
-      if (spaceId === st.activeSpaceId) st.run(async () => { await st.refreshItems(); await st.openItemBeside(itemId); });
-    });
+    const offSA = rpc().on("session.agentOpened", (p) => { const st = store.getState(); st.run(() => st.applyAgentOpened(p)); });
+    // The same child's run settled. The store decides whether the pane it opened goes: only a clean
+    // finish, only a pane that is still Realm's, and after a beat (`applyAgentSettled`).
+    const offSS = rpc().on("session.agentSettled", (p) => store.getState().applyAgentSettled(p));
     // W4's watching feed: settled actions into the pane chrome's ticker, in-flight acts onto the
     // driving dot. Applied for every space (like session.status) — the maps are cheap and a switch
     // back should find the ticker already truthful.
@@ -445,6 +445,9 @@ export function App() {
       st.run(() => st.probeAgents(true));
     });
     const offMS = rpc().on("mcp.serverStatus", (payload) => store.getState().applyMcpServerStatus(payload));
+    // Laya's status, whole: an install narrating its steps, the runtime coming up or going down, and
+    // the step count while agents work — all of it the Settings section's one state line.
+    const offLaya = rpc().on("laya.changed", (status) => store.getState().applyLaya(status));
     // Broadcast for EVERY space/session (binding rule 5) — applyMcpCall itself is the gate on whether
     // Activity is even open and whether the row matches its filter, same as mcp.serverStatus above.
     const offMC = rpc().on("mcp.call", (call) => store.getState().applyMcpCall(call));
@@ -460,7 +463,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offSc(); offI(); offV(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offMem(); offB(); offSO(); offDO(); offSA(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offMC(); offCO(); offCD(); offC();
+      offS(); offSc(); offI(); offV(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offMem(); offB(); offSO(); offDO(); offSA(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

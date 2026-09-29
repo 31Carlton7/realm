@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
-import { createAppStore, findEmptySiblingOf, hasLeafIn, patchKey, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_LAST_AGENT, type DropEdge } from "./store";
+import { createAppStore, findEmptySiblingOf, hasLeafIn, patchKey, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_FILES_VIEW, SETTING_LAST_AGENT, type DropEdge } from "./store";
 import { allItems, findLeafOfItem, firstLeaf, itemIdOfLeaf, MAX_ELEMENT_CHIPS, scanElementChips, sessionEvent, PAGE_REF_IDS, type BrowserPickedElement, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
 import { fakeApi, iconAsset, item, mcpServer, profile, session, skillRow, space, type FakeApi } from "./store.test-fakes";
 import { DEFAULT_GROUND_ALPHA } from "@realm/ui";
@@ -58,6 +58,20 @@ describe("app store", () => {
     const on = createAppStore({ ...api, getSetting: async (k) => (k === "ui.easterEggs" ? true : null) });
     await on.getState().boot();
     expect(on.getState().easterEggs).toBe(true);
+  });
+
+  it("the file browser is cards only when the stored row says exactly that", async () => {
+    // Rows are what the panel shipped as. An unset key, a failed parse, or a word a newer build wrote
+    // that this one does not know must all land there — THE MUTANT: `filesView !== "list"`, which
+    // turns every one of them into cards.
+    for (const junk of [null, "cards", true, { view: "grid" }]) {
+      const s = createAppStore({ ...api, getSetting: async (k) => (k === SETTING_FILES_VIEW ? junk : null) });
+      await s.getState().boot();
+      expect(s.getState().filesView, JSON.stringify(junk)).toBe("list");
+    }
+    const grid = createAppStore({ ...api, getSetting: async (k) => (k === SETTING_FILES_VIEW ? "grid" : null) });
+    await grid.getState().boot();
+    expect(grid.getState().filesView).toBe("grid");
   });
 
   it("boot reads the theme pref; garbage falls back to system", async () => {

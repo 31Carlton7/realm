@@ -104,6 +104,7 @@ function FileRow({ cwd, file }: { cwd: string; file: DiffFile }) {
 
 const REVIEW_OUTCOME_NOTE: Record<ReviewResult["outcome"], string | null> = {
   done: null,
+  stopped: "The reviewer was stopped before finishing — this is partial.",
   interrupted: "The reviewer was interrupted before finishing — this is partial.",
   timeout: "The reviewer ran out of time — this is partial.",
   failed: "The reviewer session failed before finishing — this is partial.",

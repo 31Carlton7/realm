@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { mediaUrl, type MediaFile } from "@realm/contracts";
 import { Markdown } from "../Markdown";
 import { Transcript } from "../Transcript";
 import { emptyTranscript } from "../transcript-model";
 import { GeneratingCanvas, MediaStrip, formatTime, genResolution, genWidthPx } from "./MediaView";
-import { resetMediaCache } from "./use-media";
+import { resetMediaCache, useMediaFiles } from "./use-media";
 
 /** What main would answer for a real file. */
 const file = (path: string, kind: MediaFile["kind"], size = 10_485_760): MediaFile => ({
@@ -268,5 +269,24 @@ describe("a message that points at files it made", () => {
     const { stat } = stubMedia([file("/Users/test/Desktop/mockups/versed-mockup-1-1403.mp4", "video")]);
     render(<Transcript transcript={transcript(REPORT, true)} sessionStatus="running" onDecide={() => {}} cwd="/work" />);
     expect(stat).not.toHaveBeenCalled();
+  });
+});
+
+describe("two readers of one path", () => {
+  it("are both told when the one ask comes back, and main is asked once", async () => {
+    /* A parent and a child reading the same path is exactly the case where one finds the other's ask
+       already in flight: children's effects run first, so it is always the PARENT. It used to skip
+       the path and never hear the answer — which is how the file browser's lightbox sat on its
+       fallback preview, the preview inside it having asked first. THE MUTANT: drop the in-flight
+       paths from what a reader waits on. */
+    const { stat } = stubMedia([file("/out/shot.png", "image")]);
+    function Reader({ id, children }: { id: string; children?: ReactNode }) {
+      const found = useMediaFiles(["/out/shot.png"]).length > 0;
+      return <div><span data-testid={id}>{found ? "found" : "waiting"}</span>{children}</div>;
+    }
+    render(<Reader id="parent"><Reader id="child" /></Reader>);
+    await waitFor(() => expect(screen.getByTestId("child")).toHaveTextContent("found"));
+    await waitFor(() => expect(screen.getByTestId("parent")).toHaveTextContent("found"));
+    expect(stat).toHaveBeenCalledTimes(1);
   });
 });
