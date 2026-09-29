@@ -86,7 +86,9 @@ const STOP = new Set([
   "any", "so", "her", "his", "him", "she", "he", "they", "them", "their", "our", "we", "you", "up", "out", "off", "about", "only",
 ]);
 
-function wordsOf(s: string): string[] {
+/** A phrase's words that carry its meaning: lowercased, split on anything that is not a letter or digit,
+ *  one-letter words and `STOP` words dropped. */
+export function contentWords(s: string): string[] {
   return s.normalize("NFKC").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 1 && !STOP.has(w));
 }
 
@@ -105,8 +107,8 @@ function sameWord(a: string, b: string): boolean {
 
 /** Whether an intent repeats a word of a label (see `TargetBenchCase.copies`). */
 export function labelCopies(intent: string, label: string): boolean {
-  const have = wordsOf(label);
-  return wordsOf(intent).some((w) => have.some((h) => sameWord(w, h)));
+  const have = contentWords(label);
+  return contentWords(intent).some((w) => have.some((h) => sameWord(w, h)));
 }
 
 /** A case's split: its app's, when the app is held out or kept for validation whole; otherwise a

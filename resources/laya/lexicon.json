@@ -1,0 +1,1371 @@
+{
+ "version": 1,
+ "labels": {
+  "Back": [
+   "return to the previous screen",
+   "go back one level",
+   "previous page",
+   "leave this screen"
+  ],
+  "Cancel": [
+   "never mind",
+   "abandon this",
+   "stop without saving",
+   "back out"
+  ],
+  "Done": [
+   "finish up",
+   "I'm finished here",
+   "confirm and close",
+   "wrap this up"
+  ],
+  "Close": [
+   "dismiss this",
+   "shut this panel",
+   "get rid of this popup",
+   "hide this card"
+  ],
+  "close": [
+   "dismiss this sheet",
+   "shut this panel",
+   "exit this view"
+  ],
+  "Edit": [
+   "change these items",
+   "rearrange or modify",
+   "make changes here"
+  ],
+  "Search": [
+   "look something up",
+   "find by typing",
+   "search this app",
+   "Spotlight preferences",
+   "what shows when I swipe down to search"
+  ],
+  "Share": [
+   "send this to someone",
+   "export it",
+   "pass it along to a friend"
+  ],
+  "More": [
+   "additional options",
+   "the overflow menu",
+   "other actions"
+  ],
+  "Add": [
+   "create a new one",
+   "plus button",
+   "make another"
+  ],
+  "add": [
+   "create another",
+   "the plus button",
+   "insert a new one"
+  ],
+  "Continue": [
+   "proceed",
+   "go on to the next step",
+   "keep going"
+  ],
+  "OK": [
+   "acknowledge this",
+   "got it",
+   "accept the message"
+  ],
+  "Not Now": [
+   "maybe later",
+   "skip for now",
+   "decline this suggestion"
+  ],
+  "Select": [
+   "choose several at once",
+   "pick multiple items",
+   "enter selection mode"
+  ],
+  "Dictate": [
+   "speak instead of typing",
+   "voice typing",
+   "talk to enter text"
+  ],
+  "Delete": [
+   "trash it",
+   "remove it permanently",
+   "erase this"
+  ],
+  "Save": [
+   "keep these changes",
+   "store it",
+   "commit this entry"
+  ],
+  "Allow": [
+   "grant permission",
+   "say yes to the request",
+   "permit it"
+  ],
+  "Don’t Allow": [
+   "refuse permission",
+   "say no to the request",
+   "deny it"
+  ],
+  "Allow Once": [
+   "grant it just this time",
+   "a one-time permission"
+  ],
+  "Allow While Using App": [
+   "permit it only when the app is open",
+   "grant access while I'm using it"
+  ],
+  "Clear text": [
+   "empty the field",
+   "wipe what I entered",
+   "start the query over"
+  ],
+  "Learn More": [
+   "read more about this",
+   "get the details",
+   "more information"
+  ],
+  "Turn On": [
+   "enable this feature",
+   "switch it on",
+   "activate it"
+  ],
+  "Dismiss context menu": [
+   "close this menu",
+   "tap away from the menu"
+  ],
+  "Details": [
+   "more information about each",
+   "the detailed view"
+  ],
+  "Options": [
+   "extra settings for this",
+   "customize the choices"
+  ],
+  "Library": [
+   "my collection",
+   "all my saved items"
+  ],
+  "Collections": [
+   "grouped albums",
+   "curated sets"
+  ],
+  "Browse": [
+   "look through the folders",
+   "explore everything available"
+  ],
+  "Recents": [
+   "things I opened lately",
+   "recently used items"
+  ],
+  "Shared": [
+   "things others sent me",
+   "items people shared with me"
+  ],
+  "Favorites": [
+   "things I starred",
+   "my top picks"
+  ],
+  "Info": [
+   "the details panel",
+   "metadata about it"
+  ],
+  "Notifications": [
+   "alert preferences",
+   "push messages settings"
+  ],
+  "Maps": [
+   "navigation and directions",
+   "find a route somewhere",
+   "the GPS app"
+  ],
+  "Calendar": [
+   "my appointments",
+   "schedule and events",
+   "upcoming meetings"
+  ],
+  "Photos": [
+   "my picture library",
+   "gallery of images",
+   "vacation snapshots"
+  ],
+  "News": [
+   "current events",
+   "stories and articles",
+   "today's journalism"
+  ],
+  "Health": [
+   "my medical data",
+   "fitness and vitals records",
+   "wellness tracking"
+  ],
+  "Wallet": [
+   "my cards and passes",
+   "tap to pay",
+   "concert tickets and loyalty cards"
+  ],
+  "Siri": [
+   "the voice assistant",
+   "talk to my phone",
+   "ask a spoken question"
+  ],
+  "Settings": [
+   "system preferences",
+   "configure the phone",
+   "change how my phone works"
+  ],
+  "Safari": [
+   "the internet browser",
+   "surf the internet",
+   "load a web page"
+  ],
+  "Messages": [
+   "send a text message",
+   "iMessage conversations",
+   "my chats"
+  ],
+  "General": [
+   "update iOS",
+   "device language and region",
+   "check phone model",
+   "storage and reset options"
+  ],
+  "Accessibility": [
+   "assistive features",
+   "settings for low vision",
+   "hearing aid options",
+   "help for motor impairments"
+  ],
+  "Action Button": [
+   "the programmable side key",
+   "what the extra hardware button does",
+   "configure the shortcut key on the side"
+  ],
+  "Appearance": [
+   "light and dark theme",
+   "system look and feel",
+   "bold fonts and display zoom"
+  ],
+  "Camera": [
+   "video resolution and frame rate",
+   "photo capture options",
+   "shooting settings",
+   "take a photo"
+  ],
+  "Home Screen & App Library": [
+   "where downloaded apps land",
+   "app icon layout options",
+   "badges on the app drawer"
+  ],
+  "StandBy": [
+   "bedside clock when charging sideways",
+   "nightstand display",
+   "the charging dock view"
+  ],
+  "Screen Time": [
+   "usage limits",
+   "app time tracking",
+   "downtime and content restrictions",
+   "restrict my child's phone"
+  ],
+  "Passcode": [
+   "unlock PIN",
+   "change the lock screen code",
+   "biometric unlock settings"
+  ],
+  "Privacy & Security": [
+   "app permissions",
+   "who can access my location and camera",
+   "tracking and data protections"
+  ],
+  "Game Center": [
+   "gaming account",
+   "achievements and leaderboards",
+   "play with friends online"
+  ],
+  "iCloud": [
+   "cloud backup",
+   "sync photos to the cloud",
+   "online storage plan"
+  ],
+  "Apps": [
+   "settings for each installed app",
+   "per-application preferences",
+   "default apps and app options"
+  ],
+  "Developer": [
+   "testing tools for app makers",
+   "debug options",
+   "engineering switches"
+  ],
+  "Apple Account, Sign in to access your iCloud data, the App Store, Apple services, and more.": [
+   "log in to my Apple ID",
+   "account sign-in",
+   "use my Apple credentials"
+  ],
+  "VoiceOver": [
+   "spoken screen reader",
+   "make the phone read everything aloud",
+   "blind navigation mode"
+  ],
+  "Hover Text": [
+   "enlarge text under the cursor",
+   "big preview of hovered text"
+  ],
+  "Display & Text Size": [
+   "invert the screen colors",
+   "reduce white point",
+   "color filters",
+   "increase contrast"
+  ],
+  "Motion": [
+   "reduce animations",
+   "stop the zooming effects",
+   "limit screen movement"
+  ],
+  "Spoken Content": [
+   "read selected text out loud",
+   "speak screen contents",
+   "text to speech"
+  ],
+  "Face ID & Attention": [
+   "attention aware features",
+   "require eye contact to unlock"
+  ],
+  "Control Nearby Devices": [
+   "use this phone to operate my other device",
+   "remote control for my iPad"
+  ],
+  "Subtitles & Captioning": [
+   "closed caption style",
+   "subtitles for the deaf"
+  ],
+  "Live Speech": [
+   "type and have it spoken aloud",
+   "text to voice during calls"
+  ],
+  "Keyboards & Typing": [
+   "physical keyboard accessibility",
+   "key repeat and sticky keys"
+  ],
+  "9:41, Light": [
+   "the light theme",
+   "white interface",
+   "daytime look"
+  ],
+  "9:41, Dark": [
+   "the dark theme",
+   "black interface",
+   "night mode look"
+  ],
+  "Automatic": [
+   "switch appearance on a schedule",
+   "theme follows sunrise and sunset"
+  ],
+  "Liquid Glass": [
+   "glass transparency style",
+   "tinted or clear menus"
+  ],
+  "Text Size": [
+   "font size slider",
+   "make letters larger",
+   "shrink the text"
+  ],
+  "Bold Text": [
+   "heavier typeface",
+   "thicker fonts everywhere"
+  ],
+  "Display Zoom": [
+   "larger interface elements",
+   "zoomed display mode"
+  ],
+  "Reduce Motion": [
+   "fewer transitions",
+   "calmer animations"
+  ],
+  "Larger Text": [
+   "bigger layout mode",
+   "enlarged interface"
+  ],
+  "Tint Amount": [
+   "how tinted the glass is",
+   "opacity of the glass"
+  ],
+  "Default Apps": [
+   "pick my default browser",
+   "which email app opens links",
+   "default navigation app"
+  ],
+  "Contacts": [
+   "address book settings",
+   "people app preferences"
+  ],
+  "Files": [
+   "document app options",
+   "file browser settings"
+  ],
+  "Fitness": [
+   "workout app settings",
+   "activity rings app options"
+  ],
+  "Passwords": [
+   "saved logins app settings",
+   "credential manager options"
+  ],
+  "Preview": [
+   "PDF and image viewer options",
+   "document viewer app"
+  ],
+  "Remote": [
+   "TV remote app settings",
+   "Apple TV controller app"
+  ],
+  "Shortcuts": [
+   "automations app settings",
+   "workflow app options"
+  ],
+  "Reminders": [
+   "to-do list app",
+   "task app settings"
+  ],
+  "About": [
+   "device serial and model",
+   "software version info",
+   "capacity and available space"
+  ],
+  "Screen Capture": [
+   "screenshot options",
+   "full-screen screenshot preview"
+  ],
+  "AutoFill & Passwords": [
+   "automatically fill saved logins",
+   "password autofill provider"
+  ],
+  "Dictionary": [
+   "word definition sources",
+   "lookup dictionaries"
+  ],
+  "Fonts": [
+   "manage typefaces",
+   "installed font families"
+  ],
+  "Keyboard": [
+   "typing preferences",
+   "autocorrect and keyboards",
+   "text replacement and emoji keyboard"
+  ],
+  "Language & Region": [
+   "change system language",
+   "region format and units",
+   "switch to Spanish"
+  ],
+  "VPN & Device Management": [
+   "configuration profiles",
+   "work device management",
+   "virtual private network setup"
+  ],
+  "Certificate Trust Settings": [
+   "trust installed root certificates"
+  ],
+  "iOS Version": [
+   "software build number",
+   "which iOS release"
+  ],
+  "Keyboards": [
+   "installed keyboard languages",
+   "add or remove keyboards"
+  ],
+  "Text Replacement": [
+   "typing shortcuts that expand",
+   "auto-expand abbreviations"
+  ],
+  "One-Handed Keyboard": [
+   "shift keyboard to one side",
+   "compact keys for one thumb"
+  ],
+  "Character Preview": [
+   "show a bubble when I press a key"
+  ],
+  "Haptic Feedback": [
+   "vibrate on each keystroke",
+   "tactile key taps"
+  ],
+  "Sound": [
+   "keyboard click sounds",
+   "typing noise"
+  ],
+  "Auto-Capitalization": [
+   "capitalize the first letter automatically",
+   "automatic capital letters"
+  ],
+  "Auto-Correction": [
+   "fix typos automatically",
+   "spell correction while typing"
+  ],
+  "Predictive Text": [
+   "word suggestions above the keyboard",
+   "next word predictions"
+  ],
+  "Show Predictions Inline": [
+   "inline autocomplete while typing"
+  ],
+  "Show Math Results": [
+   "solve equations as I type"
+  ],
+  "Check Spelling and Grammar": [
+   "spell check underline",
+   "grammar checking"
+  ],
+  "Enable Caps Lock": [
+   "all caps by double tapping shift"
+  ],
+  "Smart Punctuation": [
+   "curly quotes and em dashes automatically"
+  ],
+  "Add New Keyboard": [
+   "install another keyboard language",
+   "add a French keyboard"
+  ],
+  "Hardware Keyboard": [
+   "external keyboard options",
+   "Bluetooth keyboard settings"
+  ],
+  "Temperature": [
+   "Fahrenheit or Celsius",
+   "degree units"
+  ],
+  "Measurement System": [
+   "metric or imperial",
+   "miles versus kilometers"
+  ],
+  "Region": [
+   "my country setting",
+   "regional format country"
+  ],
+  "Add Language…": [
+   "another preferred language",
+   "add German to my languages"
+  ],
+  "Number Format": [
+   "decimal and thousands separator"
+  ],
+  "First Day of Week": [
+   "week starts on",
+   "make weeks begin on Monday"
+  ],
+  "Date Format": [
+   "how dates are written",
+   "day month year order"
+  ],
+  "Calendar, Gregorian": [
+   "calendar system",
+   "switch to the lunar calendar"
+  ],
+  "Live Text": [
+   "select text inside photos",
+   "copy words from images"
+  ],
+  "Photographic Styles": [
+   "tone and warmth presets for photos"
+  ],
+  "Record Video": [
+   "video quality",
+   "4K recording",
+   "frames per second for video"
+  ],
+  "Record Slo-mo": [
+   "slow-motion quality",
+   "high frame rate capture"
+  ],
+  "Record Sound": [
+   "audio recording format for videos",
+   "stereo or spatial sound"
+  ],
+  "Formats": [
+   "HEIF versus most compatible",
+   "RAW capture format"
+  ],
+  "Preserve Settings": [
+   "keep my last camera mode",
+   "remember filters and modes"
+  ],
+  "Grid": [
+   "composition lines",
+   "thirds overlay in the viewfinder"
+  ],
+  "Level": [
+   "horizon level indicator",
+   "tilt guide"
+  ],
+  "Mirror Front Camera": [
+   "flip front-facing photos",
+   "selfie mirroring"
+  ],
+  "View Outside the Frame": [
+   "show area beyond the frame"
+  ],
+  "Main Camera": [
+   "default lens focal length",
+   "24mm or 28mm"
+  ],
+  "Location Services": [
+   "GPS access for apps",
+   "location permissions"
+  ],
+  "Tracking": [
+   "cross-app ad tracking requests",
+   "ask apps not to track"
+  ],
+  "Calendars": [
+   "event access for apps",
+   "which apps read my schedule",
+   "which calendars are visible",
+   "calendar list"
+  ],
+  "Focus": [
+   "focus status sharing with apps"
+  ],
+  "Home": [
+   "smart home data access",
+   "HomeKit permissions",
+   "TV home screen"
+  ],
+  "Media & Apple Music": [
+   "music library access",
+   "apps reading my songs"
+  ],
+  "Bluetooth": [
+   "wireless accessory access",
+   "apps connecting to nearby gadgets"
+  ],
+  "Critical Messages": [
+   "emergency alert access"
+  ],
+  "Local Network": [
+   "home network device discovery"
+  ],
+  "Microphone": [
+   "audio recording permission",
+   "apps that can hear me"
+  ],
+  "Motion & Fitness": [
+   "step sensor access",
+   "activity data permission"
+  ],
+  "Nearby Interactions": [
+   "ultra wideband precision access"
+  ],
+  "Paired Devices": [
+   "accessories paired with apps"
+  ],
+  "Research Sensor & Usage Data": [
+   "study data collection"
+  ],
+  "Speech Recognition": [
+   "voice transcription permission"
+  ],
+  "Blocked Contacts": [
+   "people I blocked",
+   "stop someone from calling me"
+  ],
+  "Safety Check": [
+   "emergency reset of sharing",
+   "review who has access to me"
+  ],
+  "Sensitive Content Warning": [
+   "blur explicit images"
+  ],
+  "Analytics & Improvements": [
+   "diagnostics sharing",
+   "crash reports to Apple"
+  ],
+  "Apple Advertising": [
+   "personalized ads in Apple apps"
+  ],
+  "Location Alerts": [
+   "arrival based alerts"
+  ],
+  "Share My Location": [
+   "let my family find me",
+   "location sharing with friends"
+  ],
+  "System Services": [
+   "location use by the system"
+  ],
+  "App Clips": [
+   "mini apps from QR codes"
+  ],
+  "Allow Apps to Request to Track": [
+   "let apps ask to follow me"
+  ],
+  "Apps & Websites": [
+   "limit adult content on the web",
+   "website restrictions"
+  ],
+  "Allowed Contacts": [
+   "who my child can talk to"
+  ],
+  "Always Allowed": [
+   "apps exempt from limits"
+  ],
+  "Screen Time Schedule": [
+   "downtime hours",
+   "bedtime lockout"
+  ],
+  "Time Allowances": [
+   "daily time budget per category",
+   "limit games to an hour"
+  ],
+  "Content & Privacy Restrictions": [
+   "block app store purchases",
+   "restrict explicit content"
+  ],
+  "Communication Safety": [
+   "nudity warnings for kids"
+  ],
+  "Search Engine": [
+   "default search provider",
+   "use DuckDuckGo",
+   "switch to Ecosia"
+  ],
+  "Default Browser App": [
+   "which browser opens links"
+  ],
+  "Search Engine Suggestions": [
+   "suggestions from the search provider"
+  ],
+  "Safari Suggestions": [
+   "suggested sites while typing"
+  ],
+  "Show Recent Searches": [
+   "previous queries list"
+  ],
+  "Quick Website Search": [
+   "search inside a site from the address bar"
+  ],
+  "Preload Top Hit": [
+   "start loading the best match early"
+  ],
+  "AutoFill": [
+   "fill forms automatically",
+   "contact info on web forms"
+  ],
+  "Start Page Favorites": [
+   "sites on the new tab page"
+  ],
+  "Block Pop-ups": [
+   "stop popup windows",
+   "prevent new windows opening"
+  ],
+  "Extensions": [
+   "browser add-ons",
+   "ad blockers and plugins"
+  ],
+  "Downloads": [
+   "where files download to"
+  ],
+  "Bottom": [
+   "tab bar at the bottom"
+  ],
+  "Top": [
+   "address bar at the top"
+  ],
+  "Compact": [
+   "compact tab layout"
+  ],
+  "Landscape Tab Bar": [
+   "tabs shown sideways"
+  ],
+  "Allow Website Tinting": [
+   "color the toolbar to match sites"
+  ],
+  "Open Links": [
+   "new tab in background or foreground"
+  ],
+  "Close Tabs": [
+   "automatically close old tabs"
+  ],
+  "New Profile": [
+   "separate browser profile",
+   "work profile for browsing"
+  ],
+  "Prevent Cross-Site Tracking": [
+   "block third-party trackers"
+  ],
+  "Hide IP Address": [
+   "mask my address from trackers"
+  ],
+  "Require Passcode to Unlock Private Browsing": [
+   "lock private tabs"
+  ],
+  "Fraudulent Website Warning": [
+   "phishing protection",
+   "warn about fake sites"
+  ],
+  "Not Secure Connection Warning": [
+   "warn about http pages"
+  ],
+  "Highlights in Reader": [
+   "highlights while reading"
+  ],
+  "Import": [
+   "bring in data from another browser"
+  ],
+  "Export": [
+   "save my browsing data to a file"
+  ],
+  "Clear History and Website Data": [
+   "erase browsing data",
+   "remove all cookies"
+  ],
+  "Reader": [
+   "reader mode for sites"
+  ],
+  "Automatically Save Offline": [
+   "download reading list items"
+  ],
+  "Advanced": [
+   "developer and experimental web features",
+   "web inspector"
+  ],
+  "Clear History": [
+   "wipe the history now"
+  ],
+  "Close All Tabs": [
+   "shut every open tab"
+  ],
+  "Last hour": [
+   "the past hour only"
+  ],
+  "All history": [
+   "every page ever visited"
+  ],
+  "Today": [
+   "this day only"
+  ],
+  "Language": [
+   "which language the assistant speaks"
+  ],
+  "Voice": [
+   "assistant voice accent",
+   "male or female assistant voice"
+  ],
+  "Responses": [
+   "spoken or written answers"
+  ],
+  "Your Information": [
+   "my contact card for the assistant"
+  ],
+  "ChatGPT": [
+   "the OpenAI extension",
+   "AI chatbot integration"
+  ],
+  "Automatic Visual Look Up": [
+   "identify objects in screenshots"
+  ],
+  "App Access": [
+   "apps the assistant can use"
+  ],
+  "Display": [
+   "always-on at night",
+   "StandBy screen options"
+  ],
+  "Show Notifications": [
+   "alerts in StandBy"
+  ],
+  "Show Preview on Tap Only": [
+   "hide notification previews until tapped"
+  ],
+  "Add to Home Screen": [
+   "new apps appear on my pages"
+  ],
+  "App Library Only": [
+   "new apps go to the library only"
+  ],
+  "Show in App Library": [
+   "badges in the app library"
+  ],
+  "Show on Home Screen": [
+   "search pill on the home screen"
+  ],
+  "Show Related Content": [
+   "related results when searching"
+  ],
+  "Suggest Apps": [
+   "app suggestions in search"
+  ],
+  "Suggest App Shortcuts": [
+   "shortcut suggestions in search"
+  ],
+  "Help Apple Improve Search": [
+   "send search data to Apple"
+  ],
+  "AutoFill Passwords and Passkeys": [
+   "fill logins automatically"
+  ],
+  "Suggest Strong Passwords": [
+   "generate strong passwords"
+  ],
+  "Delete After Use": [
+   "clean up used verification codes"
+  ],
+  "Set Up Codes In": [
+   "which app stores two-factor codes"
+  ],
+  "Full-Screen Previews": [
+   "show screenshot in full view"
+  ],
+  "Use Another Apple Device": [
+   "sign in with a nearby device"
+  ],
+  "Sign in Manually": [
+   "type my email and password"
+  ],
+  "Don’t have an Apple Account?": [
+   "make a new Apple ID"
+  ],
+  "Forgot your password?": [
+   "reset a lost password",
+   "recover my account"
+  ],
+  "Sign in a Child in My Family": [
+   "account for my kid"
+  ],
+  "Page Menu": [
+   "page tools",
+   "options for this web page"
+  ],
+  "Tabs": [
+   "all open pages",
+   "tab switcher"
+  ],
+  "refresh": [
+   "reload this page",
+   "load it again"
+  ],
+  "Address": [
+   "the URL bar",
+   "type a web address",
+   "search from the address bar"
+  ],
+  "Voice Search": [
+   "search by speaking"
+  ],
+  "Translate to English": [
+   "translate this page"
+  ],
+  "Add to Bookmarks": [
+   "bookmark this page"
+  ],
+  "Add Bookmark to…": [
+   "bookmark into a specific folder"
+  ],
+  "Find on Page": [
+   "find text in this page",
+   "locate a word here"
+  ],
+  "Page Zoom": [
+   "zoom the page",
+   "enlarge this website"
+  ],
+  "Notify Me": [
+   "notifications from this site"
+  ],
+  "Hide Distracting Items": [
+   "hide ads and clutter"
+  ],
+  "Tab Actions": [
+   "move or pin this tab"
+  ],
+  "Request Desktop Website": [
+   "desktop version of the page"
+  ],
+  "Hide Toolbar": [
+   "hide the browser controls"
+  ],
+  "Website Settings…": [
+   "per-site settings",
+   "permissions for this site"
+  ],
+  "Report Website Issue": [
+   "report a broken site"
+  ],
+  "Customize Menu": [
+   "rearrange this menu's items"
+  ],
+  "Copy": [
+   "copy the link",
+   "put it on the clipboard"
+  ],
+  "Add to Reading List": [
+   "save for later reading"
+  ],
+  "View More": [
+   "more share options"
+  ],
+  "Private": [
+   "private browsing",
+   "no-history browsing"
+  ],
+  "Start Page": [
+   "the new tab page"
+  ],
+  "Bookmarks": [
+   "saved sites list"
+  ],
+  "Reading List": [
+   "saved articles"
+  ],
+  "History": [
+   "previously visited pages"
+  ],
+  "Apple": [
+   "Apple's homepage"
+  ],
+  "Bing": [
+   "Microsoft search"
+  ],
+  "Google": [
+   "the Google homepage"
+  ],
+  "Yahoo": [
+   "Yahoo's portal"
+  ],
+  "Large": [
+   "big bookmark tiles"
+  ],
+  "Sort By": [
+   "reorder the list"
+  ],
+  "Show Folders on Top": [
+   "folders first"
+  ],
+  "Select Bookmarks": [
+   "pick bookmarks to change"
+  ],
+  "New Folder": [
+   "make a folder",
+   "a new directory"
+  ],
+  "Turn On Locked Private Browsing": [
+   "require Face ID for private tabs"
+  ],
+  "filter": [
+   "narrow down the tabs"
+  ],
+  "go": [
+   "submit the address",
+   "open the typed site"
+  ],
+  "Emoji": [
+   "emoji keyboard"
+  ],
+  "shift": [
+   "uppercase key"
+  ],
+  "delete": [
+   "remove the last character"
+  ],
+  "space": [
+   "space bar"
+  ],
+  "numbers": [
+   "switch to the number keys"
+  ],
+  "Inbox": [
+   "event invitations I received"
+  ],
+  "September": [
+   "month view"
+  ],
+  "Single Day": [
+   "list view of the day"
+  ],
+  "Location or Video Call": [
+   "where the event happens",
+   "add a meeting link"
+  ],
+  "Alert": [
+   "reminder before the event"
+  ],
+  "Travel Time": [
+   "time to get there"
+  ],
+  "Add attachment…": [
+   "attach a file to the event"
+  ],
+  "Event": [
+   "a regular calendar event"
+  ],
+  "Reminder": [
+   "make it a reminder"
+  ],
+  "Show Completed Reminders": [
+   "display done tasks in the calendar"
+  ],
+  "Add Calendar": [
+   "create or subscribe to a calendar"
+  ],
+  "US Holidays": [
+   "public holidays calendar"
+  ],
+  "Birthdays": [
+   "birthdays calendar"
+  ],
+  "Discard Changes": [
+   "throw away edits",
+   "don't keep the new event"
+  ],
+  "Message": [
+   "the text box",
+   "type a reply"
+  ],
+  "Send": [
+   "send it now",
+   "deliver the text"
+  ],
+  "Audio": [
+   "voice message"
+  ],
+  "#images": [
+   "search for animated images"
+  ],
+  "Apple Cash": [
+   "pay someone",
+   "send cash"
+  ],
+  "Check In": [
+   "tell them when I arrive"
+  ],
+  "Digital Touch": [
+   "send a drawing"
+  ],
+  "Sort and Filter": [
+   "filter the photo grid"
+  ],
+  "Recently Deleted": [
+   "trash for photos",
+   "restore deleted pictures"
+  ],
+  "Map": [
+   "photos on a map"
+  ],
+  "Videos": [
+   "movies I filmed"
+  ],
+  "Screenshots": [
+   "screen captures"
+  ],
+  "Create": [
+   "new album"
+  ],
+  "Start Sharing": [
+   "create a shared album"
+  ],
+  "Favorite": [
+   "heart it",
+   "add to favorites"
+  ],
+  "Adjust": [
+   "light and color controls",
+   "change the date and time"
+  ],
+  "Filters": [
+   "photo filters",
+   "mono or vivid look"
+  ],
+  "Crop and Rotate": [
+   "crop tool",
+   "straighten the picture"
+  ],
+  "Flip": [
+   "flip horizontally"
+  ],
+  "Rotate": [
+   "rotate ninety degrees"
+  ],
+  "Aspect Ratio": [
+   "crop to 16 by 9"
+  ],
+  "Add Keywords": [
+   "keywords for the photo"
+  ],
+  "Location": [
+   "where it was taken",
+   "map location of this"
+  ],
+  "Delete Photo": [
+   "confirm removing the photo"
+  ],
+  "Photo chooser": [
+   "scrub through photos"
+  ],
+  "All Shortcuts": [
+   "every shortcut I have"
+  ],
+  "Share Sheet": [
+   "shortcuts in the share menu"
+  ],
+  "Apple Watch": [
+   "shortcuts for my watch"
+  ],
+  "Gallery": [
+   "starter shortcuts",
+   "shortcut examples"
+  ],
+  "Automation": [
+   "run things automatically",
+   "trigger on time or place"
+  ],
+  "Add new folder": [
+   "folder for shortcuts"
+  ],
+  "New Shortcut": [
+   "create a shortcut"
+  ],
+  "Add, Start Pomodoro": [
+   "work timer shortcut"
+  ],
+  "Add, Haiku": [
+   "poem generator"
+  ],
+  "Add, Morning Summary": [
+   "morning briefing shortcut"
+  ],
+  "Add, Batch Add Reminders": [
+   "add lots of reminders"
+  ],
+  "Add, Turn Text Into Audio": [
+   "convert text to speech"
+  ],
+  "Shortcuts for Accessibility": [
+   "accessibility shortcuts"
+  ],
+  "Fun & Games with Siri": [
+   "games with the assistant"
+  ],
+  "Add Card": [
+   "add a credit card",
+   "add a debit card"
+  ],
+  "Orders": [
+   "order tracking",
+   "package deliveries"
+  ],
+  "Get": [
+   "get this offer"
+  ],
+  "Try News+ Free": [
+   "News+ trial",
+   "start a subscription trial"
+  ],
+  "Sports": [
+   "sports news",
+   "game scores"
+  ],
+  "Puzzles": [
+   "games section",
+   "crossword and sudoku"
+  ],
+  "Local": [
+   "local news"
+  ],
+  "Entertainment": [
+   "entertainment news",
+   "movies and TV gossip"
+  ],
+  "News+": [
+   "premium news",
+   "paid publications"
+  ],
+  "Following": [
+   "channels I follow"
+  ],
+  "Crossword": [
+   "the daily crossword"
+  ],
+  "Crossword Mini": [
+   "the mini crossword"
+  ],
+  "Sudoku": [
+   "number puzzle"
+  ],
+  "Emoji Game": [
+   "emoji puzzle"
+  ],
+  "Quartiles": [
+   "word puzzle"
+  ],
+  "Leaderboard": [
+   "puzzle rankings"
+  ],
+  "Play All": [
+   "play every story"
+  ],
+  "Try 1 Month Free": [
+   "free month of News+"
+  ],
+  "Account Settings": [
+   "fitness profile and goals"
+  ],
+  "Edit Your Summary": [
+   "customize the summary page"
+  ],
+  "Workout": [
+   "start exercising",
+   "record a workout"
+  ],
+  "Sharing": [
+   "activity sharing with friends"
+  ],
+  "Fitness+": [
+   "guided classes"
+  ],
+  "Summary": [
+   "activity overview"
+  ],
+  "GymKit": [
+   "gym equipment pairing"
+  ],
+  "Heart Rate Devices": [
+   "heart rate sensor"
+  ],
+  "Add Workout": [
+   "new workout type"
+  ],
+  "View Schedule": [
+   "training schedule"
+  ],
+  "Use Workout Buddy": [
+   "voice coach during workouts"
+  ],
+  "Goals": [
+   "workout goal"
+  ],
+  "Mute": [
+   "turn the sound off",
+   "silence the audio"
+  ],
+  "Power": [
+   "switch the TV on or off"
+  ],
+  "Play Pause": [
+   "pause the show",
+   "start playback"
+  ],
+  "Menu": [
+   "TV back button",
+   "previous menu on the TV"
+  ],
+  "Choose a TV": [
+   "select a TV to control"
+  ],
+  "New Document": [
+   "blank document"
+  ],
+  "Scan Documents": [
+   "scan paper with the camera",
+   "digitize a page"
+  ]
+ }
+}

@@ -468,7 +468,12 @@ export function verifyQuestion(intent: string, before: readonly ObservedElement[
   diff: ReturnType<typeof screenDiff>;
 } {
   const diff = screenDiff(before, after);
-  return { state: `Goal: ${intent}. What changed on screen: ${diff.text}`, questions: { verify: { type: "noul", instructions: VERIFY_INSTRUCTIONS } }, diff };
+  return { ...verifyQuestionFor(intent, diff.text), diff };
+}
+
+/** The same question over a diff already written out — as a logged row keeps it. */
+export function verifyQuestionFor(intent: string, diffText: string): { state: string; questions: { verify: { type: "noul"; instructions: string } } } {
+  return { state: `Goal: ${intent}. What changed on screen: ${diffText}`, questions: { verify: { type: "noul", instructions: VERIFY_INSTRUCTIONS } } };
 }
 
 /**
