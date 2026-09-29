@@ -88,15 +88,19 @@ final class Routes {
     }
 
     /// Down at `from`, still for `holdMs`, across to `to` in `durationMs`, and up in the same beat
-    /// as the last move — a pause before lifting would stop every flick dead.
+    /// as the last move — a pause before lifting would stop every flick dead. Unless `stopMs` asks for
+    /// exactly that: a list held still before the finger lifts stops where the finger did, which is
+    /// how a walk scrolls by a known amount.
     private func swipe(_ body: [String: Any]) async throws {
         let from = try point(body, "fromX", "fromY"), to = try point(body, "toX", "toY")
         let hold = seconds(body["holdMs"], or: 0)
         let travel = max(0.05, seconds(body["durationMs"], or: 0.3))
+        let stop = seconds(body["stopMs"], or: 0)
         let path = try PointerEventPath.touch(at: from, offset: 0)
         if hold > 0 { path.move(to: from, at: hold) }
         path.move(to: to, at: hold + travel)
-        path.liftUp(at: hold + travel)
+        if stop > 0 { path.move(to: to, at: hold + travel + stop) }
+        path.liftUp(at: hold + travel + stop)
         let record = try EventRecord()
         record.add(path)
         try await Daemon.synthesize(record)
