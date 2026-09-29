@@ -196,6 +196,13 @@ Rules:
   ground it sits on is a step nobody can see — the sent element chip was `inset` on `raised`, which
   measures 1.05:1, so the chip existed only as text with a smudge behind it. A tint is what separates
   a named thing from the prose around it, and it has to hold on both faces.
+- A shared component is shared down to its layers, not down to its fill, because a fill is a step
+  off the ground under it and the same card stands on different grounds. The file card is
+  `--rl-frame` on the Library's canvas; set into the Files dock's raised `--surface`, that one rung
+  measured 1.04:1 on the light face — a card with no edge — while dark's read at 1.15. The dock's
+  card takes a per-mode pair instead, its light value chosen by measuring until that face's step was
+  no weaker than dark's, and the well inside takes the same fill so the ladder within the card reads
+  alike on both faces. Share the component; let the ground choose the step.
 - Green, orange, and red communicate state. Never use them as decorative brand colors.
 - Images and screenshots get a one-device-pixel inset outline: pure white at low opacity on dark
   surfaces, pure black at low opacity on light surfaces.

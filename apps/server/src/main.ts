@@ -4,9 +4,11 @@
 // stray ELECTRON_RUN_AS_NODE=1 breaks any Electron-based tool a child might launch.
 delete process.env.ELECTRON_RUN_AS_NODE;
 
-import { generateSessionRecap, generateSessionTitle } from "@realm/adapters";
+import { billedGenerators } from "./billed-calls";
 import { createApp } from "./app";
 import { toolchainAvailable } from "./simulators/service";
+import { PhysicalDevices } from "./simulators/physical";
+import { simctl } from "./simulators/simctl";
 import { realLayaRuntime } from "./laya/runtime";
 import { DAEMON_PROTOCOL } from "@realm/contracts";
 import { realmHome } from "./paths";
@@ -40,7 +42,8 @@ try {
     // Announced in the state file, not just held in memory: the next launcher reads that file before
     // it reads anything else.
     onDraining: () => markDraining?.(),
-    titleGenerator: generateSessionTitle, summaryGenerator: generateSessionRecap,
+    // The title and recap calls are billed, and a harness booting this entry must not make them.
+    ...billedGenerators(),
     // Plan 22: where Plynn's meeting exports are read from. Unset in production (the app's own
     // Application Support folder); live checks point it at a fixture so no real recording is read.
     plynnMeetingsDir: process.env.REALM_PLYNN_MEETINGS_DIR || undefined,
@@ -52,6 +55,13 @@ try {
     // nothing but this process ever looks for a Python or starts one. Even here nothing downloads
     // until the user clicks Install, and nothing runs until they switch Laya to Shadow.
     laya: realLayaRuntime({ home }),
+    // Real iPhones and iPads, through devicectl and Realm's test runner. Only here, for the probe's
+    // reason. `REALM_RUNNER_SIMULATOR` names simulators to reach the phone's way instead — the
+    // rehearsal a live check runs before anything is done to a real phone.
+    physicalDevices: (onExit) => new PhysicalDevices({
+      home, simctl: simctl(), onExit,
+      rehearsal: (process.env.REALM_RUNNER_SIMULATOR ?? "").split(",").map((u) => u.trim()).filter(Boolean),
+    }),
   });
 
   // The state file is written only now, because `createApp` is what binds the port — a file

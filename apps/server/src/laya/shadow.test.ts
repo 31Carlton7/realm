@@ -495,6 +495,11 @@ describe("the sensitive rule", () => {
     expect(sensitiveRule("click 'Format' then 'Font'").value).toBe(false);
   });
 
+  it("reads turning on dictation as a step never taken on anyone's behalf", () => {
+    expect(sensitiveRule("tap 'Dictate' on the keyboard")).toEqual({ value: true, matched: "dictate" });
+    expect(sensitiveRule("start Dictation").value).toBe(true);
+  });
+
   it("marks a secure text field as a secret", () => {
     // A field macOS marks secure is a secret whatever its label says.
     expect(sensitiveRule(`act on ${plainRole("AXSecureTextField")} 'Code'`)).toEqual({ value: true, matched: "secure text field" });

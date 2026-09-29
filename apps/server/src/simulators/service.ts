@@ -11,6 +11,9 @@ import { android, type Android } from "./android";
 import { AndroidStream } from "./android-stream";
 import { ANDROID_KEYCODES, inputRefusal, iosSteps, sendSteps, type DeviceInput, type DevicePoint, type InputChannel } from "./device-input";
 import { watchMjpeg, type ScreenMotion } from "./screen-motion";
+import type { PhysicalDevices } from "./physical";
+import { RunnerError } from "./device-runner";
+import { RunnerUnreachable } from "./runner-client";
 
 /** A row's name, as a filename. Spaces and punctuation out, so a screenshot of "Carlton's iPhone"
  *  is a file anyone can type at a shell. */
@@ -47,6 +50,12 @@ export type SimulatorServiceDeps = {
   inputChannel?: InputChannel;
   /** How a device's picture is watched for motion (`screen-motion.ts`). Same seam, same reason. */
   watchScreen?: (streamUrl: string) => ScreenMotion;
+  /**
+   * Real iPhones and iPads (`physical.ts`): devicectl's list, and Realm's test runner on the device for
+   * everything else. Absent, the service knows simulators and emulators only — which is what a suite
+   * gets unless it hands in a scripted phone, and what a Mac with no Xcode gets anyway.
+   */
+  physical?: Pick<PhysicalDevices, "devices" | "start" | "ax" | "capture" | "apps" | "app" | "act" | "input" | "stop" | "stopAll" | "streamedOn" | "rehearses">;
 };
 
 /** How long to wait for the framebuffer to have a size. serve-sim answers `{"width":0}` until the
@@ -56,8 +65,8 @@ const SCREEN_POLL_MS = 400;
 /** A cold AVD is slow — MEASURED at over a minute to `sys.boot_completed` on an M4. */
 const ANDROID_BOOT_TIMEOUT_MS = 180_000;
 
-const OFF = (simulatorId: string, udid: string | null): SimulatorState =>
-  ({ simulatorId, status: "off", udid, serial: null, streamUrl: null, wsUrl: null, screen: null, error: null, detail: null });
+const OFF = (simulatorId: string, udid: string | null, physical = false): SimulatorState =>
+  ({ simulatorId, status: "off", udid, serial: null, streamUrl: null, wsUrl: null, screen: null, error: null, detail: null, physical });
 
 /**
  * Whether this Mac can run a simulator at all: `simctl` answers, or an Android SDK is there.
@@ -116,6 +125,17 @@ export class SimulatorService {
     throw new RpcError("INVALID_ARGUMENT", `${what} is an iOS simulator feature — this row is an Android device.`);
   }
 
+  /** The same sentence for a real iPhone: these are serve-sim's, and a phone has no serve-sim. */
+  private refuseOnPhysical(what: string): never {
+    throw new RpcError("INVALID_ARGUMENT", `${what} is an iOS simulator feature — this row is a real device.`);
+  }
+
+  /** The physical layer, for a row that is a real device — or a refusal naming what is missing. */
+  private real(): NonNullable<SimulatorServiceDeps["physical"]> {
+    if (!this.d.physical) throw new RpcError("INVALID_ARGUMENT", "this Realm cannot reach real devices");
+    return this.d.physical;
+  }
+
   /** Row + item + one broadcast, in one transaction — `MachineService.create`'s shape, minus the
    *  things that can fail slowly. A simulator with no device chosen is legal and is what the session
    *  bar's button makes: the picker is the pane's own body, so the pane exists first. */
@@ -138,7 +158,8 @@ export class SimulatorService {
   list(spaceId: string): Simulator[] { return this.d.simulators.list(spaceId); }
 
   stateOf(simulatorId: string): SimulatorState {
-    return this.state.get(simulatorId) ?? OFF(simulatorId, this.d.simulators.get(simulatorId)?.udid ?? null);
+    const row = this.d.simulators.get(simulatorId);
+    return this.state.get(simulatorId) ?? OFF(simulatorId, row?.udid ?? null, row?.physical ?? false);
   }
 
   states(spaceId: string): SimulatorState[] { return this.list(spaceId).map((s) => this.stateOf(s.id)); }
@@ -148,11 +169,13 @@ export class SimulatorService {
   /** Every device this Mac can show, from both toolchains. Neither side's absence is an error: a Mac
    *  with no Android SDK simply contributes no Android rows, which is what the picker should show. */
   async devices(): Promise<SimulatorDevice[]> {
-    const [ios, droid] = await Promise.all([
+    const [ios, droid, real] = await Promise.all([
       this.cli.devices().catch(() => [] as SimulatorDevice[]),
       this.droid.devices().catch(() => [] as SimulatorDevice[]),
+      this.d.physical?.devices().catch(() => [] as SimulatorDevice[]) ?? Promise.resolve([] as SimulatorDevice[]),
     ]);
-    return [...ios, ...droid];
+    // A rehearsal's simulator is listed once, as the phone it is standing in for.
+    return [...ios.filter((x) => !this.d.physical?.rehearses(x.udid)), ...droid, ...real];
   }
 
   /** Whether `simctl` answers at all — the honest difference between "no simulators" and "no Xcode". */
@@ -167,18 +190,19 @@ export class SimulatorService {
    * Returns the state as it stands when the walk has been kicked off, not when it finishes: booting
    * a cold device takes tens of seconds, and the pane's job in the meantime is to say so.
    */
-  start(simulatorId: string, udid?: string | null, platform?: SimulatorPlatform): SimulatorState {
+  start(simulatorId: string, udid?: string | null, platform?: SimulatorPlatform, physical?: boolean): SimulatorState {
     const row = this.get(simulatorId);
     const device = udid ?? row.udid;
     if (!device) throw new RpcError("INVALID_ARGUMENT", "choose a simulator to stream first");
     // The platform moves WITH the device, always together: a row left saying `ios` while pointed at
-    // an AVD is a row that reaches for simctl and fails with a message about Xcode.
+    // an AVD is a row that reaches for simctl and fails with a message about Xcode. `physical` too.
     const kind: SimulatorPlatform = platform ?? (device === row.udid ? row.platform : "ios");
-    if (device !== row.udid || kind !== row.platform) this.d.simulators.update(simulatorId, { udid: device, platform: kind });
+    const real = kind === "ios" && (physical ?? (device === row.udid ? row.physical : false));
+    if (device !== row.udid || kind !== row.platform || real !== row.physical) this.d.simulators.update(simulatorId, { udid: device, platform: kind, physical: real });
     const mine = (this.token.get(simulatorId) ?? 0) + 1;
     this.token.set(simulatorId, mine);
-    void (kind === "android" ? this.walkAndroid(simulatorId, device, mine) : this.walk(simulatorId, device, mine));
-    return this.set({ ...OFF(simulatorId, device), status: "booting" });
+    void (kind === "android" ? this.walkAndroid(simulatorId, device, mine) : real ? this.walkPhysical(simulatorId, device, mine) : this.walk(simulatorId, device, mine));
+    return this.set({ ...OFF(simulatorId, device, real), status: "booting" });
   }
 
   /**
@@ -190,6 +214,7 @@ export class SimulatorService {
    */
   async ui(simulatorId: string): Promise<SimulatorUiState> {
     if (this.platformOf(simulatorId) === "android") this.refuseOnAndroid("Appearance and text size");
+    if (this.get(simulatorId).physical) this.refuseOnPhysical("Appearance and text size");
     const row = this.get(simulatorId);
     if (!row.udid) throw new RpcError("INVALID_ARGUMENT", "choose a simulator first");
     return (await this.stream.ui(row.udid)) ?? {};
@@ -204,6 +229,7 @@ export class SimulatorService {
    */
   async setUi(simulatorId: string, option: string, value: string): Promise<{ ok: boolean; ui: SimulatorUiState; detail: string }> {
     if (this.platformOf(simulatorId) === "android") this.refuseOnAndroid("Appearance and text size");
+    if (this.get(simulatorId).physical) this.refuseOnPhysical("Appearance and text size");
     const row = this.get(simulatorId);
     if (!row.udid) throw new RpcError("INVALID_ARGUMENT", "choose a simulator first");
     const r = await this.stream.setUi(row.udid, option, value);
@@ -214,6 +240,7 @@ export class SimulatorService {
    *  thing from the pane's side: a fire-and-forget poke at the device that answers yes or no. */
   async poke(simulatorId: string, poke: { kind: "memory-warning" } | { kind: "ca-debug"; option: string; on: boolean }): Promise<{ ok: boolean; detail: string }> {
     if (this.platformOf(simulatorId) === "android") this.refuseOnAndroid("The CoreAnimation overlays");
+    if (this.get(simulatorId).physical) this.refuseOnPhysical("The CoreAnimation overlays");
     const row = this.get(simulatorId);
     if (!row.udid) throw new RpcError("INVALID_ARGUMENT", "choose a simulator first");
     return poke.kind === "memory-warning"
@@ -231,6 +258,11 @@ export class SimulatorService {
    */
   async ax(simulatorId: string): Promise<SimulatorAxTree> {
     const row = this.get(simulatorId);
+    if (row.physical) {
+      const tree = await this.onDevice(() => this.real().ax(this.udidOf(simulatorId)));
+      if (!tree) throw new RpcError("UNAVAILABLE", "the device's runner answered without a tree — something is still animating");
+      return tree;
+    }
     if (row.platform === "android") {
       const tree = await this.droid.ax(this.serialOf(simulatorId));
       // Same "not yet" as iOS's 503, and the same answer: uiautomator refuses while a window is
@@ -252,8 +284,19 @@ export class SimulatorService {
     // `async` so that a row with no device chosen REJECTS rather than throwing synchronously — every
     // caller here is `await`ing or `.catch`ing, and a sync throw out of a promise-shaped method
     // escapes both.
+    if (this.get(simulatorId).physical) return this.real().apps(this.udidOf(simulatorId));
     if (this.platformOf(simulatorId) === "android") return this.droid.apps(this.serialOf(simulatorId));
     return this.cli.apps(this.udidOf(simulatorId));
+  }
+
+  /**
+   * One installed app by bundle id, or null. A simulator's is found in its list; a real phone is asked
+   * about that one app alone (`devicectl --bundle-id`), so opening Settings on somebody's phone never
+   * lists everything else they have installed.
+   */
+  async app(simulatorId: string, bundleId: string): Promise<SimulatorApp | null> {
+    if (this.get(simulatorId).physical) return this.real().app(this.udidOf(simulatorId), bundleId);
+    return (await this.apps(simulatorId)).find((a) => a.bundleId === bundleId) ?? null;
   }
 
   /**
@@ -274,6 +317,11 @@ export class SimulatorService {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
     const rel = join("simulator", `${slug(row.name)}-${stamp}.png`);
     const absolute = join(space.folderPath, rel);
+    if (row.physical) {
+      // The runner's own PNG, at the phone's full resolution: the same screen the agent reads.
+      await writeFile(absolute, await this.onDevice(() => this.real().capture(udid)));
+      return { path: rel, absolute };
+    }
     if (row.platform === "android") {
       // The same PNG the stream is made of, written once at full size. `screencap` is the only
       // capture adb has, so unlike iOS there is no second, higher-quality path to prefer.
@@ -297,6 +345,7 @@ export class SimulatorService {
    */
   async capture(simulatorId: string): Promise<Buffer> {
     const row = this.get(simulatorId);
+    if (row.physical) return this.onDevice(() => this.real().capture(this.udidOf(simulatorId)));
     if (row.platform === "android") {
       const png = await this.droid.screencap(this.serialOf(simulatorId));
       if (!png) throw new RpcError("FAILED", "the screenshot did not happen");
@@ -324,6 +373,8 @@ export class SimulatorService {
    * a dead daemon's file and the live one that took its port can both be there.
    */
   async streamedOn(port: number): Promise<string | null> {
+    const phone = this.d.physical?.streamedOn(port) ?? null;
+    if (phone) return phone;
     for (const claim of (await this.stream.claims()).filter((c) => c.port === port)) {
       const live = await this.stream.find(claim.device);
       if (live.streamUrl && live.port === port) return claim.device;
@@ -333,6 +384,7 @@ export class SimulatorService {
 
   /** Everything else a device can be told to do that is one command and one answer. */
   async act(simulatorId: string, act: SimulatorAct): Promise<{ ok: boolean; detail: string; text?: string }> {
+    if (this.get(simulatorId).physical) return this.onDevice(() => this.real().act(this.udidOf(simulatorId), act));
     if (this.platformOf(simulatorId) === "android") return this.actAndroid(this.serialOf(simulatorId), act);
     const udid = this.udidOf(simulatorId);
     switch (act.kind) {
@@ -390,8 +442,9 @@ export class SimulatorService {
    */
   async input(simulatorId: string, input: DeviceInput): Promise<{ ok: boolean; detail: string }> {
     const row = this.get(simulatorId);
-    const refused = inputRefusal(input, row.platform);
+    const refused = inputRefusal(input, row.platform, row.physical);
     if (refused) return { ok: false, detail: refused };
+    if (row.physical) return this.onDevice(() => this.real().input(this.udidOf(simulatorId), input));
     if (row.platform === "android") return this.inputAndroid(this.serialOf(simulatorId), input);
     const wsUrl = this.stateOf(simulatorId).wsUrl;
     if (!wsUrl) throw new RpcError("INVALID_ARGUMENT", "start the simulator's stream first");
@@ -405,7 +458,10 @@ export class SimulatorService {
    * is no stream to watch. The caller closes it.
    */
   motion(simulatorId: string): ScreenMotion | null {
-    if (this.platformOf(simulatorId) === "android") return null;
+    // A real phone's picture is the runner's screenshots, a few a second — nothing to judge motion
+    // by. A walk there reads the tree until two reads agree, which the runner answers in a tenth of a
+    // second.
+    if (this.platformOf(simulatorId) === "android" || this.get(simulatorId).physical) return null;
     const url = this.served.get(simulatorId)?.streamUrl ?? null;
     return url ? (this.d.watchScreen ?? watchMjpeg)(url) : null;
   }
@@ -449,7 +505,29 @@ export class SimulatorService {
 
   /** What the device has been told to do lately — by this pane, by a CLI, by anyone. */
   async events(simulatorId: string, limit: number): Promise<SimulatorEvent[]> {
+    if (this.get(simulatorId).physical) return [];
     return this.stream.eventLog(this.udidOf(simulatorId), limit);
+  }
+
+  /**
+   * A call to a real device's runner, with its failures said the way the tools say them: a runner that
+   * does not answer is "not yet or not any more", which is `UNAVAILABLE` — the word the tree's own
+   * "not yet" already uses, so a step's retry covers both.
+   */
+  private async onDevice<T>(work: () => Promise<T>): Promise<T> {
+    try { return await work(); } catch (e) {
+      if (e instanceof RunnerUnreachable) throw new RpcError("UNAVAILABLE", `the device's runner is not answering: ${e.message}`);
+      throw e;
+    }
+  }
+
+  /** A runner that stopped on its own. Every pane showing that device says so; none claims to be live. */
+  runnerStopped(udid: string, error: RunnerError): void {
+    for (const [simulatorId, st] of this.state) {
+      if (st.udid !== udid || !st.physical || (st.status !== "running" && st.status !== "serving")) continue;
+      this.token.set(simulatorId, (this.token.get(simulatorId) ?? 0) + 1);
+      this.set({ ...OFF(simulatorId, udid, true), status: "failed", error: error.code, detail: error.detail || null });
+    }
   }
 
   private udidOf(simulatorId: string): string {
@@ -471,6 +549,11 @@ export class SimulatorService {
       this.serials.delete(simulatorId);
       return this.set(OFF(simulatorId, row.udid));
     }
+    if (row.physical) {
+      // The runner comes off the phone: a pane that stopped streaming is not holding somebody's phone.
+      if (row.udid) await this.d.physical?.stop(row.udid).catch(() => {});
+      return this.set(OFF(simulatorId, row.udid, true));
+    }
     if (row.udid) await this.stream.kill(row.udid).catch(() => {});
     return this.set(OFF(simulatorId, row.udid));
   }
@@ -482,6 +565,11 @@ export class SimulatorService {
     if (!row) return;
     this.token.set(simulatorId, (this.token.get(simulatorId) ?? 0) + 1);
     this.state.delete(simulatorId);
+    /* A real phone's runner goes with the last pane showing it. Unlike a simulator's stream it is not
+       somebody's Xcode session to leave alone — it is Realm's, on a phone that is somebody's own. */
+    if (row.physical && row.udid && ![...this.state.values()].some((st) => st.udid === row.udid && st.status !== "off" && st.status !== "failed")) {
+      void this.d.physical?.stop(row.udid).catch(() => {});
+    }
     const item = this.d.items.findByRefId(simulatorId);
     this.d.simulators.delete(simulatorId);
     if (item) {
@@ -492,6 +580,11 @@ export class SimulatorService {
 
   closeAllInSpace(spaceId: string): void {
     for (const s of this.list(spaceId)) { this.token.set(s.id, (this.token.get(s.id) ?? 0) + 1); this.state.delete(s.id); }
+  }
+
+  /** Realm is going: every runner comes off every phone. Simulators' streams stay — they are shared. */
+  async closeAll(): Promise<void> {
+    await this.d.physical?.stopAll().catch(() => {});
   }
 
   /* --------------------------- internals --------------------------- */
@@ -555,10 +648,32 @@ export class SimulatorService {
         // Android reports no orientation with its size; the tree carries rotation and the pane does
         // not read this field for anything but a label.
         screen: { ...screen, orientation: "portrait" },
-        error: null, detail: null,
+        error: null, detail: null, physical: false,
       });
     } catch (e) {
       fail("failed", e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /**
+   * A real device's walk: the runner up (built and installed the first time), then its picture. The
+   * same `booting` → `serving` → `running` the pane already knows, where `booting` is the runner and
+   * `serving` its picture. A `RunnerError` is the sentence the pane shows, with xcodebuild's own line.
+   */
+  private async walkPhysical(simulatorId: string, udid: string, token: number): Promise<void> {
+    const current = () => this.token.get(simulatorId) === token;
+    try {
+      const up = await this.real().start(udid);
+      if (!current()) return;
+      this.set({ simulatorId, status: "running", udid, serial: null, streamUrl: up.streamUrl, wsUrl: up.wsUrl, screen: up.screen, error: null, detail: null, physical: true });
+    } catch (e) {
+      if (!current()) return;
+      /* The code is the word the pane and the tools turn into a sentence of their own, remedy and all;
+         the detail is what the command said — xcodebuild's own line — as the contract has it. */
+      const [error, detail] = e instanceof RunnerError
+        ? [e.code, e.detail || null]
+        : ["failed", e instanceof Error ? e.message : String(e)];
+      this.set({ ...OFF(simulatorId, udid, true), status: "failed", error, detail });
     }
   }
 
@@ -586,7 +701,7 @@ export class SimulatorService {
         if (!current()) return;
         if (screen) {
           this.served.set(simulatorId, stream);
-          this.set({ simulatorId, status: "running", udid, serial: null, streamUrl: stream.streamUrl, wsUrl: stream.wsUrl, screen, error: null, detail: null });
+          this.set({ simulatorId, status: "running", udid, serial: null, streamUrl: stream.streamUrl, wsUrl: stream.wsUrl, screen, error: null, detail: null, physical: false });
           return;
         }
         if (Date.now() > deadline) return fail("no_frames", "the stream started but the device has not produced a frame yet");

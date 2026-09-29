@@ -1,4 +1,4 @@
-import type { DelegatedRun, StoredSessionEvent } from "@realm/contracts";
+import type { DelegatedRun, DelegationOutcome, StoredSessionEvent } from "@realm/contracts";
 
 /**
  * The delegation engine (Plan 13 W1) — the one settle/drain implementation behind BOTH delegation
@@ -308,13 +308,18 @@ export class DelegationEngine {
     let last = fromSeq;
     let lastStatus: string | null = null;
     let finalText: string | null = null;
+    // Whether the child's last status said a person pressed stop — taken from the SAME event as the
+    // status and replaced by every later one, like `lastStatus` itself, so what is judged is how the
+    // slice ENDS: a stop the child was then sent past (a steered message) and a turn that went on to
+    // finish reads as the finish.
+    let stopped = false;
     for (;;) {
       let batch: StoredSessionEvent[];
       try { batch = this.d.sessions.events(childId, last, 500); } catch { return { outcome: "gone", finalText, lastStatus }; }
       for (const stored of batch) {
         last = stored.seq;
         const ev = stored.event;
-        if (ev.type === "status") lastStatus = ev.payload.status;
+        if (ev.type === "status") { lastStatus = ev.payload.status; stopped = ev.payload.interrupted === true; }
         if (ev.type === "assistant_text") finalText = ev.payload.text;
       }
       // Cancellation wins over everything, including a turn that settled in the same poll window:
@@ -322,6 +327,13 @@ export class DelegationEngine {
       // partial text)" — proven live: an interrupted Claude child winds down to idle WITH earlier
       // assistant text present, and checking settled first mislabels that as a clean finish.
       if (run.cancelled) return { outcome: "interrupted", finalText, lastStatus };
+      // The same wind-down, reached from the CHILD's own stop rather than the parent's: idle, with
+      // whatever it had said so far, which is exactly what a finish looks like. The adapter's
+      // `interrupted` mark is the whole difference, so it is read before the finish is — the parent
+      // was being told "Delegated agent finished." about work a person had cut short. It settles even
+      // with nothing said: a child stopped before its first word is still stopped, and waiting out its
+      // budget for a report that is never coming would end in a timeout that lies about why.
+      if (lastStatus === "idle" && stopped) return { outcome: "stopped", finalText, lastStatus };
       if (lastStatus === "idle" && finalText !== null) return { outcome: "done", finalText, lastStatus };
       if (lastStatus === "error" || lastStatus === "ended") return { outcome: "failed", finalText, lastStatus };
       if (Date.now() >= deadline) {
@@ -360,7 +372,9 @@ export type ActiveRun = {
   settled: Promise<SettledRun> | null;
   done: SettledRun | null;
 };
-export type SettledRun = { outcome: "done" | "interrupted" | "timeout" | "failed" | "gone"; finalText: string | null; lastStatus: string | null };
+/** `outcome` is the contracts vocabulary rather than a union spelled here: `session.agentSettled`
+ *  carries it to the renderer as-is. */
+export type SettledRun = { outcome: DelegationOutcome; finalText: string | null; lastStatus: string | null };
 /** `sawTurnStart` is what makes the prose fallback safe — see `scan`. */
 type TranscriptScan = { lastStatus: string | null; finalText: string | null; sawTurnStart: boolean };
 /** `answered` = the peer called `agent_answer`. `replied` = it settled with prose instead, which the

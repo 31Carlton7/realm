@@ -53,6 +53,11 @@ cpSync(join(root, "skills"), join(stage, "skills"), { recursive: true });
 // checkpoint is scored on, the training script and its lexicon, and the download's own evaluation.
 cpSync(join(root, "resources", "laya"), join(stage, "laya"), { recursive: true });
 
+// 2c. The device runner's SOURCE — deviceRunnerSourceDir()'s packaged branch reads
+// <resources>/ios-device-runner. Source, not a build: it is signed on the user's Mac with their own
+// identity, and the server copies it out before building, since the bundle is signed and read-only.
+cpSync(join(root, "resources", "ios-device-runner"), join(stage, "ios-device-runner"), { recursive: true });
+
 // 3. Swift helpers (each optional: absent when swiftc was unavailable, and each degrades on its own).
 for (const [binary, missing] of [
   ["scrollphase", "the app falls back to timer-based scroll phases"],

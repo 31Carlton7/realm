@@ -62,6 +62,9 @@ export type FastMode = {
   state: "off" | "cooldown" | "on" | null;
   /** The harness's reason, in its own vocabulary. */
   reason: string | null;
+  /** Whether the turn that report describes asked for fast mode, or null where nothing says (an
+   *  older transcript, an engine that does not stamp it). */
+  requested: boolean | null;
   onChange: (on: boolean) => void;
 };
 
@@ -80,13 +83,23 @@ const FAST_REASON: Record<string, string> = {
   unknown: "the harness did not say why",
 };
 
+/**
+ * Whether the switch has yet to be tried: nothing has been reported, or the last report is about a
+ * turn that never asked for fast mode.
+ *
+ * The second half is the bug this exists for. Switch it on after a turn that ran without it, and
+ * that turn's report still says "off", with the harness's reason for a request nobody made — read as
+ * a verdict on the switch, it told the user fast mode could not run, about a turn that never asked.
+ */
+export const fastModeUntried = (f: FastMode): boolean => f.state === null || f.requested === false;
+
 /** One line under the switch, or null when there is nothing to correct. Silent in the ordinary
  *  cases — asked for and serving, or not asked for at all — because a note that appears every time
  *  is a note nobody reads by the third session. */
 export function fastModeNote(f: FastMode): string | null {
   if (!f.on) return null;
-  if (f.state === null) return "Takes effect on the next turn.";
   if (f.state === "on") return null;
+  if (fastModeUntried(f)) return "Takes effect on the next turn.";
   if (f.state === "cooldown") return "Paused by a rate limit — it will resume on its own.";
   return `Not running: ${FAST_REASON[f.reason ?? "unknown"] ?? f.reason ?? "the harness did not say why"}.`;
 }
@@ -510,7 +523,7 @@ function ModelDetail({ row, route, info, onRoute, onUse, effortItems, overflow, 
                   onClick={() => fast.onChange(on)}>{label}</button>
               ))}
             </div>
-            {fastModeNote(fast) && <p className="mp-fast-note" data-tone={fast.state === "on" || fast.state === null ? undefined : "warning"}>{fastModeNote(fast)}</p>}
+            {fastModeNote(fast) && <p className="mp-fast-note" data-tone={fastModeUntried(fast) ? undefined : "warning"}>{fastModeNote(fast)}</p>}
           </div>
         )}
         <button type="button" className="mp-use" disabled={!!row.blockedReason} onClick={onUse}>

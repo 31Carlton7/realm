@@ -267,6 +267,20 @@ describe("scrolling to a label", () => {
     expect(findLabel(d.tree(), "Alpha")).toBeNull();
   });
 
+  it("counts a container as holding what is inside it even when the tree left out the layer between", () => {
+    // The device runner's tree lists no empty container, so a bar's field can be its GRANDCHILD by path.
+    // THE MUTANT: judge a leaf by its immediate parent — then the bar, whose child was left out, is a
+    // leaf the size of the screen drawn over every row, and nothing can be tapped.
+    const el = (path: string, label: string, role: string, frame: { x: number; y: number; width: number; height: number }) =>
+      ({ path, label, value: "", role, id: null, enabled: true, frame, depth: path.split(".").length - 1 });
+    const tree = { units: "points" as const, app: "Settings", screen: { width: 390, height: 844 }, elements: [
+      el("0.0.0", "General", "Button", { x: 16, y: 365, width: 358, height: 52 }),
+      el("0.1", "Bar", "Toolbar", { x: 0, y: 0, width: 390, height: 844 }),
+      el("0.1.0.0", "Search", "SearchField", { x: 28, y: 778, width: 334, height: 28 }),
+    ] };
+    expect(findLabel(tree, "General")?.el.label).toBe("General");
+  });
+
   it("scrolls a row that a floating bar is drawn over into the clear before tapping it", async () => {
     const list = [...rows(...LONG.slice(0, 11)), { label: "Screen Time", to: "time" }, ...rows(...LONG.slice(11, 20))];
     const d = new Device({ root: { rows: list, searchBar: true }, time: { heading: "Screen Time", rows: [] } }, "root");
@@ -485,6 +499,33 @@ describe("settling on the picture instead of the tree", () => {
     // two reads a step at the very least — and each read is the slow part.
     expect(watched.reads).toBe(3);
     expect(polled.reads).toBeGreaterThanOrEqual(5);
+  });
+
+  it("looks again before a tap when the picture moved after the read — a row put in above", async () => {
+    const d = new Device(settings(), "root");
+    let moved = 0, reads = 0;
+    const io = d.io();
+    const read = io.read;
+    // Settings puts a row in above General a moment after it launches: here, just after the first read.
+    io.read = async () => {
+      const t = await read();
+      if (++reads === 1) { d.screens.root!.rows.unshift({ label: "Optimizing Search and Siri", nothing: true }); moved++; }
+      return t;
+    };
+    const m: ScreenMotion = { mark: () => ({ moved, edges: 0, edgeBusy: false }), settle: async () => "still", rest: async () => true, close: () => {} };
+    const r = await runPath({ ...io, motion: m }, { path: ["General"] });
+    expect(r.ok).toBe(true);
+    // THE MUTANT: tap where General was read — which is where the new row is now.
+    expect(d.at.map((p) => p.y)).toEqual([rowY(1) + 22]);
+    expect(heading(r.final)).toBe("General");
+  });
+
+  it("does not read again before a tap when nothing moved", async () => {
+    const d = new Device(settings(), "root");
+    const m: ScreenMotion = { mark: () => ({ moved: 0, edges: 0, edgeBusy: false }), settle: async () => "still", rest: async () => true, close: () => {} };
+    await runPath({ ...d.io(), motion: m }, { path: ["General"] });
+    // One read to start and one after the tap: a still picture costs no extra read.
+    expect(d.reads).toBe(2);
   });
 
   it("waits past a picture that moved while the tree did not — a highlight on a tap still being answered", async () => {

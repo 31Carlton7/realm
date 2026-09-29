@@ -683,6 +683,9 @@ const V32_REWIND_SCHEMA = `
 CREATE TABLE spaces (id TEXT PRIMARY KEY);
 CREATE TABLE environments (id TEXT PRIMARY KEY);
 CREATE TABLE items (id TEXT PRIMARY KEY);
+CREATE TABLE simulators (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  name TEXT NOT NULL, udid TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  platform TEXT NOT NULL DEFAULT 'ios');
 CREATE TABLE sessions (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE, project_id TEXT,
   agent_kind TEXT NOT NULL, model TEXT, effort TEXT, permission_mode TEXT NOT NULL DEFAULT 'default',
   status TEXT NOT NULL, provider_session_id TEXT, title TEXT NOT NULL, last_event_seq INTEGER NOT NULL DEFAULT 0,
@@ -725,6 +728,8 @@ function v32Fixture(path: string): void {
     worktree_tree, index_tree, head_sha, head_ref, created_at) VALUES (?, 'env1', 'se1', 'turn', ?, ?, ?, 't1', 't2', 'h1', 'refs/heads/main', ?)`);
   cp.run("cp1", "first turn", "refs/realm/checkpoints/env1/cp1", "c1", 10);
   cp.run("cp2", "second turn", "refs/realm/checkpoints/env1/cp2", "c2", 20);
+  // A pane on a simulator, as every v32 row is: what v34 must read back as not a real device.
+  db.prepare("INSERT INTO simulators (id, space_id, name, udid, created_at, updated_at, platform) VALUES ('sim1', 'sp1', 'iPhone 17e', 'A7174200', 5, 6, 'ios')").run();
   db.close();
 }
 
@@ -788,5 +793,18 @@ describe("migration v33 — conversation rewind", () => {
       .toEqual({ session_seq: 12, provider_cursor: '{"session":"prov-1","at":"u-end","dropsTurn":"u-prompt"}' });
     expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
     again.close();
+  });
+});
+
+describe("migration v34 — a real device", () => {
+  it("is appended, and reads every row written before it as the simulator it was", () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    v32Fixture(p);
+    const db = openDatabase(p);
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBeGreaterThanOrEqual(34);
+    // Defaulted, not backfilled: the row is exactly as it was, plus a column that says what it always was.
+    expect(db.prepare("SELECT name, udid, platform, physical, created_at, updated_at FROM simulators WHERE id = 'sim1'").get())
+      .toEqual({ name: "iPhone 17e", udid: "A7174200", platform: "ios", physical: 0, created_at: 5, updated_at: 6 });
+    db.close();
   });
 });

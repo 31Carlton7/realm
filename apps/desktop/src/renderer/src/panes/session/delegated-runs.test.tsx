@@ -235,3 +235,66 @@ describe("background sub-agents the harness is running", () => {
     await waitFor(() => expect(dockText()).toEqual(["Agent 1"]));
   });
 });
+
+/**
+ * The way back to a child from the call that delegated to it. The dock lists a child only while it
+ * runs, and Realm takes a finished child's pane out of the layout — so once both have happened, the
+ * delegation call in the lead's transcript is the one place left that names the child.
+ */
+describe("a delegation call links the sessions it started", () => {
+  // ULID-shaped, as the server's ids are: the call's result is read for ids of exactly that shape.
+  // (Crockford base32 has no I, L, O or U — hence the spellings.)
+  const LEAD = "01HZHEAD".padEnd(26, "0"), KID_ID = "01HZK1D".padEnd(26, "0"), PEER_ID = "01HZPEER".padEnd(26, "0");
+  const items = { s1: [
+    item("i-lead", "s1", { kind: "session", title: "Lead", refId: LEAD }),
+    item("i-kid", "s1", { kind: "session", title: "Agent: audit the mapper", refId: KID_ID }),
+    item("i-peer", "s1", { kind: "session", title: "A colleague", refId: PEER_ID }),
+  ] };
+  const sessions = [
+    session(LEAD, "s1", { title: "Lead" }),
+    session(KID_ID, "s1", { title: "Agent: audit the mapper", dispatchedBy: { sessionId: LEAD, kind: "agent_run" } }),
+    session(PEER_ID, "s1", { title: "A colleague" }),
+  ];
+  /** One finished call, with the trail the server writes after `agent_run`'s report. */
+  const call = (name: string, content: string) => [
+    sessionEvent("tool_call", { toolUseId: "c1", name, input: { goal: "audit the mapper" }, parentToolUseId: null }),
+    sessionEvent("tool_result", { toolUseId: "c1", content, isError: false }),
+  ];
+  const trail = (report: string) =>
+    `Delegated agent finished.\n\nChild session: {"sessionId":"${KID_ID}","title":"Agent: audit the mapper","status":"done"} — its full trace is in that session's pane.\n\n${report}`;
+  const links = () => [...document.querySelectorAll(".tool-card .delegation-item .delegation-title")].map((n) => n.textContent);
+
+  async function mountWith(events: ReturnType<typeof sessionEvent>[]) {
+    const api = fakeApi({ items, sessions });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ transcripts: { [LEAD]: { lastSeq: 0, t: reduceAll(events) } } });
+    await store.getState().openItem("i-lead"); // the child's pane is NOT open: it has been taken back
+    render(<StoreContext.Provider value={store}><SessionPane item={items.s1[0]!} visible /></StoreContext.Provider>);
+    return store;
+  }
+
+  it("names the child on the call, and opens it beside the lead", async () => {
+    const store = await mountWith(call("mcp__realm__realm-agent__agent_run", trail("The mapper is fine.")));
+    // THE MUTANT: compare the raw tool name. Every harness prefixes it — Claude's `mcp__realm__…`,
+    // Codex's `realm.…` — so a set of bare names would never match one, and there is no way back.
+    expect(links()).toEqual(["Agent: audit the mapper"]);
+    fireEvent.click(screen.getByRole("button", { name: "Agent: audit the mapper — Delegated via agent_run" }));
+    // Beside, like the dock's row: the lead is the context the child is read in.
+    await waitFor(() => expect(allItems(store.getState().layout!)).toEqual(["i-lead", "i-kid"]));
+  });
+
+  it("links only a delegated session, never another id a report happens to mention", async () => {
+    // The child's report is the child's words, and it may name any session it likes. THE MUTANT:
+    // link every id that resolves to a session, and a colleague the child merely mentioned becomes
+    // a row on the lead's call, drawn as though the lead had delegated to it.
+    await mountWith(call("mcp__realm__realm-agent__agent_run", trail(`I compared notes with ${PEER_ID}.`)));
+    expect(links()).toEqual(["Agent: audit the mapper"]);
+  });
+
+  it("reads delegation calls only — any other tool naming a child id draws nothing", async () => {
+    // THE MUTANT: drop the name check, and a `cat` of a log that prints a child's id hangs a row off
+    // a shell command.
+    await mountWith(call("Bash", `grep found ${KID_ID} in the log`));
+    expect(links()).toEqual([]);
+  });
+});

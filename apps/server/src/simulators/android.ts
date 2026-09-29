@@ -313,7 +313,8 @@ export function android(env: NodeJS.ProcessEnv = process.env): Android {
           const avd = await serialToAvd(d.serial);
           if (avd) { byAvd.set(avd, { serial: d.serial, state: d.state }); continue; }
         }
-        physical.push({ udid: d.serial, platform: "android", name: d.model ?? d.serial, runtime: "Android", state: d.state, serial: d.serial });
+        // An emulator whose AVD could not be named lands here too, and is still not hardware.
+        physical.push({ udid: d.serial, platform: "android", name: d.model ?? d.serial, runtime: "Android", state: d.state, serial: d.serial, physical: !/^emulator-\d+$/.test(d.serial) });
       }
       const out: SimulatorDevice[] = [];
       for (const avd of parseAvds(avdOut.stdout)) {
@@ -325,7 +326,7 @@ export function android(env: NodeJS.ProcessEnv = process.env): Android {
         }
         // The AVD's NAME is the stable identity, underscores and all — it is what `emulator -avd`
         // takes. The label is only prettier for the picker.
-        out.push({ udid: avd, platform: "android", name: avd.replace(/_/g, " "), runtime, state: live ? live.state : "Shutdown", serial: live?.serial ?? null });
+        out.push({ udid: avd, platform: "android", name: avd.replace(/_/g, " "), runtime, state: live ? live.state : "Shutdown", serial: live?.serial ?? null, physical: false });
       }
       return [...out, ...physical].sort((a, b) => a.name.localeCompare(b.name, "en", { numeric: true }));
     },

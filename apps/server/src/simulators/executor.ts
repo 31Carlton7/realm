@@ -120,7 +120,23 @@ export const DEFAULT_MAX_SCROLLS = 8;
 const READ_ONLY = /heading|static ?text|^(ax)?text$|label|header/i;
 const FIELD = /text ?field|search ?field|text ?view|text ?area|combo ?box|secure/i;
 
-export async function runPath(io: ExecIO, o: ExecOptions): Promise<ExecResult> {
+export async function runPath(given: ExecIO, o: ExecOptions): Promise<ExecResult> {
+  // Each tree remembers where the picture stood when its read began, so a tap can ask whether the
+  // screen has moved since — without reading it again to find out.
+  const readAt = new WeakMap<WalkTree, MotionMark>();
+  const io: ExecIO = {
+    ...given,
+    read: async () => {
+      const mark = given.motion?.mark();
+      const tree = await given.read();
+      if (mark) readAt.set(tree, mark);
+      return tree;
+    },
+  };
+  const movedSince = (t: WalkTree): boolean => {
+    const at = readAt.get(t);
+    return !!io.motion && !!at && io.motion.mark().moved > at.moved;
+  };
   const started = io.now();
   const settle: Settle = { ...DEFAULT_SETTLE, ...o.settle };
   const maxScrolls = o.maxScrolls ?? DEFAULT_MAX_SCROLLS;
@@ -180,6 +196,19 @@ export async function runPath(io: ExecIO, o: ExecOptions): Promise<ExecResult> {
     const rule = sensitiveRule(`${label} ${found.el.label}`);
     if (rule.value) {
       return done({ why: "sensitive", label, detail: `"${clip(found.el.label.trim() || label, 60)}" reads as a step that ${rule.matched ? `says "${rule.matched}"` : "is sensitive"}, which the walk never takes on its own`, candidates: [found.el, ...likeliest(tree, label).filter((e) => e !== found!.el)].slice(0, 8) });
+    }
+
+    // The screen may have moved since it was read — MEASURED: Settings puts a row in above General
+    // 1.6 s after it launches, and a tap where General was read opens that row. With a picture to
+    // watch, that is known without a read; the walk then looks again and touches the element where
+    // it is now. The element is found again by its own label, so the step is the one judged above.
+    if (movedSince(tree)) {
+      tree = await firstRead(io, settle, undefined);
+      const again = findLabel(tree, found.el.label);
+      if (!again) {
+        return done({ why: "not-found", label, detail: `"${clip(found.el.label.trim() || label, 60)}" moved off the screen before the tap`, candidates: likeliest(tree, label) });
+      }
+      found = { el: again.el, how: found.how };
     }
 
     const before = signature(tree);
@@ -282,14 +311,15 @@ function locate(tree: WalkTree, label: string): { el: SimulatorAxElement; how: "
 }
 
 /** Elements with nothing inside them, by their place in the tree — the ones a touch actually lands
- *  on. A container that fills the screen is not drawn OVER anything; its children are. */
+ *  on. A container that fills the screen is not drawn OVER anything; its children are. "Inside" is by
+ *  ancestry, not by parent: a tree can leave out the empty containers between an element and what it
+ *  holds (the device runner's does), and a bar whose own child was left out still holds its field. */
 function leafOverlays(tree: WalkTree): { el: SimulatorAxElement; i: number }[] {
-  const parents = new Set<string>();
+  const holders = new Set<string>();
   for (const el of tree.elements) {
-    const cut = el.path.lastIndexOf(".");
-    if (cut > 0) parents.add(el.path.slice(0, cut));
+    for (let cut = el.path.lastIndexOf("."); cut > 0; cut = el.path.lastIndexOf(".", cut - 1)) holders.add(el.path.slice(0, cut));
   }
-  return tree.elements.flatMap((el, i) => (parents.has(el.path) ? [] : [{ el, i }]));
+  return tree.elements.flatMap((el, i) => (holders.has(el.path) ? [] : [{ el, i }]));
 }
 
 /**

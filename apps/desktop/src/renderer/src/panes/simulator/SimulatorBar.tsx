@@ -75,11 +75,14 @@ export function SimulatorPanelActions({ item }: { item: Item }) {
       onClick={() => toggleElements(item.refId)}>
       <Icon name="layout" size={14} />
     </button>
-    <AppsMenu item={item} />
-    <DeviceMenu item={item} />
+    <AppsMenu item={item} physical={state?.physical === true} />
+    {/* Everything in this menu is serve-sim's, and a real phone has no serve-sim: offered only where
+        it exists (design.md), rather than as a menu of refusals. */}
+    {state?.physical !== true && <DeviceMenu item={item} />}
     {/* Stops the STREAM, not the device — the simulator stays booted, because it is usually
         somebody's Xcode session and a pane is not a reason to take it away. */}
-    <button className="icon-btn" aria-label="Stop streaming this simulator" title="Stop streaming"
+    <button className="icon-btn" aria-label={state?.physical ? "Stop streaming this phone" : "Stop streaming this simulator"}
+      title={state?.physical ? "Stop streaming — Realm's test runner comes off the phone" : "Stop streaming"}
       onClick={() => run(async () => {
         const r = await rpc().call("simulators.stop", { simulatorId: item.refId });
         applySimulatorState(r.state);
@@ -102,6 +105,9 @@ export function SimulatorPanelActions({ item }: { item: Item }) {
  * control that does nothing on most devices is chrome that lies. It lives in the device menu.
  */
 const HARDWARE = ["home", "volume-up", "volume-down", "power"] as const satisfies readonly SimulatorButton[];
+/** What Realm's test runner presses on a real phone. Not the side button — a phone Realm locked is one
+ *  only its owner can unlock — and no rotation, which is the hand holding it. */
+const PHONE_HARDWARE = ["home", "volume-up", "volume-down"] as const satisfies readonly SimulatorButton[];
 
 export function SimulatorHardware({ item }: { item: Item }) {
   const state = useApp((s) => s.simulatorState[item.refId]);
@@ -112,9 +118,10 @@ export function SimulatorHardware({ item }: { item: Item }) {
     const i = SIMULATOR_ORIENTATIONS.indexOf(current);
     pressOnce(wsUrl, orientationFrame(SIMULATOR_ORIENTATIONS[(i < 0 ? 0 : i + 1) % SIMULATOR_ORIENTATIONS.length]!));
   };
+  const buttons = state.physical ? PHONE_HARDWARE : HARDWARE;
   return (
     <div className="sim-hardware" role="group" aria-label="Device buttons">
-      {HARDWARE.map((b) => (
+      {buttons.map((b) => (
         <button key={b} type="button" className="icon-btn" aria-label={BUTTON_LABELS[b]} title={BUTTON_LABELS[b]}
           onClick={() => pressOnce(wsUrl, buttonFrame(b))}>
           <Icon name={BUTTON_ICONS[b]} size={14} />
@@ -122,9 +129,11 @@ export function SimulatorHardware({ item }: { item: Item }) {
       ))}
       {/* One button, cycling portrait → landscape → upside down → the other landscape, because that
           is the order a hand turns a phone in and there is nothing here worth a menu. */}
-      <button type="button" className="icon-btn" aria-label="Rotate the device" title="Rotate" onClick={rotate}>
-        <Icon name="reload" size={14} />
-      </button>
+      {!state.physical && (
+        <button type="button" className="icon-btn" aria-label="Rotate the device" title="Rotate" onClick={rotate}>
+          <Icon name="reload" size={14} />
+        </button>
+      )}
     </div>
   );
 }
@@ -332,7 +341,7 @@ function pressOnce(wsUrl: string | null, frame: Uint8Array): void {
  * Launch, permissions and the camera all live here together because all three take the same first
  * question — WHICH app — and asking it once is the difference between a menu and a form.
  */
-function AppsMenu({ item }: { item: Item }) {
+function AppsMenu({ item, physical }: { item: Item; physical: boolean }) {
   const [open, setOpen] = useState(false);
   const [apps, setApps] = useState<SimulatorApp[] | null>(null);
   const [app, setApp] = useState<SimulatorApp | null>(null);
@@ -367,10 +376,16 @@ function AppsMenu({ item }: { item: Item }) {
         })),
       ];
     }
-    return [
+    const launch: MenuItem[] = [
       { label: `← ${app.name}`, keepOpen: true, onSelect: () => setApp(null) },
       { kind: "separator" },
       { label: "Launch", onSelect: () => act({ kind: "launch", bundleId: app.bundleId }) },
+    ];
+    // The camera feed and the permission table are a simulator's; a phone's app is launched and that
+    // is all Realm does to it.
+    if (physical) return launch;
+    return [
+      ...launch,
       { kind: "separator" },
       /* The camera feed is injected INTO the app that is launched, which is why every one of these
          launches it. A web page in Safari cannot see the feed however it is started: WebKit captures

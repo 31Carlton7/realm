@@ -58,6 +58,36 @@ export type AgentRunConstraints = z.infer<typeof AgentRunConstraintsSchema>;
 export const MAX_DELEGATION_DEPTH = 2;
 
 /**
+ * How a delegated run ended — the delegation engine's settle vocabulary, stated once so the engine
+ * and `session.agentSettled` cannot describe the same ending two ways (`ReviewOutcomeSchema` is the
+ * persisted twin, and the engine's `SettledRun` is typed off this one, so a new ending that reached
+ * the engine without reaching the verdict would fail to compile rather than fail to parse).
+ *
+ * - `done` — the child's turn ended with a report: its last status was idle and it had said something.
+ * - `stopped` — a person stopped the child itself, mid-turn: it went idle with the adapter's
+ *   `interrupted` mark on that status, holding whatever it had said so far. Only as good as that mark —
+ *   an adapter that does not set it reports a stopped turn as `done`.
+ * - `interrupted` — the delegating session was interrupted, and the run was cancelled with it.
+ * - `timeout` — the child ran past its budget and was interrupted.
+ * - `failed` — the child's session errored or ended before it finished.
+ * - `gone` — the child's session was deleted mid-run.
+ */
+export const DelegationOutcomeSchema = z.enum(["done", "stopped", "interrupted", "timeout", "failed", "gone"]);
+export type DelegationOutcome = z.infer<typeof DelegationOutcomeSchema>;
+
+/**
+ * Settings key for taking a finished sub-agent's pane back out of the layout when its run settles
+ * `done` — the renderer's half of `session.agentSettled`. Read only by the renderer: the server
+ * announces every settle whatever this says, because the announcement is a fact and this is a
+ * preference about what to do with it.
+ *
+ * On unless it is exactly `false`. An unset key — every home from before the switch existed — and a
+ * failed read both mean nobody has said otherwise, and the default is the reason the switch exists:
+ * a lead agent that fans out four children otherwise leaves four finished panes to close by hand.
+ */
+export const CLOSE_FINISHED_AGENT_PANES_KEY = "sessions.closeFinishedAgentPanes";
+
+/**
  * A run the delegation engine is holding open for a parent session, as the renderer reads it.
  *
  * Deliberately thin. The child is a REAL session, so its title, agent, status and space already

@@ -39,7 +39,7 @@ function bring(over: { simctl?: Partial<Simctl>; serveSim?: Partial<ServeSim>; i
   const events: SimulatorState[] = [];
   const calls: string[] = [];
   const cli: Simctl = {
-    devices: async () => { calls.push("devices"); return [{ udid: "UDID-1", platform: "ios", name: "iPhone 17 Pro", runtime: "iOS 27.0", state: "Shutdown", serial: null }]; },
+    devices: async () => { calls.push("devices"); return [{ udid: "UDID-1", platform: "ios", name: "iPhone 17 Pro", runtime: "iOS 27.0", state: "Shutdown", serial: null, physical: false }]; },
     boot: async (udid) => { calls.push(`boot:${udid}`); return { ok: true, detail: "" }; },
     available: async () => true,
     apps: async (udid) => { calls.push(`apps:${udid}`); return [{ bundleId: "com.acme.app", name: "Acme" }]; },
