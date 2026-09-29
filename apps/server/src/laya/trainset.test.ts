@@ -152,8 +152,9 @@ describe("teaching the benchmark's own train cases", () => {
       ...Array(bench.sensitive.filter((c) => c.split === "train").length).fill("sensitive"),
       ...Array(bench.verify.filter((c) => c.split === "train").length).fill("verify"),
     ]);
-    const heldout = new Set([...bench.sensitive, ...bench.verify].filter((c) => c.split !== "train").map((c) => c.intent));
-    expect(taught.some((r) => [...heldout].some((i) => r.state.includes(` to ${i}.`) || r.state.startsWith(`Goal: ${i}.`)))).toBe(false);
+    // Exactly the train split's questions, asked as the evaluation asks them.
+    const train = benchmarkRows(bench, ["train"]).filter((r) => r.kind !== "target");
+    expect(taught.map((r) => r.state).sort()).toEqual(train.map((r) => r.state).sort());
   });
 });
 
