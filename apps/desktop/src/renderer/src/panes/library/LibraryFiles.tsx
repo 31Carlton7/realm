@@ -1,9 +1,9 @@
-import { Icon, type IconName } from "@realm/ui";
+import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ARTIFACT_KINDS, artifactTypeOf, LIBRARY_PAGE_SIZE, type ArtifactKind, type ArtifactType, type LibraryEntry } from "@realm/contracts";
+import { ARTIFACT_KINDS, artifactTypeOf, LIBRARY_PAGE_SIZE, type ArtifactKind, type LibraryEntry } from "@realm/contracts";
 import { useApp } from "../../state/store";
+import { FileCard } from "../../components/FileCard";
 import { FilePreview } from "../../components/FilePreview";
-import { useThumbnail } from "../../components/use-thumbnail";
 import { SCOPE_LABEL } from "../../components/scoped/ScopeGroups";
 
 /** Files first, then a scope, then a kind — the three narrowings, coarsest first. */
@@ -18,25 +18,6 @@ const KIND_FILTERS: { id: ArtifactKind | "all"; label: string }[] = [
   { id: "output", label: "Made" },
   { id: "upload", label: "Uploaded" },
 ];
-
-/** One glyph per broad type. Coarse on purpose — a file browser's icon answers "what kind of thing
- *  is this" at a glance, and thirty glyphs answer it more slowly than seven. */
-const TYPE_ICON: Record<ArtifactType, IconName> = {
-  document: "documents", image: "image", video: "video", audio: "musicNote",
-  data: "table", code: "code", other: "artifact",
-};
-
-/**
- * Which files a tile asks main for a picture of.
- *
- * A picture instead of a glyph is worth a round trip exactly where the picture IS the file: a
- * screenshot, a mockup, a frame of video. Everything else keeps its glyph, and that is a cost
- * decision rather than a taste one — a `.css` or a `.pdf` has no in-process decoder, so main answers
- * it by spawning `qlmanage`, and a page of this grid is sixty tiles. Sixty child processes for sixty
- * marks nobody reads is not a trade a file browser should make on scroll. The preview, which is one
- * file the user deliberately opened, asks QuickLook for anything.
- */
-const THUMBNAIL_TYPES = new Set<ArtifactType>(["image", "video"]);
 
 /** The day a file landed, as a person asks about one. Groups the grid, the way a file browser does. */
 function dayLabel(ts: number, now = Date.now()): string {
@@ -174,7 +155,13 @@ export function LibraryFiles({ spaceId }: { spaceId: string }) {
         <section key={`${g.label}-${g.entries[0]!.id}`} className="library-day">
           <h2 className="library-day-label">{g.label}</h2>
           <ul className="library-grid">
-            {g.entries.map((e) => <li key={e.id}><FileCard entry={e} onOpen={() => setPreview(e)} /></li>)}
+            {g.entries.map((e) => (
+              <li key={e.id}>
+                <FileCard path={e.path} name={e.name} type={artifactTypeOf(e.ext)} title={e.path} onOpen={() => setPreview(e)}>
+                  <Provenance entry={e} />
+                </FileCard>
+              </li>
+            ))}
           </ul>
         </section>
       ))}
@@ -195,10 +182,11 @@ export function LibraryFiles({ spaceId }: { spaceId: string }) {
 }
 
 /**
- * One file, as a card.
- *
- * Its own component because of the hook: a thumbnail is per-path state, and a grid cannot ask for
- * sixty of them from inside a `map`.
+ * A Library card's second line: where the file came from, which is the question a file browser over
+ * many sessions is really answering. The kind rides here too — "made" and "uploaded" are the same
+ * file to the filesystem and very different facts to the reader. The card itself is shared with the
+ * session's file browser (`FileCard`); this line is the one thing the Library knows that a folder
+ * listing does not.
  *
  * Every card opens, and that is the change the picture is only half of. The grid used to draw a live
  * tile for a file the documents pane could render and an inert grey box for every other one — which
@@ -206,43 +194,21 @@ export function LibraryFiles({ spaceId }: { spaceId: string }) {
  * refusing the mouse with no way to find out why. A card now opens the preview whatever the file is,
  * and the preview is where "what can Realm actually do with this" gets answered honestly.
  */
-function FileCard({ entry, onOpen }: { entry: LibraryEntry; onOpen: () => void }) {
-  const type = artifactTypeOf(entry.ext);
-  const thumb = useThumbnail(THUMBNAIL_TYPES.has(type) ? entry.path : null, "card");
+function Provenance({ entry }: { entry: LibraryEntry }) {
   const fromLabel = `${entry.kind === "upload" ? "Uploaded to " : "Made in "}${entry.sessionTitle}`;
   return (
-    <button type="button" className="library-tile" title={entry.path} onClick={onOpen}>
-      {/* The card is a PICTURE over a caption, the way a drive lays out files: the preview field
-          takes the top of the card, and the name and provenance sit under it. A picture fills the
-          field edge to edge; a glyph sits in a tinted well at its centre, because a glyph needs the
-          well around it to read as a mark at all and a picture is the subject. `data-thumb` is what
-          the stylesheet keys the two treatments on. */}
-      <span className="library-tile-art" data-type={type} data-thumb={thumb ? "" : undefined}>
-        {/* alt="" on purpose — the name is right under it, and a screen reader must not read the
-            file twice. */}
-        {thumb ? <img className="library-tile-thumb" src={thumb} alt="" draggable={false} />
-          : <span className="library-tile-mark" data-type={type}><Icon name={TYPE_ICON[type]} size={20} /></span>}
-      </span>
-      <span className="library-tile-text">
-      <span className="library-tile-name">{entry.name}</span>
-      {/* Where it came from, which is the question a file browser over many sessions is really
-          answering. The kind rides here too — "made" and "uploaded" are the same file to the
-          filesystem and very different facts to the reader.
-
-          The kind is a GLYPH and the session title takes the whole line, which is the yielding order
-          the row could not otherwise get right: the title is user data of unbounded length and
-          "Made in " is eight fixed characters that always take their width first. On a 233px card
-          that prefix was the difference between "planning a cool new app" and "planning a cool ne…",
-          so the boilerplate was eating the only part of the line that varies. The sentence is not
-          lost — it is the accessible name and the tooltip, which is where a thing that reads the
-          same on every card in the grid belongs. */}
-      <span className="library-tile-from" title={fromLabel}>
-        <Icon name={entry.kind === "upload" ? "attach" : "artifact"} size={12} className="library-tile-kind" aria-hidden="true" />
-        <span className="library-tile-session" aria-hidden="true">{entry.sessionTitle}</span>
-        <span className="visually-hidden">{fromLabel}</span>
-      </span>
-      </span>
-    </button>
+    /* The kind is a GLYPH and the session title takes the whole line, which is the yielding order
+       the row could not otherwise get right: the title is user data of unbounded length and
+       "Made in " is eight fixed characters that always take their width first. On a 233px card
+       that prefix was the difference between "planning a cool new app" and "planning a cool ne…",
+       so the boilerplate was eating the only part of the line that varies. The sentence is not
+       lost — it is the accessible name and the tooltip, which is where a thing that reads the
+       same on every card in the grid belongs. */
+    <span className="library-tile-from" title={fromLabel}>
+      <Icon name={entry.kind === "upload" ? "attach" : "artifact"} size={12} className="library-tile-kind" aria-hidden="true" />
+      <span className="library-tile-session" aria-hidden="true">{entry.sessionTitle}</span>
+      <span className="visually-hidden">{fromLabel}</span>
+    </span>
   );
 }
 
