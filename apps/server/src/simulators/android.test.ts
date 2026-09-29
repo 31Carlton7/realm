@@ -170,6 +170,17 @@ describe("input, as adb is actually run", () => {
     ]);
   });
 
+  it("stops a running copy before a fresh launch, and leaves it alone otherwise", async () => {
+    const { droid, calls } = fakeAdb();
+    await droid.launch("emulator-5554", "com.android.settings", true);
+    await droid.launch("emulator-5554", "com.android.settings");
+    expect(calls()).toEqual([
+      "-s emulator-5554 shell am force-stop com.android.settings",
+      "-s emulator-5554 shell monkey -p com.android.settings -c android.intent.category.LAUNCHER 1",
+      "-s emulator-5554 shell monkey -p com.android.settings -c android.intent.category.LAUNCHER 1",
+    ]);
+  });
+
   it("does not call a step done when input said it failed, whatever adb's exit code", async () => {
     const { droid, say } = fakeAdb();
     // An adb older than its v2 shell protocol exits 0 whatever the device did.

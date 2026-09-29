@@ -18,6 +18,7 @@ import { pngSize } from "../machines/qmp-driver";
 import { SCREENSHOT_MAX_EDGE } from "../machines/driver";
 import { BrowserPermissionBroker, type GateOptions, type GateResult } from "../browsers/permissions";
 import type { ActObservation, ActObserver } from "../mcp/act-observer";
+import type { AssistOutcome, LayaAssist } from "../laya/assist";
 import type { InputChannel, InputStep } from "./device-input";
 import { createApp, type App } from "../app";
 import { SimulatorService, toolchainAvailable } from "./service";
@@ -26,6 +27,10 @@ import type { ServeSim, ServeSimStream } from "./serve-sim";
 import type { Android } from "./android";
 import type { AndroidStream } from "./android-stream";
 import { createSimulatorAgentProvider, loopbackPort, shrinkForModel, SIMULATOR_PROVIDER_NAME } from "./agent-tools";
+import type { ScreenMotion } from "./screen-motion";
+
+/** A picture watcher whose stream is already gone: every walk falls back to reading the tree. */
+const GONE: ScreenMotion = { mark: () => ({ moved: 0, edges: 0, edgeBusy: false }), settle: async () => "lost", rest: async () => false, close: () => {} };
 
 /**
  * The simulator tools against the REAL `SimulatorService` with its CLIs faked — so `simulator_open`
@@ -84,7 +89,7 @@ function fakeClis(over: { simctl?: Partial<Simctl>; serveSim?: Partial<ServeSim>
     screenshot: async (udid, path) => { cli.push(`screenshot:${udid}:${path}`); writeFileSync(path, PHONE_PNG); return { ok: true, detail: "" }; },
     openUrl: async (udid, url) => { cli.push(`openUrl:${udid}:${url}`); return { ok: true, detail: "" }; },
     install: async (udid, path) => { cli.push(`install:${udid}:${path}`); return { ok: true, detail: "" }; },
-    launch: async (udid, bundleId) => { cli.push(`launch:${udid}:${bundleId}`); return { ok: true, detail: "" }; },
+    launch: async (udid, bundleId, fresh) => { cli.push(`launch:${udid}:${bundleId}${fresh ? ":fresh" : ""}`); return { ok: true, detail: "" }; },
     addMedia: async () => ({ ok: true, detail: "" }),
     pasteTo: async () => ({ ok: true, detail: "" }),
     copyFrom: async () => ({ ok: true, text: "", detail: "" }),
@@ -119,10 +124,17 @@ function setup(opts: {
    *  live in the broker (one card per device per session, Plan refusing). Without it, a stub gate. */
   broker?: { mode: string; answer?: PermissionDecision };
   observe?: ActObserver;
+  /** Laya's Assist, scripted: whether it is on, and what it answers for a described target. */
+  assist?: LayaAssist;
   /** What the device's input socket answers. */
   input?: { ok: boolean; detail: string };
   /** Something that happens while the stub's card is up — the user taking their time. */
   onCard?: () => void;
+  /** Told each input as the device's socket receives it — how a scripted device reacts to a tap. */
+  onInput?: (steps: readonly InputStep[]) => void;
+  /** How the device's picture is watched. Unset, a watcher whose stream is gone at once, so a walk
+   *  falls back to reading the tree — and no test opens a socket to whatever is on port 3100. */
+  watchScreen?: (url: string) => ScreenMotion;
 } = {}) {
   const home = tempDir("realm-sim-tools-");
   const db = openDatabase(join(home, "realm.db"));
@@ -145,9 +157,11 @@ function setup(opts: {
   const inputChannel: InputChannel = async (url, steps) => {
     calls.order.push("act");
     calls.sent.push({ url, steps });
+    opts.onInput?.(steps);
     return opts.input ?? { ok: true, detail: "" };
   };
-  const service = new SimulatorService({ rpc, spaces, items, simulators: new SimulatorsStore(db), simctl: clis.simctl, serveSim: clis.serveSim, android: clis.android, androidStream: fakeStream, inputChannel });
+  const watchScreen = opts.watchScreen ?? (() => GONE);
+  const service = new SimulatorService({ rpc, spaces, items, simulators: new SimulatorsStore(db), simctl: clis.simctl, serveSim: clis.serveSim, android: clis.android, androidStream: fakeStream, inputChannel, watchScreen });
   let mode = opts.broker?.mode ?? "default";
   const real: BrowserPermissionBroker | null = opts.broker ? new BrowserPermissionBroker({
     permissionMode: () => mode,
@@ -177,6 +191,7 @@ function setup(opts: {
     },
     wait: opts.wait ?? { timeoutMs: 2_000, pollMs: 5 },
     observe: opts.observe,
+    assist: opts.assist,
   });
   const ctx = { sessionId: "sess1", spaceId: space.id };
   const call = (tool: string, args: unknown = {}): Promise<CallToolResult> => provider.call(ctx, tool, args);
@@ -198,12 +213,12 @@ const text = (r: CallToolResult): string =>
   r.content.filter((c): c is { type: "text"; text: string } => c.type === "text").map((c) => c.text).join("\n");
 
 describe("offering the tools", () => {
-  it("lists all fourteen where there are simulators and the space has them on", async () => {
+  it("lists all fifteen where there are simulators and the space has them on", async () => {
     const { provider, ctx } = setup();
     expect((await provider.tools(ctx)).map((t) => t.name)).toEqual([
       "simulator_list", "simulator_open", "simulator_screenshot", "simulator_elements",
       "simulator_apps", "simulator_install", "simulator_launch", "simulator_open_url",
-      "simulator_tap", "simulator_double_tap", "simulator_long_press", "simulator_swipe", "simulator_type", "simulator_press",
+      "simulator_do", "simulator_tap", "simulator_double_tap", "simulator_long_press", "simulator_swipe", "simulator_type", "simulator_press",
     ]);
   });
 
@@ -391,6 +406,7 @@ describe("the tools that act on an open pane", () => {
       ["simulator_install", { path: "/tmp/App.app" }], ["simulator_launch", { bundleId: "com.acme.app" }], ["simulator_open_url", { url: "myapp://x" }],
       ["simulator_tap", { intent: "x", x: 10, y: 10 }], ["simulator_swipe", { intent: "x", direction: "up" }],
       ["simulator_type", { intent: "x", text: "hi" }], ["simulator_press", { intent: "x", key: "home" }],
+      ["simulator_do", { intent: "x", path: ["General"] }],
     ] as const) {
       const r = await call(tool, { simulatorId: theirs, ...args });
       // THE MUTANT: look the row up by id alone. A simulatorId that leaked into a transcript then
@@ -614,7 +630,7 @@ describe("the input tools' arguments", () => {
     for (const args of [{ element: 1, x: 5, y: 5 }, { x: 5 }, {}]) {
       const r = await call("simulator_tap", { simulatorId, intent: "tap it", ...args });
       expect(r.isError, JSON.stringify(args)).toBe(true);
-      expect(text(r)).toContain("one of the two");
+      expect(text(r)).toContain("give exactly one of: an element's [number], a point as both x and y");
     }
     for (const args of [{ direction: "up", from: { x: 1, y: 1 }, to: { x: 2, y: 2 } }, { from: { x: 1, y: 1 } }]) {
       expect((await call("simulator_swipe", { simulatorId, intent: "scroll", ...args })).isError, JSON.stringify(args)).toBe(true);
@@ -1232,7 +1248,7 @@ describe("through the real gateway", () => {
     const names = (await client.listTools()).tools.map((t) => t.name).filter((n) => n.startsWith(`${SIMULATOR_PROVIDER_NAME}__`));
     expect(names).toContain("realm-simulator__simulator_open");
     expect(names).toContain("realm-simulator__simulator_tap");
-    expect(names).toHaveLength(14);
+    expect(names).toHaveLength(15);
     const listed = (await client.callTool({ name: "realm-simulator__simulator_list", arguments: {} })) as CallToolResult;
     expect(text(listed)).toContain("UDID-OFF — iPhone 17 Pro");
 
@@ -1346,5 +1362,305 @@ describe("createApp's toolchain probe", () => {
     const xcrun = recordingXcrun();
     await bootAndUse(() => toolchainAvailable());
     expect(xcrun.calls()).toContain("simctl help");
+  });
+});
+
+describe("a target in words (Laya's Assist)", () => {
+  const OPEN = { available: true, reason: null, threshold: 0.8, accuracy: 0.97 } as const;
+  const SHUT = { available: false, reason: "The active checkpoint picks the right element 79% of the time on held-out steps. Assist needs 95%.", threshold: null, accuracy: 0.79 };
+  const scripted = (gate: typeof OPEN | typeof SHUT, outcome: (els: readonly import("../mcp/act-observer").ObservedElement[]) => AssistOutcome) => {
+    const asked: { description: string; intent: string; ids: string[] }[] = [];
+    const assist: LayaAssist = {
+      gate: () => gate,
+      resolve: async (description, intent, elements) => { asked.push({ description, intent, ids: elements.map((e) => e.id) }); return outcome(elements); },
+    };
+    return { assist, asked };
+  };
+
+  it("lists a target in words on the tap-shaped tools only while Assist can act on one", async () => {
+    const on = setup({ assist: scripted(OPEN, () => ({ kind: "ask-agent", candidates: [], best: null, why: "no-answer" })).assist });
+    const off = setup({ assist: scripted(SHUT, () => ({ kind: "ask-agent", candidates: [], best: null, why: "no-answer" })).assist });
+    const props = async (s: ReturnType<typeof setup>, name: string) =>
+      Object.keys(((await s.provider.tools(s.ctx)).find((t) => t.name === name)!.inputSchema as { properties: Record<string, unknown> }).properties);
+    for (const name of ["simulator_tap", "simulator_double_tap", "simulator_long_press"]) {
+      expect(await props(on, name), name).toContain("target");
+      // THE MUTANT: list it always. Every use of the field is then a refusal.
+      expect(await props(off, name), name).not.toContain("target");
+    }
+    expect(await props(on, "simulator_swipe")).not.toContain("target");
+  });
+
+  it("refuses a target in words while Assist is shut — before any card, saying what to do instead", async () => {
+    const { assist } = scripted(SHUT, () => { throw new Error("never asked"); });
+    const dev = device({ assist });
+    const simulatorId = await dev.running();
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "open General", target: "the general row" });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("needs Laya's Assist, which is not on here (The active checkpoint picks the right element 79%");
+    expect(text(r)).toContain("pass the element's [number]");
+    expect(dev.calls.gates).toEqual([]);
+    expect(dev.calls.sent).toEqual([]);
+  });
+
+  it("taps Laya's pick on the LIVE screen after the card, says so, and tells the shadow Laya chose it", async () => {
+    const observed: ActObservation[] = [];
+    const { assist, asked } = scripted(OPEN, (els) => ({ kind: "pick", element: els.find((e) => e.id === "0.1")!, confidence: 0.93, ms: 12 }));
+    const dev = device({ assist, observe: (o) => { observed.push(o); } });
+    const simulatorId = await dev.running();
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "open General", target: "the general settings" });
+    expect(r.isError).toBe(false);
+    expect(asked).toEqual([{ description: "the general settings", intent: "open General", ids: ["0.1", "0.2"] }]);
+    // The card first, then the act — the order every input step keeps.
+    expect(dev.calls.order).toEqual(["card", "act"]);
+    const [begin] = frames(dev.calls.sent);
+    expect(begin).toMatchObject({ op: 3, type: "begin", x: 201 / 402 });
+    expect(begin!.y).toBeCloseTo(315.3 / 874, 10);
+    expect(text(r)).toMatch(/Tapped \[\d+\] "General" on iPhone Air — Laya's pick for "the general settings" \(0\.93; Assist acts at 0\.80 or above\)/);
+    // THE MUTANT: report it as the agent's choice. The shadow would then train Laya on its own answers.
+    expect(observed[0]).toMatchObject({ tool: "simulator_tap", chosenBy: "laya", chosen: { element: { id: "0.1", label: "General" } } });
+  });
+
+  it("sends nothing when Laya is unsure, and hands back numbers the agent's next tap can use", async () => {
+    const { assist } = scripted(OPEN, (els) => ({ kind: "ask-agent", why: "unsure", candidates: [...els], best: { element: els[1]!, confidence: 0.61 } }));
+    const dev = device({ assist });
+    const simulatorId = await dev.running();
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "turn Wi-Fi off", target: "the wireless row" });
+    expect(r.isError).toBe(true);
+    expect(dev.calls.sent).toEqual([]);
+    expect(text(r)).toContain('nothing was tapped: Laya was not sure which element "the wireless row" means');
+    expect(text(r)).toContain("scored 0.61, and Assist acts only at 0.80 or above");
+    const wifi = /\[(\d+)\] "Wi-Fi"/.exec(text(r));
+    expect(wifi).not.toBeNull();
+    // Those numbers are the agent's latest list: tapping one by number works with no read in between.
+    const again = await dev.call("simulator_tap", { simulatorId, intent: "turn Wi-Fi off", element: Number(wifi![1]) });
+    expect(again.isError).toBe(false);
+  });
+
+  it("sends nothing on a step the sensitive rule flags, and says Laya never chooses those", async () => {
+    const { assist } = scripted(OPEN, (els) => ({ kind: "ask-agent", why: "sensitive", matched: "delete", candidates: [...els], best: { element: els[0]!, confidence: 0.99 } }));
+    const dev = device({ assist });
+    const simulatorId = await dev.running();
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "delete the account", target: "the delete button" });
+    expect(r.isError).toBe(true);
+    expect(dev.calls.sent).toEqual([]);
+    expect(text(r)).toContain('looks like a step Laya never chooses on its own (it reads as "delete")');
+    expect(text(r)).toContain("If that is the step you mean, tap it by its [number].");
+  });
+
+  it("takes one target — an element, a point, or words — never two", async () => {
+    const { assist } = scripted(OPEN, () => { throw new Error("never asked"); });
+    const dev = device({ assist });
+    const simulatorId = await dev.running();
+    for (const extra of [{ element: 1 }, { x: 10, y: 10 }]) {
+      const r = await dev.call("simulator_tap", { simulatorId, intent: "open General", target: "general", ...extra });
+      expect(r.isError, JSON.stringify(extra)).toBe(true);
+      expect(text(r)).toContain("give exactly one of");
+    }
+    expect(dev.calls.sent).toEqual([]);
+  });
+});
+
+/* ---------------------------------- walks ---------------------------------- */
+
+type WalkRow = { label: string; to?: string; role?: string };
+const ROWS_AT = 120, ROW_STEP = 52, WALK_SCREEN = { width: 402, height: 874 };
+
+/**
+ * A device a walk can drive: screens of rows, and a tap — decoded off the frames its socket was sent
+ * — that opens whatever the row under it leads to. A swipe moves nothing here, so a label that is not
+ * on a screen is not anywhere on it.
+ */
+function walkable(screens: Record<string, WalkRow[]>, start: string, over: Parameters<typeof setup>[0] = {}) {
+  let current = start;
+  const tree = (): SimulatorAxTree => ({
+    screen: WALK_SCREEN, units: "points", app: "Settings",
+    elements: screens[current]!.map((r, i) => ({ path: `0.${i}`, label: r.label, value: "", role: r.role ?? "Button", id: null, enabled: true, frame: { x: 16, y: ROWS_AT + ROW_STEP * i, width: 370, height: 44 }, depth: 1 })),
+  });
+  const onInput = (steps: readonly InputStep[]) => {
+    const f = steps.map((st) => decode(st.frame));
+    const begin = f.find((x) => x.type === "begin");
+    if (!begin || f.some((x) => x.type === "move")) return;
+    const row = screens[current]![Math.floor(((begin.y as number) * WALK_SCREEN.height - ROWS_AT) / ROW_STEP)];
+    if (row?.to) current = row.to;
+  };
+  const s = setup({ ...over, onInput, serveSim: { ...over.serveSim, ax: async () => tree() } });
+  return { ...s, at: () => current };
+}
+
+const SETTINGS: Record<string, WalkRow[]> = {
+  root: [{ label: "General", to: "general" }, { label: "Accessibility", to: "a11y" }, { label: "Erase All Content and Settings", to: "root" }],
+  general: [{ label: "Settings", to: "root" }, { label: "About", to: "about" }],
+  about: [{ label: "General", to: "general" }, { label: "iOS Version", role: "StaticText" }],
+  a11y: [{ label: "Settings", to: "root" }],
+};
+
+describe("simulator_do", () => {
+  it("walks the whole path in one call and hands back the screen it ended on, numbered for the next tap", async () => {
+    const dev = walkable(SETTINGS, "root");
+    const simulatorId = await dev.running();
+    const r = await dev.call("simulator_do", { simulatorId, intent: "find the iOS version", path: ["General", "About"] });
+    expect(r.isError).toBe(false);
+    expect(dev.at()).toBe("about");
+    expect(text(r)).toMatch(/^Walked "General" → "About" on iPhone Air in \d+\.\d s\./);
+    expect(text(r)).toContain('[1] Button "General"');
+    expect(text(r)).toContain('[2] StaticText "iOS Version"');
+    // The answer IS the agent's latest read: a number from it is one the next tap takes.
+    const back = await dev.call("simulator_tap", { simulatorId, intent: "back to General", element: 1 });
+    expect(back.isError).toBe(false);
+    expect(dev.at()).toBe("general");
+  });
+
+  it("taps each step at the centre of its element as the live screen has it", async () => {
+    const dev = walkable(SETTINGS, "root");
+    const simulatorId = await dev.running();
+    await dev.call("simulator_do", { simulatorId, intent: "find the iOS version", path: ["General", "About"] });
+    const begins = frames(dev.calls.sent).filter((f) => f.type === "begin");
+    expect(begins.map((f) => Math.round((f.y as number) * WALK_SCREEN.height))).toEqual([142, 194]);
+    expect(begins.every((f) => Math.round((f.x as number) * WALK_SCREEN.width) === 201)).toBe(true);
+  });
+
+  it("asks the device's input card once, before anything is sent, with the path on it", async () => {
+    const dev = walkable(SETTINGS, "root");
+    const simulatorId = await dev.running();
+    await dev.call("simulator_do", { simulatorId, intent: "find the iOS version", path: ["General", "About"] });
+    const card = dev.calls.gates.find((g) => g.toolKey === "simulator_input:UDID-UP")!;
+    expect(card.toolName).toBe("simulator_do");
+    expect(card.input).toMatchObject({ intent: "find the iOS version", path: ["General", "About"] });
+    expect(card.opts).toMatchObject({ perSession: true });
+    expect(dev.calls.order.indexOf("card")).toBeLessThan(dev.calls.order.indexOf("act"));
+  });
+
+  it("sends nothing when the card is refused", async () => {
+    const dev = walkable(SETTINGS, "root", { gate: { allowed: false, reason: "The user declined." } });
+    const simulatorId = await dev.running();
+    const r = await dev.call("simulator_do", { simulatorId, intent: "x", path: ["General"] });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("The user declined.");
+    expect(dev.calls.sent).toEqual([]);
+    expect(dev.at()).toBe("root");
+  });
+
+  it("opens the app fresh first, asking what simulator_launch asks", async () => {
+    const dev = walkable(SETTINGS, "root");
+    const simulatorId = await dev.running();
+    const r = await dev.call("simulator_do", { simulatorId, intent: "check the version", app: "com.apple.Preferences", path: ["General"] });
+    expect(r.isError).toBe(false);
+    // THE MUTANT: launch without `fresh`. A running Settings comes back wherever it was left, and the
+    // path's first label is not on that screen.
+    expect(dev.calls.cli).toContain("launch:UDID-UP:com.apple.Preferences:fresh");
+    expect(dev.calls.gates.map((g) => g.toolKey)).toEqual(["simulator_launch", "simulator_input:UDID-UP"]);
+  });
+
+  it("refuses an app the device does not have, before any card", async () => {
+    const dev = walkable(SETTINGS, "root");
+    const simulatorId = await dev.running();
+    const r = await dev.call("simulator_do", { simulatorId, intent: "x", app: "com.example.nope", path: ["General"] });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("simulator_apps lists the bundle ids it has");
+    expect(dev.calls.gates).toEqual([]);
+    expect(dev.calls.cli.some((c) => c.startsWith("launch:"))).toBe(false);
+  });
+
+  it("stops at a label it cannot find, says where, and numbers the likeliest for a tap", async () => {
+    const dev = walkable(SETTINGS, "root");
+    const simulatorId = await dev.running();
+    const r = await dev.call("simulator_do", { simulatorId, intent: "x", path: ["General", "Software Update"] });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain('Walked "General", then stopped at "Software Update" on iPhone Air');
+    expect(text(r)).toContain('no "Software Update" on the screen');
+    expect(text(r)).toMatch(/The likeliest: \[\d+\] "Settings" button; \[\d+\] "About" button\./);
+    expect(text(r)).toContain("The screen it ended on: 2 element(s)");
+    expect(dev.at()).toBe("general");
+  });
+
+  it("never takes a step that erases, and says to take it by number if that is the step meant", async () => {
+    const dev = walkable(SETTINGS, "root");
+    const simulatorId = await dev.running();
+    const r = await dev.call("simulator_do", { simulatorId, intent: "x", path: ["Erase All Content and Settings"] });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("A walk never takes that kind of step");
+    expect(text(r)).toMatch(/The likeliest: \[\d+\] "Erase All Content and Settings" button/);
+    expect(dev.calls.sent).toEqual([]);
+  });
+
+  it("takes \"General › About\" written as one string as the same two steps", async () => {
+    const dev = walkable(SETTINGS, "root");
+    const simulatorId = await dev.running();
+    expect((await dev.call("simulator_do", { simulatorId, intent: "x", path: ["General › About"] })).isError).toBe(false);
+    expect(dev.at()).toBe("about");
+  });
+
+  it("refuses, before any card, a path past twelve steps, text the device cannot type, and nothing to do", async () => {
+    const dev = walkable(SETTINGS, "root");
+    const simulatorId = await dev.running();
+    const long = await dev.call("simulator_do", { simulatorId, intent: "x", path: [Array.from({ length: 13 }, () => "General").join(" › ")] });
+    expect(text(long)).toContain("a path is at most 12 steps");
+    const listed = await dev.call("simulator_do", { simulatorId, intent: "x", path: Array.from({ length: 13 }, () => "General") });
+    expect(text(listed)).toContain("a path is at most 12 steps");
+    const essay = await dev.call("simulator_do", { simulatorId, intent: "x", path: [`General › ${"a".repeat(130)}`] });
+    expect(text(essay)).toContain("a label is a few words, 120 characters at most");
+    const emoji = await dev.call("simulator_do", { simulatorId, intent: "x", path: ["General"], text: "🙂" });
+    expect(text(emoji)).toContain("cannot be typed");
+    const empty = await dev.call("simulator_do", { simulatorId, intent: "x", path: [] });
+    expect(text(empty)).toContain("give a path to walk, text to type, or an app to open");
+    expect(dev.calls.gates).toEqual([]);
+    expect(dev.calls.sent).toEqual([]);
+  });
+
+  it("tells the observer each tap of the walk, with the element chosen and the screen it left", async () => {
+    const seen: ActObservation[] = [];
+    const afters: string[][] = [];
+    const observe: ActObserver = (o) => { seen.push(o); return (after) => { afters.push(after.map((e) => e.label)); }; };
+    const dev = walkable(SETTINGS, "root", { observe });
+    const simulatorId = await dev.running();
+    await dev.call("simulator_do", { simulatorId, intent: "find the iOS version", path: ["General", "About"] });
+    expect(seen.map((o) => [o.tool, o.intent, o.chosen && "element" in o.chosen ? o.chosen.element.label : null]))
+      .toEqual([["simulator_do", "find the iOS version", "General"], ["simulator_do", "find the iOS version", "About"]]);
+    // Each step's "after" is the screen it settled on — not a read taken at a guessed moment.
+    expect(afters).toEqual([["Settings", "About"], ["General", "iOS Version"]]);
+  });
+
+  it("watches the device's own stream during the walk, and lets go of it after", async () => {
+    let watched: string | null = null;
+    const close = vi.fn();
+    const motion: ScreenMotion = { mark: () => ({ moved: 0, edges: 0, edgeBusy: false }), settle: async () => "lost", rest: async () => true, close };
+    const dev = walkable(SETTINGS, "root", { watchScreen: (url) => { watched = url; return motion; } });
+    const simulatorId = await dev.running();
+    await dev.call("simulator_do", { simulatorId, intent: "x", path: ["General"] });
+    expect(watched).toBe("http://127.0.0.1:3100/helper/UDID-UP/stream.mjpeg");
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("scrolls by holding still before it lifts, so the list stops where the finger does", async () => {
+    const dev = walkable(SETTINGS, "root");
+    const simulatorId = await dev.running();
+    await dev.call("simulator_do", { simulatorId, intent: "x", path: ["Developer"] });
+    const swipe = dev.calls.sent.find((x) => x.steps.some((st) => decode(st.frame).type === "move"))!;
+    const f = swipe.steps.map((st) => decode(st.frame));
+    expect(f[0]).toMatchObject({ type: "begin", x: 0.5, y: 0.75 });
+    expect(f.at(-1)).toMatchObject({ type: "end", x: 0.5, y: 0.25 });
+    // THE MUTANT: lift straight after the last move. The list then flies on past rows never read.
+    const moves = swipe.steps.filter((st) => decode(st.frame).type === "move");
+    expect(moves.at(-1)!.waitMs).toBe(120);
+  });
+
+  it("asks Laya only while its Assist can act, and only for a label the screen does not have", async () => {
+    const resolve = vi.fn(async (_d: string, _i: string, elements: readonly { id: string; label: string }[]): Promise<AssistOutcome> =>
+      ({ kind: "pick", element: elements.find((e) => e.label === "Accessibility") as never, confidence: 0.97, ms: 9 }));
+    const open = { gate: () => ({ available: true, reason: null, threshold: 0.9, accuracy: 0.96 }), resolve } as unknown as LayaAssist;
+    const dev = walkable(SETTINGS, "root", { assist: open });
+    const simulatorId = await dev.running();
+    const r = await dev.call("simulator_do", { simulatorId, intent: "x", path: ["vision settings"] });
+    expect(resolve).toHaveBeenCalledOnce();
+    expect(resolve.mock.calls[0]![0]).toBe("vision settings");
+    expect(dev.at()).toBe("a11y");
+    expect(text(r)).toContain(`"Accessibility" (Laya's pick for "vision settings")`);
+
+    const shutResolve = vi.fn();
+    const shut = { gate: () => ({ available: false, reason: "Laya is not in Assist mode.", threshold: null, accuracy: null }), resolve: shutResolve } as unknown as LayaAssist;
+    const dev2 = walkable(SETTINGS, "root", { assist: shut });
+    const id2 = await dev2.running();
+    expect((await dev2.call("simulator_do", { simulatorId: id2, intent: "x", path: ["vision settings"] })).isError).toBe(true);
+    expect(shutResolve).not.toHaveBeenCalled();
   });
 });

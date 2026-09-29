@@ -3,7 +3,8 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { COMPUTER_PROVIDER_NAME } from "@realm/contracts";
 import { createComputerAgentProvider } from "./agent-tools";
 import type { GateOptions, GateResult } from "../browsers/permissions";
-import type { ActObservation, ActObserver } from "../mcp/act-observer";
+import type { ActObservation, ActObserver, ObservedElement } from "../mcp/act-observer";
+import type { AssistOutcome, LayaAssist } from "../laya/assist";
 
 /**
  * The provider's own decisions, over a scripted bridge and gate. What must die here: the per-app
@@ -25,6 +26,7 @@ function setup(over: {
   enabled?: boolean;
   allowed?: string[];
   observe?: ActObserver;
+  assist?: LayaAssist;
 } = {}) {
   const allowed = new Set(over.allowed ?? []);
   const added: { spaceId: string; bundleId: string }[] = [];
@@ -55,6 +57,7 @@ function setup(over: {
       add: (spaceId: string, bundleId: string) => { added.push({ spaceId, bundleId }); },
     },
     ...(over.observe ? { observe: over.observe } : {}),
+    ...(over.assist ? { assist: over.assist } : {}),
   });
   return { provider, gates, ops, added };
 }
@@ -81,7 +84,7 @@ describe("realm-computer provider", () => {
     const { provider } = setup();
     expect(provider.name).toBe(COMPUTER_PROVIDER_NAME);
     expect((await provider.tools(ctx)).map((t) => t.name))
-      .toEqual(["computer_list_apps", "computer_snapshot", "computer_act"]);
+      .toEqual(["computer_list_apps", "computer_snapshot", "computer_act", "computer_do"]);
   });
 
   it("rejects an unknown tool by name", async () => {
@@ -385,5 +388,240 @@ describe("the step observer (the Laya shadow)", () => {
     await w.provider.call(ctx, "computer_act", { snapshotId: SNAPSHOT.snapshotId, action: { kind: "click", index: 0 } });
     expect(calledBack).toBe(false);
     expect(w.ops.filter((o) => o.op === "computerSnapshot")).toHaveLength(1);
+  });
+});
+
+describe("a click described in words (Laya's Assist)", () => {
+  const EL = (index: number, role: string, name: string) => ({ index, role, subrole: "", name, value: "", x: 0, y: 0, w: 10, h: 10, actions: ["AXPress"], enabled: true, focused: false, depth: 2 });
+  const SNAP = { ...SNAPSHOT, elements: [EL(0, "AXTextArea", "Body"), EL(1, "AXButton", "Save"), EL(2, "AXButton", "Don't Save")],
+    text: '[0] AXTextArea "Body"\n[1] AXButton "Save"\n[2] AXButton "Don\'t Save"' };
+  const OPEN = { available: true, reason: null, threshold: 0.8, accuracy: 0.97 };
+  const SHUT = { available: false, reason: "No checkpoint has been evaluated yet.", threshold: null, accuracy: null };
+  const scripted = (gate: typeof OPEN | typeof SHUT, outcome: (els: readonly ObservedElement[]) => AssistOutcome): LayaAssist =>
+    ({ gate: () => gate, resolve: async (_d, _i, els) => outcome(els) });
+  const harness = (assist: LayaAssist, observe?: ActObserver) => setup({
+    assist, ...(observe ? { observe } : {}),
+    ops: { computerSnapshot: SNAP, computerAct: (p: Record<string, unknown>) => ({ ok: true, detail: `clicked [${(p.action as { index?: number }).index}] in TextEdit` }) },
+  });
+  const act = async (s: ReturnType<typeof setup>, args: Record<string, unknown>) => {
+    await s.provider.call(ctx, "computer_snapshot", { bundleId: "com.apple.TextEdit" });
+    return s.provider.call(ctx, "computer_act", { snapshotId: SNAP.snapshotId, ...args });
+  };
+
+  it("lists the field only while Assist can act on one", async () => {
+    const props = async (a: LayaAssist) => Object.keys(((await harness(a).provider.tools(ctx)).find((t) => t.name === "computer_act")!.inputSchema as { properties: Record<string, unknown> }).properties);
+    expect(await props(scripted(OPEN, () => ({ kind: "ask-agent", candidates: [], best: null, why: "no-answer" })))).toContain("target");
+    expect(await props(scripted(SHUT, () => ({ kind: "ask-agent", candidates: [], best: null, why: "no-answer" })))).not.toContain("target");
+  });
+
+  it("clicks Laya's pick from the snapshot the agent holds, names it on the card, and tells the shadow Laya chose it", async () => {
+    const observed: ActObservation[] = [];
+    const s = harness(scripted(OPEN, (els) => ({ kind: "pick", element: els.find((e) => e.id === "1")!, confidence: 0.93, ms: 9 })), (o) => { observed.push(o); });
+    const r = await act(s, { action: { kind: "click" }, target: "the save button", intent: "save the document" });
+    expect(r.isError).toBe(false);
+    expect(text(r)).toBe('clicked [1] in TextEdit — Laya\'s pick for "the save button" (0.93; Assist acts at 0.80 or above).');
+    // The card is raised for the element Laya resolved, not for an index-less click.
+    expect(s.gates).toHaveLength(1);
+    expect(s.ops.find((o) => o.op === "computerAct")!.params).toMatchObject({ action: { kind: "click", index: 1 } });
+    expect(observed[0]).toMatchObject({ chosenBy: "laya", chosen: { element: { id: "1", label: "Save" } } });
+  });
+
+  it("clicks nothing when Laya is unsure or the step is sensitive, and hands back this snapshot's indices", async () => {
+    const cases: [(els: readonly ObservedElement[]) => AssistOutcome, string][] = [
+      [(els) => ({ kind: "ask-agent", why: "unsure", candidates: [...els], best: { element: els[2]!, confidence: 0.5 } }), "Laya was not sure"],
+      [(els) => ({ kind: "ask-agent", why: "sensitive", matched: "delete", candidates: [...els], best: { element: els[1]!, confidence: 0.99 } }), "Laya never chooses on its own"],
+    ];
+    for (const [outcome, says] of cases) {
+      const s = harness(scripted(OPEN, outcome));
+      const r = await act(s, { action: { kind: "click" }, target: "that button", intent: "x" });
+      expect(r.isError).toBe(true);
+      expect(text(r)).toContain(says);
+      expect(text(r)).toContain('[1] "Save"');
+      expect(text(r)).toContain("Click one by its [N] with this snapshotId.");
+      expect(s.gates).toEqual([]);
+      expect(s.ops.some((o) => o.op === "computerAct")).toBe(false);
+    }
+  });
+
+  it("refuses words while Assist is shut, and words beside an index — before any card", async () => {
+    const shut = harness(scripted(SHUT, () => { throw new Error("never asked"); }));
+    const r1 = await act(shut, { action: { kind: "click" }, target: "the save button" });
+    expect(text(r1)).toContain("needs Laya's Assist, which is not on here (No checkpoint has been evaluated yet.)");
+    const open = harness(scripted(OPEN, () => { throw new Error("never asked"); }));
+    const r2 = await act(open, { action: { kind: "click", index: 1 }, target: "the save button" });
+    expect(text(r2)).toContain("give one of the three, not two");
+    expect([...shut.gates, ...open.gates]).toEqual([]);
+  });
+});
+
+/* ---------------------------------- walks ---------------------------------- */
+
+/**
+ * A Mac app a walk can drive: a menu bar whose items open their menus, menu items that open a sheet
+ * or do nothing, and — as the helper does — a click resolved by its index in the NEWEST snapshot of
+ * the app, any older one refused as stale.
+ */
+function textEdit(o: { refuse?: { refused: string; error: string }; password?: boolean } = {}) {
+  const menus: Record<string, string[]> = {
+    File: ["New", "Open…", "Export as PDF…", "Move to Trash"],
+    Format: ["Font", "Text"],
+  };
+  let open: string | null = null;
+  let sheet = false;
+  let focus: string | null = null;
+  let typed = "";
+  let n = 0;
+  let latest: { snapshotId: string; elements: { index: number; name: string; role: string }[] } | null = null;
+  const clicks: { snapshotId: string; name: string }[] = [];
+  const snapshot = () => {
+    const els: { name: string; role: string; subrole?: string; y: number }[] = [
+      ...Object.keys(menus).map((name) => ({ name, role: "AXMenuBarItem", y: 0 })),
+      ...(open ? menus[open]!.map((name, i) => ({ name, role: "AXMenuItem", y: 30 + 20 * i })) : []),
+      ...(sheet ? [{ name: "Export As:", role: "AXTextField", y: 300 }, { name: "Cancel", role: "AXButton", y: 340 }, { name: "Save", role: "AXButton", y: 340 }] : []),
+      // A field the Mac marks secure, whatever it is called: known by its subrole alone.
+      ...(o.password ? [{ name: "Owner", role: "AXTextField", subrole: "AXSecureTextField", y: 400 }] : []),
+      { name: "Untitled", role: "AXTextArea", y: 100 },
+    ];
+    const elements = els.map((e, index) => ({ index, role: e.role, subrole: e.subrole ?? "", name: e.name, value: e.name === focus ? typed : "", x: 10 + index, y: e.y, w: 80, h: 18, actions: ["AXPress"], enabled: true, focused: e.name === focus, depth: 2 }));
+    latest = { snapshotId: `ax_${++n}`, elements };
+    return {
+      snapshotId: latest.snapshotId, pid: 9, bundleId: "com.apple.TextEdit", appName: "TextEdit", frontmost: true, truncated: false,
+      elements, text: elements.map((e) => `[${e.index}] ${e.role} "${e.name}"`).join("\n"),
+    };
+  };
+  const act = (params: Record<string, unknown>) => {
+    const action = params.action as { kind: string; index?: number; text?: string };
+    if (params.snapshotId !== latest?.snapshotId) return { ok: false, error: "that snapshot is stale", refused: "stale_snapshot" };
+    if (o.refuse) return { ok: false, ...o.refuse };
+    if (action.kind === "type") { typed += action.text ?? ""; return { ok: true, detail: `typed ${action.text}` }; }
+    const el = latest!.elements.find((e) => e.index === action.index)!;
+    clicks.push({ snapshotId: String(params.snapshotId), name: el.name });
+    if (el.role === "AXTextField") focus = el.name;
+    else if (el.role === "AXMenuBarItem") open = el.name;
+    else if (el.name === "Export as PDF…") { open = null; sheet = true; }
+    return { ok: true, detail: `clicked "${el.name}"` };
+  };
+  return { ops: { computerSnapshot: snapshot, computerAct: act }, clicks, latest: () => latest };
+}
+
+describe("computer_do", () => {
+  it("walks File › Export as PDF… in one call, each click on the snapshot just taken", async () => {
+    const app = textEdit();
+    const s = setup({ ops: app.ops });
+    const r = await s.provider.call(ctx, "computer_do", { bundleId: "com.apple.TextEdit", intent: "export the note as a PDF", path: ["File", "Export as PDF…"] });
+    expect(r.isError).toBe(false);
+    expect(text(r)).toMatch(/^Walked "File" → "Export as PDF…" in TextEdit in \d+\.\d s\./);
+    expect(app.clicks.map((c) => c.name)).toEqual(["File", "Export as PDF…"]);
+    // THE MUTANT: act on the first snapshot throughout. The helper keeps only the newest one per app.
+    expect(new Set(app.clicks.map((c) => c.snapshotId)).size).toBe(2);
+    // The answer is the newest snapshot, and it is this session's to act on.
+    expect(text(r)).toContain(`Snapshot ${app.latest()!.snapshotId} of TextEdit`);
+    const save = app.latest()!.elements.find((e) => e.name === "Save")!;
+    const next = await s.provider.call(ctx, "computer_act", { snapshotId: app.latest()!.snapshotId, action: { kind: "click", index: save.index } });
+    expect(next.isError).toBe(false);
+  });
+
+  it("asks the app's own card once for the whole walk, and asks it under bypass too", async () => {
+    const app = textEdit();
+    const s = setup({ ops: app.ops });
+    await s.provider.call(ctx, "computer_do", { bundleId: "com.apple.TextEdit", intent: "export", path: ["File", "Export as PDF…"] });
+    expect(s.gates.map((g) => g.toolKey)).toEqual(["computer_act:com.apple.TextEdit"]);
+    expect(s.gates[0]!.opts).toMatchObject({ promptUnderBypass: true });
+    expect(s.gates[0]!.title).toBe('Click "File" › "Export as PDF…" in TextEdit');
+  });
+
+  it("refuses a forbidden app before looking at it, and clicks nothing when the card is refused", async () => {
+    const app = textEdit();
+    const forbidden = setup({ ops: app.ops });
+    const r = await forbidden.provider.call(ctx, "computer_do", { bundleId: "com.apple.systempreferences", intent: "x", path: ["General"] });
+    expect(text(r)).toContain("can never be driven");
+    expect(forbidden.ops).toEqual([]);
+    const refused = setup({ ops: app.ops, gate: { allowed: false, reason: "The user declined." } });
+    const r2 = await refused.provider.call(ctx, "computer_do", { bundleId: "com.apple.TextEdit", intent: "x", path: ["File"] });
+    expect(text(r2)).toContain("The user declined.");
+    expect(refused.ops.map((o) => o.op)).toEqual(["computerSnapshot"]);
+  });
+
+  it("never clicks Move to Trash on its own, and says to take it by [N]", async () => {
+    const app = textEdit();
+    const s = setup({ ops: app.ops });
+    const r = await s.provider.call(ctx, "computer_do", { bundleId: "com.apple.TextEdit", intent: "tidy up", path: ["File", "Move to Trash"] });
+    expect(r.isError).toBe(true);
+    expect(app.clicks.map((c) => c.name)).toEqual(["File"]);
+    expect(text(r)).toContain("take it yourself with computer_act by its [N]");
+    expect(text(r)).toMatch(/The likeliest: \[\d+\] "Move to Trash" menu item/);
+  });
+
+  it("stops at a label that is not on screen without scrolling for it, and numbers what is there", async () => {
+    const app = textEdit();
+    const s = setup({ ops: app.ops });
+    const r = await s.provider.call(ctx, "computer_do", { bundleId: "com.apple.TextEdit", intent: "x", path: ["Window"] });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain('Stopped at "Window" in TextEdit');
+    // THE MUTANT: let the walk scroll. The helper scrolls at a point, and which list a label is in is
+    // the agent's to say — the walk says it did not find the label, not that a scroll failed.
+    expect(text(r)).toContain('no "Window" on the screen');
+    expect(s.ops.filter((o) => o.op === "computerAct")).toEqual([]);
+  });
+
+  it("stops with the helper's own words when it will not click", async () => {
+    const app = textEdit({ refuse: { refused: "occluded", error: "another window is over that point" } });
+    const s = setup({ ops: app.ops });
+    const r = await s.provider.call(ctx, "computer_do", { bundleId: "com.apple.TextEdit", intent: "x", path: ["File"] });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("another window is over that point");
+  });
+
+  it("tells the observer each click of the walk, with the element it chose", async () => {
+    const seen: ActObservation[] = [];
+    const app = textEdit();
+    const s = setup({ ops: app.ops, observe: (o) => { seen.push(o); } });
+    await s.provider.call(ctx, "computer_do", { bundleId: "com.apple.TextEdit", intent: "export the note", path: ["File", "Export as PDF…"] });
+    expect(seen.map((o) => [o.tool, o.intent, o.chosen && "element" in o.chosen ? o.chosen.element.label : null]))
+      .toEqual([["computer_do", "export the note", "File"], ["computer_do", "export the note", "Export as PDF…"]]);
+  });
+
+  it("types at the end into the field the walk ended on", async () => {
+    const app = textEdit();
+    const s = setup({ ops: app.ops });
+    const r = await s.provider.call(ctx, "computer_do", { bundleId: "com.apple.TextEdit", intent: "name the export", path: ["File", "Export as PDF…", "Export As:"], text: "notes.pdf" });
+    expect(r.isError).toBe(false);
+    const typed = s.ops.filter((o) => o.op === "computerAct" && (o.params.action as { kind: string }).kind === "type");
+    expect(typed).toHaveLength(1);
+    // The field shows it, in the snapshot the walk hands back.
+    expect(text(r)).toMatch(/Walked "File" → "Export as PDF…" → "Export As:" → type "notes\.pdf" in TextEdit/);
+    // THE MUTANT: leave focus out of what the walk compares. A click into a field then changes
+    // nothing it can see, and it waits three seconds before believing the field has focus.
+    expect(Number(/ in (\d+\.\d) s\./.exec(text(r))![1])).toBeLessThan(2.5);
+  });
+
+  it("never types into a field the Mac marks secure", async () => {
+    const app = textEdit({ password: true });
+    const s = setup({ ops: app.ops });
+    const r = await s.provider.call(ctx, "computer_do", { bundleId: "com.apple.TextEdit", intent: "x", path: ["Owner"], text: "hunter2" });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("Realm never types into a password field");
+    expect(s.ops.filter((o) => o.op === "computerAct" && (o.params.action as { kind: string }).kind === "type")).toEqual([]);
+  });
+
+  it("asks Laya only while its Assist can act, and tells the observer the pick was Laya's", async () => {
+    const seen: ActObservation[] = [];
+    const resolve = async (_d: string, _i: string, elements: readonly ObservedElement[]): Promise<AssistOutcome> =>
+      ({ kind: "pick", element: elements.find((e) => e.label === "Format")!, confidence: 0.97, ms: 8 });
+    const assist = { gate: () => ({ available: true, reason: null, threshold: 0.9, accuracy: 0.96 }), resolve } as unknown as LayaAssist;
+    const app = textEdit();
+    const s = setup({ ops: app.ops, assist, observe: (o) => { seen.push(o); } });
+    const r = await s.provider.call(ctx, "computer_do", { bundleId: "com.apple.TextEdit", intent: "make it bold", path: ["the font menu"] });
+    expect(app.clicks.map((c) => c.name)).toEqual(["Format"]);
+    expect(text(r)).toContain(`"Format" (Laya's pick for "the font menu")`);
+    expect(seen[0]).toMatchObject({ tool: "computer_do", chosenBy: "laya" });
+
+    // Shut, Laya is not asked at all, and the walk says it found nothing — never a guess.
+    let asked = 0;
+    const shut = { gate: () => ({ available: false, reason: "Laya is not in Assist mode.", threshold: null, accuracy: null }), resolve: async () => { asked++; return resolve("", "", []); } } as unknown as LayaAssist;
+    const quiet = setup({ ops: textEdit().ops, assist: shut });
+    const r2 = await quiet.provider.call(ctx, "computer_do", { bundleId: "com.apple.TextEdit", intent: "make it bold", path: ["the font menu"] });
+    expect(text(r2)).toContain('no "the font menu" on the screen');
+    expect(asked).toBe(0);
   });
 });

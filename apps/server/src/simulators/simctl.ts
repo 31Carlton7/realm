@@ -125,7 +125,8 @@ export type Simctl = {
   openUrl(udid: string, url: string): Promise<{ ok: boolean; detail: string }>;
   /** Install a built `.app` bundle or an `.ipa`. */
   install(udid: string, path: string): Promise<{ ok: boolean; detail: string }>;
-  launch(udid: string, bundleId: string): Promise<{ ok: boolean; detail: string }>;
+  /** `fresh` closes a running copy first, so the app opens on its first screen. */
+  launch(udid: string, bundleId: string, fresh?: boolean): Promise<{ ok: boolean; detail: string }>;
   /** Put pictures and videos into the device's own Photos library. */
   addMedia(udid: string, paths: string[]): Promise<{ ok: boolean; detail: string }>;
   /** The device's pasteboard, both ways. */
@@ -168,8 +169,8 @@ export function simctl(env: NodeJS.ProcessEnv = process.env): Simctl {
       const r = await run(bin, ["simctl", "install", udid, path], 300_000);
       return said(r);
     },
-    async launch(udid, bundleId) {
-      const r = await run(bin, ["simctl", "launch", udid, bundleId], 60_000);
+    async launch(udid, bundleId, fresh) {
+      const r = await run(bin, ["simctl", "launch", ...(fresh ? ["--terminate-running-process"] : []), udid, bundleId], 60_000);
       return said(r);
     },
     async addMedia(udid, paths) {

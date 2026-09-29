@@ -10,6 +10,7 @@ import { NotFoundError, RpcError } from "../store/rows";
 import { android, type Android } from "./android";
 import { AndroidStream } from "./android-stream";
 import { ANDROID_KEYCODES, inputRefusal, iosSteps, sendSteps, type DeviceInput, type DevicePoint, type InputChannel } from "./device-input";
+import { watchMjpeg, type ScreenMotion } from "./screen-motion";
 
 /** A row's name, as a filename. Spaces and punctuation out, so a screenshot of "Carlton's iPhone"
  *  is a file anyone can type at a shell. */
@@ -44,6 +45,8 @@ export type SimulatorServiceDeps = {
   /** How an agent's touches and keys reach an iOS device: serve-sim's socket, the pane's own. Same
    *  seam, same reason — a suite records the frames rather than opening a socket to a daemon. */
   inputChannel?: InputChannel;
+  /** How a device's picture is watched for motion (`screen-motion.ts`). Same seam, same reason. */
+  watchScreen?: (streamUrl: string) => ScreenMotion;
 };
 
 /** How long to wait for the framebuffer to have a size. serve-sim answers `{"width":0}` until the
@@ -335,7 +338,7 @@ export class SimulatorService {
     switch (act.kind) {
       case "open-url": return this.cli.openUrl(udid, act.url);
       case "install": return this.cli.install(udid, act.path);
-      case "launch": return this.cli.launch(udid, act.bundleId);
+      case "launch": return this.cli.launch(udid, act.bundleId, act.fresh === true);
       case "add-media": return this.cli.addMedia(udid, act.paths);
       case "paste": return this.cli.pasteTo(udid, act.text);
       case "copy": return this.cli.copyFrom(udid);
@@ -363,7 +366,7 @@ export class SimulatorService {
     switch (act.kind) {
       case "open-url": return this.droid.openUrl(serial, act.url);
       case "install": return this.droid.install(serial, act.path);
-      case "launch": return this.droid.launch(serial, act.bundleId);
+      case "launch": return this.droid.launch(serial, act.bundleId, act.fresh === true);
       // Not a clipboard write: adb has no way to SET the device clipboard without an agent app
       // installed. Typing the text into whatever has focus is the honest nearest thing, and it
       // refuses outright on anything it cannot type rather than typing something else.
@@ -393,6 +396,18 @@ export class SimulatorService {
     const wsUrl = this.stateOf(simulatorId).wsUrl;
     if (!wsUrl) throw new RpcError("INVALID_ARGUMENT", "start the simulator's stream first");
     return this.sendInput(wsUrl, iosSteps(input));
+  }
+
+  /**
+   * Whether the device's screen is moving, told from the picture its pane is shown rather than from
+   * its tree — see `screen-motion.ts`. iOS only: an Android device's frames are `screenrecord`'s,
+   * re-encoded here, and a tree read there costs seconds whatever the picture says. Null when there
+   * is no stream to watch. The caller closes it.
+   */
+  motion(simulatorId: string): ScreenMotion | null {
+    if (this.platformOf(simulatorId) === "android") return null;
+    const url = this.served.get(simulatorId)?.streamUrl ?? null;
+    return url ? (this.d.watchScreen ?? watchMjpeg)(url) : null;
   }
 
   /**

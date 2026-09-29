@@ -7,6 +7,8 @@ import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
 import { clip, err, ok, parseArgs } from "../mcp/tool-result";
 import type { McpService } from "../mcp/service";
 import type { ActObservation, ActObserver, ObservedElement } from "../mcp/act-observer";
+import type { LayaAssist } from "../laya/assist";
+import { plainRole } from "../laya/shadow";
 import type { RpcServer } from "../rpc/server";
 import type { ItemsStore } from "../store/items";
 import type { BrowserPermissionBroker, GateResult } from "../browsers/permissions";
@@ -17,6 +19,8 @@ import { decodePngToRgba, pngSize } from "../machines/qmp-driver";
 import { RpcError } from "../store/rows";
 import type { SimulatorService } from "./service";
 import { DEVICE_KEYS, inputRefusal, type DeviceInput, type DevicePoint } from "./device-input";
+import { runPath, tapPoint, type ExecIO, type ExecResult, type ExecStopReason } from "./executor";
+import type { ScreenMotion } from "./screen-motion";
 
 export const SIMULATOR_PROVIDER_NAME = "realm-simulator";
 
@@ -56,6 +60,18 @@ export const SIMULATOR_PROVIDER_NAME = "realm-simulator";
  * Every input tool takes an `intent`: what the step is for, in the agent's own words. It is what the
  * transcript's tool row and the permission card show for the step, and what the observer is told.
  *
+ * ## Walks: `simulator_do`
+ *
+ * Tapping by number costs the agent a turn a step — read the elements, tap, read them again — and a
+ * turn is seconds of model time against the few hundred milliseconds the device takes. `simulator_do`
+ * takes the whole path in one call, `["General", "About"]`, and `executor.ts` walks it here: each
+ * label found on the live screen (scrolled to when it is further down), tapped, and the screen
+ * watched until it has changed and come to rest. It stops rather than guesses, and never takes a step
+ * that buys, deletes, sends, signs out or enters a password. Its answer is the screen it ended on,
+ * read once and numbered like `simulator_elements`, so the agent's next move needs no read of its own.
+ * It asks the same once-per-device card as the other input tools, and a launch asks what
+ * `simulator_launch` asks.
+ *
  * ## The permission split
  *
  *   - **Read-only** (`simulator_list`, `simulator_screenshot`, `simulator_elements`, `simulator_apps`)
@@ -92,7 +108,7 @@ export const SIMULATOR_PROVIDER_NAME = "realm-simulator";
 export type SimulatorAgentToolsDeps = {
   mcp: Pick<McpService, "providerEnabled">;
   simulators: Pick<SimulatorService,
-    "devices" | "list" | "stateOf" | "create" | "start" | "ax" | "apps" | "act" | "capture" | "screenshot" | "streamedOn" | "input">;
+    "devices" | "list" | "stateOf" | "create" | "start" | "ax" | "apps" | "act" | "capture" | "screenshot" | "streamedOn" | "input" | "motion">;
   items: Pick<ItemsStore, "findByRefId">;
   broker: Pick<BrowserPermissionBroker, "gate">;
   rpc: Pick<RpcServer, "broadcast">;
@@ -110,6 +126,10 @@ export type SimulatorAgentToolsDeps = {
   wait?: { timeoutMs: number; pollMs: number };
   /** Told about every input step as it happens — see "The observer" above. None by default. */
   observe?: ActObserver;
+  /** Laya's Assist, where it has earned one: the element an agent describes in words, picked from the
+   *  live screen above a fitted confidence, never on a sensitive step (`laya/assist.ts`). Absent, or
+   *  locked, and a described target is refused with what to do instead. */
+  assist?: LayaAssist;
 };
 
 /** The provider, plus the question the browser tools ask of it before opening a URL. */
@@ -179,7 +199,10 @@ export function createSimulatorAgentProvider(d: SimulatorAgentToolsDeps): Simula
       // Offered only where a simulator can exist (design.md: "Offer a capability only where its
       // OWNER has said it exists"). A Mac with neither toolchain lists nothing rather than eight
       // tools whose every answer is "install Xcode".
-      return (await available()) ? TOOLS : [];
+      if (!(await available())) return [];
+      // A target in words is offered only while Assist can act on one — never a field whose every
+      // use is a refusal (design.md: offer a capability only where its owner has said it exists).
+      return d.assist?.gate().available ? TOOLS.map(withTarget) : TOOLS;
     },
     async call(ctx: ProviderCallContext, tool: string, args: unknown): Promise<CallToolResult> {
       if (!d.mcp.providerEnabled(ctx.spaceId, SIMULATOR_PROVIDER_NAME))
@@ -325,6 +348,24 @@ const TOOLS: Tool[] = [
     },
   },
   {
+    name: "simulator_do",
+    description:
+      'Get somewhere in an app in one call: give the labels to tap, in order, as they read on screen — ["General", "About"] — and Realm walks them on this Mac, finding each on the live screen (scrolling to it when it is further down), tapping it, and waiting for the screen to settle before the next. Much faster than tapping one step at a time. With app, the app is opened fresh on its first screen before the walk; with text, the text is typed at the end into the field the walk ended on or the only field on screen. It stops rather than guesses — at a label it cannot find, a tap that changed nothing, or any step that buys, deletes, sends, signs out or asks for a password, which you take yourself by [number] — and says where and why. Returns the screen it ended on, numbered for the input tools. Asks the user once per device per session, and a launch asks as simulator_launch does.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        simulatorId: SIMULATOR_ID,
+        intent: INTENT,
+        path: { type: "array", items: { type: "string" }, description: 'the labels to tap, in order, as the screen shows them — ["Privacy & Security", "Location Services"]. Up to 12.' },
+        app: { type: "string", description: "a bundle id from simulator_apps to open fresh before the walk, closing a running copy so it starts on its first screen" },
+        text: { type: "string", description: "text to type once the walk is done, into the field it ended on or the only field on screen" },
+        until: { type: "string", description: "a label the final screen must show for the walk to count as done" },
+      },
+      required: ["simulatorId", "intent"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "simulator_tap",
     description:
       "Tap a simulator's screen once: an element, by the [number] simulator_elements gave it, or a point. The element is looked up again on the live screen at the moment of the tap and tapped at the centre of its frame; if the screen has changed since you read it, nothing is tapped and you are told to read the elements again. Read simulator_elements afterwards to see what the tap did. Asks the user once per device per session.",
@@ -416,12 +457,16 @@ const ELEMENT_NUMBER = "an element is its [number] from simulator_elements, such
 const ElementNumber = z.preprocess((v) => (typeof v === "string" ? Number(v.trim().replace(/^\[(.*)\]$/, "$1")) : v),
   z.number({ invalid_type_error: ELEMENT_NUMBER }).int(ELEMENT_NUMBER).positive(ELEMENT_NUMBER));
 const Coordinate = z.number().finite();
-const TouchFields = { element: ElementNumber.optional(), x: Coordinate.optional(), y: Coordinate.optional() };
-/** An element or a point, never both: a point beside an element is a second opinion about where to
- *  touch, and there is no right one to pick. */
-const oneTarget = (a: { element?: number; x?: number; y?: number }): boolean =>
-  a.element !== undefined ? a.x === undefined && a.y === undefined : a.x !== undefined && a.y !== undefined;
-const ONE_TARGET = { message: "give an element, or a point as both x and y — one of the two", path: ["element"] };
+const Described = z.string().trim().min(1, "a target is a few words, such as \"the Bluetooth row\"").max(200, "a target is a few words — 200 characters at most");
+const TouchFields = { element: ElementNumber.optional(), x: Coordinate.optional(), y: Coordinate.optional(), target: Described.optional() };
+/** Exactly one of an element, a point, or (in Assist) a target in words: two of them is a second
+ *  opinion about where to touch, and there is no right one to pick. */
+const oneTarget = (a: { element?: number; x?: number; y?: number; target?: string }): boolean => {
+  const point = a.x !== undefined || a.y !== undefined;
+  if ((a.element !== undefined ? 1 : 0) + (point ? 1 : 0) + (a.target !== undefined ? 1 : 0) !== 1) return false;
+  return !point || (a.x !== undefined && a.y !== undefined);
+};
+const ONE_TARGET = { message: "give exactly one of: an element's [number], a point as both x and y, or — while Laya's Assist is on — a target in words", path: ["element"] };
 const TapArgs = InputArgs.extend(TouchFields).refine(oneTarget, ONE_TARGET);
 const LongPressArgs = InputArgs.extend({ ...TouchFields, durationMs: z.number().int().min(100).max(10_000).default(1_000) }).refine(oneTarget, ONE_TARGET);
 const PointArgs = z.object({ x: Coordinate, y: Coordinate });
@@ -437,6 +482,21 @@ const SwipeArgs = InputArgs.extend({
   .refine((a) => a.element === undefined || a.direction !== undefined,
     { message: "an element is swiped across in a direction; from and to are points of their own", path: ["element"] });
 const TypeArgs = InputArgs.extend({ text: z.string().min(1).max(1_000) });
+/** A walk's longest path. Past a dozen steps an agent is scripting an app blind, and a stop at the
+ *  twentieth step is a long way from where it last looked. */
+const MAX_PATH = 12;
+/** How long one label may be: a row's words, not a paragraph. */
+const MAX_LABEL = 120;
+const PathLabel = z.string().trim().min(1, 'a label is the words on the element, such as "General"').max(MAX_LABEL, `a label is a few words — ${MAX_LABEL} characters at most`);
+/** One entry of a path: a label, or several written "General › About". */
+const PathEntry = z.string().trim().min(1, 'a label is the words on the element, such as "General"').max(MAX_PATH * (MAX_LABEL + 3), "that is more than a path");
+const DoArgs = InputArgs.extend({
+  path: z.array(PathEntry).max(MAX_PATH, `a path is at most ${MAX_PATH} steps — walk the first part, then the rest`).default([]),
+  app: z.string().trim().min(1).max(256).optional(),
+  text: z.string().min(1).max(1_000).optional(),
+  until: PathLabel.optional(),
+}).refine((a) => a.path.length > 0 || a.text !== undefined || a.app !== undefined,
+  { message: "give a path to walk, text to type, or an app to open", path: ["path"] });
 const PressArgs = InputArgs.extend({ key: z.enum(DEVICE_KEYS) });
 
 /* ---------------------------------- handlers ---------------------------------- */
@@ -684,6 +744,49 @@ const HANDLERS: Record<string, Handler> = {
     return keys(c, "simulator_press", args.value, { kind: "press", key }, (name) => `Pressed ${key} on ${name}.`);
   },
 
+  simulator_do: async (c, raw) => {
+    const args = parseArgs(DoArgs, raw); if ("error" in args) return args.error;
+    const a = args.value;
+    // "General › About" as one string is the same path, the way a person writes it down.
+    const path = a.path.flatMap((p) => p.split("›").map((part) => part.trim()).filter(Boolean));
+    if (path.length > MAX_PATH) return err(`a path is at most ${MAX_PATH} steps — walk the first part, then the rest.`);
+    const long = path.find((label) => label.length > MAX_LABEL);
+    if (long) return err(`"${clip(long, 40)}" is not a label — a label is a few words, ${MAX_LABEL} characters at most.`);
+    const row = requireRunning(c.d, c.ctx, a.simulatorId); if ("error" in row) return row.error;
+    const name = clip(row.value.name, 60);
+    // Before any card: text the device cannot type is no walk at all.
+    if (a.text !== undefined) {
+      const refused = inputRefusal({ kind: "text", text: a.text }, row.value.platform);
+      if (refused) return err(refused);
+    }
+    let launched: string | undefined;
+    if (a.app !== undefined) {
+      const app = (await c.d.simulators.apps(row.value.id)).find((x) => x.bundleId === a.app);
+      if (!app) return err(`there is no app "${clip(a.app, 80)}" on ${name} — simulator_apps lists the bundle ids it has.`);
+      const gate = await c.d.broker.gate(c.ctx.sessionId, "simulator_launch", `Launch ${clip(a.app, 80)} on ${name}`, { simulatorId: row.value.id, bundleId: a.app });
+      if (!gate.allowed) return err(gate.reason);
+      launched = app.name;
+    }
+    const card = await askToDrive(c, row.value, "simulator_do", a);
+    if (!card.allowed) return err(card.reason);
+    if (a.app !== undefined) {
+      const r = await c.d.simulators.act(row.value.id, { kind: "launch", bundleId: a.app, fresh: true });
+      if (!r.ok) return err(`${clip(a.app, 80)} did not launch on ${name}: ${clip(r.detail || "no reason given", 600)}`);
+    }
+    const motion = c.d.simulators.motion(row.value.id);
+    try {
+      const result = await runPath(deviceIO(c, row.value, a.intent, motion), {
+        path,
+        ...(a.text !== undefined ? { text: a.text } : {}),
+        ...(a.until !== undefined ? { until: a.until } : {}),
+        ...(launched !== undefined ? { launched } : {}),
+      });
+      return walked(c, row.value, result);
+    } finally {
+      motion?.close();
+    }
+  },
+
   simulator_open_url: async ({ d, ctx }, raw) => {
     const args = parseArgs(OpenUrlArgs, raw); if ("error" in args) return args.error;
     const { url } = args.value;
@@ -747,6 +850,7 @@ type Spot = { at: DevicePoint; elements: readonly SimulatorAxElement[]; chosen: 
  */
 async function touch(c: Call, tool: string, a: z.infer<typeof TapArgs>, input: (at: DevicePoint) => DeviceInput, said: (target: string, name: string) => string): Promise<CallToolResult> {
   const row = requireRunning(c.d, c.ctx, a.simulatorId); if ("error" in row) return row.error;
+  if (a.target !== undefined) return assisted(c, tool, row.value, a as z.infer<typeof TapArgs> & { target: string }, input, said);
   const seen = a.element !== undefined ? recall(c, row.value, a.element) : null;
   if (seen && "error" in seen) return seen.error;
   const gate = await askToDrive(c, row.value, tool, a);
@@ -755,6 +859,144 @@ async function touch(c: Call, tool: string, a: z.infer<typeof TapArgs>, input: (
   if ("error" in spot) return spot.error;
   watch(c, row.value, tool, a.intent, spot.elements, spot.chosen);
   return landed(row.value, await c.d.simulators.input(row.value.id, input(spot.at)), `${said(spot.target, clip(row.value.name, 60))}${spot.landing}.`);
+}
+
+/**
+ * A tap-shaped step on an element the agent DESCRIBED — Laya's Assist (`laya/assist.ts`).
+ *
+ * Same order as `touch`: the card first, then the live screen. That read becomes the agent's latest
+ * list, so whatever comes back is numbered in it and the agent's next tap by [number] lands on what
+ * it was just shown. Laya's pick is used only when Assist says so; anything else — unsure, sensitive,
+ * no answer in time, nothing that looks like it — is NOTHING SENT and the likeliest elements handed
+ * back by number, which costs the agent the round trip it would have made anyway.
+ */
+async function assisted(c: Call, tool: string, row: Simulator, a: z.infer<typeof TapArgs> & { target: string }, input: (at: DevicePoint) => DeviceInput, said: (target: string, name: string) => string): Promise<CallToolResult> {
+  const assist = c.d.assist;
+  const gate = assist?.gate();
+  if (!assist || !gate?.available) {
+    return err(`a target in words needs Laya's Assist, which is not on here (${gate?.reason ?? "Laya is not part of this Realm"}). Read simulator_elements and pass the element's [number].`);
+  }
+  const card = await askToDrive(c, row, tool, a);
+  if (!card.allowed) return err(card.reason);
+  const tree = await liveTree(c, row);
+  const shown = tree.elements.slice(0, ELEMENTS_MAX);
+  const first = c.reads.remember(c.ctx.sessionId, row.id, shown);
+  const numberOf = (path: string) => first + shown.findIndex((e) => e.path === path);
+  const name = clip(row.name, 60);
+  const words = clip(a.target, 80);
+  const outcome = await assist.resolve(a.target, a.intent, shown.map(observed), tool);
+  if (outcome.kind === "pick") {
+    const live = shown.find((e) => e.path === outcome.element.id)!;
+    const n = numberOf(live.path);
+    const centre = { x: live.frame.x + live.frame.width / 2, y: live.frame.y + live.frame.height / 2 };
+    if (!onScreen(centre, tree.screen)) {
+      return err(`nothing was tapped: Laya picked [${n}] for "${words}", but it is off the screen now. Swipe it into view, then try again.`);
+    }
+    watch(c, row, tool, a.intent, shown, { element: observed(live) }, "laya");
+    const r = await c.d.simulators.input(row.id, input(normalize(centre, tree.screen)));
+    const label = live.label.trim() ? ` "${clip(live.label.trim(), 60)}"` : "";
+    return landed(row, r, `${said(`[${n}]${label}`, name)} — Laya's pick for "${words}" (${outcome.confidence.toFixed(2)}; Assist acts at ${gate.threshold!.toFixed(2)} or above), at the centre of its frame ${at(centre)}.`);
+  }
+  const lines = outcome.candidates.slice(0, 8).map((e) => `[${numberOf(e.id)}] ${e.label.trim() ? `"${clip(e.label.trim(), 60)}"` : "(no name)"} ${plainRole(e.role)}`);
+  const best = outcome.best ? `[${numberOf(outcome.best.element.id)}]${outcome.best.element.label.trim() ? ` "${clip(outcome.best.element.label.trim(), 60)}"` : ""}` : null;
+  const why = outcome.why === "sensitive"
+    ? `"${words}" looks like a step Laya never chooses on its own (it reads as "${outcome.matched ?? "sensitive"}")${best ? `; its pick was ${best}` : ""}. If that is the step you mean, tap it by its [number].`
+    : outcome.why === "unsure"
+      ? `Laya was not sure which element "${words}" means${best ? ` — its best guess, ${best}, scored ${outcome.best!.confidence.toFixed(2)}` : ""}, and Assist acts only at ${gate.threshold!.toFixed(2)} or above.`
+      : outcome.why === "no-candidates"
+        ? `nothing on ${name}'s screen looks like "${words}".`
+        : "Laya did not answer in time.";
+  return err(`nothing was tapped: ${why}${lines.length ? ` The likeliest, numbered in a fresh read of the screen: ${lines.join("; ")}. Tap one by its [number], or read simulator_elements for the whole screen.` : " Read simulator_elements to see what is there."}`);
+}
+
+/** The two ends of a walk's scroll, 0..1 of the screen: half a screen through its middle, clear of
+ *  the edges where a swipe opens the system's panels. `up` brings what is below into view. */
+const WALK_SCROLL = {
+  up: { from: { x: 0.5, y: 0.75 }, to: { x: 0.5, y: 0.25 } },
+  down: { from: { x: 0.5, y: 0.25 }, to: { x: 0.5, y: 0.75 } },
+} as const;
+
+/**
+ * What a walk does to the device, through the same service calls the one-step tools make. On iOS a
+ * scroll holds still before it lifts, so the list stops where the finger does and no row is flown
+ * past; Android's `input swipe` cannot pause, so its stroke is slower instead. Laya is offered only
+ * while its Assist can act; every tap is told to the observer as the step it is.
+ */
+function deviceIO(c: Call, row: Simulator, intent: string, motion: ScreenMotion | null): ExecIO {
+  const send = (input: DeviceInput) => c.d.simulators.input(row.id, input);
+  const assist = c.d.assist;
+  return {
+    read: () => c.d.simulators.ax(row.id),
+    tap: (el, tree) => send({ kind: "tap", at: normalize(tapPoint(el), tree.screen), count: 1 }),
+    scroll: (direction) => send(row.platform === "android"
+      ? { kind: "swipe", ...WALK_SCROLL[direction], ms: 700, holdMs: 0 }
+      : { kind: "swipe", ...WALK_SCROLL[direction], ms: 300, holdMs: 0, stopMs: 120 }),
+    type: (text) => send({ kind: "text", text }),
+    ...(assist?.gate().available ? { laya: (label: string, elements: readonly ObservedElement[]) => assist.resolve(label, label, elements, "simulator_tap") } : {}),
+    observe: ({ elements, chosen, by }) =>
+      watch(c, row, "simulator_do", intent, elements.slice(0, ELEMENTS_MAX), { element: observed(chosen) }, by === "laya" ? "laya" : undefined),
+    settled: (tree) => c.reads.settle(c.ctx.sessionId, row.id, tree.elements.slice(0, ELEMENTS_MAX)),
+    ...(motion ? { motion } : {}),
+    now: () => performance.now(),
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+  };
+}
+
+/** What to do after each way a walk stops. */
+const AFTER_STOP: Record<ExecStopReason, string> = {
+  "not-found": "Tap one of those by its [number], or walk again with the label as it reads on the screen below.",
+  sensitive: "A walk never takes that kind of step. If it is the step you mean, tap it yourself by its [number].",
+  "no-change": "The screen below is what the tap left; carry on from it by [number], or walk again.",
+  "tap-failed": "Nothing further was sent.",
+  "not-there": "The screen below is where it ended instead.",
+  "which-field": "End the path on the field to type into, or tap it by its [number] and use simulator_type.",
+};
+
+/**
+ * A walk's answer: where it went and how long it took, or where it stopped and why, with the
+ * likeliest elements by number — then the screen it ended on, read once and numbered like
+ * `simulator_elements`, which becomes this session's latest list. A walk that stopped is an error,
+ * so an agent reading only the flag still knows it did not get there.
+ */
+function walked(c: Call, row: Simulator, r: ExecResult): CallToolResult {
+  const name = clip(row.name, 60);
+  const shown = r.final.elements.slice(0, ELEMENTS_MAX);
+  const first = c.reads.remember(c.ctx.sessionId, row.id, shown);
+  const secs = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
+  const trail = r.steps.map((s) => {
+    if (s.how === "typed") return s.label;
+    const words = `"${clip(s.matched.trim() || s.label, 50)}"`;
+    const how = s.how === "close" ? ` (for "${clip(s.label, 40)}")` : s.how === "laya" ? ` (Laya's pick for "${clip(s.label, 40)}")` : "";
+    return `${words}${how}${s.scrolls ? `, ${s.scrolls} scroll${s.scrolls === 1 ? "" : "s"} down` : ""}`;
+  }).join(" → ");
+  let head: string;
+  if (r.stop === null) {
+    head = `Walked ${trail || "nowhere — the app is open"} on ${name} in ${secs(r.ms)}.`;
+  } else {
+    const picks = r.stop.candidates.flatMap((e) => {
+      const i = shown.indexOf(e);
+      return i === -1 ? [] : [`[${first + i}] ${e.label.trim() ? `"${clip(e.label.trim(), 50)}"` : "(no name)"} ${plainRole(e.role)}`];
+    });
+    const before = r.steps.length > 0 ? `Walked ${trail}, then stopped` : "Stopped";
+    head = `${before} at "${clip(r.stop.label, 60)}" on ${name} after ${secs(r.ms)}: ${r.stop.detail}.`
+      + `${picks.length > 0 ? ` The likeliest: ${picks.join("; ")}.` : ""} ${AFTER_STOP[r.stop.why]}`;
+  }
+  const more = r.final.elements.length > shown.length ? ` The first ${ELEMENTS_MAX} are listed.` : "";
+  const screen = `The screen it ended on: ${r.final.elements.length} element(s), numbered for the input tools, frames in ${r.final.units}.${more}`;
+  const body = [`app: ${clip(r.final.app.trim(), 80) || "(no name)"}`, ...shown.map((el, i) => elementLine(el, first + i))].join("\n");
+  return {
+    content: [{ type: "text", text: `${head}\n${screen}\n${fenceUntrusted(body, "WHAT THE APP ON THE SIMULATOR REPORTS ABOUT ITS SCREEN")}` }],
+    isError: r.stop !== null,
+  };
+}
+
+/** A tap-shaped tool as listed while Assist can act: the same tool, plus a target in words. */
+function withTarget(t: Tool): Tool {
+  if (!["simulator_tap", "simulator_double_tap", "simulator_long_press"].includes(t.name)) return t;
+  return { ...t, inputSchema: { ...t.inputSchema, properties: { ...(t.inputSchema.properties ?? {}), target: {
+    type: "string",
+    description: "or describe the element in a few words, such as \"the Bluetooth row\" — Laya, on this Mac, picks it from the screen as it is now when it is confident enough; otherwise nothing is sent and you get the likeliest elements back to choose from by [number]",
+  } } } };
 }
 
 /** The steps that touch nothing — text and keys, which go to whatever has focus. */
@@ -911,10 +1153,10 @@ const observed = (el: SimulatorAxElement): ObservedElement =>
   ({ id: el.path, role: el.role, label: el.label, ...(el.value ? { value: el.value } : {}) });
 
 /** Tell the observer about a step, if there is one, and keep what it hands back for the next read. */
-function watch(c: Call, row: Simulator, tool: string, intent: string, elements: readonly SimulatorAxElement[], chosen: ActObservation["chosen"]): void {
+function watch(c: Call, row: Simulator, tool: string, intent: string, elements: readonly SimulatorAxElement[], chosen: ActObservation["chosen"], chosenBy?: "laya"): void {
   const observe = c.d.observe;
   if (!observe) return;
-  const after = quietly(() => observe({ surface: "simulator", spaceId: c.ctx.spaceId, sessionId: c.ctx.sessionId, tool, intent, elements: elements.map(observed), chosen }));
+  const after = quietly(() => observe({ surface: "simulator", spaceId: c.ctx.spaceId, sessionId: c.ctx.sessionId, tool, intent, elements: elements.map(observed), chosen, ...(chosenBy ? { chosenBy } : {}) }));
   if (typeof after === "function") c.reads.owe(c.ctx.sessionId, row.id, after);
 }
 

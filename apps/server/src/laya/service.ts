@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { LayaModeSchema, type LayaInstallStep, type LayaMode, type LayaRuntimeState, type LayaStatus } from "@realm/contracts";
+import { LAYA_ASSIST_MIN_ACCURACY, LayaModeSchema, type LayaAssistGate, type LayaEvalReport, type LayaInstallStep, type LayaMode, type LayaRuntimeState, type LayaStatus } from "@realm/contracts";
 import { RpcError } from "../store/rows";
 import { LAYA_CHECKPOINT, LayaClient, type LayaHealth } from "./client";
 import type { DecisionLog } from "./log";
@@ -77,6 +77,9 @@ export class LayaService {
     fetchImpl?: typeof fetch;
     timing?: Partial<LayaTiming>;
     now?: () => number;
+    /** The ACTIVE checkpoint's evaluation (its `eval.json`), or null when it has none. The Assist gate
+     *  reads nothing else. */
+    activeEval?: () => LayaEvalReport | null;
   }) {
     const stored = LayaModeSchema.safeParse(d.settings.get(LAYA_MODE_KEY));
     this.mode = stored.success ? stored.data : "off";
@@ -85,7 +88,7 @@ export class LayaService {
 
   /** At boot: bring the server back if the user left Laya on. Starts nothing otherwise. */
   boot(): void {
-    if (this.mode === "shadow" && this.d.runtime?.installed() && !this.d.runtime.unavailable) void this.start();
+    if (this.mode !== "off" && this.d.runtime?.installed() && !this.d.runtime.unavailable) void this.start();
   }
 
   /** The client, only while the checkpoint is loaded and warm. The shadow asks nothing otherwise. */
@@ -98,6 +101,38 @@ export class LayaService {
     return this.ready?.checkpoint ?? null;
   }
 
+  /** Which position the user put Laya in — Off, Shadow or Assist. */
+  currentMode(): LayaMode {
+    return this.mode;
+  }
+
+  /** The active checkpoint's evaluation, or null. */
+  activeEval(): LayaEvalReport | null {
+    try { return this.d.activeEval?.() ?? null; } catch { return null; }
+  }
+
+  /**
+   * Whether Laya may act on its own pick, and in words why not.
+   *
+   * Three conditions, each a sentence a person can act on: an evaluation exists; its held-out `target`
+   * accuracy clears `LAYA_ASSIST_MIN_ACCURACY`; and it fitted a confidence threshold for high
+   * precision. A fourth holds while the server runs: the checkpoint it is SERVING is the one that was
+   * evaluated — a threshold fitted for one model means nothing for another.
+   */
+  assistGate(): LayaAssistGate {
+    const r = this.activeEval();
+    const locked = (reason: string): LayaAssistGate => ({ available: false, reason, threshold: null, accuracy: r?.target.accuracy ?? null });
+    if (!r) return locked("No checkpoint has been evaluated yet. Train Laya on this Mac first; Assist unlocks when one scores 95% on held-out steps.");
+    const pct = (x: number) => `${Math.round(x * 1000) / 10}%`;
+    if (r.target.accuracy < LAYA_ASSIST_MIN_ACCURACY) {
+      return locked(`The active checkpoint picks the right element ${pct(r.target.accuracy)} of the time on held-out steps. Assist needs ${pct(LAYA_ASSIST_MIN_ACCURACY)}.`);
+    }
+    if (r.target.assist.threshold === null) return locked("No confidence level reached the precision Assist needs on held-out steps.");
+    const serving = this.checkpoint();
+    if (serving !== null && serving !== r.checkpoint) return locked(`Laya is serving ${serving}, but the evaluation is of ${r.checkpoint}.`);
+    return { available: true, reason: null, threshold: r.target.assist.threshold, accuracy: r.target.accuracy };
+  }
+
   async status(): Promise<LayaStatus> {
     const rt = this.d.runtime;
     return {
@@ -106,6 +141,7 @@ export class LayaService {
       runtime: await this.runtimeState(),
       stepsLogged: this.d.log.count(),
       dir: rt?.dir ?? "",
+      assist: this.assistGate(),
     };
   }
 
@@ -125,7 +161,7 @@ export class LayaService {
       .then(() => {
         this.installing = null;
         this.changed();
-        if (this.mode === "shadow") void this.start();
+        if (this.mode !== "off") void this.start();
       }, (e: unknown) => {
         this.installing = null;
         this.installFailure = e instanceof LayaStepError
@@ -139,12 +175,18 @@ export class LayaService {
 
   async setMode(mode: LayaMode): Promise<LayaStatus> {
     const rt = this.d.runtime;
-    if (mode === "shadow" && !(rt && !rt.unavailable && rt.installed())) {
+    if (mode !== "off" && !(rt && !rt.unavailable && rt.installed())) {
       throw new RpcError("LAYA_NOT_INSTALLED", "Install Laya before switching it on.");
+    }
+    // Assist is earned by the active checkpoint's evaluation, not chosen — the switch refuses it
+    // with the same sentence Settings shows beside the locked option.
+    if (mode === "assist") {
+      const gate = this.assistGate();
+      if (!gate.available) throw new RpcError("LAYA_ASSIST_LOCKED", gate.reason ?? "Assist is not available yet.");
     }
     this.mode = mode;
     this.d.settings.set(LAYA_MODE_KEY, mode);
-    if (mode === "shadow") {
+    if (mode !== "off") {
       // Choosing Shadow again after a failure is the retry: the count starts over.
       this.startFailure = null;
       this.restarts = 0;
@@ -188,7 +230,7 @@ export class LayaService {
       this.changed();
       return;
     }
-    if (this.closed || this.mode !== "shadow" || this.run) return;
+    if (this.closed || this.mode === "off" || this.run) return;
     const apiKey = randomBytes(24).toString("base64url");
     const run = {
       proc: rt.start({ port, apiKey }),
@@ -255,7 +297,7 @@ export class LayaService {
     if (this.run !== run) return;
     this.run = null;
     this.ready = null;
-    if (this.closed || this.mode !== "shadow") return this.changed();
+    if (this.closed || this.mode === "off") return this.changed();
     const reason = lastLine(exit.output) || `laya-serve exited with ${exit.signal ?? `code ${exit.code}`}.`;
     if (this.restarts >= this.t.backoffMs.length) {
       this.startFailure = { reason, detail: exit.output };
@@ -264,7 +306,7 @@ export class LayaService {
     const delay = this.t.backoffMs[this.restarts]!;
     this.restarts++;
     this.changed();
-    this.later(() => { if (!this.run && !this.closed && this.mode === "shadow") void this.start(); }, delay);
+    this.later(() => { if (!this.run && !this.closed && this.mode !== "off") void this.start(); }, delay);
   }
 
   private async stop(): Promise<void> {

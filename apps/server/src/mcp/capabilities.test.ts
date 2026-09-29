@@ -85,6 +85,21 @@ describe("capabilitiesContext", () => {
     expect(text).toContain("do not drive a device through serve-sim's CLI or `adb shell input`");
   });
 
+  it("points a session with computer use at walking a Mac app in one call too", () => {
+    const text = capabilitiesContext([COMPUTER_PROVIDER_NAME])!;
+    expect(text).toContain("To get something done in an app, use `computer_do`");
+    expect(text).toContain("take those steps yourself with `computer_act`");
+  });
+
+  it("points a session that needs to get somewhere in an app at one walk, not a turn a tap", () => {
+    const text = capabilitiesContext([SIMULATOR_PROVIDER_NAME])!;
+    // THE MUTANT: list the tool and never say when it is the one. An agent then taps its way through
+    // Settings one turn at a time, which is the slow path this tool exists to replace.
+    expect(text).toContain("To get somewhere in an app, use `simulator_do` instead");
+    expect(text).toContain('`["General", "About"]`');
+    expect(text).toContain("never buys, deletes, sends or signs in");
+  });
+
   it("says nothing about simulators to a session that does not have them", () => {
     // A space that switched the provider off, or a Mac with no toolchain — `realmProvidersFor` leaves
     // the name out either way, and the paragraph has to go with it.

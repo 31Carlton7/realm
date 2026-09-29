@@ -421,7 +421,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     pixelWorldJson: overrides.pixelWorldJson ?? "{}",
     pixelSpriteJson: overrides.pixelSpriteJson ?? "{}",
     failover: overrides.failover ?? DEFAULT_FAILOVER_POLICY,
-    laya: overrides.laya ?? { mode: "off", installed: false, runtime: { state: "not-installed", python: { path: "/opt/homebrew/bin/python3.13", version: "3.13.12" } }, stepsLogged: 0, dir: "/Users/u/Realm/laya" },
+    laya: overrides.laya ?? { mode: "off", installed: false, runtime: { state: "not-installed", python: { path: "/opt/homebrew/bin/python3.13", version: "3.13.12" } }, stepsLogged: 0, dir: "/Users/u/Realm/laya", assist: { available: false, reason: "No checkpoint has been evaluated yet. Train Laya on this Mac first; Assist unlocks when one scores 95% on held-out steps.", threshold: null, accuracy: null } },
     cliStatus: overrides.cliStatus ?? [],
     // The model catalog the picker's detail pane reads. Empty by default because that is the state
     // every test but a catalog test wants: prices are additive, and a fixture that invented them

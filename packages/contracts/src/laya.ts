@@ -4,12 +4,14 @@ import { z } from "zod";
  * Laya — Convai's open-weight decision model, run by Realm on this Mac beside every computer and
  * device step (docs/superpowers/specs/2026-09-29-laya-local-decisions.md).
  *
- * Two positions, and no third yet. `shadow` asks Laya on every step and logs its answer next to what
- * actually happened; nothing it says reaches the agent, a permission card or the transcript. An
- * `assist` position waits on Phase 2: a checkpoint trained on this Mac's own log has to clear a
- * measured bar before Laya may decide anything.
+ * Three positions. `shadow` asks Laya on every step and logs its answer next to what actually
+ * happened; nothing it says reaches the agent, a permission card or the transcript. `assist` is
+ * shadow plus one thing: an agent may describe the element to act on instead of numbering it, and
+ * Laya's pick is used — but only when the ACTIVE checkpoint's held-out evaluation clears the bar
+ * (`LAYA_ASSIST_MIN_ACCURACY`), only above the confidence fitted for high precision, and never on a
+ * step the sensitive rule flags. Everything else goes back to the agent as numbered candidates.
  */
-export const LAYA_MODES = ["off", "shadow"] as const;
+export const LAYA_MODES = ["off", "shadow", "assist"] as const;
 export const LayaModeSchema = z.enum(LAYA_MODES);
 export type LayaMode = z.infer<typeof LayaModeSchema>;
 
@@ -52,6 +54,46 @@ export const LayaRuntimeStateSchema = z.discriminatedUnion("state", [
 ]);
 export type LayaRuntimeState = z.infer<typeof LayaRuntimeStateSchema>;
 
+/** The held-out accuracy a checkpoint needs on `target` before Assist may act on its picks. */
+export const LAYA_ASSIST_MIN_ACCURACY = 0.95;
+
+/**
+ * A checkpoint's evaluation, written beside it as `eval.json` by the eval harness (the shared
+ * contract in docs/superpowers/specs/2026-09-29-laya-local-decisions.md). Settings shows it and the
+ * Assist gate reads it; fields may be added, never renamed or retyped.
+ */
+export const LayaEvalReportSchema = z.object({
+  v: z.literal(1),
+  checkpoint: z.string(),
+  createdAt: z.string(),
+  prompt: z.number().int(),
+  benchmark: z.object({ version: z.string(), split: z.literal("heldout"), cases: z.number().int(), apps: z.array(z.string()) }),
+  target: z.object({
+    accuracy: z.number().min(0).max(1),
+    n: z.number().int(),
+    byApp: z.record(z.object({ accuracy: z.number(), n: z.number().int() })),
+    /** The confidence at or above which the top pick was right at least `precision` of the time on
+     *  held-out steps; null when none reached it. */
+    assist: z.object({ threshold: z.number().nullable(), precision: z.number(), coverage: z.number() }),
+  }),
+  sensitive: z.object({ accuracy: z.number(), recall: z.number(), precision: z.number(), n: z.number().int() }),
+  verify: z.object({ accuracy: z.number(), n: z.number().int() }),
+  baseline: z.object({ sensitiveRule: z.object({ accuracy: z.number(), recall: z.number() }), verifyRule: z.object({ accuracy: z.number() }) }),
+  latencyMs: z.object({ p50: z.number(), p90: z.number() }),
+}).passthrough();
+export type LayaEvalReport = z.infer<typeof LayaEvalReportSchema>;
+
+/** Whether Assist may act, and in words why not — the reason Settings shows beside a locked option. */
+export const LayaAssistGateSchema = z.object({
+  available: z.boolean(),
+  reason: z.string().nullable(),
+  /** The confidence Laya's pick must reach to be used; null while locked. */
+  threshold: z.number().nullable(),
+  /** The active checkpoint's held-out `target` accuracy, when there is an evaluation at all. */
+  accuracy: z.number().nullable(),
+});
+export type LayaAssistGate = z.infer<typeof LayaAssistGateSchema>;
+
 export const LayaStatusSchema = z.object({
   mode: LayaModeSchema,
   /** A finished install is on disk. The mode can only be switched to `shadow` once it is. */
@@ -61,5 +103,6 @@ export const LayaStatusSchema = z.object({
   stepsLogged: z.number().int().nonnegative(),
   /** `<REALM_HOME>/laya`: the runtime, the checkpoint and the log all live under it. */
   dir: z.string(),
+  assist: LayaAssistGateSchema,
 });
 export type LayaStatus = z.infer<typeof LayaStatusSchema>;
