@@ -697,6 +697,15 @@ describe("acting on an element", () => {
     expect(dev.calls.sent).toEqual([]);
   });
 
+  it("forgets the oldest lists rather than every session's last list for the life of the server", async () => {
+    const dev = device();
+    const simulatorId = await dev.running();
+    await dev.call("simulator_elements", { simulatorId });
+    for (let i = 0; i < 256; i++) await dev.provider.call({ ...dev.ctx, sessionId: `other-${i}` }, "simulator_elements", { simulatorId });
+    // THE MUTANT: never evict. A server that stays up for weeks keeps every list every session read.
+    expect(text(await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 }))).toContain("read simulator_elements for iPhone Air first");
+  });
+
   it("takes the number as the list prints it, brackets and all, and nothing that is not one", async () => {
     const dev = device();
     const simulatorId = await dev.running();
@@ -1009,6 +1018,20 @@ describe("the observer", () => {
     await dev.call("simulator_elements", { simulatorId });
     await dev.call("simulator_elements", { simulatorId });
     expect(afters).toEqual([["Wi-Fi"]]);
+  });
+
+  it("hands a step its after once, even when the read that did it belonged to a step that went nowhere", async () => {
+    const afters: string[][] = [];
+    const dev = device({ observe: () => (after) => { afters.push(after.map((e) => e.label)); } });
+    const simulatorId = await dev.running();
+    await dev.call("simulator_elements", { simulatorId });
+    await dev.call("simulator_tap", { simulatorId, intent: "tap", x: 10, y: 10 }); // step A, owed a screen
+    dev.show(redraw((els) => { els[0]!.label = "Bluetooth"; return els; }));
+    // Its live read settles A, then it is refused as stale: no step, nothing owed.
+    expect((await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 })).isError).toBe(true);
+    await dev.call("simulator_tap", { simulatorId, intent: "tap", x: 10, y: 10 });
+    // THE MUTANT: keep the function once it is called. A is told a second, later screen as its after.
+    expect(afters).toEqual([["Bluetooth", "Wi-Fi"]]);
   });
 
   it("never holds the step up, and one that throws — or rejects — changes nothing", async () => {
