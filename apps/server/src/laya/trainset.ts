@@ -9,9 +9,10 @@ import { SENSITIVE_PARTS, pickCandidates, sensitiveQuestion, screenDiff, targetQ
  * each should get, generated from the benchmark's screens and a lexicon of what people call things.
  *
  * Only `train` apps' screens are used — no screen of a held-out or validation app, whole — and no
- * question is ever one of the benchmark's cases: an intent that is, or nearly is, any case's intent
- * (in any split) is dropped. The benchmark's own `train` cases are for fitting the Assist threshold
- * and the temperatures, so they must stay unseen too.
+ * generated question is ever one of the benchmark's cases: an intent that is, or nearly is, any
+ * case's intent (in any split) is dropped. The benchmark's own `train` `target` cases fit the Assist
+ * threshold and the choice temperatures, so they stay unseen; its `train` `sensitive` and `verify`
+ * cases may be taught as they are (`benchmarkTrain`), and nothing of `validation` or `heldout` is.
  *
  *  - `target`: every phrase the lexicon has for an element, on every screen the element is on, over
  *    the candidates the shadow would offer with that element chosen; plus the element's own label now
