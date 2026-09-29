@@ -49,6 +49,10 @@ if (existsSync(pnpmDir)) {
 // 2. Bundled skills — bundledSkillsDir()'s packaged branch reads <resources>/skills.
 cpSync(join(root, "skills"), join(stage, "skills"), { recursive: true });
 
+// 2b. Laya's resources — bundledLayaDir()'s packaged branch reads <resources>/laya: the benchmark every
+// checkpoint is scored on, the training script and its lexicon, and the download's own evaluation.
+cpSync(join(root, "resources", "laya"), join(stage, "laya"), { recursive: true });
+
 // 3. Swift helpers (each optional: absent when swiftc was unavailable, and each degrades on its own).
 for (const [binary, missing] of [
   ["scrollphase", "the app falls back to timer-based scroll phases"],
