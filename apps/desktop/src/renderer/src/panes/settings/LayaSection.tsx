@@ -8,11 +8,11 @@ import { useApp } from "../../state/store";
  * Laya (local decisions): the local model Realm can ask about every computer step, and the log of
  * what it said (docs/superpowers/specs/2026-09-29-laya-local-decisions.md).
  *
- * Three rows. The first says what the runtime is actually doing and offers the one action that moves
- * it on — Install, or Try again. The second is the request, Off or Shadow; it is a request because the
- * two can differ (Shadow while the checkpoint loads, Shadow after a start that failed), which is why
- * the first row exists at all. The third is the log. Phase 2's evaluation goes between the second and
- * the third: it is a statement about what the log has shown, and it earns the switch a third position.
+ * Four rows. The first says what the runtime is actually doing and offers the one action that moves
+ * it on — Install, or Try again. The second is the request, Off, Shadow or Assist; it is a request
+ * because the two can differ (Shadow while the checkpoint loads, Shadow after a start that failed),
+ * which is why the first row exists at all. The third is the active checkpoint's evaluation — what
+ * Assist is earned by — and the one action that can change it, Train. The fourth is the log.
  *
  * Every state is the server's. Nothing here decides whether an install may start or whether Shadow is
  * allowed; a click that the server would refuse is simply not offered.
@@ -35,6 +35,7 @@ export function LayaSection() {
       <ul className="settings-list laya-section">
         <StateRow laya={laya} />
         <ModeRow laya={laya} />
+        <EvaluationRow laya={laya} />
         <LogRow laya={laya} />
       </ul>
       {/* The one sentence the section owes: what the log holds, where, and that it stays. */}
@@ -159,6 +160,72 @@ function ModeRow({ laya }: { laya: LayaStatus }) {
           );
         })}
       </fieldset>
+    </li>
+  );
+}
+
+const pct = (x: number) => `${Math.round(x * 100)}%`;
+
+/**
+ * The active checkpoint's held-out evaluation in the three numbers that say what it is good for, and
+ * Train. A run replaces the active checkpoint only when it scores better, so the row says afterwards
+ * which way it went and why — a run that did not win is a result, not a failure.
+ */
+function EvaluationRow({ laya }: { laya: LayaStatus }) {
+  const trainLaya = useApp((s) => s.trainLaya);
+  const cancelLayaTraining = useApp((s) => s.cancelLayaTraining);
+  const run = useApp((s) => s.run);
+  const e = laya.evaluation ?? null;
+  const t = laya.training ?? { state: "idle" as const };
+  return (
+    <li className="settings-row laya-evaluation" data-training={t.state}>
+      <div className="settings-row-main">
+        <span className="settings-row-name">Evaluation</span>
+        {e ? (
+          <span className="settings-row-desc laya-facts" title={`Scored on ${e.benchmark}: iOS screens and steps this checkpoint never trained on, some of them in apps it never saw.`}>
+            Picks the right element {pct(e.targetAccuracy)}{e.targetNotCopying !== null && ` (${pct(e.targetNotCopying)} when the words differ from its label)`} · flags {pct(e.sensitiveRecall)} of sensitive steps · judges {pct(e.verifyAccuracy)} of steps right · <code>{e.checkpoint}</code>
+          </span>
+        ) : (
+          <span className="settings-row-desc">The active checkpoint has not been scored.</span>
+        )}
+        {t.state === "idle" && (
+          <span className="settings-row-desc">
+            Train makes a new checkpoint on this Mac from the screens Realm ships and your decision log — about half an hour on its GPU — and keeps it only if it scores better.
+          </span>
+        )}
+        {t.state === "running" && (
+          <>
+            <span className="settings-row-desc laya-facts">{t.detail}</span>
+            {t.fraction !== null && (
+              <div className="machine-meter laya-meter" role="progressbar" aria-label="Training"
+                aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(t.fraction * 100)}>
+                <div className="machine-meter-fill" style={{ width: `${Math.round(t.fraction * 100)}%` }} />
+              </div>
+            )}
+          </>
+        )}
+        {t.state === "done" && (
+          <span className="settings-row-desc laya-train-result">
+            {t.activated ? `Now running ${t.checkpoint}. ` : `Kept the checkpoint Laya was running; ${t.checkpoint} was discarded. `}{t.reason}
+          </span>
+        )}
+        {t.state === "failed" && (
+          <>
+            <span className="settings-row-desc laya-reason">Training failed: {t.reason}</span>
+            {t.detail && (
+              <details className="laya-output">
+                <summary>Output</summary>
+                <pre className="cli-job-output">{t.detail}</pre>
+              </details>
+            )}
+          </>
+        )}
+        {t.state === "cancelled" && <span className="settings-row-desc">Training stopped. Nothing it made was kept.</span>}
+      </div>
+      {t.state === "running"
+        ? <button type="button" className="btn" onClick={() => run(() => cancelLayaTraining())}>Stop</button>
+        : <button type="button" className="btn" disabled={!laya.installed} title={laya.installed ? undefined : "Install Laya first."}
+            onClick={() => run(() => trainLaya())}>Train</button>}
     </li>
   );
 }

@@ -187,3 +187,60 @@ describe("the Assist option", () => {
     await waitFor(() => expect(api.calls).toContain("layaSetMode:assist"));
   });
 });
+
+describe("the evaluation and Train", () => {
+  const evaluation = { checkpoint: "english@55cf4c4", createdAt: "2026-09-29T07:00:00.000Z", benchmark: "2026-09-29.1", targetAccuracy: 0.42, targetNotCopying: 0.401, sensitiveRecall: 0.815, verifyAccuracy: 0.455 };
+  const row = () => screen.getByText("Evaluation").closest("li")!;
+
+  it("shows the active checkpoint's three numbers, and which checkpoint they are of", async () => {
+    await mount(status({ state: "off" }, { installed: true, evaluation, training: { state: "idle" } }));
+    expect(within(row()).getByText(/^Picks the right element 42% \(40% when the words differ from its label\) · flags 82% of sensitive steps · judges 46% of steps right ·/)).toBeInTheDocument();
+    expect(within(row()).getByText("english@55cf4c4")).toBeInTheDocument();
+  });
+
+  it("says so when the active checkpoint has no evaluation", async () => {
+    await mount(status({ state: "off" }, { installed: true, evaluation: null }));
+    expect(within(row()).getByText("The active checkpoint has not been scored.")).toBeInTheDocument();
+  });
+
+  it("offers Train only once there is an install to train in", async () => {
+    await mount(status({ state: "not-installed", python: { path: "/opt/homebrew/bin/python3.13", version: "3.13.12" } }));
+    expect(within(row()).getByRole("button", { name: "Train" })).toBeDisabled();
+  });
+
+  it("Train starts a run, which shows what it is doing and offers Stop — and Stop ends it with nothing kept", async () => {
+    const { api } = await mount(status({ state: "off" }, { installed: true, evaluation, training: { state: "idle" } }));
+    fireEvent.click(within(row()).getByRole("button", { name: "Train" }));
+    await waitFor(() => expect(api.calls).toContain("layaTrain"));
+    expect(await within(row()).findByText("Writing the training set")).toBeInTheDocument();
+    // No second Train to double-click while one runs.
+    expect(within(row()).queryByRole("button", { name: "Train" })).toBeNull();
+    fireEvent.click(within(row()).getByRole("button", { name: "Stop" }));
+    await waitFor(() => expect(api.calls).toContain("layaCancelTraining"));
+    expect(await within(row()).findByText("Training stopped. Nothing it made was kept.")).toBeInTheDocument();
+  });
+
+  it("draws a meter for a run only where it has a denominator", async () => {
+    await mount(status({ state: "off" }, { installed: true, training: { state: "running", step: "training", detail: "Epoch 1, step 900 of 2264, about 20 min left", fraction: 0.4, startedAt: "2026-09-29T07:12:00.000Z" } }));
+    expect(within(row()).getByText("Epoch 1, step 900 of 2264, about 20 min left")).toBeInTheDocument();
+    expect(within(row()).getByRole("progressbar", { name: "Training" })).toHaveAttribute("aria-valuenow", "40");
+    cleanup();
+    await mount(status({ state: "off" }, { installed: true, training: { state: "running", step: "preparing", detail: "Writing the training set", fraction: null, startedAt: "2026-09-29T07:12:00.000Z" } }));
+    expect(within(row()).queryByRole("progressbar")).toBeNull();
+  });
+
+  it("says which way a finished run went, and why", async () => {
+    await mount(status({ state: "off" }, { installed: true, training: { state: "done", at: "2026-09-29T08:00:00.000Z", checkpoint: "local:2026-09-29T07-12", activated: true, reason: "It picks the right element 71% of the time on held-out steps, against 42%.", targetAccuracy: 0.71 } }));
+    expect(within(row()).getByText("Now running local:2026-09-29T07-12. It picks the right element 71% of the time on held-out steps, against 42%.")).toBeInTheDocument();
+    cleanup();
+    await mount(status({ state: "off" }, { installed: true, training: { state: "done", at: "2026-09-29T08:00:00.000Z", checkpoint: "local:2026-09-29T07-12", activated: false, reason: "It picks the right element 40% of the time on held-out steps, and the active checkpoint 42%.", targetAccuracy: 0.4 } }));
+    expect(within(row()).getByText("Kept the checkpoint Laya was running; local:2026-09-29T07-12 was discarded. It picks the right element 40% of the time on held-out steps, and the active checkpoint 42%.")).toBeInTheDocument();
+  });
+
+  it("gives a failed run in the trainer's own words, with its output", async () => {
+    await mount(status({ state: "off" }, { installed: true, training: { state: "failed", at: "2026-09-29T08:00:00.000Z", reason: "RuntimeError: MPS backend out of memory", detail: "Traceback (most recent call last):\nRuntimeError: MPS backend out of memory" } }));
+    expect(within(row()).getByText("Training failed: RuntimeError: MPS backend out of memory")).toBeInTheDocument();
+    fireEvent.click(within(row()).getByText("Output"));
+    expect(within(row()).getByText(/Traceback \(most recent call last\):/)).toBeInTheDocument();
+  });
+});
