@@ -116,6 +116,19 @@ describe("a delegated agent's pane — Realm takes back what it opened, once it 
     expect(open(store)).toContain("i-kid");
   });
 
+  it("decides once per run — a repeated settle cannot close a pane the first one kept", async () => {
+    // The server announces once (agent-run.test.ts pins it); this is the renderer not depending on
+    // that. THE MUTANT: keep the entry after the decision, and a second announcement arriving once
+    // the user has looked away re-decides a pane that was kept because they were in it.
+    const store = await delegate(api);
+    await finish(store, api); // the user is in the child's pane, so it stays
+    await pastTheBeat();
+    backToLead(store);
+    store.getState().applyAgentSettled({ spaceId: "s1", sessionId: "kid", itemId: "i-kid", outcome: "done" });
+    await pastTheBeat();
+    expect(open(store)).toContain("i-kid");
+  });
+
   it("keeps a pane the user clicks into during the beat", async () => {
     // The beat is also the chance to say no. THE MUTANT: decide once, on arrival, and close on the
     // timer regardless — the click lands, and the pane leaves from under it anyway.
