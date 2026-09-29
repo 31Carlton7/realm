@@ -770,6 +770,8 @@ function AppTab() {
   const setDefaultPermissionMode = useApp((s) => s.setDefaultPermissionMode);
   const setMidTurnMode = useApp((s) => s.setMidTurnMode);
   const midTurnMode = useApp((s) => s.midTurnMode);
+  const closeFinishedAgentPanes = useApp((s) => s.closeFinishedAgentPanes);
+  const setCloseFinishedAgentPanes = useApp((s) => s.setCloseFinishedAgentPanes);
   const easterEggs = useApp((s) => s.easterEggs);
   const lowPower = useApp((s) => s.lowPower);
   const setLowPower = useApp((s) => s.setLowPower);
@@ -1046,6 +1048,18 @@ function AppTab() {
               </p>
             </>
           )}
+        </div>
+        {/* The one line under the label says what the switch LEAVES alone, because that is the fear a
+            switch that closes things raises. The finer print — which endings count, why a pane you
+            have written to stays, where a closed child is found again — is the row's title. */}
+        <div className="settings-row" title="Only a pane Realm opened for an agent another session delegated to, once that agent finishes cleanly. One that failed, timed out, was stopped or is waiting on you stays open, and so does a pane you are in, have moved, or have written to. The session is never deleted: it stays in the sidebar.">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Close a sub-agent's pane when it finishes</span>
+            <span className="settings-row-desc">Never the pane you are in, and never the session itself</span>
+          </div>
+          <input type="checkbox" role="switch" className="switch" aria-label="Close a sub-agent's pane when it finishes"
+            checked={closeFinishedAgentPanes}
+            onChange={(e) => run(() => setCloseFinishedAgentPanes(e.target.checked))} />
         </div>
       </div>
 

@@ -159,6 +159,16 @@ export const lastUserMessage = (t: Transcript): UserBlock | null => {
   return null;
 };
 
+/** Whether the last turn this transcript settled was one a person STOPPED — the `run` line that says
+ *  so instead of how long the work took. False for a transcript that has settled no turn yet. */
+export const lastRunStopped = (t: Transcript): boolean => {
+  for (let i = t.blocks.length - 1; i >= 0; i--) {
+    const b = t.blocks[i]!;
+    if (b.kind === "run") return b.stopped === true;
+  }
+  return false;
+};
+
 /** Drop the trailing run of blocks that a failure/recovery event supersedes. Trailing only — an
  *  error from an EARLIER turn is that turn's history and must survive whatever this one does. */
 const dropPending = (blocks: Block[]): Block[] => {
