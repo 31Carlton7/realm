@@ -246,19 +246,20 @@ export function Markdown({ text, className = "", cite = NO_CITATIONS, onPath, ar
  * Marks the text that arrived since the last write, so it fades in rather than stamping on.
  *
  * Runs on every write of the markup, because every write destroys the marks the last one made —
- * which is why the record lives in a ref and the DOM is only ever its projection. A write that did
- * not happen (the portals re-rendering over the same html) must not mark again: the spans from the
- * last pass are still there, and marking inside them would stack two fades on one word.
+ * which is why the record lives in a ref and the DOM is only ever its projection. Keyed to the
+ * markup ALONE, so it runs after a write and never without one: `on` is read, not watched, because
+ * a pass over markup that was not rewritten would find the last pass's spans still there and stack
+ * a second fade inside them.
  */
 function useArrivalFade(body: React.RefObject<HTMLDivElement | null>, html: string, on: boolean) {
   const seen = useRef<Arrivals>(NO_ARRIVALS);
   useLayoutEffect(() => {
     const el = body.current;
-    if (!on || !el || el.querySelector(".md-arrival")) return;
+    if (!on || !el) return;
     const now = performance.now();
     seen.current = noteArrival(seen.current, arrivalLength(el), now);
     markArrivals(el, seen.current.runs, now);
-  }, [html, on, body]);
+  }, [html, body]);
 }
 
 /**

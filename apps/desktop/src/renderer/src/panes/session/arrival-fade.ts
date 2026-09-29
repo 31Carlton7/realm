@@ -98,8 +98,9 @@ export function markArrivals(root: HTMLElement, runs: readonly Arrival[], now: n
       frag.append(span);
       cursor = end;
     }
+    // No tail to append: the runs are contiguous from the first to the end of the text (the last
+    // one never ends), so a node they reach is covered to its end.
     if (cursor === from) continue;
-    if (cursor < to) frag.append(node.data.slice(cursor - from));
     node.replaceWith(frag);
   }
 }
