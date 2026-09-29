@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from "react-dom";
 import { artifactTypeOf, documentKindFor, extOf, type ArtifactType, type Item } from "@realm/contracts";
 import { useApp } from "../../state/store";
-import { TYPE_ICON } from "../../components/FileCard";
+import { FileCard, TYPE_ICON } from "../../components/FileCard";
 import { ScrollFades } from "../../components/ScrollFades";
 import { groupByDay } from "../library/LibraryFiles";
 import { DOCK_PIN_MIN_PANE, useDockDismiss, useDockPinned, usePaneRect } from "./pane-dock";
@@ -134,9 +134,10 @@ function FilesPanel({ item, anchorRef, barRef, onClose, onLightbox }: {
      which list reached it: a picture opens in the transcript's lightbox, anything the documents pane
      can edit opens there, and everything else — a zip, a binary — opens the sheet that can hand it to
      the Finder. */
+  const absOf = (row: BrowseRow) => (root ? `${root.path}/${row.path}` : row.path);
   const openRow = (row: BrowseRow) => {
     if (row.isDir) { setDir(row.path); return; }
-    const abs = root ? `${root.path}/${row.path}` : row.path;
+    const abs = absOf(row);
     const type = typeOf(row.name);
     if (type === "image" || type === "video") { onLightbox(abs); return; }
     if (documentKindFor(abs) === "unsupported") { openSheet({ kind: "artifact", path: abs }); onClose(); return; }
@@ -146,6 +147,8 @@ function FilesPanel({ item, anchorRef, barRef, onClose, onLightbox }: {
 
   const crumbs = crumbsOf(root ? baseName(root.path) : "Files", dir);
   const days = useMemo(() => groupByDay((rows ?? []).map((r) => ({ ...r, ts: r.mtimeMs }))), [rows]);
+  const grid = useApp((s) => s.filesView === "grid");
+  const setFilesView = useApp((s) => s.setFilesView);
 
   return createPortal(
     <div ref={ref} className="session-files pane-dock" role="dialog" aria-label={`Files for ${item.title}`} data-pinned={pinned || undefined}
@@ -153,6 +156,14 @@ function FilesPanel({ item, anchorRef, barRef, onClose, onLightbox }: {
         "--dock-pane-h": `${rect?.height ?? window.innerHeight}px` } as React.CSSProperties}>
       <div className="summary-panel-head">
         <h3>Files</h3>
+        {/* Rows or cards. One toggle rather than a List | Grid pair: the rows are the panel's
+            resting state, and a lit button is what says it has been laid out another way — the
+            same one fill every on-state in a bar wears. `aria-pressed` carries the state, so the
+            NAME holds still; a name that flipped to "Show as a list" as well would argue with it. */}
+        <button type="button" className="icon-btn" aria-label="Show as a grid" aria-pressed={grid} title="Grid view"
+          onClick={() => run(() => setFilesView(grid ? "list" : "grid"))}>
+          <Icon name="grid" size={12} />
+        </button>
         {/* A list of a directory is a snapshot, and this one re-reads itself when the session does
             something (the transcript growing is the same event as the agent having run a command).
             What that misses is a file that arrives from anywhere else — a build still running, a
@@ -207,15 +218,34 @@ function FilesPanel({ item, anchorRef, barRef, onClose, onLightbox }: {
             days.map((day) => (
               <section key={day.label} className="summary-section">
                 <h4 className="summary-head"><span>{day.label}</span><span className="summary-count">{day.entries.length}</span></h4>
-                <div className="summary-rows">
-                  {day.entries.map((row) => (
-                    <button key={row.path} className="summary-row" title={row.path} onClick={() => openRow(row)}>
-                      <Icon name={row.isDir ? "folder" : TYPE_ICON[typeOf(row.name)]} size={12} className="summary-row-glyph" />
-                      <span className="summary-row-name">{row.name}</span>
-                      <span className="summary-row-meta">{row.isDir ? "Folder" : fileSize(row.size)}</span>
-                    </button>
-                  ))}
-                </div>
+                {/* The Library's card and the Library's grid, not a second design for a narrower
+                    place: a screenshot looks the same here as it does there. The two lists differ
+                    only in the caption's second line — this one knows a size, not a session — and
+                    in how narrow a column the dock can afford (styles.css). Every card opens
+                    through `openRow`, the one door the rows use, so the layout never decides where
+                    a file goes. */}
+                {grid ? (
+                  <ul className="library-grid">
+                    {day.entries.map((row) => (
+                      <li key={row.path}>
+                        <FileCard path={absOf(row)} name={row.name} type={row.isDir ? "folder" : typeOf(row.name)}
+                          title={row.path} onOpen={() => openRow(row)}>
+                          <span className="library-tile-meta">{row.isDir ? "Folder" : fileSize(row.size)}</span>
+                        </FileCard>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="summary-rows">
+                    {day.entries.map((row) => (
+                      <button key={row.path} className="summary-row" title={row.path} onClick={() => openRow(row)}>
+                        <Icon name={row.isDir ? "folder" : TYPE_ICON[typeOf(row.name)]} size={12} className="summary-row-glyph" />
+                        <span className="summary-row-name">{row.name}</span>
+                        <span className="summary-row-meta">{row.isDir ? "Folder" : fileSize(row.size)}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </section>
             ))
           )}

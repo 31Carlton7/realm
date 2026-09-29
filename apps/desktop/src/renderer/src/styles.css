@@ -5813,10 +5813,12 @@ select { appearance: none; padding-right: 22px;
 /* Anchored to the TOP: the field is squarer than most screenshots, and the top of a page is the
    part that names it. A centred crop of a wide capture showed a band of nothing in particular. */
 .library-tile-thumb { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
-/* The caption: name over provenance, on the card's own ground. */
+/* The caption: the name, over whatever the list knows about the file — where it came from in the
+   Library, how big it is in a session's folder (the card is shared, `FileCard.tsx`). One line style
+   for both, so the second line reads as the same kind of fact whichever list drew it. */
 .library-tile-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 10px 12px 12px; }
 .library-tile-name { min-width: 0; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.library-tile-from { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 11.5px; color: var(--rl-text-faint); }
+.library-tile-from, .library-tile-meta { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 11.5px; color: var(--rl-text-faint); }
 .library-tile-kind { flex: none; }
 /* The one item on the row that is user data of unbounded length, so it takes all the slack and gives
    it back first. Everything beside it is a fixed 12px glyph. */
@@ -7278,3 +7280,12 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .files-crumb + .files-crumb::before { content: "/"; margin-right: 5px; color: var(--rl-text-faint); }
 /* Reading, empty, or capped — the three things this panel says in prose. */
 .files-note { margin: 0; padding: 6px 10px 10px; font-size: 11.5px; line-height: 1.45; color: var(--rl-text-faint); }
+/* Laid out as cards. The Library's grid and the Library's card; only the column is the dock's own.
+   The Library's 200px minimum is one card per row in a 320px dock, which is a list with pictures
+   in it. This one puts two across: the grid has 292px once the panel's padding and this inset are
+   taken, three would leave each card about 92px — a caption of eight characters — and the minimum
+   sits between the two so auto-fill lands on two at the dock's width, and on one rather than three
+   cramped ones if `--summary-w`'s viewport clamp ever narrows it.
+   Inset to the day heading's text, so the cards and the label that groups them share a left edge the
+   way they do on the Library's page; the gap is the panel's rhythm rather than the page's 12px. */
+.session-files .library-grid { grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 8px; padding: 0 8px; }
