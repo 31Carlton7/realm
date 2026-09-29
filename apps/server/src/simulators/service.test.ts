@@ -11,6 +11,7 @@ import { SimulatorsStore } from "../store/simulators";
 import { SimulatorService, toolchainAvailable } from "./service";
 import type { Simctl } from "./simctl";
 import type { ServeSim, ServeSimStream } from "./serve-sim";
+import { iosSteps, type InputChannel, type InputStep } from "./device-input";
 import type { SimulatorState } from "@realm/contracts";
 
 /* The service, with the two CLIs faked. Both seams exist so a suite never depends on this Mac having
@@ -27,7 +28,7 @@ const SCREEN = { width: 1206, height: 2622, orientation: "portrait" };
 const dbs: Db[] = [];
 afterEach(() => { for (const db of dbs.splice(0)) db.close(); vi.restoreAllMocks(); });
 
-function bring(over: { simctl?: Partial<Simctl>; serveSim?: Partial<ServeSim> } = {}) {
+function bring(over: { simctl?: Partial<Simctl>; serveSim?: Partial<ServeSim>; inputChannel?: InputChannel } = {}) {
   const home = tempDir("realm-sim-");
   const db = openDatabase(join(home, "realm.db"));
   dbs.push(db);
@@ -79,7 +80,7 @@ function bring(over: { simctl?: Partial<Simctl>; serveSim?: Partial<ServeSim> } 
   };
   const service = new SimulatorService({
     rpc: { broadcast: (name: string, payload: unknown) => { if (name === "simulator.status") events.push(payload as SimulatorState); } } as never,
-    spaces, items, simulators: new SimulatorsStore(db), simctl: cli, serveSim: stream,
+    spaces, items, simulators: new SimulatorsStore(db), simctl: cli, serveSim: stream, inputChannel: over.inputChannel,
   });
   return { service, spaceId: space.id, folder: space.folderPath, items, events, calls, db };
 }
@@ -416,6 +417,47 @@ describe("the agent's screenshot", () => {
     const { simulatorId } = service.create({ spaceId, name: "Simulator", udid: "UDID-1" });
     await expect(service.capture(simulatorId)).rejects.toThrow(/device not booted/);
     expect(existsSync(seen[0]!)).toBe(false);
+  });
+});
+
+describe("an agent's input on an iOS device", () => {
+  /** The socket, recorded: which URL the steps were sent down, and the steps. */
+  const recording = () => {
+    const sent: { url: string; steps: readonly InputStep[] }[] = [];
+    const channel: InputChannel = async (url, steps) => { sent.push({ url, steps }); return { ok: true, detail: "" }; };
+    return { sent, channel };
+  };
+
+  it("goes down the stream's own socket — the pane's channel — as the frames the gesture is", async () => {
+    const { sent, channel } = recording();
+    const { service, spaceId } = bring({ inputChannel: channel });
+    const { simulatorId } = service.create({ spaceId, name: "Simulator" });
+    service.start(simulatorId, "UDID-1");
+    await settle(() => service.stateOf(simulatorId).status === "running");
+    const tap = { kind: "tap", at: { x: 0.5, y: 0.5 }, count: 1 } as const;
+    expect(await service.input(simulatorId, tap)).toEqual({ ok: true, detail: "" });
+    // THE MUTANT: a socket of its own, or serve-sim's CLI. The pane's socket is the one the device
+    // listens on, and the one whose reach the pane already proves.
+    expect(sent).toEqual([{ url: STREAM.wsUrl, steps: iosSteps(tap) }]);
+  });
+
+  it("refuses a device Realm is not streaming, rather than guessing at a socket", async () => {
+    const { sent, channel } = recording();
+    const { service, spaceId } = bring({ inputChannel: channel });
+    const { simulatorId } = service.create({ spaceId, name: "Simulator", udid: "UDID-1" });
+    await expect(service.input(simulatorId, { kind: "press", key: "home" })).rejects.toThrow(/start the simulator's stream/);
+    expect(sent).toEqual([]);
+  });
+
+  it("refuses what the device cannot do before sending any of it", async () => {
+    const { sent, channel } = recording();
+    const { service, spaceId } = bring({ inputChannel: channel });
+    const { simulatorId } = service.create({ spaceId, name: "Simulator" });
+    service.start(simulatorId, "UDID-1");
+    await settle(() => service.stateOf(simulatorId).status === "running");
+    expect((await service.input(simulatorId, { kind: "text", text: "Zürich" })).detail).toContain('"ü"');
+    expect((await service.input(simulatorId, { kind: "press", key: "back" })).ok).toBe(false);
+    expect(sent).toEqual([]);
   });
 });
 

@@ -346,6 +346,96 @@ describe("gate({ preapproved, onAlwaysAllow })", () => {
   });
 });
 
+/**
+ * `perSession` — the simulator input tools' card, which asks for the rest of the session rather than
+ * for one call, keyed per device. Its mutants: a plain "Allow" that is not kept, which is a card per
+ * tap; a grant that leaks to another device or another session; a plain "Allow" written down as if
+ * it had been "always"; and a read-only session let through on the strength of a grant.
+ */
+describe("gate({ perSession })", () => {
+  const opts = { perSession: true } as const;
+  const ask = (broker: BrowserPermissionBroker, sessionId: string, key: string) =>
+    broker.gate(sessionId, key, "Tap, swipe and type on iPhone Air for the rest of this session", {}, "simulator_tap", opts);
+
+  it("keeps a plain Allow for the rest of the session", async () => {
+    const { broker, events } = setup();
+    const first = ask(broker, "s1", "simulator_input:UDID-A");
+    broker.resolve(requestIdOf(events), "allow");
+    expect(await first).toEqual({ allowed: true });
+    events.length = 0;
+    expect(await ask(broker, "s1", "simulator_input:UDID-A")).toEqual({ allowed: true });
+    expect(events).toEqual([]);
+  });
+
+  it("does not let one device's grant license another device, or another session", async () => {
+    const { broker, events } = setup();
+    const first = ask(broker, "s1", "simulator_input:UDID-A");
+    broker.resolve(requestIdOf(events), "allow");
+    await first;
+    for (const [sessionId, key] of [["s1", "simulator_input:UDID-B"], ["s2", "simulator_input:UDID-A"]] as const) {
+      events.length = 0;
+      const again = ask(broker, sessionId, key);
+      broker.resolve(requestIdOf(events), "deny");
+      expect((await again).allowed, `${sessionId} ${key}`).toBe(false);
+    }
+  });
+
+  it("leaves an ordinary gate's Allow at the one call it answered", async () => {
+    // The other side of the option: without it, "Allow" is still "this once" for every other tool.
+    const { broker, events } = setup();
+    const first = broker.gate("s1", "browser_act", "Click", {});
+    broker.resolve(requestIdOf(events), "allow");
+    await first;
+    events.length = 0;
+    void broker.gate("s1", "browser_act", "Click again", {});
+    expect(events.some((e) => e.ev.type === "permission_request")).toBe(true);
+  });
+
+  it("writes nothing durable for a plain Allow, and still hands on an Always", async () => {
+    for (const [decision, wanted] of [["allow", []], ["allow_always", ["kept"]]] as const) {
+      const { broker, events } = setup();
+      const written: string[] = [];
+      const gate = broker.gate("s1", "simulator_input:UDID-A", "Tap", {}, "simulator_tap", { ...opts, onAlwaysAllow: () => written.push("kept") });
+      broker.resolve(requestIdOf(events), decision);
+      await gate;
+      expect(written, decision).toEqual(wanted);
+    }
+  });
+
+  it("gives way to alwaysPrompt, which keeps nothing", async () => {
+    const { broker, events } = setup();
+    const first = broker.gate("s1", "simulator_input:UDID-A", "Tap", {}, "simulator_tap", { ...opts, alwaysPrompt: true });
+    broker.resolve(requestIdOf(events), "allow");
+    await first;
+    events.length = 0;
+    void broker.gate("s1", "simulator_input:UDID-A", "Tap again", {}, "simulator_tap", opts);
+    expect(events.some((e) => e.ev.type === "permission_request")).toBe(true);
+  });
+
+  it("is refused outright once the session turns read-only, grant or no grant", async () => {
+    const { broker, events, setMode } = setup();
+    const first = ask(broker, "s1", "simulator_input:UDID-A");
+    broker.resolve(requestIdOf(events), "allow");
+    await first;
+    for (const mode of ["plan", "ask"]) {
+      setMode(mode);
+      const r = await ask(broker, "s1", "simulator_input:UDID-A");
+      expect(r, mode).toMatchObject({ allowed: false, reason: expect.stringMatching(/read-only/) });
+    }
+  });
+
+  it("forgets the grant when the session is released", async () => {
+    const { broker, events } = setup();
+    const first = ask(broker, "s1", "simulator_input:UDID-A");
+    broker.resolve(requestIdOf(events), "allow");
+    await first;
+    broker.release("s1");
+    events.length = 0;
+    void ask(broker, "s1", "simulator_input:UDID-A");
+    expect(events.some((e) => e.ev.type === "permission_request")).toBe(true);
+  });
+});
+
 describe("BrowserPermissionBroker.revoke", () => {
   it("makes a session that already answered always ask again", async () => {
     // Taking an app off the durable list is not a revocation while a live session still holds its

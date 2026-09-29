@@ -9,6 +9,7 @@ import type { SpacesStore } from "../store/spaces";
 import { NotFoundError, RpcError } from "../store/rows";
 import { android, type Android } from "./android";
 import { AndroidStream } from "./android-stream";
+import { ANDROID_KEYCODES, inputRefusal, iosSteps, sendSteps, type DeviceInput, type DevicePoint, type InputChannel } from "./device-input";
 
 /** A row's name, as a filename. Spaces and punctuation out, so a screenshot of "Carlton's iPhone"
  *  is a file anyone can type at a shell. */
@@ -40,6 +41,9 @@ export type SimulatorServiceDeps = {
   /** The Android half. Same seam, same reason — a suite must not need an SDK either. */
   android?: Android;
   androidStream?: AndroidStream;
+  /** How an agent's touches and keys reach an iOS device: serve-sim's socket, the pane's own. Same
+   *  seam, same reason — a suite records the frames rather than opening a socket to a daemon. */
+  inputChannel?: InputChannel;
 };
 
 /** How long to wait for the framebuffer to have a size. serve-sim answers `{"width":0}` until the
@@ -78,6 +82,7 @@ export class SimulatorService {
   private readonly stream: ServeSim;
   private readonly droid: Android;
   private readonly droidStream: AndroidStream;
+  private readonly sendInput: InputChannel;
   /** The adb serial each running Android row is on. Separate from the row's `udid`, which is the
    *  AVD's name: a serial is a port handed out at boot and belongs with the in-memory state. */
   private readonly serials = new Map<string, string>();
@@ -87,6 +92,7 @@ export class SimulatorService {
     this.stream = d.serveSim ?? serveSim();
     this.droid = d.android ?? android();
     this.droidStream = d.androidStream ?? new AndroidStream(this.droid, (serial) => this.droid.size(serial));
+    this.sendInput = d.inputChannel ?? sendSteps;
   }
 
   /** Which toolchain a row is reached with. Read from the row rather than guessed from the udid. */
@@ -367,6 +373,59 @@ export class SimulatorService {
       case "permission": return { ok: false, detail: "Android permissions are granted per package with `pm grant`, which Realm does not drive yet." };
       case "camera": case "camera-stop":
         return { ok: false, detail: "The injected camera is an iOS simulator feature — it works by swizzling AVFoundation inside the app." };
+    }
+  }
+
+  /**
+   * A touch, some text or a key, from an agent, to the device this row is streaming.
+   *
+   * iOS gets it down the stream's own socket — the channel the pane's taps take, as the same frames —
+   * so input works exactly as far as the pane's does, and a device the pane cannot drive is one no
+   * agent can either. Android gets it as `adb shell input`, which is what the pane's frames turn into
+   * on that side too. A refusal comes back as `ok: false` with a sentence, never as a throw halfway
+   * through a gesture.
+   */
+  async input(simulatorId: string, input: DeviceInput): Promise<{ ok: boolean; detail: string }> {
+    const row = this.get(simulatorId);
+    const refused = inputRefusal(input, row.platform);
+    if (refused) return { ok: false, detail: refused };
+    if (row.platform === "android") return this.inputAndroid(this.serialOf(simulatorId), input);
+    const wsUrl = this.stateOf(simulatorId).wsUrl;
+    if (!wsUrl) throw new RpcError("INVALID_ARGUMENT", "start the simulator's stream first");
+    return this.sendInput(wsUrl, iosSteps(input));
+  }
+
+  /**
+   * The same input as `adb shell input`. The screen size is asked of the device each time rather
+   * than remembered: a 0..1 point is only as right as the size it is multiplied by, and a `wm size`
+   * override changes it under a running pane.
+   */
+  private async inputAndroid(serial: string, input: DeviceInput): Promise<{ ok: boolean; detail: string }> {
+    if (input.kind === "press") return this.droid.key(serial, ANDROID_KEYCODES[input.key]);
+    if (input.kind === "text") {
+      // `input text` types no new line and no tab, so they go between the runs as the keys they are.
+      for (const part of input.text.replace(/\r/g, "").split(/([\n\t])/)) {
+        const r = part === "\n" ? await this.droid.key(serial, ANDROID_KEYCODES.return)
+          : part === "\t" ? await this.droid.key(serial, ANDROID_KEYCODES.tab)
+          : part ? await this.droid.text(serial, part) : { ok: true, detail: "" };
+        if (!r.ok) return r;
+      }
+      return { ok: true, detail: "" };
+    }
+    const size = await this.droid.size(serial);
+    if (!size) return { ok: false, detail: "the device did not report its screen size, so there is no pixel to put the touch on" };
+    const px = (p: DevicePoint) => ({
+      x: Math.min(size.width - 1, Math.max(0, Math.round(p.x * size.width))),
+      y: Math.min(size.height - 1, Math.max(0, Math.round(p.y * size.height))),
+    });
+    switch (input.kind) {
+      case "tap": { const p = px(input.at); return this.droid.tap(serial, p.x, p.y, input.count); }
+      // A swipe that goes nowhere, held: adb's long press.
+      case "hold": { const p = px(input.at); return this.droid.swipe(serial, p.x, p.y, p.x, p.y, input.ms); }
+      case "swipe": {
+        const a = px(input.from), b = px(input.to);
+        return input.holdMs > 0 ? this.droid.drag(serial, a.x, a.y, b.x, b.y, input.ms) : this.droid.swipe(serial, a.x, a.y, b.x, b.y, input.ms);
+      }
     }
   }
 
