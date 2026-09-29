@@ -7,7 +7,7 @@ import { sessionEvent } from "@realm/contracts";
 import type { ActObservation, ObservedElement } from "../mcp/act-observer";
 import { LayaClient } from "./client";
 import { DecisionLog } from "./log";
-import { LayaShadow, MAX_CANDIDATES, pickCandidates, plainRole, sensitiveRule, type ShadowRow } from "./shadow";
+import { LayaShadow, MAX_CANDIDATES, SENSITIVE_PARTS, pickCandidates, plainRole, screenDiff, sensitiveRule, type ShadowRow } from "./shadow";
 import { fakeLayaServer, until, type FakeLaya } from "./test-fakes";
 
 /**
@@ -50,7 +50,7 @@ const step = (over: Partial<ActObservation> = {}): ActObservation => ({
 });
 
 describe("asking Laya about a step", () => {
-  it("asks which element fits the intent, and whether the step is sensitive in the spike's words", async () => {
+  it("asks which element fits the intent, and whether the step is sensitive as four narrow questions", async () => {
     const { shadow, server: s } = await setup();
     shadow.observe(step());
     await shadow.flush();
@@ -63,7 +63,21 @@ describe("asking Laya about a step", () => {
       criteria: { "Apple Account": "button", "Airplane Mode": "check box, value '0'", "Wi-Fi": "button", Bluetooth: "button", General: "button", "Display & Brightness": "button", Search: "text field" },
     });
     expect(sensitive!.state).toBe("An agent is about to: act on button 'Wi-Fi' to open the Wi-Fi settings.");
-    expect(sensitive!.questions.sensitive).toEqual({ type: "noul", instructions: "Is this step sensitive or hard to undo (spends money, deletes data, sends something, shares private data, or enters a secret)?" });
+    // THE BUG this replaced: one compound question missed seven of the spike's eight sensitive steps.
+    expect(sensitive!.questions).toEqual({
+      money: { type: "noul", instructions: "Does this step spend money or confirm a purchase or payment?" },
+      delete: { type: "noul", instructions: "Does this step delete or erase something?" },
+      send: { type: "noul", instructions: "Does this step send, post or share something with someone else?" },
+      secret: { type: "noul", instructions: "Does this step enter a password, code or other secret?" },
+    });
+  });
+
+  it("reads sensitive as the highest of its four parts, and keeps every part", async () => {
+    // One part that says yes is enough: a payment is sensitive however unlike a deletion it is.
+    const { shadow, rows } = await setup({ server: { noul: (_st, q) => (q === "money" ? 0.91 : q === "send" ? 0.3 : 0.05) } });
+    shadow.observe(step({ intent: "buy the upgrade", chosen: { element: el("9", "Buy $4.99") } }));
+    await shadow.flush();
+    expect(rows()[0]!.laya.sensitive).toMatchObject({ p: 0.91, parts: { money: 0.91, delete: 0.05, send: 0.3, secret: 0.05 }, confidence: 0.91 });
   });
 
   it("logs one row per step: Laya's answers with probabilities and latency, the checkpoint, and the ground truth with its source", async () => {
@@ -74,7 +88,7 @@ describe("asking Laya about a step", () => {
     expect(rows()).toHaveLength(1);
     expect(logged()).toBe(1);
     expect(row).toMatchObject({
-      v: 1, prompt: 1, surface: "computer", tool: "computer_act", spaceId: "sp1", sessionId: "s1",
+      v: 1, prompt: 2, surface: "computer", tool: "computer_act", spaceId: "sp1", sessionId: "s1",
       intent: "open the Wi-Fi settings", chosen: { id: "2" }, checkpoint: "english@55cf4c4",
       truth: {
         target: { id: "2", source: "agent" },
@@ -87,7 +101,9 @@ describe("asking Laya about a step", () => {
     expect(row!.laya.target).toMatchObject({ choice: "3", confidence: 0.42 });
     expect(row!.laya.target!.probabilities["3"]).toBe(0.9);
     expect(Object.keys(row!.laya.target!.probabilities).sort()).toEqual(["0", "1", "2", "3", "4", "5", "7"]);
-    expect(row!.laya.sensitive).toMatchObject({ p: 0.12, confidence: 0.88 });
+    expect(row!.laya.sensitive).toMatchObject({ p: 0.12, confidence: 0.88, parts: { money: 0.12, delete: 0.12, send: 0.12, secret: 0.12 } });
+    // No after-state was handed over, so the rule that verify is measured against has nothing to say.
+    expect(row!.baseline).toEqual({ verify: null });
     expect(row!.laya.target!.ms).toBeGreaterThanOrEqual(0);
     expect(row!.laya.errors).toEqual([]);
     expect(row!.candidates.map((c) => c.id)).toEqual(["0", "1", "2", "3", "4", "5", "7"]);
@@ -303,9 +319,24 @@ describe("after the act", () => {
     after!([el("10", "Wi-Fi", "AXCheckBox", "1"), el("11", "Other Networks")]);
     await shadow.flush();
     const verify = s.asked.find((a) => "verify" in a.body.questions)!;
-    expect(verify.body.state).toContain("Goal: open the Wi-Fi settings.\nBefore: button 'Apple Account', check box 'Airplane Mode': 0, button 'Wi-Fi'");
-    expect(verify.body.state).toContain("\nAfter: check box 'Wi-Fi': 1, button 'Other Networks'");
-    expect(rows()[0]!.laya.verify).toMatchObject({ p: 0.8, after: "check box 'Wi-Fi': 1, button 'Other Networks'" });
+    // What CHANGED, not two snapshots side by side: 40% on the spike's ten as snapshots, 60% as a diff.
+    expect(verify.body.state).toBe("Goal: open the Wi-Fi settings. What changed on screen: Appeared: check box 'Wi-Fi', button 'Other Networks'. "
+      + "Gone: button 'Apple Account', check box 'Airplane Mode', button 'Wi-Fi', button 'Bluetooth', button 'General', button 'Display & Brightness', text field 'Search'.");
+    expect(verify.body.questions.verify).toEqual({ type: "noul", instructions: "Did the step achieve the goal?" });
+    const row = rows()[0]!;
+    expect(row.laya.verify).toMatchObject({ p: 0.8, after: "check box 'Wi-Fi': 1, button 'Other Networks'" });
+    expect(row.laya.verify!.diff).toContain("Appeared: check box 'Wi-Fi'");
+    // The rule Laya has to beat, logged beside it: the screen changed, and no alert came up.
+    expect(row.baseline.verify).toEqual({ value: true, changed: true, alert: false });
+  });
+
+  it("logs the rule's verdict as NOT worked when the step left an alert, whatever else changed", async () => {
+    // THE MUTANT: a rule that counts any change as success reads "Cannot Send Mail" as a sent email.
+    const { shadow, rows } = await setup();
+    const after = shadow.observe(step({ intent: "send the email", elements: [el("1", "Send")], chosen: { element: el("1", "Send") } }));
+    after!([el("1", "Send"), el("2", "Cannot Send Mail", "AXStaticText"), el("3", "OK")]);
+    await shadow.flush();
+    expect(rows()[0]!.baseline.verify).toEqual({ value: false, changed: true, alert: true });
   });
 
   it("asks nothing about the after-state of a tool that never hands one over", async () => {
@@ -437,5 +468,41 @@ describe("plain roles", () => {
   it("reads an accessibility role the way a person writes it", () => {
     expect(["AXButton", "AXPopUpButton", "AXStaticText", "AXSecureTextField", "Button", "AX"].map(plainRole))
       .toEqual(["button", "pop up button", "static text", "secure text field", "button", "element"]);
+  });
+});
+
+describe("what a step changed on screen", () => {
+  it("says so plainly when nothing changed — a re-render is not a change", () => {
+    const before = [el("1", "Wi-Fi"), el("2", "Bluetooth")];
+    const after = [el("7", "Wi-Fi"), el("8", "Bluetooth")];
+    expect(screenDiff(before, after)).toEqual({ text: "No change on screen.", changed: false, alert: false });
+  });
+
+  it("names what appeared, what went, and what changed value", () => {
+    const d = screenDiff(
+      [el("1", "Airplane Mode", "AXSwitch", "0"), el("2", "Wi-Fi")],
+      [el("1", "Airplane Mode", "AXSwitch", "1"), el("3", "Other Networks")],
+    );
+    expect(d).toEqual({ text: "Appeared: button 'Other Networks'. Gone: button 'Wi-Fi'. Changed: switch 'Airplane Mode': 0 → 1.", changed: true, alert: false });
+  });
+
+  it("marks an alert or error that APPEARED — what a failed step usually leaves behind", () => {
+    const d = screenDiff([el("1", "Send")], [el("1", "Send"), el("2", "Cannot Send Mail", "AXStaticText"), el("3", "OK")]);
+    expect(d.alert).toBe(true);
+    // …but not one that was already there before the step.
+    expect(screenDiff([el("2", "Cannot Send Mail", "AXStaticText")], [el("2", "Cannot Send Mail", "AXStaticText"), el("4", "Inbox")]).alert).toBe(false);
+  });
+
+  it("keeps a long diff inside what a question can carry", () => {
+    const many = Array.from({ length: 30 }, (_, i) => el(String(i), `Row ${i}`));
+    const d = screenDiff([], many);
+    expect(d.text).toContain("and 18 more");
+    expect(d.text.length).toBeLessThanOrEqual(1_500);
+  });
+});
+
+describe("the sensitive parts", () => {
+  it("are the four narrow questions the spike measured, and only those", () => {
+    expect(Object.keys(SENSITIVE_PARTS)).toEqual(["money", "delete", "send", "secret"]);
   });
 });
