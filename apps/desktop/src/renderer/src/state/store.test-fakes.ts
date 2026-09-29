@@ -3,7 +3,7 @@ import { activeLayout, setActiveLayout, COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_K
 import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { basenameOf, expandCommand, mimeForPath, nextFireOf } from "@realm/contracts";
-import type { CliStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageSummary, UsageTotals } from "@realm/contracts";
+import type { CliStatus, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageSummary, UsageTotals } from "@realm/contracts";
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
 export const usageTotals = (extra: Partial<UsageTotals> = {}): UsageTotals =>
@@ -227,6 +227,9 @@ export type FakeData = {
   /** The space's failover policy. Defaults to the real default (retry on, no chain), so a test that
    *  does not care about failover gets the behaviour a fresh install has. */
   failover?: FailoverPolicy;
+  /** Laya's status. Defaults to what a fresh install on a Mac with Homebrew's 3.13 says: not
+   *  installed, and off. */
+  laya?: LayaStatus;
   /** What `cli.status` answers. Empty by default: a test that is not about the CLI manager should
    *  see no install or update offers at all. */
   cliStatus?: CliStatus[];
@@ -418,6 +421,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     pixelWorldJson: overrides.pixelWorldJson ?? "{}",
     pixelSpriteJson: overrides.pixelSpriteJson ?? "{}",
     failover: overrides.failover ?? DEFAULT_FAILOVER_POLICY,
+    laya: overrides.laya ?? { mode: "off", installed: false, runtime: { state: "not-installed", python: { path: "/opt/homebrew/bin/python3.13", version: "3.13.12" } }, stepsLogged: 0, dir: "/Users/u/Realm/laya" },
     cliStatus: overrides.cliStatus ?? [],
     // The model catalog the picker's detail pane reads. Empty by default because that is the state
     // every test but a catalog test wants: prices are additive, and a fixture that invented them
@@ -1065,6 +1069,20 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const s = { ...data.sessions[i]!, ...o }; data.sessions[i] = s; return s;
     },
     failoverGet: async (spaceId) => { calls.push(`failoverGet:${spaceId}`); return data.failover; },
+    layaStatus: async () => { calls.push("layaStatus"); return data.laya; },
+    layaInstall: async () => {
+      calls.push("layaInstall");
+      data.laya = { ...data.laya, runtime: { state: "installing", step: "environment", detail: "Creating a Python 3.13.12 environment", fraction: null } };
+      return data.laya;
+    },
+    layaSetMode: async (mode) => {
+      calls.push(`layaSetMode:${mode}`);
+      // The server's refusal, restated: Shadow needs an install.
+      if (mode === "shadow" && !data.laya.installed) throw Object.assign(new Error("Install Laya before switching it on."), { code: "LAYA_NOT_INSTALLED" });
+      data.laya = { ...data.laya, mode, runtime: mode === "off" ? { state: "off" } : { state: "starting" } };
+      return data.laya;
+    },
+    layaDeleteLog: async () => { calls.push("layaDeleteLog"); data.laya = { ...data.laya, stepsLogged: 0 }; return data.laya; },
     failoverSet: async (spaceId, policy) => {
       calls.push(`failoverSet:${spaceId}`);
       // Mirrors the server: unknown kinds are dropped rather than refused, so a test that asserts on
