@@ -1,13 +1,19 @@
 import { randomBytes } from "node:crypto";
-import { LAYA_ASSIST_MIN_ACCURACY, LayaModeSchema, type LayaAssistGate, type LayaEvalReport, type LayaInstallStep, type LayaMode, type LayaRuntimeState, type LayaStatus } from "@realm/contracts";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { LAYA_ASSIST_MIN_ACCURACY, LayaModeSchema, type LayaAssistGate, type LayaEvalReport, type LayaEvaluation, type LayaInstallStep, type LayaMode, type LayaRuntimeState, type LayaStatus, type LayaTraining } from "@realm/contracts";
 import { RpcError } from "../store/rows";
 import { LAYA_CHECKPOINT, LayaClient, type LayaHealth } from "./client";
 import type { DecisionLog } from "./log";
 import type { PythonSearch } from "./python";
 import { LayaStepError, type LayaProcess, type LayaRuntime } from "./runtime";
+import { beats, localCheckpointLabel, readEval, removeCheckpoint, type TrainProgress, type TrainResult } from "./training";
 
 /** Where the Off/Shadow switch is kept. Absent reads as off: Laya is never on until someone says so. */
 export const LAYA_MODE_KEY = "laya.mode";
+/** The checkpoint trained on this Mac that Laya runs, by its directory's name under `checkpoints/`.
+ *  Absent is the download. */
+export const LAYA_CHECKPOINT_KEY = "laya.checkpoint";
 
 export type LayaTiming = {
   /** How long a start may take to answer `/health`. Measured at 11 s from a warm disk; the first
@@ -63,6 +69,10 @@ export class LayaService {
    *  it has been let go of and returns instead of waiting forever on a timer nobody will fire. */
   private readonly sleepers = new Map<NodeJS.Timeout, () => void>();
   private publishTimer: NodeJS.Timeout | null = null;
+  /** The checkpoint the running process serves: a name under `checkpoints/`, or null for the download. */
+  private serving: string | null = null;
+  private training: LayaTraining = { state: "idle" };
+  private trainAbort: AbortController | null = null;
   private latencies: number[] = [];
   private closed = false;
   private readonly t: LayaTiming;
@@ -77,9 +87,14 @@ export class LayaService {
     fetchImpl?: typeof fetch;
     timing?: Partial<LayaTiming>;
     now?: () => number;
-    /** The ACTIVE checkpoint's evaluation (its `eval.json`), or null when it has none. The Assist gate
-     *  reads nothing else. */
+    /** Replaces the ACTIVE checkpoint's evaluation — for a harness only (`harnessEvalOverride`).
+     *  Otherwise it is the active checkpoint's `eval.json`, or `baseEval` for the download. The Assist
+     *  gate reads nothing else. */
     activeEval?: () => LayaEvalReport | null;
+    /** The download's evaluation, when no checkpoint trained here is active. */
+    baseEval?: () => LayaEvalReport | null;
+    /** Trains and scores a checkpoint (`training.ts`); absent in a build that cannot train. */
+    train?: (o: { name: string; signal: AbortSignal; onProgress: (p: TrainProgress) => void }) => Promise<TrainResult>;
   }) {
     const stored = LayaModeSchema.safeParse(d.settings.get(LAYA_MODE_KEY));
     this.mode = stored.success ? stored.data : "off";
@@ -108,7 +123,22 @@ export class LayaService {
 
   /** The active checkpoint's evaluation, or null. */
   activeEval(): LayaEvalReport | null {
-    try { return this.d.activeEval?.() ?? null; } catch { return null; }
+    try {
+      if (this.d.activeEval) return this.d.activeEval();
+      const name = this.activeCheckpoint();
+      if (name) return readEval(join(this.d.runtime!.checkpointsDir, name, "eval.json"));
+      return this.d.baseEval?.() ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** The checkpoint trained here that is active, when its weights are still on disk; else null. */
+  activeCheckpoint(): string | null {
+    const name = this.d.settings.get(LAYA_CHECKPOINT_KEY);
+    const rt = this.d.runtime;
+    if (typeof name !== "string" || !name || !rt) return null;
+    return existsSync(join(rt.checkpointsDir, name, "model.safetensors")) ? name : null;
   }
 
   /**
@@ -142,6 +172,8 @@ export class LayaService {
       stepsLogged: this.d.log.count(),
       dir: rt?.dir ?? "",
       assist: this.assistGate(),
+      evaluation: evaluationOf(this.activeEval()),
+      training: this.training,
     };
   }
 
@@ -198,6 +230,85 @@ export class LayaService {
     return this.status();
   }
 
+  /**
+   * A training run, in the background: the training set and the user's log, the shipped script in
+   * the venv, a score on the benchmark's held-out split — and the new checkpoint made active only when
+   * that score beats the active one's. The server is stopped for the run and brought back after on
+   * whichever checkpoint is active then: training and serving one model at once is more memory than
+   * many Macs have to spare.
+   */
+  async train(): Promise<LayaStatus> {
+    const rt = this.d.runtime;
+    if (!rt || rt.unavailable) throw new RpcError("LAYA_UNAVAILABLE", rt?.unavailable ?? UNAVAILABLE);
+    if (!this.d.train) throw new RpcError("LAYA_UNAVAILABLE", "This build of Realm cannot train Laya.");
+    if (!rt.installed()) throw new RpcError("LAYA_NOT_INSTALLED", "Install Laya before training it.");
+    if (this.installing) throw new RpcError("LAYA_INSTALLING", "Laya is being installed.");
+    if (this.trainAbort) throw new RpcError("LAYA_TRAINING", "Laya is already training.");
+    const abort = new AbortController();
+    this.trainAbort = abort;
+    const startedAt = new Date(this.now()).toISOString();
+    this.training = { state: "running", step: "preparing", detail: "Starting", fraction: null, startedAt };
+    this.changed();
+    void this.runTraining(this.checkpointName(), abort, startedAt);
+    return this.status();
+  }
+
+  async cancelTraining(): Promise<LayaStatus> {
+    this.trainAbort?.abort();
+    return this.status();
+  }
+
+  private async runTraining(name: string, abort: AbortController, startedAt: string): Promise<void> {
+    const rt = this.d.runtime!;
+    await this.stop();
+    const at = () => new Date(this.now()).toISOString();
+    try {
+      const result = await this.d.train!({
+        name, signal: abort.signal,
+        onProgress: (p) => {
+          if (this.trainAbort !== abort) return;
+          this.training = { state: "running", ...p, startedAt };
+          this.changed();
+        },
+      });
+      if (abort.signal.aborted) throw new Error("Stopped.");
+      const verdict = beats(result.report, this.activeEval());
+      if (verdict.yes) {
+        const previous = this.activeCheckpoint();
+        this.d.settings.set(LAYA_CHECKPOINT_KEY, name);
+        if (previous && previous !== name) removeCheckpoint(join(rt.checkpointsDir, previous));
+      } else {
+        // The report is kept as the run's record; the weights of a checkpoint nobody will run are not.
+        mkdirSync(join(rt.dir, "train", name), { recursive: true });
+        copyFileSync(join(result.dir, "eval.json"), join(rt.dir, "train", name, "eval.json"));
+        removeCheckpoint(result.dir);
+      }
+      this.training = { state: "done", at: at(), checkpoint: localCheckpointLabel(name), activated: verdict.yes, reason: verdict.reason, targetAccuracy: result.report.target.accuracy };
+    } catch (e) {
+      removeCheckpoint(join(rt.checkpointsDir, name));
+      this.training = abort.signal.aborted
+        ? { state: "cancelled", at: at() }
+        : { state: "failed", at: at(), reason: e instanceof LayaStepError ? e.reason : e instanceof Error ? e.message : String(e), detail: e instanceof LayaStepError ? e.detail : "" };
+    } finally {
+      this.trainAbort = null;
+      if (!this.closed && this.mode !== "off") {
+        this.startFailure = null;
+        this.restarts = 0;
+        void this.start();
+      }
+      this.changed();
+    }
+  }
+
+  /** `2026-09-29T07-12`, and `-2`, `-3` for a second run in the same minute. */
+  private checkpointName(): string {
+    const stem = new Date(this.now()).toISOString().slice(0, 16).replace(":", "-");
+    const taken = (n: string) => existsSync(join(this.d.runtime!.checkpointsDir, n));
+    let name = stem;
+    for (let i = 2; taken(name); i++) name = `${stem}-${i}`;
+    return name;
+  }
+
   async deleteLog(): Promise<LayaStatus> {
     this.d.log.delete();
     this.changed();
@@ -212,6 +323,7 @@ export class LayaService {
   async close(): Promise<void> {
     this.closed = true;
     this.installAbort?.abort();
+    this.trainAbort?.abort();
     if (this.publishTimer) clearTimeout(this.publishTimer);
     await this.stop();
   }
@@ -220,7 +332,8 @@ export class LayaService {
 
   private async start(): Promise<void> {
     const rt = this.d.runtime;
-    if (!rt || this.run || this.closed) return;
+    // A training run has the memory; the run brings the server back when it is done.
+    if (!rt || this.run || this.closed || this.trainAbort) return;
     this.ready = null;
     let port: number;
     try {
@@ -232,8 +345,10 @@ export class LayaService {
     }
     if (this.closed || this.mode === "off" || this.run) return;
     const apiKey = randomBytes(24).toString("base64url");
+    const local = this.activeCheckpoint();
+    this.serving = local;
     const run = {
-      proc: rt.start({ port, apiKey }),
+      proc: rt.start({ port, apiKey, ...(local ? { checkpoint: join(rt.checkpointsDir, local) } : {}) }),
       client: new LayaClient({ baseUrl: `http://127.0.0.1:${port}`, apiKey, fetchImpl: this.d.fetchImpl, onLatency: (ms) => this.recordLatency(ms) }),
     };
     this.run = run;
@@ -271,7 +386,7 @@ export class LayaService {
     const revision = health.revisions[LAYA_CHECKPOINT];
     this.ready = {
       device: health.checkpoint_devices[LAYA_CHECKPOINT] ?? health.device,
-      checkpoint: `${LAYA_CHECKPOINT}@${revision ? revision.slice(0, 7) : "unpinned"}`,
+      checkpoint: this.serving ? localCheckpointLabel(this.serving) : `${LAYA_CHECKPOINT}@${revision ? revision.slice(0, 7) : "unpinned"}`,
     };
     this.restarts = 0;
     this.startFailure = null;
@@ -332,7 +447,8 @@ export class LayaService {
       const search = await this.findPython(false);
       return search.found ? { state: "not-installed", python: search.found } : { state: "needs-python", rejected: search.rejected };
     }
-    if (this.mode === "off") return { state: "off" };
+    // A training run stopped the server, and says so on its own row.
+    if (this.mode === "off" || this.trainAbort) return { state: "off" };
     if (this.startFailure) return { state: "failed", during: "start", ...this.startFailure };
     if (this.ready) return { state: "ready", device: this.ready.device, p50Ms: this.p50(), checkpoint: this.ready.checkpoint };
     return { state: "starting" };
@@ -383,6 +499,16 @@ export class LayaService {
 }
 
 const UNAVAILABLE = "This build of Realm does not run Laya.";
+
+/** A report's three numbers for Settings, or null for no report. */
+export function evaluationOf(r: LayaEvalReport | null): LayaEvaluation | null {
+  if (!r) return null;
+  return {
+    checkpoint: r.checkpoint, createdAt: r.createdAt, benchmark: r.benchmark.version,
+    targetAccuracy: r.target.accuracy, targetNotCopying: r.target.notCopying?.accuracy ?? null,
+    sensitiveRecall: r.sensitive.recall, verifyAccuracy: r.verify.accuracy,
+  };
+}
 
 /** The median, in whole milliseconds; null for no samples. A median rather than a mean, because one
  *  question that met a cold kernel would otherwise speak for a hundred that did not. */

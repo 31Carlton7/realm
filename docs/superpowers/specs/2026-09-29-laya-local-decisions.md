@@ -84,3 +84,30 @@ design.md's "say what actually happened".
   ≥ 99%): input tools may then take `target: "<description>"` and Laya resolves it above a
   calibrated threshold, else returns candidates to the agent.
 - Later: `realm-browser` gets the same shadow hooks.
+
+## Phase 2, as built (2026-09-29)
+
+- **Benchmark** (`resources/laya/benchmark/`, README there): 109 screens and 181 real steps read off
+  an iOS 27 simulator across 19 apps; 776 `target` cases (673 whose words share none with the
+  element's label), 180 `sensitive` (82 sensitive), 198 `verify` (52 failures of six kinds). Maps,
+  Health, Contacts, Files and Passwords are held out whole, Reminders and Watch kept for validation,
+  and 15% / 12% of every other app's cases go to held-out / validation by a stable hash.
+- **Eval** (`apps/server/src/laya/eval.ts`, harness `scripts/laya/eval.ts`): every question built by
+  the shadow's own functions; `target` asked exactly as a walk's Assist asks it. Writes
+  `LayaEvalReportSchema`, with the Assist threshold fitted on `train` (precision ≥ 0.98 over at least
+  20 picks) and measured on held-out, plus the rule baselines and the not-copying subset.
+- **Candidates** changed with it, for Assist only where marked: the walk no longer offers Laya the
+  status bar; ties go to what can be tapped; with nothing chosen, no heading or group is offered.
+- **Training** (`trainset.ts`, `training.ts`, `resources/laya/train.py`): questions generated from the
+  train apps' screens and a hand-written lexicon (`resources/laya/lexicon.json`), never repeating a
+  benchmark case, plus the user's log; Laya's RLCD recipe on MPS with the lower 12 encoder layers
+  frozen; temperatures fitted on the benchmark's train split; the epoch best at validation `target`
+  kept. `laya.train` runs it from Settings, scores the result on held-out through laya-serve, and
+  makes it active only when it beats the active checkpoint there.
+- **Result** (held-out, benchmark 2026-09-29.2): `target` 41.7% for the download, 46.7% for
+  laya-typed-decisions, 63.0% for a checkpoint trained here (62.3% on the words that share nothing
+  with the label; the Assist threshold it fitted on train, 0.978, held at 100% precision on 6.3% of
+  held-out steps); `sensitive` recall 81.5% → 77.8–81.5% with precision 54% → 91%, against the
+  keyword rule's 85.2%; `verify` 45.5% → 80.3%, level with the "changed and no alert" rule. p50
+  about 42 ms either way. No checkpoint reaches the Assist bar of 95%; Assist stays locked and says
+  so with the measured number.

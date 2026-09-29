@@ -1,7 +1,7 @@
 import { newId, type SessionEvent } from "@realm/contracts";
 import type { ActObservation, ActObserver, ObservedElement } from "../mcp/act-observer";
 import { clip } from "../mcp/tool-result";
-import type { LayaClient } from "./client";
+import type { LayaChoiceAnswer, LayaClient, LayaNoulAnswer } from "./client";
 
 /**
  * Laya in shadow: asked what it would have done at every observed step, heard by nobody.
@@ -31,11 +31,15 @@ import type { LayaClient } from "./client";
  * **Candidates: at most 20, out of up to 500 elements.** Every element the agent could name —
  * anything with a label — is scored by how many of the intent's words its label shares (two points
  * each) and its value shares (one point); words are compared on their first five letters, so
- * "brighter" meets "Brightness". The 19 highest scores are kept, ties going to the element earlier in
- * the tree, and the element the agent actually addressed is ALWAYS added — label or no label, score
+ * "brighter" meets "Brightness". The 19 highest scores are kept, ties going to what can be tapped
+ * (`TAPPABLE_ROLE`, the walk's own test) and then to the element earlier in the tree — when the words
+ * share nothing, which is every step Assist is asked about, a screen's rows and buttons are the
+ * plausible options and its clock and headings are not — and the element the agent actually addressed is ALWAYS added — label or no label, score
  * or no score — so the ground truth is always one of the options. The kept set is then put back into
  * tree order, so where the right answer sits in the list says nothing about which one it is. Picking
- * by overlap makes the options the plausible ones: an easy distractor teaches nothing. (Laya's
+ * by overlap makes the options the plausible ones: an easy distractor teaches nothing. With nothing
+ * chosen — Assist, finding the element for an agent's words — a heading or a group is not offered at
+ * all: neither is ever what a tap is for, and Laya, asked to pick, picked them. (Laya's
  * checkpoint clamps the temperature it ships for choices of 11 or more options, so its confidence on
  * a full set of 20 is uncalibrated — the row records the answer and its probabilities regardless.)
  *
@@ -316,21 +320,9 @@ export class LayaShadow {
     }
 
     try {
-      const target = chosenElement ? describeTarget(chosenElement) : o.chosen && "point" in o.chosen ? `the point (${o.chosen.point.x}, ${o.chosen.point.y})` : "the screen";
-      const { answers, ms } = await client.ask(
-        `An agent is about to: ${STEP_VERB[o.tool] ?? "act on"} ${target}${intent ? ` to ${intent}` : ""}.`,
-        Object.fromEntries(Object.entries(SENSITIVE_PARTS).map(([k, instructions]) => [k, { type: "noul" as const, instructions }])),
-        timeout,
-      );
-      const parts = {} as Record<SensitivePart, number>;
-      let top: { p: number; confidence: number } | null = null;
-      for (const k of Object.keys(SENSITIVE_PARTS) as SensitivePart[]) {
-        const a = answers[k];
-        if (a?.type !== "noul") throw new Error(`no noul for ${k} in the answer`);
-        parts[k] = a.noul;
-        if (!top || a.noul > top.p) top = { p: a.noul, confidence: a.confidence };
-      }
-      step.laya.sensitive = { p: top!.p, parts, confidence: top!.confidence, ms: Math.round(ms) };
+      const q = sensitiveQuestion(o.tool, o.chosen, intent);
+      const { answers, ms } = await client.ask(q.state, q.questions, timeout);
+      step.laya.sensitive = { ...readSensitive(answers), ms: Math.round(ms) };
     } catch (e) {
       step.laya.errors.push(`sensitive: ${message(e)}`);
     }
@@ -349,16 +341,12 @@ export class LayaShadow {
       if (!client) return;
       const before = summarize(step.elements);
       const afterText = summarize(step.after!);
-      const diff = screenDiff(step.elements, step.after!);
+      const q = verifyQuestion(step.intent, step.elements, step.after!);
       try {
-        const { answers, ms } = await client.ask(
-          `Goal: ${step.intent}. What changed on screen: ${diff.text}`,
-          { verify: { type: "noul", instructions: VERIFY_INSTRUCTIONS } },
-          this.d.requestTimeoutMs ?? 2_000,
-        );
+        const { answers, ms } = await client.ask(q.state, q.questions, this.d.requestTimeoutMs ?? 2_000);
         const a = answers.verify;
         if (a?.type !== "noul") throw new Error("no noul in the answer");
-        step.laya.verify = { p: a.noul, confidence: a.confidence, ms: Math.round(ms), before, after: afterText, diff: diff.text };
+        step.laya.verify = { p: a.noul, confidence: a.confidence, ms: Math.round(ms), before, after: afterText, diff: q.diff.text };
       } catch (e) {
         step.laya.errors.push(`verify: ${message(e)}`);
       }
@@ -395,13 +383,21 @@ export class LayaShadow {
 
 /* ---------------------------------- the pure parts ---------------------------------- */
 
+/** Roles a person taps, ahead of roles that only read — iOS's words and the Mac's (`AXMenuBarItem`,
+ *  `AXCheckBox`) both. The walk ranks its matches by this too. */
+export const TAPPABLE_ROLE = /button|cell|link|switch|toggle|tab|field|menu ?item|bar ?item|slider|segment|check ?box|radio|icon|key|row|pop ?up/i;
+
+/** Roles that title or hold what is tapped, and are never tapped themselves. */
+const NEVER_TAPPED = /heading|group/i;
+
 /** The candidate rule described in the module comment. Exported for its tests. */
 export function pickCandidates(elements: readonly ObservedElement[], chosen: ObservedElement | null, intent: string): ObservedElement[] {
   const goal = new Set(words(intent).map(stem));
+  const tappable = (e: ObservedElement) => (TAPPABLE_ROLE.test(e.role) ? 1 : 0);
   const ranked = elements
     .map((e, i) => ({ e, i, score: overlap(goal, e) }))
-    .filter(({ e }) => e.id !== chosen?.id && e.label.trim() !== "")
-    .sort((a, b) => b.score - a.score || a.i - b.i)
+    .filter(({ e }) => e.id !== chosen?.id && e.label.trim() !== "" && (chosen !== null || !NEVER_TAPPED.test(e.role)))
+    .sort((a, b) => b.score - a.score || tappable(b.e) - tappable(a.e) || a.i - b.i)
     .slice(0, chosen ? MAX_CANDIDATES - 1 : MAX_CANDIDATES);
   if (chosen) {
     const at = elements.findIndex((e) => e.id === chosen.id);
@@ -444,6 +440,49 @@ export function targetQuestion(goal: string, candidates: ObservedElement[], tool
 }
 
 /**
+ * The `sensitive` question, exactly as the shadow asks it: the step in one sentence as the state, the
+ * four narrow parts as the questions. Shared with the eval harness for the reason `targetQuestion` is.
+ */
+export function sensitiveQuestion(tool: string, chosen: ActObservation["chosen"], intent: string): {
+  state: string;
+  questions: Record<SensitivePart, { type: "noul"; instructions: string }>;
+} {
+  const target = chosen && "element" in chosen ? describeTarget(chosen.element) : chosen && "point" in chosen ? `the point (${chosen.point.x}, ${chosen.point.y})` : "the screen";
+  return {
+    state: `An agent is about to: ${STEP_VERB[tool] ?? "act on"} ${target}${intent ? ` to ${intent}` : ""}.`,
+    questions: Object.fromEntries(Object.entries(SENSITIVE_PARTS).map(([k, instructions]) => [k, { type: "noul" as const, instructions }])) as Record<SensitivePart, { type: "noul"; instructions: string }>,
+  };
+}
+
+/** `sensitive` read as the highest of its four parts, each kept. Throws when a part is missing. */
+export function readSensitive(answers: Record<string, LayaChoiceAnswer | LayaNoulAnswer>): { p: number; parts: Record<SensitivePart, number>; confidence: number } {
+  const parts = {} as Record<SensitivePart, number>;
+  let top: { p: number; confidence: number } | null = null;
+  for (const k of Object.keys(SENSITIVE_PARTS) as SensitivePart[]) {
+    const a = answers[k];
+    if (a?.type !== "noul") throw new Error(`no noul for ${k} in the answer`);
+    parts[k] = a.noul;
+    if (!top || a.noul > top.p) top = { p: a.noul, confidence: a.confidence };
+  }
+  return { p: top!.p, parts, confidence: top!.confidence };
+}
+
+/** The `verify` question over what the step changed, exactly as the shadow asks it. */
+export function verifyQuestion(intent: string, before: readonly ObservedElement[], after: readonly ObservedElement[]): {
+  state: string;
+  questions: { verify: { type: "noul"; instructions: string } };
+  diff: ReturnType<typeof screenDiff>;
+} {
+  const diff = screenDiff(before, after);
+  return { ...verifyQuestionFor(intent, diff.text), diff };
+}
+
+/** The same question over a diff already written out — as a logged row keeps it. */
+export function verifyQuestionFor(intent: string, diffText: string): { state: string; questions: { verify: { type: "noul"; instructions: string } } } {
+  return { state: `Goal: ${intent}. What changed on screen: ${diffText}`, questions: { verify: { type: "noul", instructions: VERIFY_INSTRUCTIONS } } };
+}
+
+/**
  * The choice's options. A label is the key (the option reads "Send: button", as in the spike); a
  * repeated label gets a number, and an element with no label is named by its role. `idOf` maps an
  * answer back to the element it means.
@@ -462,7 +501,8 @@ function optionsFor(candidates: ObservedElement[]): { criteria: Record<string, s
   return { criteria: Object.fromEntries(entries), idOf };
 }
 
-function describeTarget(e: ObservedElement): string {
+/** An element as the `sensitive` question and rule name it: "button 'Delete'", or its role alone. */
+export function describeTarget(e: ObservedElement): string {
   const label = e.label.trim();
   return label ? `${plainRole(e.role)} '${clip(label, 80)}'` : plainRole(e.role);
 }

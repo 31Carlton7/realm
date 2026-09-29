@@ -1519,6 +1519,15 @@ export const Methods = {
   "laya.setMode": { params: z.object({ mode: LayaModeSchema }), result: LayaStatusSchema },
   /** Removes every decision log file. The runtime and the checkpoint stay. */
   "laya.deleteLog": { params: z.object({}), result: LayaStatusSchema },
+  /**
+   * Fine-tune a checkpoint on this Mac, from the training set Realm ships and the decision log, then
+   * score it on the benchmark's held-out split. It becomes the active checkpoint only if it beats the
+   * active one there. Runs for tens of minutes; progress is `status.training`, broadcast as it goes.
+   * Refused while installing, while a run is going, or with no install to train in.
+   */
+  "laya.train": { params: z.object({}), result: LayaStatusSchema },
+  /** Stops a training run. Nothing it made is kept; the active checkpoint stays as it was. */
+  "laya.cancelTraining": { params: z.object({}), result: LayaStatusSchema },
   "agents.probe": { params: z.object({ force: z.boolean().default(false) }), result: z.array(z.object({ kind: AgentKindSchema, available: z.boolean(), version: z.string().nullable(), loggedIn: z.boolean().nullable(), reason: z.string().nullable(), models: z.array(z.object({ id: z.string(), label: z.string() })).nullable().optional() })) },
   "sessions.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(SessionSchema) },
   /** Every session across every space — the client's sessionId→spaceId map for cross-space badges. */

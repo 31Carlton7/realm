@@ -20,7 +20,14 @@ const fs = require("fs"), path = require("path"), http = require("http");
 const LOG = ${JSON.stringify(log)};
 const args = process.argv.slice(2);
 const pick = (k) => process.env[k];
-fs.appendFileSync(LOG, JSON.stringify({ pid: process.pid, self: process.argv[1], args, env: Object.fromEntries(["LAYA_HOST", "LAYA_PORT", "LAYA_MODELS", "LAYA_REVISION", "LAYA_DEVICE", "LAYA_PRELOAD", "LAYA_API_KEY", "HF_HOME", "HF_HUB_OFFLINE", "HF_TOKEN", "PYTHONPATH"].map((k) => [k, pick(k) ?? null])) }) + "\\n");
+fs.appendFileSync(LOG, JSON.stringify({ pid: process.pid, self: process.argv[1], args, env: Object.fromEntries(["LAYA_HOST", "LAYA_PORT", "LAYA_MODELS", "LAYA_REVISION", "LAYA_DEVICE", "LAYA_PRELOAD", "LAYA_API_KEY", "HF_HOME", "HF_HUB_OFFLINE", "HF_TOKEN", "PYTHONPATH", "PYTORCH_ENABLE_MPS_FALLBACK", "REALM_LAYA_WATCH_PARENT"].map((k) => [k, pick(k) ?? null])) }) + "\\n");
+if (args[0] && args[0].endsWith("train.py")) {
+  console.log(JSON.stringify({ event: "progress", epoch: 1, step: 1, steps: 2 }));
+  process.stdout.write(JSON.stringify({ event: "done" }));
+  if (fs.existsSync(LOG + ".fail-train")) { console.error("Traceback (most recent call last):\\nRuntimeError: MPS backend out of memory"); process.exit(1); }
+  if (fs.existsSync(LOG + ".hang-train")) { setInterval(() => {}, 1000); return; }
+  process.exit(0);
+}
 if (args[0] === "-m" && args[1] === "venv") {
   const dir = args[args.length - 1];
   fs.mkdirSync(path.join(dir, "bin"), { recursive: true });
@@ -55,7 +62,7 @@ type Call = { pid: number; self: string; args: string[]; env: Record<string, str
 
 /** Every stub this file started, so none outlives it — not even under a mutant that breaks `stop`,
  *  which is exactly how one was once left running for nine minutes with nobody to answer to. */
-type Stub = { bin: string; log: string; calls(): Call[]; failPip(): void; ignoreTerm(): void };
+type Stub = { bin: string; log: string; calls(): Call[]; failPip(): void; ignoreTerm(): void; failTrain(): void; hangTrain(): void };
 const stubs: Stub[] = [];
 
 function stubPython(): Stub {
@@ -69,6 +76,8 @@ function stubPython(): Stub {
     calls: (): Call[] => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as Call) : []),
     failPip: () => writeFileSync(`${log}.fail-pip`, ""),
     ignoreTerm: () => writeFileSync(`${log}.ignore-term`, ""),
+    failTrain: () => writeFileSync(`${log}.fail-train`, ""),
+    hangTrain: () => writeFileSync(`${log}.hang-train`, ""),
   };
   stubs.push(stub);
   return stub;
@@ -136,12 +145,36 @@ describe("running laya-serve", () => {
     expect(call.self).toBe(join(venv, "bin", "python"));
     // Run as the console script runs it, under a watchdog that ends it if Realm's server disappears.
     // The watchdog thread is STARTED, and before laya.serve takes the main thread for good.
-    expect(call.args[1]).toMatch(/threading\.Thread\(target=watch, daemon=True\)\.start\(\)\nfrom laya\.serve import main\nsys\.exit\(main\(\)\)$/);
+    expect(call.args[1]).toMatch(/^threading\.Thread\(target=watch, daemon=True\)\.start\(\)\nif len\(sys\.argv\) > 1:/m);
+    expect(call.args[1]).toMatch(/\nfrom laya\.serve import main\nsys\.exit\(main\(\)\)$/);
+    // No directory: the pinned download, served by laya-serve's own router.
+    expect(call.args).toHaveLength(2);
     expect(call.args[1]).toContain("while os.getppid() == parent:");
     expect(call.env).toMatchObject({ LAYA_HOST: "127.0.0.1", LAYA_PORT: String(port), HF_HOME: "/cache/hf", HF_HUB_OFFLINE: "1" });
     await proc.stop();
     expect((await proc.exited).signal ?? (await proc.exited).code).toBeDefined();
     await expect(fetch(`http://127.0.0.1:${port}/health`)).rejects.toThrow();
+  });
+
+  it("hands a local checkpoint directory to the launcher, which serves it as english", async () => {
+    const py = stubPython();
+    const venv = join(tempDir("realm-laya-rt-"), "venv");
+    mkdirSync(join(venv, "bin"), { recursive: true });
+    writeFileSync(join(venv, "bin", "python"), readFileSync(py.bin));
+    chmodSync(join(venv, "bin", "python"), 0o755);
+    writeFileSync(join(venv, "bin", "laya-serve"), "");
+    const rt = realLayaRuntime({ home: tempDir("realm-laya-rt-"), env: { PATH: process.env.PATH, REALM_LAYA_VENV: venv } });
+    const port = await rt.freePort();
+    const proc = rt.start({ port, apiKey: "k", checkpoint: "/laya/checkpoints/local-1" });
+    procs.push(proc);
+    await until(async () => { try { return (await fetch(`http://127.0.0.1:${port}/health`)).ok; } catch { return false; } });
+    const call = py.calls().find((c) => c.args[0] === "-c")!;
+    expect(call.args.slice(2)).toEqual(["/laya/checkpoints/local-1"]);
+    expect(call.args[1]).toContain("Router(models={'english': path}, device=env_device(), max_loaded=1)");
+    expect(call.args[1]).toContain("laya.serve.build_router = local_router");
+    // Still bound where Realm said, with the key it minted — only the weights differ.
+    expect(call.env).toMatchObject({ LAYA_HOST: "127.0.0.1", LAYA_PORT: String(port), LAYA_API_KEY: "k" });
+    await proc.stop();
   });
 
   it("kills a process that will not stop when asked", async () => {
@@ -214,5 +247,65 @@ describe("installing", () => {
     const rt = realLayaRuntime({ home: tempDir("realm-laya-rt-"), env: { PATH: process.env.PATH } });
     await expect(rt.install({ path: py.bin, version: "3.13.12" }, () => {}, abort.signal)).rejects.toMatchObject({ reason: "Stopped because Realm is quitting." });
     expect(py.calls()).toEqual([]);
+  });
+});
+
+describe("training", () => {
+  function venvWith(py: Stub): string {
+    const venv = join(tempDir("realm-laya-rt-"), "venv");
+    mkdirSync(join(venv, "bin"), { recursive: true });
+    writeFileSync(join(venv, "bin", "python"), readFileSync(py.bin));
+    chmodSync(join(venv, "bin", "python"), 0o755);
+    writeFileSync(join(venv, "bin", "laya-serve"), "");
+    return venv;
+  }
+
+  it("runs the script under the venv's interpreter, offline, handing over each line — the last one too", async () => {
+    const py = stubPython();
+    const venv = venvWith(py);
+    const rt = realLayaRuntime({ home: tempDir("realm-laya-rt-"), env: { PATH: process.env.PATH, REALM_LAYA_VENV: venv, REALM_LAYA_HF_HOME: "/cache/hf", HF_TOKEN: "hf_secret", PYTHONPATH: "/elsewhere" } });
+    const lines: string[] = [];
+    await rt.runScript({ script: "/res/laya/train.py", args: ["--out", "/ck/a"], onLine: (l) => lines.push(l), signal: new AbortController().signal });
+    const call = py.calls().at(-1)!;
+    expect(call.self).toBe(join(venv, "bin", "python"));
+    expect(call.args).toEqual(["/res/laya/train.py", "--out", "/ck/a"]);
+    // The cache Realm installed into, offline; nothing of the user's own Python or tokens.
+    expect(call.env).toMatchObject({ HF_HOME: "/cache/hf", HF_HUB_OFFLINE: "1", PYTORCH_ENABLE_MPS_FALLBACK: "1", REALM_LAYA_WATCH_PARENT: "1", HF_TOKEN: null, PYTHONPATH: null });
+    expect(lines.map((l) => JSON.parse(l).event)).toEqual(["progress", "done"]);
+  });
+
+  it("fails with the script's own last line", async () => {
+    const py = stubPython();
+    py.failTrain();
+    const rt = realLayaRuntime({ home: tempDir("realm-laya-rt-"), env: { PATH: process.env.PATH, REALM_LAYA_VENV: venvWith(py) } });
+    await expect(rt.runScript({ script: "/res/train.py", args: [], onLine: () => {}, signal: new AbortController().signal }))
+      .rejects.toMatchObject({ step: "train", reason: "RuntimeError: MPS backend out of memory" });
+  });
+
+  it("stops the script when asked, and says it was stopped rather than that it failed", async () => {
+    const py = stubPython();
+    py.hangTrain();
+    const rt = realLayaRuntime({ home: tempDir("realm-laya-rt-"), env: { PATH: process.env.PATH, REALM_LAYA_VENV: venvWith(py) } });
+    const stop = new AbortController();
+    const lines: string[] = [];
+    const running = rt.runScript({ script: "/res/train.py", args: [], onLine: (l) => lines.push(l), signal: stop.signal });
+    await until(() => lines.length > 0);
+    stop.abort();
+    await expect(running).rejects.toMatchObject({ reason: "Stopped." });
+  });
+
+  it("finds the pinned download in the cache to train from, and nothing when it is not there", () => {
+    const hf = tempDir("realm-laya-rt-");
+    const rt = realLayaRuntime({ home: tempDir("realm-laya-rt-"), env: { REALM_LAYA_HF_HOME: hf } });
+    expect(rt.baseCheckpoint()).toBeNull();
+    const snapshots = join(hf, "hub", "models--convaiinnovations--laya", "snapshots");
+    for (const sha of ["0000000", "55cf4c4ebb4ebe31b2550e8bdf3bd21b99753851"]) {
+      mkdirSync(join(snapshots, sha), { recursive: true });
+      writeFileSync(join(snapshots, sha, "rl_agent_config.json"), "{}");
+      writeFileSync(join(snapshots, sha, "model.safetensors"), "");
+    }
+    mkdirSync(join(snapshots, "half-downloaded"));
+    expect(rt.baseCheckpoint()).toBe(join(snapshots, "55cf4c4ebb4ebe31b2550e8bdf3bd21b99753851"));
+    expect(rt.checkpointsDir).toBe(join(rt.dir, "checkpoints"));
   });
 });

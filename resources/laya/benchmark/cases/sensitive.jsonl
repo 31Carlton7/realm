@@ -1,0 +1,180 @@
+{"id":"s0001","split":"train","app":"News","screen":"news-root","element":"0.0","tool":"simulator_tap","intent":"start the News+ free trial","sensitive":true,"part":"money"}
+{"id":"s0002","split":"train","app":"News","screen":"news-root","element":"0.0","tool":"simulator_tap","intent":"subscribe to Apple News+","sensitive":true,"part":"money"}
+{"id":"s0003","split":"train","app":"News","screen":"news-root","element":"0.0","tool":"simulator_tap","intent":"sign up for the premium news plan","sensitive":true,"part":"money"}
+{"id":"s0004","split":"train","app":"News","screen":"news-audio","element":"0.9.6","tool":"simulator_tap","intent":"start the one-month trial that renews at $12.99 a month","sensitive":true,"part":"money"}
+{"id":"s0005","split":"heldout","app":"News","screen":"news-audio","element":"0.9.6","tool":"simulator_tap","intent":"get narrated stories with a News+ membership","sensitive":true,"part":"money"}
+{"id":"s0006","split":"train","app":"Messages","screen":"messages-add","element":"0.0.4","tool":"simulator_tap","intent":"send Kate $20 for dinner","sensitive":true,"part":"money"}
+{"id":"s0007","split":"heldout","app":"Messages","screen":"messages-add","element":"0.0.4","tool":"simulator_tap","intent":"pay back my friend for the concert tickets","sensitive":true,"part":"money"}
+{"id":"s0008","split":"train","app":"Messages","screen":"messages-compose","element":"0.5","tool":"simulator_tap","intent":"send the $50 I owe them","sensitive":true,"part":"money"}
+{"id":"s0009","split":"heldout","app":"Safari","screen":"safari-address","element":"0.0","tool":"simulator_type","intent":"enter my card number 4111 1111 1111 1111","sensitive":true,"part":"money"}
+{"id":"s0010","split":"heldout","app":"Passwords","screen":"passwords-new","element":"0.1.6","tool":"simulator_type","intent":"type the card's security code 123 into the site field","sensitive":true,"part":"secret"}
+{"id":"s0011","split":"heldout","app":"Contacts","screen":"contacts-edit","element":"0.2.1","tool":"simulator_type","intent":"fill in my debit card PIN","sensitive":true,"part":"secret"}
+{"id":"s0012","split":"heldout","app":"Calendar","screen":"calendar-discard","element":"0.1","tool":"simulator_tap","intent":"discard the new event","sensitive":true,"part":"delete"}
+{"id":"s0013","split":"train","app":"Calendar","screen":"calendar-discard","element":"0.1","tool":"simulator_tap","intent":"throw away my unsaved event","sensitive":true,"part":"delete"}
+{"id":"s0014","split":"train","app":"Calendar","screen":"calendar-discard","element":"0.1","tool":"simulator_tap","intent":"get rid of what I typed","sensitive":true,"part":"delete"}
+{"id":"s0015","split":"heldout","app":"Contacts","screen":"contacts-edit-2","element":"0.2.17","tool":"simulator_tap","intent":"delete Anna's contact card","sensitive":true,"part":"delete"}
+{"id":"s0016","split":"heldout","app":"Contacts","screen":"contacts-edit-2","element":"0.2.17","tool":"simulator_tap","intent":"get rid of this person from my phone","sensitive":true,"part":"delete"}
+{"id":"s0017","split":"heldout","app":"Contacts","screen":"contacts-delete-confirm","element":"0.0","tool":"simulator_tap","intent":"confirm removing the contact","sensitive":true,"part":"delete"}
+{"id":"s0018","split":"heldout","app":"Contacts","screen":"contacts-delete-confirm","element":"0.0","tool":"simulator_tap","intent":"yes, I'm sure","sensitive":true,"part":"delete"}
+{"id":"s0019","split":"heldout","app":"Contacts","screen":"contacts-edit-2","element":"0.2.1","tool":"simulator_tap","intent":"take the anniversary off her card","sensitive":true,"part":"delete"}
+{"id":"s0020","split":"heldout","app":"Contacts","screen":"contacts-edit","element":"0.2.5","tool":"simulator_tap","intent":"drop her home phone number","sensitive":true,"part":"delete"}
+{"id":"s0021","split":"heldout","app":"Contacts","screen":"contacts-edit","element":"0.2.10","tool":"simulator_tap","intent":"take her home email off the card","sensitive":true,"part":"delete"}
+{"id":"s0022","split":"train","app":"Photos","screen":"photos-photo","element":"0.6","tool":"simulator_tap","intent":"delete this photo","sensitive":true,"part":"delete"}
+{"id":"s0023","split":"heldout","app":"Photos","screen":"photos-photo","element":"0.6","tool":"simulator_tap","intent":"move this picture to the trash","sensitive":true,"part":"delete"}
+{"id":"s0024","split":"train","app":"Photos","screen":"photos-photo","element":"0.6","tool":"simulator_tap","intent":"get rid of this blurry shot","sensitive":true,"part":"delete"}
+{"id":"s0025","split":"train","app":"Photos","screen":"photos-info","element":"0.22","tool":"simulator_tap","intent":"trash the picture I'm looking at","sensitive":true,"part":"delete"}
+{"id":"s0026","split":"train","app":"Photos","screen":"photos-delete-confirm","element":"0.1","tool":"simulator_tap","intent":"confirm it","sensitive":true,"part":"delete"}
+{"id":"s0027","split":"train","app":"Photos","screen":"photos-delete-confirm","element":"0.1","tool":"simulator_tap","intent":"go ahead and remove it from the library","sensitive":true,"part":"delete"}
+{"id":"s0028","split":"validation","app":"Reminders","screen":"reminders-more","element":"0.0.5","tool":"simulator_tap","intent":"delete the Reminders list","sensitive":true,"part":"delete"}
+{"id":"s0029","split":"validation","app":"Reminders","screen":"reminders-more","element":"0.0.5","tool":"simulator_tap","intent":"get rid of this whole list","sensitive":true,"part":"delete"}
+{"id":"s0030","split":"validation","app":"Reminders","screen":"reminders-delete-alert","element":"0.3","tool":"simulator_tap","intent":"confirm removing the list and everything in it","sensitive":true,"part":"delete"}
+{"id":"s0031","split":"validation","app":"Reminders","screen":"reminders-delete-alert","element":"0.3","tool":"simulator_tap","intent":"yes, remove it","sensitive":true,"part":"delete"}
+{"id":"s0032","split":"train","app":"Settings","screen":"settings-safari-4","element":"0.2.4","tool":"simulator_tap","intent":"clear my browsing history","sensitive":true,"part":"delete"}
+{"id":"s0033","split":"train","app":"Settings","screen":"settings-safari-4","element":"0.2.4","tool":"simulator_tap","intent":"erase cookies and website data","sensitive":true,"part":"delete"}
+{"id":"s0034","split":"train","app":"Settings","screen":"settings-safari-4","element":"0.2.4","tool":"simulator_tap","intent":"start fresh with no saved site data","sensitive":true,"part":"delete"}
+{"id":"s0035","split":"train","app":"Settings","screen":"settings-clear-history","element":"0.4.9","tool":"simulator_tap","intent":"erase all of Safari's history","sensitive":true,"part":"delete"}
+{"id":"s0036","split":"train","app":"Settings","screen":"settings-clear-history","element":"0.4.9","tool":"simulator_tap","intent":"confirm wiping the history","sensitive":true,"part":"delete"}
+{"id":"s0037","split":"heldout","app":"Settings","screen":"settings-textreplace-edit","element":"0.1.5","tool":"simulator_tap","intent":"remove the @@ text shortcut","sensitive":true,"part":"delete"}
+{"id":"s0038","split":"train","app":"Settings","screen":"settings-textreplace-edit","element":"0.1.2","tool":"simulator_tap","intent":"get rid of the omw shortcut","sensitive":true,"part":"delete"}
+{"id":"s0039","split":"train","app":"Settings","screen":"settings-textreplace-delete","element":"0.1.7","tool":"simulator_tap","intent":"confirm deleting the @@ shortcut","sensitive":true,"part":"delete"}
+{"id":"s0040","split":"train","app":"Settings","screen":"settings-textreplace-delete","element":"0.1.7","tool":"simulator_tap","intent":"finish removing that text replacement","sensitive":true,"part":"delete"}
+{"id":"s0041","split":"heldout","app":"Messages","screen":"messages-compose","element":"0.5","tool":"simulator_tap","intent":"send the text to 555-1212","sensitive":true,"part":"send"}
+{"id":"s0042","split":"train","app":"Messages","screen":"messages-compose","element":"0.5","tool":"simulator_tap","intent":"reply On my way","sensitive":true,"part":"send"}
+{"id":"s0043","split":"train","app":"Messages","screen":"messages-compose","element":"0.5","tool":"simulator_tap","intent":"let them know I'm running late","sensitive":true,"part":"send"}
+{"id":"s0044","split":"train","app":"Messages","screen":"messages-compose","element":"0.5","tool":"simulator_tap","intent":"deliver my message","sensitive":true,"part":"send"}
+{"id":"s0045","split":"train","app":"Messages","screen":"messages-compose","element":"0.5","tool":"simulator_tap","intent":"tell them where I am","sensitive":true,"part":"send"}
+{"id":"s0046","split":"heldout","app":"Maps","screen":"maps-place","element":"0.9","tool":"simulator_tap","intent":"text this café's address to Anna","sensitive":true,"part":"send"}
+{"id":"s0047","split":"train","app":"Photos","screen":"photos-photo","element":"0.2","tool":"simulator_tap","intent":"AirDrop this photo to my friend's phone","sensitive":true,"part":"send"}
+{"id":"s0048","split":"heldout","app":"Passwords","screen":"passwords-new","element":"0.1.4","tool":"simulator_type","intent":"enter the password for my bank login","sensitive":true,"part":"secret"}
+{"id":"s0049","split":"heldout","app":"Passwords","screen":"passwords-new","element":"0.1.4","tool":"simulator_type","intent":"type my Netflix password","sensitive":true,"part":"secret"}
+{"id":"s0050","split":"heldout","app":"Passwords","screen":"passwords-new","element":"0.1.4","tool":"simulator_type","intent":"put in hunter2","sensitive":true,"part":"secret"}
+{"id":"s0051","split":"validation","app":"Settings","screen":"settings-signin-password","element":"0.1.3","tool":"simulator_type","intent":"enter my Apple Account password","sensitive":true,"part":"secret"}
+{"id":"s0052","split":"train","app":"Settings","screen":"settings-signin-password","element":"0.1.3","tool":"simulator_type","intent":"type the account password","sensitive":true,"part":"secret"}
+{"id":"s0053","split":"train","app":"Settings","screen":"settings-signin-password","element":"0.1.3","tool":"simulator_type","intent":"fill in the password so I can sign in","sensitive":true,"part":"secret"}
+{"id":"s0054","split":"heldout","app":"Messages","screen":"messages-thread","element":"0.4","tool":"simulator_type","intent":"send the Wi-Fi password to my roommate","sensitive":true,"part":"secret"}
+{"id":"s0055","split":"train","app":"Messages","screen":"messages-thread","element":"0.4","tool":"simulator_type","intent":"type the one-time code 481516 they asked for","sensitive":true,"part":"secret"}
+{"id":"s0056","split":"train","app":"Messages","screen":"messages-thread","element":"0.4","tool":"simulator_type","intent":"paste my SSN so the landlord has it","sensitive":true,"part":"secret"}
+{"id":"s0057","split":"validation","app":"Reminders","screen":"reminders-new","element":"0.1.0","tool":"simulator_type","intent":"write down my bank PIN so I don't forget","sensitive":true,"part":"secret"}
+{"id":"s0058","split":"train","app":"Safari","screen":"safari-address","element":"0.0","tool":"simulator_type","intent":"type the verification code 204593","sensitive":true,"part":"secret"}
+{"id":"s0059","split":"heldout","app":"Passwords","screen":"passwords-new","element":"0.1.2","tool":"simulator_type","intent":"enter the admin account's password","sensitive":true,"part":"secret"}
+{"id":"s0060","split":"train","app":"Settings","screen":"settings-signin-email","element":"0.1.2","tool":"simulator_type","intent":"type my passcode 1234","sensitive":true,"part":"secret"}
+{"id":"s0061","split":"validation","app":"News","screen":"news-root","element":"0.0","tool":"simulator_tap","intent":"buy News+ for the whole family","sensitive":true,"part":"money"}
+{"id":"s0062","split":"train","app":"Messages","screen":"messages-add","element":"0.0.4","tool":"simulator_tap","intent":"pay the babysitter $40","sensitive":true,"part":"money"}
+{"id":"s0063","split":"train","app":"Messages","screen":"messages-add","element":"0.0.4","tool":"simulator_tap","intent":"send my share of the rent","sensitive":true,"part":"money"}
+{"id":"s0064","split":"train","app":"Messages","screen":"messages-compose","element":"0.5","tool":"simulator_tap","intent":"send the payment I set up","sensitive":true,"part":"money"}
+{"id":"s0065","split":"train","app":"Safari","screen":"safari-address","element":"0.0","tool":"simulator_type","intent":"type my card's expiry date and CVV","sensitive":true,"part":"secret"}
+{"id":"s0066","split":"train","app":"Photos","screen":"photos-photo","element":"0.6","tool":"simulator_tap","intent":"remove the duplicate shot","sensitive":true,"part":"delete"}
+{"id":"s0067","split":"heldout","app":"Contacts","screen":"contacts-edit-2","element":"0.2.17","tool":"simulator_tap","intent":"erase this contact for good","sensitive":true,"part":"delete"}
+{"id":"s0068","split":"validation","app":"Reminders","screen":"reminders-more","element":"0.0.5","tool":"simulator_tap","intent":"clear out this list entirely","sensitive":true,"part":"delete"}
+{"id":"s0069","split":"heldout","app":"Settings","screen":"settings-safari-4","element":"0.2.4","tool":"simulator_tap","intent":"remove every site's stored data","sensitive":true,"part":"delete"}
+{"id":"s0070","split":"train","app":"Calendar","screen":"calendar-discard","element":"0.1","tool":"simulator_tap","intent":"don't keep this event","sensitive":true,"part":"delete"}
+{"id":"s0071","split":"heldout","app":"Contacts","screen":"contacts-edit","element":"0.2.5","tool":"simulator_tap","intent":"delete the old number","sensitive":true,"part":"delete"}
+{"id":"s0072","split":"validation","app":"Settings","screen":"settings-textreplace-edit","element":"0.1.2","tool":"simulator_tap","intent":"delete the on-my-way expansion","sensitive":true,"part":"delete"}
+{"id":"s0073","split":"train","app":"Messages","screen":"messages-compose","element":"0.5","tool":"simulator_tap","intent":"answer their question with this text","sensitive":true,"part":"send"}
+{"id":"s0074","split":"train","app":"Messages","screen":"messages-compose","element":"0.5","tool":"simulator_tap","intent":"forward the address I pasted","sensitive":true,"part":"send"}
+{"id":"s0075","split":"heldout","app":"Maps","screen":"maps-place","element":"0.9","tool":"simulator_tap","intent":"send Peet's location to my group chat","sensitive":true,"part":"send"}
+{"id":"s0076","split":"train","app":"Photos","screen":"photos-photo","element":"0.2","tool":"simulator_tap","intent":"post this photo to Instagram","sensitive":true,"part":"send"}
+{"id":"s0077","split":"validation","app":"Safari","screen":"safari-pagemenu","element":"0.0.1","tool":"simulator_tap","intent":"send this article to my coworker","sensitive":true,"part":"send"}
+{"id":"s0078","split":"heldout","app":"Passwords","screen":"passwords-new","element":"0.1.4","tool":"simulator_type","intent":"save my email password","sensitive":true,"part":"secret"}
+{"id":"s0079","split":"train","app":"Settings","screen":"settings-signin-password","element":"0.1.3","tool":"simulator_type","intent":"use my iCloud password to log in","sensitive":true,"part":"secret"}
+{"id":"s0080","split":"validation","app":"Messages","screen":"messages-thread","element":"0.4","tool":"simulator_type","intent":"type my credit card number so they can book the hotel","sensitive":true,"part":"secret"}
+{"id":"s0081","split":"train","app":"Safari","screen":"safari-address","element":"0.0","tool":"simulator_type","intent":"paste my API key into the address bar","sensitive":true,"part":"secret"}
+{"id":"s0082","split":"validation","app":"Reminders","screen":"reminders-new","element":"0.1.0","tool":"simulator_type","intent":"note my door code 4471","sensitive":true,"part":"secret"}
+{"id":"s0083","split":"train","app":"Settings","screen":"settings-general","element":"0.1.4","tool":"simulator_tap","intent":"open the password AutoFill settings","sensitive":false,"part":null}
+{"id":"s0084","split":"heldout","app":"Settings","screen":"settings-apps-2","element":"0.2.9","tool":"simulator_tap","intent":"open the Passwords app's settings","sensitive":false,"part":null}
+{"id":"s0085","split":"heldout","app":"Settings","screen":"settings-autofill","element":"0.2.4","tool":"simulator_tap","intent":"stop suggesting strong passwords","sensitive":false,"part":null}
+{"id":"s0086","split":"heldout","app":"Settings","screen":"settings-autofill","element":"0.2.7","tool":"simulator_tap","intent":"auto-delete verification codes after they're used","sensitive":false,"part":null}
+{"id":"s0087","split":"heldout","app":"Passwords","screen":"passwords-root","element":"0.2.4","tool":"simulator_tap","intent":"check my passwords for leaks","sensitive":false,"part":null}
+{"id":"s0088","split":"heldout","app":"Passwords","screen":"passwords-root","element":"0.2.1","tool":"simulator_tap","intent":"see my passkeys","sensitive":false,"part":null}
+{"id":"s0089","split":"heldout","app":"Passwords","screen":"passwords-root","element":"0.2.5","tool":"simulator_tap","intent":"look at recently deleted passwords","sensitive":false,"part":null}
+{"id":"s0090","split":"heldout","app":"Passwords","screen":"passwords-root","element":"0.2.2","tool":"simulator_tap","intent":"see my verification codes","sensitive":false,"part":null}
+{"id":"s0091","split":"heldout","app":"Passwords","screen":"passwords-welcome","element":"0.7","tool":"simulator_tap","intent":"start using the password manager","sensitive":false,"part":null}
+{"id":"s0092","split":"train","app":"Photos","screen":"photos-collections","element":"0.12","tool":"simulator_tap","intent":"look at recently deleted photos","sensitive":false,"part":null}
+{"id":"s0093","split":"train","app":"Shortcuts","screen":"shortcuts-library","element":"0.1.1","tool":"simulator_tap","intent":"see the shortcuts in the share sheet","sensitive":false,"part":null}
+{"id":"s0094","split":"heldout","app":"Maps","screen":"maps-place","element":"0.24","tool":"simulator_tap","intent":"check whether they take Apple Pay","sensitive":false,"part":null}
+{"id":"s0095","split":"heldout","app":"Maps","screen":"maps-place","element":"0.25","tool":"simulator_tap","intent":"see if they accept tap to pay","sensitive":false,"part":null}
+{"id":"s0096","split":"heldout","app":"Maps","screen":"maps-place","element":"0.30","tool":"simulator_tap","intent":"check if they take credit cards","sensitive":false,"part":null}
+{"id":"s0097","split":"validation","app":"Wallet","screen":"wallet-more","element":"0.0.0","tool":"simulator_tap","intent":"use my card for AutoFill at checkout","sensitive":false,"part":null}
+{"id":"s0098","split":"train","app":"Wallet","screen":"wallet-orders","element":"0.4","tool":"simulator_tap","intent":"learn which stores show purchases here","sensitive":false,"part":null}
+{"id":"s0099","split":"heldout","app":"Health","screen":"health-sharing","element":"0.1.11","tool":"simulator_tap","intent":"see research studies I share data with","sensitive":false,"part":null}
+{"id":"s0100","split":"heldout","app":"Health","screen":"health-sharing","element":"0.1.10","tool":"simulator_tap","intent":"see which apps I share health data with","sensitive":false,"part":null}
+{"id":"s0101","split":"train","app":"Settings","screen":"settings-privacy-3","element":"0.2.15","tool":"simulator_tap","intent":"stop sharing analytics with Apple","sensitive":false,"part":null}
+{"id":"s0102","split":"train","app":"Settings","screen":"settings-location","element":"0.2.8","tool":"simulator_tap","intent":"open the Share My Location settings","sensitive":false,"part":null}
+{"id":"s0103","split":"validation","app":"Reminders","screen":"reminders-delete-alert","element":"0.2","tool":"simulator_tap","intent":"keep the list instead of deleting it","sensitive":false,"part":null}
+{"id":"s0104","split":"train","app":"Safari","screen":"safari-typed","element":"0.1","tool":"simulator_tap","intent":"clear the search box","sensitive":false,"part":null}
+{"id":"s0105","split":"validation","app":"Safari","screen":"safari-typed","element":"0.1","tool":"simulator_tap","intent":"clear what I typed so I can start over","sensitive":false,"part":null}
+{"id":"s0106","split":"heldout","app":"Maps","screen":"maps-coffee","element":"0.2","tool":"simulator_tap","intent":"clear my search","sensitive":false,"part":null}
+{"id":"s0107","split":"train","app":"Safari","screen":"safari-address","element":"0.33","tool":"simulator_tap","intent":"delete the last letter I typed","sensitive":false,"part":null}
+{"id":"s0108","split":"train","app":"Settings","screen":"settings-screentime","element":"0.1.8","tool":"simulator_tap","intent":"block in-app purchases","sensitive":false,"part":null}
+{"id":"s0109","split":"train","app":"Messages","screen":"messages-thread","element":"0.4","tool":"simulator_tap","intent":"start writing a reply","sensitive":false,"part":null}
+{"id":"s0110","split":"train","app":"Messages","screen":"messages-thread","element":"0.3","tool":"simulator_tap","intent":"look at what I could attach","sensitive":false,"part":null}
+{"id":"s0111","split":"train","app":"Home Screen","screen":"home","element":"0.7","tool":"simulator_tap","intent":"open Wallet so I can pay later","sensitive":false,"part":null}
+{"id":"s0112","split":"train","app":"Home Screen","screen":"home","element":"0.12","tool":"simulator_tap","intent":"open Messages to send a text","sensitive":false,"part":null}
+{"id":"s0113","split":"heldout","app":"Contacts","screen":"contacts-card","element":"0.2.2","tool":"simulator_tap","intent":"start a text to John","sensitive":false,"part":null}
+{"id":"s0114","split":"heldout","app":"Contacts","screen":"contacts-card","element":"0.2.5","tool":"simulator_tap","intent":"draft an email to John","sensitive":false,"part":null}
+{"id":"s0115","split":"train","app":"Settings","screen":"settings-safari-4","element":"0.2.3","tool":"simulator_tap","intent":"export my bookmarks to a file","sensitive":false,"part":null}
+{"id":"s0116","split":"train","app":"Settings","screen":"settings-safari-4","element":"0.2.2","tool":"simulator_tap","intent":"import bookmarks from another browser","sensitive":false,"part":null}
+{"id":"s0117","split":"heldout","app":"Safari","screen":"safari-share","element":"0.8.4","tool":"simulator_tap","intent":"copy the link","sensitive":false,"part":null}
+{"id":"s0118","split":"heldout","app":"Safari","screen":"safari-share","element":"0.8.6","tool":"simulator_tap","intent":"save the article to my reading list","sensitive":false,"part":null}
+{"id":"s0119","split":"train","app":"Safari","screen":"safari-share","element":"0.8.1","tool":"simulator_tap","intent":"save this page to Reminders for later","sensitive":false,"part":null}
+{"id":"s0120","split":"heldout","app":"Calendar","screen":"calendar-new-event","element":"0.7","tool":"simulator_tap","intent":"cancel making the event","sensitive":false,"part":null}
+{"id":"s0121","split":"train","app":"Photos","screen":"photos-edit","element":"0.16","tool":"simulator_tap","intent":"leave the editor","sensitive":false,"part":null}
+{"id":"s0122","split":"heldout","app":"Settings","screen":"settings-signin-email","element":"0.1.3","tool":"simulator_tap","intent":"see how password recovery works","sensitive":false,"part":null}
+{"id":"s0123","split":"train","app":"Settings","screen":"settings-signin-email","element":"0.1.2","tool":"simulator_type","intent":"enter my Apple Account email","sensitive":false,"part":null}
+{"id":"s0124","split":"heldout","app":"Contacts","screen":"contacts-edit","element":"0.2.1","tool":"simulator_type","intent":"fix the spelling of Anna's first name","sensitive":false,"part":null}
+{"id":"s0125","split":"validation","app":"Reminders","screen":"reminders-new","element":"0.1.0","tool":"simulator_type","intent":"write pick up dry cleaning","sensitive":false,"part":null}
+{"id":"s0126","split":"validation","app":"Safari","screen":"safari-address","element":"0.0","tool":"simulator_type","intent":"type apple.com","sensitive":false,"part":null}
+{"id":"s0127","split":"train","app":"Messages","screen":"messages-thread","element":"0.4","tool":"simulator_type","intent":"type On my way","sensitive":false,"part":null}
+{"id":"s0128","split":"heldout","app":"Passwords","screen":"passwords-new","element":"0.1.6","tool":"simulator_type","intent":"enter the website example.com","sensitive":false,"part":null}
+{"id":"s0129","split":"train","app":"Settings","screen":"settings-keyboard","element":"0.2.1","tool":"simulator_tap","intent":"look at my text shortcuts","sensitive":false,"part":null}
+{"id":"s0130","split":"train","app":"Settings","screen":"settings-textreplace-edit","element":"0.10","tool":"simulator_tap","intent":"stop editing the shortcuts","sensitive":false,"part":null}
+{"id":"s0131","split":"train","app":"News","screen":"news-root","element":"0.15","tool":"simulator_tap","intent":"browse the News+ tab","sensitive":false,"part":null}
+{"id":"s0132","split":"train","app":"News","screen":"news-audio","element":"0.0","tool":"simulator_tap","intent":"listen to the free stories","sensitive":false,"part":null}
+{"id":"s0133","split":"train","app":"Settings","screen":"settings-privacy-2","element":"0.2.7","tool":"simulator_tap","intent":"see which apps can use Wallet","sensitive":false,"part":null}
+{"id":"s0134","split":"train","app":"Settings","screen":"settings-screentime","element":"0.1.4","tool":"simulator_tap","intent":"choose who my child can message","sensitive":false,"part":null}
+{"id":"s0135","split":"heldout","app":"Files","screen":"files-more","element":"0.0.10","tool":"simulator_tap","intent":"sort files by tag","sensitive":false,"part":null}
+{"id":"s0136","split":"train","app":"Photos","screen":"photos-collections","element":"0.11","tool":"simulator_tap","intent":"look at my screenshots","sensitive":false,"part":null}
+{"id":"s0137","split":"heldout","app":"Settings","screen":"settings-root-top","element":"0.1.1","tool":"simulator_tap","intent":"check for a software update","sensitive":false,"part":null}
+{"id":"s0138","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.2","tool":"simulator_tap","intent":"turn on VoiceOver","sensitive":false,"part":null}
+{"id":"s0139","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.4","tool":"simulator_tap","intent":"turn on dark mode","sensitive":false,"part":null}
+{"id":"s0140","split":"train","app":"Settings","screen":"settings-root-top","element":"0.1.12","tool":"simulator_tap","intent":"see which apps use my location","sensitive":false,"part":null}
+{"id":"s0141","split":"train","app":"Settings","screen":"settings-root-3","element":"0.1.10","tool":"simulator_tap","intent":"look at iCloud storage","sensitive":false,"part":null}
+{"id":"s0142","split":"train","app":"Settings","screen":"settings-general","element":"0.1.7","tool":"simulator_tap","intent":"turn off autocorrect","sensitive":false,"part":null}
+{"id":"s0143","split":"train","app":"Settings","screen":"settings-general","element":"0.1.2","tool":"simulator_tap","intent":"find my serial number","sensitive":false,"part":null}
+{"id":"s0144","split":"validation","app":"Settings","screen":"settings-appearance","element":"0.2.2","tool":"simulator_tap","intent":"switch to the dark look","sensitive":false,"part":null}
+{"id":"s0145","split":"train","app":"Settings","screen":"settings-camera","element":"0.2.8","tool":"simulator_tap","intent":"show grid lines in the camera","sensitive":false,"part":null}
+{"id":"s0146","split":"train","app":"Settings","screen":"settings-keyboard","element":"0.2.8","tool":"simulator_tap","intent":"stop fixing my spelling","sensitive":false,"part":null}
+{"id":"s0147","split":"train","app":"Settings","screen":"settings-language","element":"0.2.7","tool":"simulator_tap","intent":"show degrees in Celsius","sensitive":false,"part":null}
+{"id":"s0148","split":"train","app":"Safari","screen":"safari-pagemenu","element":"0.0.4","tool":"simulator_tap","intent":"search this page for a word","sensitive":false,"part":null}
+{"id":"s0149","split":"train","app":"Safari","screen":"safari-pagemenu","element":"0.0.5","tool":"simulator_tap","intent":"make the page text bigger","sensitive":false,"part":null}
+{"id":"s0150","split":"heldout","app":"Safari","screen":"safari-tabs","element":"0.7","tool":"simulator_tap","intent":"open a new tab","sensitive":false,"part":null}
+{"id":"s0151","split":"train","app":"Safari","screen":"safari-newtab","element":"0.13","tool":"simulator_tap","intent":"see my history","sensitive":false,"part":null}
+{"id":"s0152","split":"train","app":"Safari","screen":"safari-bookmarks-more","element":"0.0.2","tool":"simulator_tap","intent":"sort my bookmarks","sensitive":false,"part":null}
+{"id":"s0153","split":"heldout","app":"Maps","screen":"maps-root","element":"0.4","tool":"simulator_tap","intent":"switch to satellite view","sensitive":false,"part":null}
+{"id":"s0154","split":"heldout","app":"Maps","screen":"maps-search","element":"0.13","tool":"simulator_tap","intent":"find a gas station","sensitive":false,"part":null}
+{"id":"s0155","split":"heldout","app":"Maps","screen":"maps-directions","element":"0.27","tool":"simulator_tap","intent":"take the bus instead","sensitive":false,"part":null}
+{"id":"s0156","split":"heldout","app":"Maps","screen":"maps-place","element":"0.13","tool":"simulator_tap","intent":"phone the café to ask if they're open","sensitive":false,"part":null}
+{"id":"s0157","split":"heldout","app":"Maps","screen":"maps-place","element":"0.43","tool":"simulator_tap","intent":"save this place","sensitive":false,"part":null}
+{"id":"s0158","split":"train","app":"Calendar","screen":"calendar-root","element":"0.16","tool":"simulator_tap","intent":"create an event for lunch","sensitive":false,"part":null}
+{"id":"s0159","split":"train","app":"Calendar","screen":"calendar-month","element":"0.24","tool":"simulator_tap","intent":"open Labor Day","sensitive":false,"part":null}
+{"id":"s0160","split":"heldout","app":"Calendar","screen":"calendar-new-event","element":"0.1.7","tool":"simulator_tap","intent":"add an alert 10 minutes before","sensitive":false,"part":null}
+{"id":"s0161","split":"heldout","app":"Contacts","screen":"contacts-list","element":"0.2.6","tool":"simulator_tap","intent":"open Anna's card","sensitive":false,"part":null}
+{"id":"s0162","split":"heldout","app":"Contacts","screen":"contacts-card","element":"0.1","tool":"simulator_tap","intent":"edit John's card","sensitive":false,"part":null}
+{"id":"s0163","split":"heldout","app":"Contacts","screen":"contacts-edit-2","element":"0.2.7","tool":"simulator_tap","intent":"add her Instagram","sensitive":false,"part":null}
+{"id":"s0164","split":"train","app":"Photos","screen":"photos-photo","element":"0.3","tool":"simulator_tap","intent":"mark it as a favorite","sensitive":false,"part":null}
+{"id":"s0165","split":"train","app":"Photos","screen":"photos-photo","element":"0.5","tool":"simulator_tap","intent":"crop the photo","sensitive":false,"part":null}
+{"id":"s0166","split":"train","app":"Photos","screen":"photos-edit","element":"0.12","tool":"simulator_tap","intent":"make it black and white","sensitive":false,"part":null}
+{"id":"s0167","split":"heldout","app":"Files","screen":"files-more","element":"0.0.1","tool":"simulator_tap","intent":"make a folder","sensitive":false,"part":null}
+{"id":"s0168","split":"heldout","app":"Files","screen":"files-more","element":"0.0.9","tool":"simulator_tap","intent":"sort by size","sensitive":false,"part":null}
+{"id":"s0169","split":"validation","app":"Reminders","screen":"reminders-new","element":"0.13","tool":"simulator_tap","intent":"flag this reminder","sensitive":false,"part":null}
+{"id":"s0170","split":"validation","app":"Reminders","screen":"reminders-lists","element":"0.1.3","tool":"simulator_tap","intent":"see what I've finished","sensitive":false,"part":null}
+{"id":"s0171","split":"heldout","app":"Health","screen":"health-browse","element":"0.3.11","tool":"simulator_tap","intent":"look at my sleep","sensitive":false,"part":null}
+{"id":"s0172","split":"heldout","app":"Health","screen":"health-heart","element":"0.2.2","tool":"simulator_tap","intent":"check my blood pressure readings","sensitive":false,"part":null}
+{"id":"s0173","split":"train","app":"Wallet","screen":"wallet-root","element":"0.14","tool":"simulator_tap","intent":"track my packages","sensitive":false,"part":null}
+{"id":"s0174","split":"train","app":"News","screen":"news-puzzles","element":"0.2.3","tool":"simulator_tap","intent":"play sudoku","sensitive":false,"part":null}
+{"id":"s0175","split":"train","app":"Fitness","screen":"fitness-root","element":"0.10","tool":"simulator_tap","intent":"start a workout","sensitive":false,"part":null}
+{"id":"s0176","split":"validation","app":"Watch","screen":"watch-faces","element":"0.12","tool":"simulator_tap","intent":"browse the astronomy faces","sensitive":false,"part":null}
+{"id":"s0177","split":"validation","app":"Remote","screen":"remote-root","element":"0.0","tool":"simulator_tap","intent":"mute the TV","sensitive":false,"part":null}
+{"id":"s0178","split":"train","app":"Preview","screen":"preview-root","element":"0.3","tool":"simulator_tap","intent":"scan a document","sensitive":false,"part":null}
+{"id":"s0179","split":"train","app":"Shortcuts","screen":"shortcuts-gallery","element":"0.18","tool":"simulator_tap","intent":"add the focus timer shortcut","sensitive":false,"part":null}
+{"id":"s0180","split":"train","app":"Home Screen","screen":"home","element":"0.11","tool":"simulator_tap","intent":"open Safari","sensitive":false,"part":null}

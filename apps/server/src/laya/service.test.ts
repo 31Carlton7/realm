@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import type { LayaStatus } from "@realm/contracts";
 import type { LayaEvalReport } from "@realm/contracts";
 import { DecisionLog } from "./log";
-import { LAYA_MODE_KEY, LayaService, p50Of, type LayaTiming } from "./service";
+import { LAYA_CHECKPOINT_KEY, LAYA_MODE_KEY, LayaService, evaluationOf, p50Of, type LayaTiming } from "./service";
+import type { TrainProgress, TrainResult } from "./training";
 import { LayaStepError } from "./runtime";
 import { fakeRuntime, until, type FakeRuntime } from "./test-fakes";
 
@@ -24,10 +25,12 @@ const FAST: Partial<LayaTiming> = {
 const services: LayaService[] = [];
 afterEach(async () => { for (const s of services.splice(0)) await s.close(); });
 
-function setup(o: { runtime?: FakeRuntime | null; mode?: "off" | "shadow" | "assist"; timing?: Partial<LayaTiming>; activeEval?: () => LayaEvalReport | null } = {}) {
+type Train = (o: { name: string; signal: AbortSignal; onProgress: (p: TrainProgress) => void }) => Promise<TrainResult>;
+
+function setup(o: { runtime?: FakeRuntime | null; mode?: "off" | "shadow" | "assist"; timing?: Partial<LayaTiming>; activeEval?: () => LayaEvalReport | null; baseEval?: () => LayaEvalReport | null; train?: Train; checkpoint?: string } = {}) {
   const dir = tempDir("realm-laya-svc-");
   const runtime = o.runtime === undefined ? fakeRuntime({ dir }) : o.runtime;
-  const settings = new Map<string, unknown>(o.mode ? [[LAYA_MODE_KEY, o.mode]] : []);
+  const settings = new Map<string, unknown>([...(o.mode ? [[LAYA_MODE_KEY, o.mode] as const] : []), ...(o.checkpoint ? [[LAYA_CHECKPOINT_KEY, o.checkpoint] as const] : [])]);
   const published: LayaStatus[] = [];
   const log = new DecisionLog({ path: join(dir, "decisions.jsonl") });
   const service = new LayaService({
@@ -35,6 +38,8 @@ function setup(o: { runtime?: FakeRuntime | null; mode?: "off" | "shadow" | "ass
     settings: { get: (k) => settings.get(k) ?? null, set: (k, v) => { settings.set(k, v); } },
     publish: (s) => { published.push(s); },
     activeEval: o.activeEval,
+    baseEval: o.baseEval,
+    ...(o.train ? { train: o.train } : {}),
   });
   services.push(service);
   return { service, runtime, settings, published, log, dir };
@@ -450,5 +455,195 @@ describe("Assist", () => {
     // Assist is Shadow plus: the server starts, and the shadow keeps asking and logging.
     await until(() => service.client() !== null);
     expect(runtime!.starts).toHaveLength(1);
+  });
+});
+
+/** A report as the eval harness writes one, with the numbers a test cares about. */
+function evalReport(over: { accuracy?: number; checkpoint?: string; version?: string; threshold?: number | null } = {}): LayaEvalReport {
+  return {
+    v: 1, checkpoint: over.checkpoint ?? "english@55cf4c4", createdAt: "2026-09-29T07:00:00Z", prompt: 2,
+    benchmark: { version: over.version ?? "b-1", split: "heldout", cases: 338, apps: ["Health", "Maps"] },
+    target: { accuracy: over.accuracy ?? 0.42, n: 207, byApp: {}, assist: { threshold: over.threshold === undefined ? null : over.threshold, precision: 0, coverage: 0 }, notCopying: { accuracy: 0.4, n: 180, byApp: {} } },
+    sensitive: { accuracy: 0.63, recall: 0.81, precision: 0.54, n: 65 },
+    verify: { accuracy: 0.45, n: 66 },
+    baseline: { sensitiveRule: { accuracy: 0.82, recall: 0.85 }, verifyRule: { accuracy: 0.8 } },
+    latencyMs: { p50: 44, p90: 54 },
+  };
+}
+
+/** What a finished training run leaves: weights, and its report beside them. */
+function writeCheckpoint(checkpointsDir: string, name: string, report: LayaEvalReport): string {
+  const dir = join(checkpointsDir, name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "model.safetensors"), "weights");
+  writeFileSync(join(dir, "eval.json"), JSON.stringify(report));
+  return dir;
+}
+
+/** A trainer that writes a checkpoint scoring `accuracy`, reporting a step of progress on the way. */
+function trainer(runtime: FakeRuntime, accuracy: number): Train & { calls: string[] } {
+  const calls: string[] = [];
+  const fn = (async ({ name, onProgress }) => {
+    calls.push(name);
+    onProgress({ step: "training", detail: "Epoch 1, step 50 of 100", fraction: 0.5 });
+    const report = evalReport({ accuracy, checkpoint: `local:${name}` });
+    return { name, dir: writeCheckpoint(runtime.checkpointsDir, name, report), report };
+  }) as Train & { calls: string[] };
+  fn.calls = calls;
+  return fn;
+}
+
+describe("a checkpoint trained on this Mac", () => {
+  const installedRuntime = () => fakeRuntime({ dir: tempDir("realm-laya-svc-"), installed: true });
+
+  it("is served from its folder when it is the active one, and named local:<name> — the name every logged row carries", async () => {
+    const runtime = installedRuntime();
+    const dir = writeCheckpoint(runtime.checkpointsDir, "2026-09-29T07-12", evalReport({ accuracy: 0.61, checkpoint: "local:2026-09-29T07-12" }));
+    const { service } = setup({ runtime, checkpoint: "2026-09-29T07-12" });
+    await service.setMode("shadow");
+    await until(() => service.checkpoint() !== null);
+    expect(runtime.starts.at(-1)!.checkpoint).toBe(dir);
+    expect(service.checkpoint()).toBe("local:2026-09-29T07-12");
+    // Its own report is the one the gate and Settings read.
+    expect(service.activeEval()!.target.accuracy).toBe(0.61);
+    expect((await service.status()).evaluation).toMatchObject({ checkpoint: "local:2026-09-29T07-12", targetAccuracy: 0.61, targetNotCopying: 0.4, sensitiveRecall: 0.81, verifyAccuracy: 0.45 });
+  });
+
+  it("falls back to the download when the active checkpoint's weights are gone, with the download's report", async () => {
+    const runtime = installedRuntime();
+    const { service } = setup({ runtime, checkpoint: "gone", baseEval: () => evalReport({ accuracy: 0.42 }) });
+    expect(service.activeCheckpoint()).toBeNull();
+    await service.setMode("shadow");
+    await until(() => service.checkpoint() !== null);
+    expect(runtime.starts.at(-1)!.checkpoint).toBeUndefined();
+    expect(service.checkpoint()).toBe("english@55cf4c4");
+    expect(service.activeEval()!.target.accuracy).toBe(0.42);
+  });
+
+  it("puts a report's three numbers in the status, and nothing without a report", () => {
+    expect(evaluationOf(null)).toBeNull();
+    expect(evaluationOf(evalReport({ accuracy: 0.5 }))).toEqual({ checkpoint: "english@55cf4c4", createdAt: "2026-09-29T07:00:00Z", benchmark: "b-1", targetAccuracy: 0.5, targetNotCopying: 0.4, sensitiveRecall: 0.81, verifyAccuracy: 0.45 });
+  });
+});
+
+describe("training", () => {
+  const installedRuntime = () => fakeRuntime({ dir: tempDir("realm-laya-svc-"), installed: true });
+  const trainingDone = (service: LayaService) => until(async () => ["done", "failed", "cancelled"].includes((await service.status()).training!.state));
+
+  it("activates a checkpoint whose held-out score beats the active one's, and brings the server back on it", async () => {
+    const runtime = installedRuntime();
+    const train = trainer(runtime, 0.71);
+    const { service, settings } = setup({ runtime, train, baseEval: () => evalReport({ accuracy: 0.42 }) });
+    await service.setMode("shadow");
+    await until(() => service.checkpoint() === "english@55cf4c4");
+    const started = await service.train();
+    expect(started.training).toMatchObject({ state: "running" });
+    await trainingDone(service);
+    const name = train.calls[0]!;
+    expect((await service.status()).training).toMatchObject({ state: "done", checkpoint: `local:${name}`, activated: true, targetAccuracy: 0.71 });
+    expect((await service.status()).training).toMatchObject({ reason: "It picks the right element 71% of the time on held-out steps, against 42%." });
+    expect(settings.get(LAYA_CHECKPOINT_KEY)).toBe(name);
+    // THE MUTANT: forget to restart, or restart on the old weights. The shadow would log the new name for the old model.
+    await until(() => service.checkpoint() === `local:${name}`);
+    expect(runtime.starts.at(-1)!.checkpoint).toBe(join(runtime.checkpointsDir, name));
+    expect(service.activeEval()!.target.accuracy).toBe(0.71);
+  });
+
+  it("keeps the active checkpoint when the new one does not beat it, and deletes the new weights but not their report", async () => {
+    const runtime = installedRuntime();
+    writeCheckpoint(runtime.checkpointsDir, "old", evalReport({ accuracy: 0.8, checkpoint: "local:old" }));
+    const train = trainer(runtime, 0.8);
+    const { service, settings } = setup({ runtime, train, checkpoint: "old" });
+    await service.train();
+    await trainingDone(service);
+    const name = train.calls[0]!;
+    expect((await service.status()).training).toMatchObject({ state: "done", activated: false, reason: "It picks the right element 80% of the time on held-out steps, and the active checkpoint 80%." });
+    expect(settings.get(LAYA_CHECKPOINT_KEY)).toBe("old");
+    expect(existsSync(join(runtime.checkpointsDir, name))).toBe(false);
+    expect(JSON.parse(readFileSync(join(runtime.dir, "train", name, "eval.json"), "utf8")).target.accuracy).toBe(0.8);
+    expect(existsSync(join(runtime.checkpointsDir, "old", "model.safetensors"))).toBe(true);
+  });
+
+  it("replaces the old checkpoint's weights once a new one is active, keeping one on disk", async () => {
+    const runtime = installedRuntime();
+    writeCheckpoint(runtime.checkpointsDir, "old", evalReport({ accuracy: 0.5, checkpoint: "local:old" }));
+    const { service } = setup({ runtime, train: trainer(runtime, 0.6), checkpoint: "old" });
+    await service.train();
+    await trainingDone(service);
+    expect(existsSync(join(runtime.checkpointsDir, "old"))).toBe(false);
+  });
+
+  it("reports its progress as it goes, and the server stays down while it runs", async () => {
+    const runtime = installedRuntime();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const inner = trainer(runtime, 0.6);
+    const { service } = setup({ runtime, train: async (o) => { o.onProgress({ step: "training", detail: "Epoch 1, step 50 of 100", fraction: 0.5 }); await gate; return inner(o); } });
+    await service.setMode("shadow");
+    await until(() => service.client() !== null);
+    await service.train();
+    await until(async () => { const t = (await service.status()).training!; return t.state === "running" && t.fraction === 0.5; });
+    expect((await service.status()).training).toMatchObject({ step: "training", detail: "Epoch 1, step 50 of 100" });
+    expect(service.client()).toBeNull();
+    expect(await state(service)).toEqual({ state: "off" });
+    await expect(service.train()).rejects.toMatchObject({ code: "LAYA_TRAINING" });
+    // Switching Shadow on again mid-run does not start a second model beside the one training.
+    const starts = runtime.starts.length;
+    await service.setMode("shadow");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(runtime.starts).toHaveLength(starts);
+    release();
+    await trainingDone(service);
+    await until(() => service.client() !== null);
+  });
+
+  it("a failed run says why in the trainer's words, and leaves no weights behind", async () => {
+    const runtime = installedRuntime();
+    let name = "";
+    const { service, settings } = setup({ runtime, train: async (o) => {
+      name = o.name;
+      writeCheckpoint(runtime.checkpointsDir, o.name, evalReport());
+      throw new LayaStepError("train", "RuntimeError: MPS backend out of memory", "Traceback …\nRuntimeError: MPS backend out of memory");
+    } });
+    await service.train();
+    await trainingDone(service);
+    expect((await service.status()).training).toMatchObject({ state: "failed", reason: "RuntimeError: MPS backend out of memory", detail: "Traceback …\nRuntimeError: MPS backend out of memory" });
+    expect(existsSync(join(runtime.checkpointsDir, name))).toBe(false);
+    expect(settings.get(LAYA_CHECKPOINT_KEY)).toBeUndefined();
+  });
+
+  it("cancel stops the run; nothing it made is kept and the active checkpoint stays", async () => {
+    const runtime = installedRuntime();
+    const { service, settings } = setup({ runtime, train: (o) => new Promise((_, reject) => {
+      writeCheckpoint(runtime.checkpointsDir, o.name, evalReport({ accuracy: 0.99 }));
+      o.signal.addEventListener("abort", () => reject(new LayaStepError("train", "Stopped.", "")));
+    }) });
+    await service.train();
+    await until(async () => existsSync(runtime.checkpointsDir));
+    await service.cancelTraining();
+    await trainingDone(service);
+    expect((await service.status()).training).toMatchObject({ state: "cancelled" });
+    expect(settings.get(LAYA_CHECKPOINT_KEY)).toBeUndefined();
+  });
+
+  it("refuses to train before an install, or in a build that cannot", async () => {
+    const notInstalled = fakeRuntime({ dir: tempDir("realm-laya-svc-") });
+    await expect(setup({ runtime: notInstalled, train: trainer(notInstalled, 0.9) }).service.train()).rejects.toMatchObject({ code: "LAYA_NOT_INSTALLED" });
+    await expect(setup({ runtime: installedRuntime() }).service.train()).rejects.toMatchObject({ code: "LAYA_UNAVAILABLE" });
+    await expect(setup({ runtime: null }).service.train()).rejects.toMatchObject({ code: "LAYA_UNAVAILABLE" });
+  });
+
+  it("names a second run in the same minute apart from the first", async () => {
+    const runtime = installedRuntime();
+    const train = trainer(runtime, 0.3);
+    const { service } = setup({ runtime, train, baseEval: () => evalReport({ accuracy: 0.9 }) });
+    await service.train();
+    await trainingDone(service);
+    // The first run lost, so only its report is kept; a folder of the same name still in the way
+    // must not be written over.
+    mkdirSync(join(runtime.checkpointsDir, train.calls[0]!), { recursive: true });
+    await service.train();
+    await until(() => train.calls.length === 2);
+    expect(train.calls[1]).toBe(`${train.calls[0]}-2`);
   });
 });

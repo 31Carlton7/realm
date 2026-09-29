@@ -62,6 +62,8 @@ export const LAYA_ASSIST_MIN_ACCURACY = 0.95;
  * contract in docs/superpowers/specs/2026-09-29-laya-local-decisions.md). Settings shows it and the
  * Assist gate reads it; fields may be added, never renamed or retyped.
  */
+const AccuracySchema = z.object({ accuracy: z.number(), n: z.number().int() });
+
 export const LayaEvalReportSchema = z.object({
   v: z.literal(1),
   checkpoint: z.string(),
@@ -71,15 +73,27 @@ export const LayaEvalReportSchema = z.object({
   target: z.object({
     accuracy: z.number().min(0).max(1),
     n: z.number().int(),
-    byApp: z.record(z.object({ accuracy: z.number(), n: z.number().int() })),
+    byApp: z.record(AccuracySchema),
     /** The confidence at or above which the top pick was right at least `precision` of the time on
-     *  held-out steps; null when none reached it. */
-    assist: z.object({ threshold: z.number().nullable(), precision: z.number(), coverage: z.number() }),
-  }),
-  sensitive: z.object({ accuracy: z.number(), recall: z.number(), precision: z.number(), n: z.number().int() }),
-  verify: z.object({ accuracy: z.number(), n: z.number().int() }),
+     *  held-out steps; null when none reached it. `coverage` is the share of held-out steps that
+     *  cleared it. The threshold is fitted on the benchmark's train split (`fittedOn`). */
+    assist: z.object({
+      threshold: z.number().nullable(), precision: z.number(), coverage: z.number(),
+      covered: z.number().int().optional(), fittedOn: z.string().optional(), trainPrecision: z.number().optional(), trainCoverage: z.number().optional(),
+    }).passthrough(),
+    /** The steps whose words share none with the element's label — the only ones a walk asks Laya. */
+    notCopying: AccuracySchema.extend({ byApp: z.record(AccuracySchema) }).optional(),
+    /** How often the right element was among the candidates Laya was offered at all. */
+    candidateRecall: z.number().optional(),
+  }).passthrough(),
+  sensitive: z.object({ accuracy: z.number(), recall: z.number(), precision: z.number(), n: z.number().int() }).passthrough(),
+  verify: z.object({ accuracy: z.number(), n: z.number().int(), byKind: z.record(AccuracySchema).optional() }).passthrough(),
   baseline: z.object({ sensitiveRule: z.object({ accuracy: z.number(), recall: z.number() }), verifyRule: z.object({ accuracy: z.number() }) }),
   latencyMs: z.object({ p50: z.number(), p90: z.number() }),
+  /** Questions that got no answer; each was scored as wrong. */
+  errors: z.number().int().optional(),
+  /** The same questions on the validation split, for choosing between training runs. */
+  validation: z.object({ target: AccuracySchema, targetNotCopying: AccuracySchema, sensitive: AccuracySchema, verify: AccuracySchema }).optional(),
 }).passthrough();
 export type LayaEvalReport = z.infer<typeof LayaEvalReportSchema>;
 
@@ -94,6 +108,37 @@ export const LayaAssistGateSchema = z.object({
 });
 export type LayaAssistGate = z.infer<typeof LayaAssistGateSchema>;
 
+/** The active checkpoint's evaluation in the three numbers Settings shows, from its report. */
+export const LayaEvaluationSchema = z.object({
+  checkpoint: z.string(),
+  createdAt: z.string(),
+  benchmark: z.string(),
+  /** Held-out `target` accuracy, and the same on the steps whose words share none with the label. */
+  targetAccuracy: z.number(),
+  targetNotCopying: z.number().nullable(),
+  sensitiveRecall: z.number(),
+  verifyAccuracy: z.number(),
+});
+export type LayaEvaluation = z.infer<typeof LayaEvaluationSchema>;
+
+/** The three waits of a training run, named for the one line Settings shows. */
+export const LayaTrainStepSchema = z.enum(["preparing", "training", "evaluating"]);
+export type LayaTrainStep = z.infer<typeof LayaTrainStepSchema>;
+
+/**
+ * A training run on this Mac (`laya.train`): running, or how the last one ended. `done` says whether
+ * the new checkpoint became the active one — only when its held-out evaluation beat the active one's —
+ * and why; `failed` carries the trainer's own last line.
+ */
+export const LayaTrainingSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("idle") }),
+  z.object({ state: z.literal("running"), step: LayaTrainStepSchema, detail: z.string(), fraction: z.number().min(0).max(1).nullable(), startedAt: z.string() }),
+  z.object({ state: z.literal("done"), at: z.string(), checkpoint: z.string(), activated: z.boolean(), reason: z.string(), targetAccuracy: z.number() }),
+  z.object({ state: z.literal("failed"), at: z.string(), reason: z.string(), detail: z.string() }),
+  z.object({ state: z.literal("cancelled"), at: z.string() }),
+]);
+export type LayaTraining = z.infer<typeof LayaTrainingSchema>;
+
 export const LayaStatusSchema = z.object({
   mode: LayaModeSchema,
   /** A finished install is on disk. The mode can only be switched to `shadow` once it is. */
@@ -104,5 +149,8 @@ export const LayaStatusSchema = z.object({
   /** `<REALM_HOME>/laya`: the runtime, the checkpoint and the log all live under it. */
   dir: z.string(),
   assist: LayaAssistGateSchema,
+  /** The active checkpoint's held-out evaluation; null when it has none. */
+  evaluation: LayaEvaluationSchema.nullable().optional(),
+  training: LayaTrainingSchema.optional(),
 });
 export type LayaStatus = z.infer<typeof LayaStatusSchema>;

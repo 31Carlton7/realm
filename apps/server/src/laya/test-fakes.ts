@@ -107,7 +107,7 @@ function read(req: IncomingMessage): Promise<string> {
 }
 
 export type FakeRuntime = LayaRuntime & {
-  starts: { port: number; apiKey: string }[];
+  starts: { port: number; apiKey: string; checkpoint?: string }[];
   installs: number;
   pythonLooks: number;
   /** The fake server behind the current start, once it is up. */
@@ -130,6 +130,9 @@ export function fakeRuntime(o: {
   serve?: boolean | (() => boolean);
   server?: Omit<Parameters<typeof fakeLayaServer>[0] & object, "port" | "apiKey">;
   unavailable?: string | null;
+  /** The download's directory, for training to start from; null when it is not on disk. */
+  base?: string | null;
+  runScript?: LayaRuntime["runScript"];
 }): FakeRuntime {
   let installed = o.installed ?? false;
   let current: { server: FakeLaya | null; die: (e: { code: number | null; signal: string | null; output: string }) => void } | null = null;
@@ -157,8 +160,11 @@ export function fakeRuntime(o: {
       await new Promise<void>((resolve) => s.close(() => resolve()));
       return port;
     },
-    start({ port, apiKey }): LayaProcess {
-      rt.starts.push({ port, apiKey });
+    checkpointsDir: join(o.dir, "checkpoints"),
+    baseCheckpoint: () => (o.base === undefined ? join(o.dir, "hf", "base") : o.base),
+    runScript: o.runScript ?? (async () => { throw new Error("no training script in this test"); }),
+    start({ port, apiKey, checkpoint }): LayaProcess {
+      rt.starts.push({ port, apiKey, ...(checkpoint ? { checkpoint } : {}) });
       let die!: (e: { code: number | null; signal: string | null; output: string }) => void;
       const exited = new Promise<{ code: number | null; signal: string | null; output: string }>((resolve) => { die = resolve; });
       const run: { server: FakeLaya | null; die: typeof die } = { server: null, die };

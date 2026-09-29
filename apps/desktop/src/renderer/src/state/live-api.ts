@@ -144,6 +144,8 @@ export const liveApi = (): Api => ({
   layaInstall: () => rpc().call("laya.install", {}),
   layaSetMode: (mode) => rpc().call("laya.setMode", { mode }),
   layaDeleteLog: () => rpc().call("laya.deleteLog", {}),
+  layaTrain: () => rpc().call("laya.train", {}),
+  layaCancelTraining: () => rpc().call("laya.cancelTraining", {}),
   setSessionEnvironment: (id, environmentId) => rpc().call("sessions.setEnvironment", { id, environmentId }),
   moveSessionToSpace: (id, spaceId) => rpc().call("sessions.moveToSpace", { id, spaceId }),
   sessionEvents: (id, afterSeq, limit) => rpc().call("sessions.events", { id, afterSeq, limit }),

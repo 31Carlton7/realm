@@ -365,6 +365,9 @@ export type Api = {
   layaInstall(): Promise<LayaStatus>;
   layaSetMode(mode: LayaMode): Promise<LayaStatus>;
   layaDeleteLog(): Promise<LayaStatus>;
+  /** `laya.train` / `laya.cancelTraining`: a training run on this Mac, and stopping it. */
+  layaTrain(): Promise<LayaStatus>;
+  layaCancelTraining(): Promise<LayaStatus>;
   /** `sessions.setEnvironment` — same guard: rejected once the session has any event. */
   setSessionEnvironment(id: string, environmentId: string): Promise<Session>;
   /** `sessions.moveToSpace` — same guard as setAgent/setEnvironment: rejected once the session has any event. */
@@ -1685,6 +1688,8 @@ export type AppState = {
   installLaya(): Promise<void>;
   setLayaMode(mode: LayaMode): Promise<void>;
   deleteLayaLog(): Promise<void>;
+  trainLaya(): Promise<void>;
+  cancelLayaTraining(): Promise<void>;
   applyLaya(status: LayaStatus): void;
   /** Move an unstarted session to another of its space's environments (the under-strip's workspace
    *  selector, Plan 12 W1). Same server guard as the agent switch — after the first event the chip is a
@@ -4482,6 +4487,8 @@ await get().refreshCustomThemes().catch(() => {});
       async installLaya() { set({ laya: await api.layaInstall() }); },
       async setLayaMode(mode) { set({ laya: await api.layaSetMode(mode) }); },
       async deleteLayaLog() { set({ laya: await api.layaDeleteLog() }); },
+      async trainLaya() { set({ laya: await api.layaTrain() }); },
+      async cancelLayaTraining() { set({ laya: await api.layaCancelTraining() }); },
       applyLaya(status) { set({ laya: status }); },
       async setSessionAgent(id, agentKind) {
         mergeSession(await api.setSessionAgent(id, agentKind));

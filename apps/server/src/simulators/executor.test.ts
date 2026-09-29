@@ -385,6 +385,16 @@ describe("Laya, for a label nothing on the screen matches", () => {
     expect(heard).toEqual(["laya"]);
   });
 
+  it("offers Laya the screen without its status bar: the clock is nobody's goal, and takes a candidate's place", async () => {
+    const d = new Device(settings(), "root");
+    const laya = vi.fn(pick("Wi-Fi"));
+    await walk(d, { path: ["wireless networks"] }, { laya: laya as never });
+    const offered = laya.mock.calls[0]![1].map((e) => e.label);
+    expect(offered).toContain("Wi-Fi");
+    expect(offered).toContain("Settings");
+    expect(offered).not.toContain("9:41");
+  });
+
   it("taps nothing when Laya hands the choice back", async () => {
     const d = new Device(settings(), "root");
     const laya = vi.fn(async (): Promise<AssistOutcome> => ({ kind: "ask-agent", candidates: [], best: null, why: "unsure" }));

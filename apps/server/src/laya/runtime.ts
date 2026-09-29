@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { LayaInstallStep } from "@realm/contracts";
 import { findPython, type PythonChoice, type PythonSearch } from "./python";
 
@@ -47,6 +47,12 @@ const DOWNLOAD = [
  * `laya-serve`, started as the console script starts it, plus a watchdog: when Realm's server goes
  * away without stopping it — a crash, a SIGKILL — the process is reparented and exits within a second,
  * instead of holding a gigabyte of weights and a port for nobody.
+ *
+ * Given a directory as its one argument, it serves that checkpoint under the name `english` instead of
+ * the pinned download. `laya-serve` has no setting for a local checkpoint — `build_router` always
+ * builds the published three — so its `build_router` is swapped for one that maps `english` to the
+ * directory, the way `Router(models=…)` takes a path. Everything else is laya-serve's own `main`:
+ * the same routes, the same key, the same single worker.
  */
 const LAUNCH = [
   "import os, sys, threading, time",
@@ -56,6 +62,16 @@ const LAUNCH = [
   "        time.sleep(1)",
   "    os._exit(0)",
   "threading.Thread(target=watch, daemon=True).start()",
+  "if len(sys.argv) > 1:",
+  "    import laya.serve",
+  "    from laya.mcp.device import env_device",
+  "    from laya.router import Router",
+  "    def local_router(path=sys.argv[1]):",
+  "        laya.serve._apply_thread_limit()",
+  "        router = Router(models={'english': path}, device=env_device(), max_loaded=1)",
+  "        router.preload(['english'])",
+  "        return router",
+  "    laya.serve.build_router = local_router",
   "from laya.serve import main",
   "sys.exit(main())",
 ].join("\n");
@@ -64,8 +80,11 @@ export type InstallProgress = { step: LayaInstallStep; detail: string; fraction:
 
 /** A step that failed, with what the tool itself said: `reason` is its last line, verbatim. */
 export class LayaStepError extends Error {
-  constructor(readonly step: LayaInstallStep | "start", readonly reason: string, readonly detail: string) { super(reason); }
+  constructor(readonly step: LayaInstallStep | "start" | "train", readonly reason: string, readonly detail: string) { super(reason); }
 }
+
+/** The pinned English checkpoint's commit (`laya.revisions.PINNED_REVISIONS`), the one training starts from. */
+const PINNED_BASE_REVISION = "55cf4c4ebb4ebe31b2550e8bdf3bd21b99753851";
 
 export type LayaProcess = {
   /** Settles once, when the process has gone, with the tail of what it printed. */
@@ -83,7 +102,16 @@ export type LayaRuntime = {
   installed(): boolean;
   install(python: PythonChoice, onProgress: (p: InstallProgress) => void, signal: AbortSignal): Promise<void>;
   freePort(): Promise<number>;
-  start(o: { port: number; apiKey: string }): LayaProcess;
+  /** `checkpoint`: a checkpoint directory to serve instead of the pinned download (`LAUNCH`). */
+  start(o: { port: number; apiKey: string; checkpoint?: string }): LayaProcess;
+  /** `<dir>/checkpoints`: one directory for each checkpoint trained on this Mac. */
+  checkpointsDir: string;
+  /** The pinned download's own directory in the checkpoint cache — what training starts from — or
+   *  null when it is not on disk. */
+  baseCheckpoint(): string | null;
+  /** Runs a script under the venv's interpreter, offline, handing each line it prints to `onLine`.
+   *  Rejects with its last line when it fails, and stops it when `signal` fires. */
+  runScript(o: { script: string; args: string[]; onLine: (line: string) => void; signal: AbortSignal }): Promise<void>;
 };
 
 export type RealLayaRuntimeOptions = {
@@ -164,10 +192,56 @@ export function realLayaRuntime(o: RealLayaRuntimeOptions): LayaRuntime {
       });
     }),
 
-    start({ port, apiKey }) {
+    checkpointsDir: join(dir, "checkpoints"),
+
+    baseCheckpoint() {
+      const snapshots = join(hf, "hub", "models--convaiinnovations--laya", "snapshots");
+      let names: string[];
+      try { names = readdirSync(snapshots); } catch { return null; }
+      const whole = names.map((n) => join(snapshots, n)).filter((d) => existsSync(join(d, "rl_agent_config.json")) && existsSync(join(d, "model.safetensors")));
+      return whole.find((d) => basename(d) === PINNED_BASE_REVISION) ?? whole[0] ?? null;
+    },
+
+    runScript({ script, args, onLine, signal }) {
+      return new Promise<void>((resolve, reject) => {
+        if (signal.aborted) return reject(new LayaStepError("train", "Stopped.", ""));
+        let child: ChildProcess;
+        try {
+          child = spawnImpl(python, [script, ...args], { env: trainEnv(env, hf), stdio: ["ignore", "pipe", "pipe"] });
+        } catch (e) {
+          return reject(new LayaStepError("train", e instanceof Error ? e.message : String(e), ""));
+        }
+        const tail = new Tail();
+        let partial = "";
+        child.stdout?.on("data", (b: Buffer) => {
+          const text = b.toString();
+          tail.push(text);
+          const lines = (partial + text).split("\n");
+          partial = lines.pop() ?? "";
+          for (const l of lines) onLine(l);
+        });
+        child.stderr?.on("data", (b: Buffer) => tail.push(b.toString()));
+        let hard: NodeJS.Timeout | null = null;
+        const abort = () => {
+          child.kill("SIGTERM");
+          hard = setTimeout(() => child.kill("SIGKILL"), o.stopGraceMs ?? 5_000);
+        };
+        signal.addEventListener("abort", abort, { once: true });
+        child.on("error", (e) => { signal.removeEventListener("abort", abort); reject(new LayaStepError("train", e.message, tail.text())); });
+        child.on("close", (code, sig) => {
+          signal.removeEventListener("abort", abort);
+          if (hard) clearTimeout(hard);
+          if (partial) onLine(partial);
+          if (code === 0 && !signal.aborted) return resolve();
+          reject(new LayaStepError("train", signal.aborted ? "Stopped." : tail.lastLine() || `exited with ${sig ?? `code ${code}`}`, tail.text()));
+        });
+      });
+    },
+
+    start({ port, apiKey, checkpoint }) {
       let child: ChildProcess;
       try {
-        child = spawnImpl(python, ["-c", LAUNCH], { env: serveEnv(env, { port, apiKey, hf }), stdio: ["ignore", "pipe", "pipe"] });
+        child = spawnImpl(python, ["-c", LAUNCH, ...(checkpoint ? [checkpoint] : [])], { env: serveEnv(env, { port, apiKey, hf }), stdio: ["ignore", "pipe", "pipe"] });
       } catch (e) {
         // A venv the dev seam points at can hold an interpreter this CPU cannot run, and spawn throws
         // for that rather than emitting — so it arrives as an exit, like every other way this dies.
@@ -263,6 +337,24 @@ export function serveEnv(env: NodeJS.ProcessEnv, o: { port: number; apiKey: stri
     HF_HUB_DISABLE_TELEMETRY: "1",
     TOKENIZERS_PARALLELISM: "false",
     PYTHONUNBUFFERED: "1",
+  };
+}
+
+/** What a training run runs with: `serveEnv`'s short list, the same cache, offline — and MPS allowed
+ *  to hand an operation it lacks to the CPU rather than fail the run an hour in. */
+export function trainEnv(env: NodeJS.ProcessEnv, hf: string): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const k of ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "USER", "LOGNAME"]) if (env[k] !== undefined) out[k] = env[k];
+  return {
+    ...out,
+    HF_HOME: hf,
+    HF_HUB_OFFLINE: "1",
+    HF_HUB_DISABLE_TELEMETRY: "1",
+    TOKENIZERS_PARALLELISM: "false",
+    PYTHONUNBUFFERED: "1",
+    PYTORCH_ENABLE_MPS_FALLBACK: "1",
+    // The script exits when Realm's server does, the way laya-serve's launcher does.
+    REALM_LAYA_WATCH_PARENT: "1",
   };
 }
 

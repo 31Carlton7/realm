@@ -1083,6 +1083,19 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return data.laya;
     },
     layaDeleteLog: async () => { calls.push("layaDeleteLog"); data.laya = { ...data.laya, stepsLogged: 0 }; return data.laya; },
+    layaTrain: async () => {
+      calls.push("layaTrain");
+      // The server's refusals, restated: an install to train in, and one run at a time.
+      if (!data.laya.installed) throw Object.assign(new Error("Install Laya before training it."), { code: "LAYA_NOT_INSTALLED" });
+      if (data.laya.training?.state === "running") throw Object.assign(new Error("Laya is already training."), { code: "LAYA_TRAINING" });
+      data.laya = { ...data.laya, training: { state: "running", step: "preparing", detail: "Writing the training set", fraction: null, startedAt: "2026-09-29T07:12:00.000Z" } };
+      return data.laya;
+    },
+    layaCancelTraining: async () => {
+      calls.push("layaCancelTraining");
+      data.laya = { ...data.laya, training: { state: "cancelled", at: "2026-09-29T07:13:00.000Z" } };
+      return data.laya;
+    },
     failoverSet: async (spaceId, policy) => {
       calls.push(`failoverSet:${spaceId}`);
       // Mirrors the server: unknown kinds are dropped rather than refused, so a test that asserts on
