@@ -136,12 +136,36 @@ describe("running laya-serve", () => {
     expect(call.self).toBe(join(venv, "bin", "python"));
     // Run as the console script runs it, under a watchdog that ends it if Realm's server disappears.
     // The watchdog thread is STARTED, and before laya.serve takes the main thread for good.
-    expect(call.args[1]).toMatch(/threading\.Thread\(target=watch, daemon=True\)\.start\(\)\nfrom laya\.serve import main\nsys\.exit\(main\(\)\)$/);
+    expect(call.args[1]).toMatch(/^threading\.Thread\(target=watch, daemon=True\)\.start\(\)\nif len\(sys\.argv\) > 1:/m);
+    expect(call.args[1]).toMatch(/\nfrom laya\.serve import main\nsys\.exit\(main\(\)\)$/);
+    // No directory: the pinned download, served by laya-serve's own router.
+    expect(call.args).toHaveLength(2);
     expect(call.args[1]).toContain("while os.getppid() == parent:");
     expect(call.env).toMatchObject({ LAYA_HOST: "127.0.0.1", LAYA_PORT: String(port), HF_HOME: "/cache/hf", HF_HUB_OFFLINE: "1" });
     await proc.stop();
     expect((await proc.exited).signal ?? (await proc.exited).code).toBeDefined();
     await expect(fetch(`http://127.0.0.1:${port}/health`)).rejects.toThrow();
+  });
+
+  it("hands a local checkpoint directory to the launcher, which serves it as english", async () => {
+    const py = stubPython();
+    const venv = join(tempDir("realm-laya-rt-"), "venv");
+    mkdirSync(join(venv, "bin"), { recursive: true });
+    writeFileSync(join(venv, "bin", "python"), readFileSync(py.bin));
+    chmodSync(join(venv, "bin", "python"), 0o755);
+    writeFileSync(join(venv, "bin", "laya-serve"), "");
+    const rt = realLayaRuntime({ home: tempDir("realm-laya-rt-"), env: { PATH: process.env.PATH, REALM_LAYA_VENV: venv } });
+    const port = await rt.freePort();
+    const proc = rt.start({ port, apiKey: "k", checkpoint: "/laya/checkpoints/local-1" });
+    procs.push(proc);
+    await until(async () => { try { return (await fetch(`http://127.0.0.1:${port}/health`)).ok; } catch { return false; } });
+    const call = py.calls().find((c) => c.args[0] === "-c")!;
+    expect(call.args.slice(2)).toEqual(["/laya/checkpoints/local-1"]);
+    expect(call.args[1]).toContain("Router(models={'english': path}, device=env_device(), max_loaded=1)");
+    expect(call.args[1]).toContain("laya.serve.build_router = local_router");
+    // Still bound where Realm said, with the key it minted — only the weights differ.
+    expect(call.env).toMatchObject({ LAYA_HOST: "127.0.0.1", LAYA_PORT: String(port), LAYA_API_KEY: "k" });
+    await proc.stop();
   });
 
   it("kills a process that will not stop when asked", async () => {

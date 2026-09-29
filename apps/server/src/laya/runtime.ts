@@ -47,6 +47,12 @@ const DOWNLOAD = [
  * `laya-serve`, started as the console script starts it, plus a watchdog: when Realm's server goes
  * away without stopping it — a crash, a SIGKILL — the process is reparented and exits within a second,
  * instead of holding a gigabyte of weights and a port for nobody.
+ *
+ * Given a directory as its one argument, it serves that checkpoint under the name `english` instead of
+ * the pinned download. `laya-serve` has no setting for a local checkpoint — `build_router` always
+ * builds the published three — so its `build_router` is swapped for one that maps `english` to the
+ * directory, the way `Router(models=…)` takes a path. Everything else is laya-serve's own `main`:
+ * the same routes, the same key, the same single worker.
  */
 const LAUNCH = [
   "import os, sys, threading, time",
@@ -56,6 +62,16 @@ const LAUNCH = [
   "        time.sleep(1)",
   "    os._exit(0)",
   "threading.Thread(target=watch, daemon=True).start()",
+  "if len(sys.argv) > 1:",
+  "    import laya.serve",
+  "    from laya.mcp.device import env_device",
+  "    from laya.router import Router",
+  "    def local_router(path=sys.argv[1]):",
+  "        laya.serve._apply_thread_limit()",
+  "        router = Router(models={'english': path}, device=env_device(), max_loaded=1)",
+  "        router.preload(['english'])",
+  "        return router",
+  "    laya.serve.build_router = local_router",
   "from laya.serve import main",
   "sys.exit(main())",
 ].join("\n");
@@ -83,7 +99,8 @@ export type LayaRuntime = {
   installed(): boolean;
   install(python: PythonChoice, onProgress: (p: InstallProgress) => void, signal: AbortSignal): Promise<void>;
   freePort(): Promise<number>;
-  start(o: { port: number; apiKey: string }): LayaProcess;
+  /** `checkpoint`: a checkpoint directory to serve instead of the pinned download (`LAUNCH`). */
+  start(o: { port: number; apiKey: string; checkpoint?: string }): LayaProcess;
 };
 
 export type RealLayaRuntimeOptions = {
@@ -164,10 +181,10 @@ export function realLayaRuntime(o: RealLayaRuntimeOptions): LayaRuntime {
       });
     }),
 
-    start({ port, apiKey }) {
+    start({ port, apiKey, checkpoint }) {
       let child: ChildProcess;
       try {
-        child = spawnImpl(python, ["-c", LAUNCH], { env: serveEnv(env, { port, apiKey, hf }), stdio: ["ignore", "pipe", "pipe"] });
+        child = spawnImpl(python, ["-c", LAUNCH, ...(checkpoint ? [checkpoint] : [])], { env: serveEnv(env, { port, apiKey, hf }), stdio: ["ignore", "pipe", "pipe"] });
       } catch (e) {
         // A venv the dev seam points at can hold an interpreter this CPU cannot run, and spawn throws
         // for that rather than emitting — so it arrives as an exit, like every other way this dies.
