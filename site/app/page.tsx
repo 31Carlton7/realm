@@ -3,6 +3,7 @@ import Image from "next/image"
 import { DimensionField } from "@/components/dimension/DimensionField"
 import { ClaimSection } from "@/components/home/Claim"
 import { Faq } from "@/components/home/Faq"
+import { Footer } from "@/components/home/Footer"
 import { SixFaces } from "@/components/home/SixFaces"
 import { AppleIcon, GitHubIcon } from "@/components/icons"
 import { SiteHeader } from "@/components/SiteHeader"
@@ -25,6 +26,7 @@ import captured from "@/public/product/manifest.json"
  *   claims    one claim per section, each with the real capture that is evidence for it, framed as a
  *             window into the same realm
  *   close     the next action, through a portal again
+ *   footer    the realm rising over its own lattice, laid flat to a horizon, with who makes it
  *
  * design.md carries the rules this follows: the first viewport shows the product, every effect argues
  * a claim the copy also makes, nothing with area draws behind words, and motion is the reader's to
@@ -152,6 +154,8 @@ export default async function HomePage() {
           </div>
         </section>
       </main>
+
+      <Footer />
     </div>
   )
 }
