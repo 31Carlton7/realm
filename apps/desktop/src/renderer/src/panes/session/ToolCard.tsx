@@ -7,6 +7,7 @@ import { flattenRun, formatDuration, formatToolRun, summarizeToolRun, type ToolB
 import { ToolInputBody, ToolResultBody } from "./rich/ToolViews";
 import { DRAW_LIMIT, mediaWorkFor, toolInputView, toolMediaPath, toolResultView } from "./rich/tool-view";
 import { GeneratingCanvas, ToolMedia } from "./media/MediaView";
+import { ChildSessions, delegatedChildIds } from "./DelegatedRuns";
 import { useElapsed } from "./use-elapsed";
 
 type ToolState = "running" | "ok" | "error" | "none";
@@ -118,6 +119,8 @@ export const ToolCard = memo(function ToolCard({ block, sessionStatus, enter = f
      being made, right now. Bound to `state === "running"` — the call's REAL settled state — so the
      canvas cannot outlive the work, and a failure leaves a failed card rather than a shimmer. */
   const work = state === "running" ? mediaWorkFor(block.name, block.input) : null;
+  /* Every other call answers with an empty list on the name alone, before the result is read. */
+  const children = delegatedChildIds(block);
   return (
     /* The id on the element, so anything that needs to point AT a specific call can find it. */
     <div className="tool-card" data-tool-use-id={block.toolUseId}
@@ -146,6 +149,10 @@ export const ToolCard = memo(function ToolCard({ block, sessionStatus, enter = f
           happens, and a canvas the reader has to open a card to find would be a spinner with extra
           steps. It leaves of its own accord when the result lands. */}
       {work && <GeneratingCanvas label={work.label} detail={work.detail} aspect={work.aspect} />}
+      {/* The sessions a delegation call started or collected, outside the expander for the ledger's
+          reason below: a finished child's pane may already be gone from the layout, and this is the
+          way back to it from the report it produced. */}
+      {children.length > 0 && <ChildSessions ids={children} />}
       {/* The sub-agent's own ledger, hanging off the call that spawned it and ABOVE the expander:
           what the child is doing is the thing worth seeing, and burying it under the raw input and
           result wells would make it something the reader has to go looking for. */}
