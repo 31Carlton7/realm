@@ -491,6 +491,33 @@ describe("settling on the picture instead of the tree", () => {
     expect(polled.reads).toBeGreaterThanOrEqual(5);
   });
 
+  it("looks again before a tap when the picture moved after the read — a row put in above", async () => {
+    const d = new Device(settings(), "root");
+    let moved = 0, reads = 0;
+    const io = d.io();
+    const read = io.read;
+    // Settings puts a row in above General a moment after it launches: here, just after the first read.
+    io.read = async () => {
+      const t = await read();
+      if (++reads === 1) { d.screens.root!.rows.unshift({ label: "Optimizing Search and Siri", nothing: true }); moved++; }
+      return t;
+    };
+    const m: ScreenMotion = { mark: () => ({ moved, edges: 0, edgeBusy: false }), settle: async () => "still", rest: async () => true, close: () => {} };
+    const r = await runPath({ ...io, motion: m }, { path: ["General"] });
+    expect(r.ok).toBe(true);
+    // THE MUTANT: tap where General was read — which is where the new row is now.
+    expect(d.at.map((p) => p.y)).toEqual([rowY(1) + 22]);
+    expect(heading(r.final)).toBe("General");
+  });
+
+  it("does not read again before a tap when nothing moved", async () => {
+    const d = new Device(settings(), "root");
+    const m: ScreenMotion = { mark: () => ({ moved: 0, edges: 0, edgeBusy: false }), settle: async () => "still", rest: async () => true, close: () => {} };
+    await runPath({ ...d.io(), motion: m }, { path: ["General"] });
+    // One read to start and one after the tap: a still picture costs no extra read.
+    expect(d.reads).toBe(2);
+  });
+
   it("waits past a picture that moved while the tree did not — a highlight on a tap still being answered", async () => {
     const d = new Device(settings(), "root");
     d.lag = 1;
