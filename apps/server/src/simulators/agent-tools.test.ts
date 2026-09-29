@@ -685,6 +685,25 @@ describe("createApp's toolchain probe", () => {
     expect(tools.some((n) => n.startsWith(`${SIMULATOR_PROVIDER_NAME}__`))).toBe(false);
   });
 
+  it("tells connected sessions and the settings row when its answer arrives", async () => {
+    // A probe the test answers by hand, so "later" is a moment the test chooses.
+    let answer: (v: boolean) => void = () => {};
+    const home = tempDir("realm-sim-late-");
+    vi.stubEnv("REALM_BUNDLED_SKILLS", join(home, "no-bundle"));
+    app = await createApp({ home, port: 0, simulatorToolchain: () => new Promise<boolean>((r) => { answer = r; }) });
+    const relisted = vi.spyOn(app.gateway, "notifyToolsChanged");
+    const events: string[] = [];
+    const ws = await new Promise<WebSocket>((res, rej) => { const w = new WebSocket(`ws://127.0.0.1:${app!.port}`); w.once("open", () => res(w)); w.once("error", rej); });
+    ws.on("message", (raw) => { const m = JSON.parse(raw.toString()) as { event?: string }; if (m.event) events.push(m.event); });
+    answer(true);
+    // THE MUTANT: build the provider without `onOfferedChange` (or with one that does nothing). The
+    // answer lands, and every session keeps the tool list it started with — and an open settings row
+    // keeps saying "Checking…" — until something else happens to make them look again.
+    await vi.waitFor(() => expect(events).toContain("mcp.changed"));
+    expect(relisted).toHaveBeenCalled();
+    ws.close();
+  });
+
   it("asks xcrun when it is handed the production probe — so the silence above is not a blind test", async () => {
     const xcrun = recordingXcrun();
     await bootAndUse(() => toolchainAvailable());
