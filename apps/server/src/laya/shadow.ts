@@ -1,7 +1,7 @@
 import { newId, type SessionEvent } from "@realm/contracts";
 import type { ActObservation, ActObserver, ObservedElement } from "../mcp/act-observer";
 import { clip } from "../mcp/tool-result";
-import type { LayaClient } from "./client";
+import type { LayaChoiceAnswer, LayaClient, LayaNoulAnswer } from "./client";
 
 /**
  * Laya in shadow: asked what it would have done at every observed step, heard by nobody.
@@ -315,21 +315,9 @@ export class LayaShadow {
     }
 
     try {
-      const target = chosenElement ? describeTarget(chosenElement) : o.chosen && "point" in o.chosen ? `the point (${o.chosen.point.x}, ${o.chosen.point.y})` : "the screen";
-      const { answers, ms } = await client.ask(
-        `An agent is about to: ${STEP_VERB[o.tool] ?? "act on"} ${target}${intent ? ` to ${intent}` : ""}.`,
-        Object.fromEntries(Object.entries(SENSITIVE_PARTS).map(([k, instructions]) => [k, { type: "noul" as const, instructions }])),
-        timeout,
-      );
-      const parts = {} as Record<SensitivePart, number>;
-      let top: { p: number; confidence: number } | null = null;
-      for (const k of Object.keys(SENSITIVE_PARTS) as SensitivePart[]) {
-        const a = answers[k];
-        if (a?.type !== "noul") throw new Error(`no noul for ${k} in the answer`);
-        parts[k] = a.noul;
-        if (!top || a.noul > top.p) top = { p: a.noul, confidence: a.confidence };
-      }
-      step.laya.sensitive = { p: top!.p, parts, confidence: top!.confidence, ms: Math.round(ms) };
+      const q = sensitiveQuestion(o.tool, o.chosen, intent);
+      const { answers, ms } = await client.ask(q.state, q.questions, timeout);
+      step.laya.sensitive = { ...readSensitive(answers), ms: Math.round(ms) };
     } catch (e) {
       step.laya.errors.push(`sensitive: ${message(e)}`);
     }
@@ -348,16 +336,12 @@ export class LayaShadow {
       if (!client) return;
       const before = summarize(step.elements);
       const afterText = summarize(step.after!);
-      const diff = screenDiff(step.elements, step.after!);
+      const q = verifyQuestion(step.intent, step.elements, step.after!);
       try {
-        const { answers, ms } = await client.ask(
-          `Goal: ${step.intent}. What changed on screen: ${diff.text}`,
-          { verify: { type: "noul", instructions: VERIFY_INSTRUCTIONS } },
-          this.d.requestTimeoutMs ?? 2_000,
-        );
+        const { answers, ms } = await client.ask(q.state, q.questions, this.d.requestTimeoutMs ?? 2_000);
         const a = answers.verify;
         if (a?.type !== "noul") throw new Error("no noul in the answer");
-        step.laya.verify = { p: a.noul, confidence: a.confidence, ms: Math.round(ms), before, after: afterText, diff: diff.text };
+        step.laya.verify = { p: a.noul, confidence: a.confidence, ms: Math.round(ms), before, after: afterText, diff: q.diff.text };
       } catch (e) {
         step.laya.errors.push(`verify: ${message(e)}`);
       }
@@ -440,6 +424,44 @@ export function targetQuestion(goal: string, candidates: ObservedElement[], tool
     questions: { target: { type: "choice", instructions: `Which on-screen element should be ${TARGET_VERB[tool] ?? "used"} to: ${goal}?`, criteria: options.criteria } },
     idOf: options.idOf,
   };
+}
+
+/**
+ * The `sensitive` question, exactly as the shadow asks it: the step in one sentence as the state, the
+ * four narrow parts as the questions. Shared with the eval harness for the reason `targetQuestion` is.
+ */
+export function sensitiveQuestion(tool: string, chosen: ActObservation["chosen"], intent: string): {
+  state: string;
+  questions: Record<SensitivePart, { type: "noul"; instructions: string }>;
+} {
+  const target = chosen && "element" in chosen ? describeTarget(chosen.element) : chosen && "point" in chosen ? `the point (${chosen.point.x}, ${chosen.point.y})` : "the screen";
+  return {
+    state: `An agent is about to: ${STEP_VERB[tool] ?? "act on"} ${target}${intent ? ` to ${intent}` : ""}.`,
+    questions: Object.fromEntries(Object.entries(SENSITIVE_PARTS).map(([k, instructions]) => [k, { type: "noul" as const, instructions }])) as Record<SensitivePart, { type: "noul"; instructions: string }>,
+  };
+}
+
+/** `sensitive` read as the highest of its four parts, each kept. Throws when a part is missing. */
+export function readSensitive(answers: Record<string, LayaChoiceAnswer | LayaNoulAnswer>): { p: number; parts: Record<SensitivePart, number>; confidence: number } {
+  const parts = {} as Record<SensitivePart, number>;
+  let top: { p: number; confidence: number } | null = null;
+  for (const k of Object.keys(SENSITIVE_PARTS) as SensitivePart[]) {
+    const a = answers[k];
+    if (a?.type !== "noul") throw new Error(`no noul for ${k} in the answer`);
+    parts[k] = a.noul;
+    if (!top || a.noul > top.p) top = { p: a.noul, confidence: a.confidence };
+  }
+  return { p: top!.p, parts, confidence: top!.confidence };
+}
+
+/** The `verify` question over what the step changed, exactly as the shadow asks it. */
+export function verifyQuestion(intent: string, before: readonly ObservedElement[], after: readonly ObservedElement[]): {
+  state: string;
+  questions: { verify: { type: "noul"; instructions: string } };
+  diff: ReturnType<typeof screenDiff>;
+} {
+  const diff = screenDiff(before, after);
+  return { state: `Goal: ${intent}. What changed on screen: ${diff.text}`, questions: { verify: { type: "noul", instructions: VERIFY_INSTRUCTIONS } }, diff };
 }
 
 /**
