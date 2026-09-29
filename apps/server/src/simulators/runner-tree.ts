@@ -39,6 +39,15 @@ export const roleOf = (type: unknown): string =>
 
 type Node = Record<string, unknown>;
 
+/**
+ * Bars, which are never the size of the screen. MEASURED on iOS 27's Settings: its floating search
+ * bar arrives in the snapshot as two Toolbars whose frames are the WHOLE screen, one holding the field
+ * and one holding nothing. Listed, the empty one was a leaf drawn over every row, and the walk — which
+ * will not tap what something is drawn over — found nothing on the screen it could touch. So a bar
+ * claiming the whole screen is walked through like a container, and what it holds is listed.
+ */
+const BARS = new Set(["Toolbar", "TabBar", "NavigationBar"]);
+
 /** An element as the runner reads it, plus the one thing iOS's snapshot can say that serve-sim's
  *  tree cannot: which element has focus. Only ever `true` when present. */
 export type RunnerElement = SimulatorAxElement & { focused?: true };
@@ -63,7 +72,9 @@ export function parseRunnerTree(body: string): (SimulatorAxTree & { bundleId: st
     const value = str(node.value) || str(node.placeholder);
     /* The Application node is the SCREEN, not an element on it (serve-sim's rule too), and an `Other`
        that names nothing is a container: both are walked through rather than listed. */
-    if (frame && depth > 0 && (role !== "Other" || label || id || value)) {
+    const wholeScreen = frame !== null && frame.x <= rootFrame.x && frame.y <= rootFrame.y
+      && frame.x + frame.width >= rootFrame.x + rootFrame.width && frame.y + frame.height >= rootFrame.y + rootFrame.height;
+    if (frame && depth > 0 && (role !== "Other" || label || id || value) && !(BARS.has(role) && wholeScreen)) {
       elements.push({
         path, label, value, role, id: id || null,
         enabled: node.enabled !== false,

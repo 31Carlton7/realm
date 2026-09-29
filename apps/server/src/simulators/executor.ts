@@ -281,14 +281,15 @@ function locate(tree: WalkTree, label: string): { el: SimulatorAxElement; how: "
 }
 
 /** Elements with nothing inside them, by their place in the tree — the ones a touch actually lands
- *  on. A container that fills the screen is not drawn OVER anything; its children are. */
+ *  on. A container that fills the screen is not drawn OVER anything; its children are. "Inside" is by
+ *  ancestry, not by parent: a tree can leave out the empty containers between an element and what it
+ *  holds (the device runner's does), and a bar whose own child was left out still holds its field. */
 function leafOverlays(tree: WalkTree): { el: SimulatorAxElement; i: number }[] {
-  const parents = new Set<string>();
+  const holders = new Set<string>();
   for (const el of tree.elements) {
-    const cut = el.path.lastIndexOf(".");
-    if (cut > 0) parents.add(el.path.slice(0, cut));
+    for (let cut = el.path.lastIndexOf("."); cut > 0; cut = el.path.lastIndexOf(".", cut - 1)) holders.add(el.path.slice(0, cut));
   }
-  return tree.elements.flatMap((el, i) => (parents.has(el.path) ? [] : [{ el, i }]));
+  return tree.elements.flatMap((el, i) => (holders.has(el.path) ? [] : [{ el, i }]));
 }
 
 /**

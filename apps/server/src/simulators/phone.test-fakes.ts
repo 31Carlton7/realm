@@ -52,11 +52,18 @@ const SCREENS: Record<string, Screen> = {
   },
 };
 
+export type { Row as PhoneRow };
+
 export type PhoneRequest = { method: string; path: string; body: Record<string, unknown> };
 
 export class FakePhone {
   screen = "runner";
   typed = "";
+  /** This phone's own copy of the screens, so a test can change one — a row put in late — alone. */
+  readonly screens: Record<string, Screen> = structuredClone(SCREENS);
+  /** Told after each read of the tree is answered, with how many there have been. */
+  afterRead: ((reads: number) => void) | null = null;
+  private reads = 0;
   readonly requests: PhoneRequest[] = [];
   /** How many reads of the tree to answer with a server error before the next good one. */
   failReads = 0;
@@ -116,7 +123,7 @@ export class FakePhone {
   }
 
   private tree(): Record<string, unknown> {
-    const s = SCREENS[this.screen]!;
+    const s = this.screens[this.screen]!;
     const node = (row: Row, frame: { x: number; y: number; width: number; height: number }) => ({
       type: row.type ?? 9, identifier: row.id ?? "", label: row.label, title: "", enabled: true, frame,
       ...(row.type === 45 ? { value: this.screen === "search" && this.typed ? this.typed : undefined, placeholder: row.placeholder } : row.value ? { value: row.value } : {}),
@@ -137,10 +144,13 @@ export class FakePhone {
       switch (url.pathname) {
         case "/status": return json({ ok: true, runner: "realm-device-runner", version: 1 });
         case "/device": return json({ width: W, height: H, scale: 3 });
-        case "/foreground": return json({ bundleId: SCREENS[this.screen]!.bundleId });
-        case "/hierarchy":
+        case "/foreground": return json({ bundleId: this.screens[this.screen]!.bundleId });
+        case "/hierarchy": {
           if (this.failReads > 0) { this.failReads--; return json({ error: "not yet" }, 500); }
-          return json(this.tree());
+          const answer = json(this.tree());
+          this.afterRead?.(++this.reads);
+          return answer;
+        }
         case "/screenshot": {
           const png = encodePng({ width: 4, height: 8, rgba: Buffer.alloc(4 * 8 * 4, 200) });
           return [200, url.searchParams.get("format") === "jpeg" ? "image/jpeg" : "image/png", png];
@@ -151,7 +161,7 @@ export class FakePhone {
     switch (url.pathname) {
       case "/tap": {
         const x = Number(body.x), y = Number(body.y);
-        const hit = this.layout(SCREENS[this.screen]!).find(({ frame: f }) => x >= f.x && x < f.x + f.width && y >= f.y && y < f.y + f.height);
+        const hit = this.layout(this.screens[this.screen]!).find(({ frame: f }) => x >= f.x && x < f.x + f.width && y >= f.y && y < f.y + f.height);
         if (hit?.row.to) { this.screen = hit.row.to; if (hit.row.to !== "search") this.typed = ""; }
         return ok;
       }

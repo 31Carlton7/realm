@@ -19,7 +19,7 @@ import { decodePngToRgba, pngSize } from "../machines/qmp-driver";
 import { RpcError } from "../store/rows";
 import type { SimulatorService } from "./service";
 import { DEVICE_KEYS, inputRefusal, type DeviceInput, type DevicePoint } from "./device-input";
-import { runPath, tapPoint, type ExecIO, type ExecResult, type ExecStopReason } from "./executor";
+import { findLabel, runPath, tapPoint, type ExecIO, type ExecResult, type ExecStopReason } from "./executor";
 import type { ScreenMotion } from "./screen-motion";
 
 export const SIMULATOR_PROVIDER_NAME = "realm-simulator";
@@ -811,6 +811,8 @@ const HANDLERS: Record<string, Handler> = {
     try {
       const result = await runPath(deviceIO(c, row.value, a.intent, motion), {
         path,
+        // Reads a tenth of a second apart would call a screen at rest that is only between two changes.
+        ...(row.value.physical && row.value.platform === "ios" ? { settle: { pollMs: RUNNER_POLL_MS } } : {}),
         ...(a.text !== undefined ? { text: a.text } : {}),
         ...(a.until !== undefined ? { until: a.until } : {}),
         ...(launched !== undefined ? { launched } : {}),
@@ -960,9 +962,22 @@ const WALK_SCROLL = {
 function deviceIO(c: Call, row: Simulator, intent: string, motion: ScreenMotion | null): ExecIO {
   const send = (input: DeviceInput) => c.d.simulators.input(row.id, input);
   const assist = c.d.assist;
+  /* A real iPhone's tree comes from Realm's runner in a tenth of a second, where serve-sim's takes most
+     of one. So there the walk can afford what the one-step tools always do — look again just before
+     the tap and touch the element where it is NOW. MEASURED on Settings opened fresh: General is read
+     at y=278, and 1.6 s after the launch a row is put in above it and it sits at y=365; a tap on the
+     first read opened "Optimizing Search and Siri" instead. */
+  const runner = row.physical && row.platform === "ios";
+  const liveTap = async (el: SimulatorAxElement, tree: SimulatorAxTree) => {
+    const now = await c.d.simulators.ax(row.id).catch(() => null);
+    if (!now) return send({ kind: "tap", at: normalize(tapPoint(el), tree.screen), count: 1 });
+    const same = now.elements.find((e) => e.path === el.path && sameElement(e, el)) ?? findLabel(now, el.label)?.el ?? null;
+    if (!same) return { ok: false, detail: `"${clip(el.label, 60)}" was gone from the screen by the time of the tap` };
+    return send({ kind: "tap", at: normalize(tapPoint(same), now.screen), count: 1 });
+  };
   return {
     read: () => c.d.simulators.ax(row.id),
-    tap: (el, tree) => send({ kind: "tap", at: normalize(tapPoint(el), tree.screen), count: 1 }),
+    tap: (el, tree) => (runner ? liveTap(el, tree) : send({ kind: "tap", at: normalize(tapPoint(el), tree.screen), count: 1 })),
     scroll: (direction) => send(row.platform === "android"
       ? { kind: "swipe", ...WALK_SCROLL[direction], ms: 700, holdMs: 0 }
       : { kind: "swipe", ...WALK_SCROLL[direction], ms: 300, holdMs: 0, stopMs: 120 }),
@@ -976,6 +991,10 @@ function deviceIO(c: Call, row: Simulator, intent: string, motion: ScreenMotion 
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   };
 }
+
+/** How far apart a walk on a real iPhone reads the tree when it waits for the screen: the runner
+ *  answers in about a tenth of a second, so two reads agreeing is only a stillness this long. */
+const RUNNER_POLL_MS = 200;
 
 /** What to do after each way a walk stops. */
 const AFTER_STOP: Record<ExecStopReason, string> = {

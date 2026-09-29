@@ -267,6 +267,20 @@ describe("scrolling to a label", () => {
     expect(findLabel(d.tree(), "Alpha")).toBeNull();
   });
 
+  it("counts a container as holding what is inside it even when the tree left out the layer between", () => {
+    // The device runner's tree lists no empty container, so a bar's field can be its GRANDCHILD by path.
+    // THE MUTANT: judge a leaf by its immediate parent — then the bar, whose child was left out, is a
+    // leaf the size of the screen drawn over every row, and nothing can be tapped.
+    const el = (path: string, label: string, role: string, frame: { x: number; y: number; width: number; height: number }) =>
+      ({ path, label, value: "", role, id: null, enabled: true, frame, depth: path.split(".").length - 1 });
+    const tree = { units: "points" as const, app: "Settings", screen: { width: 390, height: 844 }, elements: [
+      el("0.0.0", "General", "Button", { x: 16, y: 365, width: 358, height: 52 }),
+      el("0.1", "Bar", "Toolbar", { x: 0, y: 0, width: 390, height: 844 }),
+      el("0.1.0.0", "Search", "SearchField", { x: 28, y: 778, width: 334, height: 28 }),
+    ] };
+    expect(findLabel(tree, "General")?.el.label).toBe("General");
+  });
+
   it("scrolls a row that a floating bar is drawn over into the clear before tapping it", async () => {
     const list = [...rows(...LONG.slice(0, 11)), { label: "Screen Time", to: "time" }, ...rows(...LONG.slice(11, 20))];
     const d = new Device({ root: { rows: list, searchBar: true }, time: { heading: "Screen Time", rows: [] } }, "root");

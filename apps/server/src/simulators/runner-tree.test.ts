@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseRunnerTree, roleOf, XCUI_ELEMENT_TYPES } from "./runner-tree";
+import { findLabel } from "./executor";
 
 /** What the device runner answered for Settings' root on the iPhone 17e simulator, iOS 27.0 — the
  *  simulator's own Settings, so nothing in it is anybody's. */
@@ -67,6 +68,23 @@ describe("the runner's tree, as the simulator tools read one", () => {
     expect(tree.elements.map((e) => [e.path, e.role, e.id ?? (e.value || e.label)])).toEqual([
       ["0.0", "Other", "label-view"], ["0.1", "Other", "50%"], ["0.2.0", "Button", "Inside"],
     ]);
+  });
+
+  it("walks through a bar that claims the whole screen, as iOS 27's floating search bar does, and lists what it holds", () => {
+    const tree = parseRunnerTree(JSON.stringify(doc([
+      { type: 9, label: "General", frame: F },
+      { type: 24, label: "Toolbar", identifier: "Toolbar", frame: { x: 0, y: 0, width: 390, height: 844 }, children: [
+        { type: 1, frame: { x: 0, y: 0, width: 390, height: 844 }, children: [{ type: 45, label: "Search", placeholder: "Search", frame: { x: 28, y: 778, width: 334, height: 28 } }] },
+      ] },
+      { type: 24, label: "Bottom", frame: { x: 0, y: 780, width: 390, height: 64 } },
+    ])))!;
+    expect(tree.elements.map((e) => `${e.path} ${e.role} ${e.label}`)).toEqual(["0.0 Button General", "0.1.0.0 SearchField Search", "0.2 Toolbar Bottom"]);
+  });
+
+  it("leaves nothing in Settings' root drawn over its rows, so a walk can tap them", () => {
+    const tree = parseRunnerTree(SETTINGS)!;
+    expect(tree.elements.some((e) => e.role === "Toolbar")).toBe(false);
+    expect(findLabel(tree, "General")?.el).toMatchObject({ role: "Button", id: "com.apple.settings.general" });
   });
 
   it("drops an element with no size, and one whose frame is not four numbers", () => {

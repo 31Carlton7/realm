@@ -1802,6 +1802,25 @@ describe("a real iPhone", () => {
     expect(dev.phone.screen).toBe("general");
   });
 
+  it("taps a row where it is NOW when the list moves between the walk's read and its tap, as Settings' does after a launch", async () => {
+    const dev = await onPhone();
+    const { simulatorId } = await opened(dev);
+    dev.phone.screen = "home";
+    // Settings answers its first reads, then puts a row in above General — MEASURED 1.6 s after launch.
+    dev.phone.afterRead = () => {
+      if (dev.phone.screen !== "root" || dev.phone.screens.root!.rows[0]!.label === "Optimizing Search and Siri") return;
+      // After the two reads the walk settles on, before the tap: the gap a tap on the old read falls into.
+      if (dev.phone.requests.filter((r) => r.path === "/hierarchy").length < 2) return;
+      dev.phone.screens.root!.rows.unshift({ label: "Optimizing Search and Siri", to: "optimizing" });
+    };
+    dev.phone.screens.optimizing = { app: "Settings", bundleId: "com.apple.Preferences", title: "Optimizing Search and Siri", back: { label: "Settings", to: "root" }, rows: [] };
+    const r = await dev.call("simulator_do", { simulatorId, intent: "find the iOS version", app: "com.apple.Preferences", path: ["General", "About"] });
+    // THE MUTANT: tap the frame as the walk first read it — that is the row now above General.
+    expect(r.isError, text(r)).toBe(false);
+    expect(dev.phone.screen).toBe("about");
+    expect(dev.phone.acts()[0]).toBe("tap 201,238");
+  });
+
   it("lists only what Xcode installed on it, and says how Apple's apps are launched", async () => {
     const dev = await onPhone();
     const { simulatorId } = await opened(dev);
