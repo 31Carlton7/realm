@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { MODEL_ALIASES, canonicalModelKey } from "./models";
+import { MODEL_ALIASES, canonicalModelKey, fastSupportKey, readFastSupport } from "./models";
+
+describe("the remembered fast-mode answers", () => {
+  it("files the harness default under its own entry, apart from any named model", () => {
+    // A session with no model asks for whatever the harness defaults to — a different question from
+    // naming that model, and the only one answerable before it starts.
+    expect(fastSupportKey("claude", null)).toBe("claude:");
+    expect(fastSupportKey("claude", "claude-opus-5-5")).toBe("claude:claude-opus-5-5");
+    expect(fastSupportKey("codex", "claude-opus-5-5")).not.toBe(fastSupportKey("claude", "claude-opus-5-5"));
+  });
+
+  it("keeps a `false` — it is an answer — and drops everything that is not one", () => {
+    expect(readFastSupport({ "claude:": true, "codex:gpt": false, "x:y": "yes", "z:": null })).toEqual({ "claude:": true, "codex:gpt": false });
+    for (const junk of [null, undefined, 3, "x", [true], []]) expect(readFastSupport(junk)).toEqual({});
+  });
+});
 
 describe("canonicalModelKey", () => {
   it("folds the same model typed two ways into one key", () => {
