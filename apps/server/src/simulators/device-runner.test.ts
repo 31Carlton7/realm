@@ -139,7 +139,8 @@ describe("starting a runner", () => {
     expect(build.args).not.toContain("-allowProvisioningUpdates");
     expect(build.env.DEVELOPER_DIR).toBe(XCODE.developerDir);
     const run = xb.calls[1]!;
-    expect(run.args).toEqual(["test-without-building", "-xctestrun", expect.stringMatching(/RealmDeviceRunner_iphoneos27\.0-arm64\.xctestrun$/), "-destination", `id=${PHONE.udid}`]);
+    expect(run.args).toEqual(["test-without-building", "-xctestrun", expect.stringMatching(/RealmDeviceRunner_iphoneos27\.0-arm64\.xctestrun$/), "-destination", `id=${PHONE.udid}`,
+      "-derivedDataPath", join(home, "ios-device-runner", "run", PHONE.udid)]);
     expect(run.env).toMatchObject({ DEVELOPER_DIR: XCODE.developerDir, TEST_RUNNER_REALM_RUNNER_PORT: "7399" });
     expect(runner.polls()).toBeGreaterThan(3);
     // Everything xcodebuild said is kept where a person can read it afterwards.

@@ -367,7 +367,9 @@ export class DeviceRunners {
   /** `test-without-building`, held open, and waited on until the runner answers. */
   private async run(target: RunnerTarget, xcode: Xcode, xctestrun: string): Promise<RunnerClient> {
     const port = await (this.d.port ?? freePort)();
-    const args = ["test-without-building", "-xctestrun", xctestrun, "-destination", `id=${target.udid}`];
+    /* Its own derived data, under Realm's home: without one, every start leaves a result bundle in the
+       user's ~/Library/Developer/Xcode/DerivedData, which is theirs and which nobody would clear. */
+    const args = ["test-without-building", "-xctestrun", xctestrun, "-destination", `id=${target.udid}`, "-derivedDataPath", this.dir("run", target.udid)];
     this.log(target.udid, `\n=== ${new Date().toISOString()} xcodebuild ${args.join(" ")} (runner port ${port})\n`);
     const child = this.spawnFn("xcodebuild", args, {
       // xcodebuild hands the test every TEST_RUNNER_-prefixed variable, with the prefix taken off.
