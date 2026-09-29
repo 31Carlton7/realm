@@ -21,7 +21,7 @@ import { MEMORY_DOC_MAX, MemorySourcesSchema, MemoryStateSchema } from "./memory
 import { NotificationSchema } from "./notifications";
 import { RunAttemptSchema, RunConstraintsSchema, RunSchema, RunStateSchema } from "./runs";
 import { ReviewResultSchema } from "./review";
-import { DelegatedRunSchema } from "./delegation";
+import { DelegatedRunSchema, DelegationOutcomeSchema } from "./delegation";
 import { SEARCH_GROUP_LIMIT, SEARCH_GROUP_LIMIT_MAX, SEARCH_QUERY_MAX, SearchResultsSchema } from "./search";
 import { ImportResultSchema, ImportScanSchema } from "./import";
 import { GuideProgressSchema } from "./documents";
@@ -1735,6 +1735,13 @@ export const Events = {
    *  bring the child session INTO the layout — the whole point of a delegated agent being a real
    *  session is that the user watches its full trace. */
   "session.agentOpened": z.object({ spaceId: IdSchema, sessionId: IdSchema, itemId: IdSchema }),
+  /** A delegated child's run settled — the other half of `session.agentOpened`, carrying the same ids
+   *  plus how it ended, and sent exactly once per run by the tool that opened the child
+   *  (`agent_run`/`agent_start`, `browser_agent_run`, a reviewer). Not for a durable run's worker:
+   *  that is nobody's sub-agent, and its ending is `runs.changed`. The renderer takes back the pane
+   *  it opened for a child that finished, on its own terms (`applyAgentSettled`); this only says
+   *  what happened, so every ending is announced, not just the ones that close anything. */
+  "session.agentSettled": z.object({ spaceId: IdSchema, sessionId: IdSchema, itemId: IdSchema, outcome: DelegationOutcomeSchema }),
   /** An agent opened a browser pane via `browser_open` (Plan 11 W3). The row + item already exist
    *  (`items.changed` was broadcast too); this tells the renderer to bring the pane INTO the layout —
    *  an agent-driven browser the user cannot see defeats the point of the architecture. */

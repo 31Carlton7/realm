@@ -326,7 +326,10 @@ export class RunService {
       const dispatched = this.d.store.update(id, { sessionId, environmentId: env.value.environmentId })!;
       if (createdItemId) {
         // The `agentOpened` idiom: the worker streams into its own pane, because a run the user
-        // cannot watch is the thing this whole design refuses to ship.
+        // cannot watch is the thing this whole design refuses to ship. Deliberately WITHOUT the
+        // `session.agentSettled` half the delegation tools send: a worker is nobody's sub-agent, no
+        // transcript receives its report, and a run can stop at `blocked` and resume in this same
+        // session — so its pane is the user's to close, not Realm's to take back.
         this.d.rpc.broadcast("session.agentOpened", { spaceId: run.spaceId, sessionId, itemId: createdItemId });
       }
       this.broadcast(dispatched);

@@ -1,3 +1,5 @@
+import type { AgentKind } from "./entities";
+
 /**
  * Model IDENTITY across harnesses — the one thing that makes a model-first picker possible.
  *
@@ -23,6 +25,32 @@
  * so this needed no migration and no RPC of its own.
  */
 export const MODEL_FAVORITES_KEY = "models.favorites";
+
+/**
+ * The `settings` row holding what each harness last SAID about fast mode, per model a session asked
+ * for: `{ [fastSupportKey]: boolean }`.
+ *
+ * It exists so the switch can be offered before a session's first message. Whether a model can run
+ * fast mode is only ever stated by the harness, in the `init` it sends once a session is running, and
+ * a prompter that waited for that answer could not offer the switch until after the first prompt —
+ * which is exactly when switching it on is too late for that prompt. So the answer is remembered
+ * from the last session that heard it, and the next session on the same model starts with it.
+ *
+ * Remembered, never guessed: a model no session has run yet has no entry, and it keeps the old
+ * behaviour — no switch until its own harness has answered. Written by the server, which sees every
+ * session's `init` including the ones no pane has open; the prompter only reads it.
+ */
+export const MODEL_FAST_SUPPORT_KEY = "models.fastSupport";
+
+/** The entry for one agent and the model a session ASKED for. `""` is the harness's own default: a
+ *  session with no model of its own asks for that, and it is all that is knowable before it starts. */
+export const fastSupportKey = (kind: AgentKind, model: string | null): string => `${kind}:${model ?? ""}`;
+
+/** The row as a map, with anything but a boolean answer dropped — settings rows are user-editable JSON. */
+export function readFastSupport(raw: unknown): Record<string, boolean> {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
+  return Object.fromEntries(Object.entries(raw).filter((kv): kv is [string, boolean] => typeof kv[1] === "boolean"));
+}
 
 /**
  * Fold a model's displayed name to a comparison key.

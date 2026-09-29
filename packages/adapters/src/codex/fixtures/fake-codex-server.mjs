@@ -19,6 +19,7 @@
  *   SLOW      (modifier) delays the turn's notifications by 60ms      (turn-id-from-response tests)
  *   GHOST     opens a turn the server does not register as steerable  (turn/steer -> turn/start fallback)
  *   APPROVE   runs one command that needs an approval decision
+ *   USAGE     (modifier, with APPROVE) reports token usage before the turn ends (per-turn usage stamps)
  *   PATCH     edits a file and asks for a fileChange approval instead
  *   REFUSE    fails `turn/start` outright
  *   APPROVE2  runs two commands whose approvals are open at once      (waiting_permission bookkeeping)
@@ -158,6 +159,7 @@ async function streamApprovalTurn(threadId, turnId, text) {
       exitCode: accepted ? 0 : 1,
     },
   });
+  if (text.includes("USAGE")) tokenUsage(threadId, turnId);
   endTurn(threadId, turnId);
 }
 
@@ -209,13 +211,7 @@ async function streamPatchTurn(threadId, turnId, text) {
   endTurn(threadId, turnId);
 }
 
-async function streamMessageTurn(threadId, turnId, text) {
-  const itemId = `msg_${nextItemN++}`;
-  await openTurn(threadId, turnId, text);
-  notify("item/started", { threadId, turnId, startedAtMs: Date.now(), item: { type: "agentMessage", id: itemId, text: "", phase: null, memoryCitation: null } });
-  notify("item/agentMessage/delta", { threadId, turnId, itemId, delta: "hel" });
-  notify("item/agentMessage/delta", { threadId, turnId, itemId, delta: "lo" });
-  notify("item/completed", { threadId, turnId, completedAtMs: Date.now(), item: { type: "agentMessage", id: itemId, text: "hello", phase: null, memoryCitation: null } });
+function tokenUsage(threadId, turnId) {
   notify("thread/tokenUsage/updated", {
     threadId, turnId,
     tokenUsage: {
@@ -224,6 +220,16 @@ async function streamMessageTurn(threadId, turnId, text) {
       modelContextWindow: 258400,
     },
   });
+}
+
+async function streamMessageTurn(threadId, turnId, text) {
+  const itemId = `msg_${nextItemN++}`;
+  await openTurn(threadId, turnId, text);
+  notify("item/started", { threadId, turnId, startedAtMs: Date.now(), item: { type: "agentMessage", id: itemId, text: "", phase: null, memoryCitation: null } });
+  notify("item/agentMessage/delta", { threadId, turnId, itemId, delta: "hel" });
+  notify("item/agentMessage/delta", { threadId, turnId, itemId, delta: "lo" });
+  notify("item/completed", { threadId, turnId, completedAtMs: Date.now(), item: { type: "agentMessage", id: itemId, text: "hello", phase: null, memoryCitation: null } });
+  tokenUsage(threadId, turnId);
   // After the token usage, which is where the real server puts it. Shape and units copied from the
   // live capture in docs/dev/codex-app-server-protocol.md §3.1 — `resetsAt` in epoch SECONDS, the
   // duration beside each slot rather than in its name.

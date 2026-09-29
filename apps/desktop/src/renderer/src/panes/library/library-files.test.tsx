@@ -5,6 +5,7 @@ import { LibraryPage } from "./LibraryPage";
 import { groupByDay } from "./LibraryFiles";
 import { createAppStore, StoreContext } from "../../state/store";
 import { resetThumbnailCache } from "../../components/use-thumbnail";
+import { allOnScreen } from "../../components/on-screen.test-fakes";
 import { resetMediaCache } from "../session/media/use-media";
 import { fakeApi, item, session, type FakeData } from "../../state/store.test-fakes";
 
@@ -118,8 +119,11 @@ describe("the Library's file browser", () => {
   it("asks main for a picture only where the picture IS the file", async () => {
     /* The mutant: drop the type gate and thumbnail every tile. Correct on screen, and it puts one
        `qlmanage` child process behind every card — sixty per page of this grid — for marks nobody
-       looks at. The gate is the whole reason the grid stays cheap to scroll. */
+       looks at. The gate is the whole reason the grid stays cheap to scroll.
+       Both cards are on screen: this case is about WHICH cards ask. When a card asks is the card's
+       own question (file-card.test.tsx). */
     const realm = bridge();
+    allOnScreen();
     await mount({ artifacts: [
       file({ id: "shot.png", ext: "png", path: "/tmp/shot.png" }),
       file({ id: "theme.css", ext: "css", path: "/tmp/theme.css" }),
@@ -137,6 +141,7 @@ describe("the Library's file browser", () => {
        centre rather than a different, shorter card. The mutant: render the glyph directly in the
        field, or put the caption first. */
     bridge();
+    allOnScreen();
     await mount({ artifacts: [
       file({ id: "shot.png", ext: "png", path: "/tmp/shot.png" }),
       file({ id: "notes.md", ext: "md", path: "/tmp/notes.md" }),

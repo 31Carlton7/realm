@@ -1,4 +1,4 @@
-import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef } from "@realm/contracts";
+import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef, CLOSE_FINISHED_AGENT_PANES_KEY, type DelegationOutcome } from "@realm/contracts";
 import { destinationTarget, pageItemId } from "./page-item";
 import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sources";
 import { createStore, useStore, type StoreApi } from "zustand";
@@ -8,7 +8,7 @@ import {
   activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveGroup as groupsMove, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, EDITOR_CURSOR_BLINK_DEFAULT, EDITOR_CURSOR_BLINK_KEY, isTerminalCursorStyle, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, type TerminalCursorStyle, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo,
+  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_FAST_SUPPORT_KEY, readFastSupport, EDITOR_CURSOR_BLINK_DEFAULT, EDITOR_CURSOR_BLINK_KEY, isTerminalCursorStyle, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, type TerminalCursorStyle, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
   type AgentKind, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageSummary,
@@ -631,8 +631,26 @@ export const patchKey = (cwd: string, path: string, staged: boolean) => `${cwd}\
 /** Which key sends the composer draft. "enter" (default): plain Enter sends, Shift+Enter inserts a
  *  newline. "cmdEnter": plain Enter inserts a newline, only ⌘/Ctrl+Enter sends. */
 export type SubmitKey = "enter" | "cmdEnter";
+/** A session's file browser as rows or as cards. A word rather than a boolean, so the stored row
+ *  says what it means when someone reads the settings table. */
+export type FilesView = "list" | "grid";
 
 export const PERSIST_DEBOUNCE_MS = 300;
+/**
+ * How long a finished sub-agent's pane stays on screen before Realm takes it back.
+ *
+ * Not zero, because motion here is a confirmation of state (design.md, Motion): closing on the frame
+ * the report lands would take the pane away in the same instant its status settles, and a pane that
+ * vanishes the moment it stops moving reads as a crash, or as something else closing it. The beat is
+ * what lets the finish be SEEN — the last message, the dot going quiet — and it is also the window in
+ * which a person can still keep the pane by clicking into it (`mayTakeBack` asks again at the end).
+ *
+ * Short, and with nothing drawn over it: exits are quieter than entrances, so the close itself is the
+ * plain ⌘W close. The number is the house's hold for a confirmed state — the copy buttons keep their
+ * ✓ for the same 1400ms — and it is a delay rather than the duration of a change, which is why it is
+ * here and not on the tokens.css ladder.
+ */
+export const AGENT_PANE_CLOSE_BEAT_MS = 1400;
 /** Which question the command palette is asking. One surface, three narrowings: ⌘K searches Realm's
  *  own records, ⌘P the checkout's file names, ⌘⇧F the checkout's contents. */
 export type PaletteMode = "all" | "files" | "grep";
@@ -684,6 +702,8 @@ const SETTING_SIDEBAR_WIDTH = "ui.sidebarWidth";
 const SETTING_SIDEBAR_ACTIVITY_ORDER = "ui.sidebarActivityOrder";
 /** Whether a delete asks first. On unless the user has said otherwise — see `confirmDelete`. */
 const SETTING_CONFIRM_DELETE = "ui.confirmDelete";
+/** How a session's file browser lays a folder out — see `filesView`. */
+export const SETTING_FILES_VIEW = "ui.filesView";
 /** Per-session terminal-panel state (open + width), keyed by session id. */
 export const SETTING_TERMINAL_PANEL = "ui.terminalPanel";
 /** The quick chat: which session it is, and where its window sits. One key, because the two are only
@@ -839,12 +859,25 @@ export type AppState = {
    *  for the reason the notification switches are: the prompter reads it on every keystroke, and
    *  `settingsPrefs` stays null until someone opens Settings. */
   midTurnMode: MidTurnMode;
+  /** Whether Realm takes back the pane it opened for a delegated agent once that agent's run finishes
+   *  (`CLOSE_FINISHED_AGENT_PANES_KEY`). Top-level and read at boot for `midTurnMode`'s reason: a
+   *  settle can arrive long before anyone opens Settings. */
+  closeFinishedAgentPanes: boolean;
   /** Sidebar hidden, its toggle moved to the top rail. The toggle is rendered in BOTH states —
    *  a collapse with no way back is a trap — which is why this is one boolean and not a mode. */
   sidebarCollapsed: boolean;
   /** The column's width in pixels, inside SIDEBAR_WIDTH's range. Top-level because the shell paints
    *  it and the handle inside the sidebar writes it — the same rule that put `swipeInvert` here. */
   sidebarWidth: number;
+  /**
+   * Whether a session's file browser lists a folder as rows or lays it out as cards.
+   *
+   * One answer for the whole app, not one per session or per folder: it is a statement about how
+   * this person likes to look for a file, and a layout that changed as they moved between sessions
+   * would be one they had to keep re-choosing. Persisted, because a choice that reverts to rows
+   * on every launch is a chore rather than a preference.
+   */
+  filesView: FilesView;
   /**
    * The space strip sorts by activity instead of the order you last dragged it into.
    *
@@ -1051,6 +1084,10 @@ export type AppState = {
    *  before it loads: unlike the settings page, an unstarred picker is a perfectly honest picker,
    *  so there is nothing to hold back while the read is in flight. */
   modelFavorites: string[];
+  /** What each harness last said about fast mode, per agent and requested model
+   *  (`MODEL_FAST_SUPPORT_KEY`, keyed by `fastSupportKey`) — how a session that has not started yet
+   *  can offer the switch. The server writes it; this only mirrors it. */
+  fastSupport: Record<string, boolean>;
   /** The model catalog, keyed by canonical model key — what the picker's detail pane reads for a
    *  model's price, context window and reasoning efforts. Empty before the first load AND on a dead
    *  network, which are the same thing as far as the picker is concerned: rows render without
@@ -1393,6 +1430,8 @@ export type AppState = {
   unlockKonami(): Promise<void>;
   /** Flip the sidebar between full column and top rail, and persist it. */
   toggleSidebar(): Promise<void>;
+  /** Lay the session file browser out as `view`, and remember it (`SETTING_FILES_VIEW`). */
+  setFilesView(view: FilesView): Promise<void>;
   /** Show the space's items or the call feed. Turning the feed ON clears any narrowing the sheet
    *  left behind — a filter nobody can see in this column would silently hide rows — and leaves the
    *  reading to the feed itself. */
@@ -1928,6 +1967,15 @@ export type AppState = {
   /** The `delegation.changed` handler. The payload is the WHOLE set, so it replaces rather than
    *  merges; an empty one drops the key instead of parking an empty array nobody will clear. */
   applyDelegationChanged(payload: { sessionId: string; running: DelegatedRun[] }): void;
+  /** The `session.agentOpened` handler: bring a delegated child's pane in beside the pane the user
+   *  is in — quietly, leaving them the keyboard — and remember that Realm put it there, the only kind
+   *  of pane `applyAgentSettled` may ever take back. Another space just gains the sidebar row, through
+   *  `items.changed`. */
+  applyAgentOpened(payload: { spaceId: string; sessionId: string; itemId: string }): Promise<void>;
+  /** The `session.agentSettled` handler: after a beat, close the pane Realm opened for a child whose
+   *  run finished — layout-only, the ⌘W close, never a delete — and read that child, unless the pane
+   *  has since become the user's. Every exception is in `mayTakeBack`. */
+  applyAgentSettled(payload: { spaceId: string; sessionId: string; itemId: string; outcome: DelegationOutcome }): void;
   /** Open the space's PAGE (Plan 12 W3) — a `space-page` item whose refId is the space id, one per
    *  space (the diff pane's dedup precedent). `tab` lands the page on a section — the plus-menu's
    *  "Manage connections…" passes "connections"; omitted keeps whatever tab the page last showed. */
@@ -1966,6 +2014,8 @@ export type AppState = {
   /** Read `MODEL_FAVORITES_KEY` into `modelFavorites`. Junk in the row — a non-array, a non-string
    *  element — is dropped here rather than surviving into the picker's ordering. */
   refreshModelFavorites(): Promise<void>;
+  /** Read `MODEL_FAST_SUPPORT_KEY` into `fastSupport`, keeping only boolean answers. */
+  refreshFastSupport(): Promise<void>;
   /** Read the model catalog into `modelInfo`. Cheap and idempotent: the server holds a day-long
    *  cache, so every session pane calling this on mount costs one round trip. */
   refreshModelCatalog(force?: boolean): Promise<void>;
@@ -1983,6 +2033,7 @@ export type AppState = {
    *  by the time this runs the user has already said it twice. */
   setDefaultPermissionMode(mode: string): Promise<void>;
   setMidTurnMode(mode: MidTurnMode): Promise<void>;
+  setCloseFinishedAgentPanes(on: boolean): Promise<void>;
   /** Re-run the main-process TCC probe (prompt-free by construction) into `tccRows`. */
   refreshTcc(): Promise<void>;
   /** Load the enrolled sign-ins and the store's own state (encryption available, Touch ID usable). */
@@ -2683,6 +2734,61 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const f = get().focusedLeafId;
       return f && hasLeafIn(layout, f) ? f : firstLeaf(layout).id;
     };
+    /**
+     * The panes Realm itself opened for a delegated child (`applyAgentOpened`), keyed by the child's
+     * session id, with the LEAF each one was opened into.
+     *
+     * The leaf is part of the identity on purpose. Realm takes back only a pane that is still exactly
+     * where it put it: one the user closed and reopened, dragged to another edge, moved to another
+     * group or rebuilt a preset around sits in a leaf the user chose — a different id — and is theirs.
+     * Leaf ids survive the splits and closes around them (`insertSibling` and `prune` keep them), so
+     * this changes only when the pane itself moves.
+     *
+     * An entry is dropped when its run settles, and when the user writes to the child (`sendMessage`):
+     * a conversation the user has joined is theirs for good, however long ago they wrote. That one has
+     * to be remembered rather than read off the child at settle time — a steered message the child
+     * answers inside the same turn leaves it idle, with nothing on the row to say a person was there.
+     * In memory, deliberately: a reload forgets every entry, and a pane nobody is tracking is simply
+     * left where it is, which is the safe direction for the only state that can be lost.
+     *
+     * `doneRow` is the child's "Finished a turn" row in the feed, noted as `notifications.changed`
+     * delivers it — which is always before the settle, since the server writes that row as the
+     * child's final status event arrives and the engine only sees the event once it is stored. It is
+     * read only if Realm takes the pane back (`applyAgentSettled`).
+     */
+    const agentPanes = new Map<string, { itemId: string; leafId: string; doneRow?: string }>();
+    /**
+     * Whether the pane Realm opened for a child that finished is still Realm's to take back.
+     *
+     * Asked twice — when the settle arrives and again when the beat ends — because the beat is exactly
+     * the window in which a person can decide otherwise, and each of these is something they can do
+     * in it.
+     */
+    const mayTakeBack = (sessionId: string, pane: { itemId: string; leafId: string }): boolean => {
+      const s = get();
+      if (!s.closeFinishedAgentPanes || !s.layout) return false;
+      // The arrangement on screen only. `layout` is the active group of the active space, so a pane
+      // in another group — or anywhere in another space — has no leaf here: both are somewhere the
+      // user left, and Realm does not reach into it. Moved, or closed and reopened: see agentPanes.
+      const leaf = findLeafOfItem(s.layout, pane.itemId);
+      if (!leaf || leaf.id !== pane.leafId) return false;
+      // The pane with the keyboard is the one the user is in — the same test the notifications feed
+      // makes to call a settle watched. Asked NOW rather than remembered, so answering the child's
+      // permission prompt an hour ago is a glance, not an adoption; writing to it is (see agentPanes).
+      if (leaf.id === s.focusedLeafId) return false;
+      // Never the last pane standing: closing that one conjures a fresh session (`closeFromLayout`).
+      if (!allItems(s.layout).some((id) => id !== pane.itemId)) return false;
+      // `done` meant idle with a report when the engine looked. Looked at again: a message sent since
+      // has it running, and a permission or a question — which rides the permission channel — has it
+      // waiting on a person.
+      if ((s.sessionStatus[sessionId] ?? s.sessions[sessionId]?.status) !== "idle") return false;
+      // (A turn a person stopped needs no test here: the engine reads the adapter's stop mark off the
+      // server's own log — whoever pressed stop, loaded transcript or not — and settles it `stopped`,
+      // which `applyAgentSettled` never takes back.)
+      // Words the user has started writing to it and not sent yet. They would survive the close (the
+      // draft is kept by session, not by pane), but out of sight, which is its own way to lose them.
+      return !(s.drafts[sessionId] ?? "").trim() && (s.pendingAttachments[sessionId]?.length ?? 0) === 0;
+    };
     /** The ONE way `groups` is written: `layout` is re-mirrored off the active group in the same set,
      *  so the two fields can never be observed disagreeing — not even for one render. */
     /** Also THE recording site for per-pane history: every structural change — open, split, drop,
@@ -2867,14 +2973,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, sidebarActivityOrder: false, confirmDelete: true, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
+      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", sidebarActivityOrder: false, confirmDelete: true, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
       laya: null,
       spacePageTab: {}, profilePageTab: {}, librarySkill: {}, mcpPanelSpaceId: null, agentsView: "list", officeWorld: null,
-      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], modelInfo: {}, spaceSkillSources: {},
+      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -2891,12 +2997,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, swipeInvert, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, panels, quick, system] = await Promise.all([
+        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, swipeInvert, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, panels, quick, filesView, system] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME),
           api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
           api.getSetting(SETTING_TERMINAL_PANEL),
           api.getSetting(SETTING_QUICK_CHAT),
+          api.getSetting(SETTING_FILES_VIEW),
           // Labels, not dependencies: a failure here must not take boot down with it — the strip
           // simply shows no machine name, and the greeting no name.
           api.systemInfo().catch(() => ({ machineName: "", userName: "", detachedSince: null })),
@@ -2907,6 +3014,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           groundAlpha: typeof groundAlpha === "number" ? clampGroundAlpha(groundAlpha) : DEFAULT_GROUND_ALPHA, swipeInvert: swipeInvert === true, lowPower: lowPower === true,
           submitKey: isSubmitKey(submitKey) ? submitKey : "enter", sidebarCollapsed: sidebarCollapsed === true,
           sidebarWidth: typeof sidebarWidth === "number" ? clampSidebarWidth(sidebarWidth) : SIDEBAR_WIDTH.default,
+          // Rows unless the row says cards: an unset key, and a word a newer build wrote that this
+          // one does not know, both get the layout the panel shipped with.
+          filesView: filesView === "grid" ? "grid" : "list",
           // Defaulted OFF: the strip's resting order is the one the user dragged it into, and a
           // preference nobody could read must not rearrange their spaces on them at launch.
           sidebarActivityOrder: activityOrder === true,
@@ -2958,6 +3068,10 @@ await get().refreshCustomThemes().catch(() => {});
         set({ editorCursorBlink: editorBlink !== false });
         const cursorStyle = await api.getSetting(TERMINALS_CURSOR_STYLE_KEY).catch(() => null);
         set({ terminalCursorStyle: isTerminalCursorStyle(cursorStyle) ? cursorStyle : TERMINALS_CURSOR_STYLE_DEFAULT });
+        // Defaulted ON like the cursor blink: only a stored `false` is someone switching it off (see
+        // CLOSE_FINISHED_AGENT_PANES_KEY for why the default is the point).
+        const closeAgents = await api.getSetting(CLOSE_FINISHED_AGENT_PANES_KEY).catch(() => null);
+        set({ closeFinishedAgentPanes: closeAgents !== false });
         const str = (v: unknown) => (typeof v === "string" ? v : "");
         set({ desktopNotifications: desktop !== false, soundCues: sound !== false, soundVolume: cueVolume(volume),
           notificationRelay: { imessage: str(imessage), slackWebhook: str(slackWebhook) }, midTurnMode: resolveMidTurnMode(midTurn) });
@@ -3293,6 +3407,10 @@ await get().refreshCustomThemes().catch(() => {});
         const next = !get().sidebarCollapsed;
         set({ sidebarCollapsed: next });
         await api.setSetting(SETTING_SIDEBAR_COLLAPSED, next);
+      },
+      async setFilesView(view) {
+        set({ filesView: view });
+        await api.setSetting(SETTING_FILES_VIEW, view);
       },
       setSidebarView(view) {
         if (get().sidebarView === view) return;
@@ -3968,6 +4086,13 @@ await get().refreshCustomThemes().catch(() => {});
         if (ev.event.type === "error" && ev.event.payload.failure === "auth") {
           void get().run(() => get().probeAgents(true));
         }
+        /* A harness just said whether a model can run fast mode, and the server has already filed
+           it (it writes before it broadcasts). Re-read here, before the returns below, because the
+           answer is wanted by sessions that have not STARTED — the next one on this model offers the
+           switch before its first message only if this copy has heard. */
+        if (ev.event.type === "init" && ev.event.payload.supportsFastMode !== undefined) {
+          void get().run(() => get().refreshFastSupport());
+        }
         /** This event makes no other write: the line is the whole of it. */
         const lineOnly = () => { if (activity) set(activity); };
         const buf = loading.get(ev.sessionId);
@@ -4118,6 +4243,8 @@ await get().refreshCustomThemes().catch(() => {});
        * the chip row renders.
        */
       async sendMessage(id, text) {
+        // A delegated child the user writes to is theirs from here on — see `agentPanes`.
+        agentPanes.delete(id);
         const pending = get().pendingAttachments[id] ?? [];
         // What travels as `mentions` is a re-scan of the FINAL text against the recognised ids plus
         // whatever is mentionable now — read synchronously, before the prompter clears the draft (and
@@ -5011,6 +5138,59 @@ await get().refreshCustomThemes().catch(() => {});
         const { [sessionId]: _idle, ...rest } = get().delegatedRuns;
         set({ delegatedRuns: running.length === 0 ? rest : { ...rest, [sessionId]: running } });
       },
+      async applyAgentOpened({ spaceId, sessionId, itemId }) {
+        // The whole point of a delegated agent being a real session is that the user watches its
+        // trace, so it comes into the layout the moment it exists.
+        if (spaceId !== get().activeSpaceId) return;
+        // Who opened the session decides how its pane arrives, and the row is where that is written.
+        // It is usually held already — `items.changed` refetched the list — and fetched when this
+        // broadcast won that race.
+        const [session] = await Promise.all([
+          get().sessions[sessionId] ?? api.getSession(sessionId).catch(() => null),
+          get().refreshItems(),
+        ]);
+        // Asked again: the user may have switched spaces while those were fetched, and opening this
+        // space's child into that space's layout would put the pane in the wrong room.
+        if (spaceId !== get().activeSpaceId) return;
+        // A delegated child — agent_run's, a browser agent's, a reviewer — arrives QUIETLY: beside the
+        // pane the user is in, with the keyboard left there. The pane holding it is the one whose
+        // permission and question cards take focus the moment they appear (U-H4), and the one ⌘W and
+        // ⌘. act on — so a child handed it could have its prompt answered by the Enter or the digit the
+        // user was typing to the lead, and be closed or stopped by keys meant for the lead. Its prompts
+        // do not need the keyboard to be seen: its card and the sidebar's blocked mark announce them.
+        // A durable run's worker keeps the focusing open it has always had: it is nobody's sub-agent,
+        // and how a run's pane should arrive is not a question this answers.
+        if (session?.dispatchedBy?.kind === "run") await get().openItemBeside(itemId);
+        else await get().openItemBesideQuiet(itemId);
+        // Recorded once the pane is on screen — the leaf it landed in is half of what "still the pane
+        // Realm opened" means (see `agentPanes`).
+        const leaf = findLeafOfItem(get().layout ?? emptyLayout(), itemId);
+        if (leaf) agentPanes.set(sessionId, { itemId, leafId: leaf.id });
+      },
+      applyAgentSettled({ sessionId, outcome }) {
+        const pane = agentPanes.get(sessionId);
+        if (!pane) return; // a pane the user opened, or one this window never saw open
+        // Decided once, here: a run settles once, and whatever happens to the pane after this beat is
+        // the user's business.
+        agentPanes.delete(sessionId);
+        // Only a clean finish. A failure, a person's stop, a timeout, a cancelled run or a vanished
+        // session each leave something to read in that pane — the partial report, the error, where it
+        // stopped.
+        if (outcome !== "done" || !mayTakeBack(sessionId, pane)) return;
+        setTimeout(() => {
+          if (!mayTakeBack(sessionId, pane)) return;
+          // Taken back, so read: both halves of the focused pane's auto-read — the seen mark behind the
+          // sidebar's dot, and the child's "Finished a turn" row in the feed. Its report is already in
+          // the lead's transcript and its finish was on screen for the beat; a row per child of a
+          // fan-out would count moments nobody has to come back for. Only HERE: every pane this spares
+          // — failed, stopped, waiting, or the user's — keeps its row for the person who does. Seen
+          // first, while the pane is still mounted and its transcript held.
+          get().run(() => get().markSessionSeen(sessionId));
+          const row = pane.doneRow;
+          if (row) get().run(() => get().markNotificationsRead([row]));
+          get().run(() => get().closeFromLayout(pane.itemId));
+        }, AGENT_PANE_CLOSE_BEAT_MS);
+      },
       openSpacePage(spaceId, tab) {
         // The tab lands even when the page is already up — "Manage connections…" on an open page
         // must still end up on Connections.
@@ -5072,6 +5252,9 @@ await get().refreshCustomThemes().catch(() => {});
         const raw = await api.getSetting(MODEL_FAVORITES_KEY);
         set({ modelFavorites: (Array.isArray(raw) ? raw : []).filter((k): k is string => typeof k === "string") });
       },
+      async refreshFastSupport() {
+        set({ fastSupport: readFastSupport(await api.getSetting(MODEL_FAST_SUPPORT_KEY)) });
+      },
       async refreshModelCatalog(force = false) {
         // Same mount-storm shape as probeAgents, for the same reason: a four-pane split asks four
         // times in one tick. Failures are swallowed — a picker with no prices is the fallback the
@@ -5130,6 +5313,10 @@ await get().refreshCustomThemes().catch(() => {});
       async setMidTurnMode(mode) {
         await api.setSetting(MID_TURN_MODE_KEY, mode);
         set({ midTurnMode: mode });
+      },
+      async setCloseFinishedAgentPanes(on) {
+        await api.setSetting(CLOSE_FINISHED_AGENT_PANES_KEY, on);
+        set({ closeFinishedAgentPanes: on });
       },
       async refreshTcc() { set({ tccRows: await api.tccProbe() }); },
       async refreshCredentials() {
@@ -5247,6 +5434,10 @@ await get().refreshCustomThemes().catch(() => {});
             if (focused?.kind === "session" && focused.refId === n.sessionId) {
               void get().run(() => get().markNotificationsRead([n.id]));
             }
+            // A delegated child's row is only NOTED here. Whether it is read is decided with its pane:
+            // if Realm takes the pane back it is read then, and if the pane stays, so does the row.
+            const child = agentPanes.get(n.sessionId);
+            if (child) child.doneRow = n.id;
           }
           // The OS hop. Every SURFACED row is a candidate and nothing is re-filtered here: the server
           // already dropped the categories switched off, and absorbed a repeat of a still-open

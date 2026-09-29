@@ -491,7 +491,9 @@ describe("settled tool cards do not re-render behind a streaming answer", () => 
     for (const text of ["Hell", "Hello", "Hello ", "Hello w", "Hello wo", "Hello wor", "Hello worl", "Hello world", "Hello world!", "Hello world!!"])
       view.rerender(<Transcript transcript={withStream(text)} sessionStatus="running" onDecide={() => {}} />);
     expect(spy).toHaveBeenCalledTimes(0);
-    expect(screen.getByText("Hello world!!")).toBeTruthy();
+    // Read as the message's text rather than as one text node: text that arrived mid-stream is split
+    // across the prose's arrival-fade spans, the same way bold or a link would split it.
+    expect(document.querySelector(".msg-assistant")!.textContent).toContain("Hello world!!");
 
     // A card that actually changes still re-renders: its block is a new object.
     const landed = withStream("Hello world!!");

@@ -289,6 +289,22 @@ describe("CodexAdapter", () => {
       await handle.dispose();
     });
 
+    it("says on each usage report whether ITS turn asked, so a switch flipped mid-turn is not read as refused", async () => {
+      /* The thread's echo is the truth about the tier, and it lags the switch by one `turn/start`.
+         Turn one parks on an approval, the switch flips while it waits, and only the next turn asks. */
+      const { handle, evs } = await booted();
+      await handle.send({ text: "APPROVE USAGE", attachments: [] });
+      await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+      await handle.setOptions({ fastMode: true });
+      handle.respondPermission(of(evs, "permission_request")[0]!.payload.requestId, "allow");
+      await waitFor(() => expect(of(evs, "usage")).toHaveLength(1));
+      await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+      await handle.send({ text: "hi", attachments: [] });
+      await waitFor(() => expect(of(evs, "usage")).toHaveLength(2));
+      expect(of(evs, "usage").map((e) => e.payload.fastModeRequested)).toEqual([false, true]);
+      await handle.dispose();
+    });
+
     it("reports what the thread is on, off Codex's own echo, with the usage sample", async () => {
       const { handle, evs } = await booted({ fastMode: true });
       await handle.send({ text: "hi", attachments: [] });
