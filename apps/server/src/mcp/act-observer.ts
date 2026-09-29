@@ -21,6 +21,10 @@ export type ActObservation = {
   elements: readonly ObservedElement[];
   /** What the agent actually addressed: an element from `elements`, a point, or nothing (a key, a swipe). */
   chosen: { element: ObservedElement } | { point: { x: number; y: number } } | null;
+  /** Who picked `chosen`: the agent (by number or point), or Laya from the agent's words in Assist.
+   *  Absent means the agent — every tool but Assist's path. A step Laya chose is not the agent's
+   *  choice, and must never be learned from as one. */
+  chosenBy?: "agent" | "laya";
 };
 
 /**

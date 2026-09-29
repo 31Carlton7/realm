@@ -47,6 +47,7 @@ import { createComputerAgentProvider } from "./computer/agent-tools";
 import { DecisionLog } from "./laya/log";
 import { LayaService } from "./laya/service";
 import { LayaShadow } from "./laya/shadow";
+import { createLayaAssist, harnessEvalOverride, type LayaAssist } from "./laya/assist";
 import type { LayaRuntime } from "./laya/runtime";
 import { createTerminalAgentProvider } from "./terminals/agent-tools";
 import { SignInTickets } from "./browsers/signin";
@@ -637,10 +638,21 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      and logged beside what actually happened (docs/superpowers/specs/2026-09-29-laya-local-decisions.md).
      The service owns the runtime and the log; the shadow is the observer the acting tools report to. */
   const layaLog = new DecisionLog({ path: opts.laya?.logPath ?? join(opts.home, "laya", "decisions.jsonl") });
+  /* Assist's availability moves without anyone touching the simulator tools — the mode switched, the
+     server came up, a checkpoint was evaluated — and it decides whether their `target` field is
+     listed, so every change of it is a re-list. */
+  let layaAssist: LayaAssist | null = null;
+  let assistListed = false;
   const laya = new LayaService({
     runtime: opts.laya ?? null, settings, log: layaLog,
-    publish: (status) => rpc.broadcast("laya.changed", status),
+    publish: (status) => {
+      rpc.broadcast("laya.changed", status);
+      const listed = layaAssist?.gate().available ?? false;
+      if (listed !== assistListed) { assistListed = listed; mcpGateway.notifyToolsChanged(); }
+    },
+    activeEval: harnessEvalOverride(),
   });
+  layaAssist = createLayaAssist({ laya });
   const layaShadow = new LayaShadow({ laya, log: layaLog, onLogged: () => laya.logged() });
   const browserBridge = new BrowserHostBridge({ rpc });
   /* The consent-page gate for ACTS, and the provenance that can lift it for a sign-in Realm is
@@ -758,6 +770,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // realm-computer's acts: asked off the step's path, answered to nobody, logged beside what the
     // agent actually did.
     observe: layaShadow.observe,
+    assist: layaAssist,
     // A toolchain that turns up (or goes) changes what sessions may list, and what the provider's
     // settings row has to say — both are told rather than left to find out on their next fetch.
     onOfferedChange: () => { mcpGateway.notifyToolsChanged(); rpc.broadcast("mcp.changed", {}); },

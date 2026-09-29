@@ -7,6 +7,8 @@ import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
 import { clip, err, ok, parseArgs } from "../mcp/tool-result";
 import type { McpService } from "../mcp/service";
 import type { ActObservation, ActObserver, ObservedElement } from "../mcp/act-observer";
+import type { LayaAssist } from "../laya/assist";
+import { plainRole } from "../laya/shadow";
 import type { RpcServer } from "../rpc/server";
 import type { ItemsStore } from "../store/items";
 import type { BrowserPermissionBroker, GateResult } from "../browsers/permissions";
@@ -110,6 +112,10 @@ export type SimulatorAgentToolsDeps = {
   wait?: { timeoutMs: number; pollMs: number };
   /** Told about every input step as it happens — see "The observer" above. None by default. */
   observe?: ActObserver;
+  /** Laya's Assist, where it has earned one: the element an agent describes in words, picked from the
+   *  live screen above a fitted confidence, never on a sensitive step (`laya/assist.ts`). Absent, or
+   *  locked, and a described target is refused with what to do instead. */
+  assist?: LayaAssist;
 };
 
 /** The provider, plus the question the browser tools ask of it before opening a URL. */
@@ -179,7 +185,10 @@ export function createSimulatorAgentProvider(d: SimulatorAgentToolsDeps): Simula
       // Offered only where a simulator can exist (design.md: "Offer a capability only where its
       // OWNER has said it exists"). A Mac with neither toolchain lists nothing rather than eight
       // tools whose every answer is "install Xcode".
-      return (await available()) ? TOOLS : [];
+      if (!(await available())) return [];
+      // A target in words is offered only while Assist can act on one — never a field whose every
+      // use is a refusal (design.md: offer a capability only where its owner has said it exists).
+      return d.assist?.gate().available ? TOOLS.map(withTarget) : TOOLS;
     },
     async call(ctx: ProviderCallContext, tool: string, args: unknown): Promise<CallToolResult> {
       if (!d.mcp.providerEnabled(ctx.spaceId, SIMULATOR_PROVIDER_NAME))
@@ -416,12 +425,16 @@ const ELEMENT_NUMBER = "an element is its [number] from simulator_elements, such
 const ElementNumber = z.preprocess((v) => (typeof v === "string" ? Number(v.trim().replace(/^\[(.*)\]$/, "$1")) : v),
   z.number({ invalid_type_error: ELEMENT_NUMBER }).int(ELEMENT_NUMBER).positive(ELEMENT_NUMBER));
 const Coordinate = z.number().finite();
-const TouchFields = { element: ElementNumber.optional(), x: Coordinate.optional(), y: Coordinate.optional() };
-/** An element or a point, never both: a point beside an element is a second opinion about where to
- *  touch, and there is no right one to pick. */
-const oneTarget = (a: { element?: number; x?: number; y?: number }): boolean =>
-  a.element !== undefined ? a.x === undefined && a.y === undefined : a.x !== undefined && a.y !== undefined;
-const ONE_TARGET = { message: "give an element, or a point as both x and y — one of the two", path: ["element"] };
+const Described = z.string().trim().min(1, "a target is a few words, such as \"the Bluetooth row\"").max(200, "a target is a few words — 200 characters at most");
+const TouchFields = { element: ElementNumber.optional(), x: Coordinate.optional(), y: Coordinate.optional(), target: Described.optional() };
+/** Exactly one of an element, a point, or (in Assist) a target in words: two of them is a second
+ *  opinion about where to touch, and there is no right one to pick. */
+const oneTarget = (a: { element?: number; x?: number; y?: number; target?: string }): boolean => {
+  const point = a.x !== undefined || a.y !== undefined;
+  if ((a.element !== undefined ? 1 : 0) + (point ? 1 : 0) + (a.target !== undefined ? 1 : 0) !== 1) return false;
+  return !point || (a.x !== undefined && a.y !== undefined);
+};
+const ONE_TARGET = { message: "give exactly one of: an element's [number], a point as both x and y, or — while Laya's Assist is on — a target in words", path: ["element"] };
 const TapArgs = InputArgs.extend(TouchFields).refine(oneTarget, ONE_TARGET);
 const LongPressArgs = InputArgs.extend({ ...TouchFields, durationMs: z.number().int().min(100).max(10_000).default(1_000) }).refine(oneTarget, ONE_TARGET);
 const PointArgs = z.object({ x: Coordinate, y: Coordinate });
@@ -747,6 +760,7 @@ type Spot = { at: DevicePoint; elements: readonly SimulatorAxElement[]; chosen: 
  */
 async function touch(c: Call, tool: string, a: z.infer<typeof TapArgs>, input: (at: DevicePoint) => DeviceInput, said: (target: string, name: string) => string): Promise<CallToolResult> {
   const row = requireRunning(c.d, c.ctx, a.simulatorId); if ("error" in row) return row.error;
+  if (a.target !== undefined) return assisted(c, tool, row.value, a as z.infer<typeof TapArgs> & { target: string }, input, said);
   const seen = a.element !== undefined ? recall(c, row.value, a.element) : null;
   if (seen && "error" in seen) return seen.error;
   const gate = await askToDrive(c, row.value, tool, a);
@@ -755,6 +769,63 @@ async function touch(c: Call, tool: string, a: z.infer<typeof TapArgs>, input: (
   if ("error" in spot) return spot.error;
   watch(c, row.value, tool, a.intent, spot.elements, spot.chosen);
   return landed(row.value, await c.d.simulators.input(row.value.id, input(spot.at)), `${said(spot.target, clip(row.value.name, 60))}${spot.landing}.`);
+}
+
+/**
+ * A tap-shaped step on an element the agent DESCRIBED — Laya's Assist (`laya/assist.ts`).
+ *
+ * Same order as `touch`: the card first, then the live screen. That read becomes the agent's latest
+ * list, so whatever comes back is numbered in it and the agent's next tap by [number] lands on what
+ * it was just shown. Laya's pick is used only when Assist says so; anything else — unsure, sensitive,
+ * no answer in time, nothing that looks like it — is NOTHING SENT and the likeliest elements handed
+ * back by number, which costs the agent the round trip it would have made anyway.
+ */
+async function assisted(c: Call, tool: string, row: Simulator, a: z.infer<typeof TapArgs> & { target: string }, input: (at: DevicePoint) => DeviceInput, said: (target: string, name: string) => string): Promise<CallToolResult> {
+  const assist = c.d.assist;
+  const gate = assist?.gate();
+  if (!assist || !gate?.available) {
+    return err(`a target in words needs Laya's Assist, which is not on here (${gate?.reason ?? "Laya is not part of this Realm"}). Read simulator_elements and pass the element's [number].`);
+  }
+  const card = await askToDrive(c, row, tool, a);
+  if (!card.allowed) return err(card.reason);
+  const tree = await liveTree(c, row);
+  const shown = tree.elements.slice(0, ELEMENTS_MAX);
+  const first = c.reads.remember(c.ctx.sessionId, row.id, shown);
+  const numberOf = (path: string) => first + shown.findIndex((e) => e.path === path);
+  const name = clip(row.name, 60);
+  const words = clip(a.target, 80);
+  const outcome = await assist.resolve(a.target, a.intent, shown.map(observed), tool);
+  if (outcome.kind === "pick") {
+    const live = shown.find((e) => e.path === outcome.element.id)!;
+    const n = numberOf(live.path);
+    const centre = { x: live.frame.x + live.frame.width / 2, y: live.frame.y + live.frame.height / 2 };
+    if (!onScreen(centre, tree.screen)) {
+      return err(`nothing was tapped: Laya picked [${n}] for "${words}", but it is off the screen now. Swipe it into view, then try again.`);
+    }
+    watch(c, row, tool, a.intent, shown, { element: observed(live) }, "laya");
+    const r = await c.d.simulators.input(row.id, input(normalize(centre, tree.screen)));
+    const label = live.label.trim() ? ` "${clip(live.label.trim(), 60)}"` : "";
+    return landed(row, r, `${said(`[${n}]${label}`, name)} — Laya's pick for "${words}" (${outcome.confidence.toFixed(2)}; Assist acts at ${gate.threshold!.toFixed(2)} or above), at the centre of its frame ${at(centre)}.`);
+  }
+  const lines = outcome.candidates.slice(0, 8).map((e) => `[${numberOf(e.id)}] ${e.label.trim() ? `"${clip(e.label.trim(), 60)}"` : "(no name)"} ${plainRole(e.role)}`);
+  const best = outcome.best ? `[${numberOf(outcome.best.element.id)}]${outcome.best.element.label.trim() ? ` "${clip(outcome.best.element.label.trim(), 60)}"` : ""}` : null;
+  const why = outcome.why === "sensitive"
+    ? `"${words}" looks like a step Laya never chooses on its own (it reads as "${outcome.matched ?? "sensitive"}")${best ? `; its pick was ${best}` : ""}. If that is the step you mean, tap it by its [number].`
+    : outcome.why === "unsure"
+      ? `Laya was not sure which element "${words}" means${best ? ` — its best guess, ${best}, scored ${outcome.best!.confidence.toFixed(2)}` : ""}, and Assist acts only at ${gate.threshold!.toFixed(2)} or above.`
+      : outcome.why === "no-candidates"
+        ? `nothing on ${name}'s screen looks like "${words}".`
+        : "Laya did not answer in time.";
+  return err(`nothing was tapped: ${why}${lines.length ? ` The likeliest, numbered in a fresh read of the screen: ${lines.join("; ")}. Tap one by its [number], or read simulator_elements for the whole screen.` : " Read simulator_elements to see what is there."}`);
+}
+
+/** A tap-shaped tool as listed while Assist can act: the same tool, plus a target in words. */
+function withTarget(t: Tool): Tool {
+  if (!["simulator_tap", "simulator_double_tap", "simulator_long_press"].includes(t.name)) return t;
+  return { ...t, inputSchema: { ...t.inputSchema, properties: { ...(t.inputSchema.properties ?? {}), target: {
+    type: "string",
+    description: "or describe the element in a few words, such as \"the Bluetooth row\" — Laya, on this Mac, picks it from the screen as it is now when it is confident enough; otherwise nothing is sent and you get the likeliest elements back to choose from by [number]",
+  } } } };
 }
 
 /** The steps that touch nothing — text and keys, which go to whatever has focus. */
@@ -911,10 +982,10 @@ const observed = (el: SimulatorAxElement): ObservedElement =>
   ({ id: el.path, role: el.role, label: el.label, ...(el.value ? { value: el.value } : {}) });
 
 /** Tell the observer about a step, if there is one, and keep what it hands back for the next read. */
-function watch(c: Call, row: Simulator, tool: string, intent: string, elements: readonly SimulatorAxElement[], chosen: ActObservation["chosen"]): void {
+function watch(c: Call, row: Simulator, tool: string, intent: string, elements: readonly SimulatorAxElement[], chosen: ActObservation["chosen"], chosenBy?: "laya"): void {
   const observe = c.d.observe;
   if (!observe) return;
-  const after = quietly(() => observe({ surface: "simulator", spaceId: c.ctx.spaceId, sessionId: c.ctx.sessionId, tool, intent, elements: elements.map(observed), chosen }));
+  const after = quietly(() => observe({ surface: "simulator", spaceId: c.ctx.spaceId, sessionId: c.ctx.sessionId, tool, intent, elements: elements.map(observed), chosen, ...(chosenBy ? { chosenBy } : {}) }));
   if (typeof after === "function") c.reads.owe(c.ctx.sessionId, row.id, after);
 }
 

@@ -18,6 +18,7 @@ import { pngSize } from "../machines/qmp-driver";
 import { SCREENSHOT_MAX_EDGE } from "../machines/driver";
 import { BrowserPermissionBroker, type GateOptions, type GateResult } from "../browsers/permissions";
 import type { ActObservation, ActObserver } from "../mcp/act-observer";
+import type { AssistOutcome, LayaAssist } from "../laya/assist";
 import type { InputChannel, InputStep } from "./device-input";
 import { createApp, type App } from "../app";
 import { SimulatorService, toolchainAvailable } from "./service";
@@ -119,6 +120,8 @@ function setup(opts: {
    *  live in the broker (one card per device per session, Plan refusing). Without it, a stub gate. */
   broker?: { mode: string; answer?: PermissionDecision };
   observe?: ActObserver;
+  /** Laya's Assist, scripted: whether it is on, and what it answers for a described target. */
+  assist?: LayaAssist;
   /** What the device's input socket answers. */
   input?: { ok: boolean; detail: string };
   /** Something that happens while the stub's card is up — the user taking their time. */
@@ -177,6 +180,7 @@ function setup(opts: {
     },
     wait: opts.wait ?? { timeoutMs: 2_000, pollMs: 5 },
     observe: opts.observe,
+    assist: opts.assist,
   });
   const ctx = { sessionId: "sess1", spaceId: space.id };
   const call = (tool: string, args: unknown = {}): Promise<CallToolResult> => provider.call(ctx, tool, args);
@@ -614,7 +618,7 @@ describe("the input tools' arguments", () => {
     for (const args of [{ element: 1, x: 5, y: 5 }, { x: 5 }, {}]) {
       const r = await call("simulator_tap", { simulatorId, intent: "tap it", ...args });
       expect(r.isError, JSON.stringify(args)).toBe(true);
-      expect(text(r)).toContain("one of the two");
+      expect(text(r)).toContain("give exactly one of: an element's [number], a point as both x and y");
     }
     for (const args of [{ direction: "up", from: { x: 1, y: 1 }, to: { x: 2, y: 2 } }, { from: { x: 1, y: 1 } }]) {
       expect((await call("simulator_swipe", { simulatorId, intent: "scroll", ...args })).isError, JSON.stringify(args)).toBe(true);
@@ -1346,5 +1350,100 @@ describe("createApp's toolchain probe", () => {
     const xcrun = recordingXcrun();
     await bootAndUse(() => toolchainAvailable());
     expect(xcrun.calls()).toContain("simctl help");
+  });
+});
+
+describe("a target in words (Laya's Assist)", () => {
+  const OPEN = { available: true, reason: null, threshold: 0.8, accuracy: 0.97 } as const;
+  const SHUT = { available: false, reason: "The active checkpoint picks the right element 79% of the time on held-out steps. Assist needs 95%.", threshold: null, accuracy: 0.79 };
+  const scripted = (gate: typeof OPEN | typeof SHUT, outcome: (els: readonly import("../mcp/act-observer").ObservedElement[]) => AssistOutcome) => {
+    const asked: { description: string; intent: string; ids: string[] }[] = [];
+    const assist: LayaAssist = {
+      gate: () => gate,
+      resolve: async (description, intent, elements) => { asked.push({ description, intent, ids: elements.map((e) => e.id) }); return outcome(elements); },
+    };
+    return { assist, asked };
+  };
+
+  it("lists a target in words on the tap-shaped tools only while Assist can act on one", async () => {
+    const on = setup({ assist: scripted(OPEN, () => ({ kind: "ask-agent", candidates: [], best: null, why: "no-answer" })).assist });
+    const off = setup({ assist: scripted(SHUT, () => ({ kind: "ask-agent", candidates: [], best: null, why: "no-answer" })).assist });
+    const props = async (s: ReturnType<typeof setup>, name: string) =>
+      Object.keys(((await s.provider.tools(s.ctx)).find((t) => t.name === name)!.inputSchema as { properties: Record<string, unknown> }).properties);
+    for (const name of ["simulator_tap", "simulator_double_tap", "simulator_long_press"]) {
+      expect(await props(on, name), name).toContain("target");
+      // THE MUTANT: list it always. Every use of the field is then a refusal.
+      expect(await props(off, name), name).not.toContain("target");
+    }
+    expect(await props(on, "simulator_swipe")).not.toContain("target");
+  });
+
+  it("refuses a target in words while Assist is shut — before any card, saying what to do instead", async () => {
+    const { assist } = scripted(SHUT, () => { throw new Error("never asked"); });
+    const dev = device({ assist });
+    const simulatorId = await dev.running();
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "open General", target: "the general row" });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("needs Laya's Assist, which is not on here (The active checkpoint picks the right element 79%");
+    expect(text(r)).toContain("pass the element's [number]");
+    expect(dev.calls.gates).toEqual([]);
+    expect(dev.calls.sent).toEqual([]);
+  });
+
+  it("taps Laya's pick on the LIVE screen after the card, says so, and tells the shadow Laya chose it", async () => {
+    const observed: ActObservation[] = [];
+    const { assist, asked } = scripted(OPEN, (els) => ({ kind: "pick", element: els.find((e) => e.id === "0.1")!, confidence: 0.93, ms: 12 }));
+    const dev = device({ assist, observe: (o) => { observed.push(o); } });
+    const simulatorId = await dev.running();
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "open General", target: "the general settings" });
+    expect(r.isError).toBe(false);
+    expect(asked).toEqual([{ description: "the general settings", intent: "open General", ids: ["0.1", "0.2"] }]);
+    // The card first, then the act — the order every input step keeps.
+    expect(dev.calls.order).toEqual(["card", "act"]);
+    const [begin] = frames(dev.calls.sent);
+    expect(begin).toMatchObject({ op: 3, type: "begin", x: 201 / 402 });
+    expect(begin!.y).toBeCloseTo(315.3 / 874, 10);
+    expect(text(r)).toMatch(/Tapped \[\d+\] "General" on iPhone Air — Laya's pick for "the general settings" \(0\.93; Assist acts at 0\.80 or above\)/);
+    // THE MUTANT: report it as the agent's choice. The shadow would then train Laya on its own answers.
+    expect(observed[0]).toMatchObject({ tool: "simulator_tap", chosenBy: "laya", chosen: { element: { id: "0.1", label: "General" } } });
+  });
+
+  it("sends nothing when Laya is unsure, and hands back numbers the agent's next tap can use", async () => {
+    const { assist } = scripted(OPEN, (els) => ({ kind: "ask-agent", why: "unsure", candidates: [...els], best: { element: els[1]!, confidence: 0.61 } }));
+    const dev = device({ assist });
+    const simulatorId = await dev.running();
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "turn Wi-Fi off", target: "the wireless row" });
+    expect(r.isError).toBe(true);
+    expect(dev.calls.sent).toEqual([]);
+    expect(text(r)).toContain('nothing was tapped: Laya was not sure which element "the wireless row" means');
+    expect(text(r)).toContain("scored 0.61, and Assist acts only at 0.80 or above");
+    const wifi = /\[(\d+)\] "Wi-Fi"/.exec(text(r));
+    expect(wifi).not.toBeNull();
+    // Those numbers are the agent's latest list: tapping one by number works with no read in between.
+    const again = await dev.call("simulator_tap", { simulatorId, intent: "turn Wi-Fi off", element: Number(wifi![1]) });
+    expect(again.isError).toBe(false);
+  });
+
+  it("sends nothing on a step the sensitive rule flags, and says Laya never chooses those", async () => {
+    const { assist } = scripted(OPEN, (els) => ({ kind: "ask-agent", why: "sensitive", matched: "delete", candidates: [...els], best: { element: els[0]!, confidence: 0.99 } }));
+    const dev = device({ assist });
+    const simulatorId = await dev.running();
+    const r = await dev.call("simulator_tap", { simulatorId, intent: "delete the account", target: "the delete button" });
+    expect(r.isError).toBe(true);
+    expect(dev.calls.sent).toEqual([]);
+    expect(text(r)).toContain('looks like a step Laya never chooses on its own (it reads as "delete")');
+    expect(text(r)).toContain("If that is the step you mean, tap it by its [number].");
+  });
+
+  it("takes one target — an element, a point, or words — never two", async () => {
+    const { assist } = scripted(OPEN, () => { throw new Error("never asked"); });
+    const dev = device({ assist });
+    const simulatorId = await dev.running();
+    for (const extra of [{ element: 1 }, { x: 10, y: 10 }]) {
+      const r = await dev.call("simulator_tap", { simulatorId, intent: "open General", target: "general", ...extra });
+      expect(r.isError, JSON.stringify(extra)).toBe(true);
+      expect(text(r)).toContain("give exactly one of");
+    }
+    expect(dev.calls.sent).toEqual([]);
   });
 });

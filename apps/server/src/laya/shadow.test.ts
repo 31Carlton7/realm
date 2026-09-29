@@ -125,6 +125,15 @@ describe("asking Laya about a step", () => {
     expect(rows().map((r) => r.truth.target)).toEqual([{ id: "2", source: "agent" }, null, null]);
   });
 
+  it("labels a step Laya chose in Assist as Laya's, so it is never learned from as the agent's", async () => {
+    // THE MUTANT: record it as `agent`. Laya would then be trained on its own answers.
+    const { shadow, rows } = await setup();
+    shadow.observe(step({ chosenBy: "laya" }));
+    shadow.observe(step({ intent: "open Bluetooth", chosen: { element: SETTINGS[3]! } }));
+    await shadow.flush();
+    expect(rows().map((r) => r.truth.target)).toEqual([{ id: "2", source: "laya" }, { id: "3", source: "agent" }]);
+  });
+
   it("labels the step sensitive by rule, with the word that matched", async () => {
     const { shadow, rows } = await setup();
     shadow.observe(step({ intent: "buy the upgrade", chosen: { element: el("9", "Buy $4.99") }, elements: [el("9", "Buy $4.99")] }));

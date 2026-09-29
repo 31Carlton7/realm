@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import type { LayaStatus } from "@realm/contracts";
+import type { LayaEvalReport } from "@realm/contracts";
 import { DecisionLog } from "./log";
 import { LAYA_MODE_KEY, LayaService, p50Of, type LayaTiming } from "./service";
 import { LayaStepError } from "./runtime";
@@ -23,7 +24,7 @@ const FAST: Partial<LayaTiming> = {
 const services: LayaService[] = [];
 afterEach(async () => { for (const s of services.splice(0)) await s.close(); });
 
-function setup(o: { runtime?: FakeRuntime | null; mode?: "off" | "shadow"; timing?: Partial<LayaTiming> } = {}) {
+function setup(o: { runtime?: FakeRuntime | null; mode?: "off" | "shadow" | "assist"; timing?: Partial<LayaTiming>; activeEval?: () => LayaEvalReport | null } = {}) {
   const dir = tempDir("realm-laya-svc-");
   const runtime = o.runtime === undefined ? fakeRuntime({ dir }) : o.runtime;
   const settings = new Map<string, unknown>(o.mode ? [[LAYA_MODE_KEY, o.mode]] : []);
@@ -33,6 +34,7 @@ function setup(o: { runtime?: FakeRuntime | null; mode?: "off" | "shadow"; timin
     runtime, log, timing: { ...FAST, ...o.timing },
     settings: { get: (k) => settings.get(k) ?? null, set: (k, v) => { settings.set(k, v); } },
     publish: (s) => { published.push(s); },
+    activeEval: o.activeEval,
   });
   services.push(service);
   return { service, runtime, settings, published, log, dir };
@@ -386,5 +388,67 @@ describe("p50", () => {
     expect(p50Of([35])).toBe(35);
     expect(p50Of([30, 1_200, 40])).toBe(40);
     expect(p50Of([10, 20, 30, 41])).toBe(25);
+  });
+});
+
+describe("Assist", () => {
+  /** A report as the eval harness writes one — the fields the gate reads, and the rest plausible. */
+  const report = (over: { accuracy?: number; threshold?: number | null; checkpoint?: string } = {}): LayaEvalReport => ({
+    v: 1, checkpoint: over.checkpoint ?? "english@55cf4c4", createdAt: "2026-09-29T07:00:00Z", prompt: 2,
+    benchmark: { version: "1", split: "heldout", cases: 400, apps: ["Maps", "Clock", "Weather", "Files"] },
+    target: { accuracy: over.accuracy ?? 0.96, n: 120, byApp: {}, assist: { threshold: over.threshold === undefined ? 0.82 : over.threshold, precision: 0.98, coverage: 0.7 } },
+    sensitive: { accuracy: 0.95, recall: 0.99, precision: 0.9, n: 60 },
+    verify: { accuracy: 0.9, n: 40 },
+    baseline: { sensitiveRule: { accuracy: 0.97, recall: 1 }, verifyRule: { accuracy: 0.93 } },
+    latencyMs: { p50: 40, p90: 90 },
+  });
+  const installedRuntime = () => fakeRuntime({ dir: tempDir("realm-laya-svc-"), installed: true });
+
+  it("is locked, with the reason in words, until a checkpoint has been evaluated", async () => {
+    const { service } = setup({ runtime: installedRuntime() });
+    expect((await service.status()).assist).toMatchObject({ available: false, threshold: null, accuracy: null });
+    expect((await service.status()).assist.reason).toContain("No checkpoint has been evaluated yet");
+  });
+
+  it("stays locked for a checkpoint below 95% on held-out steps, and says what it scored", async () => {
+    // THE MUTANT: compare with the wrong bar, or none. A 79% checkpoint then taps on its own.
+    const { service } = setup({ runtime: installedRuntime(), activeEval: () => report({ accuracy: 0.79 }) });
+    const gate = service.assistGate();
+    expect(gate).toMatchObject({ available: false, accuracy: 0.79 });
+    expect(gate.reason).toBe("The active checkpoint picks the right element 79% of the time on held-out steps. Assist needs 95%.");
+  });
+
+  it("stays locked when no confidence level reached the precision it needs", () => {
+    const { service } = setup({ runtime: installedRuntime(), activeEval: () => report({ threshold: null }) });
+    expect(service.assistGate()).toMatchObject({ available: false, reason: "No confidence level reached the precision Assist needs on held-out steps." });
+  });
+
+  it("opens for a checkpoint that earned it, with the threshold its evaluation fitted", () => {
+    const { service } = setup({ runtime: installedRuntime(), activeEval: () => report() });
+    expect(service.assistGate()).toEqual({ available: true, reason: null, threshold: 0.82, accuracy: 0.96 });
+  });
+
+  it("stays locked while the server serves a checkpoint other than the one evaluated", async () => {
+    const { service } = setup({ runtime: installedRuntime(), activeEval: () => report({ checkpoint: "local:2026-09-29" }) });
+    await service.setMode("shadow");
+    await until(() => service.checkpoint() !== null);
+    expect(service.assistGate()).toMatchObject({ available: false, reason: "Laya is serving english@55cf4c4, but the evaluation is of local:2026-09-29." });
+  });
+
+  it("refuses the switch to Assist while it is locked, with the same sentence, and keeps the mode", async () => {
+    const { service, settings } = setup({ runtime: installedRuntime(), activeEval: () => report({ accuracy: 0.8 }) });
+    await expect(service.setMode("assist")).rejects.toThrow("Assist needs 95%");
+    expect(settings.get(LAYA_MODE_KEY)).toBeUndefined();
+    expect(service.currentMode()).toBe("off");
+  });
+
+  it("takes the switch to Assist once earned, and runs Laya the way Shadow does", async () => {
+    const { service, settings, runtime } = setup({ runtime: installedRuntime(), activeEval: () => report() });
+    await service.setMode("assist");
+    expect(settings.get(LAYA_MODE_KEY)).toBe("assist");
+    expect(service.currentMode()).toBe("assist");
+    // Assist is Shadow plus: the server starts, and the shadow keeps asking and logging.
+    await until(() => service.client() !== null);
+    expect(runtime!.starts).toHaveLength(1);
   });
 });
