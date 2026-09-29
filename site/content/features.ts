@@ -12,9 +12,10 @@ export type Feature = {
  * scenes that actually succeeded and the page renders the intersection, so a scene that breaks drops
  * out rather than shipping a hole.
  *
- * Some captured scenes are deliberately absent. `notifications` is two rows on an empty page, and
+ * Some captured scenes are deliberately absent. `notifications` is two rows on an empty page,
  * `permissions` leads with two development-build caveats that are true of the capture and not of a
- * packaged Realm — both would be worse evidence than none.
+ * packaged Realm, and `usage` can only chart what the capture spent — one scripted turn, a tenth of a
+ * cent on a single day. Each would be worse evidence than none.
  *
  * `rewind` goes the other way: the copy is here, and the scene only produces an image when the
  * checkpoint it opens really can rewind the conversation. The capture's own agent is scripted and
@@ -50,7 +51,7 @@ export const features: Feature[] = [
     slug: "session",
     title: "A transcript you can read",
     blurb:
-      "A plan gets a card rather than a paragraph, a tool call gets the shape of what it did, and the list of what is left stays pinned above the composer while the run scrolls past it.",
+      "A turn's calls fold into rows, each opening to the shape of what it did — an edit to its diff — and the list of what is left stays pinned above the composer while the run scrolls past it.",
   },
   {
     slug: "rewind",
@@ -117,12 +118,6 @@ export const features: Feature[] = [
     title: "Runs on a clock",
     blurb:
       "A prompt, a workspace and a cadence. It produces an ordinary session with an ordinary transcript, readable afterwards like any run you started yourself.",
-  },
-  {
-    slug: "usage",
-    title: "What it actually cost",
-    blurb:
-      "Spend and tokens by model and by day, a monthly ceiling with an alert before you reach it, and a year of the days you used Realm.",
   },
   {
     slug: "appearance",

@@ -17,7 +17,7 @@
  * the features page renders the intersection of that and the copy authored in `content/features.ts`
  * — so a scene that breaks silently drops out of the carousel instead of shipping a broken image.
  */
-import { spawn } from "node:child_process"
+import { execFileSync, spawn } from "node:child_process"
 import { connect } from "node:net"
 import fs from "node:fs"
 import os from "node:os"
@@ -33,85 +33,300 @@ const browserTarget = process.env.REALM_CAPTURE_BROWSER_URL ?? "http://localhost
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-site-capture-"))
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-const releaseBrief = `# Realm 0.6
-
-## What ships
-
-- Computer use, off until a space asks for it
-- Seven palettes across seventeen faces
-- Plan and Ask, enforced by each backend
-- Sub-agents nested under the call that spawned them
-
-## Release check
-
-Keep the work, the evidence and the handoff visible in one space.`
+/** The staged session's title as the server has it — generated from the prompt, so never guessed. */
+const stagedTitle = async (rpc, sessionId) => {
+  const session = (await rpc.call("sessions.listAll", {})).find((candidate) => candidate.id === sessionId)
+  if (!session?.title) throw new Error("The staged session has no title to find it by")
+  return session.title
+}
 
 /**
- * What the editor scene opens, written into the space's own folder through the same
- * `documents.write` the pane saves with.
+ * Write to the scratch home's database directly, for the two things staging needs that no RPC
+ * offers. Never anything but the scratch home: this is the harness's own throwaway `REALM_HOME`.
+ */
+const scratchSql = (sql) =>
+  execFileSync("sqlite3", ["-cmd", ".timeout 5000", path.join(scratch, "home", "realm.db"), sql], { stdio: "pipe" })
+
+/**
+ * The chats every sidebar shot is taken with, and when each was last worked on.
  *
- * Three files rather than one: ⌘P over a checkout holding a single file is a list that proves
- * nothing, and the pane's tab strip has nothing to be a strip of.
+ * Spread over spaces and over the week, because the activity lens groups by day and a feed that is
+ * all "Today" cannot show it; and several in the staged session's own space, because a space
+ * holding one session is not a space anyone has worked in. Days back rather than hours: the lens
+ * cuts on local midnight, and "three hours ago" is yesterday for a run started at one in the morning.
  */
-const sourceFiles = {
-  "session-mapper.ts": `import type { AgentEvent, SessionEvent } from "@realm/contracts"
+const seededChats = [
+  { space: "Product", title: "Rate-limit the public API per token", minutesAgo: 25 },
+  { space: "Site", title: "Tune the hero's corridor for phones", minutesAgo: 70 },
+  { space: "Realm", title: "Nest a sub-agent's calls under the one that spawned them", daysAgo: 1, at: [17, 40] },
+  { space: "Product", title: "Paginate the audit log endpoint", daysAgo: 1, at: [11, 5] },
+  { space: "Site", title: "Capture the features carousel from the built app", daysAgo: 2, at: [15, 20] },
+  { space: "School", title: "Turn Tuesday's lecture into a study guide", daysAgo: 3, at: [20, 15] },
+  { space: "Realm", title: "Profile the transcript on a ten-thousand-event session", daysAgo: 4, at: [14, 50] },
+  { space: "School", title: "Check problem set 4 against the rubric", daysAgo: 5, at: [19, 30] },
+  { space: "Product", title: "Move the job queue off Redis", daysAgo: 9, at: [10, 45] },
+]
 
-/** One provider notification becomes zero or more transcript events, and nothing else. */
-export function mapAgentEvent(event: AgentEvent, seq: number): SessionEvent[] {
-  switch (event.kind) {
-    case "text":
-      return [{ kind: "assistant", seq, text: event.text, streamId: event.streamId }]
-    case "thinking":
-      // Markdown, not raw text: an agent's headings and fences read as literal syntax otherwise.
-      return [{ kind: "thinking", seq, markdown: event.text }]
-    case "tool_call":
-      return [{ kind: "tool", seq, callId: event.id, name: event.name, input: event.input }]
-    case "plan":
-      // The structure is the point. Keeping the prose and dropping the steps is what the plan
-      // card exists to undo.
-      return [{ kind: "plan", seq, steps: event.steps, state: event.state }]
-    default:
-      return []
-  }
+/** When a seeded chat was last worked on, in ms — never before today's midnight for a "today" chat. */
+function lastWorked({ minutesAgo, daysAgo, at }) {
+  const now = Date.now()
+  const midnight = new Date(now)
+  midnight.setHours(0, 0, 0, 0)
+  if (minutesAgo !== undefined) return Math.max(midnight.getTime() + 60_000, now - minutesAgo * 60_000)
+  const day = new Date(midnight)
+  day.setDate(day.getDate() - daysAgo)
+  day.setHours(at[0], at[1])
+  return day.getTime()
 }
-`,
-  "adapter.ts": `import { mapAgentEvent } from "./session-mapper"
 
 /**
- * One stdio transport, shared by both agent families. The mappers above it are pure, which is what
- * lets the transcript be written once rather than three times.
+ * The document the workspace scene opens beside the session: the design note for the very change
+ * the session is making, so the hero shows a spec and the agent implementing it side by side — the
+ * working relationship, not two unrelated panes that happen to share a window.
  */
-export class Adapter {
-  constructor(private readonly transport: Transport) {}
+const releaseBrief = `# Webhook delivery
 
-  async send(sessionId: string, text: string): Promise<void> {
-    await this.transport.request("session/prompt", { sessionId, text })
-  }
+## Why
 
-  onNotification(sessionId: string, event: AgentEvent): void {
-    for (const mapped of mapAgentEvent(event, this.nextSeq(sessionId))) {
-      this.emit(sessionId, mapped)
-    }
+A delivery that fails once is dropped. Most failures are a receiver restarting or a load balancer timing out, and both are gone a second later.
+
+## What changes
+
+- Retry 5xx responses and network errors, up to four attempts
+- Back off from 250 ms to 2 s, with full jitter
+- Never retry a 4xx: the request itself is wrong
+- Record every attempt on the delivery, with its status
+
+## Attempts
+
+| Attempt | Sent after | On a 5xx |
+| --- | --- | --- |
+| 1 | at once | retry |
+| 2 | up to 250 ms | retry |
+| 3 | up to 500 ms | retry |
+| 4 | up to 1 s | mark it failed |
+
+## Rollout
+
+Behind \`webhooks.retry\` for a week on the billing hooks, then everywhere.`
+
+/**
+ * The turn the scripted agent plays for the captures: a real-looking piece of work rather than the
+ * server's UI fixtures. It reads, searches, plans, edits (which the transcript draws as diffs), writes
+ * a test and runs it, revising the plan as it goes. Handed to the server as a file through
+ * REALM_FAKE_AGENT_SCRIPT, whose triggers are checked before the built-in ones.
+ */
+const stagedPrompt = "Retry failed webhook deliveries with backoff, and cover it with tests"
+const planText = [
+  "## Retry webhook deliveries",
+  "",
+  "1. Classify failures: retry 5xx and network errors, never a 4xx.",
+  "2. Back off exponentially with full jitter, capped at four attempts.",
+  "3. Record each attempt on the delivery.",
+  "4. Cover the backoff schedule and the 4xx short-circuit with tests.",
+].join("\n")
+const planSteps = (done) =>
+  ["Classify failures", "Back off with jitter", "Record each attempt", "Cover it with tests"].map((text, i) => ({
+    text,
+    status: i < done ? "completed" : i === done ? "in_progress" : "pending",
+  }))
+const stagedTurn = [
+  {
+    on: "webhook deliveries",
+    emit: [
+      { kind: "text", text: "I'll look at how deliveries are sent now, then add a retry that backs off and gives up on errors a retry can't fix." },
+      {
+        kind: "tool",
+        name: "Read",
+        input: { file_path: "src/webhooks/deliver.ts" },
+        result: "export async function deliver(hook: Hook, event: Event) {\n  const init = signedRequest(hook, event)\n  const res = await fetch(hook.url, init)\n  if (!res.ok) throw new DeliveryError(res.status)\n  return res\n}",
+      },
+      {
+        kind: "tool",
+        name: "Grep",
+        input: { pattern: "deliver\\(", path: "src" },
+        result: "src/webhooks/deliver.ts:18\nsrc/billing/invoices.ts:64\nsrc/orders/fulfilment.ts:131",
+      },
+      { kind: "plan", planId: "retry", text: planText, steps: planSteps(0) },
+      {
+        kind: "tool",
+        name: "Edit",
+        input: {
+          file_path: "src/webhooks/deliver.ts",
+          old_string: "  const res = await fetch(hook.url, init)\n  if (!res.ok) throw new DeliveryError(res.status)\n  return res",
+          new_string:
+            "  for (let attempt = 1; ; attempt++) {\n    const res = await fetch(hook.url, init).catch(() => null)\n    if (res?.ok) return res\n    if (res && res.status < 500) throw new DeliveryError(res.status)\n    if (attempt === MAX_ATTEMPTS) throw new DeliveryError(res?.status ?? 0)\n    await sleep(backoff(attempt))\n  }",
+        },
+        result: "The file src/webhooks/deliver.ts has been updated.",
+      },
+      { kind: "plan", planId: "retry", text: planText, steps: planSteps(2) },
+      {
+        kind: "tool",
+        name: "Edit",
+        input: {
+          file_path: "src/webhooks/deliver.ts",
+          old_string: "const MAX_ATTEMPTS = 4",
+          new_string:
+            "const MAX_ATTEMPTS = 4\n\n/** 250 ms, 500 ms, 1 s… with full jitter, never more than 2 s. */\nexport const backoff = (attempt: number) =>\n  Math.random() * Math.min(2000, 250 * 2 ** (attempt - 1))",
+        },
+        result: "The file src/webhooks/deliver.ts has been updated.",
+      },
+      { kind: "plan", planId: "retry", text: planText, steps: planSteps(3) },
+      {
+        kind: "tool",
+        name: "Write",
+        input: {
+          file_path: "src/webhooks/deliver.test.ts",
+          content:
+            'import { describe, expect, it, vi } from "vitest"\nimport { backoff, deliver } from "./deliver"\n\ndescribe("deliver", () => {\n  it("retries a 503 and succeeds", async () => { /* … */ })\n  it("never retries a 404", async () => { /* … */ })\n  it("gives up after four attempts", async () => { /* … */ })\n})\n\ndescribe("backoff", () => {\n  it("doubles from 250 ms", () => { /* … */ })\n  it("stays inside its jitter bounds", () => { /* … */ })\n  it("never waits more than 2 s", () => { /* … */ })\n})',
+        },
+        result: "File created successfully at: src/webhooks/deliver.test.ts",
+      },
+      {
+        kind: "tool",
+        name: "Bash",
+        input: { command: "pnpm vitest run src/webhooks" },
+        result: " ✓ src/webhooks/deliver.test.ts (6 tests) 38ms\n\n Test Files  1 passed (1)\n      Tests  6 passed (6)\n   Duration  412ms",
+      },
+      { kind: "plan", planId: "retry", text: planText, steps: planSteps(4) },
+      // The work done and the one thing left, which is what keeps the list pinned above the composer
+      // — a real turn ends with something still to decide, and the strip is what shows it.
+      {
+        kind: "tool",
+        name: "TodoWrite",
+        input: {
+          todos: [
+            ...["Classify failures", "Back off with jitter", "Record each attempt", "Cover it with tests"].map((content) => ({
+              content,
+              status: "completed",
+              activeForm: content,
+            })),
+            { content: "Open a pull request", status: "pending", activeForm: "Opening a pull request" },
+          ],
+        },
+        result: "Todos have been modified successfully",
+      },
+      {
+        kind: "text",
+        text: "Done. `deliver()` now retries 5xx responses and network failures up to four times, backing off from 250 ms to 2 s with full jitter, and gives up at once on a 4xx — a retry won't change those. Six tests cover the schedule, the jitter bounds and the 4xx short-circuit; all pass. I haven't opened the pull request yet.",
+      },
+    ],
+  },
+]
+
+
+/**
+ * The space's checkout: the project the staged session is working on, so the terminal and the
+ * editor show the code the transcript edited rather than a second, unrelated project.
+ *
+ * `src/webhooks/deliver.ts` is the file as it stood before the session — the function its Read
+ * returned. The terminal scene commits these, then writes `sessionWork` over them, so `git status`
+ * shows the session's work as the uncommitted change it is.
+ */
+const checkoutFiles = {
+  "README.md": `# Product
+
+The delivery service: every webhook signed, sent, and recorded.
+
+    pnpm install
+    pnpm test
+`,
+  "package.json": `{
+  "name": "product",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
   }
 }
 `,
-  "transcript.ts": `import type { SessionEvent } from "@realm/contracts"
-
-/** A sub-agent's parent is resolved only among calls already seen, so a late event cannot
- *  re-parent history. */
-export function nest(events: SessionEvent[]): TranscriptNode[] {
-  const seen = new Map<string, TranscriptNode>()
-  const roots: TranscriptNode[] = []
-  for (const event of events) {
-    const node = { event, children: [] }
-    const parent = event.parentCallId ? seen.get(event.parentCallId) : undefined
-    if (parent) parent.children.push(node)
-    else roots.push(node)
-    if (event.kind === "tool") seen.set(event.callId, node)
+  "src/api/rate-limit.ts": `/** A token bucket per API token: \`limit\` requests, refilled evenly over \`windowMs\`. */
+export function rateLimiter(limit: number, windowMs: number) {
+  const buckets = new Map<string, { tokens: number; at: number }>()
+  return (token: string, now = Date.now()): boolean => {
+    const bucket = buckets.get(token) ?? { tokens: limit, at: now }
+    bucket.tokens = Math.min(limit, bucket.tokens + ((now - bucket.at) / windowMs) * limit)
+    bucket.at = now
+    buckets.set(token, bucket)
+    if (bucket.tokens < 1) return false
+    bucket.tokens -= 1
+    return true
   }
-  return roots
 }
 `,
+  "src/webhooks/sign.ts": `import { createHmac } from "node:crypto"
+
+/** The request a receiver can verify: the exact body, and an HMAC of it under the hook's secret. */
+export function signedRequest(hook: Hook, event: Event): RequestInit {
+  const body = JSON.stringify(event)
+  const signature = createHmac("sha256", hook.secret).update(body).digest("hex")
+  return {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-webhook-signature": \`sha256=\${signature}\` },
+    body,
+  }
+}
+`,
+  "src/webhooks/deliver.ts": `import { sleep } from "../lib/time"
+import { signedRequest } from "./sign"
+
+const MAX_ATTEMPTS = 4
+
+export class DeliveryError extends Error {
+  constructor(readonly status: number) {
+    super(\`Webhook delivery failed with \${status}\`)
+  }
+}
+
+export async function deliver(hook: Hook, event: Event) {
+  const init = signedRequest(hook, event)
+  const res = await fetch(hook.url, init)
+  if (!res.ok) throw new DeliveryError(res.status)
+  return res
+}
+`,
+  "src/lib/time.ts": `export const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+`,
+}
+
+/**
+ * What the staged session leaves in the checkout, derived from its own tool calls rather than
+ * written out a second time: its Edits applied in order to the file it Read, and the test it Wrote.
+ * A terminal diff that disagreed with the transcript beside it would be the one capture anyone
+ * checked.
+ */
+const sessionWork = (() => {
+  const calls = stagedTurn[0].emit.filter((step) => step.kind === "tool")
+  const edited = calls
+    .filter((call) => call.name === "Edit")
+    .reduce((text, { input }) => {
+      if (!text.includes(input.old_string)) throw new Error(`A staged edit does not apply: ${input.old_string}`)
+      return text.replace(input.old_string, input.new_string)
+    }, checkoutFiles["src/webhooks/deliver.ts"])
+  const written = calls.find((call) => call.name === "Write")
+  return { "src/webhooks/deliver.ts": edited, [written.input.file_path]: `${written.input.content}\n` }
+})()
+
+/** Write files under the checkout, creating their folders. Existing files are left alone unless asked. */
+function writeCheckout(checkout, files, { overwrite = false } = {}) {
+  for (const [relative, text] of Object.entries(files)) {
+    const target = path.join(checkout, relative)
+    if (!overwrite && fs.existsSync(target)) continue
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    fs.writeFileSync(target, text)
+  }
+}
+
+/** The staged session's working directory, which is the space's checkout. */
+const checkoutOf = async (rpc, sessionId) => {
+  const session = (await rpc.call("sessions.listAll", {})).find((candidate) => candidate.id === sessionId)
+  if (!session?.cwd) throw new Error("The staged session has no working directory")
+  return session.cwd
 }
 
 let electron = null
@@ -470,7 +685,42 @@ const scenes = [
         30_000,
         "the session plan",
       )
-      await shot("session", `!!document.querySelector('.transcript .plan-card, .transcript [data-plan-id]')`)
+      // Open the calls that did the editing, and the first edit in them: the claim is that a diff
+      // renders as a diff, and a capture of the folded row is evidence of the folding only.
+      await evaluate(`(() => {
+        const groups = [...document.querySelectorAll('.transcript .tool-group-row')];
+        // Its title reads like "5 tools · 2 files · 1 command": only the editing group ran one.
+        const edits = groups.find((row) => /command/.test(row.getAttribute('title') ?? '')) ?? groups.at(-1);
+        if (edits && edits.getAttribute('aria-expanded') !== 'true') edits.click();
+        return true;
+      })()`)
+      await sleep(500)
+      await evaluate(`(() => {
+        const edit = document.querySelector('.transcript .tool-row[aria-label="Edit tool call"]');
+        if (edit && edit.getAttribute('aria-expanded') !== 'true') edit.click();
+        return true;
+      })()`)
+      await sleep(900)
+      // Then bring the opened turn — "Worked for", its calls, the diff — up to the top. At rest the
+      // transcript sits at its end, which cut the diff off above the fold: a diff without its header
+      // is some green lines.
+      const placed = await evaluate(`(() => {
+        const scroller = document.querySelector('.transcript');
+        const group = document.querySelector('.transcript .tool-group-row[aria-expanded="true"]');
+        if (!scroller || !group) return false;
+        scroller.scrollTop += group.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 16;
+        return true;
+      })()`)
+      if (!placed) throw new Error("No opened tool group to bring into view")
+      await sleep(700)
+      await shot(
+        "session",
+        `(() => {
+          const view = document.querySelector('.transcript')?.getBoundingClientRect();
+          const edit = document.querySelector('.transcript .tool-row[aria-label="Edit tool call"][aria-expanded="true"]')?.getBoundingClientRect();
+          return !!view && !!edit && edit.top >= view.top && edit.bottom <= view.bottom;
+        })()`,
+      )
     },
   },
   {
@@ -486,11 +736,12 @@ const scenes = [
   },
   {
     name: "models",
-    async run({ evaluate, clickText, command, escape, solo, shot, until }) {
+    async run({ evaluate, clickText, command, escape, solo, shot, until, rpc, sessionId }) {
       await escape()
-      // A fresh session, so the picker opens on the real default rather than on the scripted adapter
-      // the transcript was staged with — where every model reads "unavailable here", which is a fact
-      // about the capture and the opposite of what this surface is for.
+      // A fresh session, because one that has already run is held to its agent (`sessions.setAgent`
+      // refuses it), and this surface is about choosing among all of them.
+      const spaceId = (await rpc.call("spaces.list", {}))[0].id
+      const before = new Set((await rpc.call("sessions.list", { spaceId })).map((session) => session.id))
       await solo()
       await command("New session")
       await until(() => evaluate(`!!document.querySelector('.composer')`), 15_000, "a new session")
@@ -513,6 +764,23 @@ const scenes = [
       await sleep(700)
       await shot("models", `!!document.querySelector('.model-picker, [role="dialog"][aria-label*="odel"], .menu[role="menu"]')`)
       await escape()
+      // That session was a stand for the picker and nothing more. Left behind it is an untitled "New
+      // session" in every sidebar shot after this one, so the staged run goes back into the pane —
+      // deleting the session a pane is showing would close the last pane, and the app answers that by
+      // opening another fresh one — and then the stand is deleted.
+      const title = await stagedTitle(rpc, sessionId)
+      await evaluate(`(() => {
+        const row = [...document.querySelectorAll('.sidebar button, .sidebar [role="button"]')]
+          .find((element) => element.textContent.includes(${JSON.stringify(title)}));
+        row?.click();
+        return true;
+      })()`)
+      await sleep(900)
+      for (const session of await rpc.call("sessions.list", { spaceId })) {
+        if (before.has(session.id)) continue
+        await rpc.call("sessions.delete", { id: session.id }).catch((error) => console.warn(`    sessions.delete: ${error.message}`))
+      }
+      await sleep(600)
     },
   },
   {
@@ -527,7 +795,7 @@ const scenes = [
       await until(() => evaluate(`!!document.querySelector('.documents-name-input')`), 15_000, "the new document")
       await evaluate(`(() => {
         const name = document.querySelector('.documents-name-input');
-        __capture.setInput(name, 'Release brief');
+        __capture.setInput(name, 'Webhook delivery');
         name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
         return true;
       })()`)
@@ -542,26 +810,29 @@ const scenes = [
       await sleep(1_000)
       await evaluate(`__capture.clickText('.documents-modes button', 'Rich')`)
       await until(
-        () => evaluate(`document.querySelector('[aria-label="Rich text editor"] h1')?.textContent === 'Realm 0.6'`),
+        () => evaluate(`document.querySelector('[aria-label="Rich text editor"] h1')?.textContent === 'Webhook delivery'`),
         15_000,
         "the rich document",
       )
       await sleep(600)
-      await shot("documents", `document.querySelector('[aria-label="Rich text editor"] h1')?.textContent === 'Realm 0.6'`)
+      await shot("documents", `document.querySelector('[aria-label="Rich text editor"] h1')?.textContent === 'Webhook delivery'`)
     },
   },
   {
     name: "workspace",
-    async run({ evaluate, command, shot, until }) {
+    async run({ evaluate, command, shot, until, rpc, sessionId }) {
       await command("Split right")
       await until(() => evaluate(`document.querySelectorAll('.panehost .panel').length === 2`), 10_000, "two panes")
       // The new pane is focused and empty; put the staged session into it, so the split shows the
       // relationship the page claims — a run and the document beside it. Matching on the title
-      // matters: the app also opened an untouched "New session", and that is the one a
-      // first-not-the-document rule would find.
+      // matters: the space holds the seeded chats too, and any of them is what a
+      // first-not-the-document rule would find. The title is generated from the staged prompt, so it
+      // is asked for rather than guessed — and the open document shares the session's subject, so a
+      // match on the subject alone could click the document instead.
+      const title = await stagedTitle(rpc, sessionId)
       const opened = await evaluate(`(() => {
         const row = [...document.querySelectorAll('.sidebar button, .sidebar [role="button"]')]
-          .find((element) => element.textContent.includes('mapper'));
+          .find((element) => element.textContent.includes(${JSON.stringify(title)}));
         if (!row) return false;
         row.click();
         return true;
@@ -573,7 +844,7 @@ const scenes = [
   },
   {
     name: "terminal",
-    async run({ evaluate, command, solo, shot, rpc, until }) {
+    async run({ evaluate, command, solo, shot, rpc, until, sessionId }) {
       await solo()
       await command("New terminal")
       await until(() => evaluate(`!!document.querySelector('.xterm')`), 20_000, "the terminal")
@@ -581,19 +852,34 @@ const scenes = [
       // terminal id, so the same pty the pane is showing can be written to directly.
       const terminals = await rpc.call("items.listAll", {})
       const pty = terminals.find((item) => item.kind === "terminal")
-      if (pty) {
-        await rpc.call("terminals.write", {
-          terminalId: pty.refId,
-          // Deliberately not `ls -la`: its owner column publishes the developer's system username.
-          data:
-            "mkdir -p src && touch src/adapter.ts src/mapper.ts src/session.ts README.md && " +
-            "git init -q && git add -A && " +
-            "git -c user.name=Realm -c user.email=realm@example.com commit -qm 'Carry the plan as its own event' && " +
-            "printf '# Realm\\n' > README.md && git status --short && " +
-            // --no-pager: git's default pager clears the screen and leaves (END) on it.
-            "git --no-pager log --oneline && ls src\r",
-        })
-        await sleep(2_500)
+      if (!pty) throw new Error("No terminal item to type into")
+      const type = (data) => rpc.call("terminals.write", { terminalId: pty.refId, data })
+      // The project's history is made in this shell and then cleared, so what the pane shows is
+      // someone looking at their checkout rather than the harness building one. It is also what
+      // makes the folder a git checkout for the editor scene after this. `;` rather than `&&`: a
+      // step that fails must not stop the chain before the `clear`.
+      const checkout = await checkoutOf(rpc, sessionId)
+      writeCheckout(checkout, checkoutFiles)
+      const commit = (paths, message) =>
+        `git add ${paths}; git -c user.name=Product -c user.email=dev@example.com commit -qm '${message}'`
+      await type(
+        [
+          "git init -q",
+          commit("README.md package.json src/lib", "Start the delivery service"),
+          commit("src/webhooks", "Sign each delivery with its hook secret"),
+          commit("src/api", "Rate-limit the public API per token"),
+          commit("'Webhook delivery.md'", "Write up retrying failed deliveries"),
+          "clear",
+        ].join("; ") + "\r",
+      )
+      await sleep(2_500)
+      // Then the session's work lands on top, uncommitted, and the shell is asked what changed.
+      // --no-pager: git's default pager clears the screen and leaves (END) on it. And deliberately
+      // no `ls -la`: its owner column publishes the developer's system username.
+      writeCheckout(checkout, sessionWork, { overwrite: true })
+      for (const line of ["git --no-pager log --oneline --decorate -4", "git status --short", "git --no-pager diff"]) {
+        await type(`${line}\r`)
+        await sleep(900)
       }
       await sleep(1_000)
       await shot("terminal", `!!document.querySelector('.xterm')`)
@@ -604,22 +890,17 @@ const scenes = [
     // back to a directory walk outside a repository, and a capture of the fallback under a caption
     // about `git grep` would be showing the weaker search.
     name: "editor",
-    async run({ evaluate, command, escape, focusPane, press, solo, shot, rpc, until }) {
+    async run({ evaluate, command, escape, focusPane, press, solo, shot, rpc, until, sessionId }) {
       await solo()
       await command("Documents")
       await until(() => evaluate(`!!document.querySelector('.documents-pane')`), 20_000, "the documents pane")
       const spaces = await rpc.call("spaces.list", {})
       const spaceId = spaces[0].id
-      // Get-or-create over the space's primary checkout — the same workspace the pane just opened,
-      // not a second tab strip over the same files.
-      const { documentsId } = await rpc.call("documents.create", { spaceId })
-      for (const [path, text] of Object.entries(sourceFiles)) {
-        const written = await rpc.call("documents.write", { documentsId, path, text, baseHash: null })
-        // A refusal is a result here, not an error: `baseHash: null` means "this file should not
-        // exist yet", and something on disk already answering to that name is the one case.
-        if (!written.ok) console.warn(`    documents.write ${path}: already on disk`)
-      }
-      await rpc.call("documents.openPath", { spaceId, path: "session-mapper.ts" })
+      // The terminal scene wrote the checkout; this only fills in what is missing, so a diagnostic
+      // run of this scene alone still has files to find.
+      writeCheckout(await checkoutOf(rpc, sessionId), checkoutFiles)
+      // The file the staged session edited, as it left it.
+      await rpc.call("documents.openPath", { spaceId, path: "src/webhooks/deliver.ts" })
       // `.cm-content` rather than the editor's `aria-label`: the label is set once the file's
       // language mode has loaded, so waiting on it is waiting on a dynamic import.
       await until(() => evaluate(`!!document.querySelector('.documents-code .cm-content')`), 20_000, "the code editor")
@@ -749,6 +1030,8 @@ const scenes = [
     async run({ evaluate, clickText, focusPane, solo, shot, rpc, until }) {
       const spaces = await rpc.call("spaces.list", {})
       const spaceId = spaces[0].id
+      // Enough of them that the page is doing its job — a list of standing work — rather than
+      // two rows adrift in an empty pane.
       const schedules = [
         {
           title: "Morning triage",
@@ -759,6 +1042,26 @@ const scenes = [
           title: "Weekly dependency sweep",
           goal: "Check every workspace for outdated dependencies and open one PR per package.",
           cron: "0 7 * * 1",
+        },
+        {
+          title: "Flaky test hunt",
+          goal: "Re-run yesterday's failed CI jobs three times and file the tests that pass and fail at random.",
+          cron: "30 2 * * *",
+        },
+        {
+          title: "Changelog draft",
+          goal: "Read the week's merged pull requests and draft the changelog entry for review.",
+          cron: "0 16 * * 5",
+        },
+        {
+          title: "Docs link check",
+          goal: "Crawl the docs and open one pull request fixing every broken link it finds.",
+          cron: "0 6 * * 0",
+        },
+        {
+          title: "Stale branch sweep",
+          goal: "List branches untouched for a month and ask their authors before deleting any.",
+          cron: "0 10 1 * *",
         },
       ]
       for (const schedule of schedules) {
@@ -841,14 +1144,15 @@ const scenes = [
     // front of the list there is one session and nothing else. `content/features.ts` orders the
     // carousel; this list only orders the capture.
     name: "sidebar",
-    async run({ evaluate, solo, shot, until }) {
+    async run({ evaluate, solo, shot, until, rpc, sessionId }) {
       await solo()
       await until(() => evaluate(`!!document.querySelector('.sidebar')`), 10_000, "the sidebar")
       // Put the staged session back in the pane. The sidebar next to a space's own settings page is
       // the `spaces` scene twice; next to a run it is what the column is actually for.
+      const title = await stagedTitle(rpc, sessionId)
       await evaluate(`(() => {
         const row = [...document.querySelectorAll('.sidebar button, .sidebar [role="button"]')]
-          .find((element) => element.textContent.includes('mapper'));
+          .find((element) => element.textContent.includes(${JSON.stringify(title)}));
         row?.click();
         return true;
       })()`)
@@ -860,23 +1164,9 @@ const scenes = [
     // Straight after `sidebar`, because it is the same column under a different lens and the pane
     // beside it is already the staged run.
     name: "activity",
-    async run({ evaluate, shot, rpc, until }) {
-      // The lens is every chat under the PROFILE, so it needs chats in more than one space before it
-      // is showing what it is for. Created, not sent to: an unstarted session is an ordinary row
-      // here, and starting four would be four agent CLIs.
-      const spaces = await rpc.call("spaces.list", {})
-      const seeded = [
-        { name: "Realm", title: "Nest a sub-agent's calls under the one that spawned them" },
-        { name: "Site", title: "Capture the features carousel from the built app" },
-        { name: "School", title: "Turn Tuesday's lecture into a study guide" },
-      ]
-      for (const { name, title } of seeded) {
-        const space = spaces.find((candidate) => candidate.name === name)
-        if (!space) continue
-        await rpc.call("sessions.create", { spaceId: space.id, agentKind: "claude", title }).catch((error) => {
-          console.warn(`    sessions.create ${title}: ${error.message}`)
-        })
-      }
+    async run({ evaluate, shot, until }) {
+      // The lens is every chat under the PROFILE, across spaces and days — which is why staging
+      // seeds chats in four spaces and dates them back through the week (`seededChats`).
       const lens = await evaluate(`(() => {
         const button = document.querySelector('.sb-toggle[aria-label="Activity"]');
         if (!button) return false;
@@ -886,7 +1176,7 @@ const scenes = [
       if (!lens) throw new Error("No activity lens toggle in the sidebar")
       await until(() => evaluate(`!!document.querySelector('.sb-activity .sb-chat-row')`), 15_000, "the activity lens")
       await sleep(900)
-      await shot("activity", `!!document.querySelector('.sb-activity .sb-chat-row')`)
+      await shot("activity", `document.querySelectorAll('.sb-activity .sb-chat-day').length > 1`)
       // Back to the space lens. The sidebar is in every shot after this one, and leaving it on the
       // feed would put this scene's subject behind the next two.
       await evaluate(`document.querySelector('.sb-toggle[aria-label="Activity"]')?.click(); true`)
@@ -921,6 +1211,9 @@ async function main() {
     if (!(await portIsFree(port))) throw new Error(`Port ${port} is in use`)
   }
 
+  const stagedScriptPath = path.join(scratch, "staged-turn.json")
+  fs.writeFileSync(stagedScriptPath, JSON.stringify(stagedTurn))
+
   const wrapper = path.join(scratch, "wrapper.mjs")
   fs.writeFileSync(
     wrapper,
@@ -944,6 +1237,9 @@ async function main() {
       ...process.env,
       REALM_HOME: path.join(scratch, "home"),
       REALM_ENABLE_FAKE_AGENT: "1",
+      REALM_FAKE_AGENT_SCRIPT: stagedScriptPath,
+      // Paced like work rather than a fixture, so the transcript's "Worked for" reads as a real run.
+      REALM_FAKE_AGENT_DELAY_MS: "2400",
       REALM_PORT: String(serverPort),
       REALM_DEVTOOLS_PORT: String(cdpPort),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"),
@@ -1034,15 +1330,70 @@ async function main() {
 
   ctx.sessionId = sessions[0].id
   await rpc.call("sessions.setAgent", { id: ctx.sessionId, agentKind: "fake" })
-  for (const text of ["Rework the session mapper — plan it first", "todos"]) {
-    await rpc.call("sessions.send", { id: sessions[0].id, text, attachments: [], mentions: [] })
-    await sleep(2_000)
+  await rpc.call("sessions.send", { id: sessions[0].id, text: stagedPrompt, attachments: [], mentions: [] })
+  // Paced at 2.4 s a step, the turn takes about half a minute; wait for its last sentence rather
+  // than a guessed sleep, so no scene photographs it half-finished.
+  await until(
+    () => ctx.evaluate(`document.querySelector('.transcript')?.textContent.includes('all pass') ?? false`),
+    90_000,
+    "the staged turn to finish",
+  )
+  await sleep(1_000)
+
+  // The chats every sidebar shot is taken with. Created, not sent to: an unstarted session is an
+  // ordinary row, and starting nine would be nine agent CLIs.
+  const spaces = await rpc.call("spaces.list", {})
+  const dated = []
+  for (const chat of seededChats) {
+    const space = spaces.find((candidate) => candidate.name === chat.space)
+    if (!space) continue
+    const created = await rpc
+      .call("sessions.create", { spaceId: space.id, agentKind: "claude", title: chat.title })
+      .catch((error) => console.warn(`    sessions.create ${chat.title}: ${error.message}`))
+    if (created) dated.push({ id: created.session.id, at: lastWorked(chat) })
   }
-  // Staging is done. The scripted adapter produced the transcript — that is how the run reproduces —
-  // but every surface after this states which engine the SPACE is on, and that is a fact about the
-  // capture harness rather than about Realm. Hand it back to a real one.
-  await rpc.call("sessions.setAgent", { id: ctx.sessionId, agentKind: "claude" }).catch(() => null)
-  await sleep(800)
+
+  /*
+   * Two rows no RPC will change, rewritten in the scratch database and then read again by reloading
+   * the window.
+   *
+   * The seeded chats are dated back across the week: `updatedAt` is what the activity lens groups
+   * by, and nothing sets it but work. Both rows — the session's, and the sidebar item's, which is
+   * what the palette sorts and dates by.
+   *
+   * And the staged session goes back to a real agent. The scripted adapter wrote its transcript —
+   * that is how the run reproduces — but the composer names the session's agent in every shot after
+   * this, and "Fake" is a fact about the harness, not about Realm. `sessions.setAgent` is not the way:
+   * it refuses a session that has already run, and this used to call it and swallow the refusal, so
+   * "Fake" shipped under the prompter of four slides.
+   */
+  const ids = [ctx.sessionId, ...dated.map(({ id }) => id)]
+  if (!ids.every((id) => /^[0-9A-Za-z]+$/.test(id))) throw new Error("A session id is not safe to write into SQL")
+  scratchSql(
+    [
+      ...dated.flatMap(({ id, at }) => [
+        `UPDATE sessions SET created_at = ${at}, updated_at = ${at} WHERE id = '${id}';`,
+        `UPDATE items SET created_at = ${at}, updated_at = ${at} WHERE ref_id = '${id}';`,
+      ]),
+      `UPDATE sessions SET agent_kind = 'claude', model = NULL WHERE id = '${ctx.sessionId}';`,
+    ].join("\n"),
+  )
+  await page.send("Page.reload", {})
+  await sleep(1_500)
+  await until(
+    () =>
+      ctx
+        .evaluate(`document.querySelector('.transcript')?.textContent.includes('all pass') ?? false`)
+        .catch(() => false),
+    30_000,
+    "the staged session after the reload",
+  )
+  await sleep(1_500)
+  // The rewrite is only worth anything if the window read it back. Fail the run here rather than
+  // photograph "Fake" under every prompter after this.
+  if (await ctx.evaluate(`(document.querySelector('.composer')?.textContent ?? '').includes('Fake')`)) {
+    throw new Error("The staged session's composer still names the scripted agent after the reload")
+  }
 
   // The machine name is the developer's; the site is not the place to publish it.
   //

@@ -43,9 +43,9 @@ export const claims: Claim[] = [
     body:
       "A turn is not a wall of log. Tool calls fold into rows you can open, a plan renders as a plan, a diff as a diff, and sub-agents nest under the call that spawned them. What the agent did stays legible weeks later, which is the difference between a record and a receipt.",
     capture: "session",
-    /* The reply, the plan it wrote and the tool row it left, clear of the sidebar. */
-    focus: { x: 0.6, y: 0.36, span: 0.64 },
-    caption: "One turn: the reply, the plan it wrote, and the calls it made, each openable.",
+    /* The opened turn: "Worked for", the edit read as a diff, and the calls after it still folded. */
+    focus: { x: 0.6, y: 0.33, span: 0.64 },
+    caption: "The calls one turn made, each a row that opens — here the first edit, opened to its diff.",
   },
   {
     id: "agents",
@@ -83,9 +83,9 @@ export const claims: Claim[] = [
     body:
       "realm-server keeps running when you close the window, so a long turn finishes whether or not you are watching. Runs can be scheduled, every turn is bracketed by a workspace checkpoint, and restoring one puts the files back — and, for Claude, rewinds the conversation with them.",
     capture: "schedules",
-    /* The two schedule rows. The lower half of this scene is empty canvas. */
-    focus: { x: 0.63, y: 0.26, span: 0.64 },
-    caption: "Two schedules in one space: what each one asks for, when it next runs, and the switch that pauses it.",
+    /* The page's head and the first four rows whole; the list runs on below the frame. */
+    focus: { x: 0.6, y: 0.328, span: 0.66 },
+    caption: "A space's standing work: what each schedule asks for, when it next runs, and the switch that pauses it.",
   },
   {
     id: "recall",
@@ -93,8 +93,9 @@ export const claims: Claim[] = [
     body:
       "One search reaches transcripts, open items, skills and memory across a whole profile. The sidebar keeps every chat you have, across spaces, grouped by the day you last worked on it and labelled with the space it belongs to — plus the folder and the branch on the rows where those say something the space name does not.",
     capture: "activity",
-    /* The sidebar list, which is the subject here and a narrow strip of the capture. */
-    focus: { x: 0.1, y: 0.54, span: 0.63 },
+    /* The sidebar list, which is the subject here and a narrow strip of the capture — framed from
+       "Today" down to the end of a third day, so every day in frame is a whole one. */
+    focus: { x: 0.1, y: 0.593, span: 0.61 },
     caption: "Every chat in the profile, by the day it was last worked on.",
   },
 ]

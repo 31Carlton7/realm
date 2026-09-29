@@ -33,8 +33,10 @@ import captured from "@/public/product/manifest.json"
  *
  * design.md carries the rules this follows: the first viewport shows the product, every effect argues
  * a claim the copy also makes, nothing with area draws behind words, and motion is the reader's to
- * drive. The captures are real, taken by `capture-product.mjs` against the built app, and each frame
- * crops out the prompter band whose model chip reads "Fake" — the harness's scripted agent, not Realm.
+ * drive. The captures are real, taken by `capture-product.mjs` against the built app. The agent's side
+ * of them is scripted so the runs reproduce — /features says so under its carousel — and each frame
+ * here crops out the prompter band, where the model chip names an agent the transcript did not come
+ * from.
  */
 export default async function HomePage() {
   const download = await macDownload()
