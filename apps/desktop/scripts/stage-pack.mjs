@@ -49,6 +49,11 @@ if (existsSync(pnpmDir)) {
 // 2. Bundled skills — bundledSkillsDir()'s packaged branch reads <resources>/skills.
 cpSync(join(root, "skills"), join(stage, "skills"), { recursive: true });
 
+// 2b. The device runner's SOURCE — deviceRunnerSourceDir()'s packaged branch reads
+// <resources>/ios-device-runner. Source, not a build: it is signed on the user's Mac with their own
+// identity, and the server copies it out before building, since the bundle is signed and read-only.
+cpSync(join(root, "resources", "ios-device-runner"), join(stage, "ios-device-runner"), { recursive: true });
+
 // 3. Swift helpers (each optional: absent when swiftc was unavailable, and each degrades on its own).
 for (const [binary, missing] of [
   ["scrollphase", "the app falls back to timer-based scroll phases"],

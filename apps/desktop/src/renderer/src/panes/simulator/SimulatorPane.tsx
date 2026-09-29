@@ -37,6 +37,20 @@ const REASONS: Record<string, string> = {
   serve_failed: "Realm could not start the stream for it.",
   no_frames: "The stream started, but the device has not drawn anything yet.",
   failed: "Something went wrong bringing the simulator up.",
+  // A real device's, from Realm's test runner on it. Each says what to do, because each is the user's
+  // to fix: nothing here unlocks a phone or changes its settings.
+  locked: "The phone is locked. Unlock it and try again — the runner cannot start behind a passcode.",
+  developer_mode: "Developer Mode is off on the phone. Turn it on in Settings ▸ Privacy & Security ▸ Developer Mode.",
+  ui_automation: "The phone does not allow UI automation. Turn on Settings ▸ Developer ▸ Enable UI Automation.",
+  untrusted: "The phone has not trusted your developer certificate. Trust it in Settings ▸ General ▸ VPN & Device Management.",
+  no_team: "There is no Apple Development identity on this Mac to sign Realm's test runner with. Sign in under Xcode ▸ Settings ▸ Accounts.",
+  sign_failed: "Realm could not sign its test runner for this phone. Running any app on it from Xcode once registers it with your team.",
+  build_failed: "Realm could not build its test runner.",
+  no_xcode: "Realm could not find Xcode, which a real iPhone is reached through.",
+  xcode_too_old: "This Mac's Xcode is older than the phone's iOS. Install a newer Xcode.",
+  not_connected: "The phone is not connected to this Mac now. Plug it in and try again.",
+  no_source: "This Realm does not carry its device runner.",
+  runner_failed: "Realm's test runner did not start on the phone.",
 };
 
 export function SimulatorPane({ item, visible }: PaneProps) {
@@ -57,12 +71,12 @@ export function SimulatorPane({ item, visible }: PaneProps) {
     return () => { live = false; };
   }, [refId, applySimulatorState]);
 
-  const start = useCallback(async (udid: string | null, platform?: SimulatorPlatform) => {
-    // `platform` rides with `udid` because they are one fact about one device. Omitted on a plain
-    // retry, where the row already knows what it is pointed at.
-    const r = await rpc().call("simulators.start", { simulatorId: refId, udid, platform });
+  const start = useCallback(async (udid: string | null, platform?: SimulatorPlatform, physical?: boolean) => {
+    // `platform` and `physical` ride with `udid` because the three are one fact about one device.
+    // Omitted on a plain retry, where the row already knows what it is pointed at.
+    const r = await rpc().call("simulators.start", { simulatorId: refId, udid, platform, physical });
     applySimulatorState(r.state);
-    if (udid) setRow((s) => (s ? { ...s, udid, platform: platform ?? s.platform } : s));
+    if (udid) setRow((s) => (s ? { ...s, udid, platform: platform ?? s.platform, physical: physical ?? s.physical } : s));
   }, [refId, applySimulatorState]);
 
   const udid = state.udid ?? row?.udid ?? null;
@@ -76,10 +90,10 @@ export function SimulatorPane({ item, visible }: PaneProps) {
     <div className="sim-pane">
       <div className="sim-body">
         {state.status === "failed"
-          ? <Failed state={state} onRetry={() => void start(null)} onPick={(d, p) => void start(d, p)} />
+          ? <Failed state={state} onRetry={() => void start(null)} onPick={(d, p, real) => void start(d, p, real)} />
           : state.status === "booting" || state.status === "serving"
             ? <Starting state={state} name={row?.name ?? null} />
-            : <DevicePicker chosen={udid} onPick={(d, p) => void start(d, p)} />}
+            : <DevicePicker chosen={udid} onPick={(d, p, real) => void start(d, p, real)} />}
       </div>
     </div>
   );
@@ -88,20 +102,28 @@ export function SimulatorPane({ item, visible }: PaneProps) {
 /** The empty state, and the only place a device is chosen. A list rather than a select: the rows
  *  carry a runtime and a state each, which is what tells two iPhone 17 Pros apart. */
 /** iOS first, then Android — the Mac's own platform leads, and a stable order beats one that
- *  changes with whatever happens to be booted. */
-function groupsOf(devices: SimulatorDevice[]): [SimulatorPlatform, SimulatorDevice[]][] {
-  const out: [SimulatorPlatform, SimulatorDevice[]][] = [];
-  for (const platform of ["ios", "android"] as const) {
-    const rows = devices.filter((d) => d.platform === platform);
-    if (rows.length) out.push([platform, rows]);
-  }
-  return out;
+ *  changes with whatever happens to be booted. A real iPhone or iPad is its own group, last: it is
+ *  somebody's phone on the cable, not one more simulator to boot. */
+type Group = { key: string; label: string; icon: "apple" | "android"; rows: SimulatorDevice[] };
+function groupsOf(devices: SimulatorDevice[]): Group[] {
+  const groups: Group[] = [
+    { key: "ios", label: "iOS", icon: "apple", rows: devices.filter((d) => d.platform === "ios" && !d.physical) },
+    { key: "android", label: "Android", icon: "android", rows: devices.filter((d) => d.platform === "android") },
+    { key: "connected", label: "Connected devices", icon: "apple", rows: devices.filter((d) => d.platform === "ios" && d.physical) },
+  ];
+  return groups.filter((g) => g.rows.length > 0);
 }
 
 /** "Already booted", in each toolchain's own word for it: simctl says `Booted`, adb says `device`. */
 const running = (d: SimulatorDevice): boolean => (d.platform === "android" ? d.state === "device" : d.state === "Booted");
 
-function DevicePicker({ chosen, onPick }: { chosen: string | null; onPick: (udid: string, platform: SimulatorPlatform) => void }) {
+/** The line under a device's name: its OS, and whatever about its state changes what a click does. */
+function factsOf(d: SimulatorDevice): string {
+  if (d.platform === "ios" && d.physical) return `${d.runtime} · ${d.state === "Connected" ? "real device" : d.state}`;
+  return `${d.runtime}${running(d) ? " · already booted" : ""}`;
+}
+
+function DevicePicker({ chosen, onPick }: { chosen: string | null; onPick: (udid: string, platform: SimulatorPlatform, physical: boolean) => void }) {
   const [devices, setDevices] = useState<SimulatorDevice[] | null>(null);
   const [available, setAvailable] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -145,23 +167,24 @@ function DevicePicker({ chosen, onPick }: { chosen: string | null; onPick: (udid
           and announces nothing about the device it is on. */}
       {/* Grouped by platform, and only when there is more than one: a Mac with no Android SDK must
           not grow a heading announcing the absence of a section. */}
-      {groupsOf(devices).map(([platform, rows]) => (
-        <div key={platform} className="sim-device-group">
+      {groupsOf(devices).map((group) => (
+        <div key={group.key} className="sim-device-group">
           {groupsOf(devices).length > 1 && (
             /* The mark before the word, at the inline rung (12) because it leads text at 11px. `Icon`
                marks every glyph `aria-hidden` itself — the heading already says the word. */
             <div className="sim-group-label">
-              <Icon name={platform === "android" ? "android" : "apple"} size={12} colored />
-              {platform === "android" ? "Android" : "iOS"}
+              <Icon name={group.icon} size={12} colored />
+              {group.label}
             </div>
           )}
-          <div className="sim-devices" role="group" aria-label={`${platform === "android" ? "Android" : "iOS"} devices on this Mac`}>
-            {rows.map((d) => (
+          <div className="sim-devices" role="group" aria-label={group.key === "connected" ? "Devices connected to this Mac" : `${group.label} devices on this Mac`}>
+            {group.rows.map((d) => (
               <button key={`${d.platform}:${d.udid}`} type="button" className="sim-device"
                 data-on={d.udid === chosen || undefined} disabled={busy !== null}
-                onClick={() => { setBusy(d.udid); onPick(d.udid, d.platform); }}>
+                title={d.physical ? "Runs Realm's test runner on the phone while its pane is open" : undefined}
+                onClick={() => { setBusy(d.udid); onPick(d.udid, d.platform, d.physical); }}>
                 <span className="sim-device-name">{d.name}</span>
-                <span className="sim-device-facts">{d.runtime}{running(d) ? " · already booted" : ""}</span>
+                <span className="sim-device-facts">{factsOf(d)}</span>
               </button>
             ))}
           </div>
@@ -172,6 +195,16 @@ function DevicePicker({ chosen, onPick }: { chosen: string | null; onPick: (udid
 }
 
 function Starting({ state, name }: { state: SimulatorState; name: string | null }) {
+  /* A phone does not boot: what takes the time is Realm's test runner, built the first time and
+     installed, then started. The sentence says so, and says the one thing the person can do wrong. */
+  if (state.physical) return (
+    <div className="sim-rest">
+      <h2 className="sim-title">Starting Realm's test runner…</h2>
+      <p className="sim-hint">
+        The first time, Realm builds it and installs it on {name ?? "the phone"}, which takes a minute or two. Keep the phone unlocked until its screen appears here.
+      </p>
+    </div>
+  );
   return (
     <div className="sim-rest">
       <h2 className="sim-title">{state.status === "booting" ? "Booting the simulator…" : "Starting the stream…"}</h2>
@@ -184,10 +217,10 @@ function Starting({ state, name }: { state: SimulatorState; name: string | null 
   );
 }
 
-function Failed({ state, onRetry, onPick }: { state: SimulatorState; onRetry: () => void; onPick: (udid: string, platform: SimulatorPlatform) => void }) {
+function Failed({ state, onRetry, onPick }: { state: SimulatorState; onRetry: () => void; onPick: (udid: string, platform: SimulatorPlatform, physical: boolean) => void }) {
   return (
     <div className="sim-rest">
-      <h2 className="sim-title">The simulator did not start</h2>
+      <h2 className="sim-title">{state.physical ? "Realm could not reach the phone" : "The simulator did not start"}</h2>
       <p className="sim-reason">{REASONS[state.error ?? ""] ?? REASONS.failed}</p>
       {/* What the failing command actually said. Mono, and kept: a `serve-sim` that cannot reach npm
           says so here, and a sentence of ours would only paraphrase it worse. */}

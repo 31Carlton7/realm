@@ -325,6 +325,7 @@ describe("which Xcode", () => {
     const m = mac({ "Xcode.app": "26.6" }, "Xcode.app");
     await expect(chooseXcode("27.2", { env: {}, exec: m.exec, applications: m.apps })).rejects.toMatchObject({
       code: "xcode_too_old", message: "The phone is on iOS 27.2, and the newest Xcode on this Mac is 26.6. Testing on iOS 27 needs Xcode 27 or later.",
+      detail: "iOS 27.2 on the phone, Xcode 26.6 on this Mac",
     });
   });
 

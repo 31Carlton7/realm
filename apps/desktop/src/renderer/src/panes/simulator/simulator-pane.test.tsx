@@ -37,6 +37,7 @@ vi.mock("../../rpc/client", () => ({
 }));
 
 import { SimulatorPane } from "./SimulatorPane";
+import { SimulatorPanelActions } from "./SimulatorBar";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item } from "../../state/store.test-fakes";
 
@@ -144,7 +145,7 @@ describe("choosing a device", () => {
     await waitFor(() => expect(calls.some((c) => c.method === "simulators.start")).toBe(true));
     // The platform rides WITH the udid: they are one fact about one device, and a row that kept
     // `ios` while pointed at an AVD would reach for simctl and fail talking about Xcode.
-    expect(calls.find((c) => c.method === "simulators.start")!.params).toEqual({ simulatorId: "sim-1", udid: "UDID-1", platform: "ios" });
+    expect(calls.find((c) => c.method === "simulators.start")!.params).toEqual({ simulatorId: "sim-1", udid: "UDID-1", platform: "ios", physical: false });
     expect(calls.some((c) => c.method === "simulators.update")).toBe(false);
   });
 
@@ -180,7 +181,31 @@ describe("choosing a device", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Realm Pixel/ }));
     await waitFor(() => expect(calls.some((c) => c.method === "simulators.start")).toBe(true));
     expect(calls.find((c) => c.method === "simulators.start")!.params)
-      .toEqual({ simulatorId: "sim-1", udid: "Realm_Pixel", platform: "android" });
+      .toEqual({ simulatorId: "sim-1", udid: "Realm_Pixel", platform: "android", physical: false });
+  });
+
+  it("shows a phone on the cable under its own heading, as a real device, and starts it as one", async () => {
+    devices = [
+      { udid: "UDID-1", platform: "ios", name: "iPhone 17 Pro", runtime: "iOS 27.0", state: "Shutdown", serial: null, physical: false },
+      { udid: "00008150-PHONE", platform: "ios", name: "Test’s iPhone", runtime: "iOS 27.2", state: "Connected", serial: null, physical: true },
+    ];
+    await mount();
+    const phone = await screen.findByRole("button", { name: /Test’s iPhone/ });
+    expect([...document.querySelectorAll(".sim-group-label")].map((e) => e.textContent)).toEqual(["iOS", "Connected devices"]);
+    // THE MUTANT: a phone listed as one more simulator — booted, or offered to boot.
+    expect(screen.getByRole("group", { name: "iOS devices on this Mac" }).textContent).not.toContain("Test’s iPhone");
+    expect(phone.textContent).toContain("iOS 27.2 · real device");
+    expect(phone.getAttribute("title")).toBe("Runs Realm's test runner on the phone while its pane is open");
+    fireEvent.click(phone);
+    await waitFor(() => expect(calls.some((c) => c.method === "simulators.start")).toBe(true));
+    expect(calls.find((c) => c.method === "simulators.start")!.params)
+      .toEqual({ simulatorId: "sim-1", udid: "00008150-PHONE", platform: "ios", physical: true });
+  });
+
+  it("says a phone with Developer Mode off is one, before anyone picks it", async () => {
+    devices = [{ udid: "00008150-PHONE", platform: "ios", name: "Test’s iPhone", runtime: "iOS 27.2", state: "Developer Mode off", serial: null, physical: true }];
+    await mount();
+    expect((await screen.findByRole("button", { name: /Test’s iPhone/ })).textContent).toContain("iOS 27.2 · Developer Mode off");
   });
 
   it("says what is missing when there is nothing to choose from", async () => {
@@ -200,6 +225,20 @@ describe("while it comes up", () => {
   it("says which step it is on rather than showing an empty pane", async () => {
     await mount({ ...off("sim-1"), status: "booting", udid: "UDID-1" });
     expect(screen.getByText(/Booting the simulator/)).toBeInTheDocument();
+  });
+
+  it("says a phone is starting Realm's runner, not booting — and what the person must not do meanwhile", async () => {
+    await mount({ ...off("sim-1"), status: "booting", udid: "00008150-PHONE", physical: true });
+    expect(screen.getByText("Starting Realm's test runner…")).toBeInTheDocument();
+    expect(screen.getByText(/Keep the phone unlocked/)).toBeInTheDocument();
+    expect(screen.queryByText(/Booting the simulator/)).toBeNull();
+  });
+
+  it("says what to do about a phone that did not start, with xcodebuild's own line", async () => {
+    await mount({ ...off("sim-1"), status: "failed", udid: "00008150-PHONE", physical: true, error: "ui_automation", detail: "Failed to enable UI Automation." });
+    expect(screen.getByText("Realm could not reach the phone")).toBeInTheDocument();
+    expect(screen.getByText(/Turn on Settings ▸ Developer ▸ Enable UI Automation/)).toBeInTheDocument();
+    expect(screen.getByText("Failed to enable UI Automation.")).toBeInTheDocument();
   });
 
   it("a failure names the step and keeps what the command said", async () => {
@@ -424,4 +463,34 @@ describe("the device frame", () => {
       expect(row.querySelector(`[aria-label="${name}"]`), name).not.toBeNull();
     }
   });
+
+  it("gives a phone only the buttons Realm presses on one: home and the volume — no side button, no rotation", async () => {
+    const { container } = await mount({ ...RUNNING, udid: "00008150-PHONE", physical: true });
+    const row = await waitFor(() => {
+      const el = container.querySelector(".sim-hardware");
+      if (!el) throw new Error("no hardware row");
+      return el;
+    });
+    expect([...row.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual(["Home button", "Volume up", "Volume down"]);
+  });
 });
+
+describe("the pane bar on a phone", () => {
+  async function bar(state: SimulatorState) {
+    const store = createAppStore(fakeApi());
+    await store.getState().boot();
+    act(() => store.getState().applySimulatorState(state));
+    return render(<StoreContext.Provider value={store}><SimulatorPanelActions item={paneItem} /></StoreContext.Provider>);
+  }
+
+  it("offers none of the simulator's own menu on a phone, and all of it on a simulator", async () => {
+    await bar({ ...RUNNING, physical: true });
+    expect(screen.queryByRole("button", { name: "Device settings" })).toBeNull();
+    // What does work on a phone stays: a screenshot, its elements, its apps, and stopping it.
+    for (const name of ["Take a screenshot", "Show the device's elements", "Apps on this device", "Stop streaming this phone"]) expect(screen.getByRole("button", { name })).toBeInTheDocument();
+    cleanup();
+    await bar(RUNNING);
+    expect(screen.getByRole("button", { name: "Device settings" })).toBeInTheDocument();
+  });
+});
+

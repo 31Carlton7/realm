@@ -526,7 +526,7 @@ export class SimulatorService {
     for (const [simulatorId, st] of this.state) {
       if (st.udid !== udid || !st.physical || (st.status !== "running" && st.status !== "serving")) continue;
       this.token.set(simulatorId, (this.token.get(simulatorId) ?? 0) + 1);
-      this.set({ ...OFF(simulatorId, udid, true), status: "failed", error: error.code, detail: error.detail ? `${error.message} ${error.detail}` : error.message });
+      this.set({ ...OFF(simulatorId, udid, true), status: "failed", error: error.code, detail: error.detail || null });
     }
   }
 
@@ -668,8 +668,10 @@ export class SimulatorService {
       this.set({ simulatorId, status: "running", udid, serial: null, streamUrl: up.streamUrl, wsUrl: up.wsUrl, screen: up.screen, error: null, detail: null, physical: true });
     } catch (e) {
       if (!current()) return;
+      /* The code is the word the pane and the tools turn into a sentence of their own, remedy and all;
+         the detail is what the command said — xcodebuild's own line — as the contract has it. */
       const [error, detail] = e instanceof RunnerError
-        ? [e.code, e.detail ? `${e.message} ${e.detail}` : e.message]
+        ? [e.code, e.detail || null]
         : ["failed", e instanceof Error ? e.message : String(e)];
       this.set({ ...OFF(simulatorId, udid, true), status: "failed", error, detail });
     }

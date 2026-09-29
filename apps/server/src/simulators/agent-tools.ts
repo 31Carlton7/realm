@@ -524,16 +524,17 @@ const FAILURE: Record<string, string> = {
   no_frames: "the stream started, but the device has not drawn anything yet",
   no_sdk: "there is no Android SDK on this Mac",
   failed: "something went wrong bringing it up",
-  // A real device's, from its runner (`device-runner.ts`). The state's detail carries the whole sentence.
-  locked: "the phone is locked",
-  developer_mode: "Developer Mode is off on it",
-  ui_automation: "it does not allow UI automation",
-  untrusted: "it has not trusted the developer certificate",
-  no_team: "there is no Apple Development identity on this Mac to sign Realm's test runner with",
-  sign_failed: "Realm's test runner could not be signed for it",
+  // A real device's, from its runner (`device-runner.ts`), each with what the USER does about it: an
+  // agent cannot unlock a phone or change its settings, and must not try.
+  locked: "the phone is locked. The user has to unlock it — Realm never works past a passcode",
+  developer_mode: "Developer Mode is off on it. The user turns it on in Settings ▸ Privacy & Security ▸ Developer Mode",
+  ui_automation: "it does not allow UI automation. The user turns on Settings ▸ Developer ▸ Enable UI Automation",
+  untrusted: "it has not trusted the developer certificate. The user trusts it in Settings ▸ General ▸ VPN & Device Management",
+  no_team: "there is no Apple Development identity on this Mac to sign Realm's test runner with. The user signs in under Xcode ▸ Settings ▸ Accounts",
+  sign_failed: "Realm's test runner could not be signed for it. Running any app on the phone from Xcode once registers it with the user's team",
   build_failed: "Realm's test runner did not build",
-  no_xcode: "Realm could not find Xcode",
-  xcode_too_old: "this Mac's Xcode is older than the phone's iOS",
+  no_xcode: "Realm could not find Xcode, which a real iPhone is reached through",
+  xcode_too_old: "this Mac's Xcode is older than the phone's iOS. The user installs a newer Xcode",
   not_connected: "it is not connected to this Mac now",
   no_source: "this Realm does not carry its device runner",
   runner_failed: "Realm's test runner did not start on it",
@@ -610,7 +611,7 @@ const HANDLERS: Record<string, Handler> = {
       return ok(`Opened ${name} (${device.runtime}) in simulator pane ${opened.simulatorId}, beside this session.${size} simulator_screenshot shows you the screen and simulator_elements lists what is on it.`);
     }
     if (state.status === "failed") {
-      const said = state.detail ? ` ${device.physical ? "" : "It said: "}${clip(state.detail, 600)}` : "";
+      const said = state.detail ? ` It said: ${clip(state.detail, 600)}` : "";
       return err(`${name} did not start in simulator pane ${opened.simulatorId}: ${FAILURE[state.error ?? ""] ?? FAILURE.failed}.${said}`);
     }
     if (device.physical) {

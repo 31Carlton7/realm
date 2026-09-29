@@ -109,14 +109,14 @@ describe("starting", () => {
   it("refuses a locked phone before anything is installed or run on it", async () => {
     const { service, log, open } = await setup({ locked: true });
     const id = await open();
-    expect(service.stateOf(id)).toMatchObject({ status: "failed", error: "locked", physical: true, detail: expect.stringContaining("is locked") });
+    expect(service.stateOf(id)).toMatchObject({ status: "failed", error: "locked", physical: true, detail: null });
     expect(log).toEqual([]);
   });
 
   it("shows why the runner did not start, in its words and xcodebuild's", async () => {
     const { service, open } = await setup({ ensure: async () => { throw new RunnerError("sign_failed", "Realm could not sign its test runner.", "error: No signing certificate \"iOS Development\" found"); } });
     const id = await open();
-    expect(service.stateOf(id)).toMatchObject({ status: "failed", error: "sign_failed", detail: "Realm could not sign its test runner. error: No signing certificate \"iOS Development\" found" });
+    expect(service.stateOf(id)).toMatchObject({ status: "failed", error: "sign_failed", detail: "error: No signing certificate \"iOS Development\" found" });
   });
 
   it("says a phone that is not connected now is not connected", async () => {
@@ -234,7 +234,7 @@ describe("stopping", () => {
     const { service, open } = await setup();
     const id = await open();
     service.runnerStopped(PHONE_UDID, new RunnerError("locked", "Test’s iPhone is locked.", "the device was locked"));
-    expect(service.stateOf(id)).toMatchObject({ status: "failed", error: "locked", detail: "Test’s iPhone is locked. the device was locked" });
+    expect(service.stateOf(id)).toMatchObject({ status: "failed", error: "locked", detail: "the device was locked" });
   });
 
   it("names the phone as the owner of its bridge's port, for the browser guard", async () => {

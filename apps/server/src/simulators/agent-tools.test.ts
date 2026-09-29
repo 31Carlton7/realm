@@ -1718,7 +1718,7 @@ describe("a real iPhone", () => {
     (dev.devicectl as unknown as { lockState: () => Promise<{ locked: boolean }> }).lockState = async () => ({ locked: true });
     const { r } = await opened(dev);
     expect(r.isError).toBe(true);
-    expect(text(r)).toMatch(/did not start in simulator pane \S+: the phone is locked\. Test’s iPhone is locked\. Unlock it and try again/);
+    expect(text(r)).toMatch(/did not start in simulator pane \S+: the phone is locked\. The user has to unlock it — Realm never works past a passcode\.$/);
   });
 
   it("reads the phone's screen by name, in points, numbered for the input tools", async () => {

@@ -118,7 +118,7 @@ export async function chooseXcode(osVersion: string, o: { env?: NodeJS.ProcessEn
   const forced = env.REALM_DEVELOPER_DIR?.trim();
   if (forced) {
     const version = await xcodeVersion(forced, exec);
-    if (!version) throw new RunnerError("no_xcode", `REALM_DEVELOPER_DIR points at ${forced}, which is not an Xcode.`);
+    if (!version) throw new RunnerError("no_xcode", `REALM_DEVELOPER_DIR points at ${forced}, which is not an Xcode.`, `REALM_DEVELOPER_DIR=${forced}`);
     return { developerDir: forced, version };
   }
   const selected = await exec("/usr/bin/xcode-select", ["-p"]);
@@ -141,7 +141,7 @@ export async function chooseXcode(osVersion: string, o: { env?: NodeJS.ProcessEn
     .sort((a, b) => b.version.localeCompare(a.version, "en", { numeric: true }))[0];
   if (fit) return fit;
   const newest = found.map((x) => x.version).sort((a, b) => b.localeCompare(a, "en", { numeric: true }))[0]!;
-  throw new RunnerError("xcode_too_old", `The phone is on iOS ${osVersion}, and the newest Xcode on this Mac is ${newest}. Testing on iOS ${need} needs Xcode ${need} or later.`);
+  throw new RunnerError("xcode_too_old", `The phone is on iOS ${osVersion}, and the newest Xcode on this Mac is ${newest}. Testing on iOS ${need} needs Xcode ${need} or later.`, `iOS ${osVersion} on the phone, Xcode ${newest} on this Mac`);
 }
 
 /* ── whose identity ──────────────────────────────────────────────────────────────────────────── */
