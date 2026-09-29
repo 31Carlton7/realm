@@ -31,8 +31,10 @@ import type { LayaChoiceAnswer, LayaClient, LayaNoulAnswer } from "./client";
  * **Candidates: at most 20, out of up to 500 elements.** Every element the agent could name —
  * anything with a label — is scored by how many of the intent's words its label shares (two points
  * each) and its value shares (one point); words are compared on their first five letters, so
- * "brighter" meets "Brightness". The 19 highest scores are kept, ties going to the element earlier in
- * the tree, and the element the agent actually addressed is ALWAYS added — label or no label, score
+ * "brighter" meets "Brightness". The 19 highest scores are kept, ties going to what can be tapped
+ * (`TAPPABLE_ROLE`, the walk's own test) and then to the element earlier in the tree — when the words
+ * share nothing, which is every step Assist is asked about, a screen's rows and buttons are the
+ * plausible options and its clock and headings are not — and the element the agent actually addressed is ALWAYS added — label or no label, score
  * or no score — so the ground truth is always one of the options. The kept set is then put back into
  * tree order, so where the right answer sits in the list says nothing about which one it is. Picking
  * by overlap makes the options the plausible ones: an easy distractor teaches nothing. (Laya's
@@ -378,13 +380,18 @@ export class LayaShadow {
 
 /* ---------------------------------- the pure parts ---------------------------------- */
 
+/** Roles a person taps, ahead of roles that only read — iOS's words and the Mac's (`AXMenuBarItem`,
+ *  `AXCheckBox`) both. The walk ranks its matches by this too. */
+export const TAPPABLE_ROLE = /button|cell|link|switch|toggle|tab|field|menu ?item|bar ?item|slider|segment|check ?box|radio|icon|key|row|pop ?up/i;
+
 /** The candidate rule described in the module comment. Exported for its tests. */
 export function pickCandidates(elements: readonly ObservedElement[], chosen: ObservedElement | null, intent: string): ObservedElement[] {
   const goal = new Set(words(intent).map(stem));
+  const tappable = (e: ObservedElement) => (TAPPABLE_ROLE.test(e.role) ? 1 : 0);
   const ranked = elements
     .map((e, i) => ({ e, i, score: overlap(goal, e) }))
     .filter(({ e }) => e.id !== chosen?.id && e.label.trim() !== "")
-    .sort((a, b) => b.score - a.score || a.i - b.i)
+    .sort((a, b) => b.score - a.score || tappable(b.e) - tappable(a.e) || a.i - b.i)
     .slice(0, chosen ? MAX_CANDIDATES - 1 : MAX_CANDIDATES);
   if (chosen) {
     const at = elements.findIndex((e) => e.id === chosen.id);
@@ -483,7 +490,8 @@ function optionsFor(candidates: ObservedElement[]): { criteria: Record<string, s
   return { criteria: Object.fromEntries(entries), idOf };
 }
 
-function describeTarget(e: ObservedElement): string {
+/** An element as the `sensitive` question and rule name it: "button 'Delete'", or its role alone. */
+export function describeTarget(e: ObservedElement): string {
   const label = e.label.trim();
   return label ? `${plainRole(e.role)} '${clip(label, 80)}'` : plainRole(e.role);
 }

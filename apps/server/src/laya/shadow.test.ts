@@ -316,6 +316,15 @@ describe("candidates", () => {
     expect(picked).toHaveLength(MAX_CANDIDATES);
   });
 
+  it("offer what can be tapped ahead of what only reads when the intent shares no word — Assist's every question", () => {
+    const elements = [...Array.from({ length: 25 }, (_, i) => el(String(i), `Caption ${i}`, "StaticText")), el("b", "Bluetooth", "Button")];
+    const picked = pickCandidates(elements, null, "pair my AirPods");
+    expect(picked).toHaveLength(MAX_CANDIDATES);
+    expect(picked.map((p) => p.id)).toContain("b");
+    // Still in the tree's order once chosen, so where the answer sits says nothing about it.
+    expect(picked[picked.length - 1]!.id).toBe("b");
+  });
+
   it("leave out elements nobody could name, unless the agent chose one", () => {
     expect(pickCandidates(SETTINGS, null, "x").map((p) => p.id)).not.toContain("6");
   });

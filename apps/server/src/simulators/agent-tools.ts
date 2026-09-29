@@ -19,7 +19,7 @@ import { decodePngToRgba, pngSize } from "../machines/qmp-driver";
 import { RpcError } from "../store/rows";
 import type { SimulatorService } from "./service";
 import { DEVICE_KEYS, inputRefusal, type DeviceInput, type DevicePoint } from "./device-input";
-import { runPath, tapPoint, type ExecIO, type ExecResult, type ExecStopReason } from "./executor";
+import { inStatusBar, runPath, tapPoint, type ExecIO, type ExecResult, type ExecStopReason } from "./executor";
 import type { ScreenMotion } from "./screen-motion";
 
 export const SIMULATOR_PROVIDER_NAME = "realm-simulator";
@@ -884,7 +884,7 @@ async function assisted(c: Call, tool: string, row: Simulator, a: z.infer<typeof
   const numberOf = (path: string) => first + shown.findIndex((e) => e.path === path);
   const name = clip(row.name, 60);
   const words = clip(a.target, 80);
-  const outcome = await assist.resolve(a.target, a.intent, shown.map(observed), tool);
+  const outcome = await assist.resolve(a.target, a.intent, shown.filter((e) => !inStatusBar(e, tree)).map(observed), tool);
   if (outcome.kind === "pick") {
     const live = shown.find((e) => e.path === outcome.element.id)!;
     const n = numberOf(live.path);

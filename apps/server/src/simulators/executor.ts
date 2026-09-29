@@ -1,6 +1,6 @@
 import type { SimulatorAxElement, SimulatorAxTree } from "@realm/contracts";
 import type { AssistOutcome } from "../laya/assist";
-import { sensitiveRule } from "../laya/shadow";
+import { TAPPABLE_ROLE as TAPPABLE, sensitiveRule } from "../laya/shadow";
 import type { ObservedElement } from "../mcp/act-observer";
 import type { MotionMark, ScreenMotion } from "./screen-motion";
 
@@ -115,9 +115,8 @@ export const DEFAULT_SETTLE: Settle = { tapTimeoutMs: 3_000, scrollTimeoutMs: 2_
 const SCROLL_CHANGE_WITHIN_MS = 300;
 export const DEFAULT_MAX_SCROLLS = 8;
 
-/** Roles a person taps, ahead of roles that only read — "Settings" the back button over "Settings" the
- *  heading. iOS's own words and the Mac's (`AXMenuBarItem`, `AXCheckBox`) both. */
-const TAPPABLE = /button|cell|link|switch|toggle|tab|field|menu ?item|bar ?item|slider|segment|check ?box|radio|icon|key|row|pop ?up/i;
+/* Roles a person taps rank ahead of roles that only read — "Settings" the back button over "Settings"
+ * the heading (`TAPPABLE_ROLE`, shared with Laya's candidate rule). */
 const READ_ONLY = /heading|static ?text|^(ax)?text$|label|header/i;
 const FIELD = /text ?field|search ?field|text ?view|text ?area|combo ?box|secure/i;
 
@@ -161,7 +160,9 @@ export async function runPath(io: ExecIO, o: ExecOptions): Promise<ExecResult> {
       if (found) break;
     }
     if (!found && io.laya) {
-      const outcome = await io.laya(label, tree.elements.map(observed));
+      // The clock, the battery and the signal are nobody's goal, and would take a place among the
+      // twenty candidates Laya chooses from.
+      const outcome = await io.laya(label, offeredToLaya(tree).map(observed));
       if (outcome.kind === "pick") {
         const el = tree.elements.find((e) => e.path === outcome.element.id);
         if (el) found = { el, how: "laya" };
@@ -330,8 +331,13 @@ function newLabels(before: WalkTree, after: WalkTree): number {
   return after.elements.filter((e) => e.label.trim() && onScreen(e, after) && !inStatusBar(e, after) && !had.has(e.label)).length;
 }
 
+/** What Laya may pick from when a label matches nothing: the screen, less its status bar. */
+export function offeredToLaya(tree: WalkTree): SimulatorAxElement[] {
+  return tree.elements.filter((e) => !inStatusBar(e, tree));
+}
+
 /** The clock, the battery and the signal: they change on their own, and nobody navigates by them. */
-const inStatusBar = (el: SimulatorAxElement, tree: WalkTree): boolean =>
+export const inStatusBar = (el: SimulatorAxElement, tree: WalkTree): boolean =>
   tree.screenChecks !== false && el.frame.y + el.frame.height <= 56 && !/button/i.test(el.role);
 
 /* ---------------------------------- settling ---------------------------------- */
