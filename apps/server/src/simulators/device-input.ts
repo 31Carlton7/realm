@@ -21,8 +21,12 @@ import { firstUntypeable } from "./android";
 export type DevicePoint = { x: number; y: number };
 
 export type DeviceInput =
-  | { kind: "tap"; at: DevicePoint; count: 1 | 2 }
-  | { kind: "hold"; at: DevicePoint; ms: number }
+  /** `expect` names the element a touch means, by its label. A device that can look under the finger
+   *  at the instant of the touch — a real iPhone, through Realm's runner — refuses a touch whose
+   *  element is not there any more. A simulator or emulator has nothing to ask at that instant, and
+   *  the touch goes as it would have. */
+  | { kind: "tap"; at: DevicePoint; count: 1 | 2; expect?: string }
+  | { kind: "hold"; at: DevicePoint; ms: number; expect?: string }
   /** `stopMs` holds the finger still at `to` before it lifts, so a list stops where the finger does
    *  rather than flying on — how a walk scrolls by a known amount. iOS only: Android's `input swipe`
    *  has no pause before the lift. */

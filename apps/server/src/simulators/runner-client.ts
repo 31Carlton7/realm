@@ -121,8 +121,10 @@ export class RunnerClient {
     return r.body;
   }
 
-  tap(x: number, y: number, count: 1 | 2, holdMs?: number): Promise<RunnerAct> {
-    return this.act("/tap", { x, y, count, ...(holdMs !== undefined ? { holdMs } : {}) });
+  /** `expect`, the label of the element the touch means: the runner looks under the finger just
+   *  before it touches, and refuses when that element is not there — or when a Dictate key is. */
+  tap(x: number, y: number, count: 1 | 2, holdMs?: number, expect?: string): Promise<RunnerAct> {
+    return this.act("/tap", { x, y, count, ...(holdMs !== undefined ? { holdMs } : {}), ...(expect ? { expect } : {}) });
   }
 
   swipe(from: { x: number; y: number }, to: { x: number; y: number }, durationMs: number, holdMs: number, stopMs?: number): Promise<RunnerAct> {

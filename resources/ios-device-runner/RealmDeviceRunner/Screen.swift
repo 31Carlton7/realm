@@ -103,6 +103,27 @@ enum Screen {
         return ["bundleId": front.bundleId, "tree": tree, "ms": ["foreground": ms(t0, t1), "snapshot": ms(t1, t2), "walk": ms(t2, Date())]]
     }
 
+    /// What a touch at a point lands on in the foreground app, deepest first, then everything it is
+    /// inside. At each level it is the LAST child holding the point, the one drawn on top: a
+    /// keyboard's window over the app's own, a sheet over its list.
+    static func chain(at point: CGPoint) async throws -> [XCUIElementSnapshot] {
+        let front = await foregroundApp()
+        var node: XCUIElementSnapshot = try front.app.snapshot()
+        var chain = [node]
+        while let next = node.children.last(where: { $0.frame.contains(point) }) {
+            chain.append(next)
+            node = next
+        }
+        return chain.reversed()
+    }
+
+    /// A key or button that starts dictation — the keyboard's microphone, or the one inside a search
+    /// field — by the identifier the system gives it, or else by its name.
+    static func isDictation(_ s: XCUIElementSnapshot) -> Bool {
+        let id = s.identifier.lowercased(), label = s.label.lowercased()
+        return id == "dictation" || label == "dictate" || label.hasPrefix("dictation")
+    }
+
     private static func node(_ s: XCUIElementSnapshot) -> [String: Any] {
         var out: [String: Any] = [
             "type": s.elementType.rawValue,

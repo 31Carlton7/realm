@@ -97,7 +97,8 @@ const SENSITIVE_RULES: RegExp[] = [
   /\b(delete|erase|remove|trash|wipe|reset|uninstall|discard)\b|\bclear\b(?! (?:text|search)\b)|\bformat\b(?= (?:the |this |a )?(?:disk|drive|volume|card|partition)\b)/i,
   /\b(send|post|publish|share|submit|reply|forward|invite|tweet)\b/i,
   /\b(password|passcode|passkey|secret|token|api key|credit card|card number|cvv|cvc|ssn|secure text field)\b/i,
-  /\b(allow|grant|authori[sz]e|approve|sign out|log out|deactivate)\b/i,
+  // Dictation turns on the microphone: never a step Realm takes on anyone's behalf.
+  /\b(allow|grant|authori[sz]e|approve|sign out|log out|deactivate|dictate|dictation)\b/i,
 ];
 
 /** A step that follows too late says nothing about the one before it. */
