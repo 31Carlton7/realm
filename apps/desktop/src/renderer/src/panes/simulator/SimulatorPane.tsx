@@ -28,7 +28,7 @@ import { SimulatorHardware } from "./SimulatorBar";
  */
 
 const OFF = (simulatorId: string): SimulatorState =>
-  ({ simulatorId, status: "off", udid: null, serial: null, streamUrl: null, wsUrl: null, screen: null, error: null, detail: null });
+  ({ simulatorId, status: "off", udid: null, serial: null, streamUrl: null, wsUrl: null, screen: null, error: null, detail: null, physical: false });
 
 /** What the pane says about each failure. The service sends a WORD; this is the only place that
  *  turns one into a sentence — `MachinePane.REASONS`' arrangement, for its reason. */

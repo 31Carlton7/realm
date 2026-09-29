@@ -691,4 +691,11 @@ export const migrations: string[] = [
   ALTER TABLE sessions ADD COLUMN rewind_fork_json TEXT;
   ALTER TABLE sessions ADD COLUMN rewind_refusal TEXT;
   `,
+  // v34 — `simulators.physical`: the row is a real iPhone or iPad on this Mac's cable, not a simulator.
+  //
+  // v32's reasoning, again: defaulted rather than backfilled, because every row written before real
+  // devices existed IS a simulator; and a column rather than an inference, because the difference
+  // decides how the device is reached (Realm's test runner, not simctl) and that its input card is
+  // asked even under bypassPermissions — nothing a udid's shape should be trusted to say.
+  `ALTER TABLE simulators ADD COLUMN physical INTEGER NOT NULL DEFAULT 0;`,
 ];

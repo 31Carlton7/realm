@@ -28,7 +28,7 @@ describe("the device list", () => {
     const devices = parseDevices(DUMP);
     expect(devices[0]).toEqual({
       udid: "75D1511C-5E00-41A6-9CA2-1650DEAAF571", platform: "ios", name: "iPhone 17 Pro",
-      runtime: "iOS 27.0", state: "Booted", serial: null,
+      runtime: "iOS 27.0", state: "Booted", serial: null, physical: false,
     });
   });
 
@@ -68,7 +68,7 @@ describe("the device list", () => {
     expect(parseDevices("not json")).toEqual([]);
     expect(parseDevices("{}")).toEqual([]);
     expect(parseDevices(JSON.stringify({ devices: { "x.iOS-1-0": [{ name: "no udid" }, { udid: "u", name: "ok" }] } })))
-      .toEqual([{ udid: "u", platform: "ios", name: "ok", runtime: "iOS 1.0", state: "Unknown", serial: null }]);
+      .toEqual([{ udid: "u", platform: "ios", name: "ok", runtime: "iOS 1.0", state: "Unknown", serial: null, physical: false }]);
   });
 
   it("is repointable, so a Mac with Xcode somewhere unusual is reachable", () => {

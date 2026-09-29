@@ -28,7 +28,7 @@ function fakeAndroid(over: Partial<Android> = {}) {
   const base: Android = {
     available: async () => true,
     devices: async (): Promise<SimulatorDevice[]> => [
-      { udid: AVD, platform: "android", name: "Realm Pixel", runtime: "Android 16", state: "Shutdown", serial: null },
+      { udid: AVD, platform: "android", name: "Realm Pixel", runtime: "Android 16", state: "Shutdown", serial: null, physical: false },
     ],
     boot: async (avd) => { calls.push(`boot:${avd}`); return { ok: true, detail: "" }; },
     waitForBoot: async () => { calls.push("waitForBoot"); return true; },

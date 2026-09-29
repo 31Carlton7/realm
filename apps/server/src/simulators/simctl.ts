@@ -48,7 +48,7 @@ export function parseDevices(stdout: string): SimulatorDevice[] {
       if (typeof d?.udid !== "string" || typeof d.name !== "string") continue;
       if (d.isAvailable === false) continue;
       out.push({ udid: d.udid, platform: "ios", name: d.name, runtime: runtimeLabel(runtime),
-        state: typeof d.state === "string" ? d.state : "Unknown", serial: null });
+        state: typeof d.state === "string" ? d.state : "Unknown", serial: null, physical: false });
     }
   }
   /* Platform first and alphabetically, then that platform's NEWEST runtime, then by name.

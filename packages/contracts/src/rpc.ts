@@ -667,7 +667,10 @@ export const Methods = {
     /* Sent with the udid because the two are one fact. Optional so an older client, or a
        restart of a row that already knows what it is, keeps working — the service falls back
        to the row's stored platform. */
-    platform: SimulatorPlatformSchema.optional() }), result: z.object({ state: SimulatorStateSchema }) },
+    platform: SimulatorPlatformSchema.optional(),
+    /* A real phone rather than a simulator — the third half of that one fact, sent with it for the
+       same reason and optional on the same terms. */
+    physical: z.boolean().optional() }), result: z.object({ state: SimulatorStateSchema }) },
   /** Kills the STREAM. The device stays booted: it is usually somebody's Xcode session. */
   "simulators.stop": { params: z.object({ simulatorId: IdSchema }), result: z.object({ state: SimulatorStateSchema }) },
   "simulators.close": { params: z.object({ simulatorId: IdSchema }), result: z.object({ ok: z.literal(true) }) },

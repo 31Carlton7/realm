@@ -359,7 +359,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  a stream without the developer's own Xcode — and the input socket, so a tap in a suite is
    *  recorded rather than sent to whatever serve-sim this Mac is running. Production callers pass
    *  none and get the real `xcrun simctl`, `serve-sim`, adb and socket. */
-  simulator?: Pick<import("./simulators/service").SimulatorServiceDeps, "simctl" | "serveSim" | "android" | "inputChannel">;
+  simulator?: Pick<import("./simulators/service").SimulatorServiceDeps, "simctl" | "serveSim" | "android" | "inputChannel" | "physical">;
+  /** Real iPhones and iPads — devicectl, usbmuxd and Realm's test runner (`simulators/physical.ts`).
+   *  Only `main.ts` passes it: every other `createApp` is a test or a script, and nothing but the real
+   *  server may list a phone, build for one or run anything on it. `onExit` is how a runner that
+   *  stopped by itself reaches the panes showing it. */
+  physicalDevices?: (onExit: (udid: string, error: import("./simulators/device-runner").RunnerError) => void) => import("./simulators/service").SimulatorServiceDeps["physical"];
   /** Whether this Mac can run a simulator — the answer behind the simulator tools, the preamble's
    *  paragraph about them and their settings row. `main.ts` passes the real probe
    *  (`toolchainAvailable`); left out, nothing is probed and the answer stays "not known", so a suite
@@ -485,7 +490,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /* An Apple Simulator in a pane. Nothing is constructed for it beyond this: the pixels come from
      `serve-sim` over loopback and the renderer reads them itself, so there is no proxy, no port and
      no driver — the three things `MachineService` above needs a page of wiring for. */
-  const simulators = new SimulatorService({ rpc, spaces, items, simulators: simulatorsStore, ...opts.simulator });
+  let simulatorsLate: SimulatorService | null = null;
+  const physicalDevices = opts.physicalDevices?.((udid, error) => simulatorsLate?.runnerStopped(udid, error)) ?? opts.simulator?.physical;
+  const simulators = new SimulatorService({ rpc, spaces, items, simulators: simulatorsStore, ...opts.simulator, physical: physicalDevices });
+  simulatorsLate = simulators;
   // Plan 22: the preview listener guides and PDFs are framed from. Its root lookup is late-bound to
   // the service below (a workspace id → its checkout), which is the only thing it needs to know.
   const preview = new DocumentPreviewServer({ rootOf: (id) => documents.rootOfWorkspace(id) });
@@ -996,6 +1004,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // Awaited, and before `db.close()`: an un-awaited close leaves live sockets to somebody else's
     // Mac open past the process, and the service writes a ws port back to the row as each drops.
     await machines.closeAll();
+    // Realm's test runner comes off every phone it is on: a phone is its owner's once Realm is gone.
+    await simulators.closeAll();
     await preview.close();
     await mcpGateway.close();
     await mcpHub.close();

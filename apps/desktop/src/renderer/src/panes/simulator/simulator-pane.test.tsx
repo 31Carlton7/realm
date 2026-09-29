@@ -7,8 +7,8 @@ import type { SimulatorState } from "@realm/contracts";
  *  singleton, which needs a real port — so the socket is the seam, and the calls are the script. */
 const calls: { method: string; params: any }[] = [];
 let devices: SimulatorDevice[] = [
-  { udid: "UDID-1", platform: "ios", name: "iPhone 17 Pro", runtime: "iOS 27.0", state: "Shutdown", serial: null },
-  { udid: "UDID-2", platform: "ios", name: "iPad Pro 13-inch", runtime: "iPadOS 27.0", state: "Booted", serial: null },
+  { udid: "UDID-1", platform: "ios", name: "iPhone 17 Pro", runtime: "iOS 27.0", state: "Shutdown", serial: null, physical: false },
+  { udid: "UDID-2", platform: "ios", name: "iPad Pro 13-inch", runtime: "iPadOS 27.0", state: "Booted", serial: null, physical: false },
 ];
 let available = true;
 let getState: SimulatorState = off("sim-1");
@@ -41,13 +41,13 @@ import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item } from "../../state/store.test-fakes";
 
 function off(id: string): SimulatorState {
-  return { simulatorId: id, status: "off", udid: null, serial: null, streamUrl: null, wsUrl: null, screen: null, error: null, detail: null };
+  return { simulatorId: id, status: "off", udid: null, serial: null, streamUrl: null, wsUrl: null, screen: null, error: null, detail: null, physical: false };
 }
 const RUNNING: SimulatorState = {
   simulatorId: "sim-1", status: "running", udid: "UDID-1", serial: null,
   streamUrl: "http://127.0.0.1:3100/helper/UDID-1/stream.mjpeg",
   wsUrl: "ws://127.0.0.1:3100/helper/UDID-1/ws",
-  screen: { width: 1206, height: 2622, orientation: "portrait" }, error: null, detail: null,
+  screen: { width: 1206, height: 2622, orientation: "portrait" }, error: null, detail: null, physical: false,
 };
 
 /** The device's input socket. jsdom has no WebSocket that connects to anything, so this stands in
@@ -102,8 +102,8 @@ async function mount(state: SimulatorState = off("sim-1")) {
 beforeEach(() => {
   calls.length = 0; sockets.length = 0; settings = {}; platform = "ios";
   devices = [
-    { udid: "UDID-1", platform: "ios", name: "iPhone 17 Pro", runtime: "iOS 27.0", state: "Shutdown", serial: null },
-    { udid: "UDID-2", platform: "ios", name: "iPad Pro 13-inch", runtime: "iPadOS 27.0", state: "Booted", serial: null },
+    { udid: "UDID-1", platform: "ios", name: "iPhone 17 Pro", runtime: "iOS 27.0", state: "Shutdown", serial: null, physical: false },
+    { udid: "UDID-2", platform: "ios", name: "iPad Pro 13-inch", runtime: "iPadOS 27.0", state: "Booted", serial: null, physical: false },
   ];
   available = true;
   vi.stubGlobal("WebSocket", FakeSocket);
@@ -158,8 +158,8 @@ describe("choosing a device", () => {
 
   it("shows an Android device beside the iOS ones, under its own heading", async () => {
     devices = [
-      { udid: "UDID-1", platform: "ios", name: "iPhone 17 Pro", runtime: "iOS 27.0", state: "Shutdown", serial: null },
-      { udid: "Realm_Pixel", platform: "android", name: "Realm Pixel", runtime: "Android 16", state: "device", serial: "emulator-5554" },
+      { udid: "UDID-1", platform: "ios", name: "iPhone 17 Pro", runtime: "iOS 27.0", state: "Shutdown", serial: null, physical: false },
+      { udid: "Realm_Pixel", platform: "android", name: "Realm Pixel", runtime: "Android 16", state: "device", serial: "emulator-5554", physical: false },
     ];
     await mount();
     expect(await screen.findByRole("button", { name: /Realm Pixel/ })).toBeInTheDocument();
@@ -175,7 +175,7 @@ describe("choosing a device", () => {
   });
 
   it("sends the platform with the udid when an Android device is picked", async () => {
-    devices = [{ udid: "Realm_Pixel", platform: "android", name: "Realm Pixel", runtime: "Android 16", state: "Shutdown", serial: null }];
+    devices = [{ udid: "Realm_Pixel", platform: "android", name: "Realm Pixel", runtime: "Android 16", state: "Shutdown", serial: null, physical: false }];
     await mount();
     fireEvent.click(await screen.findByRole("button", { name: /Realm Pixel/ }));
     await waitFor(() => expect(calls.some((c) => c.method === "simulators.start")).toBe(true));

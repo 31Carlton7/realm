@@ -73,6 +73,9 @@ export const ANDROID_KEYCODES: Record<DeviceKey, string> = {
   up: "KEYCODE_DPAD_UP", down: "KEYCODE_DPAD_DOWN", left: "KEYCODE_DPAD_LEFT", right: "KEYCODE_DPAD_RIGHT",
 };
 
+/** What Realm's test runner can press on a real iPhone (`resources/ios-device-runner`). */
+const PHONE_KEYS: ReadonlySet<DeviceKey> = new Set(["home", "volume-up", "volume-down", "return", "delete", "space"]);
+
 /** A new line is return and a tab is tab, on both platforms; a carriage return is dropped, as
  *  serve-sim's own `type` drops it, so text with Windows line endings is not typed twice. */
 const TYPED_AS_KEY: Record<string, string> = { "\n": "Enter", "\t": "Tab" };
@@ -85,9 +88,17 @@ const TYPED_AS_KEY: Record<string, string> = { "\n": "Enter", "\t": "Tab" };
  * `input text` knows printable ASCII and nothing else. Either way the answer is the same set of
  * characters, and the refusal names the first one outside it, so it can be acted on.
  */
-export function inputRefusal(input: DeviceInput, platform: SimulatorPlatform): string | null {
+export function inputRefusal(input: DeviceInput, platform: SimulatorPlatform, physical = false): string | null {
   if (input.kind === "press" && input.key === "back" && platform === "ios") {
     return "iOS has no back button. Tap the app's own Back button instead — simulator_elements lists it.";
+  }
+  /* A real iPhone is pressed through Realm's test runner, which has fewer keys than serve-sim. The side
+     button is left out on purpose: a phone Realm locked is one only its owner can unlock. The arrows,
+     tab and escape go through the runner's typing, which MEASURED puts ← and → into a field as text. */
+  if (physical && platform === "ios" && input.kind === "press" && !PHONE_KEYS.has(input.key)) {
+    return input.key === "lock"
+      ? "Realm never presses a real iPhone's side button: a phone it locked is one only its owner can unlock. Press home to leave an app."
+      : `a real iPhone takes home, volume-up, volume-down, return, delete and space from Realm — not ${input.key}.`;
   }
   if (input.kind !== "text") return null;
   const bad = platform === "ios"

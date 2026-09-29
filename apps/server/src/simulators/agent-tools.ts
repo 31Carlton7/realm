@@ -80,16 +80,18 @@ export const SIMULATOR_PROVIDER_NAME = "realm-simulator";
  *   - **Mutating** (`simulator_open`, `simulator_install`, `simulator_launch`, `simulator_open_url`)
  *     goes through the session's normal permission flow — the same broker the browser tools gate on,
  *     so bypassPermissions skips the card and Plan refuses. Nothing here reaches past what the agent's
- *     own shell could do with `xcrun simctl`; what the card is for is the device and the build.
+ *     own shell could do with `xcrun simctl`; what the card is for is the device and the build. On a
+ *     physical device the card is asked under bypassPermissions too, for the reason the input card is.
  *   - **Input** (tap, double tap, long press, swipe, type, press) asks ONCE per device per session:
  *     the card names the device and says it is for the rest of the session, and either Allow keeps
  *     it (`perSession`). It is keyed on the device the way `realm-computer` keys its card on the app,
  *     so approving one phone approves no other. Plan and Ask refuse. bypassPermissions skips it for a
  *     simulator or an emulator, as it does every other card here — the device is a sandbox in a pane
  *     beside the session, and the agent's own shell reaches it anyway, through serve-sim's CLI or
- *     `adb shell input`. It does not skip it for a physical Android phone on a cable
- *     (`promptUnderBypass`): that is somebody's phone, with their accounts on it, and computer use's
- *     reasoning holds there rather than the browser's.
+ *     `adb shell input`. It does not skip it for a physical device — an Android phone on a cable, or a
+ *     real iPhone driven through Realm's test runner (`promptUnderBypass`): that is somebody's phone,
+ *     with their accounts on it, and computer use's reasoning holds there rather than the browser's.
+ *     The card is the device's card for `simulator_do` too.
  *
  * ## The observer
  *
@@ -108,7 +110,7 @@ export const SIMULATOR_PROVIDER_NAME = "realm-simulator";
 export type SimulatorAgentToolsDeps = {
   mcp: Pick<McpService, "providerEnabled">;
   simulators: Pick<SimulatorService,
-    "devices" | "list" | "stateOf" | "create" | "start" | "ax" | "apps" | "act" | "capture" | "screenshot" | "streamedOn" | "input" | "motion">;
+    "devices" | "list" | "stateOf" | "create" | "start" | "ax" | "apps" | "app" | "act" | "capture" | "screenshot" | "streamedOn" | "input" | "motion">;
   items: Pick<ItemsStore, "findByRefId">;
   broker: Pick<BrowserPermissionBroker, "gate">;
   rpc: Pick<RpcServer, "broadcast">;
@@ -258,13 +260,13 @@ const TOOLS: Tool[] = [
   {
     name: "simulator_list",
     description:
-      "List the iOS simulators and Android emulators this Mac can run — udid, name, runtime, and whether each is booted — and which are open in a simulator pane in this space, with the simulatorId the other simulator tools take. Read-only.",
+      "List the iOS simulators and Android emulators this Mac can run, and the real iPhones and iPads connected to it — udid, name, runtime, and whether each is booted — and which are open in a simulator pane in this space, with the simulatorId the other simulator tools take. Read-only.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "simulator_open",
     description:
-      "Open a device in a simulator pane beside this session, booting it first if it is not running, and wait for its screen. Returns the simulatorId the other simulator tools take. A device already open in a pane in this space is brought back rather than opened twice. This is how to run and show an app on a simulator: do not start serve-sim yourself, and do not open a simulator's stream in a browser pane. Asks the user for permission.",
+      "Open a device in a simulator pane beside this session, booting it first if it is not running, and wait for its screen. Returns the simulatorId the other simulator tools take. A device already open in a pane in this space is brought back rather than opened twice. This is how to run and show an app on a simulator: do not start serve-sim yourself, and do not open a simulator's stream in a browser pane. A real iPhone is opened through Realm's own test runner, which Realm builds, installs and runs on it; the phone has to be unlocked. Asks the user for permission.",
     inputSchema: {
       type: "object",
       properties: { udid: { type: "string", description: "the device's udid, from simulator_list" } },
@@ -414,7 +416,7 @@ const TOOLS: Tool[] = [
   {
     name: "simulator_press",
     description:
-      "Press a hardware button or a key: home; lock, the side button, which locks the screen or wakes it; volume-up and volume-down; back, on Android only; and the keys return, delete, tab, escape, space, up, down, left and right, which go to whatever has focus. Asks the user once per device per session.",
+      "Press a hardware button or a key: home; lock, the side button, which locks the screen or wakes it; volume-up and volume-down; back, on Android only; and the keys return, delete, tab, escape, space, up, down, left and right, which go to whatever has focus. A real iPhone takes home, volume-up, volume-down, return, delete and space. Asks the user once per device per session.",
     inputSchema: {
       type: "object",
       properties: { simulatorId: SIMULATOR_ID, intent: INTENT, key: { type: "string", enum: [...DEVICE_KEYS] } },
@@ -508,8 +510,8 @@ const NO_TOOLCHAIN =
   "there are no simulators on this Mac: Realm could not run `xcrun simctl` or find an Android SDK. Xcode or Android Studio provides them.";
 
 /** "Booted", in each toolchain's own word for it — simctl says `Booted`, adb says `device`. The pane
- *  reads the same two words the same way. */
-const booted = (dev: SimulatorDevice): boolean => (dev.platform === "android" ? dev.state === "device" : dev.state === "Booted");
+ *  reads the same two words the same way. A real phone is on; what matters is that it is connected. */
+const booted = (dev: SimulatorDevice): boolean => (dev.platform === "android" ? dev.state === "device" : dev.physical || dev.state === "Booted");
 
 const STATUS_WORD: Record<SimulatorState["status"], string> = {
   off: "not streaming", booting: "booting", serving: "starting its stream", running: "running", failed: "failed to start",
@@ -522,6 +524,19 @@ const FAILURE: Record<string, string> = {
   no_frames: "the stream started, but the device has not drawn anything yet",
   no_sdk: "there is no Android SDK on this Mac",
   failed: "something went wrong bringing it up",
+  // A real device's, from its runner (`device-runner.ts`). The state's detail carries the whole sentence.
+  locked: "the phone is locked",
+  developer_mode: "Developer Mode is off on it",
+  ui_automation: "it does not allow UI automation",
+  untrusted: "it has not trusted the developer certificate",
+  no_team: "there is no Apple Development identity on this Mac to sign Realm's test runner with",
+  sign_failed: "Realm's test runner could not be signed for it",
+  build_failed: "Realm's test runner did not build",
+  no_xcode: "Realm could not find Xcode",
+  xcode_too_old: "this Mac's Xcode is older than the phone's iOS",
+  not_connected: "it is not connected to this Mac now",
+  no_source: "this Realm does not carry its device runner",
+  runner_failed: "Realm's test runner did not start on it",
 };
 
 const HANDLERS: Record<string, Handler> = {
@@ -533,11 +548,16 @@ const HANDLERS: Record<string, Handler> = {
     const panes = d.simulators.list(ctx.spaceId);
     const line = (dev: SimulatorDevice): string => {
       const open = panes.filter((p) => p.udid === dev.udid).map((p) => `in pane ${p.id} (${STATUS_WORD[d.simulators.stateOf(p.id).status]})`);
-      return `  ${dev.udid} — ${clip(dev.name, 60)} · ${dev.runtime} · ${booted(dev) ? "booted" : dev.state === "Shutdown" ? "not running" : dev.state}${open.length > 0 ? ` · ${open.join(", ")}` : ""}`;
+      const state = dev.physical
+        ? `a real device${dev.state === "Connected" || dev.state === "device" ? ", connected" : ` — ${dev.state}`}`
+        : booted(dev) ? "booted" : dev.state === "Shutdown" ? "not running" : dev.state;
+      return `  ${dev.udid} — ${clip(dev.name, 60)} · ${dev.runtime} · ${state}${open.length > 0 ? ` · ${open.join(", ")}` : ""}`;
     };
-    const groups = (["ios", "android"] as const).flatMap((platform) => {
-      const rows = devices.filter((x) => x.platform === platform);
-      return rows.length > 0 ? [`${platform === "ios" ? "iOS" : "Android"}\n${rows.map(line).join("\n")}`] : [];
+    // Real devices in a group of their own: somebody's phone is not one more simulator to boot.
+    const groups = ([["iOS", (x: SimulatorDevice) => x.platform === "ios" && !x.physical], ["Android", (x: SimulatorDevice) => x.platform === "android"],
+      ["Real iPhones and iPads", (x: SimulatorDevice) => x.platform === "ios" && x.physical]] as const).flatMap(([heading, is]) => {
+      const rows = devices.filter(is);
+      return rows.length > 0 ? [`${heading}\n${rows.map(line).join("\n")}`] : [];
     });
     return ok(`Devices this Mac can run. Pass a udid to simulator_open.\n${groups.join("\n")}`);
   },
@@ -552,8 +572,11 @@ const HANDLERS: Record<string, Handler> = {
     if (!device) return err(`no device "${clip(args.value.udid, 60)}" on this Mac — simulator_list shows the udids it has.`);
     const name = clip(device.name, 60);
 
-    const title = `Open ${name} (${device.runtime}) in a simulator pane${booted(device) ? "" : " — boots it"}`;
-    const gate = await d.broker.gate(ctx.sessionId, "simulator_open", title, { udid: device.udid, name: device.name, runtime: device.runtime });
+    const title = device.physical
+      ? `Open ${name} (${device.runtime}), a physical phone, in a simulator pane — runs Realm's test runner on it`
+      : `Open ${name} (${device.runtime}) in a simulator pane${booted(device) ? "" : " — boots it"}`;
+    const gate = await d.broker.gate(ctx.sessionId, "simulator_open", title, { udid: device.udid, name: device.name, runtime: device.runtime },
+      "simulator_open", { promptUnderBypass: device.physical });
     if (!gate.allowed) return err(gate.reason);
 
     /* One pane per device per space. A second pane on the same phone is legal — two panes share one
@@ -571,7 +594,7 @@ const HANDLERS: Record<string, Handler> = {
     // A pane already streaming, or already on its way, is left to it: `start` re-walks from the top,
     // and the pane would flash back to "Booting" for a device that was up.
     const before = d.simulators.stateOf(opened.simulatorId).status;
-    if (before !== "running" && before !== "booting" && before !== "serving") d.simulators.start(opened.simulatorId, device.udid, device.platform);
+    if (before !== "running" && before !== "booting" && before !== "serving") d.simulators.start(opened.simulatorId, device.udid, device.platform, device.physical);
     // Before the wait, not after it: the pane's own progress is the thing worth watching during a
     // cold boot, and it can only be watched once the pane is in the layout.
     d.rpc.broadcast("simulator.agentOpened", { spaceId: ctx.spaceId, simulatorId: opened.simulatorId, itemId: opened.itemId });
@@ -587,8 +610,11 @@ const HANDLERS: Record<string, Handler> = {
       return ok(`Opened ${name} (${device.runtime}) in simulator pane ${opened.simulatorId}, beside this session.${size} simulator_screenshot shows you the screen and simulator_elements lists what is on it.`);
     }
     if (state.status === "failed") {
-      const said = state.detail ? ` It said: ${clip(state.detail, 400)}` : "";
+      const said = state.detail ? ` ${device.physical ? "" : "It said: "}${clip(state.detail, 600)}` : "";
       return err(`${name} did not start in simulator pane ${opened.simulatorId}: ${FAILURE[state.error ?? ""] ?? FAILURE.failed}.${said}`);
+    }
+    if (device.physical) {
+      return ok(`Realm is still starting its test runner on ${name} in simulator pane ${opened.simulatorId} — the first time, it builds and installs the runner, which takes a minute or two. The pane shows its progress; simulator_open again, or simulator_list, says when it is up.`);
     }
     return ok(`${name} is still ${STATUS_WORD[state.status]} in simulator pane ${opened.simulatorId} — a cold boot can take a minute. The pane shows its progress; simulator_screenshot works once it is up.`);
   },
@@ -644,9 +670,13 @@ const HANDLERS: Record<string, Handler> = {
     const row = requireRunning(d, ctx, args.value.simulatorId); if ("error" in row) return row.error;
     const apps = await d.simulators.apps(row.value.id);
     const name = clip(row.value.name, 60);
-    if (apps.length === 0) return ok(`${name} reports no apps.`);
+    // A real phone lists what Xcode installed on it and nothing else the owner has: their apps' names
+    // are theirs. Apple's own apps launch by bundle id all the same.
+    const system = row.value.physical ? " Apple's apps launch by their bundle id too — com.apple.Preferences is Settings." : "";
+    if (apps.length === 0) return ok(row.value.physical ? `Xcode has installed no apps on ${name}.${system}` : `${name} reports no apps.`);
     const lines = apps.map((a) => `${a.bundleId} — ${clip(a.name, 60)}`);
-    return ok(`Apps on ${name}, the user's own first. Pass a bundle id to simulator_launch.\n${fenceUntrusted(lines.join("\n"), "APP NAMES AS THE DEVICE REPORTS THEM")}`);
+    const head = row.value.physical ? `Apps Xcode installed on ${name} — the only ones a real device's list includes.${system}` : `Apps on ${name}, the user's own first.`;
+    return ok(`${head} Pass a bundle id to simulator_launch.\n${fenceUntrusted(lines.join("\n"), "APP NAMES AS THE DEVICE REPORTS THEM")}`);
   },
 
   simulator_install: async ({ d, ctx }, raw) => {
@@ -658,7 +688,8 @@ const HANDLERS: Record<string, Handler> = {
     const row = requireRunning(d, ctx, args.value.simulatorId); if ("error" in row) return row.error;
     const name = clip(row.value.name, 60);
     const file = clip(basename(path), 60);
-    const gate = await d.broker.gate(ctx.sessionId, "simulator_install", `Install ${file} on ${name}`, { simulatorId: row.value.id, path });
+    const gate = await d.broker.gate(ctx.sessionId, "simulator_install", `Install ${file} on ${name}${onPhone(d, row.value)}`, { simulatorId: row.value.id, path },
+      "simulator_install", { promptUnderBypass: isPhysical(d, row.value) });
     if (!gate.allowed) return err(gate.reason);
     const r = await d.simulators.act(row.value.id, { kind: "install", path });
     return r.ok
@@ -671,7 +702,8 @@ const HANDLERS: Record<string, Handler> = {
     const row = requireRunning(d, ctx, args.value.simulatorId); if ("error" in row) return row.error;
     const { bundleId } = args.value;
     const name = clip(row.value.name, 60);
-    const gate = await d.broker.gate(ctx.sessionId, "simulator_launch", `Launch ${clip(bundleId, 80)} on ${name}`, { simulatorId: row.value.id, bundleId });
+    const gate = await d.broker.gate(ctx.sessionId, "simulator_launch", `Launch ${clip(bundleId, 80)} on ${name}${onPhone(d, row.value)}`, { simulatorId: row.value.id, bundleId },
+      "simulator_launch", { promptUnderBypass: isPhysical(d, row.value) });
     if (!gate.allowed) return err(gate.reason);
     const r = await d.simulators.act(row.value.id, { kind: "launch", bundleId });
     return r.ok
@@ -756,14 +788,15 @@ const HANDLERS: Record<string, Handler> = {
     const name = clip(row.value.name, 60);
     // Before any card: text the device cannot type is no walk at all.
     if (a.text !== undefined) {
-      const refused = inputRefusal({ kind: "text", text: a.text }, row.value.platform);
+      const refused = inputRefusal({ kind: "text", text: a.text }, row.value.platform, row.value.physical);
       if (refused) return err(refused);
     }
     let launched: string | undefined;
     if (a.app !== undefined) {
-      const app = (await c.d.simulators.apps(row.value.id)).find((x) => x.bundleId === a.app);
+      const app = await c.d.simulators.app(row.value.id, a.app);
       if (!app) return err(`there is no app "${clip(a.app, 80)}" on ${name} — simulator_apps lists the bundle ids it has.`);
-      const gate = await c.d.broker.gate(c.ctx.sessionId, "simulator_launch", `Launch ${clip(a.app, 80)} on ${name}`, { simulatorId: row.value.id, bundleId: a.app });
+      const gate = await c.d.broker.gate(c.ctx.sessionId, "simulator_launch", `Launch ${clip(a.app, 80)} on ${name}${onPhone(c.d, row.value)}`, { simulatorId: row.value.id, bundleId: a.app },
+        "simulator_launch", { promptUnderBypass: isPhysical(c.d, row.value) });
       if (!gate.allowed) return err(gate.reason);
       launched = app.name;
     }
@@ -795,7 +828,8 @@ const HANDLERS: Record<string, Handler> = {
     if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) return err(`"${clip(url, 120)}" is not a URL — it needs a scheme, such as https:// or myapp://.`);
     const row = requireRunning(d, ctx, args.value.simulatorId); if ("error" in row) return row.error;
     const name = clip(row.value.name, 60);
-    const gate = await d.broker.gate(ctx.sessionId, "simulator_open_url", `Open ${clip(url, 100)} on ${name}`, { simulatorId: row.value.id, url });
+    const gate = await d.broker.gate(ctx.sessionId, "simulator_open_url", `Open ${clip(url, 100)} on ${name}${onPhone(d, row.value)}`, { simulatorId: row.value.id, url },
+      "simulator_open_url", { promptUnderBypass: isPhysical(d, row.value) });
     if (!gate.allowed) return err(gate.reason);
     const r = await d.simulators.act(row.value.id, { kind: "open-url", url });
     return r.ok
@@ -1003,7 +1037,7 @@ function withTarget(t: Tool): Tool {
 async function keys(c: Call, tool: string, a: z.infer<typeof InputArgs> & Record<string, unknown>, input: DeviceInput, said: (name: string) => string): Promise<CallToolResult> {
   const row = requireRunning(c.d, c.ctx, a.simulatorId); if ("error" in row) return row.error;
   // Before the card: text the device cannot type, or a button it does not have, is no step at all.
-  const refused = inputRefusal(input, row.value.platform); if (refused) return err(refused);
+  const refused = inputRefusal(input, row.value.platform, row.value.physical); if (refused) return err(refused);
   const gate = await askToDrive(c, row.value, tool, a);
   if (!gate.allowed) return err(gate.reason);
   watch(c, row.value, tool, a.intent, lastRead(c, row.value), null);
@@ -1019,8 +1053,7 @@ async function keys(c: Call, tool: string, a: z.infer<typeof InputArgs> & Record
  * on the same device, and covers no other device.
  */
 function askToDrive(c: Call, row: Simulator, tool: string, args: z.infer<typeof InputArgs> & Record<string, unknown>): Promise<GateResult> {
-  // adb calls an emulator `emulator-<port>`; anything else it lists is hardware on a cable.
-  const physical = row.platform === "android" && !/^emulator-\d+$/.test(c.d.simulators.stateOf(row.id).serial ?? "");
+  const physical = isPhysical(c.d, row);
   const { simulatorId: _, intent, ...step } = args;
   return c.d.broker.gate(
     c.ctx.sessionId, `simulator_input:${row.udid ?? row.id}`,
@@ -1029,6 +1062,17 @@ function askToDrive(c: Call, row: Simulator, tool: string, args: z.infer<typeof 
     { perSession: true, promptUnderBypass: physical },
   );
 }
+
+/**
+ * Somebody's own device rather than a sandbox: a real iPhone (the row says so), or an Android phone on
+ * a cable — adb calls an emulator `emulator-<port>`, and anything else it lists is hardware.
+ */
+function isPhysical(d: SimulatorAgentToolsDeps, row: Simulator): boolean {
+  return row.physical || (row.platform === "android" && !/^emulator-\d+$/.test(d.simulators.stateOf(row.id).serial ?? ""));
+}
+
+/** What a card says after the device's name when the device is a phone: what is at stake. */
+const onPhone = (d: SimulatorAgentToolsDeps, row: Simulator): string => (isPhysical(d, row) ? ", a physical phone" : "");
 
 /** The element a number names, as THIS session was shown it in its latest list — or why there is
  *  none to look for. */
