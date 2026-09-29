@@ -8,7 +8,7 @@ import { ItemsStore } from "../store/items";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
 import { SimulatorsStore } from "../store/simulators";
-import { SimulatorService } from "./service";
+import { SimulatorService, toolchainAvailable } from "./service";
 import type { Simctl } from "./simctl";
 import type { ServeSim, ServeSimStream } from "./serve-sim";
 import type { SimulatorState } from "@realm/contracts";
@@ -92,6 +92,25 @@ const settle = async (until: () => boolean) => {
   }
   throw new Error("state never settled");
 };
+
+describe("whether this Mac can run a simulator", () => {
+  const says = (v: boolean | "throws") => ({ available: async () => { if (v === "throws") throw new Error("ENOENT"); return v; } });
+
+  it("is either toolchain, not only Apple's", async () => {
+    /* The production probe behind the simulator tools, so this is the answer that decides whether a
+       session is offered them at all. THE MUTANT: `return ios` — an Android developer with no Xcode
+       then never sees a tool that would run their emulator. */
+    expect(await toolchainAvailable(says(false), says(true))).toBe(true);
+    expect(await toolchainAvailable(says(true), says(false))).toBe(true);
+    expect(await toolchainAvailable(says(false), says(false))).toBe(false);
+  });
+
+  it("counts a toolchain that cannot even be asked as absent, rather than failing the question", async () => {
+    // `xcrun` missing entirely is ENOENT, which is the most ordinary "no" there is.
+    expect(await toolchainAvailable(says("throws"), says(false))).toBe(false);
+    expect(await toolchainAvailable(says("throws"), says(true))).toBe(true);
+  });
+});
 
 describe("a simulator pane's row", () => {
   it("is a row and a sidebar item made together, with no device chosen yet", () => {
