@@ -7,6 +7,8 @@ delete process.env.ELECTRON_RUN_AS_NODE;
 import { billedGenerators } from "./billed-calls";
 import { createApp } from "./app";
 import { toolchainAvailable } from "./simulators/service";
+import { PhysicalDevices } from "./simulators/physical";
+import { simctl } from "./simulators/simctl";
 import { realLayaRuntime } from "./laya/runtime";
 import { DAEMON_PROTOCOL } from "@realm/contracts";
 import { realmHome } from "./paths";
@@ -53,6 +55,13 @@ try {
     // nothing but this process ever looks for a Python or starts one. Even here nothing downloads
     // until the user clicks Install, and nothing runs until they switch Laya to Shadow.
     laya: realLayaRuntime({ home }),
+    // Real iPhones and iPads, through devicectl and Realm's test runner. Only here, for the probe's
+    // reason. `REALM_RUNNER_SIMULATOR` names simulators to reach the phone's way instead — the
+    // rehearsal a live check runs before anything is done to a real phone.
+    physicalDevices: (onExit) => new PhysicalDevices({
+      home, simctl: simctl(), onExit,
+      rehearsal: (process.env.REALM_RUNNER_SIMULATOR ?? "").split(",").map((u) => u.trim()).filter(Boolean),
+    }),
   });
 
   // The state file is written only now, because `createApp` is what binds the port — a file

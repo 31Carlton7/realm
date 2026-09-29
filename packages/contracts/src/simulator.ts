@@ -48,6 +48,13 @@ export const SimulatorDeviceSchema = z.object({
   state: z.string(),
   /** The adb serial, on Android and only while something is running. Null otherwise — see `udid`. */
   serial: z.string().nullable().default(null),
+  /**
+   * A real phone on this Mac's cable rather than a simulator or an emulator: somebody's own device,
+   * with their accounts on it. Carried rather than inferred, for `platform`'s reason, and because
+   * the difference decides things a udid's shape must not — an iPhone is reached through Realm's
+   * test runner instead of `simctl`, and its input card is asked even under bypassPermissions.
+   */
+  physical: z.boolean().default(false),
 });
 export type SimulatorDevice = z.infer<typeof SimulatorDeviceSchema>;
 
@@ -91,6 +98,10 @@ export const SimulatorStateSchema = z.object({
   error: z.string().nullable(),
   /** Whatever the failing command actually said, for the pane's detail line. */
   detail: z.string().nullable(),
+  /** The row's `physical`, carried with the state because the pane's controls are decided by it
+   *  before anything else has loaded: a real iPhone has no side button Realm presses, no rotation and
+   *  none of the simulator's menus, and a control offered for one is a control that refuses. */
+  physical: z.boolean().default(false),
 });
 export type SimulatorState = z.infer<typeof SimulatorStateSchema>;
 
@@ -103,6 +114,9 @@ export const SimulatorSchema = z.object({
   /** Which toolchain to reach it with. Defaulted to `ios` so every row written before Android
    *  existed reads back as what it actually is, without a backfill. */
   platform: SimulatorPlatformSchema.default("ios"),
+  /** A real phone (see `SimulatorDevice.physical`). Moves with `udid`, as `platform` does. False for
+   *  every row written before real devices existed, which is what each of them is. */
+  physical: z.boolean().default(false),
   ...Timestamps,
 });
 export type Simulator = z.infer<typeof SimulatorSchema>;

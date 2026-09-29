@@ -28,6 +28,8 @@ import type { Android } from "./android";
 import type { AndroidStream } from "./android-stream";
 import { createSimulatorAgentProvider, loopbackPort, shrinkForModel, SIMULATOR_PROVIDER_NAME } from "./agent-tools";
 import type { ScreenMotion } from "./screen-motion";
+import { PhysicalDevices } from "./physical";
+import { FakePhone, PHONE_UDID } from "./phone.test-fakes";
 
 /** A picture watcher whose stream is already gone: every walk falls back to reading the tree. */
 const GONE: ScreenMotion = { mark: () => ({ moved: 0, edges: 0, edgeBusy: false }), settle: async () => "lost", rest: async () => false, close: () => {} };
@@ -49,8 +51,8 @@ afterEach(async () => {
 });
 
 const IOS: SimulatorDevice[] = [
-  { udid: "UDID-OFF", platform: "ios", name: "iPhone 17 Pro", runtime: "iOS 27.0", state: "Shutdown", serial: null },
-  { udid: "UDID-UP", platform: "ios", name: "iPhone Air", runtime: "iOS 27.0", state: "Booted", serial: null },
+  { udid: "UDID-OFF", platform: "ios", name: "iPhone 17 Pro", runtime: "iOS 27.0", state: "Shutdown", serial: null, physical: false },
+  { udid: "UDID-UP", platform: "ios", name: "iPhone Air", runtime: "iOS 27.0", state: "Booted", serial: null, physical: false },
 ];
 const STREAM = (udid: string): ServeSimStream => ({
   running: true, device: udid, url: "http://127.0.0.1:3100",
@@ -135,6 +137,8 @@ function setup(opts: {
   /** How the device's picture is watched. Unset, a watcher whose stream is gone at once, so a walk
    *  falls back to reading the tree — and no test opens a socket to whatever is on port 3100. */
   watchScreen?: (url: string) => ScreenMotion;
+  /** A real iPhone on the cable, scripted: listed by devicectl and driven through its runner. */
+  phone?: FakePhone;
 } = {}) {
   const home = tempDir("realm-sim-tools-");
   const db = openDatabase(join(home, "realm.db"));
@@ -161,7 +165,12 @@ function setup(opts: {
     return opts.input ?? { ok: true, detail: "" };
   };
   const watchScreen = opts.watchScreen ?? (() => GONE);
-  const service = new SimulatorService({ rpc, spaces, items, simulators: new SimulatorsStore(db), simctl: clis.simctl, serveSim: clis.serveSim, android: clis.android, androidStream: fakeStream, inputChannel, watchScreen });
+  const dc = opts.phone?.devicectl();
+  const physical = opts.phone ? new PhysicalDevices({
+    home, devicectl: dc, runners: opts.phone.runners(),
+    bridge: async () => ({ streamUrl: "http://127.0.0.1:47001/stream.mjpeg", wsUrl: "ws://127.0.0.1:47001/ws", port: 47001, close: async () => {} }),
+  }) : undefined;
+  const service = new SimulatorService({ rpc, spaces, items, simulators: new SimulatorsStore(db), simctl: clis.simctl, serveSim: clis.serveSim, android: clis.android, androidStream: fakeStream, inputChannel, watchScreen, physical });
   let mode = opts.broker?.mode ?? "default";
   const real: BrowserPermissionBroker | null = opts.broker ? new BrowserPermissionBroker({
     permissionMode: () => mode,
@@ -203,7 +212,7 @@ function setup(opts: {
     return simulatorId;
   };
   return {
-    provider, service, items, ctx, call, calls, running, switchedOff, changes, spaceId: space.id, otherSpaceId: other.id, folder: space.folderPath,
+    provider, service, items, ctx, call, calls, running, switchedOff, changes, spaceId: space.id, otherSpaceId: other.id, folder: space.folderPath, devicectl: dc,
     /** Change the session's mode under the real broker, the way a mid-session switch does. */
     setMode: (m: string) => { mode = m; },
   };
@@ -1097,7 +1106,7 @@ describe("input on Android", () => {
       ...over,
       android: {
         available: async () => true,
-        devices: async () => [{ udid: AVD, platform: "android", name: "Realm Pixel", runtime: "Android 16", state: "device", serial }],
+        devices: async () => [{ udid: AVD, platform: "android", name: "Realm Pixel", runtime: "Android 16", state: "device", serial, physical: false }],
         serialFor: async () => serial, waitForBoot: async () => true,
         size: async () => ({ width: 1080, height: 2400 }),
         ax: async () => { trees++; return DROID_TREE; },
@@ -1662,5 +1671,182 @@ describe("simulator_do", () => {
     const id2 = await dev2.running();
     expect((await dev2.call("simulator_do", { simulatorId: id2, intent: "x", path: ["vision settings"] })).isError).toBe(true);
     expect(shutResolve).not.toHaveBeenCalled();
+  });
+});
+
+describe("a real iPhone", () => {
+  const phones: FakePhone[] = [];
+  afterEach(async () => { await Promise.all(phones.splice(0).map((p) => p.close())); });
+
+  /** The tools on a scripted phone on the cable, through the real service and physical layer. */
+  async function onPhone(opts: Parameters<typeof setup>[0] = {}) {
+    const phone = await new FakePhone().listen();
+    phones.push(phone);
+    const dev = setup({ ...opts, phone });
+    return { ...dev, phone };
+  }
+
+  /** `simulator_open` on the phone, answered, and the pane it opened. */
+  async function opened(dev: Awaited<ReturnType<typeof onPhone>>) {
+    const r = await dev.call("simulator_open", { udid: PHONE_UDID });
+    const simulatorId = text(r).match(/simulator pane (\S+?),/)?.[1] ?? "";
+    return { r, simulatorId };
+  }
+
+  it("is listed in a group of its own, marked as a real device", async () => {
+    const dev = await onPhone();
+    const listed = text(await dev.call("simulator_list"));
+    expect(listed).toContain(`Real iPhones and iPads\n  ${PHONE_UDID} — Test’s iPhone · iOS 27.2 · a real device, connected`);
+    // Not one more simulator in the iOS group.
+    expect(listed.split("Real iPhones and iPads")[0]).not.toContain(PHONE_UDID);
+  });
+
+  it("opens behind a card that says it is a phone and what will run on it — asked even under bypassPermissions", async () => {
+    const dev = await onPhone({ broker: { mode: "bypassPermissions", answer: "allow" } });
+    const { r, simulatorId } = await opened(dev);
+    expect(r.isError).toBe(false);
+    expect(text(r)).toMatch(/^Opened Test’s iPhone \(iOS 27\.2\) in simulator pane \S+, beside this session\. Its screen is 1206×2622 pixels\./);
+    // THE MUTANT: open a phone as the simulator it is not — no card under bypass.
+    expect(dev.calls.gates.map((g) => g.title)).toEqual(["Open Test’s iPhone (iOS 27.2), a physical phone, in a simulator pane — runs Realm's test runner on it"]);
+    expect(dev.service.get(simulatorId)).toMatchObject({ physical: true, udid: PHONE_UDID });
+  });
+
+  it("says why it did not start, in the runner's words, when the phone is locked", async () => {
+    const phone = await new FakePhone().listen();
+    phones.push(phone);
+    const dev = { ...setup({ phone }), phone };
+    (dev.devicectl as unknown as { lockState: () => Promise<{ locked: boolean }> }).lockState = async () => ({ locked: true });
+    const { r } = await opened(dev);
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/did not start in simulator pane \S+: the phone is locked\. The user has to unlock it — Realm never works past a passcode\.$/);
+  });
+
+  it("reads the phone's screen by name, in points, numbered for the input tools", async () => {
+    const dev = await onPhone();
+    const { simulatorId } = await opened(dev);
+    dev.phone.screen = "root";
+    const r = text(await dev.call("simulator_elements", { simulatorId }));
+    expect(r).toContain('Frames are "(x,y width×height)" in points, on a 402×874 screen');
+    expect(r).toContain("app: Settings");
+    expect(r).toMatch(/\[\d+\] Button "General" id=com\.apple\.settings\.general \(16,160 370×52\)/);
+    const shot = await dev.call("simulator_screenshot", { simulatorId });
+    expect(shot.content.some((c) => c.type === "image")).toBe(true);
+  });
+
+  it("drives it with each input tool, sending the runner points — behind one card for the session, even under bypass", async () => {
+    const heard: ActObservation[] = [];
+    const dev = await onPhone({ broker: { mode: "bypassPermissions", answer: "allow" }, observe: (o) => { heard.push(o); } });
+    const { simulatorId } = await opened(dev);
+    dev.phone.screen = "root";
+    const list = text(await dev.call("simulator_elements", { simulatorId }));
+    const general = Number(list.match(/\[(\d+)\] Button "General"/)![1]);
+    const steps: [string, Record<string, unknown>][] = [
+      ["simulator_tap", { element: general }],
+      ["simulator_double_tap", { x: 100, y: 200 }],
+      ["simulator_long_press", { x: 100, y: 200, durationMs: 700 }],
+      ["simulator_swipe", { direction: "up" }],
+      ["simulator_type", { text: "About" }],
+      ["simulator_press", { key: "home" }],
+    ];
+    for (const [tool, args] of steps) {
+      const r = await dev.call(tool, { simulatorId, intent: "use the phone", ...args });
+      expect(r.isError, `${tool}: ${text(r)}`).toBe(false);
+    }
+    expect(dev.phone.acts()).toEqual([
+      "tap 201,186", "tap 100,200 x2", "tap 100,200 hold 700", "swipe 201,656 → 201,219", "text About", "button home",
+    ]);
+    // ONE input card for the phone, raised though the session bypasses permissions.
+    const inputCards = dev.calls.gates.filter((g) => g.title.startsWith("Tap, swipe and type"));
+    expect(inputCards.map((g) => g.title)).toEqual(["Tap, swipe and type on Test’s iPhone, a physical phone, for the rest of this session"]);
+    // And the shadow heard every step, the tap by the element the agent chose.
+    expect(heard.map((o) => o.tool)).toEqual(steps.map(([t]) => t));
+    expect(heard[0]).toMatchObject({ surface: "simulator", intent: "use the phone", chosen: { element: { role: "Button", label: "General" } } });
+  });
+
+  it("refuses the side button before any card, and Plan refuses every step on it", async () => {
+    const dev = await onPhone({ broker: { mode: "default", answer: "allow" } });
+    const { simulatorId } = await opened(dev);
+    const lock = await dev.call("simulator_press", { simulatorId, intent: "lock it", key: "lock" });
+    expect(lock.isError).toBe(true);
+    expect(text(lock)).toContain("never presses a real iPhone's side button");
+    expect(dev.calls.gates.filter((g) => g.title.startsWith("Tap"))).toEqual([]);
+    dev.setMode("plan");
+    const tap = await dev.call("simulator_tap", { simulatorId, intent: "tap", x: 10, y: 10 });
+    expect(text(tap)).toContain("read-only");
+    expect(dev.phone.acts()).toEqual([]);
+  });
+
+  it("walks General › About on the phone in one call, opening Settings fresh, and answers with the About screen", async () => {
+    const heard: ActObservation[] = [];
+    const dev = await onPhone({ broker: { mode: "bypassPermissions", answer: "allow" }, observe: (o) => { heard.push(o); } });
+    const { simulatorId } = await opened(dev);
+    dev.phone.screen = "home";
+    const r = await dev.call("simulator_do", { simulatorId, intent: "find the iOS version", app: "com.apple.Preferences", path: ["General", "About"] });
+    expect(r.isError, text(r)).toBe(false);
+    expect(text(r)).toMatch(/^Walked "General" → "About" on Test’s iPhone in \d+\.\d s\./);
+    expect(text(r)).toMatch(/\[\d+\] StaticText "iOS Version" value="27\.2"/);
+    // Settings looked up alone and opened fresh, with devicectl; the taps at each row's centre, in points.
+    expect(dev.devicectl!.calls).toEqual(["lockState", "app:com.apple.Preferences", "launch:com.apple.Preferences:fresh"]);
+    expect(dev.phone.acts()).toEqual(["tap 201,186", "tap 201,186"]);
+    // Two cards, both asked under bypass: the launch's and the phone's input card, once.
+    expect(dev.calls.gates.map((g) => g.title)).toEqual([
+      "Open Test’s iPhone (iOS 27.2), a physical phone, in a simulator pane — runs Realm's test runner on it",
+      "Launch com.apple.Preferences on Test’s iPhone, a physical phone",
+      "Tap, swipe and type on Test’s iPhone, a physical phone, for the rest of this session",
+    ]);
+    // Each tap of the walk reached the shadow as the step it was.
+    expect(heard.map((o) => [o.tool, o.chosen && "element" in o.chosen ? o.chosen.element.label : null])).toEqual([["simulator_do", "General"], ["simulator_do", "About"]]);
+    // A number from the answer is the next tap's: the Back button, named for General.
+    const back = Number(text(r).match(/\[(\d+)\] Button "General"/)![1]);
+    expect((await dev.call("simulator_tap", { simulatorId, intent: "back to General", element: back })).isError).toBe(false);
+    expect(dev.phone.screen).toBe("general");
+  });
+
+  it("taps a row where it is NOW when the list moves between the walk's read and its tap, as Settings' does after a launch", async () => {
+    const dev = await onPhone();
+    const { simulatorId } = await opened(dev);
+    dev.phone.screen = "home";
+    // Settings answers its first reads, then puts a row in above General — MEASURED 1.6 s after launch.
+    dev.phone.afterRead = () => {
+      if (dev.phone.screen !== "root" || dev.phone.screens.root!.rows[0]!.label === "Optimizing Search and Siri") return;
+      // After the two reads the walk settles on, before the tap: the gap a tap on the old read falls into.
+      if (dev.phone.requests.filter((r) => r.path === "/hierarchy").length < 2) return;
+      dev.phone.screens.root!.rows.unshift({ label: "Optimizing Search and Siri", to: "optimizing" });
+    };
+    dev.phone.screens.optimizing = { app: "Settings", bundleId: "com.apple.Preferences", title: "Optimizing Search and Siri", back: { label: "Settings", to: "root" }, rows: [] };
+    const r = await dev.call("simulator_do", { simulatorId, intent: "find the iOS version", app: "com.apple.Preferences", path: ["General", "About"] });
+    // THE MUTANT: tap the frame as the walk first read it — that is the row now above General.
+    expect(r.isError, text(r)).toBe(false);
+    expect(dev.phone.screen).toBe("about");
+    expect(dev.phone.acts()[0]).toBe("tap 201,238");
+  });
+
+  it("spaces a walk's reads on a phone, whose runner answers too fast for two agreeing reads to mean the screen is at rest", async () => {
+    const dev = await onPhone();
+    const { simulatorId } = await opened(dev);
+    dev.phone.screen = "root";
+    const from = dev.phone.requests.length;
+    await dev.call("simulator_do", { simulatorId, intent: "open General", path: ["General"] });
+    const reads = dev.phone.requests.slice(from).filter((r) => r.path === "/hierarchy").map((r) => r.at);
+    const gaps = reads.slice(1).map((t, i) => t - reads[i]!).sort((a, b) => a - b);
+    // THE MUTANT: the simulator's 30 ms — on a runner that answers in ~0.1 s, "at rest" for a blink.
+    expect(gaps[Math.floor(gaps.length / 2)]).toBeGreaterThanOrEqual(150);
+  });
+
+  it("lists only what Xcode installed on it, and says how Apple's apps are launched", async () => {
+    const dev = await onPhone();
+    const { simulatorId } = await opened(dev);
+    const r = text(await dev.call("simulator_apps", { simulatorId }));
+    expect(r).toContain("Apps Xcode installed on Test’s iPhone — the only ones a real device's list includes. Apple's apps launch by their bundle id too — com.apple.Preferences is Settings.");
+    expect(r).toContain("com.acme.debug — Acme (Debug)");
+  });
+
+  it("asks before a launch on the phone under bypassPermissions, and launches it with devicectl", async () => {
+    const dev = await onPhone({ broker: { mode: "bypassPermissions", answer: "allow" } });
+    const { simulatorId } = await opened(dev);
+    const r = await dev.call("simulator_launch", { simulatorId, bundleId: "com.apple.Preferences" });
+    expect(r.isError).toBe(false);
+    expect(dev.calls.gates.at(-1)?.title).toBe("Launch com.apple.Preferences on Test’s iPhone, a physical phone");
+    expect(dev.devicectl!.calls.at(-1)).toBe("launch:com.apple.Preferences");
   });
 });
