@@ -62,6 +62,8 @@ export const LAYA_ASSIST_MIN_ACCURACY = 0.95;
  * contract in docs/superpowers/specs/2026-09-29-laya-local-decisions.md). Settings shows it and the
  * Assist gate reads it; fields may be added, never renamed or retyped.
  */
+const AccuracySchema = z.object({ accuracy: z.number(), n: z.number().int() });
+
 export const LayaEvalReportSchema = z.object({
   v: z.literal(1),
   checkpoint: z.string(),
@@ -71,15 +73,27 @@ export const LayaEvalReportSchema = z.object({
   target: z.object({
     accuracy: z.number().min(0).max(1),
     n: z.number().int(),
-    byApp: z.record(z.object({ accuracy: z.number(), n: z.number().int() })),
+    byApp: z.record(AccuracySchema),
     /** The confidence at or above which the top pick was right at least `precision` of the time on
-     *  held-out steps; null when none reached it. */
-    assist: z.object({ threshold: z.number().nullable(), precision: z.number(), coverage: z.number() }),
-  }),
-  sensitive: z.object({ accuracy: z.number(), recall: z.number(), precision: z.number(), n: z.number().int() }),
-  verify: z.object({ accuracy: z.number(), n: z.number().int() }),
+     *  held-out steps; null when none reached it. `coverage` is the share of held-out steps that
+     *  cleared it. The threshold is fitted on the benchmark's train split (`fittedOn`). */
+    assist: z.object({
+      threshold: z.number().nullable(), precision: z.number(), coverage: z.number(),
+      covered: z.number().int().optional(), fittedOn: z.string().optional(), trainPrecision: z.number().optional(), trainCoverage: z.number().optional(),
+    }).passthrough(),
+    /** The steps whose words share none with the element's label — the only ones a walk asks Laya. */
+    notCopying: AccuracySchema.extend({ byApp: z.record(AccuracySchema) }).optional(),
+    /** How often the right element was among the candidates Laya was offered at all. */
+    candidateRecall: z.number().optional(),
+  }).passthrough(),
+  sensitive: z.object({ accuracy: z.number(), recall: z.number(), precision: z.number(), n: z.number().int() }).passthrough(),
+  verify: z.object({ accuracy: z.number(), n: z.number().int(), byKind: z.record(AccuracySchema).optional() }).passthrough(),
   baseline: z.object({ sensitiveRule: z.object({ accuracy: z.number(), recall: z.number() }), verifyRule: z.object({ accuracy: z.number() }) }),
   latencyMs: z.object({ p50: z.number(), p90: z.number() }),
+  /** Questions that got no answer; each was scored as wrong. */
+  errors: z.number().int().optional(),
+  /** The same questions on the validation split, for choosing between training runs. */
+  validation: z.object({ target: AccuracySchema, targetNotCopying: AccuracySchema, sensitive: AccuracySchema, verify: AccuracySchema }).optional(),
 }).passthrough();
 export type LayaEvalReport = z.infer<typeof LayaEvalReportSchema>;
 
