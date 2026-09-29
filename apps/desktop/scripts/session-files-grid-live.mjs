@@ -183,20 +183,23 @@ async function shootAndRead(c, name, m) {
   console.log(`SCREENSHOT ${file}`);
   // Device pixels: the window runs at 2x, and the clip's origin is the panel's.
   const px = (x, y) => [(x - m.panel.x) * 2, (y - m.panel.y) * 2];
+  // A layout that has gone wrong may have no glyph card in view; the grounds are still worth reading.
   const glyph = m.cards.find((k) => k.onScreen && !k.thumb && k.mark);
   const first = m.cards[0];
-  const [ground, card, field, well] = await luminances(c, shot.data, [
+  const [ground, card, field = null, well = null] = await luminances(c, shot.data, [
     // The panel's own ground: in the gutter left of the grid, level with the first card.
     px(m.panel.x + 5, first.box.y + first.box.h / 2),
     // The card's ground: inside its caption, clear of the text.
     px(first.box.x + 4, first.box.y + first.box.h - 4),
-    // A glyph card's preview field, near its corner and clear of the well.
-    px(glyph.art.x + 6, glyph.art.y + 6),
-    // The well itself, left of the glyph it centres.
-    px(glyph.mark.x + 6, glyph.mark.y + glyph.mark.h / 2),
+    ...(glyph ? [
+      // A glyph card's preview field, near its corner and clear of the well.
+      px(glyph.art.x + 6, glyph.art.y + 6),
+      // The well itself, left of the glyph it centres.
+      px(glyph.mark.x + 6, glyph.mark.y + glyph.mark.h / 2),
+    ] : []),
   ]);
-  return { file, ground, card, field, well,
-    cardOnGround: ratio(card.L, ground.L), fieldOnCard: ratio(field.L, card.L), wellOnField: ratio(well.L, field.L) };
+  return { file, ground, card, field, well, cardOnGround: ratio(card.L, ground.L),
+    fieldOnCard: field && ratio(field.L, card.L), wellOnField: well && field && ratio(well.L, field.L) };
 }
 
 async function main() {
