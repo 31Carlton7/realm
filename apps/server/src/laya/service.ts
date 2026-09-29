@@ -296,10 +296,10 @@ export class LayaService {
     return { state: "starting" };
   }
 
-  /** Looked for at most every thirty seconds: Settings asks on every visit, and each look runs every
-   *  Python on the machine once. */
+  /** A find is kept for thirty seconds: Settings asks on every visit, and each look runs every Python
+   *  on the machine once. "None" is never kept — the next look is the one after `brew install`. */
   private async findPython(fresh: boolean): Promise<PythonSearch> {
-    if (!fresh && this.python && this.now() - this.python.at < 30_000) return this.python.search;
+    if (!fresh && this.python?.search.found && this.now() - this.python.at < 30_000) return this.python.search;
     const search = await this.d.runtime!.findPython();
     this.python = { at: this.now(), search };
     return search;

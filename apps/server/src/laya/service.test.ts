@@ -72,6 +72,20 @@ describe("before anything is installed", () => {
     expect(runtime.installs).toBe(0);
   });
 
+  it("keeps a found Python for a while, but looks again for one it did not find", async () => {
+    const dir = tempDir("realm-laya-svc-");
+    const runtime = fakeRuntime({ dir, python: { found: null, rejected: [] } });
+    const { service } = setup({ runtime });
+    await service.status();
+    await service.status();
+    expect(runtime.pythonLooks).toBe(2);
+    const found = fakeRuntime({ dir });
+    const other = setup({ runtime: found });
+    await other.service.status();
+    await other.service.status();
+    expect(found.pythonLooks).toBe(1);
+  });
+
   it("downloads nothing until it is asked to — not at boot, not on a status read, not on Off", async () => {
     // THE MUTANT: an install kicked off by boot or by the first status read. About two gigabytes of
     // PyTorch and weights would start downloading because someone opened Settings.
