@@ -190,7 +190,7 @@ function EvaluationRow({ laya }: { laya: LayaStatus }) {
         )}
         {t.state === "idle" && (
           <span className="settings-row-desc">
-            Train makes a new checkpoint on this Mac from the screens Realm ships and your decision log — about half an hour on its GPU — and keeps it only if it scores better.
+            Train makes a new checkpoint on this Mac from the screens Realm ships and your decision log — half an hour to an hour on its GPU, with Laya paused — and keeps it only if it scores better.
           </span>
         )}
         {t.state === "running" && (
