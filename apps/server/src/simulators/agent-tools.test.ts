@@ -30,7 +30,7 @@ import { createSimulatorAgentProvider, loopbackPort, shrinkForModel, SIMULATOR_P
 import type { ScreenMotion } from "./screen-motion";
 
 /** A picture watcher whose stream is already gone: every walk falls back to reading the tree. */
-const GONE: ScreenMotion = { mark: () => 0, settle: async () => "lost", rest: async () => false, close: () => {} };
+const GONE: ScreenMotion = { mark: () => ({ moved: 0, edges: 0, edgeBusy: false }), settle: async () => "lost", rest: async () => false, close: () => {} };
 
 /**
  * The simulator tools against the REAL `SimulatorService` with its CLIs faked — so `simulator_open`
@@ -1623,7 +1623,7 @@ describe("simulator_do", () => {
   it("watches the device's own stream during the walk, and lets go of it after", async () => {
     let watched: string | null = null;
     const close = vi.fn();
-    const motion: ScreenMotion = { mark: () => 0, settle: async () => "lost", rest: async () => true, close };
+    const motion: ScreenMotion = { mark: () => ({ moved: 0, edges: 0, edgeBusy: false }), settle: async () => "lost", rest: async () => true, close };
     const dev = walkable(SETTINGS, "root", { watchScreen: (url) => { watched = url; return motion; } });
     const simulatorId = await dev.running();
     await dev.call("simulator_do", { simulatorId, intent: "x", path: ["General"] });

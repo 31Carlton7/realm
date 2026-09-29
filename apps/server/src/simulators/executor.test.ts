@@ -12,7 +12,7 @@ import type { ScreenMotion } from "./screen-motion";
  */
 
 type Row = { label: string; role?: string; to?: string; value?: string; toggles?: boolean; nothing?: boolean };
-type Screen = { app?: string; rows: Row[]; heading?: string; searchBar?: boolean; fields?: { role: string; label: string }[]; alert?: string };
+type Screen = { app?: string; rows: Row[]; heading?: string; searchBar?: boolean; topBar?: boolean; fields?: { role: string; label: string }[]; alert?: string };
 
 const SCREEN = { width: 400, height: 800 };
 const PAGE = 13;
@@ -24,6 +24,11 @@ class Device {
   offset = 0;
   reads = 0;
   taps: string[] = [];
+  /** Where each tap landed, in points — to tell a tap on a settled screen from one mid-slide. */
+  at: { x: number; y: number }[] = [];
+  /** Reads after a navigation that still show the new screen sliding in from the right. */
+  slide = 0;
+  private sliding = 0;
   scrolls: ("up" | "down")[] = [];
   typed: string[] = [];
   clock = 0;
@@ -45,8 +50,15 @@ class Device {
     const el = (path: string, label: string, role: string, frame: SimulatorAxElement["frame"], value = ""): SimulatorAxElement =>
       ({ path, label, value, role, id: null, enabled: true, frame, depth: path.split(".").length });
     if (s.heading) els.push(el("0.0", s.heading, "Heading", { x: 20, y: 70, width: 200, height: 40 }));
+    const dx = this.sliding > 0 ? 200 : 0;
     s.rows.slice(this.offset, this.offset + PAGE).forEach((r, i) =>
-      els.push(el(`0.1.${this.offset + i}`, r.label, r.role ?? "Button", { x: 20, y: rowY(i), width: 360, height: 44 }, r.value ?? "")));
+      els.push(el(`0.1.${this.offset + i}`, r.label, r.role ?? "Button", { x: 20 + dx, y: rowY(i), width: 360, height: 44 }, r.value ?? "")));
+    // A container drawn after the list that fills the screen and holds a bar at the top: the bar is
+    // over the first row, the container itself is over nothing.
+    if (s.topBar) {
+      els.push(el("0.5", "", "Group", { x: 0, y: 0, width: 400, height: 800 }));
+      els.push(el("0.5.0", "Done", "Button", { x: 0, y: 100, width: 400, height: 60 }));
+    }
     (s.fields ?? []).forEach((f, i) => els.push(el(`0.3.${i}`, f.label, f.role, { x: 20, y: 60 + i * 5, width: 360, height: 4 })));
     // Drawn over the last rows, the way iOS 27 Settings floats its search bar over its list.
     if (s.searchBar) els.push(el("0.2", "", "TextField", { x: 20, y: 690, width: 360, height: 60 }, "Search"));
@@ -62,15 +74,18 @@ class Device {
         this.reads++;
         if (this.failReads > 0) { this.failReads--; throw new Error("the device has not published its accessibility tree yet"); }
         if (this.pending && ++this.pendingReads > this.lag) { this.pending(); this.pending = null; }
-        return this.tree();
+        const t = this.tree();
+        if (this.sliding > 0) this.sliding--;
+        return t;
       },
       tap: async (element) => {
         this.taps.push(element.label);
+        this.at.push({ x: element.frame.x + element.frame.width / 2, y: element.frame.y + element.frame.height / 2 });
         const row = this.screens[this.current]!.rows.find((r) => r.label === element.label);
         const apply = () => {
           if (!row || row.nothing) return;
           if (row.toggles) row.value = row.value === "1" ? "0" : "1";
-          if (row.to) { this.current = row.to; this.offset = 0; }
+          if (row.to) { this.current = row.to; this.offset = 0; this.sliding = this.slide; }
         };
         if (this.lag > 0) { this.pending = apply; this.pendingReads = 0; } else apply();
         return { ok: true, detail: "" };
@@ -145,6 +160,22 @@ describe("walking a path", () => {
     }
   });
 
+  it("takes the first of two equal matches in reading order", async () => {
+    const d = new Device({ list: { rows: [{ label: "Show", to: "a" }, { label: "Show", to: "b" }] }, a: { heading: "A", rows: [] }, b: { heading: "B", rows: [] } }, "list");
+    // THE MUTANT: let a later match of the same rank replace an earlier one.
+    expect(heading((await walk(d, { path: ["Show"] })).final)).toBe("A");
+  });
+
+  it("taps a screen that has stopped moving, not one still sliding in", async () => {
+    const d = new Device(settings(), "root");
+    d.slide = 1;
+    const r = await walk(d, { path: ["General", "About"] });
+    expect(r.ok).toBe(true);
+    // The first read after General shows its rows 200 points to the right, mid-slide. THE MUTANT:
+    // take the first changed read as the screen, and About is tapped where it was passing through.
+    expect(d.at.map((p) => p.x)).toEqual([200, 200]);
+  });
+
   it("does not take a fragment of a word for the word", async () => {
     // THE MUTANT: match by substring. "Gen" then taps General, and "Row 1" taps "Row 10".
     const d = new Device(settings(), "root");
@@ -195,6 +226,33 @@ describe("scrolling to a label", () => {
     // THE MUTANT: scan every screen both ways. A missing label on the second screen then costs a
     // full second pass over a list the walk has already seen from its top.
     expect(d.scrolls.every((s) => s === "up")).toBe(true);
+  });
+
+  it("stops quickly at the end of a list, rather than waiting out the scroll's timeout", async () => {
+    const d = new Device({ list: { rows: rows(...LONG.slice(0, 5)) } }, "list");
+    const r = await walk(d, { path: ["Nowhere"] });
+    expect(r.stop?.why).toBe("not-found");
+    // Two scrolls that moved nothing, each seen as nothing twice. THE MUTANT: wait for a change that
+    // is never coming — two full scroll timeouts for a list that fits on one screen.
+    expect(r.ms).toBeLessThan(2 * 2_000);
+  });
+
+  it("scrolls toward the middle a row that a bar at the TOP is drawn over", async () => {
+    const d = new Device({ list: { rows: [{ label: "Wi-Fi", to: "wifi" }, ...rows(...LONG)], topBar: true }, wifi: { heading: "Wi-Fi", rows: [] } }, "list", { offset: 0 });
+    // Row 1's centre (y=142) is under the bar (100-160). THE MUTANT: scroll the way the list goes
+    // first, which carries the row further under the bar and off the top.
+    d.offset = 0;
+    const r = await walk(d, { path: ["Wi-Fi"], maxScrolls: 1 });
+    expect(d.scrolls[0]).toBe("down");
+    void r;
+  });
+
+  it("does not take a container drawn over the list for something covering it — only what it holds", async () => {
+    const d = new Device({ list: { rows: rows("Alpha", "Beta", "Gamma"), topBar: true } }, "list");
+    // The container fills the screen and comes after the rows; the bar inside it covers row 1 only.
+    // THE MUTANT: count every element drawn later, containers too — then nothing is ever tappable.
+    expect(findLabel(d.tree(), "Beta")?.el.label).toBe("Beta");
+    expect(findLabel(d.tree(), "Alpha")).toBeNull();
   });
 
   it("scrolls a row that a floating bar is drawn over into the clear before tapping it", async () => {
@@ -284,9 +342,12 @@ describe("Laya, for a label nothing on the screen matches", () => {
     expect(r.ok).toBe(true);
 
     const d2 = new Device(settings(), "root");
-    const r2 = await walk(d2, { path: ["wireless networks"] }, { laya: vi.fn(pick("Wi-Fi")) as never });
+    const heard: string[] = [];
+    const r2 = await walk(d2, { path: ["wireless networks"] }, { laya: vi.fn(pick("Wi-Fi")) as never, observe: (s) => { heard.push(s.by); } });
     expect(d2.taps).toEqual(["Wi-Fi"]);
     expect(r2.steps[0]).toMatchObject({ how: "laya", matched: "Wi-Fi" });
+    // The shadow is told who chose: Laya's picks are what its evaluation counts separately.
+    expect(heard).toEqual(["laya"]);
   });
 
   it("taps nothing when Laya hands the choice back", async () => {
@@ -374,7 +435,7 @@ describe("settling on the picture instead of the tree", () => {
     let n = 0;
     const m: ScreenMotion & { settles: number } = {
       settles: 0,
-      mark: () => n,
+      mark: () => ({ moved: n, edges: 0, edgeBusy: false }),
       settle: async () => { m.settles++; n++; return script.shift() ?? "still"; },
       rest: async () => true,
       close: vi.fn(),
@@ -404,11 +465,34 @@ describe("settling on the picture instead of the tree", () => {
     expect(heading(r.final)).toBe("General");
   });
 
-  it("calls a tap that moved nothing on the screen a tap that did nothing, without reading the tree", async () => {
+  it("calls a tap that moved nothing on the screen a tap that did nothing — after one look at the tree", async () => {
     const d = new Device(settings(), "about");
     const r = await walk(d, { path: ["iOS Version"] }, { motion: motion(["none"]) });
     expect(r.stop?.why).toBe("no-change");
-    expect(d.reads).toBe(1);
+    // The first read, and one to confirm: no picture change is not proof of no change.
+    expect(d.reads).toBe(2);
+  });
+
+  it("takes a change the picture missed when the tree shows it — a switch at the edge", async () => {
+    const d = new Device({ list: { rows: [{ label: "Airplane Mode", role: "Switch", value: "0", toggles: true }] } }, "list");
+    // THE MUTANT: trust "none". The switch flipped, the picture could not tell it from a fading
+    // scroll indicator, and the walk would stop saying the tap did nothing.
+    const r = await walk(d, { path: ["Airplane Mode"] }, { motion: motion(["none"]) });
+    expect(r.ok).toBe(true);
+    expect(r.final.elements.find((e) => e.label === "Airplane Mode")?.value).toBe("1");
+  });
+
+  it("gives a scroll a short window to start moving, and a tap its whole timeout", async () => {
+    const seen: { changeWithinMs: number }[] = [];
+    const m: ScreenMotion = { mark: () => ({ moved: 0, edges: 0, edgeBusy: false }), settle: async (_m, o) => { seen.push(o); return "none"; }, rest: async () => true, close: () => {} };
+    const d = new Device({ list: { rows: rows("Alpha"), fields: [] }, }, "list");
+    await walk(d, { path: ["Nowhere"] }, { motion: m });
+    // A scroll's picture moves while the finger does; one that has not moved soon after is the end.
+    expect(seen[0]!.changeWithinMs).toBe(300);
+    seen.length = 0;
+    const t = new Device(settings(), "about");
+    await walk(t, { path: ["iOS Version"] }, { motion: m });
+    expect(seen[0]!.changeWithinMs).toBeGreaterThan(2_500);
   });
 
   it("takes a scroll that bounced back to the same screen for the end of the list", async () => {

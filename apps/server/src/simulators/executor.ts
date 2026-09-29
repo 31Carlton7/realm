@@ -2,7 +2,7 @@ import type { SimulatorAxElement, SimulatorAxTree } from "@realm/contracts";
 import type { AssistOutcome } from "../laya/assist";
 import { sensitiveRule } from "../laya/shadow";
 import type { ObservedElement } from "../mcp/act-observer";
-import type { ScreenMotion } from "./screen-motion";
+import type { MotionMark, ScreenMotion } from "./screen-motion";
 
 /**
  * `simulator_do`: a whole walk through an app in ONE tool call, carried out on this Mac.
@@ -279,12 +279,11 @@ function leafOverlays(tree: SimulatorAxTree): { el: SimulatorAxElement; i: numbe
 /**
  * Whether something drawn later in the tree — so on top — sits over the point a tap on `el` would
  * land: a floating search bar over the last rows of a list, a tab bar, the region that dismisses a
- * sheet. Nothing inside `el` counts, and nothing `el` is inside.
+ * sheet. Nothing inside `el` counts. (What `el` is inside comes before it in the tree, never after.)
  */
 function isCovered(el: SimulatorAxElement, at: number, leaves: readonly { el: SimulatorAxElement; i: number }[]): boolean {
   const p = tapPoint(el);
-  return leaves.some(({ el: o, i }) => i > at
-    && !o.path.startsWith(`${el.path}.`) && !el.path.startsWith(`${o.path}.`)
+  return leaves.some(({ el: o, i }) => i > at && !o.path.startsWith(`${el.path}.`)
     && p.x >= o.frame.x && p.x < o.frame.x + o.frame.width && p.y >= o.frame.y && p.y < o.frame.y + o.frame.height);
 }
 
@@ -365,7 +364,7 @@ async function waitForChange(io: ExecIO, before: string, w: { timeoutMs: number;
  * being answered — is waited past. Without a picture, or when the stream drops mid-step, the tree is
  * read until two reads agree.
  */
-async function afterInput(io: ExecIO, mark: number | undefined, before: string, settle: Settle, w: { timeoutMs: number; scroll: boolean }): Promise<SimulatorAxTree | null> {
+async function afterInput(io: ExecIO, mark: MotionMark | undefined, before: string, settle: Settle, w: { timeoutMs: number; scroll: boolean }): Promise<SimulatorAxTree | null> {
   const motion = io.motion;
   const deadline = io.now() + w.timeoutMs;
   const poll = () => waitForChange(io, before, { timeoutMs: Math.max(0, deadline - io.now()), pollMs: settle.pollMs, stillMeansNone: w.scroll });
@@ -376,7 +375,18 @@ async function afterInput(io: ExecIO, mark: number | undefined, before: string, 
     if (left <= 0) return null;
     const r = await motion.settle(from, { changeWithinMs: w.scroll ? Math.min(left, SCROLL_CHANGE_WITHIN_MS) : left, stillMs: settle.stillMs, maxMs: left });
     if (r === "lost") return poll();
-    if (r === "none") return null;
+    if (r === "none") {
+      if (w.scroll) return null;
+      // Nothing moved in the picture. One look at the tree before calling it a tap that did nothing:
+      // a switch flipping at the edge of the screen while a scroll indicator was still fading there is
+      // a change the picture cannot tell from the fade (`screen-motion.ts`).
+      try {
+        const tree = await io.read();
+        return signature(tree) !== before ? tree : null;
+      } catch {
+        return null;
+      }
+    }
     from = motion.mark();
     let tree: SimulatorAxTree;
     try { tree = await io.read(); } catch { continue; }

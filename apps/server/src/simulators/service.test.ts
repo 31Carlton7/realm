@@ -468,7 +468,7 @@ describe("an agent's input on an iOS device", () => {
 describe("the motion of an iOS device's screen", () => {
   it("is watched on the stream the pane is shown, and only once there is one", async () => {
     const watched: string[] = [];
-    const motion: ScreenMotion = { mark: () => 0, settle: async () => "still", rest: async () => true, close: () => {} };
+    const motion: ScreenMotion = { mark: () => ({ moved: 0, edges: 0, edgeBusy: false }), settle: async () => "still", rest: async () => true, close: () => {} };
     const { service, spaceId } = bring({ watchScreen: (url) => { watched.push(url); return motion; } });
     const { simulatorId } = service.create({ spaceId, name: "Simulator" });
     // THE MUTANT: build a URL from the udid. A pane Realm is not streaming has no picture to watch.

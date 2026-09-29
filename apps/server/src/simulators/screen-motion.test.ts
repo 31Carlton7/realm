@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import http from "node:http";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { AddressInfo } from "node:net";
-import { motionTracker, watchMjpeg } from "./screen-motion";
+import { frameChange, motionTracker, parseFrame, watchMjpeg } from "./screen-motion";
 
 /**
  * Motion from pictures. What must die: rest declared while frames are still changing, rest declared
@@ -21,13 +23,13 @@ const A = new Uint8Array([1, 2, 3]), B = new Uint8Array([4, 5, 6]), C = new Uint
 describe("motionTracker", () => {
   it("counts a picture that differs from the one before it, and only that", () => {
     const { tracker } = clocked();
-    expect(tracker.motion.mark()).toBe(0);
+    expect(tracker.motion.mark().moved).toBe(0);
     tracker.frame(A); tracker.frame(A); tracker.frame(B); tracker.frame(B); tracker.frame(A);
-    expect(tracker.motion.mark()).toBe(3);
+    expect(tracker.motion.mark().moved).toBe(3);
   });
 
   it("settles once the picture changed, then showed the same frame again with nothing new for stillMs", async () => {
-    const { tracker, advance } = clocked();
+    const { tracker, advance, now } = clocked();
     tracker.frame(A);
     const mark = tracker.motion.mark();
     tracker.frame(B);
@@ -35,6 +37,9 @@ describe("motionTracker", () => {
     tracker.frame(B);
     // 50 ms since the change: not yet. The wait's own ticks carry the clock past stillMs.
     expect(await tracker.motion.settle(mark, { changeWithinMs: 1_000, stillMs: 120, maxMs: 1_000 })).toBe("still");
+    // THE MUTANT: call it rest the moment the picture repeats. The frame after a change can repeat
+    // mid-animation when the renderer drops one; rest is the SAME picture for stillMs.
+    expect(now()).toBeGreaterThanOrEqual(120);
   });
 
   it("is not at rest until the renderer has repeated the latest picture", async () => {
@@ -112,11 +117,11 @@ describe("watchMjpeg", () => {
     const motion = watchMjpeg(`http://127.0.0.1:${port}/stream.mjpeg`);
     try {
       await new Promise((r) => setTimeout(r, 60));
-      expect(motion.mark()).toBe(1);
+      expect(motion.mark().moved).toBe(1);
       hold.respond!(part(one));
       hold.respond!(Buffer.concat([part(two), part(two)]));
       await new Promise((r) => setTimeout(r, 60));
-      expect(motion.mark()).toBe(2);
+      expect(motion.mark().moved).toBe(2);
       expect(await motion.rest({ stillMs: 20, maxMs: 500 })).toBe(true);
     } finally {
       motion.close();
@@ -129,9 +134,82 @@ describe("watchMjpeg", () => {
     const { port } = server.address() as AddressInfo;
     const motion = watchMjpeg(`http://127.0.0.1:${port}/stream.mjpeg`);
     try {
-      expect(await motion.settle(0, { changeWithinMs: 500, stillMs: 20, maxMs: 500 })).toBe("lost");
+      expect(await motion.settle({ moved: 0, edges: 0, edgeBusy: false }, { changeWithinMs: 500, stillMs: 20, maxMs: 500 })).toBe("lost");
     } finally {
       motion.close();
     }
+  });
+});
+
+/* Real JPEGs, made the way serve-sim makes its frames — see fixtures/frames.py. */
+const FRAME = (name: string) => new Uint8Array(readFileSync(join(__dirname, "fixtures", `frame-${name}.jpg`)));
+const BASE = FRAME("base"), INDICATOR = FRAME("indicator"), SWITCH = FRAME("switch"), SHIFTED = FRAME("shifted");
+
+describe("where a frame changed", () => {
+  it("reads a frame restarted every row of blocks as its bands", () => {
+    const f = parseFrame(BASE)!;
+    expect(f.bands).toHaveLength(6);
+    expect(f.layout.mcuCols).toBe(20);
+    expect(f.layout.blocks).toHaveLength(6); // 4:2:0 — four luma blocks and two chroma a column
+  });
+
+  it("does not pretend to read a frame laid out any other way", () => {
+    expect(parseFrame(FRAME("no-restarts"))).toBeNull();
+    expect(parseFrame(new Uint8Array([1, 2, 3]))).toBeNull();
+    expect(frameChange(parseFrame(FRAME("no-restarts")), parseFrame(BASE))).toBe("moved");
+  });
+
+  it("tells a scroll indicator at the edge from a switch near it and from the whole screen moving", () => {
+    const base = parseFrame(BASE);
+    expect(frameChange(base, parseFrame(INDICATOR))).toBe("edge");
+    // THE MUTANT: place a change by its first differing BYTE. That byte ends the column before's code,
+    // and a bar in the first edge column reads as a change inside the screen.
+    expect(frameChange(base, parseFrame(FRAME("indicator-inner")))).toBe("edge");
+    // THE MUTANT: judge by how far into a band the bytes first differ. The switch's change starts at
+    // column 15 of 20 — late in its band's bytes, and still a change that means something.
+    expect(frameChange(base, parseFrame(SWITCH))).toBe("moved");
+    expect(frameChange(base, parseFrame(SHIFTED))).toBe("moved");
+    expect(frameChange(base, parseFrame(BASE))).toBe("same");
+  });
+});
+
+describe("rest, with the edge left out", () => {
+  const still = { changeWithinMs: 300, stillMs: 120, maxMs: 3_000 };
+
+  it("comes when the screen stops moving, not when a fading scroll indicator stops", async () => {
+    let t = 0;
+    let tick = 0;
+    // After the push lands, the indicator fades on: a changed strip every 64 ms, for as long as it likes.
+    const tracker = motionTracker(() => t, async (ms) => { t += ms; if (++tick % 4 === 0) tracker.frame(tick % 8 === 0 ? INDICATOR : BASE); });
+    tracker.frame(SHIFTED); tracker.frame(SHIFTED);
+    const mark = tracker.motion.mark();
+    tracker.frame(BASE); // the push
+    const landed = t;
+    expect(await tracker.motion.settle(mark, still)).toBe("still");
+    // THE MUTANT: count the strip as motion. Rest then never comes while it fades, and this waits
+    // out maxMs — a second and a half a step, MEASURED, on every list.
+    expect(t - landed).toBeLessThan(400);
+  });
+
+  it("counts a change at the edge as a step's effect when the edge was quiet — a switch there, flipping", async () => {
+    const { tracker, now } = clocked();
+    tracker.frame(BASE); tracker.frame(BASE);
+    const mark = tracker.motion.mark();
+    tracker.frame(INDICATOR);
+    expect(await tracker.motion.settle(mark, still)).toBe("still");
+    // …and waits stillMs from the change, as for any other: the edge's own motion may still be going.
+    expect(now()).toBeGreaterThanOrEqual(120);
+  });
+
+  it("does not count one while the edge was already changing — the last step's indicator, still fading", async () => {
+    const { tracker, advance } = clocked();
+    tracker.frame(BASE); tracker.frame(BASE);
+    tracker.frame(INDICATOR);
+    advance(30);
+    const mark = tracker.motion.mark();
+    tracker.frame(BASE);
+    // THE MUTANT: count every edge change after the mark. The fade then passes for the tap having
+    // worked, and the tree is read before the tap has done anything.
+    expect(await tracker.motion.settle(mark, still)).toBe("none");
   });
 });
