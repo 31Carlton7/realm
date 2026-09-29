@@ -276,6 +276,14 @@ describe("the review section", () => {
     expect(await screen.findByText(/ran out of time — this is partial/)).toBeInTheDocument();
   });
 
+  it("a reviewer someone stopped is partial too — the verdict is what it had written by then", async () => {
+    // THE MUTANT: give `stopped` no note. The engine now tells a stop from a finish, and a verdict cut
+    // off by a person would sit on the pane reading as the reviewer's last word.
+    await mount({ reviews: { env1: verdict({ outcome: "stopped", text: "got as far as src/" }) } });
+    expect(await screen.findByText(/stopped before finishing — this is partial/)).toBeInTheDocument();
+    expect(document.querySelector(".diff-review")).toHaveAttribute("data-partial");
+  });
+
   it("offers no path from the verdict to the commit controls — the review section holds text, dismiss and the session link only", async () => {
     await mount({ reviews: { env1: verdict() } });
     await screen.findByText(/Verdict: refuted/);
