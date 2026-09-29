@@ -115,7 +115,8 @@ export function iosSteps(input: DeviceInput): InputStep[] {
       return [touch("begin", input.from, input.holdMs + every), ...moves, touch("end", input.to, 0)];
     }
     case "text":
-      return [...input.text].filter((ch) => ch !== "\r").flatMap((ch) => keys(TYPED_AS_KEY[ch] ?? ch));
+      // A carriage return has no key, so it sends nothing — the drop `TYPED_AS_KEY` promises.
+      return [...input.text].flatMap((ch) => keys(TYPED_AS_KEY[ch] ?? ch));
     case "press": {
       const button = IOS_BUTTONS[input.key];
       if (button) return [{ frame: buttonFrame(button), waitMs: 0 }];

@@ -96,7 +96,8 @@ describe("what a device cannot do at all", () => {
   it("refuses text with a character the keyboard does not have, naming it, before anything is sent", () => {
     expect(inputRefusal({ kind: "text", text: "café" }, "ios")).toContain('"é"');
     expect(inputRefusal({ kind: "text", text: "naïve" }, "android")).toContain('"ï"');
-    expect(inputRefusal({ kind: "text", text: "plain text, 100%!\n\tok" }, "ios")).toBeNull();
+    // A carriage return is typed as nothing, not refused: text pasted with Windows line endings is text.
+    expect(inputRefusal({ kind: "text", text: "plain text, 100%!\r\n\tok" }, "ios")).toBeNull();
     // A new line and a tab are keys on Android too, typed between the runs — not refused.
     expect(inputRefusal({ kind: "text", text: "line one\nline two\t" }, "android")).toBeNull();
   });

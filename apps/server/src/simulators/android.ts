@@ -215,12 +215,13 @@ const run = (bin: string, args: string[], timeout: number): Promise<{ code: numb
 /**
  * What one `adb shell input …` run means for whoever asked. adb carries the device's exit status
  * only over its v2 shell protocol (Android 7 and later) — before that `adb shell` exits 0 whatever
- * happened — so what `input` printed counts as well as the code.
+ * happened — so what `input` printed counts as well as the code. A failed run is never silent: `run`
+ * puts the failure's own message in stderr when the command wrote none.
  */
 const outcome = (r: { code: number; stdout: string; stderr: string }): { ok: boolean; detail: string } => {
   const said = `${r.stderr}${r.stdout}`.trim();
   const ok = r.code === 0 && !/\bError\b|Unknown command/i.test(said);
-  return { ok, detail: ok ? "" : said || `adb exited ${r.code}` };
+  return { ok, detail: ok ? "" : said };
 };
 
 /** Binary output — a screenshot — which `execFile`'s string encoding would corrupt. */
