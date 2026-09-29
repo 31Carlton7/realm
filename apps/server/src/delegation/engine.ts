@@ -1,4 +1,4 @@
-import type { DelegatedRun, StoredSessionEvent } from "@realm/contracts";
+import type { DelegatedRun, DelegationOutcome, StoredSessionEvent } from "@realm/contracts";
 
 /**
  * The delegation engine (Plan 13 W1) — the one settle/drain implementation behind BOTH delegation
@@ -360,7 +360,9 @@ export type ActiveRun = {
   settled: Promise<SettledRun> | null;
   done: SettledRun | null;
 };
-export type SettledRun = { outcome: "done" | "interrupted" | "timeout" | "failed" | "gone"; finalText: string | null; lastStatus: string | null };
+/** `outcome` is the contracts vocabulary rather than a union spelled here: `session.agentSettled`
+ *  carries it to the renderer as-is. */
+export type SettledRun = { outcome: DelegationOutcome; finalText: string | null; lastStatus: string | null };
 /** `sawTurnStart` is what makes the prose fallback safe — see `scan`. */
 type TranscriptScan = { lastStatus: string | null; finalText: string | null; sawTurnStart: boolean };
 /** `answered` = the peer called `agent_answer`. `replied` = it settled with prose instead, which the

@@ -1,4 +1,5 @@
 import { describe, expect, it, afterEach } from "vitest";
+import WebSocket from "ws";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -730,6 +731,80 @@ describe("agent_start / agent_wait — several agents at once", () => {
     expect(text(browser)).not.toContain("already has a browser agent running");
     await app.sessions.interrupt(parentId);
   }, 20_000);
+});
+
+/** What the app broadcasts, as a renderer on the socket receives it. */
+type Frame = { event: string; payload: Record<string, unknown> };
+async function listen(): Promise<{ frames: Frame[]; close(): void }> {
+  const ws = await new Promise<WebSocket>((res, rej) => { const w = new WebSocket(`ws://127.0.0.1:${app.port}`); w.once("open", () => res(w)); w.once("error", rej); });
+  const frames: Frame[] = [];
+  ws.on("message", (d) => { const m = JSON.parse(d.toString()); if (!("id" in m)) frames.push(m); });
+  return { frames, close: () => ws.close() };
+}
+const settlesOf = (frames: Frame[], childId: string) =>
+  frames.filter((f) => f.event === "session.agentSettled" && f.payload.sessionId === childId);
+const openedOf = (frames: Frame[], childId: string) =>
+  frames.find((f) => f.event === "session.agentOpened" && f.payload.sessionId === childId);
+/** Several of the engine's 20ms polls: long enough for a second announcement to arrive if there were one. */
+const quiet = () => new Promise((r) => setTimeout(r, 150));
+
+describe("session.agentSettled — the settle half of agentOpened", () => {
+  it("announces a finished run exactly once, naming the child and the item agentOpened named, as done", async () => {
+    const { spaceId, parentId } = await boot();
+    const wire = await listen();
+    await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go" });
+    const child = childOf(spaceId, parentId);
+    await waitFor(() => settlesOf(wire.frames, child.id).length > 0);
+    await quiet();
+    // Once, because a second one is a second close: the renderer would take back whatever pane had
+    // since landed in that leaf. And the SAME item agentOpened named — the settle is only useful to a
+    // renderer that can match it to the pane it opened.
+    expect(settlesOf(wire.frames, child.id)).toHaveLength(1);
+    expect(settlesOf(wire.frames, child.id)[0]!.payload).toEqual({
+      spaceId, sessionId: child.id, itemId: openedOf(wire.frames, child.id)!.payload.itemId, outcome: "done",
+    });
+    wire.close();
+  });
+
+  it("announces a detached child that nobody ever waits on", async () => {
+    const { spaceId, parentId } = await boot();
+    const wire = await listen();
+    const handle = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "go" })));
+    // No agent_wait, ever. THE MUTANT: announce from `run`'s await instead of off the watcher, and
+    // an `agent_start` child settles in silence — which is every pane of a fan-out, the case this
+    // announcement exists for.
+    await waitFor(() => settlesOf(wire.frames, handle).length === 1);
+    await quiet();
+    expect(settlesOf(wire.frames, handle)).toHaveLength(1);
+    expect(settlesOf(wire.frames, handle)[0]!.payload.outcome).toBe("done");
+    wire.close();
+  });
+
+  it("says a run that ran out of budget timed out, rather than that it finished", async () => {
+    // THE MUTANT: announce `done` unconditionally (the tool resolved, after all) and the renderer
+    // takes back the pane of a child that was cut off mid-task — the one a person most needs to read.
+    const { spaceId, parentId } = await boot({ script: longScript(60), delayMs: 50, timeouts: { baseMs: 400, perTurnMs: 0, pollMs: 20 } });
+    const wire = await listen();
+    await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go" });
+    const child = childOf(spaceId, parentId);
+    await waitFor(() => settlesOf(wire.frames, child.id).length === 1);
+    expect(settlesOf(wire.frames, child.id)[0]!.payload.outcome).toBe("timeout");
+    wire.close();
+  });
+
+  it("says a run whose parent was interrupted was cancelled", async () => {
+    const { spaceId, parentId } = await boot({ script: longScript(60), delayMs: 50 });
+    const wire = await listen();
+    const running = app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go" });
+    await waitFor(() => app.sessions.list(spaceId).length === 2);
+    const child = childOf(spaceId, parentId);
+    await waitFor(() => app.sessions.get(child.id).status === "running");
+    await app.sessions.interrupt(parentId);
+    await running;
+    await waitFor(() => settlesOf(wire.frames, child.id).length === 1);
+    expect(settlesOf(wire.frames, child.id)[0]!.payload.outcome).toBe("interrupted");
+    wire.close();
+  });
 });
 
 /** `agent_start`'s result names the child session id as the handle — the tests read it back out the

@@ -307,6 +307,15 @@ export class AgentRunService {
     // The watcher is started BEFORE the first send and owns the execution deadline whether or not
     // anyone ever waits — that is what keeps a forgotten detached child from running forever.
     this.d.engine.watch(run, childId, fromSeq, Date.now() + budgetMs, t.pollMs);
+    // The settle half of the `agentOpened` idiom, hung off the WATCHER rather than anyone's await:
+    // an `agent_start` child settles with nobody waiting on it, and a fan-out of those is exactly
+    // the layout this announcement exists to clear. Once per run, because `run.settled` resolves
+    // once. The rejection arm is there only because an unobserved rejection takes the process down —
+    // drain resolves for every outcome (see `watch`).
+    void run.settled!.then(
+      (s) => this.d.rpc.broadcast("session.agentSettled", { spaceId: ctx.spaceId, sessionId: childId, itemId: created.itemId, outcome: s.outcome }),
+      () => { /* surfaced through run.done / the awaiting tool */ },
+    );
     try {
       await this.d.sessions.send(childId, { text: childMessage(goal), attachments: [] });
     } catch (e) {

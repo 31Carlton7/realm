@@ -66,6 +66,21 @@ export const MAX_DELEGATION_DEPTH = 2;
  * exactly what only the engine's in-memory registry knows — that this parent is waiting on this
  * session, since when, and under which of the two waits.
  */
+/**
+ * How a delegated run ended — the delegation engine's settle vocabulary, stated once so the engine
+ * and `session.agentSettled` cannot describe the same ending two ways (`ReviewOutcomeSchema` is the
+ * persisted twin, and the engine's `SettledRun` is typed off this one, so a new ending that reached
+ * the engine without reaching the verdict would fail to compile rather than fail to parse).
+ *
+ * - `done` — the child's turn ended with a report: its last status was idle and it had said something.
+ * - `interrupted` — the delegating session was interrupted, and the run was cancelled with it.
+ * - `timeout` — the child ran past its budget and was interrupted.
+ * - `failed` — the child's session errored or ended before it finished.
+ * - `gone` — the child's session was deleted mid-run.
+ */
+export const DelegationOutcomeSchema = z.enum(["done", "interrupted", "timeout", "failed", "gone"]);
+export type DelegationOutcome = z.infer<typeof DelegationOutcomeSchema>;
+
 export const DelegatedRunSchema = z.object({
   sessionId: IdSchema,
   startedAt: z.number().int(),

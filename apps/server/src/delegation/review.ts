@@ -222,6 +222,9 @@ export class ReviewService {
         await this.d.sessions.send(childId, { text: REVIEWER_MESSAGE, attachments: [] });
         const s = await this.d.engine.drain(childId, fromSeq, run, Date.now() + t.budgetMs, t.pollMs);
         this.publish(env, childId, created.session.title, s);
+        // The settle half of the agentOpened idiom, AFTER the verdict lands: a reviewer pane the
+        // renderer takes back leaves the verdict on the diff pane, which links the reviewer session.
+        this.d.rpc.broadcast("session.agentSettled", { spaceId: env.spaceId, sessionId: childId, itemId: created.itemId, outcome: s.outcome });
         return s;
       } finally {
         this.d.engine.end(runKey);

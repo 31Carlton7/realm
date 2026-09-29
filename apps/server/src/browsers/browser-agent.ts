@@ -233,6 +233,10 @@ export class BrowserAgentService {
       const fromSeq = created.session.lastEventSeq;
       await this.d.sessions.send(childId, { text: childMessage(goal), attachments: [] });
       const settled = await this.d.engine.drain(childId, fromSeq, run, Date.now() + t.baseMs + maxActs * t.perActMs, t.pollMs);
+      // The settle half of the `agentOpened` idiom above: the same ids, plus how the run ended. Only
+      // the child's SESSION pane is named — the browser panes it opened are a different object, and
+      // closing one of those destroys its page (see `closeFromLayout`).
+      this.d.rpc.broadcast("session.agentSettled", { spaceId: ctx.spaceId, sessionId: childId, itemId: created.itemId, outcome: settled.outcome });
       const trail = `\n\nThe browser agent's session is "${created.session.title}" (session id ${childId}) — its full trace, including every page action and permission prompt, is in that session's pane.`;
       const output = settled.finalText ? fenceAgentOutput(settled.finalText) : "(the agent produced no output)";
       switch (settled.outcome) {
