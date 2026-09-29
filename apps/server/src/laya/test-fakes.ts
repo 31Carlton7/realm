@@ -16,6 +16,8 @@ export type Asked = { path: string; auth: string | undefined; body: { state: str
 export type FakeLaya = {
   port: number;
   asked: Asked[];
+  /** The most questions it was ever answering at once. */
+  maxInFlight(): number;
   /** Stop answering altogether (requests hang), or answer again. */
   hang(on: boolean): void;
   close(): Promise<void>;
@@ -34,6 +36,7 @@ export async function fakeLayaServer(o: {
 } = {}): Promise<FakeLaya> {
   const asked: Asked[] = [];
   let hanging = false;
+  let inFlight = 0, maxInFlight = 0;
   const server: Server = createServer(async (req, res) => {
     const body = await read(req);
     if (req.url === "/health" && req.method === "GET") {
@@ -49,6 +52,8 @@ export async function fakeLayaServer(o: {
       const parsed = JSON.parse(body) as Asked["body"];
       asked.push({ path: req.url, auth: req.headers.authorization, body: parsed });
       if (hanging) return;
+      maxInFlight = Math.max(maxInFlight, ++inFlight);
+      res.on("close", () => { inFlight--; });
       const wait = o.delay?.(parsed.state) ?? 0;
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       if (o.apiKey && req.headers.authorization !== `Bearer ${o.apiKey}`) {
@@ -87,6 +92,7 @@ export async function fakeLayaServer(o: {
   return {
     port: (server.address() as { port: number }).port,
     asked,
+    maxInFlight: () => maxInFlight,
     hang: (on) => { hanging = on; },
     close: () => new Promise((resolve) => { server.closeAllConnections(); server.close(() => resolve()); }),
   };

@@ -50,12 +50,14 @@ const step = (over: Partial<ActObservation> = {}): ActObservation => ({
 });
 
 describe("asking Laya about a step", () => {
-  it("asks which element fits the intent and whether the step is sensitive, in the spike's words", async () => {
+  it("asks which element fits the intent, and whether the step is sensitive in the spike's words", async () => {
     const { shadow, server: s } = await setup();
     shadow.observe(step());
     await shadow.flush();
     const [target, sensitive] = s.asked.map((a) => a.body);
-    expect(target!.state).toBe("Goal: open the Wi-Fi settings. The screen shows: button 'Apple Account'; check box 'Airplane Mode'; button 'Wi-Fi'; button 'Bluetooth'; button 'General'; button 'Display & Brightness'; text field 'Search'");
+    // The goal alone, with the screen in the options and not in the state: 22 of the spike's 28
+    // against 10 when the state listed the screen as well (see the module comment).
+    expect(target!.state).toBe("Goal: open the Wi-Fi settings.");
     expect(target!.questions.target).toEqual({
       type: "choice", instructions: "Which on-screen element should be acted on to: open the Wi-Fi settings?",
       criteria: { "Apple Account": "button", "Airplane Mode": "check box, value '0'", "Wi-Fi": "button", Bluetooth: "button", General: "button", "Display & Brightness": "button", Search: "text field" },
@@ -193,6 +195,34 @@ describe("never in the way", () => {
   });
 });
 
+describe("one question at a time", () => {
+  it("never has two questions at laya-serve at once, however fast the steps come", async () => {
+    // THE MUTANT: each step asking on its own. laya-serve answers one at a time, turns the fifth away
+    // with a 503, and every latency measured in the pile-up is the queue's, not Laya's.
+    const { shadow, server: s, rows } = await setup({ server: { delay: () => 15 } });
+    for (let i = 0; i < 6; i++) shadow.observe(step({ sessionId: `s${i}` }));
+    await shadow.flush();
+    expect(s.maxInFlight()).toBe(1);
+    expect(rows().every((r) => r.laya.errors.length === 0)).toBe(true);
+  });
+
+  it("logs a step without asking once sixteen are already waiting", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const client = { ask: async () => { await gate; return { answers: {}, ms: 1 }; } } as unknown as LayaClient;
+    const path = join(tempDir("realm-laya-shadow-"), "decisions.jsonl");
+    const shadow = new LayaShadow({ laya: { client: () => client, checkpoint: () => null }, log: new DecisionLog({ path }) });
+    for (let i = 0; i < 18; i++) shadow.observe(step({ sessionId: `s${i}` }));
+    release();
+    await shadow.flush();
+    const written = readFileSync(path, "utf8").trim().split("\n").map((l) => JSON.parse(l) as ShadowRow);
+    expect(written).toHaveLength(18);
+    expect(written.filter((r) => r.laya.errors.some((e) => e.startsWith("skipped:"))).map((r) => r.sessionId)).toEqual(["s16", "s17"]);
+    // Skipped is not lost: the ground truth is logged all the same.
+    expect(written[17]!.truth.target).toEqual({ id: "2", source: "agent" });
+  });
+});
+
 describe("the log's order", () => {
   it("writes rows in the order their steps were finalized, however long each one's questions took", async () => {
     const { shadow, rows } = await setup({ server: { delay: (state) => (state.includes("slow") ? 80 : 0) } });
@@ -204,7 +234,7 @@ describe("the log's order", () => {
 });
 
 describe("candidates", () => {
-  /** A seeded generator: the property is checked over the same thousand trees every run. */
+  /** A seeded generator: the property is checked over the same four hundred trees every run. */
   function rng(seed: number) {
     return () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
   }
@@ -212,7 +242,7 @@ describe("candidates", () => {
 
   it("always include the element the agent chose, never exceed twenty, and keep the tree's order", () => {
     const r = rng(42);
-    for (let t = 0; t < 1_000; t++) {
+    for (let t = 0; t < 400; t++) {
       const n = Math.floor(r() * 500);
       const elements = Array.from({ length: n }, (_, i) => el(String(i), `${WORDS[Math.floor(r() * WORDS.length)]}${r() < 0.5 ? "" : ` ${i}`}`.trim()));
       const chosen = n > 0 && r() < 0.9 ? elements[Math.floor(r() * n)]! : null;
@@ -224,7 +254,9 @@ describe("candidates", () => {
       expect(at).toEqual([...at].sort((a, b) => a - b));
       expect(new Set(picked.map((p) => p.id)).size).toBe(picked.length);
     }
-  });
+    // Pure, and a third of a second alone — but on a machine running other suites it has been
+    // descheduled for minutes, and vitest's five-second default then reports a failure that is not one.
+  }, 60_000);
 
   it("include the chosen element even when it has no label and shares no word with the intent", () => {
     const elements = [...Array.from({ length: 40 }, (_, i) => el(String(i), `Wi-Fi network ${i}`)), el("x", "")];

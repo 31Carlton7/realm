@@ -20,7 +20,7 @@ const fs = require("fs"), path = require("path"), http = require("http");
 const LOG = ${JSON.stringify(log)};
 const args = process.argv.slice(2);
 const pick = (k) => process.env[k];
-fs.appendFileSync(LOG, JSON.stringify({ self: process.argv[1], args, env: Object.fromEntries(["LAYA_HOST", "LAYA_PORT", "LAYA_MODELS", "LAYA_REVISION", "LAYA_DEVICE", "LAYA_PRELOAD", "LAYA_API_KEY", "HF_HOME", "HF_HUB_OFFLINE", "HF_TOKEN", "PYTHONPATH"].map((k) => [k, pick(k) ?? null])) }) + "\\n");
+fs.appendFileSync(LOG, JSON.stringify({ pid: process.pid, self: process.argv[1], args, env: Object.fromEntries(["LAYA_HOST", "LAYA_PORT", "LAYA_MODELS", "LAYA_REVISION", "LAYA_DEVICE", "LAYA_PRELOAD", "LAYA_API_KEY", "HF_HOME", "HF_HUB_OFFLINE", "HF_TOKEN", "PYTHONPATH"].map((k) => [k, pick(k) ?? null])) }) + "\\n");
 if (args[0] === "-m" && args[1] === "venv") {
   const dir = args[args.length - 1];
   fs.mkdirSync(path.join(dir, "bin"), { recursive: true });
@@ -51,7 +51,11 @@ if (args[0] === "-c" && args[1].includes("laya.serve")) {
 process.exit(2);
 `;
 
-type Call = { self: string; args: string[]; env: Record<string, string | null> };
+type Call = { pid: number; self: string; args: string[]; env: Record<string, string | null> };
+
+/** Every stub this file started, so none outlives it — not even under a mutant that breaks `stop`,
+ *  which is exactly how one was once left running for nine minutes with nobody to answer to. */
+const stubs: ReturnType<typeof stubPython>[] = [];
 
 function stubPython() {
   const dir = tempDir("realm-laya-rt-");
@@ -59,16 +63,23 @@ function stubPython() {
   const bin = join(dir, "python3.13");
   writeFileSync(bin, STUB(log));
   chmodSync(bin, 0o755);
-  return {
+  const stub = {
     bin, log,
     calls: (): Call[] => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as Call) : []),
     failPip: () => writeFileSync(`${log}.fail-pip`, ""),
     ignoreTerm: () => writeFileSync(`${log}.ignore-term`, ""),
   };
+  stubs.push(stub);
+  return stub;
 }
 
 const procs: LayaProcess[] = [];
-afterEach(async () => { for (const p of procs.splice(0)) await p.stop(); });
+afterEach(async () => {
+  for (const p of procs.splice(0)) await p.stop();
+  for (const stub of stubs.splice(0)) {
+    for (const { pid } of stub.calls()) { try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ } }
+  }
+});
 
 describe("building the runtime", () => {
   it("spawns nothing, and says nothing is installed, until it is asked to do something", () => {

@@ -12,8 +12,13 @@ import type { LayaClient } from "./client";
  * agent, a permission card or the transcript. Its only output is a row in the decision log. When the
  * runtime is not ready — off, not installed, starting — a step is skipped without a word.
  *
- * **Three questions, in the phrasing the design measured** (the spike's templates, so a Phase 2
- * evaluation of this log is comparable with the numbers in the spec):
+ * **Three questions.** `sensitive` and `verify` are the spike's templates, so a Phase 2 evaluation of
+ * this log is comparable with the numbers in the spec. `target` is not, because the spike's own set
+ * said so: on its 28 hand-labelled screens (measured here 2026-09-29, `english@55cf4c4`) the spike's
+ * wording — the screen listed in the state, options "Wi-Fi: cell labelled 'Wi-Fi'" — scored 17/28,
+ * and listing the screen with shorter options scored 10/28, always drifting to the first element
+ * named. The goal alone as the state, with the candidates as "Wi-Fi: cell" options, scored 22/28,
+ * and its confidence finally separated right answers from wrong (0.78 against 0.52).
  *
  *  - `target` (choice): which of the candidates below should be acted on to do what the agent said
  *    the step is for. Asked only when the step has an intent and addressed an element — without
@@ -33,6 +38,11 @@ import type { LayaClient } from "./client";
  * by overlap makes the options the plausible ones: an easy distractor teaches nothing. (Laya's
  * checkpoint clamps the temperature it ships for choices of 11 or more options, so its confidence on
  * a full set of 20 is uncalibrated — the row records the answer and its probabilities regardless.)
+ *
+ * **One question at a time.** laya-serve has a single inference worker and turns a fifth waiting
+ * request away with a 503, and a round trip measured behind other steps' questions is a queue's
+ * length rather than Laya's latency. So every question goes through one queue here; when sixteen steps
+ * are already waiting, a new step is logged with its ground truth and without asking.
  *
  * **Ground truth, each with where it came from.** `target`: the element the agent addressed
  * (`agent`). `sensitive`: a keyword rule over the intent and the target's label (`rule`), and — where
@@ -73,6 +83,9 @@ const SENSITIVE_RULES: RegExp[] = [
 
 /** A step that follows too late says nothing about the one before it. */
 const NEXT_STEP_WINDOW_MS = 60_000;
+/** Steps allowed to wait for Laya at once. Past this an agent is outrunning the model, and a queue
+ *  that kept growing would answer about screens long gone. */
+const MAX_WAITING = 16;
 /** A card's answer counts for the step it was raised for, which observes within the same tick. */
 const ANSWER_FRESH_MS = 10_000;
 
@@ -134,6 +147,9 @@ export class LayaShadow {
   private readonly answers = new Map<string, { decision: "allow" | "allow_always"; at: number }>();
   /** Rows reach the file in the order their steps were finalized. */
   private writing: Promise<void> = Promise.resolve();
+  /** Every question to laya-serve, one at a time (see the module comment). */
+  private asking: Promise<void> = Promise.resolve();
+  private waiting = 0;
   private closed = false;
 
   constructor(private readonly d: {
@@ -225,9 +241,25 @@ export class LayaShadow {
     this.pending.set(k, step);
     step.timer = setTimeout(() => this.finalize(step, null), this.d.nextStepWindowMs ?? NEXT_STEP_WINDOW_MS);
     step.timer.unref?.();
-    // setImmediate: not one question is put together until the tool has gone on with its act.
-    step.asked = new Promise<void>((resolve) => setImmediate(resolve)).then(() => this.ask(step, client));
+    step.asked = this.enqueue(step, () => this.ask(step, client));
     return step;
+  }
+
+  /** Queue `work` behind every question already asked. Its first turn is a setImmediate, so not one
+   *  question is put together until the tool has gone on with its act. */
+  private enqueue(step: Step, work: () => Promise<void>): Promise<void> {
+    if (this.waiting >= MAX_WAITING) {
+      step.laya.errors.push(`skipped: ${this.waiting} steps were already waiting for Laya`);
+      return Promise.resolve();
+    }
+    this.waiting++;
+    const turn = this.asking
+      .then(() => new Promise<void>((resolve) => setImmediate(resolve)))
+      .then(work)
+      .catch(() => { /* each question records its own failure on the step */ })
+      .finally(() => { this.waiting--; });
+    this.asking = turn;
+    return turn;
   }
 
   private async ask(step: Step, client: LayaClient): Promise<void> {
@@ -239,7 +271,7 @@ export class LayaShadow {
       const options = optionsFor(step.candidates);
       try {
         const { answers, ms } = await client.ask(
-          `Goal: ${intent}. The screen shows: ${step.candidates.map(describeTarget).join("; ")}`,
+          `Goal: ${intent}.`,
           { target: { type: "choice", instructions: `Which on-screen element should be ${TARGET_VERB[o.tool] ?? "used"} to: ${intent}?`, criteria: options.criteria } },
           timeout,
         );
@@ -275,7 +307,7 @@ export class LayaShadow {
     step.after = after.slice();
     // "Did it do what it was for" has no question without a "what for".
     if (!step.intent) return;
-    step.verifyAsked = step.asked.then(async () => {
+    step.verifyAsked = step.asked.then(() => this.enqueue(step, async () => {
       const client = this.d.laya.client();
       if (!client) return;
       const before = summarize(step.elements);
@@ -292,7 +324,7 @@ export class LayaShadow {
       } catch (e) {
         step.laya.errors.push(`verify: ${message(e)}`);
       }
-    });
+    }));
   }
 
   private finalize(step: Step, verify: Truth["verify"]): void {
