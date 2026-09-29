@@ -1,7 +1,7 @@
 import { z } from "zod";
 import {
   COMPUTER_FORBIDDEN_BUNDLE_IDS, COMPUTER_KEY_NAMES, COMPUTER_MODIFIERS, COMPUTER_PROVIDER_NAME, ComputerActionSchema, fenceUntrusted,
-  type ComputerAction, type ComputerActResult, type ComputerAppsResult, type ComputerSnapshotResult,
+  type ComputerAction, type ComputerActResult, type ComputerAppsResult, type ComputerElement, type ComputerSnapshotResult,
 } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
@@ -10,6 +10,7 @@ import type { McpService } from "../mcp/service";
 import type { BrowserHostBridge } from "../browsers/host-bridge";
 import type { BrowserPermissionBroker } from "../browsers/permissions";
 import type { ComputerAppAllowlist } from "./allowlist";
+import type { ActObservation, ActObserver, ObservedElement } from "../mcp/act-observer";
 
 /**
  * The `realm-computer` gateway provider: the agent tool surface over the Mac's own applications,
@@ -63,6 +64,13 @@ export type ComputerAgentToolsDeps = {
   bridge: Pick<BrowserHostBridge, "call">;
   broker: Pick<BrowserPermissionBroker, "gate">;
   allowlist: Pick<ComputerAppAllowlist, "allows" | "add">;
+  /**
+   * Told about every act that got past the permission gate, just before it runs — the Laya shadow
+   * (`laya/shadow.ts`) in the real server, nothing in most tests. It hears the step and never answers
+   * it: the act goes ahead whatever it does, and it is never waited on. Given one, the provider also
+   * keeps the elements of each app's latest snapshot, since those are what the agent chose from.
+   */
+  observe?: ActObserver;
 };
 
 export function createComputerAgentProvider(d: ComputerAgentToolsDeps): RealmToolProvider {
@@ -73,6 +81,7 @@ export function createComputerAgentProvider(d: ComputerAgentToolsDeps): RealmToo
   // only act on a snapshot it took, so an id that leaked into a transcript or was guessed is
   // refused rather than driving whatever it happens to match.
   const snapshots = new SnapshotOwners();
+  const trees = new SnapshotTrees();
   return {
     name: COMPUTER_PROVIDER_NAME,
     async tools(ctx: ProviderCallContext): Promise<Tool[]> {
@@ -86,7 +95,7 @@ export function createComputerAgentProvider(d: ComputerAgentToolsDeps): RealmToo
       const handler = HANDLERS[tool];
       if (!handler) return err(`unknown tool "${tool}" — this provider has: ${TOOLS.map((t) => t.name).join(", ")}`);
       try {
-        return await handler({ ...d, snapshots }, ctx, args ?? {});
+        return await handler({ ...d, snapshots, trees }, ctx, args ?? {});
       } catch (e) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -144,6 +153,7 @@ const TOOLS: Tool[] = [
           },
           required: ["kind"],
         },
+        intent: { type: "string", description: "what this step is for, in a few words — e.g. \"open the Wi-Fi settings\"" },
       },
       required: ["snapshotId", "action"],
       additionalProperties: false,
@@ -154,11 +164,15 @@ const TOOLS: Tool[] = [
 /* ---------------------------------- arg schemas ---------------------------------- */
 
 const SnapshotArgs = z.object({ bundleId: z.string().min(1).optional(), screenshot: z.boolean().default(false) });
-const ActArgs = z.object({ snapshotId: z.string().min(1), action: ComputerActionSchema });
+/** `intent` is optional where the simulator's input tools require it: required, it would turn every
+ *  call from an agent that has not learned the field into a refusal — a change to the act path in
+ *  the name of a feature that promises never to touch it. It is the goal Laya's `target` question is
+ *  asked against, so a step without one is logged without that question. */
+const ActArgs = z.object({ snapshotId: z.string().min(1), action: ComputerActionSchema, intent: z.string().max(500).optional() });
 
 /* ---------------------------------- handlers ---------------------------------- */
 
-type Deps = ComputerAgentToolsDeps & { snapshots: SnapshotOwners };
+type Deps = ComputerAgentToolsDeps & { snapshots: SnapshotOwners; trees: SnapshotTrees };
 type Handler = (d: Deps, ctx: ProviderCallContext, args: unknown) => Promise<CallToolResult>;
 
 const HANDLERS: Record<string, Handler> = {
@@ -184,6 +198,7 @@ const HANDLERS: Record<string, Handler> = {
       screenshot: args.value.screenshot,
     })) as ComputerSnapshotResult;
     d.snapshots.remember(ctx.sessionId, snap.snapshotId, { bundleId: snap.bundleId, appName: snap.appName });
+    if (d.observe) d.trees.remember(ctx.sessionId, snap.bundleId, snap.snapshotId, snap.elements.map(observed));
 
     const head = [
       `Snapshot ${snap.snapshotId} of ${clip(snap.appName, 60)} (${snap.bundleId}) — ${snap.elements.length} element(s).`,
@@ -233,6 +248,20 @@ const HANDLERS: Record<string, Handler> = {
       },
     );
     if (!gate.allowed) return err(gate.reason);
+
+    // After the gate, so only a step that is really about to happen is reported; before the act, so
+    // what is reported is what the agent chose from. The observer's return — a callback for the
+    // screen after the act — is dropped: this tool does not re-read the screen, and reading it here
+    // would replace the snapshot the agent is holding.
+    if (d.observe) {
+      const elements = d.trees.lookup(ctx.sessionId, app.bundleId, snapshotId);
+      try {
+        d.observe({
+          surface: "computer", spaceId: ctx.spaceId, sessionId: ctx.sessionId, tool: "computer_act",
+          intent: args.value.intent ?? "", elements, chosen: chosenOf(action, elements),
+        });
+      } catch { /* an observer never changes an act */ }
+    }
 
     // `appName` is for main's menu-bar indicator, which has no other way to learn which application
     // is being driven — the snapshot-to-app map that answers that lives in this process.
@@ -289,6 +318,49 @@ class SnapshotOwners {
 
 /** NUL cannot occur in either id, so no pair of them can collide by concatenation. */
 const key = (sessionId: string, snapshotId: string): string => `${sessionId}\0${snapshotId}`;
+
+const MAX_REMEMBERED_TREES = 64;
+
+/**
+ * The elements of each session's latest snapshot of each app, for the observer — kept only when
+ * there is one.
+ *
+ * The latest per app is all that can matter: the helper keeps only the newest snapshot of an app, so
+ * an act on an older one is refused as stale before it could be reported. That bounds this at one
+ * tree (at most 500 elements, labels clipped) per session and app, and the LRU cap bounds the
+ * sessions.
+ */
+class SnapshotTrees {
+  private readonly byApp = new Map<string, { snapshotId: string; elements: ObservedElement[] }>();
+
+  remember(sessionId: string, bundleId: string, snapshotId: string, elements: ObservedElement[]): void {
+    const k = key(sessionId, bundleId);
+    this.byApp.delete(k);
+    this.byApp.set(k, { snapshotId, elements });
+    while (this.byApp.size > MAX_REMEMBERED_TREES) this.byApp.delete(this.byApp.keys().next().value!);
+  }
+
+  lookup(sessionId: string, bundleId: string, snapshotId: string): ObservedElement[] {
+    const tree = this.byApp.get(key(sessionId, bundleId));
+    return tree && tree.snapshotId === snapshotId ? tree.elements : [];
+  }
+}
+
+/** An element as an observer sees it: its index as the id (the number the agent used), and its text. */
+function observed(e: ComputerElement): ObservedElement {
+  return { id: String(e.index), role: e.role, label: clip(e.name, 200), ...(e.value ? { value: clip(e.value, 200) } : {}) };
+}
+
+/** What the act addressed: the element at its index, the point it names, or nothing (a key, a scroll
+ *  or a typed string sent to whatever has focus). A drag names the element it picks up. */
+function chosenOf(action: ComputerAction, elements: ObservedElement[]): ActObservation["chosen"] {
+  if (action.index !== undefined) {
+    const element = elements.find((e) => e.id === String(action.index));
+    return element ? { element } : null;
+  }
+  if (action.kind === "click" && action.x !== undefined && action.y !== undefined) return { point: { x: action.x, y: action.y } };
+  return null;
+}
 
 /**
  * The permission card's line. It names the app — which is the decision the user is actually making —

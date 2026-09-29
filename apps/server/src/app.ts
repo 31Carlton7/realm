@@ -44,6 +44,10 @@ import { BrowserHostBridge } from "./browsers/host-bridge";
 import { BrowserPermissionBroker } from "./browsers/permissions";
 import { createBrowserAgentProvider } from "./browsers/agent-tools";
 import { createComputerAgentProvider } from "./computer/agent-tools";
+import { DecisionLog } from "./laya/log";
+import { LayaService } from "./laya/service";
+import { LayaShadow } from "./laya/shadow";
+import type { LayaRuntime } from "./laya/runtime";
 import { createTerminalAgentProvider } from "./terminals/agent-tools";
 import { SignInTickets } from "./browsers/signin";
 import { SignInFlow } from "./browsers/signin-flow";
@@ -366,6 +370,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** Plan 22: where Plynn's meeting exports are read from. Tests point this at a fixture; production
    *  leaves it unset for `~/Library/Application Support/Plynn/Meetings`. */
   plynnMeetingsDir?: string;
+  /** The machine half of Laya — interpreter search, the venv and its install, the `laya-serve`
+   *  process. `main.ts` passes the real one (`realLayaRuntime`); left out, the service reports Laya
+   *  unavailable and nothing is ever looked for, installed or spawned — so no app a test builds runs
+   *  Python. A test that needs a runtime hands in a fake. */
+  laya?: LayaRuntime;
 }): Promise<App> {
   const db = openDatabase(dbPath(opts.home));
   const profiles = new ProfilesStore(db);
@@ -612,6 +621,15 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // `realm-browser` provider on the gateway. The broker's callbacks are late-bound to `sessionService`
   // (the checkpoints knot again): nothing in it runs before a session exists to run it for.
   const computerAllowlist = new ComputerAppAllowlist({ settings });
+  /* Laya in shadow: asked about every computer (and, once it lands, device) step, heard by nobody,
+     and logged beside what actually happened (docs/superpowers/specs/2026-09-29-laya-local-decisions.md).
+     The service owns the runtime and the log; the shadow is the observer the acting tools report to. */
+  const layaLog = new DecisionLog({ path: opts.laya?.logPath ?? join(opts.home, "laya", "decisions.jsonl") });
+  const laya = new LayaService({
+    runtime: opts.laya ?? null, settings, log: layaLog,
+    publish: (status) => rpc.broadcast("laya.changed", status),
+  });
+  const layaShadow = new LayaShadow({ laya, log: layaLog, onLogged: () => laya.logged() });
   const browserBridge = new BrowserHostBridge({ rpc });
   /* The consent-page gate for ACTS, and the provenance that can lift it for a sign-in Realm is
      running itself. Off per space by default — see `signin.ts`. */
@@ -619,7 +637,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const browserBroker = new BrowserPermissionBroker({
     // A missing row degrades to "plan" — the refuse-mutations mode — never to a prompt on a ghost.
     permissionMode: (sessionId) => sessionsStore.get(sessionId)?.permissionMode ?? "plan",
-    emit: (sessionId, ev) => sessionService?.emitExternal(sessionId, ev),
+    emit: (sessionId, ev) => {
+      sessionService?.emitExternal(sessionId, ev);
+      // The shadow reads a card's answer as the `user` label for the step it was raised for.
+      layaShadow.permissionEvent(sessionId, ev);
+    },
   });
   const artifacts = new ArtifactsStore(db, settings);
   const sessionEvents = new SessionEventsStore(db, artifacts);
@@ -734,7 +756,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   });
   mcpGateway.registerProvider(createRealmAgentProvider(browserAgents, mcp, agentRuns, reviews, asks));
   // The one provider a space has to switch ON: it reaches every app on the Mac.
-  mcpGateway.registerProvider(createComputerAgentProvider({ mcp, bridge: browserBridge, broker: browserBroker, allowlist: computerAllowlist }));
+  mcpGateway.registerProvider(createComputerAgentProvider({ mcp, bridge: browserBridge, broker: browserBroker, allowlist: computerAllowlist, observe: layaShadow.observe }));
+  // realm-simulator's input tools take the same observer when they land: `observe: layaShadow.observe`.
   /* The `realm-terminal` provider: a pty an agent can type into and read back. On by default, and
      the reasoning is the blast radius — every harness already has a shell tool, so this adds no
      ability to run commands that was not there. What it adds is a terminal that TALKS BACK, which is
@@ -854,7 +877,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
     profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch: new ProjectSearchService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
-    iconAssets, iconGeneration, planLimits, userCommands, scripts, keybindings, sandbox,
+    iconAssets, iconGeneration, planLimits, userCommands, scripts, keybindings, sandbox, laya,
     /* A drain was accepted: watch for quiescence and close once it holds. The watcher owns the clock
        and the close; `methods.ts` owns the refusals that make quiescence reachable at all. Unref'd —
        a daemon with nothing to do must not be held open by its own timer. */
@@ -886,6 +909,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // yielding, resumable, and merely incomplete rather than wrong while it runs.
   void artifacts.runBackfill(() => false);
   terminals.restoreAll();
+  // Brings laya-serve back only if the user left Laya on and an install is on disk.
+  laya.boot();
   // Starts nothing, and clears every recorded ws port: a port held against last run's listener is a
   // lie, and the UNIQUE index would refuse to reissue it to the machine it belonged to.
   machines.restoreAll();
@@ -917,6 +942,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     summaries?.close(); // a debounced recap must not fire onto a closing handle, or outlive the process
     terminals.closeAll();
     cliInstaller.disposeAll();
+    // The last steps' rows go down first, then laya-serve — which must not outlive the app holding
+    // a gigabyte of weights — and any install in flight.
+    await layaShadow.close();
+    await laya.close();
     await sessions.closeAll();
     // Gateway before hub: stop accepting new proxied calls before the upstream clients they'd need go
     // away, so a request racing shutdown fails cleanly (connection refused) rather than mid-call.

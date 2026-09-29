@@ -6,6 +6,7 @@ delete process.env.ELECTRON_RUN_AS_NODE;
 
 import { generateSessionRecap, generateSessionTitle } from "@realm/adapters";
 import { createApp } from "./app";
+import { realLayaRuntime } from "./laya/runtime";
 import { DAEMON_PROTOCOL } from "@realm/contracts";
 import { realmHome } from "./paths";
 import { BOOT_ID, acquireLock, clearState, currentBundleId, newToken, readState, releaseLock, writeState } from "./daemon/state";
@@ -42,6 +43,10 @@ try {
     // Plan 22: where Plynn's meeting exports are read from. Unset in production (the app's own
     // Application Support folder); live checks point it at a fixture so no real recording is read.
     plynnMeetingsDir: process.env.REALM_PLYNN_MEETINGS_DIR || undefined,
+    // Laya's local runtime. Only here: every other `createApp` is a test or a script and gets none, so
+    // nothing but this process ever looks for a Python or starts one. Even here nothing downloads
+    // until the user clicks Install, and nothing runs until they switch Laya to Shadow.
+    laya: realLayaRuntime({ home }),
   });
 
   // The state file is written only now, because `createApp` is what binds the port — a file

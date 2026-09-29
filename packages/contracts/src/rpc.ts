@@ -34,6 +34,7 @@ import { SIMULATOR_CA_DEBUG, SimulatorActSchema, SimulatorAppSchema, SimulatorAx
 import { GoalSchema, GoalStatusSchema } from "./goal";
 import { UnlockedEggPackSchema } from "./egg-pack";
 import { FailoverPolicySchema } from "./failover";
+import { LayaModeSchema, LayaStatusSchema } from "./laya";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
 import { ExecutionSandboxPolicySchema, ExecutionSandboxPrefsSchema } from "./execution-sandbox";
 
@@ -1492,6 +1493,20 @@ export const Methods = {
    * package manager it decided not to offer.
    */
   "cli.run": { params: z.object({ kind: AgentKindSchema, action: CliActionSchema }), result: CliJobStartSchema },
+  /**
+   * The local Laya runtime Realm manages (`apps/server/src/laya`): its state, the install, the
+   * Off/Shadow switch and the decision log. Every method answers the fresh status, and every change
+   * is also broadcast as `laya.changed` — an install runs for minutes and reports as it goes.
+   *
+   * `laya.install` is the ONLY thing that downloads: about 1 GB of PyTorch and 0.8 GB of weights, into
+   * `<REALM_HOME>/laya`. Nothing is fetched until it is called, and it refuses rather than guesses
+   * when there is no Python it can use. `laya.setMode` refuses `shadow` before an install exists.
+   */
+  "laya.status": { params: z.object({}), result: LayaStatusSchema },
+  "laya.install": { params: z.object({}), result: LayaStatusSchema },
+  "laya.setMode": { params: z.object({ mode: LayaModeSchema }), result: LayaStatusSchema },
+  /** Removes every decision log file. The runtime and the checkpoint stay. */
+  "laya.deleteLog": { params: z.object({}), result: LayaStatusSchema },
   "agents.probe": { params: z.object({ force: z.boolean().default(false) }), result: z.array(z.object({ kind: AgentKindSchema, available: z.boolean(), version: z.string().nullable(), loggedIn: z.boolean().nullable(), reason: z.string().nullable(), models: z.array(z.object({ id: z.string(), label: z.string() })).nullable().optional() })) },
   "sessions.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(SessionSchema) },
   /** Every session across every space — the client's sessionId→spaceId map for cross-space badges. */
@@ -1635,6 +1650,9 @@ export const Events = {
   /** An install or update finished. The probe and the version sweep have already been re-run by the
    *  time this lands, so a client that refetches `cli.status` on it reads the new machine. */
   "cli.done": z.object({ id: z.string(), kind: AgentKindSchema, ok: z.boolean(), code: z.number().nullable(), error: z.string().nullable() }),
+  /** Laya's status changed: an install step moved, the runtime came up or went down, a row was
+   *  logged, the log was deleted. Carries the whole status, which is small. */
+  "laya.changed": LayaStatusSchema,
   "profiles.changed": z.object({}),
   "spaces.changed":   z.object({}),
   "items.changed":    z.object({ spaceId: IdSchema }),
