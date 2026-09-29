@@ -1934,8 +1934,9 @@ export type AppState = {
    *  merges; an empty one drops the key instead of parking an empty array nobody will clear. */
   applyDelegationChanged(payload: { sessionId: string; running: DelegatedRun[] }): void;
   /** The `session.agentOpened` handler: bring a delegated child's pane in beside the pane the user
-   *  is in, and remember that Realm put it there — the only kind of pane `applyAgentSettled` may ever
-   *  take back. Another space just gains the sidebar row, through `items.changed`. */
+   *  is in — quietly, leaving them the keyboard — and remember that Realm put it there, the only kind
+   *  of pane `applyAgentSettled` may ever take back. Another space just gains the sidebar row, through
+   *  `items.changed`. */
   applyAgentOpened(payload: { spaceId: string; sessionId: string; itemId: string }): Promise<void>;
   /** The `session.agentSettled` handler: after a beat, close the pane Realm opened for a child whose
    *  run finished — layout-only, the ⌘W close, never a delete — unless the pane has since become the
@@ -5080,11 +5081,24 @@ await get().refreshCustomThemes().catch(() => {});
         // The whole point of a delegated agent being a real session is that the user watches its
         // trace, so it comes into the layout the moment it exists.
         if (spaceId !== get().activeSpaceId) return;
-        await get().refreshItems();
-        // Asked again: the user may have switched spaces while the items were fetched, and opening
-        // this space's child into that space's layout would put the pane in the wrong room.
+        // Who opened the session decides how its pane arrives, and the row is where that is written.
+        // It is usually held already — `items.changed` refetched the list — and fetched when this
+        // broadcast won that race.
+        const [session] = await Promise.all([
+          get().sessions[sessionId] ?? api.getSession(sessionId).catch(() => null),
+          get().refreshItems(),
+        ]);
+        // Asked again: the user may have switched spaces while those were fetched, and opening this
+        // space's child into that space's layout would put the pane in the wrong room.
         if (spaceId !== get().activeSpaceId) return;
-        await get().openItemBeside(itemId);
+        // A delegated child — agent_run's, a browser agent's, a reviewer — arrives QUIETLY: beside the
+        // pane the user is in, with the keyboard left there. Taking it would send the rest of whatever
+        // they were typing in the lead's prompter into the child's, and the child's permission prompts
+        // do not need it — its card and the sidebar's blocked mark announce them. A durable run's
+        // worker keeps the focusing open it has always had: it is nobody's sub-agent, and how a run's
+        // pane should arrive is not a question this answers.
+        if (session?.dispatchedBy?.kind === "run") await get().openItemBeside(itemId);
+        else await get().openItemBesideQuiet(itemId);
         // Recorded once the pane is on screen — the leaf it landed in is half of what "still the pane
         // Realm opened" means (see `agentPanes`).
         const leaf = findLeafOfItem(get().layout ?? emptyLayout(), itemId);

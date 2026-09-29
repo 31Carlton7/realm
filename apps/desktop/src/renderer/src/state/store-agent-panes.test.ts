@@ -49,7 +49,9 @@ async function finish(store: Store, api: FakeApi, opts: { outcome?: DelegationOu
   store.getState().applyAgentSettled({ spaceId: "s1", sessionId: "kid", itemId: "i-kid", outcome: opts.outcome ?? "done" });
 }
 
-/** The user goes back to the lead — where they type, and where the child's report lands. */
+/** The user clicks into the child's pane, and back to the lead — where they type, and where the
+ *  child's report lands. */
+const intoChild = (store: Store) => store.getState().focusLeaf(leafOf(store, "i-kid"));
 const backToLead = (store: Store) => store.getState().focusLeaf(leafOf(store, "i-lead"));
 
 describe("a delegated agent's pane — Realm takes back what it opened, once it finished, and nothing else", () => {
@@ -57,10 +59,19 @@ describe("a delegated agent's pane — Realm takes back what it opened, once it 
   beforeEach(() => { api = fakeApi(); });
   afterEach(() => { vi.useRealTimers(); });
 
-  it("opens the child beside the lead, and closes that pane after a beat once the child finishes", async () => {
+  it("brings the child in beside the lead without taking the keyboard", async () => {
+    // THE MUTANT: the focusing open (`openItemBeside`). The child takes the keyboard, so the rest of
+    // whatever the user was typing to the lead lands in the child's prompter — and the pane is then
+    // "the one they are in", which keeps it open however cleanly the child finishes.
     const store = await delegate(api);
     expect(open(store)).toEqual(["i-lead", "i-kid"]); // beside, never in place of, the pane the user is in
-    backToLead(store);
+    expect(store.getState().focusedLeafId).toBe(leafOf(store, "i-lead"));
+  });
+
+  it("closes a watched child's pane after a beat once it finishes — nobody has to click away first", async () => {
+    // The case that kept every single agent_run's pane open while the open took the keyboard: the user
+    // watches the child work, touches nothing, and it finishes.
+    const store = await delegate(api);
     await finish(store, api);
     await vi.advanceTimersByTimeAsync(AGENT_PANE_CLOSE_BEAT_MS - 1);
     // THE MUTANT: close on arrival. The pane goes on the frame its status settles, which reads as the
@@ -71,9 +82,36 @@ describe("a delegated agent's pane — Realm takes back what it opened, once it 
     expect(store.getState().focusedLeafId).toBe(leafOf(store, "i-lead")); // the user is where they were
   });
 
+  it("a durable run's worker still arrives with the keyboard, as it always has", async () => {
+    // Runs are not this change's to decide. THE MUTANT: open every agentOpened quietly, and a run's
+    // worker stops arriving the way it did before anyone asked for that.
+    api.data.items.s1 = [item("i-lead", "s1", { kind: "session", refId: "lead" }), item("i-worker", "s1", { kind: "session", refId: "worker" })];
+    api.data.sessions = [session("lead", "s1"), session("worker", "s1", { dispatchedBy: { sessionId: null, kind: "run" } })];
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openItem("i-lead");
+    await store.getState().applyAgentOpened({ spaceId: "s1", sessionId: "worker", itemId: "i-worker" });
+    expect(open(store)).toEqual(["i-lead", "i-worker"]);
+    expect(store.getState().focusedLeafId).toBe(leafOf(store, "i-worker"));
+  });
+
+  it("tells a run's worker apart even when its row has not reached the store yet", async () => {
+    // `agentOpened` can beat `items.changed`'s refetch of the session list. THE MUTANT: read the row
+    // from the store alone, and a worker whose row is still in flight is opened as a sub-agent.
+    api.data.items.s1 = [item("i-lead", "s1", { kind: "session", refId: "lead" })];
+    api.data.sessions = [session("lead", "s1")];
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openItem("i-lead");
+    api.data.items.s1.push(item("i-worker", "s1", { kind: "session", refId: "worker" }));
+    api.data.sessions.push(session("worker", "s1", { dispatchedBy: { sessionId: null, kind: "run" } }));
+    expect(store.getState().sessions["worker"]).toBeUndefined();
+    await store.getState().applyAgentOpened({ spaceId: "s1", sessionId: "worker", itemId: "i-worker" });
+    expect(store.getState().focusedLeafId).toBe(leafOf(store, "i-worker"));
+  });
+
   it("closes the pane and nothing behind it — the item and the session stay", async () => {
     const store = await delegate(api);
-    backToLead(store);
     await finish(store, api);
     await pastTheBeat();
     expect(open(store)).not.toContain("i-kid");
@@ -88,7 +126,6 @@ describe("a delegated agent's pane — Realm takes back what it opened, once it 
     // THE MUTANT: take back on any settle. Each of these leaves something a person has to read in the
     // pane — the error, the partial report, where it was cut off.
     const store = await delegate(api);
-    backToLead(store);
     await finish(store, api, { outcome });
     await pastTheBeat();
     expect(open(store)).toContain("i-kid");
@@ -99,7 +136,6 @@ describe("a delegated agent's pane — Realm takes back what it opened, once it 
     // same channel — or a message from another window can land inside the beat. THE MUTANT: trust
     // the settle's word and skip the re-read, and a pane closes on a child that is asking for the user.
     const store = await delegate(api);
-    backToLead(store);
     await finish(store, api);
     store.getState().applySessionStatus("kid", status);
     await pastTheBeat();
@@ -107,10 +143,10 @@ describe("a delegated agent's pane — Realm takes back what it opened, once it 
   });
 
   it("keeps the pane the user is in", async () => {
-    // openItemBeside hands a new pane the keyboard, and the user never left it: by the one measure of
-    // attention the renderer has, they are watching this child. THE MUTANT: drop the focus test.
+    // The user clicked into the child and stayed: by the one measure of attention the renderer has,
+    // they are reading it. THE MUTANT: drop the focus test.
     const store = await delegate(api);
-    expect(store.getState().focusedLeafId).toBe(leafOf(store, "i-kid"));
+    intoChild(store);
     await finish(store, api);
     await pastTheBeat();
     expect(open(store)).toContain("i-kid");
@@ -121,6 +157,7 @@ describe("a delegated agent's pane — Realm takes back what it opened, once it 
     // that. THE MUTANT: keep the entry after the decision, and a second announcement arriving once
     // the user has looked away re-decides a pane that was kept because they were in it.
     const store = await delegate(api);
+    intoChild(store);
     await finish(store, api); // the user is in the child's pane, so it stays
     await pastTheBeat();
     backToLead(store);
@@ -133,10 +170,9 @@ describe("a delegated agent's pane — Realm takes back what it opened, once it 
     // The beat is also the chance to say no. THE MUTANT: decide once, on arrival, and close on the
     // timer regardless — the click lands, and the pane leaves from under it anyway.
     const store = await delegate(api);
-    backToLead(store);
     await finish(store, api);
     await vi.advanceTimersByTimeAsync(AGENT_PANE_CLOSE_BEAT_MS / 2);
-    store.getState().focusLeaf(leafOf(store, "i-kid"));
+    intoChild(store);
     await pastTheBeat();
     expect(open(store)).toContain("i-kid");
   });
@@ -146,7 +182,7 @@ describe("a delegated agent's pane — Realm takes back what it opened, once it 
     // prompt, checking on it — every child in a fan-out gets one of those, and if a glance kept a pane
     // for good, the feature would keep nearly all of them.
     const store = await delegate(api);
-    store.getState().focusLeaf(leafOf(store, "i-kid"));
+    intoChild(store);
     backToLead(store);
     await finish(store, api);
     await pastTheBeat();
@@ -158,6 +194,7 @@ describe("a delegated agent's pane — Realm takes back what it opened, once it 
     // on the row says a person was ever there. THE MUTANT: drop the claim in `sendMessage`, and a
     // conversation the user joined is closed on them the moment it finishes.
     const store = await delegate(api);
+    intoChild(store);
     await store.getState().sendMessage("kid", "also update the changelog");
     backToLead(store);
     await finish(store, api);
@@ -170,7 +207,6 @@ describe("a delegated agent's pane — Realm takes back what it opened, once it 
     // not why it changed. THE MUTANT: drop the transcript's `stopped` check, and a child the user
     // stopped — to look at it, or to redirect it — is closed as though it had finished.
     const store = await delegate(api);
-    backToLead(store);
     await finish(store, api, { stopped: true });
     await pastTheBeat();
     expect(open(store)).toContain("i-kid");
@@ -182,7 +218,6 @@ describe("a delegated agent's pane — Realm takes back what it opened, once it 
     const store = await delegate(api);
     if (what === "draft") store.getState().setDraft("kid", "one more thing:");
     else store.setState({ pendingAttachments: { kid: [{ path: "/tmp/trace.png", mime: "image/png", name: "trace.png", size: 1 }] } });
-    backToLead(store);
     await finish(store, api);
     await pastTheBeat();
     expect(open(store)).toContain("i-kid");
@@ -250,7 +285,6 @@ describe("a delegated agent's pane — Realm takes back what it opened, once it 
     const store = await delegate(api);
     await store.getState().setCloseFinishedAgentPanes(false);
     expect(api.calls).toContain(`setSetting:${CLOSE_FINISHED_AGENT_PANES_KEY}=false`);
-    backToLead(store);
     // THE MUTANT: forget to ask the preference, and the switch in Settings does nothing.
     await finish(store, api);
     await pastTheBeat();
