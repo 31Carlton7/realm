@@ -147,6 +147,31 @@ export const facetsCoda: Facet = {
   body: "Open one for every project. They run side by side, none of them reaches another\u2019s tools, and each is where you left it when you come back.",
 }
 
+/**
+ * The interlude between the claims: delegation, told in the order the tree draws it
+ * (lib/dimension/tree.ts). Every sentence is the delegation code's own behaviour — `agent_run` and
+ * `agent_start`, `MAX_DELEGATION_DEPTH`, the fenced final report — and `realm-agent` is on by
+ * default, so "an agent can" is true of a fresh install rather than of a setting.
+ */
+export const delegation: Facet[] = [
+  {
+    title: "One agent can open more.",
+    body: "An agent in Realm can hand work to other agents. Each one is a real session in the space \u2014 a pane you can open and watch while it works.",
+  },
+  {
+    title: "Several at once.",
+    body: "Independent tasks run in parallel, each in the space\u2019s checkout, a named environment or a fresh worktree of its own. Their permission prompts come to their own panes, and none of them inherits a bypass.",
+  },
+  {
+    title: "Two levels, and no further.",
+    body: "A sub-agent may delegate once more. Past that it is refused, because every level is another agent someone has to follow.",
+  },
+  {
+    title: "Everything comes back.",
+    body: "Each one returns a final report to the call that sent it. Its full trace stays in its own pane, and in the transcript it nests under the call that spawned it.",
+  },
+]
+
 export type Question = { q: string; a: string }
 
 /**

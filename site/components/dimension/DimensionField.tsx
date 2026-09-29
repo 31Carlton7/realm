@@ -105,6 +105,14 @@ export function DimensionField() {
       const horizon = width < 640 ? 0.5 : 0.44
       const footerUnit = Math.min((footerAt[2] * (width < 640 ? 0.42 : 0.3)) / 40, (footerAt[3] * horizon * 0.9) / 26.8)
 
+      // The delegation interlude: a pinned track like the faces', so the same progress and presence.
+      const treeTrack = rectOf('[data-dim-stage="tree"]')
+      const treeAt = rectOf('[data-dim="tree"]') ?? [0, 0, 0, 0]
+      const treeProgress = treeTrack ? clamp01(-treeTrack[1] / Math.max(treeTrack[3] - height, 1)) : 0
+      const treePresence = treeTrack
+        ? Math.min(clamp01((height - treeTrack[1]) / (height * 0.7)), clamp01((treeTrack[1] + treeTrack[3]) / (height * 0.7)))
+        : 0
+
       // The capture frames on or near the screen, in page order — rarely more than two at once, and
       // never more than the four the shader holds.
       const windowRects = [...document.querySelectorAll('[data-dim="window"]')]
@@ -139,6 +147,8 @@ export function DimensionField() {
         counts: [windowRects.length, 0, 0, 0],
         footer: [ease(footerPresence), rise, footerUnit, horizon],
         footerAt,
+        tree: [ease(treePresence), treeProgress, 0, 0],
+        treeAt,
       }
     }
 

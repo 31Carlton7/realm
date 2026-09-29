@@ -13,6 +13,7 @@
 
 import { facesWgsl } from "./faces"
 import { footerWgsl } from "./footer"
+import { treeWgsl } from "./tree"
 
 /** Realm's tokens as the shader sees them, sRGB-encoded because the surface is not an sRGB view. */
 export const PAGE = [23 / 255, 24 / 255, 26 / 255] as const
@@ -36,6 +37,8 @@ const vec3 = (rgb: readonly number[]) => `vec3f(${rgb.map((c) => c.toFixed(4)).j
  *   counts   how many of `windows` are real, unused, unused, unused
  *   footer   presence 0..1, rise 0..1, CSS px per mark unit, the horizon's height in the area (0..1)
  *   footerAt the rect of the footer's scene (CSS px, viewport)
+ *   tree     presence 0..1, progress 0..1 through the delegation track, unused, unused
+ *   treeAt   the rect the delegation tree is fitted into (CSS px, viewport)
  */
 export type FieldUniforms = {
   view: [number, number, number, number]
@@ -49,6 +52,8 @@ export type FieldUniforms = {
   counts: [number, number, number, number]
   footer: [number, number, number, number]
   footerAt: [number, number, number, number]
+  tree: [number, number, number, number]
+  treeAt: [number, number, number, number]
 }
 
 export const fieldShader = /* wgsl */ `
@@ -64,6 +69,8 @@ struct Field {
   counts: vec4f,
   footer: vec4f,
   footerAt: vec4f,
+  tree: vec4f,
+  treeAt: vec4f,
 }
 @group(0) @binding(0) var<uniform> field: Field;
 
@@ -234,6 +241,8 @@ ${facesWgsl}
 
 ${footerWgsl}
 
+${treeWgsl}
+
 @fragment fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
   let p = uv * field.view.xy;
   let t = field.view.z;
@@ -244,6 +253,7 @@ ${footerWgsl}
   if (field.faces.x > 0.001) { light += facesLight(p, t) * field.faces.x; }
   if (field.counts.x > 0.5) { light += windowLight(p, t); }
   if (field.footer.x > 0.001) { light += footerLight(p, t) * field.footer.x; }
+  if (field.tree.x > 0.001) { light += treeLight(p, t) * field.tree.x; }
   // Light is added to the page and then compressed, so where there is none the result is exactly
   // --color-page and the canvas never reads as a rectangle.
   let lit = vec3f(1.0) - exp(-light * 1.15);
@@ -251,6 +261,10 @@ ${footerWgsl}
   if (field.faces.x > 0.001) {
     let solid = facesSolid(p, t);
     color = mix(color, solid.rgb, solid.a * field.faces.x);
+  }
+  if (field.tree.x > 0.001) {
+    let sessions = treeSolid(p, t);
+    color = mix(color, sessions.rgb, sessions.a * field.tree.x);
   }
   if (field.footer.x > 0.001) {
     let rising = footerSolid(p, t);
