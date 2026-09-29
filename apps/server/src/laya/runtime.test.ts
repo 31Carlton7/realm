@@ -44,7 +44,8 @@ if (args[0] === "-c" && args[1].includes("snapshot_download")) {
 if (args[0] === "-c" && args[1].includes("laya.serve")) {
   const s = http.createServer((q, r) => { r.writeHead(200, { "Content-Type": "application/json" }); r.end("{}"); });
   s.listen(Number(process.env.LAYA_PORT), process.env.LAYA_HOST);
-  process.on("SIGTERM", () => { s.close(); process.exit(0); });
+  if (fs.existsSync(LOG + ".ignore-term")) process.on("SIGTERM", () => {});
+  else process.on("SIGTERM", () => { s.close(); process.exit(0); });
   return;
 }
 process.exit(2);
@@ -62,6 +63,7 @@ function stubPython() {
     bin, log,
     calls: (): Call[] => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as Call) : []),
     failPip: () => writeFileSync(`${log}.fail-pip`, ""),
+    ignoreTerm: () => writeFileSync(`${log}.ignore-term`, ""),
   };
 }
 
@@ -127,6 +129,25 @@ describe("running laya-serve", () => {
     await proc.stop();
     expect((await proc.exited).signal ?? (await proc.exited).code).toBeDefined();
     await expect(fetch(`http://127.0.0.1:${port}/health`)).rejects.toThrow();
+  });
+
+  it("kills a process that will not stop when asked", async () => {
+    const py = stubPython();
+    py.ignoreTerm();
+    const venv = join(tempDir("realm-laya-rt-"), "venv");
+    mkdirSync(join(venv, "bin"), { recursive: true });
+    writeFileSync(join(venv, "bin", "python"), readFileSync(py.bin));
+    chmodSync(join(venv, "bin", "python"), 0o755);
+    writeFileSync(join(venv, "bin", "laya-serve"), "");
+    const rt = realLayaRuntime({ home: tempDir("realm-laya-rt-"), env: { PATH: process.env.PATH, REALM_LAYA_VENV: venv }, stopGraceMs: 100 });
+    const port = await rt.freePort();
+    const proc = rt.start({ port, apiKey: "k" });
+    await until(async () => { try { return (await fetch(`http://127.0.0.1:${port}/health`)).ok; } catch { return false; } });
+    // THE MUTANT: SIGTERM alone. A laya-serve wedged in a forward pass would outlive the app holding
+    // a gigabyte of weights and a port.
+    const stopped = await Promise.race([proc.stop().then(() => "stopped"), new Promise((r) => setTimeout(() => r("still running"), 2_000))]);
+    expect(stopped).toBe("stopped");
+    expect((await proc.exited).signal).toBe("SIGKILL");
   });
 
   it("reports an interpreter the CPU cannot run as an exit, not a crash of the server", async () => {

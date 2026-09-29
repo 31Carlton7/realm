@@ -91,6 +91,8 @@ export type RealLayaRuntimeOptions = {
   env?: NodeJS.ProcessEnv;
   arch?: string;
   spawnImpl?: typeof spawn;
+  /** How long `stop` waits after SIGTERM before SIGKILL. Five seconds; a test shortens it. */
+  stopGraceMs?: number;
 };
 
 /**
@@ -172,7 +174,7 @@ export function realLayaRuntime(o: RealLayaRuntimeOptions): LayaRuntime {
         const output = e instanceof Error ? e.message : String(e);
         return { exited: Promise.resolve({ code: null, signal: null, output }), stop: async () => {} };
       }
-      return supervise(child);
+      return supervise(child, o.stopGraceMs ?? 5_000);
     },
   };
 
@@ -214,7 +216,7 @@ export function realLayaRuntime(o: RealLayaRuntimeOptions): LayaRuntime {
 
 /** A running `laya-serve`. `stop` asks with SIGTERM — uvicorn drains in well under a second — and
  *  insists after five. */
-function supervise(child: ChildProcess): LayaProcess {
+function supervise(child: ChildProcess, graceMs: number): LayaProcess {
   const tail = new Tail();
   child.stdout?.on("data", (b: Buffer) => tail.push(b.toString()));
   child.stderr?.on("data", (b: Buffer) => tail.push(b.toString()));
@@ -227,7 +229,7 @@ function supervise(child: ChildProcess): LayaProcess {
     async stop() {
       if (child.exitCode !== null || child.signalCode !== null) return;
       child.kill("SIGTERM");
-      const hard = setTimeout(() => child.kill("SIGKILL"), 5_000);
+      const hard = setTimeout(() => child.kill("SIGKILL"), graceMs);
       await exited;
       clearTimeout(hard);
     },

@@ -8,7 +8,7 @@ import type { ActObservation, ObservedElement } from "../mcp/act-observer";
 import { LayaClient } from "./client";
 import { DecisionLog } from "./log";
 import { LayaShadow, MAX_CANDIDATES, pickCandidates, plainRole, sensitiveRule, type ShadowRow } from "./shadow";
-import { fakeLayaServer, type FakeLaya } from "./test-fakes";
+import { fakeLayaServer, until, type FakeLaya } from "./test-fakes";
 
 /**
  * The shadow against a fake laya-serve over real HTTP, logging to a real file. What must die: a step
@@ -144,6 +144,19 @@ describe("never in the way", () => {
     expect(s.asked).toHaveLength(1);
   });
 
+  it("puts no question together inside the step — not even the candidates — until the tool has gone on", async () => {
+    // A client that notes every call the moment it is made, before any network: what the fake server
+    // cannot see, because a request only reaches it after the step has returned either way.
+    const made: string[] = [];
+    const client = { ask: async (state: string) => { made.push(state); return { answers: {}, ms: 1 }; } } as unknown as LayaClient;
+    const path = join(tempDir("realm-laya-shadow-"), "decisions.jsonl");
+    const shadow = new LayaShadow({ laya: { client: () => client, checkpoint: () => null }, log: new DecisionLog({ path }) });
+    shadow.observe(step());
+    expect(made).toEqual([]);
+    await shadow.flush();
+    expect(made).toHaveLength(2);
+  });
+
   it("does not hold a step when laya-serve hangs — the row says it timed out", async () => {
     const { shadow, server: s, rows } = await setup({ requestTimeoutMs: 40 });
     s.hang(true);
@@ -177,6 +190,16 @@ describe("never in the way", () => {
     await shadow.close();
     expect(rows()).toHaveLength(1);
     expect(shadow.observe(step())).toBeUndefined();
+  });
+});
+
+describe("the log's order", () => {
+  it("writes rows in the order their steps were finalized, however long each one's questions took", async () => {
+    const { shadow, rows } = await setup({ server: { delay: (state) => (state.includes("slow") ? 80 : 0) } });
+    shadow.observe(step({ sessionId: "a", intent: "slow step" }));
+    shadow.observe(step({ sessionId: "b", intent: "quick step" }));
+    await shadow.flush();
+    expect(rows().map((r) => r.intent)).toEqual(["slow step", "quick step"]);
   });
 });
 
@@ -266,6 +289,30 @@ describe("after the act", () => {
     shadow.observe(step({ sessionId: "other" }));
     await shadow.flush();
     expect(rows().map((r) => r.truth.verify)).toEqual([null, null]);
+  });
+
+  it("writes a step with no successor once its minute is up, without waiting for anything else", async () => {
+    const { shadow, rows } = await setup({ nextStepWindowMs: 30 });
+    shadow.observe(step());
+    await until(() => rows().length === 1);
+    expect(rows()[0]!.truth.verify).toBeNull();
+    await shadow.close();
+  });
+
+  it("gives no verdict to a step whose successor came after the window, even before the timer has run", async () => {
+    // The clock, not the timer: a busy event loop can fire a timer late, and a step two minutes
+    // later is not about this one however the timers fell.
+    let t = 1_000;
+    server = await fakeLayaServer();
+    const client = new LayaClient({ baseUrl: `http://127.0.0.1:${server.port}`, apiKey: "k" });
+    const path = join(tempDir("realm-laya-shadow-"), "decisions.jsonl");
+    const shadow = new LayaShadow({ laya: { client: () => client, checkpoint: () => null }, log: new DecisionLog({ path }), now: () => t });
+    shadow.observe(step());
+    t += 120_000;
+    shadow.observe(step());
+    await shadow.flush();
+    const written = readFileSync(path, "utf8").trim().split("\n").map((l) => JSON.parse(l) as ShadowRow);
+    expect(written.map((r) => r.truth.verify)).toEqual([null, null]);
   });
 
   it("gives no verdict when the next step came too late to be about this one", async () => {

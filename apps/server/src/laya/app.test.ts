@@ -146,5 +146,45 @@ describe("a realm-computer act, through the real gateway", () => {
       truth: { target: { id: "1", source: "agent" }, sensitive: { value: false, source: "rule" }, permission: null, verify: null },
     });
     expect(rows[0]!.candidates.map((e) => e.label)).toEqual(["Body", "Save", "Don't Save"]);
+    // And the app took laya-serve down with it.
+    await expect(fetch(`http://127.0.0.1:${runtime.starts[0]!.port}/health`)).rejects.toThrow();
+  });
+
+  it("labels the step with the user's answer when a card was raised for it", async () => {
+    // Not on the space's list, so the gate raises a real card, and the answer comes back over RPC the
+    // way the renderer sends it. THE MUTANT: the broker's events not reaching the shadow in app.ts.
+    const home = tempDir("realm-laya-app-");
+    vi.stubEnv("REALM_BUNDLED_SKILLS", join(home, "no-bundle"));
+    const runtime = fakeRuntime({ dir: join(home, "laya"), installed: true });
+    app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script: [] }) }, laya: runtime });
+    const host = await rpc(app.port, (event, payload, call) => {
+      if (event === "browserHost.op") {
+        const { callId, op } = payload as { callId: string; op: string };
+        if (op === "computerSnapshot") void call("browserHost.result", { callId, ok: true, result: SNAPSHOT });
+        else if (op === "computerAct") void call("browserHost.result", { callId, ok: true, result: { ok: true, detail: "clicked" } });
+        else void call("browserHost.result", { callId, ok: false, error: "not in this test" });
+      }
+      if (event === "session.event" && payload.event.type === "permission_request") {
+        void call("sessions.respondPermission", { id: payload.sessionId, requestId: payload.event.payload.requestId, decision: "allow" });
+      }
+    });
+    await host.call("browserHost.register", {});
+    const profile = (await host.call("profiles.create", { name: "P" })).result;
+    const space = (await host.call("spaces.create", { profileId: profile.id, name: "S" })).result;
+    await host.call("mcp.setProviderEnabled", { spaceId: space.id, name: "realm-computer", enabled: true });
+    await host.call("laya.setMode", { mode: "shadow" });
+    await until(async () => (await host.call("laya.status", {})).result.runtime.state === "ready");
+    const { session } = app.sessions.create({ spaceId: space.id, agentKind: "fake", projectId: null, model: null, effort: null, permissionMode: "default" });
+    const cfg = app.gateway.register(session.id, space.id) as Extract<McpServerConfig, { url: string }>;
+    const mcp = new Client({ name: "t", version: "1.0.0" }, { capabilities: {} });
+    await mcp.connect(new StreamableHTTPClientTransport(new URL(cfg.url), { requestInit: { headers: cfg.headers } }));
+    await mcp.callTool({ name: "realm-computer__computer_snapshot", arguments: { bundleId: "com.apple.TextEdit" } });
+    await mcp.callTool({ name: "realm-computer__computer_act", arguments: { snapshotId: "ax_1", action: { kind: "click", index: 1 }, intent: "save the document" } });
+    await mcp.close();
+    host.close();
+    await app.close();
+    app = null;
+    const [row] = readFileSync(runtime.logPath, "utf8").trim().split("\n").map((l) => JSON.parse(l) as ShadowRow);
+    expect(row!.truth.permission).toEqual({ decision: "allow", source: "user" });
   });
 });

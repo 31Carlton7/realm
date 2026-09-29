@@ -311,11 +311,7 @@ export class LayaService {
   }
 
   private p50(): number | null {
-    if (this.latencies.length === 0) return null;
-    const sorted = [...this.latencies].sort((a, b) => a - b);
-    const mid = sorted.length >> 1;
-    const median = sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
-    return Math.round(median);
+    return p50Of(this.latencies);
   }
 
   /** Coalesced: an install's progress and a busy agent's steps would otherwise be a broadcast each. */
@@ -345,6 +341,15 @@ export class LayaService {
 }
 
 const UNAVAILABLE = "This build of Realm does not run Laya.";
+
+/** The median, in whole milliseconds; null for no samples. A median rather than a mean, because one
+ *  question that met a cold kernel would otherwise speak for a hundred that did not. */
+export function p50Of(samples: readonly number[]): number | null {
+  if (samples.length === 0) return null;
+  const sorted = [...samples].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  return Math.round(sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2);
+}
 
 function lastLine(output: string): string {
   return output.split("\n").map((l) => l.trim()).filter(Boolean).pop() ?? "";

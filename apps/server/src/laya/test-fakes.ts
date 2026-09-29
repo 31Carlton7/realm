@@ -29,6 +29,8 @@ export async function fakeLayaServer(o: {
   noul?: (state: string, qid: string) => number;
   health?: () => Record<string, unknown>;
   status?: number;
+  /** Milliseconds to sit on a question before answering it, by its state. */
+  delay?: (state: string) => number;
 } = {}): Promise<FakeLaya> {
   const asked: Asked[] = [];
   let hanging = false;
@@ -47,6 +49,8 @@ export async function fakeLayaServer(o: {
       const parsed = JSON.parse(body) as Asked["body"];
       asked.push({ path: req.url, auth: req.headers.authorization, body: parsed });
       if (hanging) return;
+      const wait = o.delay?.(parsed.state) ?? 0;
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       if (o.apiKey && req.headers.authorization !== `Bearer ${o.apiKey}`) {
         res.writeHead(401, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ detail: "invalid or missing bearer token" }));

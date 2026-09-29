@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import type { LayaStatus } from "@realm/contracts";
 import { DecisionLog } from "./log";
-import { LAYA_MODE_KEY, LayaService, type LayaTiming } from "./service";
+import { LAYA_MODE_KEY, LayaService, p50Of, type LayaTiming } from "./service";
 import { LayaStepError } from "./runtime";
 import { fakeRuntime, until, type FakeRuntime } from "./test-fakes";
 
@@ -212,6 +212,19 @@ describe("running in Shadow", () => {
     expect(await state(service)).toEqual({ state: "off" });
   });
 
+  it("hands out no client while the checkpoint is still loading", async () => {
+    // THE MUTANT: a client as soon as a process exists. The shadow would then put its questions to a
+    // server that is still reading 0.8 GB off disk, and log a timeout for every step of the wait.
+    const dir = tempDir("realm-laya-svc-");
+    const runtime = fakeRuntime({ dir, installed: true, server: { health: () => ({ status: "ok", loaded: [], revisions: {}, device: "mps", checkpoint_devices: {} }) } });
+    const { service } = setup({ runtime, timing: { startupMs: 10_000 } });
+    await service.setMode("shadow");
+    await until(() => runtime.server() !== null);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(service.client()).toBeNull();
+    expect(await state(service)).toEqual({ state: "starting" });
+  });
+
   it("Off stops the process", async () => {
     const runtime = installed();
     const { service } = setup({ runtime });
@@ -347,5 +360,14 @@ describe("the log", () => {
     const after = await service.deleteLog();
     expect(after.stepsLogged).toBe(0);
     expect(existsSync(log.path)).toBe(false);
+  });
+});
+
+describe("p50", () => {
+  it("is the median of the round trips, so one cold question does not speak for the rest", () => {
+    expect(p50Of([])).toBeNull();
+    expect(p50Of([35])).toBe(35);
+    expect(p50Of([30, 1_200, 40])).toBe(40);
+    expect(p50Of([10, 20, 30, 41])).toBe(25);
   });
 });
