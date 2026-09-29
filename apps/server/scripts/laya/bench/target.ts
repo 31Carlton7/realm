@@ -281,7 +281,7 @@ export const TARGET: Record<string, Record<string, string[]>> = {
   "safari-share": {
     Copy: ["put the link on the clipboard"],
     "Add to Reading List": ["save it to read offline later"],
-    "Options ￼": ["share as a PDF instead of a link"],
+    "Options": ["share as a PDF instead of a link"],
     Reminders: ["remind me to read this tomorrow"],
   },
   "safari-tabs": {
@@ -420,7 +420,7 @@ export const TARGET: Record<string, Record<string, string[]>> = {
   "calendar-calendars": {
     "US Holidays, Subscribed": ["federal days off"],
     "Show Completed Reminders": ["show finished tasks"],
-    "￼Add Calendar": ["subscribe to a sports schedule"],
+    "Add Calendar": ["subscribe to a sports schedule"],
     close: ["done with this list"],
   },
   "calendar-discard": {

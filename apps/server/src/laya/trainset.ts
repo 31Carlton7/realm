@@ -108,7 +108,7 @@ function targetRows(screen: BenchScreen, lexicon: Lexicon, guard: Guard, random:
   const rows: TrainRow[] = [];
   for (const e of offered) {
     if (!e.label.trim()) continue;
-    for (const phrase of phrasesFor(lexicon, e.label)) {
+    for (const phrase of phrasesFor(lexicon, e.label, screen.app)) {
       if (!guard.allows(phrase)) continue;
       rows.push(targetRow(offered, e, phrase, "lexicon"));
     }
@@ -174,7 +174,7 @@ function sensitiveRows(screen: BenchScreen, lexicon: Lexicon, guard: Guard, rand
       for (const intent of [`open ${primary(label)}`, `look at ${primary(label)}`]) if (guard.allows(intent)) rows.push(sensitiveRow(WALK_TOOL, e, intent, []));
       continue;
     }
-    const phrases = phrasesFor(lexicon, label).filter((p) => guard.allows(p));
+    const phrases = phrasesFor(lexicon, label, screen.app).filter((p) => guard.allows(p));
     if (phrases.length && random() < 0.5) rows.push(sensitiveRow(WALK_TOOL, e, pick(random, phrases), []));
   }
   return rows;
@@ -193,7 +193,7 @@ function verifyRows(pair: BenchPair, lexicon: Lexicon, guard: Guard, random: () 
   const before = pair.before.map(observed);
   const after = pair.after.map(observed);
   const diff = screenDiff(before, after);
-  const goals = (label: string) => [...phrasesFor(lexicon, label), `tap ${primary(label)}`].filter((g) => guard.allows(g));
+  const goals = (label: string) => [...phrasesFor(lexicon, label, pair.app), `tap ${primary(label)}`].filter((g) => guard.allows(g));
   const rows: TrainRow[] = [];
   const own = sample(random, goals(target.label), 4);
   if (!diff.changed || diff.alert) {
@@ -213,10 +213,10 @@ function verifyRows(pair: BenchPair, lexicon: Lexicon, guard: Guard, random: () 
 /** A screen that did not change is a step that did nothing, whatever it was for. */
 function unchangedRows(screen: BenchScreen, lexicon: Lexicon, guard: Guard, random: () => number): TrainRow[] {
   const els = screen.elements.map(observed);
-  const named = els.filter((e) => e.label.trim() && phrasesFor(lexicon, e.label).length);
+  const named = els.filter((e) => e.label.trim() && phrasesFor(lexicon, e.label, screen.app).length);
   const e = named.length ? pick(random, named) : null;
   if (!e) return [];
-  const g = pick(random, phrasesFor(lexicon, e.label));
+  const g = pick(random, phrasesFor(lexicon, e.label, screen.app));
   return guard.allows(g) ? [verifyRow(g, els, els, false)] : [];
 }
 
@@ -302,14 +302,16 @@ class Guard {
 }
 
 /** The lexicon's phrases for a label: under the label itself, and under its first part — "Record
- *  Video, 1080p at 30 fps" is "Record Video". */
-export function phrasesFor(lexicon: Lexicon, label: string): string[] {
-  const tidy = label.replace(/￼/g, "").replace(/\s+/g, " ").trim();
-  return lexicon.labels[tidy] ?? lexicon.labels[primary(tidy)] ?? [];
+ *  Video, 1080p at 30 fps" is "Record Video". An entry for `App:Label` is that app's own sense of the
+ *  label and stands instead: Messages' Camera takes a photo, Settings' Camera is its settings. */
+export function phrasesFor(lexicon: Lexicon, label: string, app?: string): string[] {
+  const tidy = label.replace(/\uFFFC/g, "").replace(/\s+/g, " ").trim();
+  const scoped = app ? lexicon.labels[`${app}:${tidy}`] ?? lexicon.labels[`${app}:${primary(tidy)}`] : undefined;
+  return scoped ?? lexicon.labels[tidy] ?? lexicon.labels[primary(tidy)] ?? [];
 }
 
 function primary(label: string): string {
-  return label.replace(/￼/g, "").split(", ")[0]!.trim();
+  return label.replace(/\uFFFC/g, "").split(", ")[0]!.trim();
 }
 
 const observed = ({ frame: _frame, ...e }: BenchElement): ObservedElement => e;

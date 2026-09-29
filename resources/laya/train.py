@@ -16,7 +16,7 @@ laya-serve, and per question the answer distribution in option order. Items are 
 
 After training, temperatures are fitted per option-count bucket on the calibration rows (the
 benchmark's train split, never trained on), clamped to the range laya applies. With validation rows,
-each epoch is scored on them and the best epoch is the one written.
+each epoch is scored on them and the epoch best at `target` is the one written.
 
 Progress goes to stdout as JSON lines ({"event": ...}), for Realm to read.
 """
@@ -254,9 +254,11 @@ def main():
                      seconds=round(elapsed), eta=round(elapsed / step * (per_epoch * args.epochs - step)))
         result = score(logits_of(model, valid, tok.pad_token_id, device)) if valid else {}
         emit("epoch", epoch=epoch + 1, loss=round(sum(losses) / len(losses), 4), valid=result, seconds=round(time.time() - t0))
-        mean = sum(result.values()) / len(result) if result else float(epoch)
-        if best is None or mean > best:
-            best, best_epoch = mean, epoch + 1
+        # `target` first — it is what Assist is earned by — and the rest to break a tie; with no
+        # validation rows, the last epoch.
+        key = (result.get("target", 0.0), sum(result.values()) / len(result)) if result else (float(epoch), 0.0)
+        if best is None or key > best:
+            best, best_epoch = key, epoch + 1
             trained = dict(cfg)
             trained["training"] = {"recipe": "rlcd-mps", "epochs": epoch + 1, "items": len(train), "freeze": args.freeze, "lr_encoder": args.lr_encoder, "lr_head": args.lr_head,
                                    "batch": args.batch * args.accum, "seed": args.seed, "fine_tuned_from": cfg.get("model_name", "rl-agent"), "seconds": round(time.time() - t0)}

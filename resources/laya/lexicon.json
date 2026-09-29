@@ -5,25 +5,37 @@
    "return to the previous screen",
    "go back one level",
    "previous page",
-   "leave this screen"
+   "leave this screen",
+   "the previous page please",
+   "undo that navigation",
+   "up one level"
   ],
   "Cancel": [
    "never mind",
    "abandon this",
    "stop without saving",
-   "back out"
+   "back out",
+   "forget it",
+   "don't save anything",
+   "dismiss without changes"
   ],
   "Done": [
    "finish up",
    "I'm finished here",
    "confirm and close",
-   "wrap this up"
+   "wrap this up",
+   "that's all",
+   "close when finished",
+   "save and exit"
   ],
   "Close": [
    "dismiss this",
    "shut this panel",
    "get rid of this popup",
-   "hide this card"
+   "hide this card",
+   "x out of this",
+   "make this go away",
+   "exit the panel"
   ],
   "close": [
    "dismiss this sheet",
@@ -33,29 +45,45 @@
   "Edit": [
    "change these items",
    "rearrange or modify",
-   "make changes here"
+   "make changes here",
+   "modify the list",
+   "reorder or remove entries",
+   "enter editing mode"
   ],
   "Search": [
    "look something up",
    "find by typing",
    "search this app",
    "Spotlight preferences",
-   "what shows when I swipe down to search"
+   "what shows when I swipe down to search",
+   "find something",
+   "type a query",
+   "magnifying glass",
+   "search suggestions",
+   "what search shows before I type"
   ],
   "Share": [
    "send this to someone",
    "export it",
-   "pass it along to a friend"
+   "pass it along to a friend",
+   "export to another app",
+   "hand it off to someone",
+   "send it elsewhere",
+   "send the page"
   ],
   "More": [
    "additional options",
    "the overflow menu",
-   "other actions"
+   "other actions",
+   "three dots menu",
+   "extra actions",
+   "everything else I can do here"
   ],
   "Add": [
    "create a new one",
    "plus button",
-   "make another"
+   "make another",
+   "new event"
   ],
   "add": [
    "create another",
@@ -65,22 +93,34 @@
   "Continue": [
    "proceed",
    "go on to the next step",
-   "keep going"
+   "keep going",
+   "next",
+   "move ahead",
+   "accept and proceed"
   ],
   "OK": [
    "acknowledge this",
    "got it",
-   "accept the message"
+   "accept the message",
+   "fine",
+   "understood",
+   "close the alert"
   ],
   "Not Now": [
    "maybe later",
    "skip for now",
-   "decline this suggestion"
+   "decline this suggestion",
+   "later",
+   "no thanks",
+   "remind me some other time"
   ],
   "Select": [
    "choose several at once",
    "pick multiple items",
-   "enter selection mode"
+   "enter selection mode",
+   "multi-select",
+   "check off several",
+   "choose items"
   ],
   "Dictate": [
    "speak instead of typing",
@@ -90,22 +130,34 @@
   "Delete": [
    "trash it",
    "remove it permanently",
-   "erase this"
+   "erase this",
+   "throw it in the bin",
+   "get rid of this one",
+   "remove from the device"
   ],
   "Save": [
    "keep these changes",
    "store it",
-   "commit this entry"
+   "commit this entry",
+   "keep it",
+   "store these details",
+   "finish and save"
   ],
   "Allow": [
    "grant permission",
    "say yes to the request",
-   "permit it"
+   "permit it",
+   "yes, permit",
+   "approve access",
+   "okay the request"
   ],
   "Don’t Allow": [
    "refuse permission",
    "say no to the request",
-   "deny it"
+   "deny it",
+   "no, block it",
+   "reject access",
+   "keep it private"
   ],
   "Allow Once": [
    "grant it just this time",
@@ -144,7 +196,9 @@
   ],
   "Library": [
    "my collection",
-   "all my saved items"
+   "all my saved items",
+   "everything I have",
+   "the full collection"
   ],
   "Collections": [
    "grouped albums",
@@ -152,151 +206,150 @@
   ],
   "Browse": [
    "look through the folders",
-   "explore everything available"
+   "explore everything available",
+   "look around the folders",
+   "all locations"
   ],
   "Recents": [
    "things I opened lately",
-   "recently used items"
+   "recently used items",
+   "latest files",
+   "what I worked on recently"
   ],
   "Shared": [
    "things others sent me",
-   "items people shared with me"
+   "items people shared with me",
+   "items from other people",
+   "things sent to me"
   ],
   "Favorites": [
    "things I starred",
-   "my top picks"
+   "my top picks",
+   "starred items",
+   "the things I marked"
   ],
   "Info": [
    "the details panel",
-   "metadata about it"
+   "metadata about it",
+   "details about this item",
+   "properties"
   ],
   "Notifications": [
    "alert preferences",
-   "push messages settings"
-  ],
-  "Maps": [
-   "navigation and directions",
-   "find a route somewhere",
-   "the GPS app"
-  ],
-  "Calendar": [
-   "my appointments",
-   "schedule and events",
-   "upcoming meetings"
-  ],
-  "Photos": [
-   "my picture library",
-   "gallery of images",
-   "vacation snapshots"
-  ],
-  "News": [
-   "current events",
-   "stories and articles",
-   "today's journalism"
-  ],
-  "Health": [
-   "my medical data",
-   "fitness and vitals records",
-   "wellness tracking"
-  ],
-  "Wallet": [
-   "my cards and passes",
-   "tap to pay",
-   "concert tickets and loyalty cards"
-  ],
-  "Siri": [
-   "the voice assistant",
-   "talk to my phone",
-   "ask a spoken question"
-  ],
-  "Settings": [
-   "system preferences",
-   "configure the phone",
-   "change how my phone works"
-  ],
-  "Safari": [
-   "the internet browser",
-   "surf the internet",
-   "load a web page"
-  ],
-  "Messages": [
-   "send a text message",
-   "iMessage conversations",
-   "my chats"
+   "push messages settings",
+   "alerts for this",
+   "push notification settings"
   ],
   "General": [
    "update iOS",
    "device language and region",
    "check phone model",
-   "storage and reset options"
+   "storage and reset options",
+   "reset the phone",
+   "check what model this is",
+   "language and keyboards",
+   "date and time"
   ],
   "Accessibility": [
    "assistive features",
    "settings for low vision",
    "hearing aid options",
-   "help for motor impairments"
+   "help for motor impairments",
+   "options for people with disabilities",
+   "make the screen easier to see",
+   "assistive touch",
+   "zoom the whole screen"
   ],
   "Action Button": [
    "the programmable side key",
    "what the extra hardware button does",
-   "configure the shortcut key on the side"
+   "configure the shortcut key on the side",
+   "customize the button above the volume keys",
+   "flashlight shortcut on the side button"
   ],
   "Appearance": [
    "light and dark theme",
    "system look and feel",
-   "bold fonts and display zoom"
+   "bold fonts and display zoom",
+   "switch to night theme",
+   "theme settings",
+   "text weight and display size"
   ],
   "Camera": [
    "video resolution and frame rate",
    "photo capture options",
    "shooting settings",
-   "take a photo"
+   "grid lines and video quality",
+   "camera app preferences"
   ],
   "Home Screen & App Library": [
    "where downloaded apps land",
    "app icon layout options",
-   "badges on the app drawer"
+   "badges on the app drawer",
+   "notification badges on icons",
+   "new app placement"
   ],
   "StandBy": [
    "bedside clock when charging sideways",
    "nightstand display",
-   "the charging dock view"
+   "the charging dock view",
+   "charging display mode",
+   "clock while charging in landscape"
   ],
   "Screen Time": [
    "usage limits",
    "app time tracking",
    "downtime and content restrictions",
-   "restrict my child's phone"
+   "restrict my child's phone",
+   "limit social media",
+   "daily phone usage report",
+   "block apps at bedtime"
   ],
   "Passcode": [
    "unlock PIN",
    "change the lock screen code",
-   "biometric unlock settings"
+   "biometric unlock settings",
+   "require a code to unlock",
+   "change my six digit code",
+   "Face ID and passcode"
   ],
   "Privacy & Security": [
    "app permissions",
    "who can access my location and camera",
-   "tracking and data protections"
+   "tracking and data protections",
+   "control app tracking",
+   "microphone access for apps",
+   "security settings"
   ],
   "Game Center": [
    "gaming account",
    "achievements and leaderboards",
-   "play with friends online"
+   "play with friends online",
+   "my gamer tag",
+   "multiplayer friends"
   ],
   "iCloud": [
    "cloud backup",
    "sync photos to the cloud",
-   "online storage plan"
+   "online storage plan",
+   "iCloud storage",
+   "sync contacts across devices",
+   "Find My settings"
   ],
   "Apps": [
    "settings for each installed app",
    "per-application preferences",
-   "default apps and app options"
+   "default apps and app options",
+   "settings for Safari and Messages",
+   "individual app settings",
+   "notification and permission settings per app"
   ],
   "Developer": [
    "testing tools for app makers",
    "debug options",
-   "engineering switches"
+   "engineering switches",
+   "developer options",
+   "network link conditioner"
   ],
   "Apple Account, Sign in to access your iCloud data, the App Store, Apple services, and more.": [
    "log in to my Apple ID",
@@ -306,57 +359,77 @@
   "VoiceOver": [
    "spoken screen reader",
    "make the phone read everything aloud",
-   "blind navigation mode"
+   "blind navigation mode",
+   "spoken feedback for everything",
+   "screen narration"
   ],
   "Hover Text": [
    "enlarge text under the cursor",
-   "big preview of hovered text"
+   "big preview of hovered text",
+   "magnify text on hover"
   ],
   "Display & Text Size": [
    "invert the screen colors",
    "reduce white point",
    "color filters",
-   "increase contrast"
+   "increase contrast",
+   "grayscale",
+   "smart invert",
+   "button shapes"
   ],
   "Motion": [
    "reduce animations",
    "stop the zooming effects",
-   "limit screen movement"
+   "limit screen movement",
+   "prefer cross-fade transitions",
+   "limit frame rate"
   ],
   "Spoken Content": [
    "read selected text out loud",
    "speak screen contents",
-   "text to speech"
+   "text to speech",
+   "speak selection",
+   "read the screen out loud"
   ],
   "Face ID & Attention": [
    "attention aware features",
-   "require eye contact to unlock"
+   "require eye contact to unlock",
+   "attention detection"
   ],
   "Control Nearby Devices": [
    "use this phone to operate my other device",
-   "remote control for my iPad"
+   "remote control for my iPad",
+   "control another Apple device"
   ],
   "Subtitles & Captioning": [
    "closed caption style",
-   "subtitles for the deaf"
+   "subtitles for the deaf",
+   "caption style",
+   "SDH"
   ],
   "Live Speech": [
    "type and have it spoken aloud",
-   "text to voice during calls"
+   "text to voice during calls",
+   "speak typed phrases"
   ],
   "Keyboards & Typing": [
    "physical keyboard accessibility",
-   "key repeat and sticky keys"
+   "key repeat and sticky keys",
+   "full keyboard access"
   ],
   "9:41, Light": [
    "the light theme",
    "white interface",
-   "daytime look"
+   "daytime look",
+   "light appearance",
+   "bright theme"
   ],
   "9:41, Dark": [
    "the dark theme",
    "black interface",
-   "night mode look"
+   "night mode look",
+   "dark appearance",
+   "dim theme"
   ],
   "Automatic": [
    "switch appearance on a schedule",
@@ -369,19 +442,24 @@
   "Text Size": [
    "font size slider",
    "make letters larger",
-   "shrink the text"
+   "shrink the text",
+   "readable font size",
+   "tiny text is hard to read"
   ],
   "Bold Text": [
    "heavier typeface",
-   "thicker fonts everywhere"
+   "thicker fonts everywhere",
+   "bolder letters"
   ],
   "Display Zoom": [
    "larger interface elements",
-   "zoomed display mode"
+   "zoomed display mode",
+   "zoomed view"
   ],
   "Reduce Motion": [
    "fewer transitions",
-   "calmer animations"
+   "calmer animations",
+   "less movement in the interface"
   ],
   "Larger Text": [
    "bigger layout mode",
@@ -398,7 +476,8 @@
   ],
   "Contacts": [
    "address book settings",
-   "people app preferences"
+   "people app preferences",
+   "contacts access"
   ],
   "Files": [
    "document app options",
@@ -431,7 +510,10 @@
   "About": [
    "device serial and model",
    "software version info",
-   "capacity and available space"
+   "capacity and available space",
+   "phone's name and model",
+   "how much space is used",
+   "serial and IMEI"
   ],
   "Screen Capture": [
    "screenshot options",
@@ -439,30 +521,39 @@
   ],
   "AutoFill & Passwords": [
    "automatically fill saved logins",
-   "password autofill provider"
+   "password autofill provider",
+   "password autofill"
   ],
   "Dictionary": [
    "word definition sources",
-   "lookup dictionaries"
+   "lookup dictionaries",
+   "definitions"
   ],
   "Fonts": [
    "manage typefaces",
-   "installed font families"
+   "installed font families",
+   "custom fonts"
   ],
   "Keyboard": [
    "typing preferences",
    "autocorrect and keyboards",
-   "text replacement and emoji keyboard"
+   "text replacement and emoji keyboard",
+   "keyboard settings",
+   "predictive text and autocorrect"
   ],
   "Language & Region": [
    "change system language",
    "region format and units",
-   "switch to Spanish"
+   "switch to Spanish",
+   "units and region",
+   "change the date format"
   ],
   "VPN & Device Management": [
    "configuration profiles",
    "work device management",
-   "virtual private network setup"
+   "virtual private network setup",
+   "install a profile",
+   "remove a configuration profile"
   ],
   "Certificate Trust Settings": [
    "trust installed root certificates"
@@ -473,11 +564,13 @@
   ],
   "Keyboards": [
    "installed keyboard languages",
-   "add or remove keyboards"
+   "add or remove keyboards",
+   "keyboard languages"
   ],
   "Text Replacement": [
    "typing shortcuts that expand",
-   "auto-expand abbreviations"
+   "auto-expand abbreviations",
+   "abbreviation shortcuts"
   ],
   "One-Handed Keyboard": [
    "shift keyboard to one side",
@@ -488,23 +581,28 @@
   ],
   "Haptic Feedback": [
    "vibrate on each keystroke",
-   "tactile key taps"
+   "tactile key taps",
+   "keyboard vibration"
   ],
   "Sound": [
    "keyboard click sounds",
-   "typing noise"
+   "typing noise",
+   "keyboard clicks"
   ],
   "Auto-Capitalization": [
    "capitalize the first letter automatically",
-   "automatic capital letters"
+   "automatic capital letters",
+   "automatic capitals"
   ],
   "Auto-Correction": [
    "fix typos automatically",
-   "spell correction while typing"
+   "spell correction while typing",
+   "autocorrect"
   ],
   "Predictive Text": [
    "word suggestions above the keyboard",
-   "next word predictions"
+   "next word predictions",
+   "suggested words"
   ],
   "Show Predictions Inline": [
    "inline autocomplete while typing"
@@ -514,13 +612,15 @@
   ],
   "Check Spelling and Grammar": [
    "spell check underline",
-   "grammar checking"
+   "grammar checking",
+   "spell checker"
   ],
   "Enable Caps Lock": [
    "all caps by double tapping shift"
   ],
   "Smart Punctuation": [
-   "curly quotes and em dashes automatically"
+   "curly quotes and em dashes automatically",
+   "smart quotes"
   ],
   "Add New Keyboard": [
    "install another keyboard language",
@@ -532,30 +632,36 @@
   ],
   "Temperature": [
    "Fahrenheit or Celsius",
-   "degree units"
+   "degree units",
+   "Celsius"
   ],
   "Measurement System": [
    "metric or imperial",
-   "miles versus kilometers"
+   "miles versus kilometers",
+   "metric"
   ],
   "Region": [
    "my country setting",
-   "regional format country"
+   "regional format country",
+   "country or region"
   ],
   "Add Language…": [
    "another preferred language",
-   "add German to my languages"
+   "add German to my languages",
+   "another language"
   ],
   "Number Format": [
    "decimal and thousands separator"
   ],
   "First Day of Week": [
    "week starts on",
-   "make weeks begin on Monday"
+   "make weeks begin on Monday",
+   "Monday first"
   ],
   "Date Format": [
    "how dates are written",
-   "day month year order"
+   "day month year order",
+   "date style"
   ],
   "Calendar, Gregorian": [
    "calendar system",
@@ -571,11 +677,14 @@
   "Record Video": [
    "video quality",
    "4K recording",
-   "frames per second for video"
+   "frames per second for video",
+   "4K video",
+   "video resolution"
   ],
   "Record Slo-mo": [
    "slow-motion quality",
-   "high frame rate capture"
+   "high frame rate capture",
+   "slo-mo quality"
   ],
   "Record Sound": [
    "audio recording format for videos",
@@ -583,7 +692,8 @@
   ],
   "Formats": [
    "HEIF versus most compatible",
-   "RAW capture format"
+   "RAW capture format",
+   "HEIC or JPEG"
   ],
   "Preserve Settings": [
    "keep my last camera mode",
@@ -591,15 +701,18 @@
   ],
   "Grid": [
    "composition lines",
-   "thirds overlay in the viewfinder"
+   "thirds overlay in the viewfinder",
+   "gridlines"
   ],
   "Level": [
    "horizon level indicator",
-   "tilt guide"
+   "tilt guide",
+   "leveling guide"
   ],
   "Mirror Front Camera": [
    "flip front-facing photos",
-   "selfie mirroring"
+   "selfie mirroring",
+   "flip selfies"
   ],
   "View Outside the Frame": [
    "show area beyond the frame"
@@ -610,17 +723,21 @@
   ],
   "Location Services": [
    "GPS access for apps",
-   "location permissions"
+   "location permissions",
+   "GPS"
   ],
   "Tracking": [
    "cross-app ad tracking requests",
-   "ask apps not to track"
+   "ask apps not to track",
+   "app tracking transparency"
   ],
   "Calendars": [
    "event access for apps",
    "which apps read my schedule",
    "which calendars are visible",
-   "calendar list"
+   "calendar list",
+   "calendar access",
+   "calendar visibility"
   ],
   "Focus": [
    "focus status sharing with apps"
@@ -636,17 +753,20 @@
   ],
   "Bluetooth": [
    "wireless accessory access",
-   "apps connecting to nearby gadgets"
+   "apps connecting to nearby gadgets",
+   "Bluetooth access for apps"
   ],
   "Critical Messages": [
    "emergency alert access"
   ],
   "Local Network": [
-   "home network device discovery"
+   "home network device discovery",
+   "LAN access"
   ],
   "Microphone": [
    "audio recording permission",
-   "apps that can hear me"
+   "apps that can hear me",
+   "mic access"
   ],
   "Motion & Fitness": [
    "step sensor access",
@@ -662,22 +782,26 @@
    "study data collection"
   ],
   "Speech Recognition": [
-   "voice transcription permission"
+   "voice transcription permission",
+   "dictation access for apps"
   ],
   "Blocked Contacts": [
    "people I blocked",
-   "stop someone from calling me"
+   "stop someone from calling me",
+   "block list"
   ],
   "Safety Check": [
    "emergency reset of sharing",
-   "review who has access to me"
+   "review who has access to me",
+   "reset sharing and access quickly"
   ],
   "Sensitive Content Warning": [
    "blur explicit images"
   ],
   "Analytics & Improvements": [
    "diagnostics sharing",
-   "crash reports to Apple"
+   "crash reports to Apple",
+   "share diagnostics"
   ],
   "Apple Advertising": [
    "personalized ads in Apple apps"
@@ -700,25 +824,30 @@
   ],
   "Apps & Websites": [
    "limit adult content on the web",
-   "website restrictions"
+   "website restrictions",
+   "web content filter"
   ],
   "Allowed Contacts": [
-   "who my child can talk to"
+   "who my child can talk to",
+   "communication limits"
   ],
   "Always Allowed": [
    "apps exempt from limits"
   ],
   "Screen Time Schedule": [
    "downtime hours",
-   "bedtime lockout"
+   "bedtime lockout",
+   "downtime"
   ],
   "Time Allowances": [
    "daily time budget per category",
-   "limit games to an hour"
+   "limit games to an hour",
+   "app limits"
   ],
   "Content & Privacy Restrictions": [
    "block app store purchases",
-   "restrict explicit content"
+   "restrict explicit content",
+   "parental restrictions"
   ],
   "Communication Safety": [
    "nudity warnings for kids"
@@ -726,7 +855,8 @@
   "Search Engine": [
    "default search provider",
    "use DuckDuckGo",
-   "switch to Ecosia"
+   "switch to Ecosia",
+   "which search site Safari uses"
   ],
   "Default Browser App": [
    "which browser opens links"
@@ -755,11 +885,13 @@
   ],
   "Block Pop-ups": [
    "stop popup windows",
-   "prevent new windows opening"
+   "prevent new windows opening",
+   "popup blocker"
   ],
   "Extensions": [
    "browser add-ons",
-   "ad blockers and plugins"
+   "ad blockers and plugins",
+   "Safari add-ons"
   ],
   "Downloads": [
    "where files download to"
@@ -790,7 +922,8 @@
    "work profile for browsing"
   ],
   "Prevent Cross-Site Tracking": [
-   "block third-party trackers"
+   "block third-party trackers",
+   "anti-tracking"
   ],
   "Hide IP Address": [
    "mask my address from trackers"
@@ -800,7 +933,8 @@
   ],
   "Fraudulent Website Warning": [
    "phishing protection",
-   "warn about fake sites"
+   "warn about fake sites",
+   "scam site warnings"
   ],
   "Not Secure Connection Warning": [
    "warn about http pages"
@@ -816,7 +950,9 @@
   ],
   "Clear History and Website Data": [
    "erase browsing data",
-   "remove all cookies"
+   "remove all cookies",
+   "clear cookies",
+   "erase Safari data"
   ],
   "Reader": [
    "reader mode for sites"
@@ -826,7 +962,8 @@
   ],
   "Advanced": [
    "developer and experimental web features",
-   "web inspector"
+   "web inspector",
+   "experimental features"
   ],
   "Clear History": [
    "wipe the history now"
@@ -841,14 +978,18 @@
    "every page ever visited"
   ],
   "Today": [
-   "this day only"
+   "this day only",
+   "back to today"
   ],
   "Language": [
-   "which language the assistant speaks"
+   "which language the assistant speaks",
+   "Siri language"
   ],
   "Voice": [
    "assistant voice accent",
-   "male or female assistant voice"
+   "male or female assistant voice",
+   "assistant's voice",
+   "Siri voice"
   ],
   "Responses": [
    "spoken or written answers"
@@ -858,7 +999,8 @@
   ],
   "ChatGPT": [
    "the OpenAI extension",
-   "AI chatbot integration"
+   "AI chatbot integration",
+   "ChatGPT extension"
   ],
   "Automatic Visual Look Up": [
    "identify objects in screenshots"
@@ -933,11 +1075,15 @@
   ],
   "Page Menu": [
    "page tools",
-   "options for this web page"
+   "options for this web page",
+   "tools for this page",
+   "the page's menu"
   ],
   "Tabs": [
    "all open pages",
-   "tab switcher"
+   "tab switcher",
+   "tab overview",
+   "switch tabs"
   ],
   "refresh": [
    "reload this page",
@@ -946,7 +1092,9 @@
   "Address": [
    "the URL bar",
    "type a web address",
-   "search from the address bar"
+   "search from the address bar",
+   "address bar",
+   "URL field"
   ],
   "Voice Search": [
    "search by speaking"
@@ -962,62 +1110,74 @@
   ],
   "Find on Page": [
    "find text in this page",
-   "locate a word here"
+   "locate a word here",
+   "search within the page"
   ],
   "Page Zoom": [
    "zoom the page",
-   "enlarge this website"
+   "enlarge this website",
+   "text size for this site"
   ],
   "Notify Me": [
    "notifications from this site"
   ],
   "Hide Distracting Items": [
-   "hide ads and clutter"
+   "hide ads and clutter",
+   "declutter the page"
   ],
   "Tab Actions": [
    "move or pin this tab"
   ],
   "Request Desktop Website": [
-   "desktop version of the page"
+   "desktop version of the page",
+   "desktop site"
   ],
   "Hide Toolbar": [
    "hide the browser controls"
   ],
   "Website Settings…": [
    "per-site settings",
-   "permissions for this site"
+   "permissions for this site",
+   "site permissions"
   ],
   "Report Website Issue": [
-   "report a broken site"
+   "report a broken site",
+   "site is broken"
   ],
   "Customize Menu": [
    "rearrange this menu's items"
   ],
   "Copy": [
    "copy the link",
-   "put it on the clipboard"
+   "put it on the clipboard",
+   "copy link"
   ],
   "Add to Reading List": [
-   "save for later reading"
+   "save for later reading",
+   "read later"
   ],
   "View More": [
    "more share options"
   ],
   "Private": [
    "private browsing",
-   "no-history browsing"
+   "no-history browsing",
+   "incognito"
   ],
   "Start Page": [
    "the new tab page"
   ],
   "Bookmarks": [
-   "saved sites list"
+   "saved sites list",
+   "saved bookmarks"
   ],
   "Reading List": [
-   "saved articles"
+   "saved articles",
+   "read-later list"
   ],
   "History": [
-   "previously visited pages"
+   "previously visited pages",
+   "browsing history"
   ],
   "Apple": [
    "Apple's homepage"
@@ -1045,7 +1205,8 @@
   ],
   "New Folder": [
    "make a folder",
-   "a new directory"
+   "a new directory",
+   "new bookmark folder"
   ],
   "Turn On Locked Private Browsing": [
    "require Face ID for private tabs"
@@ -1073,7 +1234,8 @@
    "switch to the number keys"
   ],
   "Inbox": [
-   "event invitations I received"
+   "event invitations I received",
+   "invites"
   ],
   "September": [
    "month view"
@@ -1083,16 +1245,20 @@
   ],
   "Location or Video Call": [
    "where the event happens",
-   "add a meeting link"
+   "add a meeting link",
+   "meeting place or link"
   ],
   "Alert": [
-   "reminder before the event"
+   "reminder before the event",
+   "event reminder"
   ],
   "Travel Time": [
-   "time to get there"
+   "time to get there",
+   "leave early for travel"
   ],
   "Add attachment…": [
-   "attach a file to the event"
+   "attach a file to the event",
+   "attach a document"
   ],
   "Event": [
    "a regular calendar event"
@@ -1114,47 +1280,59 @@
   ],
   "Discard Changes": [
    "throw away edits",
-   "don't keep the new event"
+   "don't keep the new event",
+   "discard the draft"
   ],
   "Message": [
    "the text box",
-   "type a reply"
+   "type a reply",
+   "compose box"
   ],
   "Send": [
    "send it now",
-   "deliver the text"
+   "deliver the text",
+   "send message"
   ],
   "Audio": [
-   "voice message"
+   "audio settings"
   ],
   "#images": [
-   "search for animated images"
+   "search for animated images",
+   "GIF search"
   ],
   "Apple Cash": [
    "pay someone",
-   "send cash"
+   "send cash",
+   "payments"
   ],
   "Check In": [
-   "tell them when I arrive"
+   "tell them when I arrive",
+   "safety check-in"
   ],
   "Digital Touch": [
-   "send a drawing"
+   "send a drawing",
+   "sketch"
   ],
   "Sort and Filter": [
-   "filter the photo grid"
+   "filter the photo grid",
+   "filter photos"
   ],
   "Recently Deleted": [
    "trash for photos",
-   "restore deleted pictures"
+   "restore deleted pictures",
+   "photo trash"
   ],
   "Map": [
-   "photos on a map"
+   "photos on a map",
+   "places album"
   ],
   "Videos": [
-   "movies I filmed"
+   "movies I filmed",
+   "video album"
   ],
   "Screenshots": [
-   "screen captures"
+   "screen captures",
+   "screenshot album"
   ],
   "Create": [
    "new album"
@@ -1164,35 +1342,44 @@
   ],
   "Favorite": [
    "heart it",
-   "add to favorites"
+   "add to favorites",
+   "favorite it"
   ],
   "Adjust": [
    "light and color controls",
-   "change the date and time"
+   "change the date and time",
+   "exposure and color"
   ],
   "Filters": [
    "photo filters",
-   "mono or vivid look"
+   "mono or vivid look",
+   "filters"
   ],
   "Crop and Rotate": [
    "crop tool",
-   "straighten the picture"
+   "straighten the picture",
+   "crop"
   ],
   "Flip": [
-   "flip horizontally"
+   "flip horizontally",
+   "mirror"
   ],
   "Rotate": [
-   "rotate ninety degrees"
+   "rotate ninety degrees",
+   "rotate"
   ],
   "Aspect Ratio": [
-   "crop to 16 by 9"
+   "crop to 16 by 9",
+   "square crop"
   ],
   "Add Keywords": [
-   "keywords for the photo"
+   "keywords for the photo",
+   "keywords"
   ],
   "Location": [
    "where it was taken",
-   "map location of this"
+   "map location of this",
+   "photo location"
   ],
   "Delete Photo": [
    "confirm removing the photo"
@@ -1207,21 +1394,25 @@
    "shortcuts in the share menu"
   ],
   "Apple Watch": [
-   "shortcuts for my watch"
+   "shortcuts for my watch",
+   "watch shortcuts"
   ],
   "Gallery": [
    "starter shortcuts",
-   "shortcut examples"
+   "shortcut examples",
+   "shortcut gallery"
   ],
   "Automation": [
    "run things automatically",
-   "trigger on time or place"
+   "trigger on time or place",
+   "automations"
   ],
   "Add new folder": [
    "folder for shortcuts"
   ],
   "New Shortcut": [
-   "create a shortcut"
+   "create a shortcut",
+   "new automation"
   ],
   "Add, Start Pomodoro": [
    "work timer shortcut"
@@ -1246,37 +1437,45 @@
   ],
   "Add Card": [
    "add a credit card",
-   "add a debit card"
+   "add a debit card",
+   "add card"
   ],
   "Orders": [
    "order tracking",
-   "package deliveries"
+   "package deliveries",
+   "orders"
   ],
   "Get": [
    "get this offer"
   ],
   "Try News+ Free": [
    "News+ trial",
-   "start a subscription trial"
+   "start a subscription trial",
+   "free trial"
   ],
   "Sports": [
    "sports news",
-   "game scores"
+   "game scores",
+   "sports"
   ],
   "Puzzles": [
    "games section",
-   "crossword and sudoku"
+   "crossword and sudoku",
+   "puzzles"
   ],
   "Local": [
-   "local news"
+   "local news",
+   "local"
   ],
   "Entertainment": [
    "entertainment news",
-   "movies and TV gossip"
+   "movies and TV gossip",
+   "celebrity news"
   ],
   "News+": [
    "premium news",
-   "paid publications"
+   "paid publications",
+   "News+"
   ],
   "Following": [
    "channels I follow"
@@ -1288,7 +1487,8 @@
    "the mini crossword"
   ],
   "Sudoku": [
-   "number puzzle"
+   "number puzzle",
+   "sudoku"
   ],
   "Emoji Game": [
    "emoji puzzle"
@@ -1297,7 +1497,8 @@
    "word puzzle"
   ],
   "Leaderboard": [
-   "puzzle rankings"
+   "puzzle rankings",
+   "rankings"
   ],
   "Play All": [
    "play every story"
@@ -1306,29 +1507,35 @@
    "free month of News+"
   ],
   "Account Settings": [
-   "fitness profile and goals"
+   "fitness profile and goals",
+   "account"
   ],
   "Edit Your Summary": [
    "customize the summary page"
   ],
   "Workout": [
    "start exercising",
-   "record a workout"
+   "record a workout",
+   "exercise"
   ],
   "Sharing": [
-   "activity sharing with friends"
+   "activity sharing with friends",
+   "sharing"
   ],
   "Fitness+": [
-   "guided classes"
+   "guided classes",
+   "Fitness+ classes"
   ],
   "Summary": [
    "activity overview"
   ],
   "GymKit": [
-   "gym equipment pairing"
+   "gym equipment pairing",
+   "gym machines"
   ],
   "Heart Rate Devices": [
-   "heart rate sensor"
+   "heart rate sensor",
+   "heart monitor"
   ],
   "Add Workout": [
    "new workout type"
@@ -1344,28 +1551,161 @@
   ],
   "Mute": [
    "turn the sound off",
-   "silence the audio"
+   "silence the audio",
+   "mute"
   ],
   "Power": [
-   "switch the TV on or off"
+   "switch the TV on or off",
+   "power"
   ],
   "Play Pause": [
    "pause the show",
-   "start playback"
+   "start playback",
+   "play or pause"
   ],
   "Menu": [
    "TV back button",
-   "previous menu on the TV"
+   "previous menu on the TV",
+   "menu button"
   ],
   "Choose a TV": [
    "select a TV to control"
   ],
   "New Document": [
-   "blank document"
+   "blank document",
+   "new document"
   ],
   "Scan Documents": [
    "scan paper with the camera",
-   "digitize a page"
+   "digitize a page",
+   "document scanner"
+  ],
+  "Home Screen:Maps": [
+   "navigation and directions",
+   "find a route somewhere",
+   "the GPS app",
+   "find a restaurant nearby",
+   "turn-by-turn navigation",
+   "where is the nearest gas station"
+  ],
+  "Home Screen:Calendar": [
+   "my appointments",
+   "schedule and events",
+   "upcoming meetings",
+   "my agenda",
+   "check my availability tomorrow"
+  ],
+  "Home Screen:Photos": [
+   "my picture library",
+   "gallery of images",
+   "vacation snapshots",
+   "the pictures I took",
+   "my selfies",
+   "photo library access",
+   "photo picker"
+  ],
+  "Home Screen:News": [
+   "current events",
+   "stories and articles",
+   "today's journalism",
+   "what's happening in the world"
+  ],
+  "Home Screen:Health": [
+   "my medical data",
+   "fitness and vitals records",
+   "wellness tracking",
+   "my step count",
+   "blood pressure log"
+  ],
+  "Home Screen:Wallet": [
+   "my cards and passes",
+   "tap to pay",
+   "concert tickets and loyalty cards",
+   "my credit cards",
+   "my transit card"
+  ],
+  "Home Screen:Siri": [
+   "the voice assistant",
+   "talk to my phone",
+   "ask a spoken question",
+   "hey Siri",
+   "ask the assistant",
+   "voice assistant language",
+   "voice commands"
+  ],
+  "Home Screen:Settings": [
+   "system preferences",
+   "configure the phone",
+   "change how my phone works",
+   "change the ringtone",
+   "turn on Bluetooth",
+   "system configuration"
+  ],
+  "Home Screen:Safari": [
+   "the internet browser",
+   "surf the internet",
+   "load a web page",
+   "go online",
+   "open a website in the browser"
+  ],
+  "Home Screen:Messages": [
+   "send a text message",
+   "iMessage conversations",
+   "my chats",
+   "iMessage my friend",
+   "check my texts"
+  ],
+  "Maps": [
+   "Maps app settings",
+   "navigation app preferences"
+  ],
+  "Photos": [
+   "Photos app settings",
+   "photo library preferences"
+  ],
+  "News": [
+   "News app settings"
+  ],
+  "Health": [
+   "Health app settings"
+  ],
+  "Wallet": [
+   "Wallet app settings"
+  ],
+  "Siri": [
+   "the assistant's settings",
+   "Siri preferences"
+  ],
+  "Safari": [
+   "browser settings",
+   "Safari preferences"
+  ],
+  "Messages": [
+   "Messages app settings",
+   "texting preferences"
+  ],
+  "Calendar": [
+   "Calendar app settings"
+  ],
+  "Messages:Camera": [
+   "take a photo",
+   "snap a picture to send",
+   "capture a new photo"
+  ],
+  "Messages:Photos": [
+   "choose a photo from my library",
+   "attach a picture I already took",
+   "photo picker"
+  ],
+  "Messages:Audio": [
+   "voice message",
+   "record a voice note",
+   "send a spoken message"
+  ],
+  "News:Audio": [
+   "audio stories",
+   "listen to the news",
+   "narrated articles"
   ]
  }
 }

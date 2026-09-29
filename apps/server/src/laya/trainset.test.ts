@@ -76,9 +76,13 @@ describe("generating from a screen", () => {
     expect(r.targets.target).toEqual([0, 1, 0]);
   });
 
-  it("finds a label's phrases under its first part", () => {
+  it("finds a label's phrases under its first part, and an app's own sense of it before the rest", () => {
     expect(phrasesFor(lex, "Record Video, 1080p at 30 fps")).toEqual(["shoot in 4K"]);
     expect(phrasesFor(lex, "Unknown")).toEqual([]);
+    const scoped: Lexicon = { version: 1, labels: { Camera: ["video resolution"], "Messages:Camera": ["take a photo"] } };
+    expect(phrasesFor(scoped, "Camera", "Messages")).toEqual(["take a photo"]);
+    expect(phrasesFor(scoped, "Camera, 1", "Settings")).toEqual(["video resolution"]);
+    expect(phrasesFor(scoped, "Camera")).toEqual(["video resolution"]);
   });
 
   it("labels a deletion on the delete part only, a typed secret on the secret part, and a keyboard's delete key on none", () => {

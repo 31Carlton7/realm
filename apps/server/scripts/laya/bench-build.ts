@@ -53,7 +53,7 @@ for (const s of SCREENS) {
 
 /** `Label`, `~start of label`, `Label#2`, `@path`; the first alternative of `a | b` is the element. */
 function resolveOne(screen: BenchScreen, selector: string): BenchElement | null {
-  const tidy = (s: string) => s.replace(/￼/g, "").replace(/\s+/g, " ").trim();
+  const tidy = (s: string) => s.replace(/\uFFFC/g, "").replace(/\s+/g, " ").trim();
   let sel = selector.trim();
   if (sel.startsWith("@")) return screen.elements.find((e) => e.id === sel.slice(1)) ?? null;
   let nth = 1;
