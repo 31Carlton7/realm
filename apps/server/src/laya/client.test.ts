@@ -46,6 +46,15 @@ describe("the laya-serve client", () => {
     expect(Date.now() - t0).toBeLessThan(1_000);
   });
 
+  it("takes a budget with a fraction in it, as a clock measured in performance.now() leaves one", async () => {
+    // THE BUG: `AbortSignal.timeout(1499.99…)` throws before the question is sent, and Assist — whose
+    // budget is what is left of 1 500 ms by performance.now() — heard "no answer" every single time.
+    server = await fakeLayaServer();
+    const client = new LayaClient({ baseUrl: `http://127.0.0.1:${server.port}`, apiKey: "k" });
+    const { answers } = await client.ask("x", { q: { type: "noul", instructions: "?" } }, 1_499.9985);
+    expect(answers.q).toMatchObject({ type: "noul" });
+  });
+
   it("carries the server's own reason when it refuses", async () => {
     server = await fakeLayaServer({ apiKey: "right" });
     const client = new LayaClient({ baseUrl: `http://127.0.0.1:${server.port}`, apiKey: "wrong" });

@@ -70,7 +70,9 @@ export class LayaClient {
     const fetchImpl = this.d.fetchImpl ?? fetch;
     let res: Response;
     try {
-      res = await fetchImpl(`${this.d.baseUrl}${path}`, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+      // Whole milliseconds: `AbortSignal.timeout` throws on a fraction, and a budget left over from
+      // `performance.now()` — Assist's, every time — is one.
+      res = await fetchImpl(`${this.d.baseUrl}${path}`, { ...init, signal: AbortSignal.timeout(Math.max(1, Math.ceil(timeoutMs))) });
     } catch (e) {
       if (e instanceof Error && e.name === "TimeoutError") throw new Error(`laya-serve did not answer within ${timeoutMs} ms`);
       throw e;
