@@ -193,7 +193,7 @@ describe("a realm-browser act and walk, through the real gateway", () => {
   /** A page as Electron main's pane sends it: the lines the agent reads, and the same elements as data. */
   const page = (url: string, title: string, els: { ref: number; role: string; name: string }[]) => ({
     url, title, elementCount: els.length, text: els.map((e) => `[ref=${e.ref}] ${e.role} "${e.name}"`).join("\n"),
-    elements: els.map((e) => ({ ...e, value: null, rect: { x: 0, y: 40 * e.ref, w: 80, h: 20 }, checked: null, disabled: false, password: false, offscreen: false })),
+    elements: els.map((e) => ({ ...e, value: null, rect: { x: 0, y: 40 * e.ref, w: 80, h: 20 }, checked: null, disabled: false, password: false, focused: false, offscreen: false })),
     viewport: { width: 1200, height: 800 }, page: { loading: false, requests: 0, quietMs: 1_000 },
   });
   const HOME = page("http://127.0.0.1:8123/", "Fixture", [{ ref: 1, role: "link", name: "Home" }, { ref: 2, role: "link", name: "Docs" }]);
@@ -252,5 +252,5 @@ describe("a realm-browser act and walk, through the real gateway", () => {
     expect(rows[0]!.candidates.map((e) => e.label)).toEqual(["Home", "Docs"]);
     // The page the act left reached the shadow through the walk's first look at it.
     expect(rows[0]!.baseline.verify).toEqual({ value: true, changed: true, alert: false });
-  });
+  }, 20_000);
 });

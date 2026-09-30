@@ -1051,9 +1051,10 @@ function pageIO(d: Deps, ctx: ProviderCallContext, browserId: string, intent: st
       first = false;
       return tree;
     },
+    // The document's own entry is never tapped: it has no name for a label to match, and Laya is
+    // offered nothing unnamed. Every element that can be is named by its ref.
     tap: (el) => {
       const ref = Number(el.path);
-      if (!Number.isInteger(ref) || ref <= 0) return Promise.resolve({ ok: false, detail: `"${clip(el.label, 60)}" is not an element of the page` });
       clicked = { ref, role: el.role, label: el.label };
       return send({ kind: "click", ref, button: "left", clickCount: 1, modifiers: [] }, `Click the ${el.role} the page labels "${clip(el.label, 60)}" on ${here()}`, { counts: true });
     },

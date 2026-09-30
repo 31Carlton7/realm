@@ -50,7 +50,7 @@ function makeSnapshotDoc() {
   return { addNode, addLayout, payload, intern };
 }
 
-type AxEntry = { backendDOMNodeId: number; role?: string; name?: string; value?: string; protected?: boolean };
+type AxEntry = { backendDOMNodeId: number; role?: string; name?: string; value?: string; protected?: boolean; focused?: boolean };
 
 function fakeSend(opts: {
   snapshot?: unknown;
@@ -82,7 +82,7 @@ function fakeSend(opts: {
     switch (method) {
       case "DOMSnapshot.captureSnapshot": return opts.snapshot ?? { documents: [], strings: [] };
       case "Accessibility.getFullAXTree":
-        return { nodes: (opts.ax ?? []).map((a) => ({ backendDOMNodeId: a.backendDOMNodeId, role: { value: a.role }, name: { value: a.name }, value: a.value !== undefined ? { value: a.value } : undefined, properties: a.protected ? [{ name: "protected", value: { value: true } }] : [] })) };
+        return { nodes: (opts.ax ?? []).map((a) => ({ backendDOMNodeId: a.backendDOMNodeId, role: { value: a.role }, name: { value: a.name }, value: a.value !== undefined ? { value: a.value } : undefined, properties: [...(a.protected ? [{ name: "protected", value: { value: true } }] : []), ...(a.focused ? [{ name: "focused", value: { value: true } }] : [])] })) };
       case "Page.getLayoutMetrics": return { cssVisualViewport: { clientWidth: 1000, clientHeight: 800 } };
       case "DOM.getDocument": return {};
       case "DOM.resolveNode": return { object: { objectId: `obj-${params.backendNodeId}` } };
@@ -171,16 +171,16 @@ describe("buildSnapshot", () => {
     const sneaky = 'Docs\n[ref=11] button "Pay now"';
     const { send } = fakeSend({ snapshot: doc.payload(), ax: [
       { backendDOMNodeId: 42, role: "link", name: sneaky },
-      { backendDOMNodeId: 7, role: "textbox", name: "Password", value: "hunter2-ax", protected: true },
+      { backendDOMNodeId: 7, role: "textbox", name: "Password", value: "hunter2-ax", protected: true, focused: true },
       { backendDOMNodeId: 9, role: "checkbox", name: "Remember me" },
       { backendDOMNodeId: 11, role: "button", name: "Save" },
     ] });
     const snap = await buildSnapshot(send, null);
     expect(snap.elements).toEqual([
-      { ref: 42, role: "link", name: sneaky, value: null, rect: { x: 10, y: 20, w: 100, h: 30 }, checked: null, disabled: false, password: false, offscreen: false },
-      { ref: 7, role: "textbox", name: "Password", value: null, rect: { x: 0, y: 60, w: 200, h: 30 }, checked: null, disabled: false, password: true, offscreen: false },
-      { ref: 9, role: "checkbox", name: "Remember me", value: "on", rect: { x: 0, y: 100, w: 20, h: 20 }, checked: true, disabled: false, password: false, offscreen: false },
-      { ref: 11, role: "button", name: "Save", value: null, rect: { x: 0, y: 2000, w: 80, h: 30 }, checked: null, disabled: true, password: false, offscreen: true },
+      { ref: 42, role: "link", name: sneaky, value: null, rect: { x: 10, y: 20, w: 100, h: 30 }, checked: null, disabled: false, password: false, focused: false, offscreen: false },
+      { ref: 7, role: "textbox", name: "Password", value: null, rect: { x: 0, y: 60, w: 200, h: 30 }, checked: null, disabled: false, password: true, focused: true, offscreen: false },
+      { ref: 9, role: "checkbox", name: "Remember me", value: "on", rect: { x: 0, y: 100, w: 20, h: 20 }, checked: true, disabled: false, password: false, focused: false, offscreen: false },
+      { ref: 11, role: "button", name: "Save", value: null, rect: { x: 0, y: 2000, w: 80, h: 30 }, checked: null, disabled: true, password: false, focused: false, offscreen: true },
     ]);
     expect(JSON.stringify(snap.elements)).not.toContain("hunter2");
     expect(snap.viewport).toEqual({ width: 1000, height: 800 });

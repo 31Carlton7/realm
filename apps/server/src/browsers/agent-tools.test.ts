@@ -1034,7 +1034,7 @@ describe("a simulator's stream is not a web page", () => {
 
 /** One snapshot element, as the pane sends it beside the text. */
 const el = (ref: number, role: string, name: string, o: Partial<BrowserSnapshotElement> = {}): BrowserSnapshotElement =>
-  ({ ref, role, name, value: null, rect: { x: 10, y: 20 * ref, w: 80, h: 18 }, checked: null, disabled: false, password: false, offscreen: false, ...o });
+  ({ ref, role, name, value: null, rect: { x: 10, y: 20 * ref, w: 80, h: 18 }, checked: null, disabled: false, password: false, focused: false, offscreen: false, ...o });
 const pageSnapshot = (url: string, title: string, elements: BrowserSnapshotElement[], page?: BrowserPageActivity): BrowserSnapshotResult => ({
   url, title, elementCount: elements.length,
   text: elements.map((e) => `[ref=${e.ref}] ${e.role} "${e.name}"`).join("\n"),
@@ -1107,7 +1107,10 @@ describe("the step observer (Laya's shadow) on browser_act", () => {
     await w.call("browser_act", { browserId: "b1", action: { kind: "click", ref: 11 } });
     await w.call("browser_navigate", { browserId: "b1", url: "https://example.com/next" });
     await w.call("browser_act", { browserId: "b1", action: { kind: "click", ref: 11 } });
-    expect(w.seen.map((o) => o.elements.length)).toEqual([0, 3, 0]);
+    await w.call("browser_snapshot", { browserId: "b1" });
+    await w.call("browser_batch", { actions: [{ tool: "browser_navigate", arguments: { browserId: "b1", url: "https://example.com/again" } }] });
+    await w.call("browser_act", { browserId: "b1", action: { kind: "click", ref: 11 } });
+    expect(w.seen.map((o) => o.elements.length)).toEqual([0, 3, 0, 0]);
   });
 
   it("changes nothing about the act — its card, its result, what is sent — when the observer throws or rejects", async () => {
@@ -1174,7 +1177,8 @@ describe("the step observer (Laya's shadow) on browser_act", () => {
 
 /* ---------------------------------- walks ---------------------------------- */
 
-type SiteEl = { ref: number; role: string; name: string; to?: string; password?: boolean; value?: string };
+/** `secretly`: a password field the snapshot did not show as one, which the page refuses at the moment of typing. */
+type SiteEl = { ref: number; role: string; name: string; to?: string; password?: boolean; secretly?: boolean; value?: string };
 type SitePage = { url: string; title: string; els: SiteEl[]; below?: SiteEl[]; text?: string };
 
 /**
@@ -1185,6 +1189,7 @@ type SitePage = { url: string; title: string; els: SiteEl[]; below?: SiteEl[]; t
 function site(pages: Record<string, SitePage>, start: string, o: { busy?: boolean } = {}) {
   let at = start;
   let scrolled = false;
+  let focus: number | null = null;
   let reads = 0;
   const clicks: string[] = [];
   const typed: { ref: number; text: string; submit: boolean; method: string }[] = [];
@@ -1193,7 +1198,7 @@ function site(pages: Record<string, SitePage>, start: string, o: { busy?: boolea
   const snapshot = () => {
     reads++;
     const p = pages[at]!;
-    return pageSnapshot(p.url, p.title, els().map((e) => el(e.ref, e.role, e.name, { password: e.password === true, value: e.password ? null : e.value ?? null })),
+    return pageSnapshot(p.url, p.title, els().map((e) => el(e.ref, e.role, e.name, { password: e.password === true, value: e.password ? null : e.value ?? null, focused: e.ref === focus })),
       o.busy ? { loading: true, requests: 2, quietMs: 0 } : undefined);
   };
   const act = (params: Record<string, unknown>) => {
@@ -1202,12 +1207,14 @@ function site(pages: Record<string, SitePage>, start: string, o: { busy?: boolea
     const target = els().find((e) => e.ref === a.ref);
     if (!target) return { ok: false, error: `could not focus ref=${a.ref} — it may be gone; take a fresh browser_snapshot` };
     if (a.kind === "type") {
-      if (target.password) return { ok: false, error: "target is a password field", refused: "password" };
+      if (target.password || target.secretly) return { ok: false, error: "target is a password field", refused: "password" };
       typed.push({ ref: a.ref!, text: a.text ?? "", submit: a.submit === true, method: a.method ?? "" });
       target.value = `${target.value ?? ""}${a.text ?? ""}`;
       return { ok: true, detail: `typed into ref=${a.ref}` };
     }
     clicks.push(target.name);
+    // A click into a field gives it the focus; a click anywhere else takes it away.
+    focus = /^(textbox|searchbox)$/.test(target.role) ? target.ref : null;
     if (target.to) { at = target.to; scrolled = false; }
     return { ok: true, detail: `clicked ref=${a.ref}` };
   };
@@ -1291,7 +1298,7 @@ describe("browser_do", () => {
       expect(page.at()).toBe("account");
       const [head] = text(r).split("\n");
       expect(head).toContain(`Walked "Account", then stopped at "${label}"`);
-      expect(head).toContain("It is a step a walk never takes");
+      expect(head).toContain("it is a step a walk never takes");
       expect(head).toContain(`The likeliest: [ref=${ref}]`);
       expect(head).toContain("take it yourself with browser_act by its ref");
     }
@@ -1313,7 +1320,7 @@ describe("browser_do", () => {
     const s = setup({ bridgeResults: page.bridgeResults });
     const r = await walk(s, { path: ["Pricing"] });
     expect(r.isError).toBe(true);
-    expect(text(r)).toMatch(/^Stopped at "Pricing" on 127\.0\.0\.1:8123 after \d+\.\d s\. Nothing on the page matched it\. The likeliest: \[ref=\d+\]/);
+    expect(text(r)).toMatch(/^Stopped at "Pricing" on 127\.0\.0\.1:8123 after \d+\.\d s: nothing on the page matched it\. The likeliest: \[ref=\d+\]/);
     expect(page.clicks).toEqual([]);
   });
 
@@ -1342,7 +1349,7 @@ describe("browser_do", () => {
     const r = await walk(s, { path: ["Docs", "Expand all", "Getting started"] });
     expect(r.isError).toBe(true);
     expect(text(r)).toContain('Walked "Docs", then stopped at "Expand all"');
-    expect(text(r)).toContain("The click changed nothing on the page.");
+    expect(text(r)).toContain("the click changed nothing on the page.");
     expect(page.clicks).toEqual(["Docs", "Expand all"]);
     // Five seconds on the walk's clock.
     expect(s.clock.t).toBeGreaterThanOrEqual(5_000);
@@ -1366,6 +1373,9 @@ describe("browser_do", () => {
     expect(r.isError).toBe(false);
     expect(page.typed).toEqual([{ ref: 31, text: "Ada", submit: false, method: "keys" }]);
     expect(text(r)).toMatch(/^Walked "Account" → "Display name" → type "Ada" on /);
+    // THE MUTANT: leave focus out of what the walk compares. A click into a field then changes nothing
+    // it can see, and it waits out its whole five seconds before believing the field has focus.
+    expect(s.clock.t).toBeLessThan(5_000);
   });
 
   it("types into the only field on the page when the path ends elsewhere, clicking it first", async () => {
@@ -1375,6 +1385,7 @@ describe("browser_do", () => {
     expect(r.isError).toBe(false);
     expect(page.clicks).toEqual(["Search the docs"]);
     expect(page.typed).toEqual([{ ref: 4, text: "install", submit: false, method: "keys" }]);
+    expect(s.clock.t).toBeLessThan(5_000);
   });
 
   it("never types into a password field, even one the path ends on", async () => {
@@ -1384,6 +1395,15 @@ describe("browser_do", () => {
     expect(r.isError).toBe(true);
     expect(page.typed).toEqual([]);
     expect(text(r)).toContain("Realm never types into a password field");
+  });
+
+  it("stops, saying why, when the page turns out at the moment of typing to be a password field its snapshot did not show", async () => {
+    const page = site({ home: { url: "https://example.com/", title: "T", els: [{ ref: 5, role: "textbox", name: "Code", secretly: true }] } }, "home");
+    const s = setup({ bridgeResults: page.bridgeResults });
+    const r = await walk(s, { path: ["Code"], text: "1234" });
+    expect(r.isError).toBe(true);
+    expect(text(r).split("\n")[0]).toMatch(/stopped at "typing" on example\.com after \d+\.\d s: that is a password field, and Realm never types into one\. Nothing further was sent\./);
+    expect(page.typed).toEqual([]);
   });
 
   it("refuses a pane on a consent screen before the card, and stops before the next click when a click lands on one", async () => {
@@ -1430,7 +1450,7 @@ describe("browser_do", () => {
     const r2 = await walk(setup({ bridgeResults: quiet.bridgeResults, assist: shut }), { path: ["Docs", "the tutorial"] });
     expect(asked).toBe(0);
     expect(quiet.clicks).toEqual(["Docs"]);
-    expect(text(r2)).toContain("Nothing on the page matched it.");
+    expect(text(r2)).toContain("nothing on the page matched it.");
   });
 
   it("tells the observer each click, with the walk's intent, the page it chose from and the site, and hands back each settled page", async () => {
@@ -1476,7 +1496,7 @@ describe("browser_do", () => {
     const miss = await walk(setup({ bridgeResults: docsSite().bridgeResults }), { path: ["Docs", "Getting started"], until: "Release notes" });
     expect(miss.isError).toBe(true);
     expect(text(miss)).toContain('then stopped at "Release notes"');
-    expect(text(miss)).toContain("The page it ended on does not show it.");
+    expect(text(miss)).toContain("the page it ended on does not show it.");
   });
 
   it("cannot run inside a batch — refused before the batch's card", async () => {

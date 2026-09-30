@@ -169,6 +169,8 @@ export type BrowserSnapshotElement = {
   checked: boolean | null;
   disabled: boolean;
   password: boolean;
+  /** Has the keyboard's focus, as the accessibility tree says — how a click into a field shows. */
+  focused: boolean;
   /** Scrolled out of the viewport, as the text line's `{offscreen}` says. */
   offscreen: boolean;
 };

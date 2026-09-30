@@ -67,6 +67,7 @@ type Candidate = {
   checked: boolean | null;
   disabled: boolean;
   password: boolean;
+  focused: boolean;
   interactive: boolean;
   sweepCandidate: boolean;
   offscreen: boolean;
@@ -170,7 +171,7 @@ export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | nul
     lines.push(formatLine(c, isNew));
     elements.push({
       ref: c.backendNodeId, role: c.role, name: c.name, value: c.value, rect: { ...c.rect },
-      checked: c.checked, disabled: c.disabled, password: c.password, offscreen: c.offscreen,
+      checked: c.checked, disabled: c.disabled, password: c.password, focused: c.focused, offscreen: c.offscreen,
     });
   }
   const notes: string[] = [];
@@ -301,6 +302,7 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
       value: rawValue === null ? null : clip(rawValue, VALUE_MAX),
       checked: tag === "INPUT" && ["checkbox", "radio"].includes((attrs.type ?? "").toLowerCase()) ? checkedSet.has(ni) : null,
       disabled: attrs.disabled !== undefined || axNode?.properties?.some((p) => p.name === "disabled" && p.value?.value === true) === true,
+      focused: axNode?.properties?.some((p) => p.name === "focused" && p.value?.value === true) === true,
       password, interactive, sweepCandidate, offscreen,
     });
   });

@@ -58,11 +58,14 @@ export function pageRole(role: string, password: boolean): string {
   return role;
 }
 
+/** A snapshot element as the walk reads it. Its focus is part of what the walk compares: a click into a
+ *  field changes nothing else a snapshot shows, and would otherwise be waited on to its timeout. */
 export function walkElementOf(e: BrowserSnapshotElement): WalkElement {
   return {
     path: String(e.ref), label: e.name, role: pageRole(e.role, e.password),
     value: e.checked === null ? e.value ?? "" : e.checked ? "checked" : "unchecked",
     id: null, enabled: !e.disabled, frame: { x: 0, y: 0, width: e.rect.w, height: e.rect.h }, depth: 1,
+    ...(e.focused ? { focused: true } : {}),
   };
 }
 
@@ -123,11 +126,11 @@ export function siteName(url: string | undefined): string | null {
  * type into) it is used as it is.
  */
 const WHY: Record<ExecStopReason, string | null> = {
-  "not-found": "Nothing on the page matched it.",
-  sensitive: "It is a step a walk never takes: it reads as buying, paying, deleting, sending, posting, submitting, signing out or entering a secret.",
-  "no-change": "The click changed nothing on the page.",
+  "not-found": "nothing on the page matched it",
+  sensitive: "it is a step a walk never takes — it reads as buying, paying, deleting, sending, posting, submitting, signing out or entering a secret",
+  "no-change": "the click changed nothing on the page",
   "tap-failed": null,
-  "not-there": "The page it ended on does not show it.",
+  "not-there": "the page it ended on does not show it",
   "which-field": null,
 };
 
@@ -162,7 +165,7 @@ export function pageWalked(snap: BrowserSnapshotResult, host: string, r: ExecRes
   } else {
     const why = WHY[r.stop.why];
     const refs = r.stop.candidates.map((e) => `[ref=${e.path}]`);
-    head = `${r.steps.length > 0 ? `Walked ${trail}, then stopped` : "Stopped"} at "${clip(r.stop.label, 60)}" on ${host} after ${secs(r.ms)}. ${why ?? sentence(r.stop.detail)}`
+    head = `${r.steps.length > 0 ? `Walked ${trail}, then stopped` : "Stopped"} at "${clip(r.stop.label, 60)}" on ${host} after ${secs(r.ms)}: ${sentence(why ?? r.stop.detail)}`
       + `${refs.length > 0 ? ` The likeliest: ${refs.join(", ")} — each is in the snapshot below.` : ""} ${AFTER_STOP[r.stop.why]}`;
     if (why !== null) account = `walk: ${sentence(r.stop.detail)}\n`;
   }

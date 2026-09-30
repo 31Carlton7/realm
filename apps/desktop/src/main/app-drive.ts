@@ -57,8 +57,7 @@ export class AppDriveHost {
 
   async snapshot(): Promise<BrowserSnapshotResult> {
     const cdp = this.require();
-    // The element data is for walks and Laya's shadow, neither of which reaches Realm's own window.
-    const { index, elements: _elements, viewport: _viewport, ...snapshot } = await buildSnapshot(cdp.send, this.index);
+    const { index, ...snapshot } = await buildSnapshot(cdp.send, this.index);
     this.index = index;
     return snapshot;
   }

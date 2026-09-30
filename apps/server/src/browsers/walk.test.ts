@@ -11,7 +11,7 @@ import { DOCUMENT_PATH, NETWORK_QUIET_MS, atRest, observedPage, pageRole, siteNa
  */
 
 const e = (ref: number, role: string, name: string, o: Partial<BrowserSnapshotElement> = {}): BrowserSnapshotElement =>
-  ({ ref, role, name, value: null, rect: { x: 0, y: 40 * ref, w: 120, h: 24 }, checked: null, disabled: false, password: false, offscreen: false, ...o });
+  ({ ref, role, name, value: null, rect: { x: 0, y: 40 * ref, w: 120, h: 24 }, checked: null, disabled: false, password: false, focused: false, offscreen: false, ...o });
 const QUIET = { loading: false, requests: 0, quietMs: NETWORK_QUIET_MS };
 const SNAP: BrowserSnapshotResult = {
   url: "https://www.instagram.com/explore", title: "Explore", text: "", elementCount: 5, viewport: { width: 1000, height: 700 }, page: QUIET,
@@ -93,6 +93,12 @@ describe("a snapshot as the walk reads it", () => {
     // A box ticked is a change the walk can see.
     const unticked = { ...SNAP, elements: SNAP.elements!.map((x) => (x.ref === 10 ? { ...x, checked: false } : x)) };
     expect(signature(walkTreeOf(unticked))).not.toBe(signature(walkTreeOf(SNAP)));
+  });
+
+  it("counts a click into a field as the change it is: the field has the focus now", () => {
+    const focusedOn = { ...SNAP, elements: SNAP.elements!.map((x) => (x.ref === 8 ? { ...x, focused: true } : x)) };
+    expect(walkTreeOf(focusedOn).elements[2]!.focused).toBe(true);
+    expect(signature(walkTreeOf(focusedOn))).not.toBe(signature(walkTreeOf(SNAP)));
   });
 
   it("hands the shadow the page's elements by ref — never the document's own entry", () => {
