@@ -16,11 +16,11 @@ const FRAME = { narrow: 4 / 3, wide: 15 / 8 }
 /**
  * A claim with no region named takes the whole capture, top-anchored.
  *
- * Top-anchored because the bottom band of a capture is the prompter, whose model chip reads "Fake" —
- * the capture harness drives a scripted agent, which is true of the harness and not of Realm, and is
- * not a word to put under a claim about which agents run here. It has shipped into view once already.
- * A named region stays clear of it by sitting well inside the frame; one with a `y` near the bottom
- * of a capture that has a composer is how it comes back, so read the rendered frame, not the number.
+ * Top-anchored because the bottom band of a capture is the prompter, the least of any scene — and
+ * the band whose model chip once shipped reading "Fake", the scripted agent the capture harness
+ * drives. The harness now hands the staged session to a real agent before any shot, and fails the run
+ * if the chip still names the fake one, but a named region should still sit well inside the frame
+ * rather than lean on that. Read the rendered frame, not the number.
  */
 const WHOLE = { x: 0.5, y: 0, span: 1 }
 

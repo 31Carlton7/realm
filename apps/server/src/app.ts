@@ -29,6 +29,7 @@ import { EggService } from "./eggs/service";
 import { createGoalProvider } from "./goals/agent-tools";
 import { GoalsStore } from "./store/goals";
 import { MachineWsProxy } from "./machines/ws-proxy";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { MachinesStore } from "./store/machines";
 import { SimulatorsStore } from "./store/simulators";
@@ -85,7 +86,7 @@ import { RunService } from "./runs/service";
 import { ScheduleService } from "./schedules/service";
 import { createScheduleAgentProvider } from "./schedules/agent-tools";
 import { SchedulesStore } from "./store/schedules";
-import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, type AdapterRegistry } from "@realm/adapters";
+import { ClaudeAdapter, CodexAdapter, AcpAdapter, FakeAdapter, type AdapterRegistry, type FakeScript } from "@realm/adapters";
 import { GitInfoService } from "./workspace/git-info";
 import { GitDiffService } from "./workspace/git-diff";
 import { ProjectSearchService } from "./workspace/grep";
@@ -285,7 +286,19 @@ export function defaultAdapters(): AdapterRegistry {
   // updates is the behaviour worth looking at. A to-do list is here for the same reason, in two
   // triggers rather than one run: the strip above the prompter shuts itself once every item is done,
   // and both sides of that have to be reachable and holdable long enough to look at.
-  if (process.env.REALM_ENABLE_FAKE_AGENT === "1") reg.fake = new FakeAdapter({ delayMs: 15, script: [{ on: "plan", emit: [
+  //
+  // A caller can bring turns of its own in a JSON file named by REALM_FAKE_AGENT_SCRIPT — the site's
+  // capture harness does, to photograph a real-looking piece of work rather than these fixtures —
+  // and they are checked first, so their triggers win. Kept to a file the caller writes, so what the
+  // marketing captures show lives with the captures and not in the server. REALM_FAKE_AGENT_DELAY_MS
+  // paces the steps for the same caller: at the fixtures' 15 ms a turn that edits two files and runs
+  // a test suite reads "Worked for <1s", which no real agent has ever said.
+  const fakeEnabled = process.env.REALM_ENABLE_FAKE_AGENT === "1";
+  const brought: FakeScript = fakeEnabled && process.env.REALM_FAKE_AGENT_SCRIPT
+    ? JSON.parse(readFileSync(process.env.REALM_FAKE_AGENT_SCRIPT, "utf8"))
+    : [];
+  const stepDelay = Number(process.env.REALM_FAKE_AGENT_DELAY_MS) || 15;
+  if (fakeEnabled) reg.fake = new FakeAdapter({ delayMs: stepDelay, script: [...brought, { on: "plan", emit: [
     { kind: "text", text: "Here is how I would go about it." },
     { kind: "plan", planId: "fake-plan", text: "## Rework the mapper\n\n1. Carry the plan as its own event.\n2. Draw it as a plan.", steps: [
       { text: "Carry the plan as its own event", status: "in_progress" }, { text: "Draw it as a plan", status: "pending" }] },
