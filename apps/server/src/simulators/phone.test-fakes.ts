@@ -67,6 +67,8 @@ export class FakePhone {
   readonly requests: PhoneRequest[] = [];
   /** How many reads of the tree to answer with a server error before the next good one. */
   failReads = 0;
+  /** How long a tree read takes to answer — an app slow to describe itself, as TikTok's feed is. */
+  readDelayMs = 0;
   private server: Server | null = null;
   port = 0;
 
@@ -80,8 +82,8 @@ export class FakePhone {
         try { body = raw ? JSON.parse(raw) as Record<string, unknown> : {}; } catch { /* not JSON */ }
         this.requests.push({ method: req.method ?? "", path: url.pathname, body, at: Date.now() });
         const [status, type, out] = this.answer(req.method ?? "", url, body);
-        res.writeHead(status, { "Content-Type": type, "Content-Length": out.length, Connection: "close" });
-        res.end(out);
+        const send = () => { res.writeHead(status, { "Content-Type": type, "Content-Length": out.length, Connection: "close" }); res.end(out); };
+        if (url.pathname === "/hierarchy" && this.readDelayMs > 0) setTimeout(send, this.readDelayMs); else send();
       });
     });
     await new Promise<void>((r) => this.server!.listen(0, "127.0.0.1", () => r()));
