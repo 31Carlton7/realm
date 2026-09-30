@@ -1570,6 +1570,16 @@ describe("browser_do", () => {
     ]);
   });
 
+  it("says at once that a pane is not open, before any card and without a read", async () => {
+    const s = setup({ bridgeResults: { describe: { open: false, url: "", title: "", element: null } } });
+    const r = await walk(s, { path: ["Docs"] });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("pane is not open in the app");
+    expect(s.calls.gates).toEqual([]);
+    // THE MUTANT: walk anyway, and the first read retries its way to the same answer five seconds later.
+    expect(s.calls.bridge.filter((b) => b.op === "snapshot")).toEqual([]);
+  });
+
   it("turns the dot off when the page cannot be read at all", async () => {
     const s = setup({ bridgeResults: { snapshot: new Error("browser b1's pane is not open in the app") } });
     const r = await walk(s, { path: ["Docs"] });

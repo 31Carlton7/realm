@@ -201,7 +201,7 @@ const TOOLS: Tool[] = [
   {
     name: "browser_do",
     description:
-      'Get somewhere on a page in one call: give the labels to click, in order, as the page shows them — ["Docs", "Getting started"] — and Realm clicks each one by its ref on the page\'s live snapshot, waiting for the page to settle before the next. Much faster than a browser_snapshot and a browser_act for every step. A label further down the page is found and scrolled to. With text, the text is typed at the end into the field the walk ended on, or the only field on the page, and never submitted. It stops rather than guesses — at a label it cannot find, a click that changed nothing, or any step that buys, pays, deletes, sends, posts, submits, signs out or asks for a password, which you take yourself with browser_act by its ref — and says where and why. Returns a fresh snapshot of where it ended, with the refs browser_act takes. Asks the user for permission, as browser_act does.',
+      'Get somewhere on a page in one call: give the labels to click, in order, as the page shows them — ["Docs", "Getting started"] — and Realm clicks each one by its ref on the page\'s live snapshot, waiting for the page to settle before the next — one call where clicking through takes a browser_snapshot and a browser_act for every step. A label further down the page is found and scrolled to. With text, the text is typed at the end into the field the walk ended on, or the only field on the page, and never submitted. It stops rather than guesses — at a label it cannot find, a click that changed nothing, or any step that buys, pays, deletes, sends, posts, submits, signs out or asks for a password, which you take yourself with browser_act by its ref — and says where and why. Returns a fresh snapshot of where it ended, with the refs browser_act takes. Asks the user for permission, as browser_act does.',
     inputSchema: {
       type: "object",
       properties: {
@@ -450,7 +450,10 @@ const HANDLERS: Record<string, Handler> = {
     // keystroke after it asks again (`pageIO`).
     const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_do"); if (limited) return err(limited);
     const consent = await refuseConsentAct(d, ctx, browserId); if (consent) return consent;
-    const host = hostOf((await describeSafe(d, browserId))?.url);
+    const live = await describeSafe(d, browserId);
+    // Said now, rather than after a walk's first read has retried its way to the same answer.
+    if (live && !live.open) return err(`browser ${browserId}'s pane is not open in the app — the user must open (or reopen) the browser pane before tools can drive it`);
+    const host = hostOf(live?.url);
     // The labels and the text are the agent's words, not the page's, so the card can say them plainly.
     const clicks = `Click ${path.map((l) => `"${clip(l, 30)}"`).join(" › ")}`;
     const typed = a.text !== undefined ? `"${clip(a.text, 40)}"` : null;
