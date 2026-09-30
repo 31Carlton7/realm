@@ -79,6 +79,15 @@ describe("resolving a described target", () => {
     expect(await a.resolve("the general row", "delete the account", SCREEN, "simulator_tap")).toMatchObject({ kind: "ask-agent", why: "sensitive", matched: "delete" });
   });
 
+  it("never picks a like in an app other people see it in, and picks the same kind of tap anywhere else", async () => {
+    const feed = [el("0.0", "Home"), el("0.1", "Like"), el("0.2", "Reels")];
+    // THE MUTANT: judge the pick without its app. Assist likes a stranger's post on the user's account.
+    expect(await assist({ ask: choice("Like", 0.99) }).a.resolve("the heart", "show that I enjoyed it", feed, "simulator_tap", "Instagram"))
+      .toMatchObject({ kind: "ask-agent", why: "sensitive", matched: "like" });
+    expect(await assist({ ask: choice("Like", 0.99) }).a.resolve("the heart", "show that I enjoyed it", feed, "simulator_tap", "Photos"))
+      .toMatchObject({ kind: "pick", element: { label: "Like" } });
+  });
+
   it("waits out a busy server within its budget, and uses the answer that comes", async () => {
     const ask = vi.fn()
       .mockRejectedValueOnce(new Error("laya-serve answered 503: busy"))

@@ -33,8 +33,9 @@ export type AssistOutcome =
 export type LayaAssist = {
   /** Whether a description may be used as a target right now, and why not. */
   gate(): LayaAssistGate;
-  /** Resolve `description` against `elements` (the screen as just read). Never throws. */
-  resolve(description: string, intent: string, elements: readonly ObservedElement[], tool: string): Promise<AssistOutcome>;
+  /** Resolve `description` against `elements` (the screen as just read) in `app`, the app on screen
+   *  when the tool knows it. Never throws. */
+  resolve(description: string, intent: string, elements: readonly ObservedElement[], tool: string, app?: string): Promise<AssistOutcome>;
 };
 
 export function createLayaAssist(d: {
@@ -53,7 +54,7 @@ export function createLayaAssist(d: {
   };
   return {
     gate,
-    async resolve(description, intent, elements, tool) {
+    async resolve(description, intent, elements, tool, app) {
       const candidates = pickCandidates(elements, null, description);
       if (candidates.length === 0) return { kind: "ask-agent", candidates, best: null, why: "no-candidates" };
       const g = gate();
@@ -82,7 +83,7 @@ export function createLayaAssist(d: {
       if (!element) return { kind: "ask-agent", candidates, best: null, why: "no-answer" };
       const best = { element, confidence: answer.confidence };
       // Sensitive first: a confident pick of "Buy" is still not Laya's to make.
-      const rule = sensitiveRule(`${intent} ${description} ${element.label}`);
+      const rule = sensitiveRule(`${intent} ${description} ${element.label}`, app);
       if (rule.value) return { kind: "ask-agent", candidates, best, why: "sensitive", ...(rule.matched ? { matched: rule.matched } : {}) };
       if (answer.confidence < g.threshold) return { kind: "ask-agent", candidates, best, why: "unsure" };
       return { kind: "pick", element, confidence: answer.confidence, ms: answer.ms };

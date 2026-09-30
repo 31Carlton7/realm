@@ -1014,8 +1014,24 @@ describe("the observer", () => {
     const wifi = { id: "0.2", role: "Button", label: "Wi-Fi", value: "Off" };
     expect(heard).toEqual([{
       surface: "simulator", spaceId: dev.spaceId, sessionId: "sess1", tool: "simulator_tap", intent: "open General",
-      elements: [general, wifi], chosen: { element: general },
+      elements: [general, wifi], chosen: { element: general }, app: "Settings",
     }]);
+  });
+
+  it("says which app each step was in: the live read's, or the one the agent last read", async () => {
+    const heard: ActObservation[] = [];
+    const dev = device({ observe: (o) => { heard.push(o); } });
+    const simulatorId = await dev.running();
+    dev.show({ ...TREE, app: "Instagram" });
+    await dev.call("simulator_elements", { simulatorId });
+    await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 });
+    await dev.call("simulator_type", { simulatorId, intent: "search", text: "wifi" });
+    await dev.call("simulator_swipe", { simulatorId, intent: "scroll", direction: "up" });
+    // The home screen names itself nothing, and a step there is in no app.
+    dev.show({ ...TREE, app: " " });
+    await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 201, y: 437 });
+    // THE MUTANT: leave the app out. The shadow then judges a like in Instagram as a tap in Settings.
+    expect(heard.map((o) => o.app)).toEqual(["Instagram", "Instagram", "Instagram", undefined]);
   });
 
   it("is told a point as a point, and a step that touches nothing as nothing", async () => {

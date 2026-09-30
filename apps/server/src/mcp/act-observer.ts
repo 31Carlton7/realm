@@ -25,6 +25,9 @@ export type ActObservation = {
    *  Absent means the agent — every tool but Assist's path. A step Laya chose is not the agent's
    *  choice, and must never be learned from as one. */
   chosenBy?: "agent" | "laya";
+  /** The app on screen, as its tree names itself ("Instagram"); absent when the tool does not know.
+   *  What a step means depends on where it is: a Like is one other people see only in an app like that. */
+  app?: string;
 };
 
 /**

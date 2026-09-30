@@ -141,6 +141,21 @@ describe("asking Laya about a step", () => {
     expect(rows()[0]!.truth.sensitive).toEqual({ value: true, source: "rule", matched: "buy" });
   });
 
+  it("labels a like sensitive in the app other people see it in, and the same kind of word in Settings as not", async () => {
+    // THE MUTANT: judge without the app. Every like an agent gives teaches Laya a like is a plain tap.
+    const { shadow, rows } = await setup();
+    const like = el("9", "Like"), messages = el("3", "Messages");
+    shadow.observe(step({ surface: "simulator", tool: "simulator_tap", intent: "like the photo", elements: [like], chosen: { element: like }, app: "Instagram" }));
+    shadow.observe(step({ surface: "simulator", tool: "simulator_tap", intent: "open the Messages settings", elements: [messages], chosen: { element: messages }, app: "Settings" }));
+    shadow.observe(step({ surface: "simulator", tool: "simulator_tap", intent: "open the Messages settings", elements: [messages], chosen: { element: messages }, app: "Instagram" }));
+    await shadow.flush();
+    expect(rows().map((r) => r.truth.sensitive)).toEqual([
+      { value: true, source: "rule", matched: "like" },
+      { value: false, source: "rule", matched: null },
+      { value: true, source: "rule", matched: "messages" },
+    ]);
+  });
+
   it("names an element with no label by its role, so the agent's choice is still an option", async () => {
     const { shadow, server: s, rows } = await setup({ server: { choose: (c) => Object.keys(c).find((k) => k === "button")! } });
     shadow.observe(step({ chosen: { element: SETTINGS[6]! } }));
@@ -479,6 +494,23 @@ describe("the sensitive rule", () => {
       ["take a screenshot", false], ["tap 'Search' in Settings", false], ["tap 'Reload' in Safari", false],
     ];
     expect(labelled.map(([text]) => sensitiveRule(text).value)).toEqual(labelled.map(([, want]) => want));
+  });
+
+  it("reads what other people see — a like, a follow, a story, a message, a gift — as sensitive only in apps they see it in", () => {
+    for (const text of ["tap 'Like'", "tap 'Follow'", "open their story", "tap 'Messages'", "join the LIVE", "send a gift", "tap 'Comment'", "tap 'Duet'", "report the video", "tap 'Remove follower'"]) {
+      expect(sensitiveRule(text, "Instagram").value, text).toBe(true);
+    }
+    expect(sensitiveRule("tap 'Like'", "TikTok")).toEqual({ value: true, matched: "like" });
+    expect(sensitiveRule("tap 'Like'", " tiktok ").value).toBe(true);
+    // The same words where nobody else sees them.
+    expect(sensitiveRule("tap 'Messages'", "Settings").value).toBe(false);
+    expect(sensitiveRule("tap 'Messages'").value).toBe(false);
+    expect(sensitiveRule("tap 'Like'", "Photos").value).toBe(false);
+    expect(sensitiveRule("tap 'Like'", "Instagram Lite Helper").value).toBe(false);
+    // And the moves that are only looking: the feed, Reels, a profile, who one follows, what one liked.
+    for (const text of ["tap 'Reels'", "tap 'Following'", "tap 'Profile'", "tap 'Search and explore'", "open Likes", "scroll the For You feed", "tap 'Home'"]) {
+      expect(sensitiveRule(text, "Instagram").value, text).toBe(false);
+    }
   });
 
   it("reads clearing data as deleting it, and clearing a search field as neither", () => {

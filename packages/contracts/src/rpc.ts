@@ -1528,6 +1528,15 @@ export const Methods = {
   "laya.train": { params: z.object({}), result: LayaStatusSchema },
   /** Stops a training run. Nothing it made is kept; the active checkpoint stays as it was. */
   "laya.cancelTraining": { params: z.object({}), result: LayaStatusSchema },
+  /**
+   * Keep the screens of `apps` while a person uses them on the device in pane `simulatorId` — Realm
+   * reads, and never taps. `apps` are names as each app calls itself; none is every app but the home
+   * screen. The next training run learns from what is kept, which never leaves this Mac.
+   */
+  "laya.record": { params: z.object({ simulatorId: IdSchema, apps: z.array(z.string().trim().min(1).max(80)).max(12).default([]) }), result: LayaStatusSchema },
+  "laya.stopRecording": { params: z.object({}), result: LayaStatusSchema },
+  /** Every recording and every screen it kept, gone. */
+  "laya.deleteRecordings": { params: z.object({}), result: LayaStatusSchema },
   "agents.probe": { params: z.object({ force: z.boolean().default(false) }), result: z.array(z.object({ kind: AgentKindSchema, available: z.boolean(), version: z.string().nullable(), loggedIn: z.boolean().nullable(), reason: z.string().nullable(), models: z.array(z.object({ id: z.string(), label: z.string() })).nullable().optional() })) },
   "sessions.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(SessionSchema) },
   /** Every session across every space — the client's sessionId→spaceId map for cross-space badges. */

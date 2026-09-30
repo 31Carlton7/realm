@@ -7,6 +7,7 @@ import { LAYA_CHECKPOINT, LayaClient, type LayaHealth } from "./client";
 import type { DecisionLog } from "./log";
 import type { PythonSearch } from "./python";
 import { LayaStepError, type LayaProcess, type LayaRuntime } from "./runtime";
+import type { LayaRecorder } from "./recorder";
 import { beats, localCheckpointLabel, readEval, removeCheckpoint, type TrainProgress, type TrainResult } from "./training";
 
 /** Where the Off/Shadow switch is kept. Absent reads as off: Laya is never on until someone says so. */
@@ -95,6 +96,8 @@ export class LayaService {
     baseEval?: () => LayaEvalReport | null;
     /** Trains and scores a checkpoint (`training.ts`); absent in a build that cannot train. */
     train?: (o: { name: string; signal: AbortSignal; onProgress: (p: TrainProgress) => void }) => Promise<TrainResult>;
+    /** Keeps screens while a person uses an app (`recorder.ts`); absent, recording is refused. */
+    recorder?: LayaRecorder;
   }) {
     const stored = LayaModeSchema.safeParse(d.settings.get(LAYA_MODE_KEY));
     this.mode = stored.success ? stored.data : "off";
@@ -174,7 +177,42 @@ export class LayaService {
       assist: this.assistGate(),
       evaluation: evaluationOf(this.activeEval()),
       training: this.training,
+      recording: this.d.recorder?.current() ?? null,
+      recorded: this.recorded(),
     };
+  }
+
+  /** What every recording kept, for the one line Settings shows. */
+  private recorded(): LayaStatus["recorded"] {
+    const all = this.d.recorder?.list() ?? [];
+    return {
+      recordings: all.length,
+      screens: all.reduce((n, r) => n + r.screens, 0),
+      apps: [...new Set(all.flatMap((r) => r.seen))],
+    };
+  }
+
+  /** Start keeping the screens of `apps` from the device in pane `simulatorId` — see `recorder.ts`. */
+  async record(simulatorId: string, apps: readonly string[]): Promise<LayaStatus> {
+    const recorder = this.d.recorder;
+    if (!recorder) throw new RpcError("LAYA_UNAVAILABLE", "This Realm cannot record screens for Laya.");
+    recorder.start(simulatorId, apps);
+    return this.status();
+  }
+
+  async stopRecording(): Promise<LayaStatus> {
+    this.d.recorder?.stop();
+    return this.status();
+  }
+
+  async deleteRecordings(): Promise<LayaStatus> {
+    this.d.recorder?.deleteAll();
+    return this.status();
+  }
+
+  /** A recording's change, told to whoever listens — the same broadcast as the rest of the status. */
+  recordingChanged(): void {
+    this.changed();
   }
 
   async install(): Promise<LayaStatus> {

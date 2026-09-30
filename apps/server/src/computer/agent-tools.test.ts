@@ -327,7 +327,7 @@ describe("the step observer (the Laya shadow)", () => {
     expect(w.seen[0]).toEqual({
       surface: "computer", spaceId: "sp1", sessionId: "s1", tool: "computer_act", intent: "save the document",
       elements: [{ id: "0", role: "AXButton", label: "Save" }, { id: "1", role: "AXTextField", label: "Title", value: "Draft" }],
-      chosen: { element: { id: "0", role: "AXButton", label: "Save" } },
+      chosen: { element: { id: "0", role: "AXButton", label: "Save" } }, app: "TextEdit",
     });
   });
 

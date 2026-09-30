@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { bundledLayaDir, contentWords, loadBenchmark, type Benchmark, type BenchElement } from "./benchmark";
+import { bundledLayaDir, contentWords, loadBenchmark, type Benchmark, type BenchElement, type BenchScreen } from "./benchmark";
 import { SENSITIVE_PARTS, type ShadowRow } from "./shadow";
 import { benchmarkRows, logRows, phrasesFor, trainingSet, type Lexicon, type TrainRow } from "./trainset";
 
@@ -117,6 +117,45 @@ describe("generating from a screen", () => {
     const b = tiny(before, new Map([["p", pair]]));
     b.verify.push({ id: "v", split: "heldout", app: "Settings", pair: "p", tool: "simulator_tap", intent: "open General", achieved: true, kind: "ok" });
     expect(rows(b).filter((r) => r.kind === "verify" && !r.state.includes("No change"))).toHaveLength(0);
+  });
+});
+
+describe("screens recorded while a person used an app", () => {
+  const el = (id: string, label: string, role = "Button"): BenchElement => ({ id, role, label });
+  const base: Benchmark = { version: "t", dir: "", apps: ["Settings"], screens: new Map([["s", { id: "s", app: "Settings", from: "t", elements: [el("1", "General")] }]]), pairs: new Map(), target: [], sensitive: [], verify: [] };
+  const feed = (app: string): BenchScreen => ({ id: `rec-${app}`, app, from: "recording:rec-1", elements: [el("0.1", "Home"), el("0.2", "Reels"), el("0.3", "Like"), el("0.4", "Profile")] });
+  const lex: Lexicon = { version: 1, labels: { General: ["check for a software update"], "Instagram:Reels": ["watch short videos"], "Instagram:Like": ["heart the photo"], Like: ["mark it as liked"] } };
+  const on = (r: TrainRow) => (Object.keys(SENSITIVE_PARTS) as (keyof typeof SENSITIVE_PARTS)[]).filter((p) => r.targets[p]![1] === 1);
+  const build = (recorded: BenchScreen[], o: { heldoutApps?: string[] } = {}) => trainingSet(base, lex, { heldoutApps: o.heldoutApps ?? [], validationApps: [], recorded });
+
+  it("are training screens: each element asked for by what people call it, over the shadow's candidates", () => {
+    const { rows, stats } = build([feed("Instagram")]);
+    expect(stats.screens).toBe(2);
+    const r = rows.find((x) => x.kind === "target" && x.state === "Goal: watch short videos.")!;
+    const keys = Object.keys((r.questions.target as { criteria: object }).criteria);
+    expect(r.targets.target![keys.indexOf("Reels")]).toBe(1);
+    // THE MUTANT: drop `recorded` on its way in. Nothing of what was recorded is ever learned.
+    expect(build([]).rows.some((x) => x.state === "Goal: watch short videos.")).toBe(false);
+  });
+
+  it("teach a like in a social app as shared with someone — never as a plain tap — and a like elsewhere by its words", () => {
+    const likes = build([feed("Instagram")]).rows.filter((r) => r.kind === "sensitive" && r.state.includes("button 'Like'"));
+    expect(likes.map((r) => r.state)).toEqual(expect.arrayContaining([expect.stringContaining("to heart the photo"), expect.stringContaining("to tap Like")]));
+    // THE MUTANT: teach it as the lexicon's plain tap. Laya learns a like is nothing to hold back.
+    for (const r of likes) expect(on(r)).toEqual(["send"]);
+    const elsewhere = build([feed("Photos")]).rows.filter((r) => r.kind === "sensitive" && r.state.includes("button 'Like'"));
+    for (const r of elsewhere) expect(on(r)).toEqual([]);
+  });
+
+  it("are never taken from an app held out of training", () => {
+    const { rows, stats } = build([feed("Instagram")], { heldoutApps: ["Instagram"] });
+    expect(stats.screens).toBe(1);
+    expect(rows.some((r) => r.state.includes("Reels") || JSON.stringify(r.questions).includes("Reels"))).toBe(false);
+  });
+
+  it("add no screen twice — one already in the benchmark is the benchmark's", () => {
+    const again: BenchScreen = { id: "rec-dup", app: "Settings", from: "recording:rec-1", elements: [el("1", "General")] };
+    expect(build([again, feed("Instagram"), { ...feed("Instagram"), id: "rec-2" }]).stats.screens).toBe(2);
   });
 });
 

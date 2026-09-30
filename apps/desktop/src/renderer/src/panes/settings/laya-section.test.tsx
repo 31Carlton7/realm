@@ -162,9 +162,42 @@ describe("the decision log row", () => {
     expect(screen.getByRole("button", { name: "Delete log" })).toBeDisabled();
   });
 
-  it("says what the log holds, where it is, and that it never leaves this Mac", async () => {
+  it("says what the log and the recordings hold, where they are, and that they never leave this Mac", async () => {
     await mount(status({ state: "off" }, { installed: true }));
-    expect(screen.getByText("The log holds the labels of what was on screen at each step. It is kept in /Users/u/Realm/laya and never leaves this Mac.")).toBeInTheDocument();
+    expect(screen.getByText("The log and the recordings hold the names of what was on screen; a recording keeps no text anyone typed and no long text. Both are kept in /Users/u/Realm/laya and never leave this Mac.")).toBeInTheDocument();
+  });
+});
+
+describe("the recordings row", () => {
+  const row = () => screen.getByText("Recordings").closest("li")!;
+  const recording = { id: "rec-1", simulatorId: "sim-1", device: "Test iPhone", apps: ["Instagram"], seen: ["Instagram"], screens: 12, startedAt: "2026-09-29T07:12:00.000Z", endedAt: null, lastError: null };
+
+  it("says where a recording is started when there is none — the device pane — and has nothing to delete", async () => {
+    await mount(status({ state: "off" }, { installed: true, recorded: { recordings: 0, screens: 0, apps: [] } }));
+    expect(within(row()).getByText("No screens recorded")).toBeInTheDocument();
+    expect(within(row()).getByText(/choose an app in a device pane's Apps menu, then Record for Laya/)).toBeInTheDocument();
+    expect(within(row()).getByRole("button", { name: "Delete recordings" })).toBeDisabled();
+  });
+
+  it("shows the recording under way with its count and a Stop, and why it is not reading when it is not", async () => {
+    const { api } = await mount(status({ state: "off" }, { installed: true, recording: { ...recording, lastError: "the phone is locked" }, recorded: { recordings: 0, screens: 0, apps: [] } }));
+    expect(within(row()).getByText("Recording Instagram on Test iPhone · 12 screens kept")).toBeInTheDocument();
+    expect(within(row()).getByText("Not reading the device: the phone is locked")).toBeInTheDocument();
+    // THE MUTANT: Delete in place of Stop while it records. The only way to end it would lose it.
+    expect(within(row()).queryByRole("button", { name: "Delete recordings" })).toBeNull();
+    fireEvent.click(within(row()).getByRole("button", { name: "Stop" }));
+    await waitFor(() => expect(api.calls).toContain("layaStopRecording"));
+    expect(await within(row()).findByText("12 screens of Instagram")).toBeInTheDocument();
+  });
+
+  it("counts what was kept across recordings, and deletes it only on a second, named click", async () => {
+    const { api } = await mount(status({ state: "off" }, { installed: true, recorded: { recordings: 3, screens: 1402, apps: ["Instagram", "TikTok"] } }));
+    expect(within(row()).getByText("1,402 screens of Instagram, TikTok")).toBeInTheDocument();
+    fireEvent.click(within(row()).getByRole("button", { name: "Delete recordings" }));
+    expect(api.calls).not.toContain("layaDeleteRecordings");
+    fireEvent.click(within(row()).getByRole("button", { name: "Delete 1,402 screens" }));
+    await waitFor(() => expect(api.calls).toContain("layaDeleteRecordings"));
+    expect(await within(row()).findByText("No screens recorded")).toBeInTheDocument();
   });
 });
 

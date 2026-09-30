@@ -657,7 +657,7 @@ const HANDLERS: Record<string, Handler> = {
     const tree = await d.simulators.ax(row.value.id);
     const shown = tree.elements.slice(0, ELEMENTS_MAX);
     // What this session was shown is what its element numbers mean from now on — see `DeviceReads`.
-    const first = reads.remember(ctx.sessionId, row.value.id, shown);
+    const first = reads.remember(ctx.sessionId, row.value.id, shown, tree.app);
     const more = tree.elements.length > shown.length ? ` The first ${ELEMENTS_MAX} are listed.` : "";
     const head = `${tree.elements.length} element(s) on ${clip(row.value.name, 60)}. Frames are "(x,y width×height)" in ${tree.units}, on a ${Math.round(tree.screen.width)}×${Math.round(tree.screen.height)} screen with the origin at the top-left.${more}`
       + " The input tools take an element by its [number] in this list — a later read numbers them again — or a point measured the same way.";
@@ -738,7 +738,7 @@ const HANDLERS: Record<string, Handler> = {
     if (!gate.allowed) return err(gate.reason);
 
     const name = clip(row.value.name, 60);
-    let path: { from: DevicePoint; to: DevicePoint; elements: readonly SimulatorAxElement[]; chosen: ActObservation["chosen"]; where: string };
+    let path: { from: DevicePoint; to: DevicePoint; elements: readonly SimulatorAxElement[]; chosen: ActObservation["chosen"]; where: string; app: string | undefined };
     if (a.direction && seen) {
       const spot = await liveElement(c, row.value, seen.value, a.element!); if ("error" in spot) return spot.error;
       // Across the part of the element that is on the screen: a list taller than the screen still
@@ -747,18 +747,18 @@ const HANDLERS: Record<string, Handler> = {
       const left = Math.max(0, f.x), top = Math.max(0, f.y);
       const box = { x: left, y: top, width: Math.min(screen.width, f.x + f.width) - left, height: Math.min(screen.height, f.y + f.height) - top };
       const [from, to] = stroke(a.direction, box);
-      path = { from: normalize(from, screen), to: normalize(to, screen), elements: spot.elements, chosen: spot.chosen, where: `${a.direction} across ${spot.target} on ${name}` };
+      path = { from: normalize(from, screen), to: normalize(to, screen), elements: spot.elements, chosen: spot.chosen, where: `${a.direction} across ${spot.target} on ${name}`, app: spot.app };
     } else if (a.direction) {
       const [from, to] = stroke(a.direction, { x: 0, y: 0, width: 1, height: 1 });
-      path = { from, to, elements: lastRead(c, row.value), chosen: null, where: `${a.direction} across the screen of ${name}` };
+      path = { from, to, elements: lastRead(c, row.value), chosen: null, where: `${a.direction} across the screen of ${name}`, app: lastApp(c, row.value) };
     } else {
       const screen = await screenOf(c, row.value); if ("error" in screen) return screen.error;
       for (const p of [a.from!, a.to!]) {
         if (!onScreen(p, screen.size)) return offScreen(row.value, p, screen.size);
       }
-      path = { from: normalize(a.from!, screen.size), to: normalize(a.to!, screen.size), elements: screen.elements, chosen: null, where: `from ${at(a.from!)} to ${at(a.to!)} on ${name}` };
+      path = { from: normalize(a.from!, screen.size), to: normalize(a.to!, screen.size), elements: screen.elements, chosen: null, where: `from ${at(a.from!)} to ${at(a.to!)} on ${name}`, app: screen.app };
     }
-    watch(c, row.value, "simulator_swipe", a.intent, path.elements, path.chosen);
+    watch(c, row.value, "simulator_swipe", a.intent, path.elements, path.chosen, { app: path.app });
     const r = await c.d.simulators.input(row.value.id, { kind: "swipe", from: path.from, to: path.to, ms: a.durationMs, holdMs: a.holdMs });
     const held = a.holdMs > 0 ? `, after holding still for ${a.holdMs} ms` : "";
     return landed(row.value, r, `Swiped ${path.where} in ${a.durationMs} ms${held}.`);
@@ -875,7 +875,7 @@ function requireRunning(d: SimulatorAgentToolsDeps, ctx: ProviderCallContext, si
 
 /** Where a step's touch goes, found on the screen as it is now; what the observer hears of it; and
  *  how the result names it — `[14]`, or a point — with where on the element it landed, if anywhere. */
-type Spot = { at: DevicePoint; elements: readonly SimulatorAxElement[]; chosen: ActObservation["chosen"]; target: string; landing: string };
+type Spot = { at: DevicePoint; elements: readonly SimulatorAxElement[]; chosen: ActObservation["chosen"]; target: string; landing: string; app: string | undefined };
 
 /**
  * One tap-shaped step — tap, double tap, long press — which differ only in what they send.
@@ -905,7 +905,7 @@ async function touch(c: Call, tool: string, a: z.infer<typeof TapArgs>, input: (
     if ("error" in point) return point.error;
     spot = point;
   }
-  watch(c, row.value, tool, a.intent, spot.elements, spot.chosen);
+  watch(c, row.value, tool, a.intent, spot.elements, spot.chosen, { app: spot.app });
   return landed(row.value, await c.d.simulators.input(row.value.id, expecting(input(spot.at), meant?.label)), `${said(spot.target, clip(row.value.name, 60))}${spot.landing}.`);
 }
 
@@ -939,11 +939,11 @@ async function assisted(c: Call, tool: string, row: Simulator, a: z.infer<typeof
   if (!card.allowed) return err(card.reason);
   const tree = await liveTree(c, row);
   const shown = tree.elements.slice(0, ELEMENTS_MAX);
-  const first = c.reads.remember(c.ctx.sessionId, row.id, shown);
+  const first = c.reads.remember(c.ctx.sessionId, row.id, shown, tree.app);
   const numberOf = (path: string) => first + shown.findIndex((e) => e.path === path);
   const name = clip(row.name, 60);
   const words = clip(a.target, 80);
-  const outcome = await assist.resolve(a.target, a.intent, shown.filter((e) => !inStatusBar(e, tree)).map(observed), tool);
+  const outcome = await assist.resolve(a.target, a.intent, shown.filter((e) => !inStatusBar(e, tree)).map(observed), tool, tree.app);
   if (outcome.kind === "pick") {
     const live = shown.find((e) => e.path === outcome.element.id)!;
     const n = numberOf(live.path);
@@ -951,7 +951,7 @@ async function assisted(c: Call, tool: string, row: Simulator, a: z.infer<typeof
     if (!onScreen(centre, tree.screen)) {
       return err(`nothing was tapped: Laya picked [${n}] for "${words}", but it is off the screen now. Swipe it into view, then try again.`);
     }
-    watch(c, row, tool, a.intent, shown, { element: observed(live) }, "laya");
+    watch(c, row, tool, a.intent, shown, { element: observed(live) }, { by: "laya", app: tree.app });
     if (isDictation(live)) return err(DICTATION_REFUSAL);
     const r = await c.d.simulators.input(row.id, expecting(input(normalize(centre, tree.screen)), live.label));
     const label = live.label.trim() ? ` "${clip(live.label.trim(), 60)}"` : "";
@@ -1005,9 +1005,9 @@ function deviceIO(c: Call, row: Simulator, intent: string, motion: ScreenMotion 
       ? { kind: "swipe", ...WALK_SCROLL[direction], ms: 700, holdMs: 0 }
       : { kind: "swipe", ...WALK_SCROLL[direction], ms: 300, holdMs: 0, stopMs: 120 }),
     type: (text) => send({ kind: "text", text }),
-    ...(assist?.gate().available ? { laya: (label: string, elements: readonly ObservedElement[]) => assist.resolve(label, label, elements, "simulator_tap") } : {}),
-    observe: ({ elements, chosen, by }) =>
-      watch(c, row, "simulator_do", intent, elements.slice(0, ELEMENTS_MAX), { element: observed(chosen) }, by === "laya" ? "laya" : undefined),
+    ...(assist?.gate().available ? { laya: (label: string, elements: readonly ObservedElement[], app: string) => assist.resolve(label, label, elements, "simulator_tap", app) } : {}),
+    observe: ({ elements, chosen, by, app }) =>
+      watch(c, row, "simulator_do", intent, elements.slice(0, ELEMENTS_MAX), { element: observed(chosen) }, { ...(by === "laya" ? { by } : {}), app }),
     settled: (tree) => c.reads.settle(c.ctx.sessionId, row.id, tree.elements.slice(0, ELEMENTS_MAX)),
     ...(motion ? { motion } : {}),
     now: () => performance.now(),
@@ -1038,7 +1038,7 @@ const AFTER_STOP: Record<ExecStopReason, string> = {
 function walked(c: Call, row: Simulator, r: ExecResult): CallToolResult {
   const name = clip(row.name, 60);
   const shown = r.final.elements.slice(0, ELEMENTS_MAX);
-  const first = c.reads.remember(c.ctx.sessionId, row.id, shown);
+  const first = c.reads.remember(c.ctx.sessionId, row.id, shown, r.final.app);
   const secs = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
   const trail = r.steps.map((s) => {
     if (s.how === "typed") return s.label;
@@ -1083,7 +1083,7 @@ async function keys(c: Call, tool: string, a: z.infer<typeof InputArgs> & Record
   const refused = inputRefusal(input, row.value.platform, row.value.physical); if (refused) return err(refused);
   const gate = await askToDrive(c, row.value, tool, a);
   if (!gate.allowed) return err(gate.reason);
-  watch(c, row.value, tool, a.intent, lastRead(c, row.value), null);
+  watch(c, row.value, tool, a.intent, lastRead(c, row.value), null, { app: lastApp(c, row.value) });
   return landed(row.value, await c.d.simulators.input(row.value.id, input), said(clip(row.value.name, 60)));
 }
 
@@ -1148,13 +1148,13 @@ async function liveElement(c: Call, row: Simulator, seen: SimulatorAxElement, n:
   if (!onScreen(centre, tree.screen)) {
     return { error: err(`[${n}] is off the screen now — the centre of its frame is at ${at(centre)}, on a ${Math.round(tree.screen.width)}×${Math.round(tree.screen.height)} screen — so nothing was sent. Swipe it into view, then read simulator_elements again.`) };
   }
-  return { at: normalize(centre, tree.screen), elements, chosen: { element: observed(live) }, target: `[${n}]`, landing: `, at the centre of its frame ${at(centre)}`, live, screen: tree.screen };
+  return { at: normalize(centre, tree.screen), elements, chosen: { element: observed(live) }, target: `[${n}]`, landing: `, at the centre of its frame ${at(centre)}`, app: tree.app, live, screen: tree.screen };
 }
 
 async function livePoint(c: Call, row: Simulator, p: { x: number; y: number }): Promise<Spot | { error: CallToolResult }> {
   const screen = await screenOf(c, row); if ("error" in screen) return screen;
   if (!onScreen(p, screen.size)) return { error: offScreen(row, p, screen.size) };
-  return { at: normalize(p, screen.size), elements: screen.elements, chosen: { point: { x: p.x, y: p.y } }, target: at(p), landing: "" };
+  return { at: normalize(p, screen.size), elements: screen.elements, chosen: { point: { x: p.x, y: p.y } }, target: at(p), landing: "", app: screen.app };
 }
 
 /**
@@ -1164,16 +1164,16 @@ async function livePoint(c: Call, row: Simulator, p: { x: number; y: number }): 
  * device reported when it came up: pixels are what `adb shell input` takes anyway, and a tree dump
  * there costs seconds for nothing.
  */
-async function screenOf(c: Call, row: Simulator): Promise<{ size: { width: number; height: number }; elements: readonly SimulatorAxElement[] } | { error: CallToolResult }> {
+async function screenOf(c: Call, row: Simulator): Promise<{ size: { width: number; height: number }; elements: readonly SimulatorAxElement[]; app: string | undefined } | { error: CallToolResult }> {
   if (row.platform === "android") {
     const size = c.d.simulators.stateOf(row.id).screen;
     if (!size) return { error: err(`${clip(row.name, 60)} has not reported its screen size yet, so nothing was sent. Try again in a few seconds.`) };
-    return { size, elements: lastRead(c, row) };
+    return { size, elements: lastRead(c, row), app: lastApp(c, row) };
   }
   const tree = await liveTree(c, row);
   const elements = tree.elements.slice(0, ELEMENTS_MAX);
   c.reads.settle(c.ctx.sessionId, row.id, elements);
-  return { size: tree.screen, elements };
+  return { size: tree.screen, elements, app: tree.app };
 }
 
 /** How often a step asks again for a tree the device said it does not have yet, and how far apart. */
@@ -1227,6 +1227,8 @@ const at = (p: { x: number; y: number }): string => `(${Math.round(p.x)},${Math.
 const offScreen = (row: Simulator, p: { x: number; y: number }, screen: { width: number; height: number }): CallToolResult =>
   err(`${at(p)} is off the screen of ${clip(row.name, 60)}, which is ${Math.round(screen.width)}×${Math.round(screen.height)} ${row.platform === "android" ? "pixels" : "points"} from the top-left, so nothing was sent.`);
 const lastRead = (c: Call, row: Simulator): readonly SimulatorAxElement[] => c.reads.read(c.ctx.sessionId, row.id)?.elements ?? [];
+/** The app the list this session was last shown came from — where a step without a live read is. */
+const lastApp = (c: Call, row: Simulator): string | undefined => c.reads.read(c.ctx.sessionId, row.id)?.app;
 
 /** A step's answer: what was sent — the tool cannot see whether the app took it, and says where to
  *  look — or what the device said instead. */
@@ -1240,10 +1242,11 @@ const observed = (el: SimulatorAxElement): ObservedElement =>
   ({ id: el.path, role: el.role, label: el.label, ...(el.value ? { value: el.value } : {}) });
 
 /** Tell the observer about a step, if there is one, and keep what it hands back for the next read. */
-function watch(c: Call, row: Simulator, tool: string, intent: string, elements: readonly SimulatorAxElement[], chosen: ActObservation["chosen"], chosenBy?: "laya"): void {
+function watch(c: Call, row: Simulator, tool: string, intent: string, elements: readonly SimulatorAxElement[], chosen: ActObservation["chosen"], o: { by?: "laya"; app?: string | undefined } = {}): void {
   const observe = c.d.observe;
   if (!observe) return;
-  const after = quietly(() => observe({ surface: "simulator", spaceId: c.ctx.spaceId, sessionId: c.ctx.sessionId, tool, intent, elements: elements.map(observed), chosen, ...(chosenBy ? { chosenBy } : {}) }));
+  const app = o.app?.trim();
+  const after = quietly(() => observe({ surface: "simulator", spaceId: c.ctx.spaceId, sessionId: c.ctx.sessionId, tool, intent, elements: elements.map(observed), chosen, ...(o.by ? { chosenBy: o.by } : {}), ...(app ? { app } : {}) }));
   if (typeof after === "function") c.reads.owe(c.ctx.sessionId, row.id, after);
 }
 
@@ -1290,12 +1293,12 @@ class DeviceReads {
     return this.byKey.get(readKey(sessionId, simulatorId))?.read ?? null;
   }
 
-  /** Keep a read, and say the number its first element takes. */
-  remember(sessionId: string, simulatorId: string, elements: readonly SimulatorAxElement[]): number {
+  /** Keep a read, and the app it was of, and say the number its first element takes. */
+  remember(sessionId: string, simulatorId: string, elements: readonly SimulatorAxElement[], app: string): number {
     this.settle(sessionId, simulatorId, elements);
     const k = readKey(sessionId, simulatorId);
     const first = this.byKey.get(k)?.next ?? 1;
-    this.put(k, { read: { first, elements }, next: first + elements.length, after: null });
+    this.put(k, { read: { first, elements, app }, next: first + elements.length, after: null });
     return first;
   }
 
@@ -1326,8 +1329,8 @@ class DeviceReads {
   }
 }
 
-/** One list an agent was shown: its elements, numbered from `first`. */
-type Read = { first: number; elements: readonly SimulatorAxElement[] };
+/** One list an agent was shown: its elements, numbered from `first`, and the app they were in. */
+type Read = { first: number; elements: readonly SimulatorAxElement[]; app: string };
 type ReadsEntry = { read: Read | null; next: number; after: ((after: readonly ObservedElement[]) => void) | null };
 
 /** NUL is in neither id, so no two pairs of them can collide by concatenation. */

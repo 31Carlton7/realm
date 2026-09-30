@@ -8,11 +8,12 @@ import { useApp } from "../../state/store";
  * Laya (local decisions): the local model Realm can ask about every computer step, and the log of
  * what it said (docs/superpowers/specs/2026-09-29-laya-local-decisions.md).
  *
- * Four rows. The first says what the runtime is actually doing and offers the one action that moves
+ * Five rows. The first says what the runtime is actually doing and offers the one action that moves
  * it on — Install, or Try again. The second is the request, Off, Shadow or Assist; it is a request
  * because the two can differ (Shadow while the checkpoint loads, Shadow after a start that failed),
  * which is why the first row exists at all. The third is the active checkpoint's evaluation — what
- * Assist is earned by — and the one action that can change it, Train. The fourth is the log.
+ * Assist is earned by — and the one action that can change it, Train. The fourth and fifth are what
+ * Train learns from beyond what Realm ships: the recordings, and the log.
  *
  * Every state is the server's. Nothing here decides whether an install may start or whether Shadow is
  * allowed; a click that the server would refuse is simply not offered.
@@ -36,11 +37,12 @@ export function LayaSection() {
         <StateRow laya={laya} />
         <ModeRow laya={laya} />
         <EvaluationRow laya={laya} />
+        <RecordingsRow laya={laya} />
         <LogRow laya={laya} />
       </ul>
-      {/* The one sentence the section owes: what the log holds, where, and that it stays. */}
+      {/* The one sentence the section owes: what the log and the recordings hold, where, and that they stay. */}
       <p className="settings-hint">
-        The log holds the labels of what was on screen at each step. It is kept in {laya.dir || "Realm's folder"} and never leaves this Mac.
+        The log and the recordings hold the names of what was on screen; a recording keeps no text anyone typed and no long text. Both are kept in {laya.dir || "Realm's folder"} and never leave this Mac.
       </p>
     </>
   );
@@ -190,7 +192,7 @@ function EvaluationRow({ laya }: { laya: LayaStatus }) {
         )}
         {t.state === "idle" && (
           <span className="settings-row-desc">
-            Train makes a new checkpoint on this Mac from the screens Realm ships and your decision log — half an hour to an hour on its GPU, with Laya paused — and keeps it only if it scores better.
+            Train makes a new checkpoint on this Mac from the screens Realm ships, your recordings and your decision log — half an hour to an hour on its GPU, with Laya paused — and keeps it only if it scores better.
           </span>
         )}
         {t.state === "running" && (
@@ -226,6 +228,49 @@ function EvaluationRow({ laya }: { laya: LayaStatus }) {
         ? <button type="button" className="btn" onClick={() => run(() => cancelLayaTraining())}>Stop</button>
         : <button type="button" className="btn" disabled={!laya.installed} title={laya.installed ? undefined : "Install Laya first."}
             onClick={() => run(() => trainLaya())}>Train</button>}
+    </li>
+  );
+}
+
+/**
+ * Screens kept while a person used an app on a device pane — started from that pane's Apps menu,
+ * which is why this row says where, rather than offering a Record of its own with no device to point
+ * it at. A recording under way is shown with the same Stop the pane bar carries.
+ */
+function RecordingsRow({ laya }: { laya: LayaStatus }) {
+  const stopLayaRecording = useApp((s) => s.stopLayaRecording);
+  const deleteLayaRecordings = useApp((s) => s.deleteLayaRecordings);
+  const confirmDelete = useApp((s) => s.confirmDelete);
+  const run = useApp((s) => s.run);
+  // Two steps, as for the log: a recording is an hour of someone using an app, and cannot be re-made.
+  const [confirming, setConfirming] = useState(false);
+  const rec = laya.recording ?? null;
+  const kept = laya.recorded ?? { recordings: 0, screens: 0, apps: [] };
+  const count = (n: number) => `${n.toLocaleString()} ${n === 1 ? "screen" : "screens"}`;
+  return (
+    <li className="settings-row laya-recordings" data-recording={rec ? "" : undefined}>
+      <div className="settings-row-main">
+        <span className="settings-row-name">Recordings</span>
+        {rec ? (
+          <span className="settings-row-desc laya-facts">Recording {rec.apps.join(", ") || "every app"} on {rec.device} · {count(rec.screens)} kept</span>
+        ) : (
+          <span className="settings-row-desc laya-facts">{kept.screens === 0 ? "No screens recorded" : `${count(kept.screens)} of ${kept.apps.join(", ")}`}</span>
+        )}
+        {/* The device's own words for why nothing is being kept — a locked phone says so. */}
+        {rec?.lastError && <span className="settings-row-desc laya-reason">Not reading the device: {rec.lastError}</span>}
+        {!rec && (
+          <span className="settings-row-desc">
+            To record, choose an app in a device pane's Apps menu, then Record for Laya, and use the app yourself. Realm reads each new screen and taps nothing.
+          </span>
+        )}
+      </div>
+      {rec
+        ? <button type="button" className="btn" onClick={() => run(() => stopLayaRecording())}>Stop</button>
+        : confirming
+          ? <button type="button" className="btn-quiet danger" autoFocus onBlur={() => setConfirming(false)}
+              onClick={() => { setConfirming(false); void run(() => deleteLayaRecordings()); }}>Delete {count(kept.screens)}</button>
+          : <button type="button" className="btn-quiet danger" disabled={kept.screens === 0}
+              onClick={() => (confirmDelete ? setConfirming(true) : run(() => deleteLayaRecordings()))}>Delete recordings</button>}
     </li>
   );
 }

@@ -2,7 +2,7 @@ import type { ObservedElement } from "../mcp/act-observer";
 import { contentWords, type BenchElement, type BenchPair, type BenchScreen, type Benchmark, type Split } from "./benchmark";
 import type { LayaQuestion } from "./client";
 import { walkOffers } from "./eval";
-import { SENSITIVE_PARTS, pickCandidates, sensitiveQuestion, screenDiff, targetQuestion, verifyQuestion, verifyQuestionFor, type SensitivePart, type ShadowRow } from "./shadow";
+import { SENSITIVE_PARTS, pickCandidates, sensitiveQuestion, screenDiff, socialStep, targetQuestion, verifyQuestion, verifyQuestionFor, type SensitivePart, type ShadowRow } from "./shadow";
 
 /**
  * What a checkpoint is trained on: questions asked exactly as the shadow asks them, with the answer
@@ -45,6 +45,9 @@ export type TrainSetOptions = {
   /** The benchmark's own `train` cases of these kinds, taught as labelled. Never `target`: its train
    *  split is what the Assist threshold and the choice temperatures are fitted on, unseen. */
   benchmarkTrain?: readonly ("sensitive" | "verify")[];
+  /** Screens kept while a person used an app (`recorder.ts`): training screens like any `train` app's,
+   *  in whatever app they came from. None of them is ever a benchmark case. */
+  recorded?: readonly BenchScreen[];
 };
 
 export type TrainSetStats = { rows: number; target: number; sensitive: number; verify: number; fromLog: number; dropped: number; screens: number };
@@ -57,7 +60,7 @@ const FIELD = /text ?field|search ?field|text ?view|text ?area|secure/i;
 export function trainingSet(b: Benchmark, lexicon: Lexicon, o: TrainSetOptions): { rows: TrainRow[]; stats: TrainSetStats } {
   const random = mulberry32(o.seed ?? 7);
   const outside = new Set([...o.heldoutApps, ...o.validationApps]);
-  const screens = trainScreens(b, outside);
+  const screens = trainScreens(b, outside, o.recorded ?? []);
   const pairs = [...b.pairs.values()].filter((p) => !outside.has(p.app) && trainOnly(b, p.id) && !failedPair(b, p.id));
   const guard = new Guard([...b.target, ...b.sensitive, ...b.verify].map((c) => c.intent));
   const rows: TrainRow[] = [];
@@ -78,7 +81,7 @@ export function trainingSet(b: Benchmark, lexicon: Lexicon, o: TrainSetOptions):
 
 /** Every screen of the apps training may see: the benchmark's screens, and both sides of its pairs,
  *  each distinct set of labels once. */
-function trainScreens(b: Benchmark, outside: ReadonlySet<string>): BenchScreen[] {
+function trainScreens(b: Benchmark, outside: ReadonlySet<string>, recorded: readonly BenchScreen[]): BenchScreen[] {
   const seen = new Set<string>();
   const out: BenchScreen[] = [];
   const take = (s: BenchScreen) => {
@@ -93,6 +96,7 @@ function trainScreens(b: Benchmark, outside: ReadonlySet<string>): BenchScreen[]
     take({ id: `${p.id}#before`, app: p.app, from: p.id, elements: p.before });
     take({ id: `${p.id}#after`, app: p.app, from: p.id, elements: p.after });
   }
+  for (const s of recorded) take(s);
   return out;
 }
 
@@ -168,6 +172,13 @@ function sensitiveRows(screen: BenchScreen, lexicon: Lexicon, guard: Guard, rand
     // A keyboard's delete key takes back one letter.
     if (keyboard && label === "delete") {
       rows.push(sensitiveRow(WALK_TOOL, e, "delete the letter I just typed", []));
+      continue;
+    }
+    // In an app where other people see it — a like, a follow, a story — what it is called is the step
+    // the rule holds back, and never a plain tap: its phrases are taught as the part it is.
+    const social = socialStep(label, screen.app);
+    if (social) {
+      for (const intent of [...phrasesFor(lexicon, label, screen.app), `tap ${primary(label)}`]) if (guard.allows(intent)) rows.push(sensitiveRow(WALK_TOOL, e, intent, [social.part]));
       continue;
     }
     const act = SENSITIVE_TAPS.find((a) => a.test.test(label));
