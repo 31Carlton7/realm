@@ -91,16 +91,18 @@ enum Screen {
 
     /// The foreground app's tree: every node with its XCUIElement type number, the names the app
     /// gives it, and its frame in points. Mapping the type numbers to words is Realm's job. `ms` says
-    /// where the time went, because a read is the step every walk waits on.
-    static func hierarchy() async throws -> [String: Any] {
+    /// where the time went, because a read is the step every walk waits on. `maxDepth` and
+    /// `maxChildren` bound the snapshot (`SnapshotLimits`); `limited` says whether they could be applied.
+    static func hierarchy(maxDepth: Int? = nil, maxChildren: Int? = nil) async throws -> [String: Any] {
         let t0 = Date()
         let front = await foregroundApp()
         let t1 = Date()
-        let snapshot = try front.app.snapshot()
+        let snapshot = try SnapshotLimits.with(depth: maxDepth, children: maxChildren) { try front.app.snapshot() }
         let t2 = Date()
         let tree = node(snapshot)
         let ms = { (a: Date, b: Date) in Int((b.timeIntervalSince(a) * 1000).rounded()) }
-        return ["bundleId": front.bundleId, "tree": tree, "ms": ["foreground": ms(t0, t1), "snapshot": ms(t1, t2), "walk": ms(t2, Date())]]
+        return ["bundleId": front.bundleId, "tree": tree, "limited": SnapshotLimits.installed && (maxDepth != nil || maxChildren != nil),
+                "ms": ["foreground": ms(t0, t1), "snapshot": ms(t1, t2), "walk": ms(t2, Date())]]
     }
 
     /// Every element of the foreground app whose frame holds a point, smallest first. Not "the one on
