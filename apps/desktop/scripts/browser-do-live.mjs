@@ -38,6 +38,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+/** Chromium's switches for a window that is covered or in the background: lay it out and run its timers
+ *  anyway. Passed to Electron on its command line, as Chromium reads its switches there. */
+const UNTHROTTLED = ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"];
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9251);
 const SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8811);
 const SITE_PORT = Number(process.env.LIVE_SITE_PORT ?? 8812);
@@ -233,7 +236,11 @@ async function main() {
   const wrapper = path.join(scratch, "wrapper.mjs");
   fs.writeFileSync(wrapper, ['import { app } from "electron";', 'app.setPath("userData", process.env.LIVE_USER_DATA);', "await import(process.env.LIVE_MAIN);"].join("\n"));
   const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
-  electron = spawn(electronBin, [wrapper], {
+  // Chromium stops laying out a window macOS says is covered — and a window this script starts from
+  // the background opens BEHIND whatever the person at the Mac has in front. The browser pane is a
+  // native view sized from that layout, so it would get no bounds: every element offscreen and every
+  // click lost (measured: the walk's first click "changed nothing" until these were passed).
+  electron = spawn(electronBin, [wrapper, ...UNTHROTTLED], {
     env: {
       ...process.env,
       REALM_HOME: home,
