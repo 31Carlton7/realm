@@ -18,9 +18,13 @@ import type { ExecResult, ExecStopReason, WalkElement, WalkTree } from "../simul
  *  - It passes over what is off the screen and scrolls to find it. A snapshot lists the elements below
  *    the fold too, and a click scrolls its element into view before it is sent, then goes to the
  *    element's live centre, where Chromium hit-tests it like any click. Below the fold is one click
- *    away. The walk still scrolls for a label the snapshot does not have yet: rows a page loads as it
- *    is scrolled.
+ *    away.
  *  - It leaves out a band at the top as a status bar. On a page that band is the navigation.
+ *
+ * **Scrolling.** Since the snapshot already lists what is further down, what a scroll can still bring
+ * is what a page loads when it is scrolled to the end of what it has — the next rows of a feed. So a
+ * walk's scroll goes to the end of the page (and back to the top), and a label is scrolled for only
+ * when no element on the page has it yet.
  *
  * **What counts as a change.** Where an element sits is left out of the tree (every frame starts at
  * 0,0): a click on an element below the fold scrolls the page first, and a place would change under
@@ -29,9 +33,11 @@ import type { ExecResult, ExecStopReason, WalkElement, WalkTree } from "../simul
  * tree as its value, unnamed so that no label can ever match it. A link to a part of the same page
  * changes the address; a form field filling changes a value.
  *
- * **Settling.** The walk reads until two reads agree, unless the browser vouched for the read: it
- * said the page had finished loading and nothing was on its network, for long enough that a response
- * could be drawn (`NETWORK_QUIET_MS`). That read settles by itself (`atRest` on the tree).
+ * **Settling.** The walk reads until two reads agree, unless the browser says otherwise (`atRest` on
+ * the tree). While the page waits on a document or on data it asked for, nothing read settles: two
+ * reads of a page half-arrived agree as well as two of a whole one. Once the page has finished
+ * loading and nothing it waits on has moved for long enough to be drawn (`NETWORK_QUIET_MS`), one
+ * read that shows a click's change is enough.
  */
 
 /** The document's own entry in a walk tree: never a ref, so never a label a path could name. */
@@ -41,9 +47,13 @@ export const DOCUMENT_PATH = "document";
  *  response that just arrived is usually drawn within a frame or two of it. */
 export const NETWORK_QUIET_MS = 100;
 
-/** Whether the browser vouched for a read, as the module comment says. No report is no vouching. */
-export function atRest(page: BrowserPageActivity | undefined): boolean {
-  return page !== undefined && !page.loading && page.requests === 0 && page.quietMs >= NETWORK_QUIET_MS;
+/** What the browser's report makes of a read, as the module comment says: false while the page waits
+ *  on a request, true once it is loaded and quiet, and nothing — read until two reads agree — between
+ *  the two or without a report. */
+export function atRest(page: BrowserPageActivity | undefined): boolean | undefined {
+  if (page === undefined) return undefined;
+  if (page.requests > 0) return false;
+  return !page.loading && page.quietMs >= NETWORK_QUIET_MS ? true : undefined;
 }
 
 /**
@@ -72,13 +82,14 @@ export function walkElementOf(e: BrowserSnapshotElement): WalkElement {
 /** A snapshot as the walk reads it — see the module comment for each choice. */
 export function walkTreeOf(snap: BrowserSnapshotResult): WalkTree {
   const document: WalkElement = { path: DOCUMENT_PATH, label: "", value: snap.url, role: "document", id: null, enabled: true, frame: { x: 0, y: 0, width: 0, height: 0 }, depth: 0 };
+  const rest = atRest(snap.page);
   return {
     units: "pixels",
     screen: { width: snap.viewport?.width ?? 0, height: snap.viewport?.height ?? 0 },
     app: siteName(snap.url) ?? "",
     elements: [document, ...(snap.elements ?? []).map(walkElementOf)],
     screenChecks: false,
-    ...(atRest(snap.page) ? { atRest: true as const } : {}),
+    ...(rest !== undefined ? { atRest: rest } : {}),
   };
 }
 

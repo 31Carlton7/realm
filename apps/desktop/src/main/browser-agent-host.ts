@@ -129,6 +129,10 @@ const NETWORK_MAX = 150;
  *  fallback — which a page keeps open for as long as it is up. Counting it would call the page busy
  *  forever, so it stops counting as in flight. */
 const REQUEST_STALE_MS = 10_000;
+/** The requests a page waits on to change what it shows: a document, and data it fetches. An image,
+ *  a font or a stylesheet arriving late changes nothing anyone clicks, and a page that never finishes
+ *  loading one — a slow tracker's pixel, a broken image — would otherwise never be at rest. */
+const WAITED_ON = new Set(["Document", "XHR", "Fetch"]);
 /** How many open requests one view keeps track of before forgetting the oldest. */
 const REQUESTS_MAX = 500;
 
@@ -142,10 +146,11 @@ type Attached = {
   consoleLines: string[];
   network: Map<string, { method: string; url: string; status?: number; mimeType?: string; failed?: string }>;
   networkOrder: string[];
-  /** Requests the page has open, by id, with when each started — what `pageActivity` counts. Kept
-   *  apart from the log above, which keeps a request long after it finished. */
+  /** The requests the page waits on (`WAITED_ON`) that it has open, by id, with when each started —
+   *  what `pageActivity` counts. Kept apart from the log above, which keeps a request long after it
+   *  finished. */
   open: Map<string, number>;
-  /** When a request last started or finished, or when Realm attached if none has. */
+  /** When one of those last started or finished, or when Realm attached if none has. */
   networkAt: number;
   lastSnapshot: SnapshotIndex | null;
   /** Resolver for the pick currently armed on this view, if any — see `pickElement`. */
@@ -700,10 +705,12 @@ export class BrowserAgentHost {
       const id = String(p.requestId ?? "");
       const req = p.request as { method?: string; url?: string } | undefined;
       if (!id || !req?.url || req.url.startsWith("data:")) return;
-      // A redirect arrives as the same id again: still one request, started over.
-      entry.open.set(id, this.now());
-      while (entry.open.size > REQUESTS_MAX) entry.open.delete(entry.open.keys().next().value!);
-      entry.networkAt = this.now();
+      if (WAITED_ON.has(String(p.type ?? ""))) {
+        // A redirect arrives as the same id again: still one request, started over.
+        entry.open.set(id, this.now());
+        while (entry.open.size > REQUESTS_MAX) entry.open.delete(entry.open.keys().next().value!);
+        entry.networkAt = this.now();
+      }
       if (!entry.network.has(id)) {
         entry.network.set(id, { method: req.method ?? "GET", url: req.url });
         entry.networkOrder.push(id);

@@ -1008,9 +1008,13 @@ const key = (sessionId: string, browserId: string): string => `${sessionId}\0${b
  *  a click to show — a page may load another behind it, where a phone's tap answers in one. */
 const WEB_SETTLE = { tapTimeoutMs: 5_000, pollMs: 50 };
 
-/** How far a walk's scroll moves a page: most of the viewport, so the rows at its bottom edge stay in
- *  view at the top and none is scrolled past unread. */
-const SCROLL_FRACTION = 0.8;
+/** How far a walk's scroll goes: to the end of the page, or back to its top. The snapshot already
+ *  lists what is further down; what a scroll can still bring is what a page loads at the end of what
+ *  it has (see `walk.ts`). */
+const SCROLL_TO_END = 1_000_000;
+/** How long after a scroll the walk waits before it looks: a page starts loading what a scroll
+ *  reached a frame or two after the scroll lands. */
+const SCROLL_SETTLE_MS = 100;
 
 /**
  * What a walk does to a page: the pane's own snapshot and act ops, and nothing else. Every click and
@@ -1027,6 +1031,7 @@ function pageIO(d: Deps, ctx: ProviderCallContext, browserId: string, intent: st
   const assist = d.assist;
   /** Where the page is now, for the ticker: a walk can click its way onto another site. */
   const here = (): string => (latest ? hostOf(latest.url) : host);
+  const sleep = (ms: number): Promise<void> => d.clock?.sleep(ms) ?? new Promise((r) => setTimeout(r, ms));
   const send = async (action: BrowserAction, line: string, o: { counts: boolean }): Promise<{ ok: boolean; detail: string }> => {
     if (o.counts) {
       const limited = counted++ > 0 ? d.constraints?.checkMutation(ctx.sessionId, "browser_do") : null;
@@ -1058,9 +1063,10 @@ function pageIO(d: Deps, ctx: ProviderCallContext, browserId: string, intent: st
       clicked = { ref, role: el.role, label: el.label };
       return send({ kind: "click", ref, button: "left", clickCount: 1, modifiers: [] }, `Click the ${el.role} the page labels "${clip(el.label, 60)}" on ${here()}`, { counts: true });
     },
-    scroll: (direction) => {
-      const by = Math.round((latest?.viewport?.height || 600) * SCROLL_FRACTION);
-      return send({ kind: "scroll", deltaX: 0, deltaY: direction === "up" ? by : -by }, `Scroll the page on ${here()}`, { counts: false });
+    scroll: async (direction) => {
+      const r = await send({ kind: "scroll", deltaX: 0, deltaY: direction === "up" ? SCROLL_TO_END : -SCROLL_TO_END }, `Scroll the page on ${here()}`, { counts: false });
+      await sleep(SCROLL_SETTLE_MS);
+      return r;
     },
     // The walk types only into the field it has just clicked: the one its path ended on, or the only
     // one on the page, which it clicks first. Never with Enter after it — nothing is submitted.
@@ -1077,7 +1083,7 @@ function pageIO(d: Deps, ctx: ProviderCallContext, browserId: string, intent: st
     },
     settled: (tree) => d.reads.settle(ctx.sessionId, browserId, observedPage(tree.elements)),
     now: () => d.clock?.now() ?? performance.now(),
-    sleep: (ms) => d.clock?.sleep(ms) ?? new Promise((r) => setTimeout(r, ms)),
+    sleep,
     snapshotOf: (tree) => read.get(tree) ?? latest!,
   };
 }

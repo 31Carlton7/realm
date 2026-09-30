@@ -177,8 +177,9 @@ export type BrowserSnapshotElement = {
 
 /**
  * What the browser reports about a page, sampled as a snapshot begins: whether it is still loading —
- * the pane's own spinner, `webContents.isLoading()` — how many requests it has in flight, and how long
- * its network has been quiet. Facts, not a verdict: what counts as "at rest" is the reader's to say.
+ * the pane's own spinner, `webContents.isLoading()` — how many requests for a document or for data it
+ * has in flight, and how long those have been quiet. Images, fonts and stylesheets are not counted.
+ * Facts, not a verdict: what counts as "at rest" is the reader's to say.
  */
 export type BrowserPageActivity = { loading: boolean; requests: number; quietMs: number };
 export type BrowserReadResult = { text: string };

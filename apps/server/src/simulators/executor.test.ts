@@ -609,14 +609,53 @@ describe("a read the source vouches for", () => {
     expect(r.stop?.why).toBe("no-change");
   });
 
-  it("ends a scroll that moved nothing on one read", async () => {
-    const polled = new Device({ list: { rows: rows(...LONG.slice(0, 5)) } }, "list");
-    await walk(polled, { path: ["Nowhere"] });
-    const trusted = new Device({ list: { rows: rows(...LONG.slice(0, 5)) } }, "list");
-    const r = await walk(trusted, { path: ["Nowhere"] }, vouched(trusted));
-    expect(r.stop?.why).toBe("not-found");
-    expect(trusted.scrolls).toEqual(polled.scrolls);
-    expect([trusted.reads, polled.reads]).toEqual([3, 5]);
+  it("never ends a scroll on the source's word alone — what a scroll reached arrives a moment after it lands", async () => {
+    const d = new Device({ list: { rows: rows(...LONG) }, row: { heading: "Row 20", rows: [] } }, "list");
+    d.screens.list!.rows[19] = { label: "Row 20", to: "row" };
+    const own = d.io();
+    // The list moves one read after the scroll, as a page's does when it loads what the scroll reached.
+    let arrives: (() => void) | null = null;
+    const r = await walk(d, { path: ["Row 20"] }, {
+      scroll: async (direction, tree) => {
+        const from = d.offset;
+        const sent = await own.scroll(direction, tree);
+        const to = d.offset;
+        d.offset = from;
+        arrives = () => { d.offset = to; };
+        return sent;
+      },
+      read: async () => {
+        const t = await own.read();
+        arrives?.();
+        arrives = null;
+        return { ...t, atRest: true as const };
+      },
+    });
+    // THE MUTANT: let a read the source vouched for end a scroll. The first read after it is the list
+    // as it was, and the walk would call that the end of the list and never find Row 20.
+    expect(d.taps).toEqual(["Row 20"]);
+    expect(r.ok).toBe(true);
+  });
+
+  it("settles nothing the source says was still arriving, though two reads of it agree", async () => {
+    const screens: Record<string, Screen> = { ...settings(), loading: { heading: "Loading", rows: [] } };
+    screens.root!.rows[0] = { label: "General", to: "loading" };
+    const d = new Device(screens, "root");
+    const own = d.io();
+    let loadingReads = 0;
+    const r = await walk(d, { path: ["General", "About"] }, {
+      read: async () => {
+        const t = await own.read();
+        if (d.current !== "loading") return t;
+        // Three reads of the same half-arrived screen, then the one it was loading.
+        if (++loadingReads === 3) { d.current = "general"; d.offset = 0; }
+        return { ...t, atRest: false };
+      },
+    });
+    // THE MUTANT: take two agreeing reads of "Loading" for the screen the tap opened. About is then
+    // nowhere, and the walk stops at a screen that was about to become the right one.
+    expect(r.ok).toBe(true);
+    expect(d.taps).toEqual(["General", "About"]);
   });
 });
 

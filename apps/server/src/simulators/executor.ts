@@ -35,11 +35,12 @@ import type { MotionMark, ScreenMotion } from "./screen-motion";
  * itself, so the walk's own screen checks are skipped for it. A web page's is another
  * (`browsers/walk.ts`, which says why).
  *
- * `atRest` marks a read the source vouched for: the screen was not changing as it was taken — a web
- * page the browser reports loaded, with nothing on its network. That read counts as settled by
- * itself, where any other has to be read again and agree.
+ * `atRest` is the source's own word about the moment it read, where it has one — a web page's
+ * browser does. `true`: the screen was not changing, so a read that shows a tap's change settles by
+ * itself where any other has to be read again and agree. `false`: the screen was still arriving — a
+ * page waiting on what it asked its server for — so that read settles nothing at all.
  */
-export type WalkTree = Omit<SimulatorAxTree, "elements"> & { elements: WalkElement[]; screenChecks?: false; atRest?: true };
+export type WalkTree = Omit<SimulatorAxTree, "elements"> & { elements: WalkElement[]; screenChecks?: false; atRest?: boolean };
 /** An element as a walk reads it: `focused` where the tree says which element has focus — a Mac app's
  *  does, so a click into a field shows as the change it is. */
 export type WalkElement = SimulatorAxElement & { focused?: boolean };
@@ -390,8 +391,12 @@ export function signature(tree: WalkTree): string {
  * `stillMeansNone` is for a scroll: its finger has lifted by the time this runs, so a screen that
  * reads as `before` twice did not move, which is the end of the list. A tap gets its whole timeout,
  * because an app can take a moment to answer one. A screen that changed and came back — a list that
- * rubber-banded at its end — counts as no change, never as the half-way frame. A read taken `atRest`
- * holds still by the source's own word, so it needs no second look.
+ * rubber-banded at its end — counts as no change, never as the half-way frame.
+ *
+ * The source's word (`atRest`): a read it says was taken while the screen was still arriving settles
+ * nothing. One it says was taken at rest settles a tap's change by itself — but never a scroll: a page
+ * starts loading what a scroll reached a frame or two after the scroll lands, sooner than it can say
+ * so, and a read that early would take a list about to grow for one that ended.
  */
 async function waitForChange(io: ExecIO, before: string, w: { timeoutMs: number; pollMs: number; stillMeansNone: boolean }): Promise<WalkTree | null> {
   const deadline = io.now() + w.timeoutMs;
@@ -402,7 +407,7 @@ async function waitForChange(io: ExecIO, before: string, w: { timeoutMs: number;
     let tree: WalkTree;
     try { tree = await io.read(); } catch { prev = null; continue; }
     const sig = signature(tree);
-    const steady = sig === prev || tree.atRest === true;
+    const steady = tree.atRest !== false && (sig === prev || (tree.atRest === true && !w.stillMeansNone));
     prev = sig;
     if (sig === before) {
       latest = null;

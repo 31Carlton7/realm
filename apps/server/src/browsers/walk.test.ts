@@ -42,16 +42,20 @@ describe("the site a page is on", () => {
   });
 });
 
-describe("when the browser vouches for a read", () => {
-  it("vouches for a page that has loaded and has had nothing on its network long enough to draw what came", () => {
+describe("what the browser's report makes of a read", () => {
+  it("vouches for a page that has loaded and has had nothing it waits on move for long enough to draw what came", () => {
     expect(atRest(QUIET)).toBe(true);
   });
 
-  it("does not vouch for a page still loading, one with a request open, one whose response just arrived, or one it said nothing about", () => {
-    expect(atRest({ ...QUIET, loading: true })).toBe(false);
+  it("says a page waiting on a request is not at rest, whatever else is true of it", () => {
     expect(atRest({ ...QUIET, requests: 1 })).toBe(false);
-    expect(atRest({ ...QUIET, quietMs: NETWORK_QUIET_MS - 1 })).toBe(false);
-    expect(atRest(undefined)).toBe(false);
+    expect(atRest({ ...QUIET, loading: true, requests: 2, quietMs: 0 })).toBe(false);
+  });
+
+  it("says nothing of a page still loading, one whose response just arrived, or one with no report — those are read until two reads agree", () => {
+    expect(atRest({ ...QUIET, loading: true })).toBeUndefined();
+    expect(atRest({ ...QUIET, quietMs: NETWORK_QUIET_MS - 1 })).toBeUndefined();
+    expect(atRest(undefined)).toBeUndefined();
   });
 });
 
@@ -62,7 +66,8 @@ describe("a snapshot as the walk reads it", () => {
     expect(tree.app).toBe("Instagram");
     expect(tree.atRest).toBe(true);
     expect(tree.screen).toEqual({ width: 1000, height: 700 });
-    expect(walkTreeOf({ ...SNAP, page: { ...QUIET, loading: true } }).atRest).toBeUndefined();
+    expect(walkTreeOf({ ...SNAP, page: { ...QUIET, requests: 1 } }).atRest).toBe(false);
+    expect("atRest" in walkTreeOf({ ...SNAP, page: { ...QUIET, loading: true } })).toBe(false);
   });
 
   it("finds a label below the fold, where the click that follows will scroll to it", () => {

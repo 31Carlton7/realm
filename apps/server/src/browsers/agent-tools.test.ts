@@ -1183,27 +1183,43 @@ type SitePage = { url: string; title: string; els: SiteEl[]; below?: SiteEl[]; t
 
 /**
  * A small web site for a walk: links that go to other pages, buttons that do nothing, fields that take
- * text, and rows further down that only a scroll brings into the snapshot. Every snapshot is counted,
- * so a test can say how many reads a step cost; `busy` makes the browser report the page as loading.
+ * text, and rows further down that only a scroll to the end of the page brings into the snapshot.
+ * Every snapshot is counted, so a test can say how many reads a step cost. What the browser reports
+ * about the page can be set three ways: `loading` — still loading, but asking for nothing; `fetching` —
+ * after each click that loads a page, that many reads show only its first element while it waits on its
+ * data; `lazy` — after a scroll, that many reads wait on the rows it reached before they arrive.
  */
-function site(pages: Record<string, SitePage>, start: string, o: { busy?: boolean } = {}) {
+function site(pages: Record<string, SitePage>, start: string, o: { loading?: boolean; fetching?: number; lazy?: number } = {}) {
   let at = start;
   let scrolled = false;
+  let rowsIn = false;
+  let rowsDue = 0;
+  let arriving = 0;
   let focus: number | null = null;
   let reads = 0;
   const clicks: string[] = [];
   const typed: { ref: number; text: string; submit: boolean; method: string }[] = [];
   const scrolls: number[] = [];
-  const els = () => [...pages[at]!.els, ...(scrolled ? pages[at]!.below ?? [] : [])];
+  const els = () => [...pages[at]!.els, ...(rowsIn ? pages[at]!.below ?? [] : [])];
+  const waiting: BrowserPageActivity = { loading: false, requests: 1, quietMs: 0 };
   const snapshot = () => {
     reads++;
     const p = pages[at]!;
-    return pageSnapshot(p.url, p.title, els().map((e) => el(e.ref, e.role, e.name, { password: e.password === true, value: e.password ? null : e.value ?? null, focused: e.ref === focus })),
-      o.busy ? { loading: true, requests: 2, quietMs: 0 } : undefined);
+    let report: BrowserPageActivity | undefined = o.loading ? { loading: true, requests: 0, quietMs: 1_000 } : undefined;
+    if (scrolled && !rowsIn) {
+      if (rowsDue > 0) { rowsDue--; report = waiting; } else rowsIn = true;
+    }
+    let shown = els();
+    if (arriving > 0) { arriving--; shown = shown.slice(0, 1); report = waiting; }
+    return pageSnapshot(p.url, p.title, shown.map((e) => el(e.ref, e.role, e.name, { password: e.password === true, value: e.password ? null : e.value ?? null, focused: e.ref === focus })), report);
   };
   const act = (params: Record<string, unknown>) => {
     const a = params.action as { kind: string; ref?: number; text?: string; submit?: boolean; method?: string; deltaY?: number };
-    if (a.kind === "scroll") { scrolls.push(a.deltaY ?? 0); if ((a.deltaY ?? 0) > 0) scrolled = true; return { ok: true, detail: "scrolled" }; }
+    if (a.kind === "scroll") {
+      scrolls.push(a.deltaY ?? 0);
+      if ((a.deltaY ?? 0) > 0 && !scrolled) { scrolled = true; rowsDue = o.lazy ?? 0; }
+      return { ok: true, detail: "scrolled" };
+    }
     const target = els().find((e) => e.ref === a.ref);
     if (!target) return { ok: false, error: `could not focus ref=${a.ref} — it may be gone; take a fresh browser_snapshot` };
     if (a.kind === "type") {
@@ -1215,7 +1231,7 @@ function site(pages: Record<string, SitePage>, start: string, o: { busy?: boolea
     clicks.push(target.name);
     // A click into a field gives it the focus; a click anywhere else takes it away.
     focus = /^(textbox|searchbox)$/.test(target.role) ? target.ref : null;
-    if (target.to) { at = target.to; scrolled = false; }
+    if (target.to) { at = target.to; scrolled = false; rowsIn = false; arriving = o.fetching ?? 0; }
     return { ok: true, detail: `clicked ref=${a.ref}` };
   };
   return {
@@ -1229,7 +1245,7 @@ function site(pages: Record<string, SitePage>, start: string, o: { busy?: boolea
 }
 
 const HOME: SiteEl = { ref: 1, role: "link", name: "Home", to: "home" };
-const docsSite = (o: { busy?: boolean } = {}) => site({
+const docsSite = (o: Parameters<typeof site>[2] = {}) => site({
   home: { url: "http://127.0.0.1:8123/", title: "Fixture", text: "Welcome to the fixture.", els: [
     HOME, { ref: 2, role: "link", name: "Docs", to: "docs" }, { ref: 3, role: "link", name: "Account", to: "account" }, { ref: 4, role: "searchbox", name: "Search the docs" },
   ] },
@@ -1338,8 +1354,8 @@ describe("browser_do", () => {
     const r = await walk(s, { path: ["Docs", "Changelog"] });
     expect(r.isError).toBe(false);
     expect(page.clicks).toEqual(["Docs", "Changelog"]);
-    // Down the page, by most of its 800-pixel viewport, once.
-    expect(page.scrolls).toEqual([640]);
+    // To the end of the page, once: what loads there is what the snapshot did not have.
+    expect(page.scrolls).toEqual([1_000_000]);
     expect(text(r)).toContain('"Changelog", 1 scroll on');
   });
 
@@ -1360,10 +1376,27 @@ describe("browser_do", () => {
     await walk(setup({ bridgeResults: quiet.bridgeResults }), { path: ["Docs", "Getting started"] });
     // The first look, then one read after each click.
     expect(quiet.reads()).toBe(3);
-    const loading = docsSite({ busy: true });
+    const loading = docsSite({ loading: true });
     const r = await walk(setup({ bridgeResults: loading.bridgeResults }), { path: ["Docs", "Getting started"] });
     expect(r.isError).toBe(false);
     expect(loading.reads()).toBe(5);
+  });
+
+  it("never settles on a page still waiting on its data, however alike two reads of it are", async () => {
+    const page = docsSite({ fetching: 2 });
+    const r = await walk(setup({ bridgeResults: page.bridgeResults }), { path: ["Docs", "Getting started"] });
+    expect(r.isError).toBe(false);
+    expect(page.clicks).toEqual(["Docs", "Getting started"]);
+    // THE MUTANT: let two agreeing reads of the half-arrived docs page settle it. Getting started is not
+    // on it yet, and the walk scrolls away for a link that was a moment from arriving.
+    expect(page.scrolls).toEqual([]);
+  });
+
+  it("waits for the rows a scroll reached while the page fetches them, rather than calling that the end", async () => {
+    const page = docsSite({ lazy: 3 });
+    const r = await walk(setup({ bridgeResults: page.bridgeResults }), { path: ["Docs", "Changelog"] });
+    expect(r.isError).toBe(false);
+    expect(page.clicks).toEqual(["Docs", "Changelog"]);
   });
 
   it("types at the end into the field the walk ended on, and never submits it", async () => {

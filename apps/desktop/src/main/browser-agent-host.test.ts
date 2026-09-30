@@ -743,7 +743,7 @@ describe("the upload op", () => {
 });
 
 describe("what the browser says about a page, with each snapshot", () => {
-  const request = (id: string, url = `https://example.com/${id}`) => ({ requestId: id, request: { method: "GET", url } });
+  const request = (id: string, o: { url?: string; type?: string } = {}) => ({ requestId: id, type: o.type ?? "Fetch", request: { method: "GET", url: o.url ?? `https://example.com/${id}` } });
   const pageOf = async (host: BrowserAgentHost) => ((await host.handleOp("snapshot", { browserId: "b1" })) as BrowserSnapshotResult).page;
 
   it("counts the requests the page has open and how long its network has been quiet, from the Network events it already hears", async () => {
@@ -753,7 +753,7 @@ describe("what the browser says about a page, with each snapshot", () => {
     s.emitEvent("Network.requestWillBeSent", request("r1"));
     s.emitEvent("Network.requestWillBeSent", request("r2"));
     // Nothing leaves the page for a data: URL, so nothing is waited on.
-    s.emitEvent("Network.requestWillBeSent", request("r3", "data:image/png;base64,AAAA"));
+    s.emitEvent("Network.requestWillBeSent", request("r3", { url: "data:application/json,{}" }));
     now = 1_050;
     s.emitEvent("Network.loadingFinished", { requestId: "r1" });
     expect(await pageOf(s.host)).toEqual({ loading: false, requests: 1, quietMs: 0 });
@@ -763,8 +763,25 @@ describe("what the browser says about a page, with each snapshot", () => {
     expect(await pageOf(s.host)).toEqual({ loading: false, requests: 0, quietMs: 150 });
     // A redirect is the same request, started over: still one.
     s.emitEvent("Network.requestWillBeSent", request("r4"));
-    s.emitEvent("Network.requestWillBeSent", request("r4", "https://example.com/r4-moved"));
+    s.emitEvent("Network.requestWillBeSent", request("r4", { url: "https://example.com/r4-moved" }));
     expect((await pageOf(s.host))!.requests).toBe(1);
+  });
+
+  it("counts what the page waits on — its document, data it fetched — and lets an image or a font arrive without a word", async () => {
+    let now = 1_000;
+    const s = setup({ now: () => now });
+    await pageOf(s.host);
+    now = 2_000;
+    s.emitEvent("Network.requestWillBeSent", request("doc", { type: "Document" }));
+    now = 2_200;
+    s.emitEvent("Network.requestWillBeSent", request("pixel", { type: "Image" }));
+    s.emitEvent("Network.requestWillBeSent", request("font", { type: "Font" }));
+    now = 2_300;
+    // THE MUTANT: a request starting leaves the quiet where it was. The quiet is since the document
+    // was asked for at 2 000, not since Realm attached; the image and the font at 2 200 move nothing.
+    expect(await pageOf(s.host)).toEqual({ loading: false, requests: 1, quietMs: 300 });
+    s.emitEvent("Network.loadingFinished", { requestId: "pixel" });
+    expect((await pageOf(s.host))!.quietMs).toBe(300);
   });
 
   it("stops counting a request open ten seconds — a stream the page keeps open for as long as it is up", async () => {
