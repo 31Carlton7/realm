@@ -109,6 +109,21 @@ describe("asking Laya about a step", () => {
     expect(row!.candidates.map((c) => c.id)).toEqual(["0", "1", "2", "3", "4", "5", "7"]);
   });
 
+  it("asks about a page's steps in the browser tools' own words: a walk clicks, an act acts", async () => {
+    const { shadow, server: s, rows } = await setup();
+    const docs = el("2", "Docs", "link");
+    shadow.observe(step({ surface: "browser", tool: "browser_do", intent: "open the docs", elements: [el("1", "Home", "link"), docs], chosen: { element: docs } }));
+    shadow.observe(step({ surface: "browser", tool: "browser_act", sessionId: "s2", intent: "open the docs", elements: [docs], chosen: { element: docs } }));
+    await shadow.flush();
+    expect(s.asked.map((a) => a.body.questions.target?.instructions ?? a.body.state)).toEqual([
+      "Which on-screen element should be clicked to: open the docs?",
+      "An agent is about to: click link 'Docs' to open the docs.",
+      "Which on-screen element should be acted on to: open the docs?",
+      "An agent is about to: act on link 'Docs' to open the docs.",
+    ]);
+    expect(rows().map((r) => [r.surface, r.tool])).toEqual([["browser", "browser_do"], ["browser", "browser_act"]]);
+  });
+
   it("does not ask which element without an intent, or without an element — there is no goal, or no answer", async () => {
     const { shadow, server: s, rows } = await setup();
     shadow.observe(step({ intent: "" }));

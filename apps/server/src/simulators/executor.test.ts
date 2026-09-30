@@ -583,6 +583,43 @@ describe("settling on the picture instead of the tree", () => {
   });
 });
 
+describe("a read the source vouches for", () => {
+  /** The device's own reads, each marked as taken at rest — what a browser hands over when it reports
+   *  its page loaded and its network quiet. */
+  const vouched = (d: Device): Partial<ExecIO> => {
+    const own = d.io();
+    return { read: async () => ({ ...(await own.read()), atRest: true as const }) };
+  };
+
+  it("settles a step on one read, where any other read has to be read again and agree", async () => {
+    const polled = new Device(settings(), "root");
+    await walk(polled, { path: ["General", "About"] });
+    const trusted = new Device(settings(), "root");
+    const r = await walk(trusted, { path: ["General", "About"] }, vouched(trusted));
+    expect(r.ok).toBe(true);
+    expect(trusted.taps).toEqual(["General", "About"]);
+    // One read to start and one a step. THE MUTANT: ignore the vouching, and read twice a step.
+    expect(trusted.reads).toBe(3);
+    expect(polled.reads).toBe(5);
+  });
+
+  it("still takes a tap that changed nothing for a tap that did nothing", async () => {
+    const d = new Device({ root: { rows: [{ label: "Nothing here", nothing: true }] } }, "root");
+    const r = await walk(d, { path: ["Nothing here"] }, vouched(d));
+    expect(r.stop?.why).toBe("no-change");
+  });
+
+  it("ends a scroll that moved nothing on one read", async () => {
+    const polled = new Device({ list: { rows: rows(...LONG.slice(0, 5)) } }, "list");
+    await walk(polled, { path: ["Nowhere"] });
+    const trusted = new Device({ list: { rows: rows(...LONG.slice(0, 5)) } }, "list");
+    const r = await walk(trusted, { path: ["Nowhere"] }, vouched(trusted));
+    expect(r.stop?.why).toBe("not-found");
+    expect(trusted.scrolls).toEqual(polled.scrolls);
+    expect([trusted.reads, polled.reads]).toEqual([3, 5]);
+  });
+});
+
 describe("what the observer hears", () => {
   it("each tap before it is sent, with the element chosen, and each screen once it has settled", async () => {
     const d = new Device(settings(), "root");

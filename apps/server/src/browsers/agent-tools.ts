@@ -19,8 +19,12 @@ import type { BrowserPermissionBroker } from "./permissions";
 import { join } from "node:path";
 import type { ProjectsStore } from "../store/projects";
 import { fenceUntrusted } from "@realm/contracts";
+import type { ActObservation, ActObserver, ObservedElement } from "../mcp/act-observer";
+import type { LayaAssist } from "../laya/assist";
+import { findLabel, fold, likeliest, runPath, type ExecIO, type WalkTree } from "../simulators/executor";
 import { isOAuthConsentUrl } from "./guards";
 import { resolveUploadPaths, type ResolvedUploadFile } from "./upload-paths";
+import { observedOf, observedPage, pageRole, pageWalked, siteName, walkElementOf, walkTreeOf } from "./walk";
 
 export const BROWSER_PROVIDER_NAME = "realm-browser";
 
@@ -33,9 +37,9 @@ export const BROWSER_PROVIDER_NAME = "realm-browser";
  * The permission split, which is the point of this file:
  *   - **Read-only** (`browser_list`, `browser_snapshot`, `browser_read`, `browser_screenshot`) runs
  *     free in every mode.
- *   - **Mutating** (`browser_open`, `browser_navigate`, `browser_act`, a `browser_batch` containing
- *     any mutating action) goes through `BrowserPermissionBroker.gate` — the session's NORMAL
- *     permission flow (ApprovalCard), honoring its permission mode.
+ *   - **Mutating** (`browser_open`, `browser_navigate`, `browser_act`, `browser_do`, a `browser_batch`
+ *     containing any mutating action) goes through `BrowserPermissionBroker.gate` — the session's
+ *     NORMAL permission flow (ApprovalCard), honoring its permission mode.
  *   - **Hard blocks** are refusals, not prompts, and apply in every mode including
  *     `bypassPermissions`: typing into a password field (detected at act time in the executor, where
  *     the DOM is fresh), agent navigation to an OAuth consent URL (`isOAuthConsentUrl` — a heuristic
@@ -45,6 +49,11 @@ export const BROWSER_PROVIDER_NAME = "realm-browser";
  * console, network, titles) is fenced by `fenceUntrusted` before it enters a tool result, and where a
  * permission prompt needs an element's label, the label is explicitly attributed to the page
  * (`the element the page labels …`) rather than laundered into Realm's own voice.
+ *
+ * `browser_do` walks a path of labels in one call (`walk.ts`, over the walk in
+ * `simulators/executor.ts`). It asks `browser_act`'s own card, and every click is still an act: the
+ * same op, the same hard blocks, the consent-screen guard before each one, one of a delegated agent's
+ * acts each. It never takes a step the sensitive rule flags.
  */
 export type BrowserAgentToolsDeps = {
   browsers: Pick<BrowsersStore, "get" | "list">;
@@ -86,9 +95,23 @@ export type BrowserAgentToolsDeps = {
    * `refuseSimulatorStream`. Optional: a harness without it opens every URL as this file always did.
    */
   simulatorStreams?: { streamAt(spaceId: string, url: string): Promise<string | null> };
+  /**
+   * Told about every act that got past its gate, just before it is sent — `browser_act`'s, each one
+   * inside a `browser_batch`, and each click of a `browser_do` walk. The Laya shadow (`laya/shadow.ts`)
+   * in the real server, nothing in most tests. It hears the step and never answers it: the act goes
+   * ahead whatever it does, and it is never waited on. Given one, the provider also keeps the elements
+   * of each session's latest snapshot of each page, since those are what the agent chose from.
+   */
+  observe?: ActObserver;
+  /** Laya's Assist, where it has earned one (`laya/assist.ts`): a walk asks it for a label nothing on
+   *  the page matches, while — and only while — its gate is open. */
+  assist?: LayaAssist;
+  /** The clock a walk waits on. A test seam: `performance.now` and a real timer otherwise. */
+  clock?: { now(): number; sleep(ms: number): Promise<void> };
 };
 
 export function createBrowserAgentProvider(d: BrowserAgentToolsDeps): RealmToolProvider {
+  const reads = new PageReads();
   return {
     name: BROWSER_PROVIDER_NAME,
     async tools(ctx: ProviderCallContext): Promise<Tool[]> {
@@ -101,7 +124,7 @@ export function createBrowserAgentProvider(d: BrowserAgentToolsDeps): RealmToolP
       const handler = HANDLERS[tool];
       if (!handler) return err(`unknown tool "${tool}" — this provider has: ${TOOLS.map((t) => t.name).join(", ")}`);
       try {
-        return await handler(d, ctx, args ?? {});
+        return await handler({ ...d, reads }, ctx, args ?? {});
       } catch (e) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -169,8 +192,26 @@ const TOOLS: Tool[] = [
           },
           required: ["kind"],
         },
+        intent: { type: "string", description: "what this step is for, in a few words — e.g. \"open the pricing page\"" },
       },
       required: ["browserId", "action"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "browser_do",
+    description:
+      'Get somewhere on a page in one call: give the labels to click, in order, as the page shows them — ["Docs", "Getting started"] — and Realm clicks each one by its ref on the page\'s live snapshot, waiting for the page to settle before the next. Much faster than a browser_snapshot and a browser_act for every step. A label further down the page is found and scrolled to. With text, the text is typed at the end into the field the walk ended on, or the only field on the page, and never submitted. It stops rather than guesses — at a label it cannot find, a click that changed nothing, or any step that buys, pays, deletes, sends, posts, submits, signs out or asks for a password, which you take yourself with browser_act by its ref — and says where and why. Returns a fresh snapshot of where it ended, with the refs browser_act takes. Asks the user for permission, as browser_act does.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        browserId: { type: "string" },
+        intent: { type: "string", description: "what the walk is for, in a few words — the user sees it with the step" },
+        path: { type: "array", items: { type: "string" }, description: 'the labels to click, in order, as the page shows them — ["Pricing", "Enterprise"]. Up to 12.' },
+        text: { type: "string", description: "text to type once the walk is done, into the field it ended on or the only field on the page — never submitted" },
+        until: { type: "string", description: "words the final page must show — a link, button or field on it, or words in its title or text — for the walk to count as done" },
+      },
+      required: ["browserId", "intent"],
       additionalProperties: false,
     },
   },
@@ -265,7 +306,20 @@ const OpenArgs = z.object({ url: z.string().min(1) });
 const NavigateArgs = z.object({ browserId: z.string().min(1), url: z.string().min(1) });
 const BrowserIdArgs = z.object({ browserId: z.string().min(1) });
 const ReadArgs = z.object({ browserId: z.string().min(1), kind: BrowserReadKindSchema.default("text") });
-const ActArgs = z.object({ browserId: z.string().min(1), action: BrowserActionSchema });
+/** `intent` is optional, as it is on `computer_act`: required, every call from an agent that has not
+ *  learned the field would become a refusal — a change to the act path for a feature that promises
+ *  never to touch it. It is the goal Laya's `target` question is asked against. */
+const ActArgs = z.object({ browserId: z.string().min(1), action: BrowserActionSchema, intent: z.string().optional() });
+/** A walk's longest path, and a label's longest words — as for simulator_do and computer_do. */
+const MAX_PATH = 12;
+const MAX_LABEL = 120;
+const DoArgs = z.object({
+  browserId: z.string().min(1),
+  intent: z.string().trim().min(1, 'intent says in a few words what the walk is for, such as "open the getting-started guide"').max(200),
+  path: z.array(z.string().trim().min(1).max(MAX_PATH * (MAX_LABEL + 3))).max(MAX_PATH, `a path is at most ${MAX_PATH} steps — walk the first part, then the rest`).default([]),
+  text: z.string().min(1).max(1_000).optional(),
+  until: z.string().trim().min(1).max(MAX_LABEL).optional(),
+}).refine((a) => a.path.length > 0 || a.text !== undefined, { message: "give a path to walk or text to type", path: ["path"] });
 const DownloadArgs = z.object({ browserId: z.string().min(1), ref: z.number().int().positive() });
 const FillCredentialArgs = z.object({
   browserId: z.string().min(1),
@@ -283,7 +337,7 @@ const BatchArgs = z.object({
 
 /* ---------------------------------- handlers ---------------------------------- */
 
-type Deps = BrowserAgentToolsDeps;
+type Deps = BrowserAgentToolsDeps & { reads: PageReads };
 type Handler = (d: Deps, ctx: ProviderCallContext, args: unknown) => Promise<CallToolResult>;
 
 const HANDLERS: Record<string, Handler> = {
@@ -328,6 +382,7 @@ const HANDLERS: Record<string, Handler> = {
     const title = `Navigate the browser pane to ${url}`;
     const gate = await d.broker.gate(ctx.sessionId, "browser_navigate", title, { browserId: row.value.id, url });
     if (!gate.allowed) return err(gate.reason);
+    d.reads.forget(ctx.sessionId, row.value.id);
     return runTracked(d, ctx.spaceId, row.value.id, title, async () => {
       const result = (await d.bridge.call("navigate", { browserId: row.value.id, url })) as BrowserNavigateResult;
       if (!result.url) return err(`navigation to ${url} was refused — the pane is not open in the app, or the space's origin allowlist blocks that origin.`);
@@ -339,6 +394,8 @@ const HANDLERS: Record<string, Handler> = {
     const args = parseArgs(BrowserIdArgs, rawArgs); if ("error" in args) return args.error;
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
     const snap = (await d.bridge.call("snapshot", { browserId: row.value.id })) as BrowserSnapshotResult;
+    // What the agent is shown is what its next act chooses from, and the page its last act left.
+    if (d.observe) d.reads.remember(ctx.sessionId, row.value.id, (snap.elements ?? []).map((e) => observedOf(walkElementOf(e))));
     const head = `Snapshot of ${snap.url} — ${snap.elementCount} interactive element(s). Lines are "[ref=N] role \\"name\\" …"; changed-since-last-snapshot lines end with [new].`;
     return ok(`${head}\n${fenceUntrusted(`title: ${snap.title}\n${snap.text}`)}`);
   },
@@ -362,10 +419,61 @@ const HANDLERS: Record<string, Handler> = {
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
     const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_act"); if (limited) return err(limited);
     const consent = await refuseConsentAct(d, ctx, row.value.id); if (consent) return consent;
-    const title = await describeAct(d, row.value.id, args.value.action);
+    const live = await describeSafe(d, row.value.id, refOf(args.value.action));
+    const title = describeAct(live, args.value.action);
     const gate = await d.broker.gate(ctx.sessionId, "browser_act", title, { browserId: row.value.id, action: args.value.action });
     if (!gate.allowed) return err(gate.reason);
+    // After the gate, so only an act that is really about to happen is reported; before it, so what is
+    // reported is what the agent chose from.
+    observeAct(d, ctx, row.value.id, args.value.action, args.value.intent, live);
     return runTracked(d, ctx.spaceId, row.value.id, title, () => runAct(d, row.value.id, args.value.action));
+  },
+
+  /**
+   * A walk: the labels to click, in order, carried out here on the page's live snapshot — see
+   * `walk.ts`. One card for the walk, keyed as `browser_act`'s is: approving acts on this session's
+   * pages approves both, and a walk is only acts. Each click is still the act op, with its ring, its
+   * file-chooser guard and its password refusal, and goes past the consent-screen guard first — a walk
+   * can click its way onto a consent page.
+   */
+  browser_do: async (d, ctx, rawArgs) => {
+    const args = parseArgs(DoArgs, rawArgs); if ("error" in args) return args.error;
+    const a = args.value;
+    // "Docs › Getting started" as one string is the same path, the way a person writes it down.
+    const path = a.path.flatMap((p) => p.split("›").map((part) => part.trim()).filter(Boolean));
+    if (path.length > MAX_PATH) return err(`a path is at most ${MAX_PATH} steps — walk the first part, then the rest.`);
+    const long = path.find((label) => label.length > MAX_LABEL);
+    if (long) return err(`"${clip(long, 40)}" is not a label — a label is a few words, ${MAX_LABEL} characters at most.`);
+    const row = requireRow(d, ctx, a.browserId); if ("error" in row) return row.error;
+    const browserId = row.value.id;
+    // A delegated agent's budget is in acts, not calls: this is the walk's first, and every click or
+    // keystroke after it asks again (`pageIO`).
+    const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_do"); if (limited) return err(limited);
+    const consent = await refuseConsentAct(d, ctx, browserId); if (consent) return consent;
+    const host = hostOf((await describeSafe(d, browserId))?.url);
+    // The labels and the text are the agent's words, not the page's, so the card can say them plainly.
+    const clicks = `Click ${path.map((l) => `"${clip(l, 30)}"`).join(" › ")}`;
+    const typed = a.text !== undefined ? `"${clip(a.text, 40)}"` : null;
+    const title = `${path.length === 0 ? `Type ${typed}` : typed ? `${clicks}, then type ${typed}` : clicks} on ${host}`;
+    const gate = await d.broker.gate(ctx.sessionId, "browser_act", title,
+      { browserId, intent: a.intent, path, ...(a.text !== undefined ? { text: a.text } : {}) }, "browser_do");
+    if (!gate.allowed) return err(gate.reason);
+
+    const io = pageIO(d, ctx, browserId, a.intent, host);
+    d.rpc.broadcast("browser.driving", { spaceId: ctx.spaceId, browserId, driving: true });
+    try {
+      let r = await runPath(io, { path, settle: WEB_SETTLE, ...(a.text !== undefined ? { text: a.text } : {}) });
+      // `until` is checked here rather than by the walk: its tree holds only what can be acted on, and
+      // what a page says it is — a heading, its title — is not in it.
+      if (r.stop === null && a.until !== undefined && !(await shows(d, browserId, r.final, io.snapshotOf(r.final).title, a.until))) {
+        r = { ...r, ok: false, stop: { why: "not-there", label: a.until, detail: `the walk finished, but "${clip(a.until, 60)}" is not on the page it ended on`, candidates: likeliest(r.final, a.until) } };
+      }
+      // The answer is this session's latest snapshot of the page, as `browser_snapshot`'s would be.
+      if (d.observe) d.reads.remember(ctx.sessionId, browserId, observedPage(r.final.elements));
+      return pageWalked(io.snapshotOf(r.final), host, r);
+    } finally {
+      d.rpc.broadcast("browser.driving", { spaceId: ctx.spaceId, browserId, driving: false });
+    }
   },
 
   browser_credentials: async (d, ctx) => {
@@ -516,6 +624,9 @@ const HANDLERS: Record<string, Handler> = {
       // upload whose files the user never saw. One call per destination; batching several files into
       // one call is what `paths` is for, and that is still one prompt.
       if (a.tool === "browser_upload") return err("browser_upload cannot run inside browser_batch — its approval names the files and the site, so it is asked one upload at a time. Pass several paths to one browser_upload call instead; that is still one prompt.");
+      // Refused here rather than left to `runBatchMutation`, which has no walk in it: after the batch's
+      // card, a step that could not run would be a card approved for nothing.
+      if (a.tool === "browser_do") return err("browser_do cannot run inside browser_batch — a walk is already many clicks in one call. Call it directly.");
       if (!HANDLERS[a.tool]) return err(`unknown tool "${a.tool}" in batch.`);
       validated.push(a);
     }
@@ -571,6 +682,7 @@ async function runBatchMutation(d: Deps, ctx: ProviderCallContext, tool: string,
     const oauth = refuseOAuth(url); if (oauth) return oauth;
     const stream = await refuseSimulatorStream(d, ctx, url); if (stream) return stream;
     const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_navigate", url); if (limited) return err(limited);
+    d.reads.forget(ctx.sessionId, row.value.id);
     return runTracked(d, ctx.spaceId, row.value.id, `Navigate the browser pane to ${url}`, async () => {
       const result = (await d.bridge.call("navigate", { browserId: row.value.id, url })) as BrowserNavigateResult;
       if (!result.url) return err(`navigation to ${url} was refused (pane not open, or origin allowlist).`);
@@ -582,7 +694,10 @@ async function runBatchMutation(d: Deps, ctx: ProviderCallContext, tool: string,
     const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error;
     const limited = d.constraints?.checkMutation(ctx.sessionId, "browser_act"); if (limited) return err(limited);
     const consent = await refuseConsentAct(d, ctx, row.value.id); if (consent) return consent;
-    const title = await describeAct(d, row.value.id, args.value.action);
+    const live = await describeSafe(d, row.value.id, refOf(args.value.action));
+    const title = describeAct(live, args.value.action);
+    // Past the batch's card, as a plain act is past its own: heard now, just before it is sent.
+    observeAct(d, ctx, row.value.id, args.value.action, args.value.intent, live);
     return runTracked(d, ctx.spaceId, row.value.id, title, () => runAct(d, row.value.id, args.value.action));
   }
   if (tool === "browser_download") {
@@ -651,12 +766,12 @@ async function runAct(d: Deps, browserId: string, action: BrowserAction): Promis
 }
 
 /**
- * The permission prompt line for an act. Page-derived text (the element's accessible name) is
- * explicitly attributed to the page — never presented as Realm's own words — and clipped hard: the
- * prompt must describe the action, not give the page a channel into the approval UI.
+ * The permission prompt line for an act, from the pane's own description of it (`describeSafe`).
+ * Page-derived text (the element's accessible name) is explicitly attributed to the page — never
+ * presented as Realm's own words — and clipped hard: the prompt must describe the action, not give the
+ * page a channel into the approval UI.
  */
-async function describeAct(d: Deps, browserId: string, action: BrowserAction): Promise<string> {
-  const live = await describeSafe(d, browserId, "ref" in action ? action.ref : undefined);
+function describeAct(live: BrowserDescribeResult | null, action: BrowserAction): string {
   const host = hostOf(live?.url);
   const el = live?.element ? ` the ${live.element.role || live.element.tag || "element"} the page labels "${clip(live.element.name, 60)}"` : ` element ref=${"ref" in action ? action.ref ?? "?" : "?"}`;
   switch (action.kind) {
@@ -781,7 +896,212 @@ const downloadDir = (d: Deps, spaceId: string): string | null => spaceDownloadDi
 const noDestination =
   "refused: this space has no project, so there is nowhere for a download to land where the user would see it. Add a project to the space first (its folder is where downloads go, and they show up in the diff pane).";
 
+/* ---------------------------------- the observer ---------------------------------- */
+
+/**
+ * Tell the observer about an act that got past its gate, just before it is sent: what the agent said
+ * it is for, the snapshot it was acting from — its latest of this page — and the element its ref
+ * names: as that snapshot listed it, or, where the snapshot did not list it (a ref from an older one, or
+ * from an element the user picked), as the pane describes it now. A key or a scroll with no ref
+ * addressed nothing.
+ */
+function observeAct(d: Deps, ctx: ProviderCallContext, browserId: string, action: BrowserAction, intent: string | undefined, live: BrowserDescribeResult | null): void {
+  if (!d.observe) return;
+  const elements = d.reads.elements(ctx.sessionId, browserId);
+  const ref = refOf(action);
+  const described = ref !== undefined && live?.element
+    ? { id: String(ref), role: pageRole(live.element.role || live.element.tag || "element", live.element.inputType === "password"), label: clip(live.element.name, 200) }
+    : null;
+  const element = (ref !== undefined ? elements.find((e) => e.id === String(ref)) : undefined) ?? described;
+  const app = siteName(live?.url);
+  watch(d, ctx, browserId, { tool: "browser_act", intent: intent ?? "", elements, chosen: element ? { element } : null, ...(app ? { app } : {}) });
+}
+
+/** Tell the observer about a step, if there is one, and keep what it hands back for this session's
+ *  next read of the page. */
+function watch(d: Deps, ctx: ProviderCallContext, browserId: string, o: Omit<ActObservation, "surface" | "spaceId" | "sessionId">): void {
+  const observe = d.observe;
+  if (!observe) return;
+  const after = quietly(() => observe({ surface: "browser", spaceId: ctx.spaceId, sessionId: ctx.sessionId, ...o }));
+  if (typeof after === "function") d.reads.owe(ctx.sessionId, browserId, after);
+}
+
+/**
+ * Run something an observer handed over. A throw is swallowed and a promise is never waited on — its
+ * rejection is caught here, so an observer written `async` cannot become the server's unhandled one.
+ * Either way the step it watched goes ahead as if nobody had been watching.
+ */
+function quietly<T>(fn: () => T): T | undefined {
+  try {
+    const out = fn();
+    if (out !== null && typeof out === "object" && typeof (out as { then?: unknown }).then === "function") {
+      (out as unknown as Promise<unknown>).catch(() => {});
+      return undefined;
+    }
+    return out;
+  } catch {
+    return undefined;
+  }
+}
+
+type After = (after: readonly ObservedElement[]) => void;
+
+const MAX_REMEMBERED_READS = 256;
+
+/**
+ * What each session last read of each page, and what its last act is still owed.
+ *
+ * `elements` is the snapshot the agent is acting from: its latest `browser_snapshot` of the page, or a
+ * walk's answer. A navigation ends it — the page it listed is gone. `after` is the observer's second
+ * half, kept as the simulator keeps it: the function a step's observer handed back, waiting for the
+ * next read this session makes of the page — its own snapshot, a walk's first read, a walk's page once
+ * a step has settled — which is the page as the step left it. `browser_act` never reads the page just
+ * to feed it; a read at a guessed moment would catch a page half-loaded.
+ *
+ * Bounded by insertion order: a session that ended leaves its entries to age out.
+ */
+class PageReads {
+  private readonly byKey = new Map<string, { elements: ObservedElement[]; after: After | null }>();
+
+  elements(sessionId: string, browserId: string): ObservedElement[] {
+    return this.byKey.get(key(sessionId, browserId))?.elements ?? [];
+  }
+
+  /** The agent was shown a page: it is what the next act chooses from, and what the last one left. */
+  remember(sessionId: string, browserId: string, elements: ObservedElement[]): void {
+    this.settle(sessionId, browserId, elements);
+    this.put(key(sessionId, browserId), { elements, after: null });
+  }
+
+  /** Hand the step still waiting for a read the one just made. */
+  settle(sessionId: string, browserId: string, elements: readonly ObservedElement[]): void {
+    const entry = this.byKey.get(key(sessionId, browserId));
+    const after = entry?.after;
+    if (!entry || !after) return;
+    entry.after = null;
+    quietly(() => after(elements));
+  }
+
+  /** A newer step's promise replaces an older one's: only the latest step's page is still coming. */
+  owe(sessionId: string, browserId: string, after: After): void {
+    const k = key(sessionId, browserId);
+    this.put(k, { elements: this.byKey.get(k)?.elements ?? [], after });
+  }
+
+  forget(sessionId: string, browserId: string): void {
+    this.byKey.delete(key(sessionId, browserId));
+  }
+
+  private put(k: string, entry: { elements: ObservedElement[]; after: After | null }): void {
+    this.byKey.delete(k);
+    this.byKey.set(k, entry);
+    while (this.byKey.size > MAX_REMEMBERED_READS) this.byKey.delete(this.byKey.keys().next().value!);
+  }
+}
+
+/** NUL is in neither id, so no two pairs of them can collide by concatenation. */
+const key = (sessionId: string, browserId: string): string => `${sessionId}\0${browserId}`;
+
+/* ---------------------------------- walks ---------------------------------- */
+
+/** How a walk waits on a page: a look every 50 ms (a snapshot itself takes tens), and five seconds for
+ *  a click to show — a page may load another behind it, where a phone's tap answers in one. */
+const WEB_SETTLE = { tapTimeoutMs: 5_000, pollMs: 50 };
+
+/** How far a walk's scroll moves a page: most of the viewport, so the rows at its bottom edge stay in
+ *  view at the top and none is scrolled past unread. */
+const SCROLL_FRACTION = 0.8;
+
+/**
+ * What a walk does to a page: the pane's own snapshot and act ops, and nothing else. Every click and
+ * keystroke passes the consent-screen guard, counts against a delegated agent's acts after the one the
+ * handler counted, and puts a line in the pane's ticker, as `browser_act` does. Laya is offered a label
+ * nothing matches only while its Assist can act; every click is told to the observer as the step it is.
+ */
+function pageIO(d: Deps, ctx: ProviderCallContext, browserId: string, intent: string, host: string): ExecIO & { snapshotOf(tree: WalkTree): BrowserSnapshotResult } {
+  const read = new WeakMap<WalkTree, BrowserSnapshotResult>();
+  let latest: BrowserSnapshotResult | null = null;
+  let first = true;
+  let counted = 0;
+  let clicked: { ref: number; role: string; label: string } | null = null;
+  const assist = d.assist;
+  /** Where the page is now, for the ticker: a walk can click its way onto another site. */
+  const here = (): string => (latest ? hostOf(latest.url) : host);
+  const send = async (action: BrowserAction, line: string, o: { counts: boolean }): Promise<{ ok: boolean; detail: string }> => {
+    if (o.counts) {
+      const limited = counted++ > 0 ? d.constraints?.checkMutation(ctx.sessionId, "browser_do") : null;
+      if (limited) return { ok: false, detail: limited };
+      const consent = await refuseConsentAct(d, ctx, browserId);
+      if (consent) return { ok: false, detail: textOf(consent) };
+    }
+    let r: BrowserActResult;
+    try { r = (await d.bridge.call("act", { browserId, action })) as BrowserActResult; } catch (e) { r = { ok: false, error: e instanceof Error ? e.message : String(e) }; }
+    d.rpc.broadcast("browser.action", { spaceId: ctx.spaceId, browserId, text: line, ok: r.ok, ts: Date.now() });
+    if (r.ok) return { ok: true, detail: r.detail };
+    return { ok: false, detail: r.refused === "password" ? "that is a password field, and Realm never types into one" : r.error };
+  };
+  return {
+    read: async () => {
+      const snap = (await d.bridge.call("snapshot", { browserId })) as BrowserSnapshotResult;
+      const tree = walkTreeOf(snap);
+      read.set(tree, snap);
+      latest = snap;
+      // The page as an act before the walk left it, for the step still waiting on it.
+      if (first) d.reads.settle(ctx.sessionId, browserId, observedPage(tree.elements));
+      first = false;
+      return tree;
+    },
+    tap: (el) => {
+      const ref = Number(el.path);
+      if (!Number.isInteger(ref) || ref <= 0) return Promise.resolve({ ok: false, detail: `"${clip(el.label, 60)}" is not an element of the page` });
+      clicked = { ref, role: el.role, label: el.label };
+      return send({ kind: "click", ref, button: "left", clickCount: 1, modifiers: [] }, `Click the ${el.role} the page labels "${clip(el.label, 60)}" on ${here()}`, { counts: true });
+    },
+    scroll: (direction) => {
+      const by = Math.round((latest?.viewport?.height || 600) * SCROLL_FRACTION);
+      return send({ kind: "scroll", deltaX: 0, deltaY: direction === "up" ? by : -by }, `Scroll the page on ${here()}`, { counts: false });
+    },
+    // The walk types only into the field it has just clicked: the one its path ended on, or the only
+    // one on the page, which it clicks first. Never with Enter after it — nothing is submitted.
+    type: (text) => (clicked === null
+      ? Promise.resolve({ ok: false, detail: "no field was clicked to type into" })
+      : send({ kind: "type", ref: clicked.ref, text, method: "keys", submit: false }, `Type "${clip(text, 60)}" into the ${clicked.role} the page labels "${clip(clicked.label, 60)}" on ${here()}`, { counts: true })),
+    ...(assist?.gate().available ? { laya: (label: string, elements: readonly ObservedElement[]) => assist.resolve(label, label, elements, "browser_do") } : {}),
+    observe: ({ elements, chosen, by }) => {
+      const app = siteName(latest?.url);
+      watch(d, ctx, browserId, {
+        tool: "browser_do", intent, elements: observedPage(elements), chosen: { element: observedOf(chosen) },
+        ...(by === "laya" ? { chosenBy: "laya" as const } : {}), ...(app ? { app } : {}),
+      });
+    },
+    settled: (tree) => d.reads.settle(ctx.sessionId, browserId, observedPage(tree.elements)),
+    now: () => d.clock?.now() ?? performance.now(),
+    sleep: (ms) => d.clock?.sleep(ms) ?? new Promise((r) => setTimeout(r, ms)),
+    snapshotOf: (tree) => read.get(tree) ?? latest!,
+  };
+}
+
+/**
+ * Whether the page a walk ended on shows `words`: an element its snapshot lists, or the words in its
+ * title or its text, compared as a person would (`fold`). The walk's tree holds only what can be acted
+ * on, and "the page says Getting started" is as often a heading as a link.
+ */
+async function shows(d: Deps, browserId: string, tree: WalkTree, title: string, words: string): Promise<boolean> {
+  if (findLabel(tree, words)) return true;
+  const want = ` ${fold(words)} `;
+  if (` ${fold(title)} `.includes(want)) return true;
+  const page = await d.bridge.call("read", { browserId, kind: "text" }).catch(() => null) as BrowserReadResult | null;
+  return page !== null && ` ${fold(page.text)} `.includes(want);
+}
+
 /* ---------------------------------- small helpers ---------------------------------- */
+
+/** The ref an action names, if it names one. */
+const refOf = (action: BrowserAction): number | undefined => ("ref" in action ? action.ref : undefined);
+
+/** A tool result's text, for a refusal that becomes one sentence of a walk's answer. */
+const textOf = (r: CallToolResult): string =>
+  r.content.filter((c): c is { type: "text"; text: string } => c.type === "text").map((c) => c.text).join(" ");
 
 /** Enrolled sign-ins from Electron main. Metadata only — there is no bridge op that returns a value,
  *  so there is nothing here to strip. An app that is not running answers with an empty list rather

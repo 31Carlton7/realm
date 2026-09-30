@@ -85,10 +85,12 @@ const VERIFY_INSTRUCTIONS = "Did the step achieve the goal?";
 const TARGET_VERB: Record<string, string> = {
   computer_act: "acted on", simulator_tap: "tapped", simulator_double_tap: "double-tapped",
   simulator_long_press: "pressed and held", simulator_swipe: "swiped", simulator_type: "typed into",
+  browser_act: "acted on", browser_do: "clicked",
 };
 const STEP_VERB: Record<string, string> = {
   computer_act: "act on", simulator_tap: "tap", simulator_double_tap: "double-tap",
   simulator_long_press: "press and hold", simulator_swipe: "swipe", simulator_type: "type into", simulator_press: "press",
+  browser_act: "act on", browser_do: "click",
 };
 
 /** Ground truth for `sensitive` by rule. Noisy on purpose, and labelled as a rule wherever it lands:

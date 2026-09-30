@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PICK_HTML_MAX, PICK_TEXT_MAX } from "@realm/contracts";
+import { PICK_HTML_MAX, PICK_TEXT_MAX, type BrowserSnapshotResult } from "@realm/contracts";
 import { BrowserAgentHost, type CdpBinding } from "./browser-agent-host";
 import { createBridgeCore } from "./browser-agent-bridge";
 
@@ -17,6 +17,9 @@ function setup(opts: {
   downloads?: boolean;
   /** Plan 26: `false` strips the file reader, which is what a build without one looks like. */
   readFile?: boolean;
+  /** The pane's spinner, and the clock a page's network quiet is measured on. */
+  loading?: () => boolean;
+  now?: () => number;
 } = {}) {
   let emit: ((method: string, params: unknown) => void) | null = null;
   const calls: { method: string; params?: Record<string, unknown> }[] = [];
@@ -45,7 +48,8 @@ function setup(opts: {
     hasView: (id) => liveViews.has(id),
     touch: (id) => { touched.push(id); },
     navigate: (id, url) => (liveViews.has(id) && url.startsWith("https://allowed.") ? url : null),
-    pageState: (id) => (liveViews.has(id) ? { url: "https://example.com/x", title: "Example" } : null),
+    pageState: (id) => (liveViews.has(id) ? { url: "https://example.com/x", title: "Example", ...(opts.loading ? { loading: opts.loading() } : {}) } : null),
+    ...(opts.now ? { now: opts.now } : {}),
     secrets: opts.credentials === undefined ? undefined : {
       listCredentials: () => [...opts.credentials!],
       getCredential: (id) => opts.credentials!.find((c) => c.id === id) ?? null,
@@ -733,5 +737,50 @@ describe("the upload op", () => {
   it("refuses an empty file list rather than reaching for the page", async () => {
     const { host } = setup();
     expect(await host.handleOp("upload", { browserId: "b1", ref: 5, files: [] })).toEqual({ ok: false, error: "no files were given to attach" });
+  });
+});
+
+describe("what the browser says about a page, with each snapshot", () => {
+  const request = (id: string, url = `https://example.com/${id}`) => ({ requestId: id, request: { method: "GET", url } });
+  const pageOf = async (host: BrowserAgentHost) => ((await host.handleOp("snapshot", { browserId: "b1" })) as BrowserSnapshotResult).page;
+
+  it("counts the requests the page has open and how long its network has been quiet, from the Network events it already hears", async () => {
+    let now = 1_000;
+    const s = setup({ now: () => now });
+    await pageOf(s.host);
+    s.emitEvent("Network.requestWillBeSent", request("r1"));
+    s.emitEvent("Network.requestWillBeSent", request("r2"));
+    // Nothing leaves the page for a data: URL, so nothing is waited on.
+    s.emitEvent("Network.requestWillBeSent", request("r3", "data:image/png;base64,AAAA"));
+    now = 1_050;
+    s.emitEvent("Network.loadingFinished", { requestId: "r1" });
+    expect(await pageOf(s.host)).toEqual({ loading: false, requests: 1, quietMs: 0 });
+    now = 1_300;
+    s.emitEvent("Network.loadingFailed", { requestId: "r2", errorText: "net::ERR_ABORTED" });
+    now = 1_450;
+    expect(await pageOf(s.host)).toEqual({ loading: false, requests: 0, quietMs: 150 });
+    // A redirect is the same request, started over: still one.
+    s.emitEvent("Network.requestWillBeSent", request("r4"));
+    s.emitEvent("Network.requestWillBeSent", request("r4", "https://example.com/r4-moved"));
+    expect((await pageOf(s.host))!.requests).toBe(1);
+  });
+
+  it("stops counting a request open ten seconds — a stream the page keeps open for as long as it is up", async () => {
+    let now = 5_000;
+    const s = setup({ now: () => now });
+    await pageOf(s.host);
+    s.emitEvent("Network.requestWillBeSent", request("events"));
+    now = 5_000 + 9_999;
+    expect((await pageOf(s.host))!.requests).toBe(1);
+    now = 5_000 + 10_000;
+    expect(await pageOf(s.host)).toEqual({ loading: false, requests: 0, quietMs: 10_000 });
+  });
+
+  it("says the page is loading while the pane's own spinner is on", async () => {
+    let loading = true;
+    const s = setup({ loading: () => loading });
+    expect((await pageOf(s.host))!.loading).toBe(true);
+    loading = false;
+    expect((await pageOf(s.host))!.loading).toBe(false);
   });
 });
