@@ -1096,6 +1096,26 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       data.laya = { ...data.laya, training: { state: "cancelled", at: "2026-09-29T07:13:00.000Z" } };
       return data.laya;
     },
+    layaRecord: async (simulatorId, apps) => {
+      calls.push(`layaRecord:${simulatorId}:${apps.join(",")}`);
+      // The server's refusal, restated: one recording at a time.
+      if (data.laya.recording) throw Object.assign(new Error(`Laya is already recording ${data.laya.recording.device}. Stop that first.`), { code: "LAYA_RECORDING" });
+      // No app named is the app in front, which the server reads; here it is always Instagram.
+      data.laya = { ...data.laya, recording: { id: "rec-1", simulatorId, device: "Test iPhone", apps: apps.length ? apps : ["Instagram"], seen: [], screens: 0, startedAt: "2026-09-29T07:12:00.000Z", endedAt: null, lastError: null } };
+      return data.laya;
+    },
+    layaStopRecording: async () => {
+      calls.push("layaStopRecording");
+      const r = data.laya.recording ?? null;
+      const was = data.laya.recorded ?? { recordings: 0, screens: 0, apps: [] };
+      data.laya = { ...data.laya, recording: null, recorded: r ? { recordings: was.recordings + 1, screens: was.screens + r.screens, apps: [...new Set([...was.apps, ...r.seen])] } : was };
+      return data.laya;
+    },
+    layaDeleteRecordings: async () => {
+      calls.push("layaDeleteRecordings");
+      data.laya = { ...data.laya, recording: null, recorded: { recordings: 0, screens: 0, apps: [] } };
+      return data.laya;
+    },
     failoverSet: async (spaceId, policy) => {
       calls.push(`failoverSet:${spaceId}`);
       // Mirrors the server: unknown kinds are dropped rather than refused, so a test that asserts on

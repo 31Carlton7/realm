@@ -9,6 +9,9 @@ import { LAYA_CHECKPOINT_KEY, LAYA_MODE_KEY, LayaService, evaluationOf, p50Of, t
 import type { TrainProgress, TrainResult } from "./training";
 import { LayaStepError } from "./runtime";
 import { fakeRuntime, until, type FakeRuntime } from "./test-fakes";
+import { LayaRecorder } from "./recorder";
+import { NotFoundError } from "../store/rows";
+import type { SimulatorAxTree } from "@realm/contracts";
 
 /**
  * The runtime's life as Settings sees it, over a fake runtime and a fake laya-serve on real HTTP.
@@ -27,22 +30,29 @@ afterEach(async () => { for (const s of services.splice(0)) await s.close(); });
 
 type Train = (o: { name: string; signal: AbortSignal; onProgress: (p: TrainProgress) => void }) => Promise<TrainResult>;
 
-function setup(o: { runtime?: FakeRuntime | null; mode?: "off" | "shadow" | "assist"; timing?: Partial<LayaTiming>; activeEval?: () => LayaEvalReport | null; baseEval?: () => LayaEvalReport | null; train?: Train; checkpoint?: string } = {}) {
+function setup(o: { runtime?: FakeRuntime | null; mode?: "off" | "shadow" | "assist"; timing?: Partial<LayaTiming>; activeEval?: () => LayaEvalReport | null; baseEval?: () => LayaEvalReport | null; train?: Train; checkpoint?: string; screen?: () => SimulatorAxTree } = {}) {
   const dir = tempDir("realm-laya-svc-");
   const runtime = o.runtime === undefined ? fakeRuntime({ dir }) : o.runtime;
   const settings = new Map<string, unknown>([...(o.mode ? [[LAYA_MODE_KEY, o.mode] as const] : []), ...(o.checkpoint ? [[LAYA_CHECKPOINT_KEY, o.checkpoint] as const] : [])]);
   const published: LayaStatus[] = [];
   const log = new DecisionLog({ path: join(dir, "decisions.jsonl") });
-  const service = new LayaService({
+  const screen = o.screen;
+  const recorder = screen ? new LayaRecorder({
+    dir: join(dir, "recordings"), read: async () => screen(), intervalMs: 2,
+    deviceName: (id) => { if (id !== "sim1") throw new NotFoundError("simulator", id); return "Test iPhone"; },
+    onChange: () => service.recordingChanged(),
+  }) : undefined;
+  const service: LayaService = new LayaService({
     runtime, log, timing: { ...FAST, ...o.timing },
     settings: { get: (k) => settings.get(k) ?? null, set: (k, v) => { settings.set(k, v); } },
     publish: (s) => { published.push(s); },
     activeEval: o.activeEval,
     baseEval: o.baseEval,
     ...(o.train ? { train: o.train } : {}),
+    ...(recorder ? { recorder } : {}),
   });
   services.push(service);
-  return { service, runtime, settings, published, log, dir };
+  return { service, runtime, settings, published, log, dir, recorder };
 }
 
 const state = async (s: LayaService) => (await s.status()).runtime;
@@ -384,6 +394,66 @@ describe("the log", () => {
     const after = await service.deleteLog();
     expect(after.stepsLogged).toBe(0);
     expect(existsSync(log.path)).toBe(false);
+  });
+});
+
+describe("recording", () => {
+  const tree = (app: string, label: string): SimulatorAxTree => ({ screen: { width: 390, height: 844 }, units: "points", app, elements: [
+    { path: "0.1", role: "Button", label, value: "", id: null, enabled: true, frame: { x: 0, y: 0, width: 10, height: 10 }, depth: 1 },
+  ] });
+  afterEach(() => { for (const s of services) void s.stopRecording(); });
+
+  it("is refused by a Realm that cannot record", async () => {
+    await expect(setup().service.record("sim1", [])).rejects.toMatchObject({ code: "LAYA_UNAVAILABLE" });
+  });
+
+  it("shows the recording under way, publishes each screen it keeps, and counts it for training once stopped", async () => {
+    let reads = 0;
+    const { service, published } = setup({ screen: () => tree("Instagram", reads++ === 0 ? "Reels" : "Search") });
+    expect((await service.status()).recorded).toEqual({ recordings: 0, screens: 0, apps: [] });
+    const started = await service.record("sim1", ["Instagram"]);
+    expect(started.recording).toMatchObject({ device: "Test iPhone", apps: ["Instagram"], screens: 0, endedAt: null });
+    // THE MUTANT: a recorder whose changes go nowhere. Settings shows 0 screens for the whole session.
+    await until(() => published.some((p) => p.recording?.screens === 2));
+    const stopped = await service.stopRecording();
+    expect(stopped.recording).toBeNull();
+    // Screens, not recordings: THE MUTANT counts one recording as one screen.
+    expect(stopped.recorded).toEqual({ recordings: 1, screens: 2, apps: ["Instagram"] });
+  });
+
+  it("records the app in front when none is named, and refuses the home screen", async () => {
+    let app = " ";
+    const { service } = setup({ screen: () => tree(app, "Reels") });
+    await expect(service.record("sim1", [])).rejects.toMatchObject({ code: "LAYA_NO_APP" });
+    expect((await service.status()).recording).toBeNull();
+    app = "Instagram";
+    expect((await service.record("sim1", [])).recording).toMatchObject({ apps: ["Instagram"] });
+  });
+
+  it("refuses a device that is not a pane, and records nothing", async () => {
+    const { service } = setup({ screen: () => tree("Instagram", "Reels") });
+    await expect(service.record("gone", [])).rejects.toBeInstanceOf(NotFoundError);
+    expect((await service.status()).recording).toBeNull();
+  });
+
+  it("ends a recording under way when Realm quits, and keeps what it recorded", async () => {
+    const { service, recorder } = setup({ screen: () => tree("Instagram", "Reels") });
+    await service.record("sim1", ["Instagram"]);
+    await until(async () => (await service.status()).recording?.screens === 1);
+    await service.close();
+    // THE MUTANT: leave it reading. The phone is read by a Realm that has quit, and never says it ended.
+    expect(recorder!.current()).toBeNull();
+    expect(recorder!.list()[0]).toMatchObject({ screens: 1, endedAt: expect.any(String) });
+  });
+
+  it("deletes every recording, the one under way included", async () => {
+    const { service, dir } = setup({ screen: () => tree("TikTok", "For You") });
+    await service.record("sim1", ["TikTok"]);
+    await until(async () => (await service.status()).recording?.screens === 1);
+    const after = await service.deleteRecordings();
+    expect(after.recording).toBeNull();
+    expect(after.recorded).toEqual({ recordings: 0, screens: 0, apps: [] });
+    expect(existsSync(join(dir, "recordings"))).toBe(false);
   });
 });
 

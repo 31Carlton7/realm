@@ -76,13 +76,17 @@ describe("a training run", () => {
     const log = new DecisionLog({ path: join(rt.dir, "decisions.jsonl") });
     log.append({ v: 1, intent: "open Wi-Fi", tool: "simulator_tap", candidates: [{ id: "1", role: "Button", label: "Wi-Fi" }, { id: "2", role: "Button", label: "General" }], truth: { target: { id: "1", source: "agent" }, verify: null }, laya: { verify: null } });
     const progress: TrainProgress[] = [];
-    const result = await trainCheckpoint({ runtime: rt, resources, logFiles: () => log.files() }, { name: "2026-09-29T07-12", signal: new AbortController().signal, onProgress: (p) => progress.push(p) });
+    // And one screen recorded while its owner used an app: a training screen like any other.
+    const recorded = [{ id: "rec-1-0001", app: "Instagram", from: "recording:rec-1", elements: [{ id: "0.1", role: "Button", label: "Reels" }, { id: "0.2", role: "Button", label: "Search" }, { id: "0.3", role: "Button", label: "Profile" }] }];
+    const result = await trainCheckpoint({ runtime: rt, resources, logFiles: () => log.files(), recorded: () => recorded }, { name: "2026-09-29T07-12", signal: new AbortController().signal, onProgress: (p) => progress.push(p) });
 
     const work = join(rt.dir, "train", "2026-09-29T07-12");
     expect(calls[0]!.script).toBe(join(resources, "train.py"));
     expect(calls[0]!.args).toEqual(["--base", join(rt.dir, "hf", "base"), "--train", join(work, "train.jsonl"), "--calib", join(work, "calib.jsonl"), "--valid", join(work, "valid.jsonl"), "--out", join(rt.checkpointsDir, "2026-09-29T07-12")]);
     const rows = readFileSync(join(work, "train.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l) as { state: string; source: string });
     expect(rows.filter((r) => r.source === "log")).toHaveLength(1);
+    // THE MUTANT: never read the recordings. A person's hour in an app teaches nothing.
+    expect(rows.some((r) => JSON.stringify(r).includes("Reels"))).toBe(true);
     // Held-out apps are nowhere in what it learns from.
     expect(rows.some((r) => /Grace Cathedral|Cardio Fitness|Kate Bell|Connect to Server|Wi-Fi, 3 Items/.test(r.state))).toBe(false);
     expect(progress.map((p) => p.step)).toEqual(expect.arrayContaining(["preparing", "training", "evaluating"]));

@@ -139,6 +139,26 @@ export const LayaTrainingSchema = z.discriminatedUnion("state", [
 ]);
 export type LayaTraining = z.infer<typeof LayaTrainingSchema>;
 
+/**
+ * Screens kept for Laya while a person uses an app on a device (`laya.record`): Realm reads each new
+ * screen and taps nothing. `apps` are the apps kept, by the name each calls itself ("Instagram") — the
+ * one in front when it started, unless it was asked for others by name. `seen` are the apps screens
+ * were kept from. `lastError` is the last read that failed — a locked phone, a pane closed — and
+ * clears when a read works again.
+ */
+export const LayaRecordingSchema = z.object({
+  id: z.string(),
+  simulatorId: z.string(),
+  device: z.string(),
+  apps: z.array(z.string()),
+  seen: z.array(z.string()),
+  screens: z.number().int().nonnegative(),
+  startedAt: z.string(),
+  endedAt: z.string().nullable(),
+  lastError: z.string().nullable(),
+});
+export type LayaRecording = z.infer<typeof LayaRecordingSchema>;
+
 export const LayaStatusSchema = z.object({
   mode: LayaModeSchema,
   /** A finished install is on disk. The mode can only be switched to `shadow` once it is. */
@@ -152,5 +172,9 @@ export const LayaStatusSchema = z.object({
   /** The active checkpoint's held-out evaluation; null when it has none. */
   evaluation: LayaEvaluationSchema.nullable().optional(),
   training: LayaTrainingSchema.optional(),
+  /** The recording under way, or null. */
+  recording: LayaRecordingSchema.nullable().optional(),
+  /** What every recording on this Mac kept, which the next training run learns from. */
+  recorded: z.object({ recordings: z.number().int().nonnegative(), screens: z.number().int().nonnegative(), apps: z.array(z.string()) }).optional(),
 });
 export type LayaStatus = z.infer<typeof LayaStatusSchema>;

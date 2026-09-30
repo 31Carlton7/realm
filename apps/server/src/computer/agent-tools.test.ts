@@ -327,7 +327,7 @@ describe("the step observer (the Laya shadow)", () => {
     expect(w.seen[0]).toEqual({
       surface: "computer", spaceId: "sp1", sessionId: "s1", tool: "computer_act", intent: "save the document",
       elements: [{ id: "0", role: "AXButton", label: "Save" }, { id: "1", role: "AXTextField", label: "Title", value: "Draft" }],
-      chosen: { element: { id: "0", role: "AXButton", label: "Save" } },
+      chosen: { element: { id: "0", role: "AXButton", label: "Save" } }, app: "TextEdit",
     });
   });
 
@@ -424,6 +424,14 @@ describe("a click described in words (Laya's Assist)", () => {
     expect(s.gates).toHaveLength(1);
     expect(s.ops.find((o) => o.op === "computerAct")!.params).toMatchObject({ action: { kind: "click", index: 1 } });
     expect(observed[0]).toMatchObject({ chosenBy: "laya", chosen: { element: { id: "1", label: "Save" } } });
+  });
+
+  it("asks Laya in the app it is driving, which is what its sensitive rule reads", async () => {
+    const asked: unknown[][] = [];
+    const s = harness({ gate: () => OPEN, resolve: async (...args: unknown[]) => { asked.push(args); return { kind: "ask-agent", candidates: [], best: null, why: "no-answer" }; } } as unknown as LayaAssist);
+    await act(s, { action: { kind: "click" }, target: "the save button", intent: "save the document" });
+    // THE MUTANT: ask without the app. A like in a Mac app people see it in is then Assist's to click.
+    expect(asked[0]![4]).toBe("TextEdit");
   });
 
   it("clicks nothing when Laya is unsure or the step is sensitive, and hands back this snapshot's indices", async () => {
@@ -579,6 +587,8 @@ describe("computer_do", () => {
     await s.provider.call(ctx, "computer_do", { bundleId: "com.apple.TextEdit", intent: "export the note", path: ["File", "Export as PDF…"] });
     expect(seen.map((o) => [o.tool, o.intent, o.chosen && "element" in o.chosen ? o.chosen.element.label : null]))
       .toEqual([["computer_do", "export the note", "File"], ["computer_do", "export the note", "Export as PDF…"]]);
+    // And the app each click was in, as the shadow's sensitive rule reads it.
+    expect(seen.map((o) => o.app)).toEqual(["TextEdit", "TextEdit"]);
   });
 
   it("types at the end into the field the walk ended on", async () => {

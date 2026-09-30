@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { LayaEvalReportSchema, type LayaEvalReport, type LayaTrainStep } from "@realm/contracts";
-import { loadBenchmark } from "./benchmark";
+import { loadBenchmark, type BenchScreen } from "./benchmark";
 import { LAYA_CHECKPOINT, LayaClient } from "./client";
 import { REPORT_SPLITS, evaluate, reportOf } from "./eval";
 import type { LayaRuntime } from "./runtime";
@@ -24,6 +24,9 @@ export type TrainerDeps = {
   runtime: LayaRuntime;
   /** `resources/laya` — `train.py`, `lexicon.json`, `benchmark/`. */
   resources: string;
+  /** Screens kept while a person used an app (`LayaRecorder.screens`), learned from as training
+   *  screens. Never scored on: the benchmark stays what every checkpoint is measured by. */
+  recorded?: () => BenchScreen[];
   /** Every decision log file, newest first (`DecisionLog.files`). */
   logFiles: () => string[];
   fetchImpl?: typeof fetch;
@@ -47,7 +50,7 @@ export async function trainCheckpoint(d: TrainerDeps, o: { name: string; signal:
   o.onProgress({ step: "preparing", detail: "Writing the training set", fraction: null });
   const work = join(rt.dir, "train", o.name);
   mkdirSync(work, { recursive: true, mode: 0o700 });
-  const { rows, stats } = trainingSet(bench, lexicon, { heldoutApps: manifest.split.heldoutApps, validationApps: manifest.split.validationApps, log: readLog(d.logFiles()) });
+  const { rows, stats } = trainingSet(bench, lexicon, { heldoutApps: manifest.split.heldoutApps, validationApps: manifest.split.validationApps, log: readLog(d.logFiles()), recorded: d.recorded?.() ?? [] });
   const jsonl = (xs: unknown[]) => xs.map((x) => JSON.stringify(x)).join("\n") + "\n";
   writeFileSync(join(work, "train.jsonl"), jsonl(rows));
   writeFileSync(join(work, "calib.jsonl"), jsonl(benchmarkRows(bench, ["train"])));

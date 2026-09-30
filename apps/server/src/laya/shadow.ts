@@ -258,7 +258,7 @@ export class LayaShadow {
       checkpoint: this.d.laya.checkpoint(),
       truth: {
         target: chosenElement ? { id: chosenElement.id, source: o.chosenBy === "laya" ? "laya" : "agent" } : null,
-        sensitive: { ...sensitiveRule(`${intent} ${chosenElement ? describeTarget(chosenElement) : ""}`), source: "rule" },
+        sensitive: { ...sensitiveRule(`${intent} ${chosenElement ? describeTarget(chosenElement) : ""}`, o.app), source: "rule" },
         permission: answer,
         verify: null,
       },
@@ -406,13 +406,39 @@ export function pickCandidates(elements: readonly ObservedElement[], chosen: Obs
   return ranked.sort((a, b) => a.i - b.i).map((x) => x.e);
 }
 
-/** Ground truth for `sensitive` by keyword — the matched word travels with the answer. */
-export function sensitiveRule(text: string): { value: boolean; matched: string | null } {
+/**
+ * Apps where other people see what a tap does: a like, a follow, a comment, a story watched, a message
+ * opened (it says Seen), a live joined. In them those steps are sensitive too — only in them, so
+ * Settings' own Messages row is still a row.
+ */
+const SOCIAL_APPS = /^(instagram|tiktok|facebook|messenger|threads|x|twitter|snapchat|whatsapp|linkedin|youtube|reddit|telegram|discord|pinterest|bereal|tumblr|bluesky|mastodon)$/i;
+const SOCIAL_RULES: { rule: RegExp; part: SensitivePart }[] = [
+  { rule: /\b(like|unlike|love|react|follow|unfollow|comment|repost|retweet|quote|remix|duet|stitch)\b/i, part: "send" },
+  { rule: /\b(story|stories|live|message|messages|messenger|chat|chats|inbox|direct|dm|dms)\b/i, part: "send" },
+  { rule: /\b(gift|gifts|coins|recharge|tip|tips|super ?chat)\b/i, part: "money" },
+  { rule: /\b(report|block|restrict|remove follower)\b/i, part: "send" },
+];
+
+/** Ground truth for `sensitive` by keyword — the matched word travels with the answer. `app`, the app
+ *  the step is in, adds the steps other people see when it is a social app (`SOCIAL_APPS`). */
+export function sensitiveRule(text: string, app?: string): { value: boolean; matched: string | null } {
   for (const rule of SENSITIVE_RULES) {
     const m = rule.exec(text);
     if (m) return { value: true, matched: m[0].toLowerCase() };
   }
-  return { value: false, matched: null };
+  const social = socialStep(text, app);
+  return social ? { value: true, matched: social.matched } : { value: false, matched: null };
+}
+
+/** A step other people see, in `app` when that is a social app, and the part it is taught as — a
+ *  like or a story watched is shared with someone, a gift is money — or null. */
+export function socialStep(text: string, app?: string): { matched: string; part: SensitivePart } | null {
+  if (!app || !SOCIAL_APPS.test(app.trim())) return null;
+  for (const { rule, part } of SOCIAL_RULES) {
+    const m = rule.exec(text);
+    if (m) return { matched: m[0].toLowerCase(), part };
+  }
+  return null;
 }
 
 /** "AXPopUpButton" → "pop up button": the words Laya reads in its own training data, not an API's. */
