@@ -1187,13 +1187,15 @@ type SitePage = { url: string; title: string; els: SiteEl[]; below?: SiteEl[]; t
  * Every snapshot is counted, so a test can say how many reads a step cost. What the browser reports
  * about the page can be set three ways: `loading` — still loading, but asking for nothing; `fetching` —
  * after each click that loads a page, that many reads show only its first element while it waits on its
- * data; `lazy` — after a scroll, that many reads wait on the rows it reached before they arrive.
+ * data; `lazy` — after a scroll, that many reads wait on the rows it reached before they arrive. With
+ * `startsAfterMs` the page only starts to fetch them that long after the scroll, on the walk's clock.
  */
-function site(pages: Record<string, SitePage>, start: string, o: { loading?: boolean; fetching?: number; lazy?: number } = {}) {
+function site(pages: Record<string, SitePage>, start: string, o: { loading?: boolean; fetching?: number; lazy?: number; startsAfterMs?: number; clock?: () => number } = {}) {
   let at = start;
   let scrolled = false;
   let rowsIn = false;
   let rowsDue = 0;
+  let scrolledAt = 0;
   let arriving = 0;
   let focus: number | null = null;
   let reads = 0;
@@ -1206,7 +1208,8 @@ function site(pages: Record<string, SitePage>, start: string, o: { loading?: boo
     reads++;
     const p = pages[at]!;
     let report: BrowserPageActivity | undefined = o.loading ? { loading: true, requests: 0, quietMs: 1_000 } : undefined;
-    if (scrolled && !rowsIn) {
+    const started = (o.clock?.() ?? 0) - scrolledAt >= (o.startsAfterMs ?? 0);
+    if (scrolled && !rowsIn && started) {
       if (rowsDue > 0) { rowsDue--; report = waiting; } else rowsIn = true;
     }
     let shown = els();
@@ -1217,7 +1220,7 @@ function site(pages: Record<string, SitePage>, start: string, o: { loading?: boo
     const a = params.action as { kind: string; ref?: number; text?: string; submit?: boolean; method?: string; deltaY?: number };
     if (a.kind === "scroll") {
       scrolls.push(a.deltaY ?? 0);
-      if ((a.deltaY ?? 0) > 0 && !scrolled) { scrolled = true; rowsDue = o.lazy ?? 0; }
+      if ((a.deltaY ?? 0) > 0 && !scrolled) { scrolled = true; rowsDue = o.lazy ?? 0; scrolledAt = o.clock?.() ?? 0; }
       return { ok: true, detail: "scrolled" };
     }
     const target = els().find((e) => e.ref === a.ref);
@@ -1395,6 +1398,19 @@ describe("browser_do", () => {
   it("waits for the rows a scroll reached while the page fetches them, rather than calling that the end", async () => {
     const page = docsSite({ lazy: 3 });
     const r = await walk(setup({ bridgeResults: page.bridgeResults }), { path: ["Docs", "Changelog"] });
+    expect(r.isError).toBe(false);
+    expect(page.clicks).toEqual(["Docs", "Changelog"]);
+  });
+
+  it("gives a page a moment after a scroll to start fetching what the scroll reached", async () => {
+    // Nothing is asked for until 120 ms after the scroll lands: an observer on the page's last row that
+    // fires a frame or two late. Two reads fifty milliseconds apart straight after the scroll would both
+    // show the list as it was, and take that for its end.
+    let clock = () => 0;
+    const page = docsSite({ startsAfterMs: 120, lazy: 1, clock: () => clock() });
+    const s = setup({ bridgeResults: page.bridgeResults });
+    clock = () => s.clock.t;
+    const r = await walk(s, { path: ["Docs", "Changelog"] });
     expect(r.isError).toBe(false);
     expect(page.clicks).toEqual(["Docs", "Changelog"]);
   });
