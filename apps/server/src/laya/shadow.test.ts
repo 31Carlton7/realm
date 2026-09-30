@@ -542,6 +542,20 @@ describe("the sensitive rule", () => {
     expect(socialStep("tap 'Reels'", "Instagram")).toBeNull();
   });
 
+  it("reads a shop's last button as paying, and making an account as a step taken in someone's name", () => {
+    for (const text of ["click 'Place order'", "click 'Place your order'", "tap 'Order now'", "click 'Confirm order'"]) {
+      expect(sensitiveRule(text).value, text).toBe(true);
+    }
+    expect(sensitiveRule("click 'Place your order'")).toEqual({ value: true, matched: "place your order" });
+    for (const text of ["click 'Sign up'", "tap 'Sign Up'", "click 'Signup'", "click 'Create account'", "click 'Create an account'"]) {
+      expect(sensitiveRule(text).value, text).toBe(true);
+    }
+    // And what only looks: a past order, signing in, an account's settings.
+    for (const text of ["open 'Order history'", "click 'Your orders'", "click 'Sign in'", "open 'Account settings'", "click 'Log in'"]) {
+      expect(sensitiveRule(text).value, text).toBe(false);
+    }
+  });
+
   it("reads clearing data as deleting it, and clearing a search field as neither", () => {
     expect(sensitiveRule("tap 'Clear History and Website Data'")).toEqual({ value: true, matched: "clear" });
     expect(sensitiveRule("tap 'Clear All' in Notifications").value).toBe(true);

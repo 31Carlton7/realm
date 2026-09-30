@@ -1484,14 +1484,19 @@ describe("browser_do", () => {
 
   it("asks Laya for a label nothing matches only while its Assist is open, clicks its pick, and tells the shadow Laya chose it", async () => {
     const seen: ActObservation[] = [];
-    const resolve = async (_d: string, _i: string, elements: readonly ObservedElement[]): Promise<AssistOutcome> =>
-      ({ kind: "pick", element: elements.find((e) => e.label === "Getting started")!, confidence: 0.96, ms: 7 });
+    const sites: (string | undefined)[] = [];
+    const resolve = async (_d: string, _i: string, elements: readonly ObservedElement[], _tool?: string, app?: string): Promise<AssistOutcome> => {
+      sites.push(app);
+      return { kind: "pick", element: elements.find((e) => e.label === "Getting started")!, confidence: 0.96, ms: 7 };
+    };
     const open = { gate: () => ({ available: true, reason: null, threshold: 0.9, accuracy: 0.97 }), resolve } as unknown as LayaAssist;
     const page = docsSite();
     const r = await walk(setup({ bridgeResults: page.bridgeResults, assist: open, observe: (o) => { seen.push(o); } }), { path: ["Docs", "the tutorial"] });
     expect(page.clicks).toEqual(["Docs", "Getting started"]);
     expect(text(r)).toContain(`"the tutorial" (Laya's pick)`);
     expect(seen.map((o) => o.chosenBy)).toEqual([undefined, "laya"]);
+    // Asked on the site it is on — THE MUTANT asks without it, and a Like on instagram.com is Assist's to click.
+    expect(sites).toEqual(["127.0.0.1"]);
 
     let asked = 0;
     const shut = { gate: () => ({ available: false, reason: "Laya is not in Assist mode.", threshold: null, accuracy: null }), resolve: async () => { asked++; return resolve("", "", []); } } as unknown as LayaAssist;

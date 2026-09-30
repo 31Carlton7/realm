@@ -1076,7 +1076,7 @@ function pageIO(d: Deps, ctx: ProviderCallContext, browserId: string, intent: st
     type: (text) => (clicked === null
       ? Promise.resolve({ ok: false, detail: "no field was clicked to type into" })
       : send({ kind: "type", ref: clicked.ref, text, method: "keys", submit: false }, `Type "${clip(text, 60)}" into the ${clicked.role} the page labels "${clip(clicked.label, 60)}" on ${here()}`, { counts: true })),
-    ...(assist?.gate().available ? { laya: (label: string, elements: readonly ObservedElement[]) => assist.resolve(label, label, elements, "browser_do") } : {}),
+    ...(assist?.gate().available ? { laya: (label: string, elements: readonly ObservedElement[], app: string) => assist.resolve(label, label, elements, "browser_do", app) } : {}),
     observe: ({ elements, chosen, by }) => {
       const app = siteName(latest?.url);
       watch(d, ctx, browserId, {
