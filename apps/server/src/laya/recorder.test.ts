@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import type { SimulatorAxElement, SimulatorAxTree } from "@realm/contracts";
 import { LayaRecorder } from "./recorder";
+import { RpcError } from "../store/rows";
 
 /**
  * Recording what a person does in an app, read and never tapped. What must die here: a screen of an
@@ -44,6 +45,7 @@ function recorder(script: (SimulatorAxTree | Error)[], o: { dir?: string; maxScr
     deviceName: () => "Test’s iPhone",
     onChange: () => { changes++; },
     intervalMs: 2,
+    retryMs: 2,
     ...(o.maxScreens ? { maxScreens: o.maxScreens } : {}),
   });
   recorders.push(r);
@@ -77,6 +79,22 @@ describe("recording an app while a person uses it", () => {
     r.stop();
     // THE MUTANT: every app when none is named. The glance at Messages, and the home screen, are kept.
     expect(r.screens().map((s) => s.app)).toEqual(["Instagram", "Instagram"]);
+  });
+
+  it("asks again, briefly, a device that has not published its tree yet — and takes any other failure as the answer", async () => {
+    // MEASURED on a simulator: the read straight after Home can be "not yet".
+    const notYet = () => new RpcError("UNAVAILABLE", "the device has not published its accessibility tree yet");
+    const slow = recorder([notYet(), notYet(), FEED], {});
+    // THE MUTANT: no retry. Record, pressed a moment after the app opened, refuses with the device's "not yet".
+    expect((await slow.r.start("sim1", [])).apps).toEqual(["Instagram"]);
+    expect(slow.reads()).toBeGreaterThanOrEqual(3);
+    slow.r.stop();
+    const never = recorder([notYet()]);
+    await expect(never.r.start("sim1", [])).rejects.toThrow(/not published/);
+    expect(never.reads()).toBe(3);
+    const broken = recorder([new Error("the phone is locked")]);
+    await expect(broken.r.start("sim1", [])).rejects.toThrow("the phone is locked");
+    expect(broken.reads()).toBe(1);
   });
 
   it("starts one recording at a time, even while the first is still reading which app is in front", async () => {

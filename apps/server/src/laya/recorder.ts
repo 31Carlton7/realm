@@ -35,6 +35,8 @@ export type RecorderDeps = {
   intervalMs?: number;
   /** The screens one recording keeps before it ends itself; `MAX_SCREENS` unless a test says fewer. */
   maxScreens?: number;
+  /** How long a start waits before asking a device that said "not yet" again. */
+  retryMs?: number;
 };
 
 /** A screen at most this alike to one already kept is the same screen, a little scrolled. */
@@ -46,6 +48,10 @@ const LONG_TEXT = 60;
  *  MB), and what training takes from it is the training set's to decide. */
 const MAX_SCREENS = 2_000;
 const DEFAULT_INTERVAL_MS = 1_200;
+/** A device that has not published its tree yet — MEASURED on a simulator straight after Home — is
+ *  asked again this often, as the tools ask (`liveTree`); anything else is the answer. */
+const NOT_YET_ATTEMPTS = 3;
+const NOT_YET_RETRY_MS = 400;
 const READ_ONLY_TEXT = /static ?text|^text$|label|heading/i;
 const SWITCH = /switch|toggle|check ?box/i;
 
@@ -98,11 +104,23 @@ export class LayaRecorder {
     return { ...meta };
   }
 
-  /** The app in front, by its own name — or a refusal on the home screen, which names none. */
+  /** The app in front, by its own name — or a refusal on the home screen or under a system alert,
+   *  where the tree names none. */
   private async inFront(simulatorId: string, device: string): Promise<string> {
-    const app = (await this.d.read(simulatorId)).app.trim();
-    if (!app) throw new RpcError("LAYA_NO_APP", `Open the app you want Laya to learn on ${device} first — the home screen is not one.`);
-    return app;
+    for (let attempt = 1; ; attempt++) {
+      let tree: SimulatorAxTree;
+      try {
+        tree = await this.d.read(simulatorId);
+      } catch (e) {
+        if (attempt >= NOT_YET_ATTEMPTS || !(e instanceof RpcError && e.code === "UNAVAILABLE")) throw e;
+        await new Promise((r) => setTimeout(r, this.d.retryMs ?? NOT_YET_RETRY_MS));
+        continue;
+      }
+      const app = tree.app.trim();
+      // SpringBoard names itself nothing, and it owns a system alert as well as the home screen.
+      if (!app) throw new RpcError("LAYA_NO_APP", `Open the app you want Laya to learn on ${device} first — the home screen, or a system alert over it, is in front.`);
+      return app;
+    }
   }
 
   /** Stop, and keep what was recorded for training. */

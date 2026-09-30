@@ -10,7 +10,7 @@ import {
   Layout2ColumnIcon, Layout2RowIcon, BookOpen01Icon, Notification02Icon, Download04Icon,
   // Space icon picker's "Default" section (SPACE_ICONS, packages/contracts/src/presets.ts) — every
   // name there must have a matching key below.
-  Rocket01Icon, StarIcon, Book01Icon, Camera01Icon, MusicNote01Icon, Shield01Icon, Flag01Icon, Coffee01Icon, Target01Icon, Compass01Icon,
+  Rocket01Icon, StarIcon, Book01Icon, Camera01Icon, MusicNote01Icon, Shield01Icon, Flag01Icon, Coffee01Icon, RadioButtonIcon, Target01Icon, Compass01Icon,
   CrownIcon, Calendar01Icon, Clock01Icon, GameController01Icon, PaintBrush01Icon, MagicWand01Icon, Tree01Icon, Building01Icon, ZapIcon, DiamondIcon,
   FireIcon, Leaf01Icon, MountainIcon, FlowerIcon, RainbowIcon, UmbrellaIcon, CloudIcon, AnchorIcon, PuzzleIcon, GiftIcon,
   Award01Icon, BulbIcon, Key01Icon, LockIcon, Notification01Icon, Mic01Icon, HeadphonesIcon, Video01Icon, DiceIcon, Store01Icon,
@@ -68,6 +68,8 @@ export const icons = {
   // not focusing a pane, and a call site should not have to borrow the pane system's word for it.
   expand: ArrowExpand01Icon,
   play: PlayIcon, pause: PauseIcon, volumeOn: VolumeHighIcon, volumeOff: VolumeOffIcon,
+  // Two rings: the record mark, as iOS's own Screen Recording control draws it — not a radio button here.
+  record: RadioButtonIcon,
   // Same glyph as `group`, under the name a spreadsheet is actually looking for — a document's
   // icon should not have to borrow the pane system's vocabulary to find a table.
   table: LayoutTable01Icon,

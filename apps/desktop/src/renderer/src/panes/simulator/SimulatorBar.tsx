@@ -118,7 +118,7 @@ function RecordToggle({ item }: { item: Item }) {
       <button className="icon-btn" data-on aria-label={`Stop recording ${what} for Laya`}
         title={`Recording ${what} for Laya: ${kept} kept. Realm reads each new screen and taps nothing.${recording.lastError ? ` Not reading now: ${recording.lastError}` : ""}`}
         onClick={() => run(() => stopLayaRecording())}>
-        <Icon name="target" size={14} />
+        <Icon name="record" size={14} />
       </button>
     );
   }
@@ -128,7 +128,7 @@ function RecordToggle({ item }: { item: Item }) {
         ? `Laya is already recording ${recording.device}. Stop that first.`
         : "Record for Laya: keep each new screen of the app in front while you use it, for Laya's next training run. Realm taps nothing."}
       onClick={() => run(() => recordLaya(item.refId, []))}>
-      <Icon name="target" size={14} />
+      <Icon name="record" size={14} />
     </button>
   );
 }
