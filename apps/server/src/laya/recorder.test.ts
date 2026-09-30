@@ -28,9 +28,10 @@ const FEED = tree("Instagram", [
 const FEED_SCROLLED = tree("Instagram", [...FEED.elements, el("0.8", "Button", "Save")]);
 const REELS = tree("Instagram", [el("0.1", "Button", "Home"), el("0.2", "Button", "Reels"), el("0.9", "Button", "Audio"), el("0.10", "Button", "Remix")]);
 const MESSAGES = tree("Messages", [el("0.1", "Cell", "Mom, see you at 6")]);
+const UNNAMED = tree("Instagram", [el("0.1", "Button", "Home"), el("0.2", "Other", ""), el("0.3", "Image", "  ")]);
 const HOME = tree("", [el("0.1", "Icon", "Instagram")]);
 
-function recorder(script: (SimulatorAxTree | Error)[], o: { dir?: string } = {}) {
+function recorder(script: (SimulatorAxTree | Error)[], o: { dir?: string; maxScreens?: number } = {}) {
   const dir = o.dir ?? join(tempDir("realm-laya-rec-"), "recordings");
   let i = 0, changes = 0;
   const r = new LayaRecorder({
@@ -43,6 +44,7 @@ function recorder(script: (SimulatorAxTree | Error)[], o: { dir?: string } = {})
     deviceName: () => "Test’s iPhone",
     onChange: () => { changes++; },
     intervalMs: 2,
+    ...(o.maxScreens ? { maxScreens: o.maxScreens } : {}),
   });
   recorders.push(r);
   return { r, dir, reads: () => i, changes: () => changes };
@@ -55,7 +57,7 @@ const settle = async (until: () => boolean) => {
 describe("recording an app while a person uses it", () => {
   it("keeps each new screen of the apps asked for, and nothing of any other app or the home screen", async () => {
     const { r, reads } = recorder([FEED, MESSAGES, HOME, REELS, MESSAGES]);
-    r.start("sim1", ["instagram"]);
+    await r.start("sim1", ["instagram"]);
     await settle(() => reads() >= 6);
     const done = r.stop()!;
     // THE MUTANT: keep every app. A person who glanced at Messages would have recorded their family.
@@ -64,9 +66,71 @@ describe("recording an app while a person uses it", () => {
     expect(r.screens().flatMap((s) => s.elements.map((e) => e.label))).not.toContain("Mom, see you at 6");
   });
 
+  it("with no app named, records the app in front as it starts — and refuses the home screen, which is none", async () => {
+    const home = recorder([HOME]);
+    await expect(home.r.start("sim1", [])).rejects.toMatchObject({ code: "LAYA_NO_APP", message: expect.stringContaining("Open the app you want Laya to learn on Test’s iPhone first") });
+    expect(home.r.current()).toBeNull();
+    expect(home.r.list()).toEqual([]);
+    const { r, reads } = recorder([REELS, REELS, MESSAGES, HOME, FEED]);
+    expect((await r.start("sim1", [])).apps).toEqual(["Instagram"]);
+    await settle(() => reads() >= 6);
+    r.stop();
+    // THE MUTANT: every app when none is named. The glance at Messages, and the home screen, are kept.
+    expect(r.screens().map((s) => s.app)).toEqual(["Instagram", "Instagram"]);
+  });
+
+  it("starts one recording at a time, even while the first is still reading which app is in front", async () => {
+    let answer = null as ((t: SimulatorAxTree) => void) | null;
+    const r = new LayaRecorder({ dir: join(tempDir("realm-laya-rec-"), "recordings"), read: () => new Promise((res) => { answer = res; }), deviceName: () => "Test’s iPhone", onChange: () => {}, intervalMs: 2 });
+    recorders.push(r);
+    const first = r.start("sim1", []);
+    // THE MUTANT: check for a recording only once it exists. Two start, and one is never stopped.
+    await expect(r.start("sim1", ["TikTok"])).rejects.toThrow(/already starting a recording/);
+    answer!(FEED);
+    expect((await first).apps).toEqual(["Instagram"]);
+  });
+
+  it("keeps nothing nobody could name", async () => {
+    const { r, reads } = recorder([UNNAMED]);
+    await r.start("sim1", []);
+    await settle(() => reads() >= 2);
+    r.stop();
+    expect(r.screens()[0]!.elements.map((e) => e.id)).toEqual(["0.1"]);
+  });
+
+  it("ends itself at its cap, and reads nothing after", async () => {
+    const screens = [FEED, REELS, tree("Instagram", [el("0.1", "Button", "Search"), el("0.2", "Button", "Explore")])];
+    const { r, reads, changes } = recorder(screens, { maxScreens: 2 });
+    await r.start("sim1", ["Instagram"]);
+    await settle(() => r.current() === null);
+    // THE MUTANT: no cap. A recording left running is an hour of a phone being read for nothing.
+    expect(r.current()).toBeNull();
+    expect(r.screens()).toHaveLength(2);
+    expect(r.list()[0]!.endedAt).not.toBeNull();
+    const after = reads();
+    await new Promise((res) => setTimeout(res, 20));
+    expect(reads()).toBe(after);
+    expect(changes()).toBeGreaterThan(0);
+  });
+
+  it("keeps nothing from a read that lands after the stop", async () => {
+    let answer = null as ((t: SimulatorAxTree) => void) | null;
+    const dir = join(tempDir("realm-laya-rec-"), "recordings");
+    const r = new LayaRecorder({ dir, read: () => new Promise((res) => { answer = res; }), deviceName: () => "Test’s iPhone", onChange: () => {}, intervalMs: 2 });
+    recorders.push(r);
+    await r.start("sim1", ["Instagram"]);
+    await settle(() => answer !== null);
+    r.stop();
+    answer!(FEED);
+    await new Promise((res) => setTimeout(res, 20));
+    // THE MUTANT: leave the look running past the stop. A screen the person never meant to record is kept.
+    expect(r.screens()).toEqual([]);
+    expect(r.list()[0]!.screens).toBe(0);
+  });
+
   it("keeps a control's name and a switch's state, and never long text or what a field holds", async () => {
     const { r, reads } = recorder([FEED]);
-    r.start("sim1", ["Instagram"]);
+    await r.start("sim1", ["Instagram"]);
     await settle(() => reads() >= 2);
     r.stop();
     const [screen] = r.screens();
@@ -82,7 +146,7 @@ describe("recording an app while a person uses it", () => {
 
   it("keeps a screen scrolled a little once, and a new screen each time", async () => {
     const { r, reads } = recorder([FEED, FEED, FEED_SCROLLED, FEED, REELS]);
-    r.start("sim1", []);
+    await r.start("sim1", []);
     await settle(() => reads() >= 6);
     r.stop();
     // FEED and FEED_SCROLLED differ by one control in eight: the same screen. THE MUTANT: keep any
@@ -91,10 +155,13 @@ describe("recording an app while a person uses it", () => {
   });
 
   it("says why it is not reading — a locked phone — and clears it once a read works", async () => {
-    const { r, reads, changes } = recorder([new Error("the phone is locked"), new Error("the phone is locked"), FEED]);
-    r.start("sim1", ["Instagram"]);
+    const { r, reads, changes } = recorder([...Array.from({ length: 4 }, () => new Error("the phone is locked")), FEED]);
+    await r.start("sim1", ["Instagram"]);
+    const atStart = changes();
     await settle(() => reads() >= 1 && r.current()?.lastError === "the phone is locked");
     expect(r.current()!.lastError).toBe("the phone is locked");
+    // THE MUTANT: keep the reason to itself. Settings and the pane go on saying nothing is wrong.
+    expect(changes()).toBeGreaterThan(atStart);
     const before = changes();
     await settle(() => (r.current()?.screens ?? 0) >= 1);
     expect(r.current()!.lastError).toBeNull();
@@ -103,8 +170,8 @@ describe("recording an app while a person uses it", () => {
 
   it("records one device at a time, and stops reading when stopped", async () => {
     const { r, reads } = recorder([FEED]);
-    r.start("sim1", []);
-    expect(() => r.start("sim2", [])).toThrow(/already recording Test’s iPhone/);
+    await r.start("sim1", []);
+    await expect(r.start("sim2", [])).rejects.toThrow(/already recording Test’s iPhone/);
     await settle(() => reads() >= 2);
     r.stop();
     const after = reads();
@@ -116,7 +183,7 @@ describe("recording an app while a person uses it", () => {
 
   it("lists what was recorded across restarts, and deletes all of it", async () => {
     const first = recorder([FEED]);
-    first.r.start("sim1", ["Instagram"]);
+    await first.r.start("sim1", ["Instagram"]);
     await settle(() => first.reads() >= 2);
     first.r.stop();
     // A new recorder over the same folder — Realm restarted — still has it for training.

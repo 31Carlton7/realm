@@ -7,7 +7,7 @@ import { sessionEvent } from "@realm/contracts";
 import type { ActObservation, ObservedElement } from "../mcp/act-observer";
 import { LayaClient } from "./client";
 import { DecisionLog } from "./log";
-import { LayaShadow, MAX_CANDIDATES, SENSITIVE_PARTS, pickCandidates, plainRole, screenDiff, sensitiveRule, type ShadowRow } from "./shadow";
+import { LayaShadow, MAX_CANDIDATES, SENSITIVE_PARTS, pickCandidates, plainRole, screenDiff, sensitiveRule, socialStep, type ShadowRow } from "./shadow";
 import { fakeLayaServer, until, type FakeLaya } from "./test-fakes";
 
 /**
@@ -507,10 +507,24 @@ describe("the sensitive rule", () => {
     expect(sensitiveRule("tap 'Messages'").value).toBe(false);
     expect(sensitiveRule("tap 'Like'", "Photos").value).toBe(false);
     expect(sensitiveRule("tap 'Like'", "Instagram Lite Helper").value).toBe(false);
+    // X is an app's whole name, not a letter at the end of one.
+    expect(sensitiveRule("tap 'Like'", "X").value).toBe(true);
+    for (const app of ["Firefox", "Dropbox", "Box"]) expect(sensitiveRule("tap 'Like'", app).value, app).toBe(false);
     // And the moves that are only looking: the feed, Reels, a profile, who one follows, what one liked.
     for (const text of ["tap 'Reels'", "tap 'Following'", "tap 'Profile'", "tap 'Search and explore'", "open Likes", "scroll the For You feed", "tap 'Home'"]) {
       expect(sensitiveRule(text, "Instagram").value, text).toBe(false);
     }
+  });
+
+  it("teaches what other people see as shared with someone, and a gift or coins as money", () => {
+    expect(socialStep("tap 'Like'", "Instagram")).toEqual({ matched: "like", part: "send" });
+    expect(socialStep("open their story", "Instagram")).toEqual({ matched: "story", part: "send" });
+    expect(socialStep("report the video", "TikTok")).toEqual({ matched: "report", part: "send" });
+    // THE MUTANT: a gift taught as a message. Laya learns that spending coins is only sharing.
+    expect(socialStep("send a gift", "TikTok")).toEqual({ matched: "gift", part: "money" });
+    expect(socialStep("buy coins", "TikTok")).toEqual({ matched: "coins", part: "money" });
+    expect(socialStep("tap 'Like'", "Photos")).toBeNull();
+    expect(socialStep("tap 'Reels'", "Instagram")).toBeNull();
   });
 
   it("reads clearing data as deleting it, and clearing a search field as neither", () => {

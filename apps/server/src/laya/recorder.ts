@@ -17,8 +17,9 @@ import type { BenchElement, BenchScreen } from "./benchmark";
  * What is kept is each screen's shape: the elements' kinds, their names and where they are. What
  * belongs to people is left out — no field's contents, no value but a switch's, and no long text (a
  * caption, a comment, a message) — and what is kept stays in `<REALM_HOME>/laya/recordings/`: never
- * shipped, never committed, and gone when the recording is deleted. Only the apps asked for are kept:
- * a person who switches to Messages mid-recording has recorded nothing of it.
+ * shipped, never committed, and gone when the recording is deleted. Only the app it was started in (or
+ * the apps it was asked for by name) is kept: a person who switches to Messages mid-recording has
+ * recorded nothing of it.
  */
 export type RecorderDeps = {
   /** `<REALM_HOME>/laya/recordings`. */
@@ -32,13 +33,15 @@ export type RecorderDeps = {
   /** How often the screen is read. A phone's runner reads in a tenth of a second; a simulator's
    *  serve-sim in most of one. */
   intervalMs?: number;
+  /** The screens one recording keeps before it ends itself; `MAX_SCREENS` unless a test says fewer. */
+  maxScreens?: number;
 };
 
 /** A screen at most this alike to one already kept is the same screen, a little scrolled. */
 const SAME_SCREEN = 0.85;
 /** Text this long is somebody's words — a caption, a comment, a message — not a control's name. */
 const LONG_TEXT = 60;
-/** Every recording stops keeping screens here; a feed scrolled for an hour is not a thousand lessons. */
+/** Every recording ends here; a feed scrolled for an hour is not a thousand lessons. */
 const MAX_SCREENS = 500;
 const DEFAULT_INTERVAL_MS = 1_200;
 const READ_ONLY_TEXT = /static ?text|^text$|label|heading/i;
@@ -53,6 +56,8 @@ type Live = {
 
 export class LayaRecorder {
   private live: Live | null = null;
+  /** Between a start's call and its recording: the read that names the app in front. */
+  private starting = false;
   private readonly now: () => Date;
 
   constructor(private readonly d: RecorderDeps) {
@@ -66,20 +71,36 @@ export class LayaRecorder {
 
   /**
    * Start keeping the screens of `apps` — by the name each app's tree calls itself, "Instagram" —
-   * from the device in pane `simulatorId`. With no apps named, every app but the home screen.
+   * from the device in pane `simulatorId`. With no apps named, the app in front as it starts; on the
+   * home screen there is none, and nothing is recorded.
    */
-  start(simulatorId: string, apps: readonly string[]): LayaRecording {
+  async start(simulatorId: string, apps: readonly string[]): Promise<LayaRecording> {
     if (this.live) throw new RpcError("LAYA_RECORDING", `Laya is already recording ${this.live.meta.device}. Stop that first.`);
+    if (this.starting) throw new RpcError("LAYA_RECORDING", "Laya is already starting a recording.");
     const device = this.d.deviceName(simulatorId);
+    this.starting = true;
+    let named: string[];
+    try {
+      named = apps.length > 0 ? [...apps] : [await this.inFront(simulatorId, device)];
+    } finally {
+      this.starting = false;
+    }
     const startedAt = this.now().toISOString();
     const id = `rec-${startedAt.replace(/[:.]/g, "-")}`;
     mkdirSync(join(this.d.dir, id, "screens"), { recursive: true });
-    const meta: LayaRecording = { id, simulatorId, device, apps: [...apps], seen: [], screens: 0, startedAt, endedAt: null, lastError: null };
+    const meta: LayaRecording = { id, simulatorId, device, apps: named, seen: [], screens: 0, startedAt, endedAt: null, lastError: null };
     this.live = { meta, timer: null, kept: [], stopped: false };
     this.save(meta);
     this.schedule(0);
     this.d.onChange();
     return { ...meta };
+  }
+
+  /** The app in front, by its own name — or a refusal on the home screen, which names none. */
+  private async inFront(simulatorId: string, device: string): Promise<string> {
+    const app = (await this.d.read(simulatorId)).app.trim();
+    if (!app) throw new RpcError("LAYA_NO_APP", `Open the app you want Laya to learn on ${device} first — the home screen is not one.`);
+    return app;
   }
 
   /** Stop, and keep what was recorded for training. */
@@ -134,7 +155,9 @@ export class LayaRecorder {
       if (live.stopped) return;
       live.meta.lastError = null;
       const app = tree.app.trim();
-      if (app && wanted(app, live.meta.apps) && live.meta.screens < MAX_SCREENS) this.keep(live, app, tree);
+      if (wanted(app, live.meta.apps)) this.keep(live, app, tree);
+      // Ended at the cap, where it would otherwise go on reading a phone for screens it throws away.
+      if (live.meta.screens >= (this.d.maxScreens ?? MAX_SCREENS)) { this.stop(); return; }
     } catch (e) {
       if (live.stopped) return;
       const said = e instanceof Error ? e.message : String(e);
@@ -163,9 +186,9 @@ export class LayaRecorder {
   }
 }
 
-/** An app asked for, by its own name however it is written: "tiktok" is TikTok. */
+/** An app asked for, by its own name however it is written: "tiktok" is TikTok. The home screen names
+ *  itself nothing, which is no app's name. */
 function wanted(app: string, apps: readonly string[]): boolean {
-  if (apps.length === 0) return true;
   const a = fold(app);
   return apps.some((x) => fold(x) === a);
 }

@@ -29,7 +29,6 @@ vi.mock("../../rpc/client", () => ({
       if (method === "simulators.stop") return { state: off("sim-1") };
       if (method === "simulators.ax") { calls.push({ method: "ax", params }); return { tree: AX_TREE }; }
       if (method === "simulators.act") return { ok: true, detail: "" };
-      if (method === "simulators.apps") return { apps: [{ bundleId: "com.burbn.instagram", name: "Instagram" }, { bundleId: "com.zhiliaoapp.musically", name: "TikTok" }] };
       if (method === "settings.get") return { value: settings[params.key] ?? null };
       if (method === "settings.set") { settings[params.key] = params.value; return { ok: true }; }
       throw new Error(`unexpected ${method}`);
@@ -505,39 +504,38 @@ describe("recording an app for Laya", () => {
     render(<StoreContext.Provider value={store}><SimulatorPanelActions item={paneItem} /></StoreContext.Provider>);
     return { api, store };
   }
-  const openApp = async (name: string) => {
-    fireEvent.click(screen.getByRole("button", { name: "Apps on this device" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name }));
-  };
+  const recording = { id: "rec-1", simulatorId: "sim-2", device: "Other iPhone", apps: ["TikTok"], seen: [], screens: 3, startedAt: "2026-09-29T07:12:00.000Z", endedAt: null, lastError: null };
+  const other: LayaStatus = { mode: "off", installed: false, runtime: { state: "off" }, stepsLogged: 0, dir: "/Users/u/Realm/laya", assist: { available: false, reason: "x", threshold: null, accuracy: null }, recording };
 
-  it("starts from the app's own menu, keeps only that app, and puts the Stop on the pane that records", async () => {
+  it("starts from the pane bar with the app in front, and the same control stops it", async () => {
     const { api } = await bar({ ...RUNNING, physical: true });
-    expect(screen.queryByRole("button", { name: /^Stop recording/ })).toBeNull();
-    await openApp("Instagram");
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Record for Laya" }));
-    // THE MUTANT: record every app. A glance at Messages mid-recording would be kept.
-    await waitFor(() => expect(api.calls).toContain("layaRecord:sim-1:Instagram"));
+    fireEvent.click(screen.getByRole("button", { name: "Record this app for Laya" }));
+    // No app named: the server records the one in front, and only it.
+    await waitFor(() => expect(api.calls).toContain("layaRecord:sim-1:"));
     const stop = await screen.findByRole("button", { name: "Stop recording Instagram for Laya" });
+    expect(screen.queryByRole("button", { name: "Record this app for Laya" })).toBeNull();
     expect(stop).toHaveAttribute("title", expect.stringContaining("Realm reads each new screen and taps nothing."));
     fireEvent.click(stop);
     await waitFor(() => expect(api.calls).toContain("layaStopRecording"));
-    await waitFor(() => expect(screen.queryByRole("button", { name: /^Stop recording/ })).toBeNull());
+    expect(await screen.findByRole("button", { name: "Record this app for Laya" })).toBeEnabled();
   });
 
-  it("keeps its Stop after the stream has gone, and shows none for another device's recording", async () => {
-    const recording = { id: "rec-1", simulatorId: "sim-2", device: "Other iPhone", apps: ["TikTok"], seen: [], screens: 3, startedAt: "2026-09-29T07:12:00.000Z", endedAt: null, lastError: null };
-    const other: LayaStatus = { mode: "off", installed: false, runtime: { state: "off" }, stepsLogged: 0, dir: "/Users/u/Realm/laya", assist: { available: false, reason: "x", threshold: null, accuracy: null }, recording };
+  it("is unavailable while another device records, saying which, and keeps its Stop after the stream has gone", async () => {
     await bar(RUNNING, other);
+    // THE MUTANT: a Stop on every pane. This pane's would end another phone's recording.
     expect(screen.queryByRole("button", { name: /^Stop recording/ })).toBeNull();
-    await openApp("TikTok");
-    // One recording at a time, said where the choice is made.
-    const item = await screen.findByRole("menuitem", { name: "Record for Laya" });
-    expect(item).toBeDisabled();
+    const record = screen.getByRole("button", { name: "Record this app for Laya" });
+    expect(record).toBeDisabled();
+    expect(record).toHaveAttribute("title", "Laya is already recording Other iPhone. Stop that first.");
     cleanup();
     // THE MUTANT: hide the Stop with the stream. A phone that locked mid-recording could not be stopped from its pane.
     await bar(off("sim-1"), { ...other, recording: { ...recording, simulatorId: "sim-1" } });
     expect(screen.getByRole("button", { name: "Stop recording TikTok for Laya" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Apps on this device" })).toBeNull();
+    cleanup();
+    // And no Record without a stream: there is no app in front to read.
+    await bar(off("sim-1"));
+    expect(screen.queryByRole("button", { name: "Record this app for Laya" })).toBeNull();
   });
 });
 

@@ -141,9 +141,10 @@ export type LayaTraining = z.infer<typeof LayaTrainingSchema>;
 
 /**
  * Screens kept for Laya while a person uses an app on a device (`laya.record`): Realm reads each new
- * screen and taps nothing. `apps` are the apps asked for, by the name each calls itself ("Instagram");
- * empty is every app but the home screen. `seen` are the apps screens were kept from. `lastError` is
- * the last read that failed — a locked phone, a pane closed — and clears when a read works again.
+ * screen and taps nothing. `apps` are the apps kept, by the name each calls itself ("Instagram") — the
+ * one in front when it started, unless it was asked for others by name. `seen` are the apps screens
+ * were kept from. `lastError` is the last read that failed — a locked phone, a pane closed — and
+ * clears when a read works again.
  */
 export const LayaRecordingSchema = z.object({
   id: z.string(),

@@ -408,21 +408,42 @@ describe("recording", () => {
   });
 
   it("shows the recording under way, publishes each screen it keeps, and counts it for training once stopped", async () => {
-    const { service, published } = setup({ screen: () => tree("Instagram", "Reels") });
+    let reads = 0;
+    const { service, published } = setup({ screen: () => tree("Instagram", reads++ === 0 ? "Reels" : "Search") });
     expect((await service.status()).recorded).toEqual({ recordings: 0, screens: 0, apps: [] });
     const started = await service.record("sim1", ["Instagram"]);
     expect(started.recording).toMatchObject({ device: "Test iPhone", apps: ["Instagram"], screens: 0, endedAt: null });
     // THE MUTANT: a recorder whose changes go nowhere. Settings shows 0 screens for the whole session.
-    await until(() => published.some((p) => p.recording?.screens === 1));
+    await until(() => published.some((p) => p.recording?.screens === 2));
     const stopped = await service.stopRecording();
     expect(stopped.recording).toBeNull();
-    expect(stopped.recorded).toEqual({ recordings: 1, screens: 1, apps: ["Instagram"] });
+    // Screens, not recordings: THE MUTANT counts one recording as one screen.
+    expect(stopped.recorded).toEqual({ recordings: 1, screens: 2, apps: ["Instagram"] });
+  });
+
+  it("records the app in front when none is named, and refuses the home screen", async () => {
+    let app = " ";
+    const { service } = setup({ screen: () => tree(app, "Reels") });
+    await expect(service.record("sim1", [])).rejects.toMatchObject({ code: "LAYA_NO_APP" });
+    expect((await service.status()).recording).toBeNull();
+    app = "Instagram";
+    expect((await service.record("sim1", [])).recording).toMatchObject({ apps: ["Instagram"] });
   });
 
   it("refuses a device that is not a pane, and records nothing", async () => {
     const { service } = setup({ screen: () => tree("Instagram", "Reels") });
     await expect(service.record("gone", [])).rejects.toBeInstanceOf(NotFoundError);
     expect((await service.status()).recording).toBeNull();
+  });
+
+  it("ends a recording under way when Realm quits, and keeps what it recorded", async () => {
+    const { service, recorder } = setup({ screen: () => tree("Instagram", "Reels") });
+    await service.record("sim1", ["Instagram"]);
+    await until(async () => (await service.status()).recording?.screens === 1);
+    await service.close();
+    // THE MUTANT: leave it reading. The phone is read by a Realm that has quit, and never says it ended.
+    expect(recorder!.current()).toBeNull();
+    expect(recorder!.list()[0]).toMatchObject({ screens: 1, endedAt: expect.any(String) });
   });
 
   it("deletes every recording, the one under way included", async () => {

@@ -175,7 +175,7 @@ describe("the recordings row", () => {
   it("says where a recording is started when there is none — the device pane — and has nothing to delete", async () => {
     await mount(status({ state: "off" }, { installed: true, recorded: { recordings: 0, screens: 0, apps: [] } }));
     expect(within(row()).getByText("No screens recorded")).toBeInTheDocument();
-    expect(within(row()).getByText(/choose an app in a device pane's Apps menu, then Record for Laya/)).toBeInTheDocument();
+    expect(within(row()).getByText(/open an app on a device, choose Record for Laya in its pane's bar/)).toBeInTheDocument();
     expect(within(row()).getByRole("button", { name: "Delete recordings" })).toBeDisabled();
   });
 

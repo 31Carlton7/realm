@@ -196,7 +196,7 @@ export class LayaService {
   async record(simulatorId: string, apps: readonly string[]): Promise<LayaStatus> {
     const recorder = this.d.recorder;
     if (!recorder) throw new RpcError("LAYA_UNAVAILABLE", "This Realm cannot record screens for Laya.");
-    recorder.start(simulatorId, apps);
+    await recorder.start(simulatorId, apps);
     return this.status();
   }
 
@@ -363,6 +363,8 @@ export class LayaService {
     this.installAbort?.abort();
     this.trainAbort?.abort();
     if (this.publishTimer) clearTimeout(this.publishTimer);
+    // A recording ends with Realm, and says when: a read after quit is no read at all.
+    this.d.recorder?.stop();
     await this.stop();
   }
 

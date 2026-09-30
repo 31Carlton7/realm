@@ -1530,10 +1530,11 @@ export const Methods = {
   "laya.cancelTraining": { params: z.object({}), result: LayaStatusSchema },
   /**
    * Keep the screens of `apps` while a person uses them on the device in pane `simulatorId` — Realm
-   * reads, and never taps. `apps` are names as each app calls itself; none is every app but the home
-   * screen. The next training run learns from what is kept, which never leaves this Mac.
+   * reads, and never taps. `apps` are names as each app calls itself, each with a letter or a digit in
+   * it; none is the app in front as it starts, and on the home screen that is a refusal. The next
+   * training run learns from what is kept, which never leaves this Mac.
    */
-  "laya.record": { params: z.object({ simulatorId: IdSchema, apps: z.array(z.string().trim().min(1).max(80)).max(12).default([]) }), result: LayaStatusSchema },
+  "laya.record": { params: z.object({ simulatorId: IdSchema, apps: z.array(z.string().trim().min(1).max(80).regex(/[\p{L}\p{N}]/u)).max(12).default([]) }), result: LayaStatusSchema },
   "laya.stopRecording": { params: z.object({}), result: LayaStatusSchema },
   /** Every recording and every screen it kept, gone. */
   "laya.deleteRecordings": { params: z.object({}), result: LayaStatusSchema },

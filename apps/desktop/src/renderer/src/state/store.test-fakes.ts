@@ -1100,7 +1100,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`layaRecord:${simulatorId}:${apps.join(",")}`);
       // The server's refusal, restated: one recording at a time.
       if (data.laya.recording) throw Object.assign(new Error(`Laya is already recording ${data.laya.recording.device}. Stop that first.`), { code: "LAYA_RECORDING" });
-      data.laya = { ...data.laya, recording: { id: "rec-1", simulatorId, device: "Test iPhone", apps, seen: [], screens: 0, startedAt: "2026-09-29T07:12:00.000Z", endedAt: null, lastError: null } };
+      // No app named is the app in front, which the server reads; here it is always Instagram.
+      data.laya = { ...data.laya, recording: { id: "rec-1", simulatorId, device: "Test iPhone", apps: apps.length ? apps : ["Instagram"], seen: [], screens: 0, startedAt: "2026-09-29T07:12:00.000Z", endedAt: null, lastError: null } };
       return data.laya;
     },
     layaStopRecording: async () => {

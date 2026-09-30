@@ -419,6 +419,8 @@ describe("Laya, for a label nothing on the screen matches", () => {
     const laya = vi.fn(async (): Promise<AssistOutcome> => ({ kind: "ask-agent", candidates: [], best: null, why: "unsure" }));
     const r = await walk(d, { path: ["wireless networks"] }, { laya });
     expect(laya).toHaveBeenCalledOnce();
+    // Asked in the app the walk is in, which is what Assist's own sensitive rule reads.
+    expect(laya).toHaveBeenCalledWith("wireless networks", expect.any(Array), "Settings");
     expect(r.stop?.why).toBe("not-found");
     expect(d.taps).toEqual([]);
   });
