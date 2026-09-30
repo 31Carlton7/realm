@@ -109,6 +109,21 @@ describe("asking Laya about a step", () => {
     expect(row!.candidates.map((c) => c.id)).toEqual(["0", "1", "2", "3", "4", "5", "7"]);
   });
 
+  it("asks about a page's steps in the browser tools' own words: a walk clicks, an act acts", async () => {
+    const { shadow, server: s, rows } = await setup();
+    const docs = el("2", "Docs", "link");
+    shadow.observe(step({ surface: "browser", tool: "browser_do", intent: "open the docs", elements: [el("1", "Home", "link"), docs], chosen: { element: docs } }));
+    shadow.observe(step({ surface: "browser", tool: "browser_act", sessionId: "s2", intent: "open the docs", elements: [docs], chosen: { element: docs } }));
+    await shadow.flush();
+    expect(s.asked.map((a) => a.body.questions.target?.instructions ?? a.body.state)).toEqual([
+      "Which on-screen element should be clicked to: open the docs?",
+      "An agent is about to: click link 'Docs' to open the docs.",
+      "Which on-screen element should be acted on to: open the docs?",
+      "An agent is about to: act on link 'Docs' to open the docs.",
+    ]);
+    expect(rows().map((r) => [r.surface, r.tool])).toEqual([["browser", "browser_do"], ["browser", "browser_act"]]);
+  });
+
   it("does not ask which element without an intent, or without an element — there is no goal, or no answer", async () => {
     const { shadow, server: s, rows } = await setup();
     shadow.observe(step({ intent: "" }));
@@ -525,6 +540,20 @@ describe("the sensitive rule", () => {
     expect(socialStep("buy coins", "TikTok")).toEqual({ matched: "coins", part: "money" });
     expect(socialStep("tap 'Like'", "Photos")).toBeNull();
     expect(socialStep("tap 'Reels'", "Instagram")).toBeNull();
+  });
+
+  it("reads a shop's last button as paying, and making an account as a step taken in someone's name", () => {
+    for (const text of ["click 'Place order'", "click 'Place your order'", "tap 'Order now'", "click 'Confirm order'"]) {
+      expect(sensitiveRule(text).value, text).toBe(true);
+    }
+    expect(sensitiveRule("click 'Place your order'")).toEqual({ value: true, matched: "place your order" });
+    for (const text of ["click 'Sign up'", "tap 'Sign Up'", "click 'Signup'", "click 'Create account'", "click 'Create an account'"]) {
+      expect(sensitiveRule(text).value, text).toBe(true);
+    }
+    // And what only looks: a past order, signing in, an account's settings.
+    for (const text of ["open 'Order history'", "click 'Your orders'", "click 'Sign in'", "open 'Account settings'", "click 'Log in'"]) {
+      expect(sensitiveRule(text).value, text).toBe(false);
+    }
   });
 
   it("reads clearing data as deleting it, and clearing a search field as neither", () => {

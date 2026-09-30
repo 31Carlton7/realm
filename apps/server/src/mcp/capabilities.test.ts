@@ -100,6 +100,15 @@ describe("capabilitiesContext", () => {
     expect(text).toContain("never buys, deletes, sends or signs in");
   });
 
+  it("points a session with a browser at walking a page in one call, and at browser_act for what a walk never does", () => {
+    const text = capabilitiesContext([BROWSER_PROVIDER_NAME])!;
+    // THE MUTANT: list the tool and never say when it is the one — and the agent clicks through a site
+    // one snapshot and one act at a time, a turn for each.
+    expect(text).toContain("To get somewhere on a page, use `browser_do` instead");
+    expect(text).toContain('`["Docs", "Getting started"]`');
+    expect(text).toContain("never buys, deletes, sends, submits or signs out; take those steps yourself with `browser_act`");
+  });
+
   it("says nothing about simulators to a session that does not have them", () => {
     // A space that switched the provider off, or a Mac with no toolchain — `realmProvidersFor` leaves
     // the name out either way, and the paragraph has to go with it.

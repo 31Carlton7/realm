@@ -651,7 +651,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // `realm-browser` provider on the gateway. The broker's callbacks are late-bound to `sessionService`
   // (the checkpoints knot again): nothing in it runs before a session exists to run it for.
   const computerAllowlist = new ComputerAppAllowlist({ settings });
-  /* Laya in shadow: asked about every computer and device step, heard by nobody,
+  /* Laya in shadow: asked about every computer, device and page step, heard by nobody,
      and logged beside what actually happened (docs/superpowers/specs/2026-09-29-laya-local-decisions.md).
      The service owns the runtime and the log; the shadow is the observer the acting tools report to. */
   const layaLog = new DecisionLog({ path: opts.laya?.logPath ?? join(opts.home, "laya", "decisions.jsonl") });
@@ -812,6 +812,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   mcpGateway.registerProvider(createBrowserAgentProvider({
     browsers: browsersStore, projects, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc,
     constraints: browserAgents, signIn: signInTickets, simulatorStreams: simulatorTools,
+    // Laya's shadow hears every act on a page as it hears the computer's and the simulator's, and a
+    // walk asks its Assist for a label nothing matches while — only while — that is open.
+    observe: layaShadow.observe, assist: layaAssist,
     // The space folder, for `browser_upload`'s default readable root. Same resolver the documents
     // tools use, so "inside this space" means one thing across the app.
     documents: { rootForSpace: (spaceId) => { try { return documents.rootForSpace(spaceId); } catch { return null; } } },

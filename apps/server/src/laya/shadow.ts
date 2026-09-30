@@ -85,16 +85,19 @@ const VERIFY_INSTRUCTIONS = "Did the step achieve the goal?";
 const TARGET_VERB: Record<string, string> = {
   computer_act: "acted on", simulator_tap: "tapped", simulator_double_tap: "double-tapped",
   simulator_long_press: "pressed and held", simulator_swipe: "swiped", simulator_type: "typed into",
+  browser_act: "acted on", browser_do: "clicked",
 };
 const STEP_VERB: Record<string, string> = {
   computer_act: "act on", simulator_tap: "tap", simulator_double_tap: "double-tap",
   simulator_long_press: "press and hold", simulator_swipe: "swipe", simulator_type: "type into", simulator_press: "press",
+  browser_act: "act on", browser_do: "click",
 };
 
 /** Ground truth for `sensitive` by rule. Noisy on purpose, and labelled as a rule wherever it lands:
  *  it agrees with all 16 of the spike's hand labels, which is a floor, not a measurement. */
 const SENSITIVE_RULES: RegExp[] = [
-  /\b(buy|purchase|pay|payment|checkout|subscribe|subscription|donate|transfer|withdraw)\b|[$€£]\s?\d/i,
+  // A shop's last button says what it does without saying pay: "Place order", "Order now".
+  /\b(buy|purchase|pay|payment|checkout|subscribe|subscription|donate|transfer|withdraw)\b|[$€£]\s?\d|\bplace (?:an |the |your |my )?order\b|\b(?:order now|confirm (?:the |your |my )?order)\b/i,
   // "Clear History and Website Data" deletes as surely as "Delete" does; clearing a search field's
   // text does not, and is the one "clear" a walk meets on the way to something else. Formatting is a
   // deletion only when it is a disk being formatted: every Mac app with text has a Format menu.
@@ -102,7 +105,8 @@ const SENSITIVE_RULES: RegExp[] = [
   /\b(send|post|publish|share|submit|reply|forward|invite|tweet)\b/i,
   /\b(password|passcode|passkey|secret|token|api key|credit card|card number|cvv|cvc|ssn|secure text field)\b/i,
   // Dictation turns on the microphone: never a step Realm takes on anyone's behalf.
-  /\b(allow|grant|authori[sz]e|approve|sign out|log out|deactivate|dictate|dictation)\b/i,
+  // Making an account is a step taken in someone's name, as signing out of one is.
+  /\b(allow|grant|authori[sz]e|approve|sign out|log out|deactivate|dictate|dictation|sign[ -]?up|create (?:an |a new |your |my )?account)\b/i,
 ];
 
 /** A step that follows too late says nothing about the one before it. */

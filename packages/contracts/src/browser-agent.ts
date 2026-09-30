@@ -139,7 +139,49 @@ export type BrowserDescribeResult = {
   element?: { role: string; name: string; tag: string; inputType: string | null } | null;
 };
 
-export type BrowserSnapshotResult = { url: string; title: string; text: string; elementCount: number };
+export type BrowserSnapshotResult = {
+  url: string; title: string; text: string; elementCount: number;
+  /** The same elements as `text`, in the same order, as data (below). Absent where the executor
+   *  predates it; a walk reads a snapshot without them as a page with nothing on it. */
+  elements?: BrowserSnapshotElement[];
+  /** The viewport, in CSS pixels. */
+  viewport?: { width: number; height: number };
+  /** What the browser said about the page as the snapshot began. */
+  page?: BrowserPageActivity;
+};
+
+/**
+ * One line of a snapshot as data, for realm-server's own use — the walk behind `browser_do` finds its
+ * labels here, and Laya's shadow is told which of these the agent chose from. Never parsed out of the
+ * text instead: a name is page text, a page can put a line break in one, and the line after it would
+ * then be the page's own — ref and all.
+ *
+ * `name` and `value` are PAGE-AUTHORED, exactly as in the text, and a password field's value is absent
+ * here as it is there. `rect` is where the text line says it is: CSS pixels from the document's origin.
+ */
+export type BrowserSnapshotElement = {
+  ref: number;
+  role: string;
+  name: string;
+  value: string | null;
+  rect: { x: number; y: number; w: number; h: number };
+  /** A checkbox or radio's state; null for anything else. */
+  checked: boolean | null;
+  disabled: boolean;
+  password: boolean;
+  /** Has the keyboard's focus, as the accessibility tree says — how a click into a field shows. */
+  focused: boolean;
+  /** Scrolled out of the viewport, as the text line's `{offscreen}` says. */
+  offscreen: boolean;
+};
+
+/**
+ * What the browser reports about a page, sampled as a snapshot begins: whether it is still loading —
+ * the pane's own spinner, `webContents.isLoading()` — how many requests for a document or for data it
+ * has in flight, and how long those have been quiet. Images, fonts and stylesheets are not counted.
+ * Facts, not a verdict: what counts as "at rest" is the reader's to say.
+ */
+export type BrowserPageActivity = { loading: boolean; requests: number; quietMs: number };
 export type BrowserReadResult = { text: string };
 export type BrowserScreenshotResult = { data: string; mimeType: string };
 export type BrowserNavigateResult = { url: string | null };

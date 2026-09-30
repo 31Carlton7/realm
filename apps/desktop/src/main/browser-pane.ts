@@ -168,8 +168,9 @@ export type BrowserPane = {
    *  per view; null when the view is gone or the attach was refused (DevTools already attached). */
   attachCdp(id: string): CdpBinding | null;
   hasView(id: string): boolean;
-  /** Trustworthy page identity, straight off the webContents — never page-authored text. */
-  pageState(id: string): { url: string; title: string } | null;
+  /** Trustworthy page identity, straight off the webContents — never page-authored text — and
+   *  whether it is still loading, which is what the pane's own spinner shows. */
+  pageState(id: string): { url: string; title: string; loading: boolean } | null;
   /** browser id for a WebContents id — how the partition-wide download handler finds its pane. */
   browserIdForWebContents(webContentsId: number): string | null;
   /** Re-request a URL as a download, on the view's own session so its cookies apply (Plan 23 W4's
@@ -199,7 +200,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
     hasView: (id) => { const wc = views.get(id); return !!wc && !wc.isDestroyed(); },
     pageState: (id) => {
       const wc = views.get(id);
-      return wc && !wc.isDestroyed() ? { url: wc.getURL(), title: wc.getTitle() } : null;
+      return wc && !wc.isDestroyed() ? { url: wc.getURL(), title: wc.getTitle(), loading: wc.isLoading() } : null;
     },
     browserIdForWebContents: (webContentsId) => {
       for (const [id, wc] of views) if (!wc.isDestroyed() && wc.id === webContentsId) return id;

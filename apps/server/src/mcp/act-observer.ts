@@ -10,14 +10,16 @@ export type ObservedElement = { id: string; role: string; label: string; value?:
 
 export type ActObservation = {
   /** Which tool family acted. */
-  surface: "simulator" | "computer";
+  surface: "simulator" | "computer" | "browser";
   spaceId: string;
   sessionId: string;
   /** The tool's own name, e.g. `simulator_tap`. */
   tool: string;
-  /** What the agent said the step is for — the input tools' required `intent`. */
+  /** What the agent said the step is for — the simulator input tools' required `intent`, the optional
+   *  one `computer_act` and `browser_act` take (empty when left out), a walk's own. */
   intent: string;
-  /** The elements on screen when the agent chose, as the tool read them (the live tree). */
+  /** The elements on screen when the agent chose, as the tool read them — the live tree, or the
+   *  snapshot the agent was acting from. */
   elements: readonly ObservedElement[];
   /** What the agent actually addressed: an element from `elements`, a point, or nothing (a key, a swipe). */
   chosen: { element: ObservedElement } | { point: { x: number; y: number } } | null;

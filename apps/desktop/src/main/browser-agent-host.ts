@@ -5,7 +5,7 @@
  * (filled from CDP events from the moment of first attach), the download-block notes, and the
  * previous snapshot's fingerprint index that `*[new]` markers diff against.
  */
-import { DOWNLOAD_GRANT_TTL_MS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
+import { DOWNLOAD_GRANT_TTL_MS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
 import { DEFAULT_AGENT_ACCENT, PICK_BINDING, armElementPick, buildSnapshot, cancelFileChooser, describeElement, describePick, disarmElementPick, markAct, performAct, performFillCredential, performUpload, readPageText, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex } from "./browser-agent";
 import type { CredentialAuditEntry } from "./secret-store";
 import { axElementAt, readAxSnapshot } from "./device-ax";
@@ -67,8 +67,11 @@ export type BrowserAgentHostDeps = {
   touch(browserId: string): void;
   /** BrowserPaneHost.navigate — the SAME normalization + allowlist every other navigation obeys. */
   navigate(browserId: string, url: string): string | null;
-  /** Trustworthy page identity (webContents.getURL/getTitle — never page-authored text). */
-  pageState(browserId: string): { url: string; title: string } | null;
+  /** Trustworthy page identity (webContents.getURL/getTitle — never page-authored text), and whether
+   *  the page is still loading (`isLoading()`, the pane's own spinner). */
+  pageState(browserId: string): { url: string; title: string; loading?: boolean } | null;
+  /** The clock a page's network quiet is measured on. A test seam; `Date.now` otherwise. */
+  now?: () => number;
   /**
    * The encrypted secret store (`secret-store.ts`), for the `fillCredential` op alone.
    *
@@ -122,6 +125,16 @@ const FILL_OUTCOMES: Partial<Record<string, CredentialAuditEntry["outcome"]>> = 
 
 const CONSOLE_MAX = 200;
 const NETWORK_MAX = 150;
+/** A request still open after this long is a stream or a long poll — an EventSource, a chat socket's
+ *  fallback — which a page keeps open for as long as it is up. Counting it would call the page busy
+ *  forever, so it stops counting as in flight. */
+const REQUEST_STALE_MS = 10_000;
+/** The requests a page waits on to change what it shows: a document, and data it fetches. An image,
+ *  a font or a stylesheet arriving late changes nothing anyone clicks, and a page that never finishes
+ *  loading one — a slow tracker's pixel, a broken image — would otherwise never be at rest. */
+const WAITED_ON = new Set(["Document", "XHR", "Fetch"]);
+/** How many open requests one view keeps track of before forgetting the oldest. */
+const REQUESTS_MAX = 500;
 
 /** How long an act waits, after a successful click, to see whether it opened a file chooser. Short
  *  enough to be invisible to a person and to a twenty-step batch; long enough for the renderer to
@@ -133,6 +146,12 @@ type Attached = {
   consoleLines: string[];
   network: Map<string, { method: string; url: string; status?: number; mimeType?: string; failed?: string }>;
   networkOrder: string[];
+  /** The requests the page waits on (`WAITED_ON`) that it has open, by id, with when each started —
+   *  what `pageActivity` counts. Kept apart from the log above, which keeps a request long after it
+   *  finished. */
+  open: Map<string, number>;
+  /** When one of those last started or finished, or when Realm attached if none has. */
+  networkAt: number;
   lastSnapshot: SnapshotIndex | null;
   /** Resolver for the pick currently armed on this view, if any — see `pickElement`. */
   pick: ((ref: number | null) => void) | null;
@@ -346,9 +365,12 @@ export class BrowserAgentHost {
       }
       case "snapshot": {
         const entry = this.ensure(browserId);
+        // Sampled before the capture: it is the state the page was in as the read began.
+        const page = this.pageActivity(entry, browserId);
         const result = await buildSnapshot(entry.binding.send, entry.lastSnapshot);
         entry.lastSnapshot = result.index;
-        const { index: _index, ...wire } = result;
+        const { index: _index, ...rest } = result;
+        const wire: BrowserSnapshotResult = { ...rest, page };
         // A pending chooser is page state the tree cannot show — the input it belongs to is usually
         // the hidden one behind a styled button, so it has no box and is in no layout. The note is
         // how "a click of yours is still waiting for files" survives to the next snapshot, which is
@@ -658,7 +680,7 @@ export class BrowserAgentHost {
     if (cached) return cached;
     const binding = this.d.attach(browserId);
     if (!binding) throw new Error(`could not attach the debugger to browser ${browserId}`);
-    const entry: Attached = { binding, consoleLines: [], network: new Map(), networkOrder: [], lastSnapshot: null, pick: null, pickPoint: null, pickGen: 0, chooser: newChooserState() };
+    const entry: Attached = { binding, consoleLines: [], network: new Map(), networkOrder: [], open: new Map(), networkAt: this.now(), lastSnapshot: null, pick: null, pickPoint: null, pickGen: 0, chooser: newChooserState() };
     binding.onEvent((method, rawParams) => this.onCdpEvent(entry, method, rawParams));
     this.attached.set(browserId, entry);
     // Enable the event domains the buffers feed on. Fire-and-forget: an enable that fails costs a
@@ -683,6 +705,12 @@ export class BrowserAgentHost {
       const id = String(p.requestId ?? "");
       const req = p.request as { method?: string; url?: string } | undefined;
       if (!id || !req?.url || req.url.startsWith("data:")) return;
+      if (WAITED_ON.has(String(p.type ?? ""))) {
+        // A redirect arrives as the same id again: still one request, started over.
+        entry.open.set(id, this.now());
+        while (entry.open.size > REQUESTS_MAX) entry.open.delete(entry.open.keys().next().value!);
+        entry.networkAt = this.now();
+      }
       if (!entry.network.has(id)) {
         entry.network.set(id, { method: req.method ?? "GET", url: req.url });
         entry.networkOrder.push(id);
@@ -692,7 +720,10 @@ export class BrowserAgentHost {
       const row = entry.network.get(String(p.requestId ?? ""));
       const res = p.response as { status?: number; mimeType?: string } | undefined;
       if (row && res) { row.status = res.status; row.mimeType = res.mimeType; }
+    } else if (method === "Network.loadingFinished") {
+      this.closeRequest(entry, String(p.requestId ?? ""));
     } else if (method === "Network.loadingFailed") {
+      this.closeRequest(entry, String(p.requestId ?? ""));
       const row = entry.network.get(String(p.requestId ?? ""));
       if (row) row.failed = String(p.errorText ?? "failed");
     } else if (method === "Runtime.bindingCalled" && p.name === PICK_BINDING) {
@@ -746,6 +777,25 @@ export class BrowserAgentHost {
     const resolve = entry.pick;
     entry.pick = null;
     resolve?.(ref);
+  }
+
+  private closeRequest(entry: Attached, id: string): void {
+    if (entry.open.delete(id)) entry.networkAt = this.now();
+  }
+
+  /**
+   * What the browser says about the page right now — the `page` a snapshot carries. `loading` is the
+   * webContents' own; the requests are the ones the Network domain saw start and not yet finish,
+   * less any open past `REQUEST_STALE_MS`.
+   */
+  private pageActivity(entry: Attached, browserId: string): BrowserPageActivity {
+    const now = this.now();
+    for (const [id, startedAt] of entry.open) if (now - startedAt >= REQUEST_STALE_MS) entry.open.delete(id);
+    return { loading: this.d.pageState(browserId)?.loading === true, requests: entry.open.size, quietMs: Math.max(0, now - entry.networkAt) };
+  }
+
+  private now(): number {
+    return this.d.now?.() ?? Date.now();
   }
 
   private formatNetwork(entry: Attached): string {

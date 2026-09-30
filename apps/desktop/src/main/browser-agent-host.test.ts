@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PICK_HTML_MAX, PICK_TEXT_MAX } from "@realm/contracts";
+import { PICK_HTML_MAX, PICK_TEXT_MAX, type BrowserSnapshotResult } from "@realm/contracts";
 import { BrowserAgentHost, type CdpBinding } from "./browser-agent-host";
 import { createBridgeCore } from "./browser-agent-bridge";
 
@@ -17,6 +17,11 @@ function setup(opts: {
   downloads?: boolean;
   /** Plan 26: `false` strips the file reader, which is what a build without one looks like. */
   readFile?: boolean;
+  /** The pane's spinner, and the clock a page's network quiet is measured on. */
+  loading?: () => boolean;
+  now?: () => number;
+  /** Run while the page is being captured — something the page does mid-snapshot. */
+  duringCapture?: () => void;
 } = {}) {
   let emit: ((method: string, params: unknown) => void) | null = null;
   const calls: { method: string; params?: Record<string, unknown> }[] = [];
@@ -27,7 +32,7 @@ function setup(opts: {
   const binding: CdpBinding = {
     send: async (method, params) => {
       calls.push({ method, params });
-      if (method === "DOMSnapshot.captureSnapshot") return opts.responses?.[method] ?? { documents: [], strings: [] };
+      if (method === "DOMSnapshot.captureSnapshot") { opts.duringCapture?.(); return opts.responses?.[method] ?? { documents: [], strings: [] }; }
       if (method === "Runtime.evaluate") return { result: { value: "page text here" } };
       if (method === "Page.captureScreenshot") return { data: "c2NyZWVu" };
       if (method === "Page.getNavigationHistory") return opts.responses?.[method] ?? { currentIndex: 0, entries: [{ url: "https://example.com/x" }] };
@@ -45,7 +50,8 @@ function setup(opts: {
     hasView: (id) => liveViews.has(id),
     touch: (id) => { touched.push(id); },
     navigate: (id, url) => (liveViews.has(id) && url.startsWith("https://allowed.") ? url : null),
-    pageState: (id) => (liveViews.has(id) ? { url: "https://example.com/x", title: "Example" } : null),
+    pageState: (id) => (liveViews.has(id) ? { url: "https://example.com/x", title: "Example", ...(opts.loading ? { loading: opts.loading() } : {}) } : null),
+    ...(opts.now ? { now: opts.now } : {}),
     secrets: opts.credentials === undefined ? undefined : {
       listCredentials: () => [...opts.credentials!],
       getCredential: (id) => opts.credentials!.find((c) => c.id === id) ?? null,
@@ -733,5 +739,90 @@ describe("the upload op", () => {
   it("refuses an empty file list rather than reaching for the page", async () => {
     const { host } = setup();
     expect(await host.handleOp("upload", { browserId: "b1", ref: 5, files: [] })).toEqual({ ok: false, error: "no files were given to attach" });
+  });
+});
+
+describe("what the browser says about a page, with each snapshot", () => {
+  const request = (id: string, o: { url?: string; type?: string } = {}) => ({ requestId: id, type: o.type ?? "Fetch", request: { method: "GET", url: o.url ?? `https://example.com/${id}` } });
+  const pageOf = async (host: BrowserAgentHost) => ((await host.handleOp("snapshot", { browserId: "b1" })) as BrowserSnapshotResult).page;
+
+  it("counts the requests the page has open and how long its network has been quiet, from the Network events it already hears", async () => {
+    let now = 1_000;
+    const s = setup({ now: () => now });
+    await pageOf(s.host);
+    s.emitEvent("Network.requestWillBeSent", request("r1"));
+    s.emitEvent("Network.requestWillBeSent", request("r2"));
+    // Nothing leaves the page for a data: URL, so nothing is waited on.
+    s.emitEvent("Network.requestWillBeSent", request("r3", { url: "data:application/json,{}" }));
+    now = 1_050;
+    s.emitEvent("Network.loadingFinished", { requestId: "r1" });
+    expect(await pageOf(s.host)).toEqual({ loading: false, requests: 1, quietMs: 0 });
+    now = 1_300;
+    s.emitEvent("Network.loadingFailed", { requestId: "r2", errorText: "net::ERR_ABORTED" });
+    now = 1_450;
+    expect(await pageOf(s.host)).toEqual({ loading: false, requests: 0, quietMs: 150 });
+    // A redirect is the same request, started over: still one.
+    s.emitEvent("Network.requestWillBeSent", request("r4"));
+    s.emitEvent("Network.requestWillBeSent", request("r4", { url: "https://example.com/r4-moved" }));
+    expect((await pageOf(s.host))!.requests).toBe(1);
+  });
+
+  it("counts what the page waits on — its document, data it fetched — and lets an image or a font arrive without a word", async () => {
+    let now = 1_000;
+    const s = setup({ now: () => now });
+    await pageOf(s.host);
+    now = 2_000;
+    s.emitEvent("Network.requestWillBeSent", request("doc", { type: "Document" }));
+    now = 2_200;
+    s.emitEvent("Network.requestWillBeSent", request("pixel", { type: "Image" }));
+    s.emitEvent("Network.requestWillBeSent", request("font", { type: "Font" }));
+    now = 2_300;
+    // THE MUTANT: a request starting leaves the quiet where it was. The quiet is since the document
+    // was asked for at 2 000, not since Realm attached; the image and the font at 2 200 move nothing.
+    expect(await pageOf(s.host)).toEqual({ loading: false, requests: 1, quietMs: 300 });
+    s.emitEvent("Network.loadingFinished", { requestId: "pixel" });
+    expect((await pageOf(s.host))!.quietMs).toBe(300);
+  });
+
+  it("stops counting a request open ten seconds — a stream the page keeps open for as long as it is up", async () => {
+    let now = 5_000;
+    const s = setup({ now: () => now });
+    await pageOf(s.host);
+    s.emitEvent("Network.requestWillBeSent", request("events"));
+    now = 5_000 + 9_999;
+    expect((await pageOf(s.host))!.requests).toBe(1);
+    now = 5_000 + 10_000;
+    expect(await pageOf(s.host)).toEqual({ loading: false, requests: 0, quietMs: 10_000 });
+  });
+
+  it("says the page is loading while the pane's own spinner is on", async () => {
+    let loading = true;
+    const s = setup({ loading: () => loading });
+    expect((await pageOf(s.host))!.loading).toBe(true);
+    loading = false;
+    expect((await pageOf(s.host))!.loading).toBe(false);
+  });
+
+  it("reports the page as it was when the read began, not what it started while being read", async () => {
+    let s: ReturnType<typeof setup> | null = null;
+    let during = false;
+    s = setup({ duringCapture: () => { if (during) s!.emitEvent("Network.requestWillBeSent", request("late")); } });
+    await pageOf(s.host);
+    during = true;
+    expect((await pageOf(s.host))!.requests).toBe(0);
+    during = false;
+    expect((await pageOf(s.host))!.requests).toBe(1);
+  });
+
+  it("keeps track of at most five hundred open requests, forgetting the oldest", async () => {
+    const s = setup();
+    await pageOf(s.host);
+    for (let i = 0; i < 501; i++) s.emitEvent("Network.requestWillBeSent", request(`r${i}`));
+    expect((await pageOf(s.host))!.requests).toBe(500);
+    // The one forgotten was the first: finishing it changes nothing, finishing the last does.
+    s.emitEvent("Network.loadingFinished", { requestId: "r0" });
+    expect((await pageOf(s.host))!.requests).toBe(500);
+    s.emitEvent("Network.loadingFinished", { requestId: "r500" });
+    expect((await pageOf(s.host))!.requests).toBe(499);
   });
 });

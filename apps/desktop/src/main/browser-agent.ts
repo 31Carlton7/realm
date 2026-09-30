@@ -10,7 +10,7 @@ import {
   PICK_HTML_MAX, PICK_NAME_MAX, PICK_SELECTOR_MAX, PICK_TEXT_MAX,
   UPLOAD_CHOOSER_TIMEOUT_MS, UPLOAD_DROP_MAX_BYTES, UPLOAD_MAX_FILES,
   type BrowserAction, type BrowserActResult, type BrowserPickedElement, type BrowserRefusal,
-  type BrowserSnapshotResult, type BrowserUploadFile, type BrowserUploadMethod, type BrowserUploadResult,
+  type BrowserSnapshotElement, type BrowserSnapshotResult, type BrowserUploadFile, type BrowserUploadMethod, type BrowserUploadResult,
 } from "@realm/contracts";
 import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_MOTION, CURSOR_FORM_FOR_CSS, type CursorForm, type CursorFormName } from "./agent-cursor";
 
@@ -67,6 +67,7 @@ type Candidate = {
   checked: boolean | null;
   disabled: boolean;
   password: boolean;
+  focused: boolean;
   interactive: boolean;
   sweepCandidate: boolean;
   offscreen: boolean;
@@ -162,22 +163,30 @@ export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | nul
 
   const index: SnapshotIndex = new Map();
   const lines: string[] = [];
+  const elements: BrowserSnapshotElement[] = [];
   for (const c of visible.slice(0, MAX_ELEMENTS)) {
     const fingerprint = `${c.role}|${c.name}|${c.value ?? ""}|${Math.round(c.rect.x / 8)},${Math.round(c.rect.y / 8)}`;
     index.set(c.backendNodeId, fingerprint);
     const isNew = previous !== null && previous.get(c.backendNodeId) !== fingerprint;
     lines.push(formatLine(c, isNew));
+    elements.push({
+      ref: c.backendNodeId, role: c.role, name: c.name, value: c.value, rect: { ...c.rect },
+      checked: c.checked, disabled: c.disabled, password: c.password, focused: c.focused, offscreen: c.offscreen,
+    });
   }
   const notes: string[] = [];
   if (visible.length > MAX_ELEMENTS) notes.push(`(${visible.length - MAX_ELEMENTS} more elements not listed — scroll or read instead)`);
   if (coveredCount > 0) notes.push(`(${coveredCount} interactive element(s) hidden behind overlays — not actionable, not listed)`);
 
   const doc0 = snap.documents?.[0];
+  const measured = metrics.cssVisualViewport?.clientWidth !== undefined && metrics.cssVisualViewport.clientHeight !== undefined;
   return {
     url: doc0 ? s(snap.strings, doc0.documentURL) : "",
     title: doc0 ? s(snap.strings, doc0.title) : "",
     text: [...lines, ...notes].join("\n"),
     elementCount: Math.min(visible.length, MAX_ELEMENTS),
+    elements,
+    ...(measured ? { viewport: { width: viewport.w, height: viewport.h } } : {}),
     index,
   };
 }
@@ -293,6 +302,7 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
       value: rawValue === null ? null : clip(rawValue, VALUE_MAX),
       checked: tag === "INPUT" && ["checkbox", "radio"].includes((attrs.type ?? "").toLowerCase()) ? checkedSet.has(ni) : null,
       disabled: attrs.disabled !== undefined || axNode?.properties?.some((p) => p.name === "disabled" && p.value?.value === true) === true,
+      focused: axNode?.properties?.some((p) => p.name === "focused" && p.value?.value === true) === true,
       password, interactive, sweepCandidate, offscreen,
     });
   });
