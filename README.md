@@ -1,20 +1,59 @@
 <div align="center">
 
-<img src="site/public/app-icon.png" alt="" width="96" height="96">
+<a href="https://realm.computer"><img src="docs/images/banner.png" alt="Realm: Give your agents a world to work in. Below the words, a Realm space rises through a lit portal: the sidebar, a document, and an agent session." width="100%"></a>
 
-# Realm
+<h3>One workspace for every coding agent, on your Mac.</h3>
 
-**One workspace for every coding agent, on your Mac.**
+<a href="https://github.com/31Carlton7/realm/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/31Carlton7/realm?style=flat-square&label=release&labelColor=17181a&color=3d9aff"></a> <img alt="macOS on Apple silicon" src="https://img.shields.io/badge/macOS-Apple%20silicon-3d9aff?style=flat-square&logo=apple&logoColor=white&labelColor=17181a">
 
-[realm.computer](https://realm.computer) &nbsp;·&nbsp; [Download](https://github.com/31Carlton7/realm/releases/latest) &nbsp;·&nbsp; [Changelog](https://realm.computer/changelog)
-
-macOS · Apple silicon · in active development
+<b><a href="https://github.com/31Carlton7/realm/releases/latest">Download for Mac</a></b> &nbsp;·&nbsp; <a href="https://realm.computer">realm.computer</a> &nbsp;·&nbsp; <a href="https://realm.computer/changelog">Changelog</a>
 
 </div>
 
-![A Realm space: the sidebar on the left, a release brief open in the documents pane, and an agent session working through a plan in the pane beside it.](docs/images/workspace.png)
+<br>
 
-*One space: the sidebar, a release brief open in the documents pane, and a session working through a plan beside it.*
+Bring any coding agent. Every space in Realm is a realm of its own: a checkout, the agents working in it, and the terminals, browsers, documents and tools they use, side by side on your Mac and still there tomorrow. Realm drives the agent CLIs you already have, on the plan you already pay for, and never asks for an API key.
+
+It's in active development, and the [changelog](https://realm.computer/changelog) is the honest record of what has landed.
+
+## What it looks like
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/images/session.png" alt="An agent's turn: the first edit opened to its diff, with the calls after it folded into rows." width="100%">
+<p><b>A transcript you can read.</b> Tool calls fold into rows you can open, a plan renders as a plan, and sub-agents nest under the call that spawned them. Here the first edit, opened to its diff.</p>
+</td>
+<td width="50%" valign="top">
+<img src="docs/images/models.png" alt="The model picker, listing every model the installed agents advertise, grouped by the harness that runs it, with pricing, context and effort beside the selected one." width="100%">
+<p><b>Bring the agent you already use.</b> Claude Code, Codex, Cursor, Gemini, OpenCode, GitHub Copilot, goose, Qwen Code and Grok, each on its own login, models and permission modes. Every model they advertise lands in one picker.</p>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/images/connections.png" alt="A space's Connections page: Linear, Notion, Slack, GitHub, Jira and Confluence, and Figma as cards, each with what it grants and a Connect button." width="100%">
+<p><b>Your tools, without your credentials.</b> Linear, Notion, Slack, GitHub, Jira, Figma and Sentry connect in a click. The agent calls Realm and Realm calls the server, so the token stays on Realm's side, and every call is logged.</p>
+</td>
+<td width="50%" valign="top">
+<img src="docs/images/sandbox.png" alt="A space's sandbox postures: Workspace write, Read only and No sandbox, with No sandbox selected." width="100%">
+<p><b>Confine what an agent can touch.</b> A space can put its agents and terminals behind a macOS Seatbelt policy: the checkout writable, credential folders unreadable. It ships off, per space, because a policy that hasn't met your toolchain yet can break a build.</p>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/images/schedules.png" alt="A space's scheduled tasks: what each one asks for, when it next runs, and the switch that pauses it." width="100%">
+<p><b>Work that outlives the window.</b> realm-server keeps running when you close the window, so a long turn finishes anyway. Runs can be scheduled, and every turn is bracketed by a checkpoint you can restore.</p>
+</td>
+<td width="50%" valign="top">
+<img src="docs/images/activity.png" alt="The sidebar's activity list: every chat across the profile's spaces, grouped by the day it was last worked on." width="100%">
+<p><b>Find anything you have done.</b> Every chat across your spaces, by the day you last worked on it. One search reaches transcripts, skills and memory across the whole profile.</p>
+</td>
+</tr>
+</table>
+
+There's more on [realm.computer](https://realm.computer), and a longer tour of the app on its [features](https://realm.computer/features) page.
+
+---
 
 Local-first agent control plane for macOS — profiles → spaces, split panes for agents / terminals / browser / simulator / artifacts, a context pool, and an MCP gateway. See `docs/superpowers/specs/2026-08-17-realm-v1-design.md`.
 
@@ -30,6 +69,9 @@ Local-first agent control plane for macOS — profiles → spaces, split panes f
 `site/` is the marketing site and docs (Next.js, deployed on Vercel with **Root Directory = `site`**).
 It is deliberately outside the pnpm workspace and carries its own lockfile — see `site/README.md` for
 why that matters and how to verify the WebGPU hero shader headlessly.
+
+The images at the top of this README come from the deployed site: `node scripts/readme-images.mjs`
+rebuilds them in `docs/images/` after the site ships new captures or a new share card.
 
 ## Agent sessions
 - **Claude** sessions run on `@anthropic-ai/claude-agent-sdk`, which drives the `claude` CLI: install it and log in first (`claude auth login`). An expired login shows up as an error in the transcript.
@@ -189,34 +231,6 @@ Two scripts, from `apps/server`:
   or written. Worth knowing about before a big import: an imported session cannot be re-targeted
   afterwards, and the environment rows an import leaves behind will out-match everything on the next
   run if they are not swept with it.
-
-## Screens
-
-Real captures of a real space, taken against the built app by `site/scripts/capture-product.mjs`.
-These are the site's frames with Realm's page colour painted in behind them — the window is made of
-translucent material, so a capture laid straight onto GitHub's white theme washes its sidebar out.
-`node scripts/readme-images.mjs` repaints them after a re-capture.
-
-**Bring the agent you already use.** Claude Code, Codex, Cursor, Gemini, OpenCode, GitHub Copilot,
-goose, Qwen Code and Grok all run here, each keeping its own login, models and permission modes.
-
-![The model picker open, listing every model the installed agents advertise, grouped by harness, with per-model pricing, context window and effort range beside the selected one.](docs/images/models.png)
-
-*Every model the installed agents advertise, in one picker, grouped by the harness that offers it.*
-
-**Your tools, without your credentials.** Connections belong to the space rather than to an agent,
-so a session is handed the tools and never the token — it calls Realm, and Realm calls the server.
-
-![The Connections page of a space, showing Linear, Notion, Slack, GitHub, Jira & Confluence and Figma as cards, each with what it grants and a Connect button.](docs/images/connections.png)
-
-*Connecting an app to a space. One click each, and every session in the space can use them.*
-
-**Confine what an agent can touch.** A space can put its agents and terminals behind a macOS
-Seatbelt policy. It ships off, per space — Seatbelt is not a container, and the network stays open.
-
-![The Sandbox settings page for a space, showing its three postures — Workspace write, Read only and No sandbox — with No sandbox selected.](docs/images/sandbox.png)
-
-*The three postures a space can take, on the one it ships with.*
 
 ## Skills
 
