@@ -41,8 +41,10 @@ export type RecorderDeps = {
 const SAME_SCREEN = 0.85;
 /** Text this long is somebody's words — a caption, a comment, a message — not a control's name. */
 const LONG_TEXT = 60;
-/** Every recording ends here; a feed scrolled for an hour is not a thousand lessons. */
-const MAX_SCREENS = 500;
+/** Every recording ends here. A feed shows new posts on every screen, so half an hour of scrolling
+ *  keeps a screen a second or so; this holds a session of that and bounds the disk it takes (tens of
+ *  MB), and what training takes from it is the training set's to decide. */
+const MAX_SCREENS = 2_000;
 const DEFAULT_INTERVAL_MS = 1_200;
 const READ_ONLY_TEXT = /static ?text|^text$|label|heading/i;
 const SWITCH = /switch|toggle|check ?box/i;
