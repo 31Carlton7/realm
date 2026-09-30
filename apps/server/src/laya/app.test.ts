@@ -254,3 +254,68 @@ describe("a realm-browser act and walk, through the real gateway", () => {
     expect(rows[0]!.baseline.verify).toEqual({ value: true, changed: true, alert: false });
   }, 20_000);
 });
+
+describe("Laya's Assist on a walk, through the real gateway", () => {
+  const page = (url: string, title: string, els: { ref: number; role: string; name: string }[]) => ({
+    url, title, elementCount: els.length, text: els.map((e) => `[ref=${e.ref}] ${e.role} "${e.name}"`).join("\n"),
+    elements: els.map((e) => ({ ...e, value: null, rect: { x: 0, y: 40 * e.ref, w: 80, h: 20 }, checked: null, disabled: false, password: false, focused: false, offscreen: false })),
+    viewport: { width: 1200, height: 800 }, page: { loading: false, requests: 0, quietMs: 1_000 },
+  });
+  const HOME = page("http://127.0.0.1:8123/", "Fixture", [{ ref: 1, role: "link", name: "Home" }, { ref: 2, role: "link", name: "Docs" }]);
+  const DOCS = page("http://127.0.0.1:8123/docs", "Docs", [{ ref: 1, role: "link", name: "Home" }]);
+
+  it("asks Laya for a label nothing on the page matches once Assist is open, and clicks its pick", async () => {
+    const home = tempDir("realm-laya-app-");
+    vi.stubEnv("REALM_BUNDLED_SKILLS", join(home, "no-bundle"));
+    // A harness's evaluation, forced in by path: a checkpoint that earned Assist, at a threshold the
+    // fake server's 0.42 clears. Honored only with REALM_ENABLE_FAKE_AGENT=1 (`harnessEvalOverride`).
+    const evalPath = join(home, "eval.json");
+    writeFileSync(evalPath, JSON.stringify({
+      v: 1, checkpoint: "english@55cf4c4", createdAt: "2026-09-29T07:00:00Z", prompt: 2,
+      benchmark: { version: "1", split: "heldout", cases: 400, apps: ["Maps"] },
+      target: { accuracy: 0.96, n: 120, byApp: {}, assist: { threshold: 0.4, precision: 0.98, coverage: 0.7 } },
+      sensitive: { accuracy: 0.95, recall: 0.99, precision: 0.9, n: 60 }, verify: { accuracy: 0.9, n: 40 },
+      baseline: { sensitiveRule: { accuracy: 0.97, recall: 1 }, verifyRule: { accuracy: 0.93 } }, latencyMs: { p50: 40, p90: 90 },
+    }));
+    vi.stubEnv("REALM_ENABLE_FAKE_AGENT", "1");
+    vi.stubEnv("REALM_LAYA_EVAL_OVERRIDE", evalPath);
+    const runtime = fakeRuntime({ dir: join(home, "laya"), installed: true, server: { choose: () => "Docs" } });
+    app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script: [] }) }, laya: runtime });
+    let at = HOME;
+    const clicked: number[] = [];
+    const host = await rpc(app.port, (event, payload, call) => {
+      if (event !== "browserHost.op") return;
+      const { callId, op, params } = payload as { callId: string; op: string; params: Any };
+      const answer = (result: unknown) => void call("browserHost.result", { callId, ok: true, result });
+      if (op === "describe") answer({ open: true, url: at.url, title: at.title, element: null });
+      else if (op === "snapshot") answer(at);
+      else if (op === "act") {
+        if (params.action.kind === "click") { clicked.push(params.action.ref); if (params.action.ref === 2) at = DOCS; }
+        answer({ ok: true, detail: "done" });
+      } else void call("browserHost.result", { callId, ok: false, error: "not in this test" });
+    });
+    await host.call("browserHost.register", {});
+    const profile = (await host.call("profiles.create", { name: "P" })).result;
+    const space = (await host.call("spaces.create", { profileId: profile.id, name: "S" })).result;
+    await host.call("laya.setMode", { mode: "assist" });
+    await until(async () => (await host.call("laya.status", {})).result.runtime.state === "ready");
+    const { browserId } = (await host.call("browsers.create", { spaceId: space.id, url: HOME.url })).result;
+    const { session } = app.sessions.create({ spaceId: space.id, agentKind: "fake", projectId: null, model: null, effort: null, permissionMode: "bypassPermissions" });
+    const cfg = app.gateway.register(session.id, space.id) as Extract<McpServerConfig, { url: string }>;
+    const mcp = new Client({ name: "t", version: "1.0.0" }, { capabilities: {} });
+    await mcp.connect(new StreamableHTTPClientTransport(new URL(cfg.url), { requestInit: { headers: cfg.headers } }));
+    const walked = await mcp.callTool({ name: "realm-browser__browser_do", arguments: { browserId, intent: "read the docs", path: ["the documentation"] } }) as CallToolResult;
+    // THE MUTANT: Assist not handed to the browser tools in app.ts. Nothing on the page is called "the
+    // documentation", and without Laya the walk can only say so.
+    expect(walked.isError).toBeFalsy();
+    expect(clicked).toEqual([2]);
+    expect((walked.content[0] as { text: string }).text).toMatch(/^Walked "the documentation" \(Laya's pick\), 2 scrolls on /);
+    await mcp.close();
+    host.close();
+    await app.close();
+    app = null;
+    const rows = readFileSync(runtime.logPath, "utf8").trim().split("\n").map((l) => JSON.parse(l) as ShadowRow);
+    // The step Laya chose is logged as Laya's, and never learned from as the agent's.
+    expect(rows.map((r) => [r.tool, r.truth.target])).toEqual([["browser_do", { id: "2", source: "laya" }]]);
+  }, 20_000);
+});
