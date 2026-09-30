@@ -20,6 +20,8 @@ function setup(opts: {
   /** The pane's spinner, and the clock a page's network quiet is measured on. */
   loading?: () => boolean;
   now?: () => number;
+  /** Run while the page is being captured — something the page does mid-snapshot. */
+  duringCapture?: () => void;
 } = {}) {
   let emit: ((method: string, params: unknown) => void) | null = null;
   const calls: { method: string; params?: Record<string, unknown> }[] = [];
@@ -30,7 +32,7 @@ function setup(opts: {
   const binding: CdpBinding = {
     send: async (method, params) => {
       calls.push({ method, params });
-      if (method === "DOMSnapshot.captureSnapshot") return opts.responses?.[method] ?? { documents: [], strings: [] };
+      if (method === "DOMSnapshot.captureSnapshot") { opts.duringCapture?.(); return opts.responses?.[method] ?? { documents: [], strings: [] }; }
       if (method === "Runtime.evaluate") return { result: { value: "page text here" } };
       if (method === "Page.captureScreenshot") return { data: "c2NyZWVu" };
       if (method === "Page.getNavigationHistory") return opts.responses?.[method] ?? { currentIndex: 0, entries: [{ url: "https://example.com/x" }] };
@@ -782,5 +784,28 @@ describe("what the browser says about a page, with each snapshot", () => {
     expect((await pageOf(s.host))!.loading).toBe(true);
     loading = false;
     expect((await pageOf(s.host))!.loading).toBe(false);
+  });
+
+  it("reports the page as it was when the read began, not what it started while being read", async () => {
+    let s: ReturnType<typeof setup> | null = null;
+    let during = false;
+    s = setup({ duringCapture: () => { if (during) s!.emitEvent("Network.requestWillBeSent", request("late")); } });
+    await pageOf(s.host);
+    during = true;
+    expect((await pageOf(s.host))!.requests).toBe(0);
+    during = false;
+    expect((await pageOf(s.host))!.requests).toBe(1);
+  });
+
+  it("keeps track of at most five hundred open requests, forgetting the oldest", async () => {
+    const s = setup();
+    await pageOf(s.host);
+    for (let i = 0; i < 501; i++) s.emitEvent("Network.requestWillBeSent", request(`r${i}`));
+    expect((await pageOf(s.host))!.requests).toBe(500);
+    // The one forgotten was the first: finishing it changes nothing, finishing the last does.
+    s.emitEvent("Network.loadingFinished", { requestId: "r0" });
+    expect((await pageOf(s.host))!.requests).toBe(500);
+    s.emitEvent("Network.loadingFinished", { requestId: "r500" });
+    expect((await pageOf(s.host))!.requests).toBe(499);
   });
 });

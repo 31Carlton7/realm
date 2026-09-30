@@ -188,3 +188,69 @@ describe("a realm-computer act, through the real gateway", () => {
     expect(row!.truth.permission).toEqual({ decision: "allow", source: "user" });
   });
 });
+
+describe("a realm-browser act and walk, through the real gateway", () => {
+  /** A page as Electron main's pane sends it: the lines the agent reads, and the same elements as data. */
+  const page = (url: string, title: string, els: { ref: number; role: string; name: string }[]) => ({
+    url, title, elementCount: els.length, text: els.map((e) => `[ref=${e.ref}] ${e.role} "${e.name}"`).join("\n"),
+    elements: els.map((e) => ({ ...e, value: null, rect: { x: 0, y: 40 * e.ref, w: 80, h: 20 }, checked: null, disabled: false, password: false, offscreen: false })),
+    viewport: { width: 1200, height: 800 }, page: { loading: false, requests: 0, quietMs: 1_000 },
+  });
+  const HOME = page("http://127.0.0.1:8123/", "Fixture", [{ ref: 1, role: "link", name: "Home" }, { ref: 2, role: "link", name: "Docs" }]);
+  const DOCS = page("http://127.0.0.1:8123/docs", "Docs", [{ ref: 1, role: "link", name: "Home" }, { ref: 11, role: "link", name: "Getting started" }]);
+
+  it("is heard by the shadow — an act, and each click of a walk — while the agent gets exactly what the page answered", async () => {
+    const home = tempDir("realm-laya-app-");
+    vi.stubEnv("REALM_BUNDLED_SKILLS", join(home, "no-bundle"));
+    const runtime = fakeRuntime({ dir: join(home, "laya"), installed: true, server: { choose: () => "Docs", noul: () => 0.07 } });
+    app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script: [] }) }, laya: runtime });
+    let at = HOME;
+    // Electron main's half of the bridge, scripted: a link to the docs, and one back home.
+    const host = await rpc(app.port, (event, payload, call) => {
+      if (event !== "browserHost.op") return;
+      const { callId, op, params } = payload as { callId: string; op: string; params: Any };
+      const answer = (result: unknown) => void call("browserHost.result", { callId, ok: true, result });
+      if (op === "describe") answer({ open: true, url: at.url, title: at.title, element: null });
+      else if (op === "snapshot") answer(at);
+      else if (op === "act") { at = params.action.ref === 2 ? DOCS : params.action.ref === 1 ? HOME : at; answer({ ok: true, detail: `clicked ref=${params.action.ref}` }); }
+      else void call("browserHost.result", { callId, ok: false, error: "not in this test" });
+    });
+    await host.call("browserHost.register", {});
+    const profile = (await host.call("profiles.create", { name: "P" })).result;
+    const space = (await host.call("spaces.create", { profileId: profile.id, name: "S" })).result;
+    await host.call("laya.setMode", { mode: "shadow" });
+    await until(async () => (await host.call("laya.status", {})).result.runtime.state === "ready");
+    const { browserId } = (await host.call("browsers.create", { spaceId: space.id, url: HOME.url })).result;
+
+    const { session } = app.sessions.create({ spaceId: space.id, agentKind: "fake", projectId: null, model: null, effort: null, permissionMode: "bypassPermissions" });
+    const cfg = app.gateway.register(session.id, space.id) as Extract<McpServerConfig, { url: string }>;
+    const mcp = new Client({ name: "t", version: "1.0.0" }, { capabilities: {} });
+    await mcp.connect(new StreamableHTTPClientTransport(new URL(cfg.url), { requestInit: { headers: cfg.headers } }));
+    await mcp.callTool({ name: "realm-browser__browser_snapshot", arguments: { browserId } });
+    const acted = await mcp.callTool({ name: "realm-browser__browser_act", arguments: { browserId, action: { kind: "click", ref: 2 }, intent: "open the docs" } }) as CallToolResult;
+    expect(acted.content).toEqual([{ type: "text", text: "clicked ref=2" }]);
+    const walked = await mcp.callTool({ name: "realm-browser__browser_do", arguments: { browserId, intent: "go home and back", path: ["Home", "Docs"] } }) as CallToolResult;
+    expect(walked.isError).toBeFalsy();
+    // Nothing Laya answered reaches the agent: it chose "Docs" at every question and was asked plenty.
+    expect(JSON.stringify(walked.content)).not.toMatch(/laya/i);
+    await mcp.close();
+    host.close();
+    await app.close();
+    app = null;
+
+    const rows = readFileSync(runtime.logPath, "utf8").trim().split("\n").map((l) => JSON.parse(l) as ShadowRow);
+    expect(rows.map((r) => [r.surface, r.tool, r.intent, r.chosen])).toEqual([
+      ["browser", "browser_act", "open the docs", { id: "2" }],
+      ["browser", "browser_do", "go home and back", { id: "1" }],
+      ["browser", "browser_do", "go home and back", { id: "2" }],
+    ]);
+    expect(rows[0]).toMatchObject({
+      spaceId: space.id, sessionId: session.id, checkpoint: "english@55cf4c4",
+      laya: { target: { choice: "2" }, sensitive: { p: 0.07 } },
+      truth: { target: { id: "2", source: "agent" }, sensitive: { value: false, source: "rule" } },
+    });
+    expect(rows[0]!.candidates.map((e) => e.label)).toEqual(["Home", "Docs"]);
+    // The page the act left reached the shadow through the walk's first look at it.
+    expect(rows[0]!.baseline.verify).toEqual({ value: true, changed: true, alert: false });
+  });
+});

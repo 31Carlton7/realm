@@ -701,7 +701,6 @@ export class BrowserAgentHost {
       const req = p.request as { method?: string; url?: string } | undefined;
       if (!id || !req?.url || req.url.startsWith("data:")) return;
       // A redirect arrives as the same id again: still one request, started over.
-      entry.open.delete(id);
       entry.open.set(id, this.now());
       while (entry.open.size > REQUESTS_MAX) entry.open.delete(entry.open.keys().next().value!);
       entry.networkAt = this.now();

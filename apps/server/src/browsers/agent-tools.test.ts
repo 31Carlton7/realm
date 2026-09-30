@@ -1448,6 +1448,26 @@ describe("browser_do", () => {
     expect(afters.map((a) => a.map((e) => e.label))).toEqual([["Home", "Getting started", "Wi-Fi setup", "Expand all"], ["Home", "Next"]]);
   });
 
+  it("leaves its answer as this session's latest snapshot, so the next act is heard against the page the walk ended on", async () => {
+    const seen: ActObservation[] = [];
+    const page = docsSite();
+    const s = setup({ bridgeResults: page.bridgeResults, observe: (o) => { seen.push(o); } });
+    await walk(s, { path: ["Docs", "Getting started"] });
+    await s.call("browser_act", { browserId: "b1", action: { kind: "click", ref: 21 }, intent: "read on" });
+    expect(seen.at(-1)!.elements.map((e) => e.label)).toEqual(["Home", "Next"]);
+    expect(seen.at(-1)!.chosen).toEqual({ element: { id: "21", role: "link", label: "Next" } });
+  });
+
+  it("hands an act before the walk the page the walk first sees", async () => {
+    const afters: (readonly ObservedElement[])[] = [];
+    const page = docsSite();
+    const s = setup({ bridgeResults: page.bridgeResults, observe: () => (after) => { afters.push(after); } });
+    await s.call("browser_snapshot", { browserId: "b1" });
+    await s.call("browser_act", { browserId: "b1", action: { kind: "click", ref: 2 }, intent: "open the docs" });
+    await walk(s, { path: ["Getting started"] });
+    expect(afters[0]!.map((e) => e.label)).toEqual(["Home", "Getting started", "Wi-Fi setup", "Expand all"]);
+  });
+
   it("counts a walk as done only when the page it ended on shows what it was told to expect — in a link, its title or its text", async () => {
     for (const until of ["Next", "Fixture", "Install the thing"]) {
       const r = await walk(setup({ bridgeResults: docsSite().bridgeResults }), { path: ["Docs", "Getting started"], until });

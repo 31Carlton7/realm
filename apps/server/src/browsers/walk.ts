@@ -161,7 +161,7 @@ export function pageWalked(snap: BrowserSnapshotResult, host: string, r: ExecRes
     head = `Walked ${trail} on ${host} in ${secs(r.ms)}.`;
   } else {
     const why = WHY[r.stop.why];
-    const refs = r.stop.candidates.filter((e) => e.path !== DOCUMENT_PATH).map((e) => `[ref=${e.path}]`);
+    const refs = r.stop.candidates.map((e) => `[ref=${e.path}]`);
     head = `${r.steps.length > 0 ? `Walked ${trail}, then stopped` : "Stopped"} at "${clip(r.stop.label, 60)}" on ${host} after ${secs(r.ms)}. ${why ?? sentence(r.stop.detail)}`
       + `${refs.length > 0 ? ` The likeliest: ${refs.join(", ")} — each is in the snapshot below.` : ""} ${AFTER_STOP[r.stop.why]}`;
     if (why !== null) account = `walk: ${sentence(r.stop.detail)}\n`;

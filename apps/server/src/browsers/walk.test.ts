@@ -72,7 +72,8 @@ describe("a snapshot as the walk reads it", () => {
   it("puts the document first, unnamed, with its address as its value: no label matches it, and a new address is a change", () => {
     const tree = walkTreeOf(SNAP);
     expect(tree.elements[0]).toMatchObject({ path: DOCUMENT_PATH, label: "", value: SNAP.url });
-    expect(findLabel(tree, "")).toBeNull();
+    // The page's title is "Explore" and nothing on it is: a path that says Explore finds nothing to click.
+    expect(findLabel(tree, "Explore")).toBeNull();
     // A link to another part of the same page changes nothing but the address.
     expect(signature(walkTreeOf({ ...SNAP, url: `${SNAP.url}#top` }))).not.toBe(signature(tree));
   });
