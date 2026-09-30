@@ -316,6 +316,25 @@ describe("where a walk stops", () => {
     expect(d.taps).toEqual([]);
   });
 
+  it("never walks into what other people would see in an app like Instagram, and walks the same words elsewhere", async () => {
+    const feed = (app: string): Record<string, Screen> => ({
+      root: { app, heading: app, rows: [{ label: "Profile", to: "profile" }, { label: "Messages", to: "profile" }] },
+      profile: { app, heading: "Profile", rows: [{ label: "Follow", to: "profile" }, { label: "Following", to: "following" }] },
+      following: { app, heading: "Following", rows: [{ label: "Back", to: "profile" }] },
+    });
+    const ig = new Device(feed("Instagram"), "root");
+    const r = await walk(ig, { path: ["Profile", "Follow"] });
+    // THE MUTANT: judge the step without its app. The walk follows somebody on the user's account.
+    expect(r.stop).toMatchObject({ why: "sensitive", label: "Follow" });
+    expect(r.stop!.detail).toContain('"follow"');
+    expect(ig.taps).toEqual(["Profile"]);
+    // The accounts one follows is a list to look at, not a follow.
+    expect((await walk(new Device(feed("Instagram"), "profile"), { path: ["Following"] })).ok).toBe(true);
+    // A message opened is one somebody sees as read, in Instagram; in Settings, Messages is a row.
+    expect((await walk(new Device(feed("Instagram"), "root"), { path: ["Messages"] })).stop?.why).toBe("sensitive");
+    expect((await walk(new Device(feed("Settings"), "root"), { path: ["Messages"] })).ok).toBe(true);
+  });
+
   it("stops when a tap changes nothing, rather than going on as if it had worked", async () => {
     const d = new Device(settings(), "about");
     const r = await walk(d, { path: ["iOS Version", "Anything"] });
@@ -400,6 +419,8 @@ describe("Laya, for a label nothing on the screen matches", () => {
     const laya = vi.fn(async (): Promise<AssistOutcome> => ({ kind: "ask-agent", candidates: [], best: null, why: "unsure" }));
     const r = await walk(d, { path: ["wireless networks"] }, { laya });
     expect(laya).toHaveBeenCalledOnce();
+    // Asked in the app the walk is in, which is what Assist's own sensitive rule reads.
+    expect(laya).toHaveBeenCalledWith("wireless networks", expect.any(Array), "Settings");
     expect(r.stop?.why).toBe("not-found");
     expect(d.taps).toEqual([]);
   });
@@ -667,6 +688,8 @@ describe("what the observer hears", () => {
     const settled = vi.fn((t: SimulatorAxTree) => { order.push(`settled:${heading(t)}`); });
     await walk(d, { path: ["General", "About"] }, { observe, settled });
     expect(order).toEqual(["observe:General:agent:0", "settled:General", "observe:About:agent:1", "settled:About"]);
+    // Each step says which app it was in — what the shadow judges it by.
+    expect(observe.mock.calls.map(([s]) => (s as { app?: string }).app)).toEqual(["Settings", "Settings"]);
   });
 });
 

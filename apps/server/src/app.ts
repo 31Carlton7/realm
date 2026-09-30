@@ -50,6 +50,7 @@ import { LayaShadow } from "./laya/shadow";
 import { createLayaAssist, harnessEvalOverride, type LayaAssist } from "./laya/assist";
 import { bundledLayaDir } from "./laya/benchmark";
 import { readEval, trainCheckpoint } from "./laya/training";
+import { LayaRecorder } from "./laya/recorder";
 import type { LayaRuntime } from "./laya/runtime";
 import { createTerminalAgentProvider } from "./terminals/agent-tools";
 import { SignInTickets } from "./browsers/signin";
@@ -663,8 +664,16 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      and the download's own evaluation — read when no checkpoint trained here is active. */
   const layaResources = bundledLayaDir();
   const layaRuntime = opts.laya ?? null;
+  /* Screens kept while a person uses an app on a device — read, never tapped — for Laya to learn
+     from (`laya/recorder.ts`). They stay in the home, under laya/recordings. */
+  const layaRecorder = new LayaRecorder({
+    dir: join(opts.home, "laya", "recordings"),
+    read: (simulatorId) => simulators.ax(simulatorId),
+    deviceName: (simulatorId) => simulators.get(simulatorId).name,
+    onChange: () => laya.recordingChanged(),
+  });
   const laya = new LayaService({
-    runtime: layaRuntime, settings, log: layaLog,
+    runtime: layaRuntime, settings, log: layaLog, recorder: layaRecorder,
     publish: (status) => {
       rpc.broadcast("laya.changed", status);
       const listed = layaAssist?.gate().available ?? false;
@@ -674,7 +683,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     baseEval: () => (layaRuntime ? readEval(join(layaRuntime.dir, "evals", "convaiinnovations-laya.json")) : null)
       ?? (layaResources ? readEval(join(layaResources, "evals", "convaiinnovations-laya.json")) : null),
     ...(layaRuntime && layaResources
-      ? { train: (o: Parameters<typeof trainCheckpoint>[1]) => trainCheckpoint({ runtime: layaRuntime, resources: layaResources, logFiles: () => layaLog.files() }, o) }
+      ? { train: (o: Parameters<typeof trainCheckpoint>[1]) => trainCheckpoint({ runtime: layaRuntime, resources: layaResources, logFiles: () => layaLog.files(), recorded: () => layaRecorder.screens() }, o) }
       : {}),
   });
   layaAssist = createLayaAssist({ laya });

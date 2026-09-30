@@ -290,7 +290,7 @@ const HANDLERS: Record<string, Handler> = {
         return err("a target in words is for a click that names no index and no point — give one of the three, not two.");
       }
       const elements = d.trees.lookup(ctx.sessionId, app.bundleId, snapshotId);
-      const outcome = await d.assist.resolve(args.value.target, args.value.intent ?? args.value.target, elements, "computer_act");
+      const outcome = await d.assist.resolve(args.value.target, args.value.intent ?? args.value.target, elements, "computer_act", app.appName);
       if (outcome.kind !== "pick") {
         const line = (e: ObservedElement) => `[${e.id}] ${e.label.trim() ? `"${clip(e.label.trim(), 60)}"` : "(no name)"}`;
         const why = outcome.why === "sensitive"
@@ -331,7 +331,7 @@ const HANDLERS: Record<string, Handler> = {
         d.observe({
           surface: "computer", spaceId: ctx.spaceId, sessionId: ctx.sessionId, tool: "computer_act",
           intent: args.value.intent ?? "", elements, chosen: chosenOf(action, elements),
-          ...(pickedBy ? { chosenBy: "laya" as const } : {}),
+          ...(pickedBy ? { chosenBy: "laya" as const } : {}), ...(app.appName ? { app: app.appName } : {}),
         });
       } catch { /* an observer never changes an act */ }
     }
@@ -402,14 +402,14 @@ const HANDLERS: Record<string, Handler> = {
       tap: (el) => act({ kind: "click", index: Number(el.path), button: "left", clickCount: 1, modifiers: [] }),
       scroll: async () => ({ ok: false, detail: "a walk in a Mac app does not scroll" }),
       type: (text) => act({ kind: "type", text }),
-      ...(assist?.gate().available ? { laya: (label: string, elements: readonly ObservedElement[]) => assist.resolve(label, label, elements, "computer_act") } : {}),
-      observe: ({ elements, chosen, by }) => {
+      ...(assist?.gate().available ? { laya: (label: string, elements: readonly ObservedElement[], app: string) => assist.resolve(label, label, elements, "computer_act", app) } : {}),
+      observe: ({ elements, chosen, by, app }) => {
         if (!d.observe) return;
         const seen = elements.map((e) => ({ id: e.path, role: e.role, label: e.label, ...(e.value ? { value: e.value } : {}) }));
         try {
           d.observe({
             surface: "computer", spaceId: ctx.spaceId, sessionId: ctx.sessionId, tool: "computer_do", intent: a.intent,
-            elements: seen, chosen: { element: seen.find((e) => e.id === chosen.path)! }, ...(by === "laya" ? { chosenBy: "laya" as const } : {}),
+            elements: seen, chosen: { element: seen.find((e) => e.id === chosen.path)! }, ...(by === "laya" ? { chosenBy: "laya" as const } : {}), ...(app.trim() ? { app: app.trim() } : {}),
           });
         } catch { /* an observer never changes a walk */ }
       },

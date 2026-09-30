@@ -36,3 +36,15 @@ describe("sessions.send params (Plan 14 W5 — attachment-only messages)", () =>
     expect(schema.safeParse({ id, text: "", attachments: [] }).success).toBe(false);
   });
 });
+
+describe("laya.record params", () => {
+  const schema = Methods["laya.record"].params;
+  const simulatorId = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+  it("takes apps by the names they call themselves, or none for the app in front", () => {
+    expect(schema.parse({ simulatorId })).toEqual({ simulatorId, apps: [] });
+    expect(schema.parse({ simulatorId, apps: [" Instagram ", "TikTok"] }).apps).toEqual(["Instagram", "TikTok"]);
+  });
+  it("refuses a name with no letter or digit in it — it would fold to the home screen's nothing", () => {
+    for (const bad of ["…", " - ", "!!"]) expect(schema.safeParse({ simulatorId, apps: [bad] }).success, bad).toBe(false);
+  });
+});

@@ -53,9 +53,9 @@ export type ExecIO = {
   scroll(direction: "up" | "down", tree: WalkTree): Promise<{ ok: boolean; detail: string }>;
   type(text: string): Promise<{ ok: boolean; detail: string }>;
   /** Laya's pick for a label nothing on the screen matches. Present only while its Assist can act. */
-  laya?(label: string, elements: readonly ObservedElement[]): Promise<AssistOutcome>;
+  laya?(label: string, elements: readonly ObservedElement[], app: string): Promise<AssistOutcome>;
   /** Each tap, just before it is sent — for Laya's shadow. */
-  observe?(step: { label: string; elements: readonly SimulatorAxElement[]; chosen: SimulatorAxElement; by: "agent" | "laya" }): void;
+  observe?(step: { label: string; elements: readonly SimulatorAxElement[]; chosen: SimulatorAxElement; by: "agent" | "laya"; app: string }): void;
   /** Each screen once it has settled after a step — the "after" the observer is owed. */
   settled?(tree: WalkTree): void;
   /** The screen's picture, for telling when it has stopped moving without reading its tree
@@ -184,7 +184,7 @@ export async function runPath(given: ExecIO, o: ExecOptions): Promise<ExecResult
     if (!found && io.laya) {
       // The clock, the battery and the signal are nobody's goal, and would take a place among the
       // twenty candidates Laya chooses from.
-      const outcome = await io.laya(label, offeredToLaya(tree).map(observed));
+      const outcome = await io.laya(label, offeredToLaya(tree).map(observed), tree.app);
       if (outcome.kind === "pick") {
         const el = tree.elements.find((e) => e.path === outcome.element.id);
         if (el) found = { el, how: "laya" };
@@ -199,7 +199,7 @@ export async function runPath(given: ExecIO, o: ExecOptions): Promise<ExecResult
     // Never walked into: the agent takes these one tap at a time. What is checked is the step — the
     // label asked for and the element it matched — not the goal, which says what the walk is for and
     // would stop every step of "delete an app" at General.
-    const rule = sensitiveRule(`${label} ${found.el.label}`);
+    const rule = sensitiveRule(`${label} ${found.el.label}`, tree.app);
     if (rule.value) {
       return done({ why: "sensitive", label, detail: `"${clip(found.el.label.trim() || label, 60)}" reads as a step that ${rule.matched ? `says "${rule.matched}"` : "is sensitive"}, which the walk never takes on its own`, candidates: [found.el, ...likeliest(tree, label).filter((e) => e !== found!.el)].slice(0, 8) });
     }
@@ -218,7 +218,7 @@ export async function runPath(given: ExecIO, o: ExecOptions): Promise<ExecResult
     }
 
     const before = signature(tree);
-    io.observe?.({ label, elements: tree.elements, chosen: found.el, by: found.how === "laya" ? "laya" : "agent" });
+    io.observe?.({ label, elements: tree.elements, chosen: found.el, by: found.how === "laya" ? "laya" : "agent", app: tree.app });
     const mark = io.motion?.mark();
     const tapped = await io.tap(found.el, tree);
     if (!tapped.ok) return done({ why: "tap-failed", label, detail: tapped.detail, candidates: likeliest(tree, label) });

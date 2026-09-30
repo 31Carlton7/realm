@@ -368,6 +368,11 @@ export type Api = {
   /** `laya.train` / `laya.cancelTraining`: a training run on this Mac, and stopping it. */
   layaTrain(): Promise<LayaStatus>;
   layaCancelTraining(): Promise<LayaStatus>;
+  /** `laya.record` / `laya.stopRecording` / `laya.deleteRecordings`: the screens of an app kept while
+   *  a person uses it on a device pane — read, never tapped — for Train to learn from. */
+  layaRecord(simulatorId: string, apps: string[]): Promise<LayaStatus>;
+  layaStopRecording(): Promise<LayaStatus>;
+  layaDeleteRecordings(): Promise<LayaStatus>;
   /** `sessions.setEnvironment` — same guard: rejected once the session has any event. */
   setSessionEnvironment(id: string, environmentId: string): Promise<Session>;
   /** `sessions.moveToSpace` — same guard as setAgent/setEnvironment: rejected once the session has any event. */
@@ -1690,6 +1695,9 @@ export type AppState = {
   deleteLayaLog(): Promise<void>;
   trainLaya(): Promise<void>;
   cancelLayaTraining(): Promise<void>;
+  recordLaya(simulatorId: string, apps: string[]): Promise<void>;
+  stopLayaRecording(): Promise<void>;
+  deleteLayaRecordings(): Promise<void>;
   applyLaya(status: LayaStatus): void;
   /** Move an unstarted session to another of its space's environments (the under-strip's workspace
    *  selector, Plan 12 W1). Same server guard as the agent switch — after the first event the chip is a
@@ -4489,6 +4497,9 @@ await get().refreshCustomThemes().catch(() => {});
       async deleteLayaLog() { set({ laya: await api.layaDeleteLog() }); },
       async trainLaya() { set({ laya: await api.layaTrain() }); },
       async cancelLayaTraining() { set({ laya: await api.layaCancelTraining() }); },
+      async recordLaya(simulatorId, apps) { set({ laya: await api.layaRecord(simulatorId, apps) }); },
+      async stopLayaRecording() { set({ laya: await api.layaStopRecording() }); },
+      async deleteLayaRecordings() { set({ laya: await api.layaDeleteRecordings() }); },
       applyLaya(status) { set({ laya: status }); },
       async setSessionAgent(id, agentKind) {
         mergeSession(await api.setSessionAgent(id, agentKind));

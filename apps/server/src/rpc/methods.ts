@@ -920,6 +920,9 @@ export function registerMethods(d: Deps): void {
   reg("laya.deleteLog", () => d.laya.deleteLog());
   reg("laya.train", () => d.laya.train());
   reg("laya.cancelTraining", () => d.laya.cancelTraining());
+  reg("laya.record", (p) => d.laya.record(p.simulatorId, p.apps));
+  reg("laya.stopRecording", () => d.laya.stopRecording());
+  reg("laya.deleteRecordings", () => d.laya.deleteRecordings());
 
   reg("failover.get", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);

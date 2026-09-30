@@ -7,7 +7,7 @@ import { sessionEvent } from "@realm/contracts";
 import type { ActObservation, ObservedElement } from "../mcp/act-observer";
 import { LayaClient } from "./client";
 import { DecisionLog } from "./log";
-import { LayaShadow, MAX_CANDIDATES, SENSITIVE_PARTS, pickCandidates, plainRole, screenDiff, sensitiveRule, type ShadowRow } from "./shadow";
+import { LayaShadow, MAX_CANDIDATES, SENSITIVE_PARTS, pickCandidates, plainRole, screenDiff, sensitiveRule, socialStep, type ShadowRow } from "./shadow";
 import { fakeLayaServer, until, type FakeLaya } from "./test-fakes";
 
 /**
@@ -154,6 +154,21 @@ describe("asking Laya about a step", () => {
     shadow.observe(step({ intent: "buy the upgrade", chosen: { element: el("9", "Buy $4.99") }, elements: [el("9", "Buy $4.99")] }));
     await shadow.flush();
     expect(rows()[0]!.truth.sensitive).toEqual({ value: true, source: "rule", matched: "buy" });
+  });
+
+  it("labels a like sensitive in the app other people see it in, and the same kind of word in Settings as not", async () => {
+    // THE MUTANT: judge without the app. Every like an agent gives teaches Laya a like is a plain tap.
+    const { shadow, rows } = await setup();
+    const like = el("9", "Like"), messages = el("3", "Messages");
+    shadow.observe(step({ surface: "simulator", tool: "simulator_tap", intent: "like the photo", elements: [like], chosen: { element: like }, app: "Instagram" }));
+    shadow.observe(step({ surface: "simulator", tool: "simulator_tap", intent: "open the Messages settings", elements: [messages], chosen: { element: messages }, app: "Settings" }));
+    shadow.observe(step({ surface: "simulator", tool: "simulator_tap", intent: "open the Messages settings", elements: [messages], chosen: { element: messages }, app: "Instagram" }));
+    await shadow.flush();
+    expect(rows().map((r) => r.truth.sensitive)).toEqual([
+      { value: true, source: "rule", matched: "like" },
+      { value: false, source: "rule", matched: null },
+      { value: true, source: "rule", matched: "messages" },
+    ]);
   });
 
   it("names an element with no label by its role, so the agent's choice is still an option", async () => {
@@ -494,6 +509,37 @@ describe("the sensitive rule", () => {
       ["take a screenshot", false], ["tap 'Search' in Settings", false], ["tap 'Reload' in Safari", false],
     ];
     expect(labelled.map(([text]) => sensitiveRule(text).value)).toEqual(labelled.map(([, want]) => want));
+  });
+
+  it("reads what other people see — a like, a follow, a story, a message, a gift — as sensitive only in apps they see it in", () => {
+    for (const text of ["tap 'Like'", "tap 'Follow'", "open their story", "tap 'Messages'", "join the LIVE", "send a gift", "tap 'Comment'", "tap 'Duet'", "report the video", "tap 'Remove follower'"]) {
+      expect(sensitiveRule(text, "Instagram").value, text).toBe(true);
+    }
+    expect(sensitiveRule("tap 'Like'", "TikTok")).toEqual({ value: true, matched: "like" });
+    expect(sensitiveRule("tap 'Like'", " tiktok ").value).toBe(true);
+    // The same words where nobody else sees them.
+    expect(sensitiveRule("tap 'Messages'", "Settings").value).toBe(false);
+    expect(sensitiveRule("tap 'Messages'").value).toBe(false);
+    expect(sensitiveRule("tap 'Like'", "Photos").value).toBe(false);
+    expect(sensitiveRule("tap 'Like'", "Instagram Lite Helper").value).toBe(false);
+    // X is an app's whole name, not a letter at the end of one.
+    expect(sensitiveRule("tap 'Like'", "X").value).toBe(true);
+    for (const app of ["Firefox", "Dropbox", "Box"]) expect(sensitiveRule("tap 'Like'", app).value, app).toBe(false);
+    // And the moves that are only looking: the feed, Reels, a profile, who one follows, what one liked.
+    for (const text of ["tap 'Reels'", "tap 'Following'", "tap 'Profile'", "tap 'Search and explore'", "open Likes", "scroll the For You feed", "tap 'Home'"]) {
+      expect(sensitiveRule(text, "Instagram").value, text).toBe(false);
+    }
+  });
+
+  it("teaches what other people see as shared with someone, and a gift or coins as money", () => {
+    expect(socialStep("tap 'Like'", "Instagram")).toEqual({ matched: "like", part: "send" });
+    expect(socialStep("open their story", "Instagram")).toEqual({ matched: "story", part: "send" });
+    expect(socialStep("report the video", "TikTok")).toEqual({ matched: "report", part: "send" });
+    // THE MUTANT: a gift taught as a message. Laya learns that spending coins is only sharing.
+    expect(socialStep("send a gift", "TikTok")).toEqual({ matched: "gift", part: "money" });
+    expect(socialStep("buy coins", "TikTok")).toEqual({ matched: "coins", part: "money" });
+    expect(socialStep("tap 'Like'", "Photos")).toBeNull();
+    expect(socialStep("tap 'Reels'", "Instagram")).toBeNull();
   });
 
   it("reads clearing data as deleting it, and clearing a search field as neither", () => {

@@ -1014,8 +1014,25 @@ describe("the observer", () => {
     const wifi = { id: "0.2", role: "Button", label: "Wi-Fi", value: "Off" };
     expect(heard).toEqual([{
       surface: "simulator", spaceId: dev.spaceId, sessionId: "sess1", tool: "simulator_tap", intent: "open General",
-      elements: [general, wifi], chosen: { element: general },
+      elements: [general, wifi], chosen: { element: general }, app: "Settings",
     }]);
+  });
+
+  it("says which app each step was in: the live read's, or the one the agent last read", async () => {
+    const heard: ActObservation[] = [];
+    const dev = device({ observe: (o) => { heard.push(o); } });
+    const simulatorId = await dev.running();
+    dev.show({ ...TREE, app: "Instagram" });
+    await dev.call("simulator_elements", { simulatorId });
+    await dev.call("simulator_tap", { simulatorId, intent: "open General", element: 1 });
+    await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 201, y: 437 });
+    await dev.call("simulator_type", { simulatorId, intent: "search", text: "wifi" });
+    await dev.call("simulator_swipe", { simulatorId, intent: "scroll", direction: "up" });
+    // The home screen names itself nothing, and a step there is in no app.
+    dev.show({ ...TREE, app: " " });
+    await dev.call("simulator_tap", { simulatorId, intent: "tap the middle", x: 201, y: 437 });
+    // THE MUTANT: leave the app out. The shadow then judges a like in Instagram as a tap in Settings.
+    expect(heard.map((o) => o.app)).toEqual(["Instagram", "Instagram", "Instagram", "Instagram", undefined]);
   });
 
   it("is told a point as a point, and a step that touches nothing as nothing", async () => {
@@ -1378,10 +1395,10 @@ describe("a target in words (Laya's Assist)", () => {
   const OPEN = { available: true, reason: null, threshold: 0.8, accuracy: 0.97 } as const;
   const SHUT = { available: false, reason: "The active checkpoint picks the right element 79% of the time on held-out steps. Assist needs 95%.", threshold: null, accuracy: 0.79 };
   const scripted = (gate: typeof OPEN | typeof SHUT, outcome: (els: readonly import("../mcp/act-observer").ObservedElement[]) => AssistOutcome) => {
-    const asked: { description: string; intent: string; ids: string[] }[] = [];
+    const asked: { description: string; intent: string; ids: string[]; app?: string }[] = [];
     const assist: LayaAssist = {
       gate: () => gate,
-      resolve: async (description, intent, elements) => { asked.push({ description, intent, ids: elements.map((e) => e.id) }); return outcome(elements); },
+      resolve: async (description, intent, elements, _tool, app) => { asked.push({ description, intent, ids: elements.map((e) => e.id), ...(app ? { app } : {}) }); return outcome(elements); },
     };
     return { assist, asked };
   };
@@ -1418,7 +1435,8 @@ describe("a target in words (Laya's Assist)", () => {
     const simulatorId = await dev.running();
     const r = await dev.call("simulator_tap", { simulatorId, intent: "open General", target: "the general settings" });
     expect(r.isError).toBe(false);
-    expect(asked).toEqual([{ description: "the general settings", intent: "open General", ids: ["0.1", "0.2"] }]);
+    // Asked in the app on screen — THE MUTANT asks without it, and a like in Instagram is Assist's to tap.
+    expect(asked).toEqual([{ description: "the general settings", intent: "open General", ids: ["0.1", "0.2"], app: "Settings" }]);
     // The card first, then the act — the order every input step keeps.
     expect(dev.calls.order).toEqual(["card", "act"]);
     const [begin] = frames(dev.calls.sent);
@@ -1662,6 +1680,8 @@ describe("simulator_do", () => {
     const r = await dev.call("simulator_do", { simulatorId, intent: "x", path: ["vision settings"] });
     expect(resolve).toHaveBeenCalledOnce();
     expect(resolve.mock.calls[0]![0]).toBe("vision settings");
+    // Asked in the app the walk is in: Assist's sensitive rule reads it.
+    expect((resolve.mock.calls[0] as unknown[])[4]).toBe("Settings");
     expect(dev.at()).toBe("a11y");
     expect(text(r)).toContain(`"Accessibility" (Laya's pick for "vision settings")`);
 
