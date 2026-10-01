@@ -441,6 +441,14 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   should feel related.
 - A pane is a location, not decoration. Pane bars stay compact and consistent across pane kinds.
 - Splits expose relationships. Avoid a split when one side has no ongoing value.
+- A split is the user's arrangement; an agent never makes one. What a session's agents open — a
+  browser, a device, a document, a sub-agent the user asked to look at — arrives as a tab of ONE
+  side pane beside that session, never as a column of its own beside whatever had focus. A fan-out
+  of six agents each opening a browser once filled a window with eight columns a fifth of it wide,
+  every title an ellipsis and every page unreadable. In a side pane's bar the tabs are the data of
+  unbounded length, so they keep the width and the shown item's own actions go to its menu. The
+  agents still working are a count in the session's bar, and their list previews one on request;
+  a tab dragged to an edge is how something becomes part of the user's own layout.
 - Pane focus, selection, zoom, navigation history, and group state must remain visibly distinct.
 - Empty panes should offer the shortest honest path to useful work.
 - Several agents need one page that answers "what should I look at": every session across every
