@@ -548,6 +548,20 @@ describe("the sensitive rule", () => {
     expect(sensitiveRule("video call them", "Instagram")).toEqual({ value: true, matched: "video call" });
   });
 
+  it("reads TikTok's own labels as their user would: a follow back, the camera and another account held back, its tabs not", () => {
+    // Labels as TikTok's accessibility tree gives them, from a recording of the app (2026-10-01).
+    for (const label of ["Follow back", "Follow", "Share", "Remix", "Create a new chat", "Record video", "Microphone", "Switch accounts"]) {
+      expect(sensitiveRule(`tap '${label}'`, "TikTok").value, label).toBe(true);
+    }
+    // THE MUTANT: an inbox as a message. Every walk to TikTok's Inbox tab stops at the tab.
+    for (const label of ["Inbox", "Home", "Friends", "For You", "Profile", "Search", "Reposts", "Favorites", "Posts", "Your orders", "Drafts", "Templates"]) {
+      expect(sensitiveRule(`tap '${label}'`, "TikTok").value, label).toBe(false);
+    }
+    // A conversation is still one, and Settings' Microphone page is still a page.
+    expect(sensitiveRule("tap 'Messages'", "Instagram").value).toBe(true);
+    expect(sensitiveRule("tap 'Microphone'", "Settings").value).toBe(false);
+  });
+
   it("teaches what other people see as shared with someone, and a gift or coins as money", () => {
     expect(socialStep("tap 'Like'", "Instagram")).toEqual({ matched: "like", part: "send" });
     expect(socialStep("open their story", "Instagram")).toEqual({ matched: "story", part: "send" });

@@ -1924,6 +1924,166 @@
   "Instagram:Close gallery": [
    "leave the photo picker",
    "close the camera roll"
+  ],
+  "TikTok:Home": [
+   "the video feed",
+   "back to the main feed",
+   "the house icon"
+  ],
+  "TikTok:Friends": [
+   "videos from my friends",
+   "the friends tab",
+   "see what friends posted"
+  ],
+  "TikTok:Create": [
+   "make a new video",
+   "start recording a TikTok",
+   "the button in the middle of the tab bar"
+  ],
+  "TikTok:Plus": [
+   "make a new video",
+   "the button in the middle of the tab bar"
+  ],
+  "TikTok:Inbox": [
+   "my notifications and messages",
+   "the inbox tab",
+   "see new followers and DMs"
+  ],
+  "TikTok:Profile": [
+   "my own page",
+   "my account",
+   "see my videos and followers"
+  ],
+  "TikTok:Search": [
+   "find a video or account",
+   "look something up on TikTok",
+   "the magnifying glass"
+  ],
+  "TikTok:For You": [
+   "the recommended feed",
+   "videos picked for me",
+   "the main algorithm feed"
+  ],
+  "TikTok:Follow": [
+   "follow this creator",
+   "subscribe to their videos"
+  ],
+  "TikTok:Follow back": [
+   "follow them back",
+   "return the follow"
+  ],
+  "TikTok:Share": [
+   "send this video to someone",
+   "copy the link to this video",
+   "share the video"
+  ],
+  "TikTok:Favorites": [
+   "my saved videos",
+   "bookmarked videos",
+   "the videos I favorited"
+  ],
+  "TikTok:More options": [
+   "the three dots",
+   "other actions for this",
+   "the overflow menu"
+  ],
+  "TikTok:Music": [
+   "the song in this video",
+   "the sound used here"
+  ],
+  "TikTok:Menu": [
+   "the hamburger menu on my profile",
+   "settings and privacy menu"
+  ],
+  "TikTok:Edit": [
+   "edit my profile",
+   "change my bio or photo"
+  ],
+  "TikTok:Record video": [
+   "start filming",
+   "record a clip",
+   "hit the record button"
+  ],
+  "TikTok:Add sound": [
+   "pick a song for the video",
+   "add music"
+  ],
+  "TikTok:Timer": [
+   "a countdown before recording",
+   "record hands-free after a countdown"
+  ],
+  "TikTok:Templates": [
+   "video templates",
+   "ready made layouts for a video"
+  ],
+  "TikTok:Drafts": [
+   "my unfinished videos",
+   "saved drafts"
+  ],
+  "TikTok:Photo editor": [
+   "edit a photo",
+   "the picture editing tool"
+  ],
+  "TikTok:Captions": [
+   "add subtitles",
+   "automatic captions"
+  ],
+  "TikTok:Close screen": [
+   "leave this screen",
+   "close the camera"
+  ],
+  "TikTok:Remix": [
+   "make my own version of this video",
+   "duet or stitch this"
+  ],
+  "TikTok:Posts": [
+   "my videos",
+   "the videos I posted"
+  ],
+  "TikTok:Reposts": [
+   "videos I reposted",
+   "the reposts tab"
+  ],
+  "TikTok:Private": [
+   "my private videos",
+   "videos only I can see"
+  ],
+  "TikTok:Switch accounts": [
+   "log into my other account",
+   "change to a different account"
+  ],
+  "TikTok:Find friends": [
+   "find people I know",
+   "add contacts on TikTok"
+  ],
+  "TikTok:Activity & new followers": [
+   "who followed me",
+   "likes and comments on my videos",
+   "my activity notifications"
+  ],
+  "TikTok:System notifications": [
+   "updates from TikTok",
+   "account notices"
+  ],
+  "TikTok:Create a new chat": [
+   "start a new message",
+   "write to someone"
+  ],
+  "TikTok:Your orders": [
+   "my TikTok Shop purchases",
+   "track my orders"
+  ],
+  "TikTok:Ask anything": [
+   "ask TikTok's AI",
+   "the AI search box"
+  ],
+  "TikTok:Microphone": [
+   "search by voice",
+   "speak my search"
+  ],
+  "TikTok:Camera": [
+   "open the camera",
+   "film something"
   ]
  }
 }

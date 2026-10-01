@@ -421,9 +421,13 @@ const SOCIAL_APPS = /^(instagram|tiktok|facebook|messenger|threads|x|twitter|sna
 const SOCIAL_RULES: { rule: RegExp; part: SensitivePart }[] = [
   { rule: /\b(like|unlike|love|react|follow|unfollow|comment|repost|retweet|quote|remix|duet|stitch)\b/i, part: "send" },
   // A story opened is a story seen, and its author sees who; one closed is not. A call rings someone.
-  { rule: /(?<!\bclose )\b(?:story|stories)\b|\b(live|message|messages|messenger|chat|chats|inbox|direct|dm|dms)\b|\bstart (?:an? )?(?:audio |video )?call\b|\b(?:audio|video) call\b/i, part: "send" },
+  // An inbox opened is a list nobody else sees — TikTok's is a tab; a message opened is seen as read.
+  { rule: /(?<!\bclose )\b(?:story|stories)\b|\b(live|message|messages|messenger|chat|chats|direct|dm|dms)\b|\bstart (?:an? )?(?:audio |video )?call\b|\b(?:audio|video) call\b/i, part: "send" },
   { rule: /\b(gift|gifts|coins|recharge|tip|tips|super ?chat)\b/i, part: "money" },
   { rule: /\b(report|block|restrict|remove follower)\b/i, part: "send" },
+  // The camera and the microphone on — a video recorded, a search spoken — and another account in use
+  // for every step after: as with dictation, never a step taken on the person's behalf.
+  { rule: /\b(microphone|record (?:a )?video|switch accounts?)\b/i, part: "send" },
 ];
 
 /** Ground truth for `sensitive` by keyword — the matched word travels with the answer. `app`, the app
