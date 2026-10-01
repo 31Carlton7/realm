@@ -14,6 +14,7 @@ final class RealmDeviceRunner: XCTestCase {
     @MainActor
     func testServe() async throws {
         let port = UInt16(ProcessInfo.processInfo.environment["REALM_RUNNER_PORT"] ?? "") ?? 7325
+        SnapshotLimits.install()
         let routes = Routes()
         let server = try Server(port: port) { request in await routes.handle(request) }
         try await server.run()

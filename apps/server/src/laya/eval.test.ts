@@ -109,6 +109,13 @@ describe("asking the benchmark", () => {
     expect(results.map((r) => ("rule" in r ? r.rule : null))).toEqual([true, false, true, false, false]);
   });
 
+  it("judges the rule baseline in the case's own app, as the shadow judges a step", async () => {
+    const b = bench({ sensitive: [{ app: "Instagram", intent: "like it", sensitive: true, part: "send" }, { app: "Settings", intent: "like it" }] });
+    const results = await evaluate(b, answering().ask, { splits: { target: [], sensitive: ["heldout"], verify: [] } });
+    // THE MUTANT: judge without the app. Laya's score on a like in Instagram is set against a rule that misses it.
+    expect(results.map((r) => ("rule" in r ? r.rule : null))).toEqual([true, false]);
+  });
+
   it("asks only the splits it is given, in benchmark order, and reports progress", async () => {
     const b = bench({ target: [{ split: "train" }, { split: "validation" }, { split: "heldout" }] });
     const seen: number[] = [];

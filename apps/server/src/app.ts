@@ -668,7 +668,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      from (`laya/recorder.ts`). They stay in the home, under laya/recordings. */
   const layaRecorder = new LayaRecorder({
     dir: join(opts.home, "laya", "recordings"),
-    read: (simulatorId) => simulators.ax(simulatorId),
+    read: (simulatorId) => simulators.ax(simulatorId, { patient: true }),
     deviceName: (simulatorId) => simulators.get(simulatorId).name,
     onChange: () => laya.recordingChanged(),
   });
