@@ -158,7 +158,9 @@ describe("a training run", () => {
         mkdirSync(out, { recursive: true });
         writeFileSync(join(out, "model.safetensors"), "weights");
       } });
-      const readings: MachineState["pressure"][] = ["warn", "critical", "critical", "warn"];
+      // Two critical readings, a break, and another: never three in a row. THE MUTANT that never
+      // resets the count stops here.
+      const readings: MachineState["pressure"][] = ["warn", "critical", "critical", "warn", "critical", "warn"];
       let reads = 0;
       // THE MUTANT: stop at the first critical reading. A spike that would pass ends half an hour of work.
       const result = await go(rt, async () => ({ pressure: readings[Math.min(reads++, readings.length - 1)]!, freeDiskBytes: 100 * GB }), "n2");

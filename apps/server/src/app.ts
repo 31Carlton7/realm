@@ -402,6 +402,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  unavailable and nothing is ever looked for, installed or spawned — so no app a test builds runs
    *  Python. A test that needs a runtime hands in a fake. */
   laya?: LayaRuntime;
+  /** The Mac's memory pressure and free disk as a training run reads them (`machineState`); left
+   *  out, the real ones. A test hands in a Mac short of memory. */
+  layaMachine?: () => Promise<import("./laya/training").MachineState>;
 }): Promise<App> {
   const db = openDatabase(dbPath(opts.home));
   const profiles = new ProfilesStore(db);
@@ -683,7 +686,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     baseEval: () => (layaRuntime ? readEval(join(layaRuntime.dir, "evals", "convaiinnovations-laya.json")) : null)
       ?? (layaResources ? readEval(join(layaResources, "evals", "convaiinnovations-laya.json")) : null),
     ...(layaRuntime && layaResources
-      ? { train: (o: Parameters<typeof trainCheckpoint>[1]) => trainCheckpoint({ runtime: layaRuntime, resources: layaResources, logFiles: () => layaLog.files(), recorded: () => layaRecorder.screens(), machine: () => machineState(layaRuntime.dir) }, o) }
+      ? { train: (o: Parameters<typeof trainCheckpoint>[1]) => trainCheckpoint({ runtime: layaRuntime, resources: layaResources, logFiles: () => layaLog.files(), recorded: () => layaRecorder.screens(), machine: opts.layaMachine ?? (() => machineState(layaRuntime.dir)) }, o) }
       : {}),
   });
   layaAssist = createLayaAssist({ laya });
