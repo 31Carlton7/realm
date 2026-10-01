@@ -1366,11 +1366,10 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
        exception is a MIDDLE tab: a ring there would trace a hairline across the band where two
        strips meet, so a strip arriving under another gives up both its ring and its top corners. */
     const ring = "--sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w)";
-    for (const sel of [".composer-agents", ".composer-goal", ".composer-todos", ".composer-overstrip", ".composer-understrip"])
+    for (const sel of [".composer-goal", ".composer-todos", ".composer-overstrip", ".composer-understrip"])
       expect(bodiesFor(`:root[data-squircle] ${sel}`).join(" "), sel).toContain(ring);
-    // Every pair the band can actually stack, in DOM order: agents, goal, plan, over-strip.
-    const STACKED = [".composer-agents + .composer-goal", ".composer-agents + .composer-todos", ".composer-goal + .composer-todos",
-                     ".composer-agents + .composer-overstrip", ".composer-goal + .composer-overstrip", ".composer-todos + .composer-overstrip"];
+    // Every pair the band can actually stack, in DOM order: goal, plan, over-strip.
+    const STACKED = [".composer-goal + .composer-todos", ".composer-goal + .composer-overstrip", ".composer-todos + .composer-overstrip"];
     for (const sel of STACKED) {
       const body = bodiesFor(`:root[data-squircle] ${sel}`).join(" ");
       expect(body, sel).toContain("--sq-ring-w: 0");
@@ -3262,7 +3261,7 @@ describe("the machine pane's screen", () => {
    THE MUTANT: colour the card alone, which is what it did. */
 it("carries the prompter's mode ring up through every strip stacked above it", () => {
   for (const [mode, token] of [["plan", "--rl-warning"], ["ask", "--rl-success"]] as const) {
-    for (const strip of [".composer-agents", ".composer-goal", ".composer-todos", ".composer-overstrip"]) {
+    for (const strip of [".composer-goal", ".composer-todos", ".composer-overstrip"]) {
       const painted = bodiesFor(`:root[data-squircle] ${strip}:has(~ .composer[data-mode="${mode}"])`).join(" ");
       expect(painted, `${strip} under ${mode}`).toContain(token);
       // The painter is gated, so the fallback edge has to say the same thing.

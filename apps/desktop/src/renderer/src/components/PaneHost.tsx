@@ -130,11 +130,13 @@ export function PaneHost(p: PaneHostProps) {
   function renderNode(n: Layout): JSX.Element {
     if (n.type === "leaf") {
       const item = n.itemId ? byId.get(n.itemId) ?? null : null;
+      const tabs = n.tabs ? n.tabs.map((id) => byId.get(id)).filter((t): t is Item => !!t) : undefined;
       return (
         <div className="panel" data-leaf-id={n.id} data-focused={n.id === p.focusedLeafId || undefined}
+          data-tabbed={tabs ? true : undefined}
           data-first-leaf={n.id === firstLeafId || undefined}
           data-empty={!item || undefined} onPointerDownCapture={() => p.onFocus(n.id)}>
-          {item && <PanelBar item={item} leafId={n.id} onSplit={(dir) => p.onSplit(n.id, dir)} onClose={() => p.onClose(item.id)}
+          {item && <PanelBar item={item} leafId={n.id} tabs={tabs} onSplit={(dir) => p.onSplit(n.id, dir)} onClose={() => p.onClose(item.id)}
             zoomed={n.id === p.zoomedLeafId}
             onZoom={canFocus && p.onZoom ? () => p.onZoom!(n.id) : undefined} onUnzoom={canFocus ? p.onUnzoom : undefined} />}
           {/* An empty pane gets a bar of its own — a title-less strip whose only control is the trash

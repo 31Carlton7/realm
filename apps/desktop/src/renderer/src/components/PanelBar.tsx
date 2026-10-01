@@ -1,41 +1,22 @@
 import { Icon } from "@realm/ui";
 import { useRef, useState } from "react";
-import { PAGE_REF_IDS, type Item } from "@realm/contracts";
+import type { Item } from "@realm/contracts";
 import { paneActions, paneMeta, usePaneMenuItems } from "../panes/registry";
 import { useApp } from "../state/store";
 import { Menu } from "./Menu";
+import { DELETES_ON_CLOSE, PAGE_KINDS } from "./pane-close";
+import { PaneTabs } from "./PaneTabs";
 import { useActionBudget } from "./pane-bar-fit";
 import { RenameInput } from "./RenameInput";
-
-/**
- * Pages, not objects: the sidebar's destination pages plus a space's own Overview. Their `refId` is
- * a well-known sentinel rather than a row (PAGE_REF_IDS), so there is nothing behind the item to
- * lose — deleting one and re-opening it from the sidebar produces the identical page.
- */
-const PAGE_KINDS: ReadonlySet<Item["kind"]> = new Set<Item["kind"]>([
-  ...(Object.keys(PAGE_REF_IDS) as Item["kind"][]), "space-page",
-]);
-
-/**
- * The kinds whose bar closes by DELETING rather than lifting the item out of the layout.
- *
- * A layout-only close leaves the row behind in the space, which is right for a session or a diff —
- * a transcript and a checkout outlive any pane that showed them, and the rule that closing must
- * never imply deletion is about exactly those. It is wrong for everything here: a destination page
- * is a view with no object under it, and a terminal, browser or documents pane is a thing you
- * opened at a moment and are done with. Closing those left a drift of rows nobody asked to keep,
- * so the bar offers the delete outright — named, wearing a trash, and (where there IS something
- * under it) two-step. The layout-only close stays reachable, on ⌘W and in the ⋯ menu.
- */
-const DELETES_ON_CLOSE: ReadonlySet<Item["kind"]> = new Set<Item["kind"]>([
-  ...PAGE_KINDS, "terminal", "browser", "documents",
-]);
 
 /** Slim per-panel header: item icon + click-to-rename title, per-kind meta (right), ⋯ menu + close.
  *  Split/close/focus stay leaf-scoped callbacks (the host owns focus semantics); rename/delete are
  *  item-scoped and go straight to the store, like the sidebar's context menu. */
-export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoom, onUnzoom }: {
+export function PanelBar({ item, leafId, tabs, onSplit, onClose, zoomed = false, onZoom, onUnzoom }: {
   item: Item;
+  /** A side pane's tabs, `item` the one showing. The strip takes the title's place, and each tab's
+   *  own close stands in for the bar's last control. */
+  tabs?: Item[];
   /** The leaf this bar heads — the key its back/forward trail is kept under. */
   leafId: string;
   onSplit: (dir: "row" | "col") => void; onClose: () => void;
@@ -119,9 +100,10 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
         <button className="icon-btn" aria-label={`Forward in ${item.title}`} title="Forward (⌘])"
           disabled={!canForward} onClick={() => run(() => stepPaneNav(leafId, 1))}><Icon name="chevronRight" size={14} /></button>
       </span>
-      <span className="panel-icon"><Icon name={item.kind} size={14} /></span>
+      {!tabs && <span className="panel-icon"><Icon name={item.kind} size={14} /></span>}
       {(renaming || renameArmed)
         ? <span className="panel-rename"><RenameInput item={item} onDone={() => { setRenaming(false); if (renameArmed) requestRename(null); }} /></span>
+        : tabs ? <PaneTabs leafId={leafId} tabs={tabs} activeId={item.id} onRename={() => setRenaming(true)} />
         : (
           <button className="panel-title" title="Click to rename" aria-label={`Rename ${item.title}`}
             onClick={() => setRenaming(true)}>{item.title}</button>
@@ -151,7 +133,7 @@ export function PanelBar({ item, leafId, onSplit, onClose, zoomed = false, onZoo
         )}
         {/* The bar's last control: the × that lifts a pane out of the layout, or — for a page,
             terminal, browser or documents pane — the trash that ends the thing itself. */}
-        {!deletesOnClose ? (
+        {tabs ? null : !deletesOnClose ? (
           <button className="icon-btn" aria-label={`Close ${item.title}`} title="Close (⌘W)" onClick={onClose}><Icon name="close" size={14} /></button>
         ) : confirmingDelete ? (
           <button className="icon-btn danger panel-confirm" aria-label={`Really delete ${item.title}?`}

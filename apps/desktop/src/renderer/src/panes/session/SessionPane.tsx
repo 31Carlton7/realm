@@ -17,6 +17,7 @@ import { useFileDrop } from "../../components/use-file-drop";
 import { InstallCard } from "./InstallCard";
 import { Transcript } from "./Transcript";
 import { SubagentPanel } from "./SubagentPanel";
+import { RunningAgents } from "./DelegatedRuns";
 import { TerminalDock } from "./TerminalDock";
 import { emptyTranscript } from "./transcript-model";
 import { promptHint } from "./prompt-hint";
@@ -46,6 +47,8 @@ export function SessionMeta({ item }: { item: Item }) {
       {/* The status dot, alone. The cost used to sit here; it now rides the summary button, which is
           where the rest of what a session produced already lives — and a number in the bar was one
           more thing competing with the title for a strip that has four buttons on the other end. */}
+      {/* The agents this session has working — at the bar's right, where "what is it doing" is read. */}
+      <RunningAgents sessionId={id} />
       <span className="status-dot" data-status={status} title={STATUS_LABEL[status]} aria-label={`Status: ${STATUS_LABEL[status]}`} />
     </>
   );
@@ -145,10 +148,10 @@ function useSessionActions(item: Item): BarAction[] {
     if (environmentId) list.push({
       id: "documents", label: "Documents", title: "Documents", icon: "documents",
       aria: `Open documents for ${item.title}`,
-      /* Beside, not instead. This is pressed FROM a session to read something alongside it, and
-         taking the session's own pane to do that left the reader with a back button as the only way
-         home. An empty focused leaf is still filled rather than split; see `openItemBeside`. */
-      onSelect: () => run(() => openDocuments(environmentId, null, true)),
+      /* Beside, not instead: a tab of this session's side pane, where what its agents open goes too.
+         Taking the session's own pane to do that left the reader with a back button as the only way
+         home. */
+      onSelect: () => run(() => openDocuments(environmentId, null, { sessionId: id })),
     });
     /* The last three take no precondition and are always offered, on one reasoning: each opens a
        PLACE YOU GO rather than a view of this session's checkout, so gating any of them on an
@@ -159,17 +162,17 @@ function useSessionActions(item: Item): BarAction[] {
     list.push({
       id: "browser", label: "Browser", title: "Browser", icon: "browser",
       aria: `Open a browser beside ${item.title}`,
-      onSelect: () => run(() => newBrowser(null, true)),
+      onSelect: () => run(() => newBrowser(null, { sessionId: id })),
     });
     list.push({
       id: "machine", label: "Machine", title: "Machine", icon: "machine",
       aria: `Connect a machine beside ${item.title}`,
-      onSelect: () => run(() => newMachine(null, true)),
+      onSelect: () => run(() => newMachine(null, { sessionId: id })),
     });
     list.push({
       id: "simulator", label: "Simulator", title: "Simulator", icon: "simulator",
       aria: `Open a simulator beside ${item.title}`,
-      onSelect: () => run(() => newSimulator(null, true)),
+      onSelect: () => run(() => newSimulator(null, { sessionId: id })),
     });
     return list;
   }, [id, item.title, dock, environmentId, summaryLive, toggleSessionDock, openDocuments, newBrowser, newMachine, newSimulator, run]);

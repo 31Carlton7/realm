@@ -646,6 +646,9 @@ export type SubmitKey = "enter" | "cmdEnter";
 export type FilesView = "list" | "grid";
 
 export const PERSIST_DEBOUNCE_MS = 300;
+/** Where a pane a person opened goes when no pane was named: in place (false), beside the focused
+ *  pane (true), or into the side pane of the session whose bar asked for it. */
+export type Beside = boolean | { sessionId: string };
 /** Which question the command palette is asking. One surface, three narrowings: ⌘K searches Realm's
  *  own records, ⌘P the checkout's file names, ⌘⇧F the checkout's contents. */
 export type PaletteMode = "all" | "files" | "grep";
@@ -1465,11 +1468,11 @@ export type AppState = {
   newTerminal(targetLeafId?: string | null): Promise<void>;
   /** New browser pane in the active space (opens into the target/focused leaf). */
   /** `beside` opens it in a split next to the focused pane instead of replacing it. */
-  newBrowser(targetLeafId?: string | null, beside?: boolean): Promise<void>;
+  newBrowser(targetLeafId?: string | null, beside?: Beside): Promise<void>;
   /** Opens a machine pane BESIDE the caller, with the connect flow ready — see `newBrowser`. */
-  newMachine(targetLeafId?: string | null, beside?: boolean): Promise<void>;
+  newMachine(targetLeafId?: string | null, beside?: Beside): Promise<void>;
   /** A simulator pane, opened beside. Which device it shows is chosen inside the pane. */
-  newSimulator(targetLeafId?: string | null, beside?: boolean): Promise<void>;
+  newSimulator(targetLeafId?: string | null, beside?: Beside): Promise<void>;
   updateItem(input: UpdateItemInput): Promise<void>;
   /** Shelve (or restore) a row. Archiving closes the pane first — a hidden row whose pane is still on
    *  screen is the one state the sidebar could not explain — so this is `updateItem` plus that close,
@@ -1926,7 +1929,7 @@ export type AppState = {
   /** `beside` splits right and opens there instead of taking over the focused pane — the same
    *  argument `newBrowser` takes, and for the same reason: a pane opened FROM another pane is a
    *  second view, not a replacement for the one you asked from. */
-  openDocuments(environmentId?: string | null, targetLeafId?: string | null, beside?: boolean): Promise<void>;
+  openDocuments(environmentId?: string | null, targetLeafId?: string | null, beside?: Beside): Promise<void>;
   /**
    * Plan 22. Put one file on screen: the server adds it to the workspace's tab strip (creating the
    * workspace when needed) and the item comes into the layout. `documents.openRequested` — which
@@ -2941,13 +2944,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       else set({ pageOverlay: null });
     };
 
-    const adoptItem = async (sid: string, itemId: string, targetLeafId: string | null, beside = false, edge?: DropEdge) => {
+    const adoptItem = async (sid: string, itemId: string, targetLeafId: string | null, beside: Beside = false, edge?: DropEdge) => {
       const seq = ++itemsFetchSeq;
       const items = await api.listItems(sid);
       if (!isSpace(sid)) return;
       if (seq === itemsFetchSeq) set({ items }); // superseded by a newer fetch? its list is newer — keep it
       if (edge && targetLeafId) { await get().openItemAt(itemId, targetLeafId, edge); return; }
-      if (beside && targetLeafId === null) { await get().openItemBeside(itemId); return; }
+      // Opened from a session's own bar: a tab of that session's side pane, with the keyboard, since
+      // a person asked to look at it.
+      if (typeof beside === "object" && targetLeafId === null && await get().openInSidePane(beside.sessionId, itemId, { focus: true })) return;
+      if (beside !== false && targetLeafId === null) { await get().openItemBeside(itemId); return; }
       await get().openItem(itemId, targetLeafId);
     };
 
@@ -3591,19 +3597,27 @@ await get().refreshCustomThemes().catch(() => {});
         // is for: a click on any row takes you to it, wherever it is.
         if (leafId === null) {
           const gs = get().groups;
-          const holder = gs ? groupOfItem(gs, itemId) : null;
+          let holder = gs ? groupOfItem(gs, itemId) : null;
           if (holder) {
             const leaf = findLeafOfItem(holder.layout, itemId)!;
-            if (holder.id !== gs!.activeGroupId) {
-              set(writeGroups(revealing(groupsSetActive(gs!, holder.id), leaf.id), { focusedLeafId: leaf.id }));
+            // A tab behind another: "go there" means bringing it to the front of its strip too.
+            if (leaf.itemId !== itemId) {
+              const fronted = mapGroup(gs!, holder.id, (g) => ({ ...g, layout: layoutOpen(g.layout, leaf.id, itemId) }));
+              set(writeGroups(fronted));
+              holder = fronted.groups.find((g) => g.id === holder!.id)!;
+            }
+            const gsNow = get().groups!;
+            if (holder.id !== gsNow.activeGroupId) {
+              set(writeGroups(revealing(groupsSetActive(gsNow, holder.id), leaf.id), { focusedLeafId: leaf.id }));
               await persist();
             } else {
               // Same group: the focus move is free, but a zoom parked on ANOTHER leaf would swallow
               // it — the pane the user just asked for is not the one on screen. Only then is this a
-              // write at all.
-              const revealed = revealing(gs!, leaf.id);
-              if (revealed === gs) set({ focusedLeafId: leaf.id });
-              else { set(writeGroups(revealed, { focusedLeafId: leaf.id })); await persist(); }
+              // write at all (or when a tab came to the front above).
+              const revealed = revealing(gsNow, leaf.id);
+              if (revealed === gsNow) set({ focusedLeafId: leaf.id });
+              else set(writeGroups(revealed, { focusedLeafId: leaf.id }));
+              if (revealed !== gsNow || gsNow !== gs) await persist();
             }
             return;
           }

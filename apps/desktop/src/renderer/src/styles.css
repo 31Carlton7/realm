@@ -1783,6 +1783,28 @@ kbd { font: 11px var(--font-mono); }
 button.panel-title { text-align: left; padding: 2px 6px; margin-left: -6px; border-radius: var(--r-chip); }
 button.panel-title:hover { background: var(--rl-hover); }
 .panel-rename { display: flex; min-width: 120px; max-width: 280px; }
+/* A side pane's tab strip, in the title's place (PaneTabs). The strip takes the bar's slack and
+   scrolls sideways past it; each tab gives up width before it gives up its name's first letters. */
+.pane-tabs { display: flex; align-items: center; gap: 2px; flex: 1 1 auto; min-width: 0; margin-left: -6px;
+  overflow-x: auto; scrollbar-width: none; }
+.pane-tab { display: flex; align-items: center; flex: 0 1 180px; min-width: 88px; height: 28px; border-radius: var(--r-chip);
+  transition: background-color var(--dur-hover) var(--ease-out-strong); }
+.pane-tab:hover { background: var(--rl-hover); }
+.pane-tab[data-active] { background: var(--rl-hover); }
+/* Where a dragged tab will land: before this one. */
+.pane-tab[data-over] { box-shadow: inset 2px 0 0 var(--rl-accent); }
+.pane-tab-label { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; height: 100%; padding: 0 2px 0 8px;
+  font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-dim); text-align: left; }
+.pane-tab[data-active] .pane-tab-label { color: var(--rl-text-bright); }
+.panel[data-focused] .pane-tab[data-active] .pane-tab-label svg { color: var(--rl-accent); }
+.pane-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.pane-tab .pane-tab-close { width: 22px; --btn-h: 22px; flex: none; margin-right: 3px; opacity: 0;
+  transition: opacity var(--dur-hover) var(--ease-out-strong); }
+.pane-tab:hover .pane-tab-close, .pane-tab[data-active] .pane-tab-close, .pane-tab-close:focus-visible { opacity: 1; }
+.pane-tab-confirm { width: auto; padding: 0 8px; margin-right: 3px; font-size: 12px; white-space: nowrap; }
+/* The strip takes drops itself (reorder, join), so the pane's drop zones start under its bar. */
+.panel[data-tabbed] > .drop-overlay { top: 40px; }
+
 .panel-rename .rename { height: 24px; }
 .panel-meta { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--rl-text-dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .panel-actions { display: flex; align-items: center; gap: 2px; flex: none; }
@@ -3928,39 +3950,22 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    running off the end of the list must not carry the scroll into the log behind it. */
 .composer-todos .todo-list { margin-top: 8px; max-height: 248px; overflow-y: auto; overscroll-behavior: contain; }
 
-/* ── Agents strip: who is working, on the top tab of the prompter's band ──────────────
-   The plan strip's geometry exactly — same frame fill, same 10px side inset, the same 10px of
-   overlap sliding it behind whatever is below, the same collapse. It IS the same kind of object:
-   standing context about the run, pinned above the card so it cannot scroll away from a reader who
-   went back through the log. It was a loose list floating between the transcript and the prompter,
-   which is a third shape saying the same kind of thing as the two tabs directly under it.
-
-   The whole band reads down from the most live fact to the least — agents, plan, branch — so this
-   one keeps the top corners and the two below give theirs up (the joins are at the foot of this
-   block, drawn by whichever strip arrives underneath). ── */
-.composer-agents { display: flex; flex-direction: column; min-width: 0;
-  margin: 0 10px -10px; padding: 10px 14px 20px; background: var(--rl-frame);
-  border-radius: var(--r-squircle) var(--r-squircle) 0 0; corner-shape: squircle; }
-.composer-agents-head { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; font-size: 11.5px; }
-.composer-agents-mark { flex: none; color: var(--rl-accent); }
-/* The count is what the tab is FOR, so it reads at the head's weight; the clock beside it is
-   machine state and takes the mono face's figures without taking its size. */
-.composer-agents-count { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); }
-.composer-agents-elapsed { flex: none; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
-.composer-agents-caret { flex: none; margin-left: auto; color: var(--rl-text-faint);
-  transition: transform var(--dur-pop) var(--ease-out-strong); }
-.composer-agents[data-open] .composer-agents-caret { transform: rotate(90deg); }
-/* The house collapse (.tool-body-wrap): 0fr→1fr on a grid row animates to the height the content
-   actually wants, so any number of agents opens without being measured first. Margins that space
-   the list live INSIDE the clip, or they would survive the collapse as a gap under a shut tab. */
-.composer-agents-wrap { display: grid; grid-template-rows: 0fr;
-  transition: grid-template-rows var(--dur-base) var(--ease-in-out-strong); }
-.composer-agents[data-open] .composer-agents-wrap { grid-template-rows: 1fr; }
-.composer-agents-clip { overflow: hidden; min-height: 0; }
-/* Bounded for the plan strip's reason: a fan-out of twenty agents must not eat the transcript it is
-   supposed to sit above, and running off the end of the list must not carry the scroll into the log. */
-.composer-agents .delegation-list { margin: 8px 0 0; padding: 0; border: none; max-height: 208px;
-  overflow-y: auto; overscroll-behavior: contain; }
+/* ── Running agents: a count in the session's bar, and the list it opens ──────────────
+   A chip in the bar's meta rather than a strip on the prompter: the agents a session has working are
+   context about the SESSION, read where its status dot is, and a strip above the composer took
+   transcript height for as long as anything ran. The count is quiet ink with the accent on its mark,
+   the same weight the status dot beside it carries. */
+.agents-chip { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border-radius: var(--r-chip);
+  font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; white-space: nowrap;
+  transition: background-color var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
+.agents-chip > svg { flex: none; color: var(--rl-accent); }
+.agents-chip:hover, .agents-chip[aria-expanded="true"] { background: var(--rl-hover); color: var(--rl-text-bright); }
+.agents-pop { width: 340px; max-width: calc(100vw - 24px); }
+.agents-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 4px;
+  font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+/* Bounded for a fan-out of twenty: the list scrolls inside the popover, and running off its end must
+   not carry the scroll into the transcript under it. */
+.agents-pop .delegation-list { margin: 0; padding: 0; border: none; max-height: 280px; overflow-y: auto; overscroll-behavior: contain; }
 /* The row whose agent the drawer is showing. It needs to be told apart from a HOVERED row, and the
    active fill alone cannot do it — `--rl-active` and `--rl-hover` are one rung apart, so the two read
    as the same state and the pointer decides which. The fill says "this one", and the mark going
@@ -3999,10 +4004,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* Tabs stacked into one band. The corners belong to whichever is on TOP, and every strip below it
    goes square — each drawn from the strip that arrives underneath, never by reaching up into the one
    above to make room for itself. */
-.composer-agents + .composer-goal,
-.composer-agents + .composer-todos,
 .composer-goal + .composer-todos,
-.composer-agents + .composer-overstrip,
 .composer-goal + .composer-overstrip,
 .composer-todos + .composer-overstrip { border-radius: 0; }
 
@@ -4158,7 +4160,6 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 :root[data-squircle] .diff-review,
 :root[data-squircle] .composer,
 :root[data-squircle] .composer-drop-hint,
-:root[data-squircle] .composer-agents,
 :root[data-squircle] .composer-todos,
 :root[data-squircle] .composer-goal,
 :root[data-squircle] .composer-overstrip,
@@ -4431,10 +4432,9 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 
    The ring is the point. The band above the card and the under-strip below it are one object seen
    twice — same fill, same corner, same 10px inset, mirrored — and edging only the lower one read as
-   a prompter with a bottom and no top. The over-strip was given the ring first; the goal, plan and
-   agents strips are the same tab, and whichever of them happens to be on top is the one the eye
-   meets, so the edge cannot belong to just one of the four. */
-:root[data-squircle] .composer-agents,
+   a prompter with a bottom and no top. The over-strip was given the ring first; the goal and plan
+   strips are the same tab, and whichever of them happens to be on top is the one the eye meets, so
+   the edge cannot belong to just one of the three. */
 :root[data-squircle] .composer-goal,
 :root[data-squircle] .composer-todos,
 :root[data-squircle] .composer-overstrip {
@@ -4451,26 +4451,22 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    is no parent to hang it off, and copying the mode onto every strip in the renderer would be four more
    props to keep in step. Spelled out rather than wrapped in `:is()` so each part is a selector on its
    own, which is how the rest of this band is written and what styles.test.ts reads. */
-:root[data-squircle] .composer-agents:has(~ .composer[data-mode="plan"]),
 :root[data-squircle] .composer-goal:has(~ .composer[data-mode="plan"]),
 :root[data-squircle] .composer-todos:has(~ .composer[data-mode="plan"]),
 :root[data-squircle] .composer-overstrip:has(~ .composer[data-mode="plan"]) {
   --sq-ring: color-mix(in srgb, var(--rl-warning) 34%, transparent);
 }
-:root[data-squircle] .composer-agents:has(~ .composer[data-mode="ask"]),
 :root[data-squircle] .composer-goal:has(~ .composer[data-mode="ask"]),
 :root[data-squircle] .composer-todos:has(~ .composer[data-mode="ask"]),
 :root[data-squircle] .composer-overstrip:has(~ .composer[data-mode="ask"]) {
   --sq-ring: color-mix(in srgb, var(--rl-success) 34%, transparent);
 }
 /* The painter is gated; without it the same edge is a box-shadow, and it has to say the same thing. */
-.composer-agents:has(~ .composer[data-mode="plan"]),
 .composer-goal:has(~ .composer[data-mode="plan"]),
 .composer-todos:has(~ .composer[data-mode="plan"]),
 .composer-overstrip:has(~ .composer[data-mode="plan"]) {
   box-shadow: 0 0 0 var(--hairline-w) color-mix(in srgb, var(--rl-warning) 34%, transparent);
 }
-.composer-agents:has(~ .composer[data-mode="ask"]),
 .composer-goal:has(~ .composer[data-mode="ask"]),
 .composer-todos:has(~ .composer[data-mode="ask"]),
 .composer-overstrip:has(~ .composer[data-mode="ask"]) {
@@ -4482,10 +4478,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    rule exists to catch. Each join is drawn from the strip that arrives UNDERNEATH, never by a rule
    reaching up into the one above (the fallback's `border-radius: 0` sits beside the layout rule —
    under the gate the corner is the painter's, so the squaring has to be as well). */
-:root[data-squircle] .composer-agents + .composer-goal,
-:root[data-squircle] .composer-agents + .composer-todos,
 :root[data-squircle] .composer-goal + .composer-todos,
-:root[data-squircle] .composer-agents + .composer-overstrip,
 :root[data-squircle] .composer-goal + .composer-overstrip,
 :root[data-squircle] .composer-todos + .composer-overstrip { --sq-radius-top: 0px; --sq-ring-w: 0; }
 /* The under-strip's top edge is hidden beneath the card, so only its bottom corners are drawn. */
@@ -4628,7 +4621,7 @@ select { appearance: none; padding-right: 22px;
   /* documents */
   .documents-tabs, .documents-picker, .documents-rich-scroll, .documents-rich-surface, .documents-rich .tiptap, .documents-raw,
   /* the prompter — only the pinned strips' copies of the lists are bounded enough to scroll */
-  .composer-todos .todo-list, .composer-agents .delegation-list,
+  .composer-todos .todo-list, .agents-pop .delegation-list,
   /* the sub-agent panel: the column itself, and the two prose panels it caps */
   .subagent-body, .subagent-prose,
   /* the Google Fonts browser's result list */
