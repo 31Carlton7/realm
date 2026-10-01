@@ -14,7 +14,7 @@ import { bundledLayaDir } from "../../src/laya/benchmark";
 import { DecisionLog } from "../../src/laya/log";
 import { LayaRecorder } from "../../src/laya/recorder";
 import { realLayaRuntime } from "../../src/laya/runtime";
-import { trainCheckpoint } from "../../src/laya/training";
+import { machineState, trainCheckpoint } from "../../src/laya/training";
 
 const home = process.argv[2];
 if (!home) throw new Error("usage: train.ts <scratch REALM_HOME> [name]");
@@ -32,7 +32,7 @@ const stop = new AbortController();
 process.on("SIGINT", () => stop.abort());
 const t0 = Date.now();
 let last = "";
-const result = await trainCheckpoint({ runtime, resources: bundledLayaDir()!, logFiles: () => log.files(), recorded: () => recordings.screens() }, {
+const result = await trainCheckpoint({ runtime, resources: bundledLayaDir()!, logFiles: () => log.files(), recorded: () => recordings.screens(), machine: () => machineState(runtime.dir) }, {
   name, signal: stop.signal,
   onProgress: (p) => {
     const line = `[${p.step}] ${p.detail}`;

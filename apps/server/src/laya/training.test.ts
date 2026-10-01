@@ -7,7 +7,7 @@ import { bundledLayaDir } from "./benchmark";
 import { DecisionLog } from "./log";
 import { LayaStepError, type LayaRuntime } from "./runtime";
 import { fakeRuntime, type FakeRuntime } from "./test-fakes";
-import { beats, progressOf, readEval, trainCheckpoint, type TrainProgress } from "./training";
+import { MIN_FREE_DISK, beats, machineState, progressOf, readEval, trainCheckpoint, type MachineState, type TrainProgress } from "./training";
 
 /**
  * A training run end to end, with the script and laya-serve both stood in for: the rows it writes,
@@ -82,7 +82,8 @@ describe("a training run", () => {
 
     const work = join(rt.dir, "train", "2026-09-29T07-12");
     expect(calls[0]!.script).toBe(join(resources, "train.py"));
-    expect(calls[0]!.args).toEqual(["--base", join(rt.dir, "hf", "base"), "--train", join(work, "train.jsonl"), "--calib", join(work, "calib.jsonl"), "--valid", join(work, "valid.jsonl"), "--out", join(rt.checkpointsDir, "2026-09-29T07-12")]);
+    // Four examples a step and four steps summed: the 16 of 8 × 2, with half the memory held at once.
+    expect(calls[0]!.args).toEqual(["--base", join(rt.dir, "hf", "base"), "--train", join(work, "train.jsonl"), "--calib", join(work, "calib.jsonl"), "--valid", join(work, "valid.jsonl"), "--out", join(rt.checkpointsDir, "2026-09-29T07-12"), "--batch", "4", "--accum", "4"]);
     const rows = readFileSync(join(work, "train.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l) as { state: string; source: string });
     expect(rows.filter((r) => r.source === "log")).toHaveLength(1);
     // THE MUTANT: never read the recordings. A person's hour in an app teaches nothing.
@@ -103,6 +104,69 @@ describe("a training run", () => {
   it("refuses to start without the download to train from", async () => {
     const rt = runtimeFor({ base: null });
     await expect(trainCheckpoint({ runtime: rt, resources, logFiles: () => [] }, { name: "n", signal: new AbortController().signal, onProgress: () => {} })).rejects.toThrow("Install Laya again");
+  });
+
+  describe("on a Mac short of memory", () => {
+    const GB = 1024 ** 3;
+    const go = (rt: FakeRuntime, machine: () => Promise<MachineState>, name = "n") =>
+      trainCheckpoint({ runtime: rt, resources, logFiles: () => [], machine, watchMs: 5 }, { name, signal: new AbortController().signal, onProgress: () => {} });
+    /** A run that goes on until it is stopped, as train.py does for half an hour. */
+    const endless = (ran: string[]) => async ({ signal }: { signal?: AbortSignal }) => {
+      ran.push("train");
+      await new Promise((_, reject) => signal?.addEventListener("abort", () => reject(new Error("aborted"))));
+    };
+
+    it("reads the kernel's own pressure level and the disk's free space", async () => {
+      const m = await machineState(tempDir("realm-laya-machine-"));
+      expect(["normal", "warn", "critical"]).toContain(m.pressure);
+      expect(m.freeDiskBytes).toBeGreaterThan(0);
+    });
+
+    it("does not start while memory pressure is critical, and writes nothing", async () => {
+      const ran: string[] = [];
+      const rt = runtimeFor({ script: endless(ran) as never });
+      // THE MUTANT: start anyway. MEASURED: a run started like this hung a 24 GB Mac 2½ minutes in.
+      await expect(go(rt, async () => ({ pressure: "critical", freeDiskBytes: 100 * GB }))).rejects.toThrow(/short of memory right now/);
+      expect(ran).toEqual([]);
+      expect(existsSync(join(rt.dir, "train", "n"))).toBe(false);
+    });
+
+    it("does not start without room on the disk for macOS to swap, and says how much there is", async () => {
+      const rt = runtimeFor({ script: endless([]) as never });
+      await expect(go(rt, async () => ({ pressure: "normal", freeDiskBytes: 3 * GB }))).rejects.toThrow("needs 8.0 GB free on this disk, so macOS has room to swap while it runs, and there is 3.0 GB");
+      expect(MIN_FREE_DISK).toBe(8 * GB);
+    });
+
+    it("stops a run whose pressure stays critical, before it hangs the Mac, in words that say so", async () => {
+      const ran: string[] = [];
+      const rt = runtimeFor({ script: endless(ran) as never });
+      let reads = 0;
+      // Normal as it starts, critical from then on.
+      const machine = async (): Promise<MachineState> => ({ pressure: reads++ === 0 ? "normal" : "critical", freeDiskBytes: 100 * GB });
+      // THE MUTANT: no watch. The run goes on into the hang it started.
+      await expect(go(rt, machine)).rejects.toThrow(/ran short of memory while training, so the run was ended before it could hang/);
+      expect(ran).toEqual(["train"]);
+      expect(rt.starts).toHaveLength(0);
+    });
+
+    it("rides out a moment of critical pressure, and a Mac only warned", async () => {
+      const ran: string[] = [];
+      const rt = runtimeFor({ script: async ({ args }) => {
+        ran.push("train");
+        await new Promise((r) => setTimeout(r, 120));
+        const out = args[args.indexOf("--out") + 1]!;
+        mkdirSync(out, { recursive: true });
+        writeFileSync(join(out, "model.safetensors"), "weights");
+      } });
+      // Two critical readings, a break, and another: never three in a row. THE MUTANT that never
+      // resets the count stops here.
+      const readings: MachineState["pressure"][] = ["warn", "critical", "critical", "warn", "critical", "warn"];
+      let reads = 0;
+      // THE MUTANT: stop at the first critical reading. A spike that would pass ends half an hour of work.
+      const result = await go(rt, async () => ({ pressure: readings[Math.min(reads++, readings.length - 1)]!, freeDiskBytes: 100 * GB }), "n2");
+      expect(ran).toEqual(["train"]);
+      expect(result.report.checkpoint).toBe("local:n2");
+    }, 60_000);
   });
 
   it("stops at the script's failure, in the script's words, and evaluates nothing", async () => {
