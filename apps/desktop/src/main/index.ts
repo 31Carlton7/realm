@@ -38,6 +38,9 @@ import { RealmUpdater, UPDATE_FEED_LIVE, updaterDecision } from "./updater";
 import { SecretStore, SecretStoreError } from "./secret-store";
 import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
+import { registerKeyWindowQuery, wireKeyWindow } from "./key-window";
+import { registerNativeMenus } from "./native-menu";
+import { attachTextContextMenu } from "./text-context-menu";
 import { browseFolder, type BrowseResult } from "./browse";
 import { handleMediaProtocol, mediaPoster, registerMediaScheme, servablePath, statMedia } from "./media";
 
@@ -279,6 +282,8 @@ async function createWindow(info: { port: number; home: string; token: string })
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else await win.loadFile(join(__dirname, "../renderer/index.html"));
   mainWindow = win;
+  wireKeyWindow(win);
+  attachTextContextMenu(win.webContents);
   // Replay whatever the server's health last was. A window created after the event — reopened from
   // the tray, or the first one on a launch that adopted a stale daemon — has heard nothing yet.
   if (lastDaemonState) win.webContents.send("daemon:state", lastDaemonState);
@@ -385,6 +390,8 @@ const HISTORY_MENU_MAX = 12;
  * `x`/`y` come from the renderer because only it knows where the button is. Window-relative, which is
  * what `popup` takes.
  */
+registerKeyWindowQuery();
+registerNativeMenus();
 ipcMain.handle("browser:history-menu", (e, id: string, dir: "back" | "forward", at: { x: number; y: number }) => {
   const trail = browserHost?.historyTrail(id, dir) ?? [];
   if (trail.length === 0) return;

@@ -1,7 +1,8 @@
 import { Icon } from "@realm/ui";
-import { useLayoutEffect, useRef, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useAnchoredPopover } from "./use-anchored-popover";
+import { acceleratorFor, menuLabelText, rasteriseIcon } from "./native-menu";
 
 export type MenuItem =
   | { kind?: "item"; label: ReactNode; onSelect: () => void; disabled?: boolean; title?: string; checked?: boolean; danger?: boolean;
@@ -24,12 +25,99 @@ export type MenuItem =
  *  wrap, Home/End jump, Enter/Space select. Focus returns to where it was on close — the element
  *  focused at mount (normally the trigger), or `returnFocusRef` when the caller knows better.
  *  Items with a `checked` boolean render as menuitemcheckbox with aria-checked and a check icon. */
-export function Menu({ items, onClose, at, anchorRef, returnFocusRef, align = "left", placement = "down", label }: {
+type MenuProps = {
   items: MenuItem[]; onClose: () => void;
   at?: { x: number; y: number }; anchorRef?: RefObject<HTMLElement | null>;
   returnFocusRef?: RefObject<HTMLElement | null>;
   align?: "left" | "right"; placement?: "down" | "up"; label?: string;
-}) {
+};
+
+/** In the app, an OS menu; where there is no bridge to one (jsdom, a browser, a live script that set
+ *  REALM_HTML_MENUS), the menu draws itself. Decided once per menu, by what the window offers. */
+export function Menu(props: MenuProps) {
+  return window.realm?.popupMenu ? <NativeMenu {...props} /> : <HtmlMenu {...props} />;
+}
+
+/**
+ * The menu as an OS menu (main/native-menu.ts). Everything a Mac menu is comes with it — the system's
+ * material, type-to-select, opening over a browser pane's native view — and nothing about the rows
+ * changes for the callers: the same items, the same `onSelect`, the same `keepOpen`.
+ *
+ * The rows are rendered, hidden, inside the app's own tree and READ from there, rather than flattened
+ * from the item objects. A label is a React node that may need the app's context to render, and the
+ * icons are components; the DOM they produce is the one thing both kinds have in common.
+ *
+ * `keepOpen` is a two-step confirm or a view change that rebuilds the items in place. An OS menu
+ * cannot change under the pointer, so the pick closes it, the caller rebuilds, and it opens again at
+ * the same anchor — `round` is what says "again".
+ */
+function NativeMenu({ items, onClose, at, anchorRef, returnFocusRef }: MenuProps) {
+  const rowsRef = useRef<HTMLDivElement>(null);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const [round, setRound] = useState(0);
+
+  useEffect(() => {
+    let live = true;
+    let showing = false;
+    // Deferred a task so StrictMode's mount-unmount-mount cancels the first open before it reaches
+    // main: two OS menus for one click is not something a cleanup can take back.
+    const timer = setTimeout(async () => {
+      const current = itemsRef.current;
+      const rows = Array.from(rowsRef.current?.children ?? []);
+      const spec = await Promise.all(current.map(async (it, i): Promise<NativeMenuItem> => {
+        if (it.kind === "separator") return { separator: true };
+        const row = rows[i];
+        const svg = row?.querySelector<SVGSVGElement>("[data-icon] svg");
+        const icon = svg ? await rasteriseIcon(svg).catch(() => undefined) : undefined;
+        const accelerator = it.kbd ? acceleratorFor(it.kbd) : undefined;
+        return {
+          label: row?.querySelector("[data-label]") ? menuLabelText(row.querySelector("[data-label]")!) : "",
+          enabled: !it.disabled,
+          ...(it.checked !== undefined ? { checked: it.checked } : {}),
+          ...(it.title ? { toolTip: it.title } : {}),
+          ...(accelerator ? { accelerator } : {}),
+          ...(icon ? { icon } : {}),
+        };
+      }));
+      if (!live) return;
+      const anchor = anchorRef?.current?.getBoundingClientRect();
+      const point = at ?? (anchor ? { x: anchor.left, y: anchor.bottom + 4 } : { x: 0, y: 0 });
+      showing = true;
+      const picked = await window.realm.popupMenu!(spec, point);
+      showing = false;
+      if (!live) return;
+      const it = picked === null ? undefined : current[picked];
+      if (it && it.kind !== "separator") {
+        it.onSelect();
+        if (it.keepOpen) { setRound((r) => r + 1); return; }
+      }
+      returnFocusRef?.current?.focus();
+      onCloseRef.current();
+    }, 0);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+      if (showing) void window.realm.closeMenu?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one OS menu per round; items are read live
+  }, [round]);
+
+  // Portalled like the drawn menu, so the hidden rows never land inside a button or a list that
+  // could not hold them; a portal still carries the app's context to the labels.
+  return createPortal(
+    <div ref={rowsRef} hidden aria-hidden="true" data-native-menu="">
+      {items.map((it, i) => it.kind === "separator"
+        ? <div key={i} />
+        : <div key={i}><span data-icon="">{it.icon}</span><span data-label="">{it.label}</span></div>)}
+    </div>,
+    document.body,
+  );
+}
+
+function HtmlMenu({ items, onClose, at, anchorRef, returnFocusRef, align = "left", placement = "down", label }: MenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef, at, align, placement, onClose, returnFocusRef, exit: true });
 

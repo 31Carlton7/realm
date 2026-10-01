@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { ModelPicker } from "./ModelPicker";
 import { modelRows } from "./model-rows";
 
@@ -8,6 +8,12 @@ afterEach(cleanup);
 const rows = modelRows({ kind: "claude", model: null, canSwitchAgent: false, agentProbe: [] });
 
 const chip = () => screen.getByRole("button", { name: "Model" });
+/** jsdom has no AnimationEvent, so the name the handler reads is stated on a plain event. */
+const ended = (animationName: string) => {
+  const e = new Event("animationend", { bubbles: true });
+  Object.defineProperty(e, "animationName", { value: animationName });
+  act(() => { chip().dispatchEvent(e); });
+};
 const picker = (effort: string | null, eggs: boolean) => (
   <ModelPicker kind="claude" model={null} effort={effort} rows={rows} info={{}}
     onToggleFavorite={() => {}} onPick={() => {}} effortItems={[]} eggs={eggs} />
@@ -23,7 +29,11 @@ describe("the chip answers when the session commits to a heavy effort", () => {
     expect(chip()).toHaveAttribute("data-sweep", "max");
     // THE stuck-attribute mutant: set it and never take it off. The gradient would sit on the chip
     // for the rest of the session, and the next heavy pick would replay nothing.
-    fireEvent.animationEnd(chip());
+    // …and only on the SWEEP's end. The chip is focusable, so the focus ring's shorter halo can end on
+    // it first; that one taking the mark off would cut the sweep short.
+    ended("rl-focus-ring");
+    expect(chip()).toHaveAttribute("data-sweep", "max");
+    ended("eggs-chip-sweep");
     expect(chip()).not.toHaveAttribute("data-sweep");
   });
 

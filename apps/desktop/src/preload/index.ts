@@ -166,6 +166,23 @@ contextBridge.exposeInMainWorld("realm", {
     ipcRenderer.on("daemon:state", handler);
     return () => ipcRenderer.removeListener("daemon:state", handler);
   },
+  /** Whether the window is the key window — the one the keyboard is going to. Main reports it rather
+   *  than the page because focus moving into a browser pane blurs the page while the window stays key. */
+  onWindowKey: (cb: (key: boolean) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, key: boolean) => cb(key);
+    ipcRenderer.on("window:key", handler);
+    return () => ipcRenderer.removeListener("window:key", handler);
+  },
+  /** The same state, asked for — what a window that opened behind another app learns on mount. */
+  isWindowKey: (): Promise<boolean> => ipcRenderer.invoke("window:is-key"),
+  /** Show a menu as an OS menu and resolve with the index picked, or null (main/native-menu.ts).
+   *  Absent under REALM_HTML_MENUS=1, which a live script sets when it needs to drive menus over CDP —
+   *  an OS menu is not in the page, so nothing in DevTools can click it. */
+  ...(process.env.REALM_HTML_MENUS === "1" ? {} : {
+    popupMenu: (items: unknown[], at: { x: number; y: number }): Promise<number | null> =>
+      ipcRenderer.invoke("menu:popup", items, at),
+    closeMenu: (): Promise<void> => ipcRenderer.invoke("menu:close"),
+  }),
   /** A session picked from the menu-bar item while the window was closed. The space rides along
    *  because the session is very often not in the space that happens to be open. */
   onOpenSession: (cb: (target: { sessionId: string; spaceId: string | null }) => void): (() => void) => {

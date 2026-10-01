@@ -253,10 +253,8 @@ a {
   text-decoration-skip-ink: auto;
 }
 
-/* Tailwind v4 resets buttons to cursor:default — anything clickable must invite the click */
-button:not(:disabled),
-[role="button"]:not([aria-disabled="true"]),
-label:has(input),
+/* Tailwind v4 leaves buttons on the arrow, and so does Realm: a Mac app points with the arrow at every
+ * control it draws and keeps the hand for a link (styles.css, beside `button`, says why). */
 a {
   cursor: pointer;
 }
@@ -462,6 +460,16 @@ a {
    * arrives rather than snaps. (The out-strong / in-out-strong pair above
    * already matches tembo's `--ease-out` / `--ease-in-out` exactly.) */
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  /* A critically damped spring (damping 1, no overshoot), sampled so it has covered 99.5% of its
+   * travel when the rung it is paired with runs out: ω₀·duration = 7.43, x(t) = 1 − (1 + ω₀t)·e^(−ω₀t).
+   * What separates it from the strong ease-out is the START. A cubic ease-out leaves at full speed,
+   * which is a web transition's signature; a spring starts from rest, gathers, and settles on a long
+   * tail — the curve SwiftUI and Core Animation hand a surface by default, and most of why their
+   * popovers and sheets read as objects arriving rather than pictures appearing. For surfaces and
+   * rings that arrive; a fill answering the pointer still wants no curve at all (styles.css, Press). */
+  --spring-smooth: linear(0, 0.01 2%, 0.036 4%, 0.074 6%, 0.12 8%, 0.171 10%, 0.252 13%, 0.333 16%,
+    0.437 20%, 0.532 24%, 0.615 28%, 0.703 33%, 0.773 38%, 0.838 44%, 0.885 50%, 0.924 57%, 0.953 65%,
+    0.973 74%, 0.987 85%, 1);
 
   /* Scrims. The one place "black at some alpha" cannot serve both modes: the veil subtracts from
    * whatever is behind it, and a near-white window gives up far more light than a dark one does at

@@ -391,7 +391,7 @@ async function main() {
     env: {
       ...process.env,
       REALM_HOME: path.join(scratch, "home"),
-      REALM_ENABLE_FAKE_AGENT: "1",
+      REALM_ENABLE_FAKE_AGENT: "1", REALM_HTML_MENUS: "1",
       REALM_PORT: String(SERVER_PORT),
       REALM_DEVTOOLS_PORT: String(CDP_PORT),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"),

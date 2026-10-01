@@ -138,6 +138,8 @@ async function main() {
     env: {
       ...process.env,
       REALM_HOME: path.join(scratch, "home"),
+      // Menus are drawn in the page so CDP can click them; the app shows OS menus otherwise.
+      REALM_HTML_MENUS: "1",
       REALM_PORT: String(SERVER_PORT),
       REALM_DEVTOOLS_PORT: String(CDP_PORT),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"),

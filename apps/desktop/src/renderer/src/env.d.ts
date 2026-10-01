@@ -3,6 +3,10 @@ interface ScrollPhaseMessage { phase: string; momentum: string; dx: number; dy: 
 /** Mirrors PickedFile in the preload: `size` and `name` are for the prompter's own checks; only
  *  `path` and `mime` ever reach `sessions.send`. */
 interface PickedFile { path: string; mime: string; name: string; size: number }
+/** One row of an OS menu — mirrors `NativeMenuItem` in main/native-menu.ts, the other end of the call. */
+type NativeMenuItem =
+  | { separator: true }
+  | { separator?: false; label: string; enabled: boolean; checked?: boolean; toolTip?: string; accelerator?: string; icon?: string };
 interface Window {
   realm: {
     port: number; home: string;
@@ -18,6 +22,13 @@ interface Window {
     quitAndStopAgents(): Promise<void>;
     /** The agent server's health, as main sees it. Replayed on every new window. */
     onDaemonState(cb: (state: { kind: string; attempt?: number; logPath?: string; why?: string }) => void): () => void;
+    /** Whether the window is key (AppKit's sense: it has the keyboard), as main sees it. */
+    onWindowKey(cb: (key: boolean) => void): () => void;
+    isWindowKey(): Promise<boolean>;
+    /** OS menus (main/native-menu.ts). Optional: absent in jsdom and under REALM_HTML_MENUS=1, where
+     *  `Menu` draws its own. */
+    popupMenu?(items: NativeMenuItem[], at: { x: number; y: number }): Promise<number | null>;
+    closeMenu?(): Promise<void>;
     /** `process.platform` from the preload. Absent in jsdom, which has no bridge — every reader has
      *  to treat "unknown" as "no window material" rather than guessing macOS. */
     platform?: string;
