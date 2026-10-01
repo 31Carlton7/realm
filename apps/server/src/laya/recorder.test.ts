@@ -3,7 +3,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import type { SimulatorAxElement, SimulatorAxTree } from "@realm/contracts";
-import { LayaRecorder } from "./recorder";
+import { LayaRecorder, nextLook } from "./recorder";
 import { RpcError } from "../store/rows";
 
 /**
@@ -197,6 +197,30 @@ describe("recording an app while a person uses it", () => {
     // THE MUTANT: leave the timer running. The phone is read for ever after the person said stop.
     expect(reads()).toBe(after);
     expect(r.current()).toBeNull();
+  });
+
+  it("waits twice as long as a slow read took before the next, and three intervals after a failed one", async () => {
+    expect(nextLook(1_200, 100, false)).toBe(1_200);
+    // THE MUTANT: the interval alone. A phone describing TikTok's feed is never left alone, and the
+    // person watching it feels every read.
+    expect(nextLook(1_200, 36_000, false)).toBe(72_000);
+    expect(nextLook(1_200, 50, true)).toBe(3_600);
+    expect(nextLook(1_200, 20_000, true)).toBe(40_000);
+  });
+
+  it("leaves a slow device alone between reads for twice as long as each took", async () => {
+    const starts: number[] = [];
+    const r = new LayaRecorder({
+      dir: join(tempDir("realm-laya-rec-"), "recordings"), deviceName: () => "Test’s iPhone", onChange: () => {}, intervalMs: 2,
+      read: async () => { starts.push(performance.now()); await new Promise((res) => setTimeout(res, 25)); return FEED; },
+    });
+    recorders.push(r);
+    await r.start("sim1", ["Instagram"]);
+    await settle(() => starts.length >= 3);
+    r.stop();
+    const gaps = starts.slice(1).map((t, i) => t - starts[i]!);
+    // Each read took ~25 ms, so the next begins no sooner than ~75 ms after the last began.
+    for (const gap of gaps.slice(0, 2)) expect(gap).toBeGreaterThanOrEqual(70);
   });
 
   it("lists what was recorded across restarts, and deletes all of it", async () => {

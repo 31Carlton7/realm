@@ -256,10 +256,12 @@ export class SimulatorService {
    * resolves to "the simulator" and nothing finer. The tree is how the device says what is on it,
    * and the frames it carries are what makes an element tappable by label rather than by guess.
    */
-  async ax(simulatorId: string): Promise<SimulatorAxTree> {
+  /** The device's live tree. `patient`, for a phone: wait for a slow app's answer rather than give up at
+   *  a step's timeout — what a recording wants; a simulator's read is quick either way. */
+  async ax(simulatorId: string, o: { patient?: boolean } = {}): Promise<SimulatorAxTree> {
     const row = this.get(simulatorId);
     if (row.physical) {
-      const tree = await this.onDevice(() => this.real().ax(this.udidOf(simulatorId)));
+      const tree = await this.onDevice(() => this.real().ax(this.udidOf(simulatorId), o));
       if (!tree) throw new RpcError("UNAVAILABLE", "the device's runner answered without a tree — something is still animating");
       return tree;
     }

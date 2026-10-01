@@ -37,6 +37,8 @@ export type RecorderDeps = {
   maxScreens?: number;
   /** How long a start waits before asking a device that said "not yet" again. */
   retryMs?: number;
+  /** A monotonic clock in ms, for how long each read took. */
+  clock?: () => number;
 };
 
 /** A screen at most this alike to one already kept is the same screen, a little scrolled. */
@@ -67,9 +69,11 @@ export class LayaRecorder {
   /** Between a start's call and its recording: the read that names the app in front. */
   private starting = false;
   private readonly now: () => Date;
+  private readonly clock: () => number;
 
   constructor(private readonly d: RecorderDeps) {
     this.now = d.now ?? (() => new Date());
+    this.clock = d.clock ?? (() => performance.now());
   }
 
   /** The recording under way, if one is. */
@@ -170,6 +174,8 @@ export class LayaRecorder {
 
   /** One look at the screen: kept when it is one of the apps asked for and not a screen already kept. */
   private async look(live: Live): Promise<void> {
+    const started = this.clock();
+    let failed = false;
     try {
       const tree = await this.d.read(live.meta.simulatorId);
       if (live.stopped) return;
@@ -180,10 +186,11 @@ export class LayaRecorder {
       if (live.meta.screens >= (this.d.maxScreens ?? MAX_SCREENS)) { this.stop(); return; }
     } catch (e) {
       if (live.stopped) return;
+      failed = true;
       const said = e instanceof Error ? e.message : String(e);
       if (said !== live.meta.lastError) { live.meta.lastError = said; this.save(live.meta); this.d.onChange(); }
     }
-    this.schedule(this.d.intervalMs ?? DEFAULT_INTERVAL_MS);
+    this.schedule(nextLook(this.d.intervalMs ?? DEFAULT_INTERVAL_MS, this.clock() - started, failed));
   }
 
   private keep(live: Live, app: string, tree: SimulatorAxTree): void {
@@ -204,6 +211,16 @@ export class LayaRecorder {
     mkdirSync(join(this.d.dir, meta.id), { recursive: true });
     writeFileSync(join(this.d.dir, meta.id, "recording.json"), JSON.stringify(meta, null, 2) + "\n");
   }
+}
+
+/**
+ * How long to wait before the next look: the interval, or twice what the last read took when that is
+ * longer. A phone describing a slow app — MEASURED: TikTok's feed, 36 s a read while a video plays — is
+ * then busy with it a third of the time at most, rather than all of it, which is what the person using
+ * the app feels. After a failed read, three intervals: a locked phone is not asked every second.
+ */
+export function nextLook(intervalMs: number, readMs: number, failed: boolean): number {
+  return Math.max(failed ? intervalMs * 3 : intervalMs, 2 * readMs);
 }
 
 /** An app asked for, by its own name however it is written: "tiktok" is TikTok. The home screen names

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { onceExpr, parseOnce, type Schedule } from "@realm/contracts";
 import { createAppStore, StoreContext } from "../../state/store";
@@ -127,6 +127,10 @@ describe("the Scheduled tasks page", () => {
 
 describe("a schedule that runs once", () => {
   const MOMENT = new Date(2026, 8, 30, 13).getTime();
+  // Held the day before MOMENT, which is a date: on the real clock it ran out on 2026-09-30, and a
+  // one-shot is only ever picked ahead of now. Only `Date` is held — the timers `waitFor` uses stay real.
+  beforeEach(() => { vi.useFakeTimers({ now: new Date(2026, 8, 29, 9), toFake: ["Date"] }); });
+  afterEach(() => { vi.useRealTimers(); });
 
   it("keeps its moment on screen after it has fired, when there is no next time left to show", async () => {
     // THE MUTANT: read the moment out of `nextRunAt`. A fired one-shot has none, and the row would

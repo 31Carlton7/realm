@@ -11,6 +11,8 @@ import XCTest
 @MainActor
 final class Routes {
     private var lastInput: Task<Response, Never>?
+    /// The tree read under way, and the limits it was asked with.
+    private var reading: (depth: Int?, children: Int?, task: Task<[String: Any], Error>)?
 
     func handle(_ request: Request) async -> Response {
         do {
@@ -22,7 +24,7 @@ final class Routes {
             case ("GET", "/foreground"):
                 return .json(await Screen.foreground())
             case ("GET", "/hierarchy"):
-                return .json(try await Screen.hierarchy())
+                return .json(try await tree(depth: request.query["maxDepth"].flatMap { Int($0) }, children: request.query["maxChildren"].flatMap { Int($0) }))
             case ("GET", "/screenshot"):
                 let format = request.query["format"] ?? "png"
                 let data = Screen.screenshot(format: format,
@@ -38,6 +40,19 @@ final class Routes {
         } catch {
             return .error(500, String(describing: error))
         }
+    }
+
+    /// A tree read — shared with the one already under way when it asks the same. A snapshot blocks the
+    /// main actor and cannot be cancelled, so a read that arrives during one waits for it either way;
+    /// taking ITS answer, rather than starting another snapshot behind it, is what keeps a slow app from
+    /// being snapshotted over and over by reads that gave up waiting (MEASURED: TikTok, 5 to 40 s each).
+    /// A tap still looks under its own finger (`underFinger`), never at a shared read.
+    private func tree(depth: Int?, children: Int?) async throws -> [String: Any] {
+        if let reading, reading.depth == depth, reading.children == children { return try await reading.task.value }
+        let task = Task { @MainActor in try await Screen.hierarchy(maxDepth: depth, maxChildren: children) }
+        reading = (depth, children, task)
+        defer { if reading?.task == task { reading = nil } }
+        return try await task.value
     }
 
     private func serially(_ work: @escaping @MainActor () async -> Response) async -> Response {

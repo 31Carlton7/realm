@@ -30,7 +30,7 @@ afterEach(async () => {
 
 const SIM: SimulatorDevice = { udid: "SIM-17E", platform: "ios", name: "iPhone 17e", runtime: "iOS 27.0", state: "Shutdown", serial: null, physical: false };
 
-async function setup(o: { locked?: boolean; ensure?: () => Promise<never>; rehearsal?: string[] } = {}) {
+async function setup(o: { locked?: boolean; ensure?: () => Promise<never>; rehearsal?: string[]; timing?: { readMs?: number; patientReadMs?: number } } = {}) {
   const phone = await new FakePhone().listen();
   phones.push(phone);
   const home = tempDir("realm-phone-");
@@ -51,7 +51,7 @@ async function setup(o: { locked?: boolean; ensure?: () => Promise<never>; rehea
     launch: async (udid: string, id: string, fresh?: boolean) => { log.push(`simctl-launch:${id}${fresh ? ":fresh" : ""}`); return { ok: true, detail: "" }; },
   } as unknown as Simctl;
   const physical = new PhysicalDevices({
-    home, devicectl: dc, runners, simctl, rehearsal: o.rehearsal ?? [],
+    home, devicectl: dc, runners, simctl, rehearsal: o.rehearsal ?? [], ...(o.timing ? { timing: o.timing } : {}),
     bridge: async (b) => {
       bridges.push(`start:${b.screen.width}x${b.screen.height}`);
       return { streamUrl: "http://127.0.0.1:47001/stream.mjpeg", wsUrl: "ws://127.0.0.1:47001/ws", port: 47001, close: async () => { bridges.push("close"); } };
@@ -144,6 +144,16 @@ describe("reading and driving it", () => {
     expect(tree).toMatchObject({ units: "points", app: "Settings", screen: { width: 402, height: 874 } });
     expect(tree.elements.map((e) => `${e.role} ${e.label}`)).toEqual(["NavigationBar ", "StaticText Settings", "Button General", "Button Accessibility", "SearchField Search"]);
     expect(tree.elements.find((e) => e.label === "General")?.frame).toEqual({ x: 16, y: 160, width: 370, height: 52 });
+  });
+
+  it("gives a step's read of a slow app up at the step's timeout, and waits for it when asked to be patient", async () => {
+    const { service, phone, open } = await setup({ timing: { readMs: 100, patientReadMs: 3_000 } });
+    const id = await open();
+    phone.screen = "root";
+    phone.readDelayMs = 400;
+    await expect(service.ax(id)).rejects.toMatchObject({ code: "UNAVAILABLE", message: expect.stringContaining("runner is not answering") });
+    // THE MUTANT: the step's timeout for a recording too. A slow app is then never recorded at all.
+    expect((await service.ax(id, { patient: true })).app).toBe("Settings");
   });
 
   it("says a runner that is not answering is not answering — the word a step asks again on", async () => {

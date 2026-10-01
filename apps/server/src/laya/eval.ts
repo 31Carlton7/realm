@@ -90,7 +90,7 @@ export async function evaluate(b: Benchmark, ask: Ask, o: { splits?: EvalSplits;
   for (const c of sensitive) {
     stopped();
     const el = observed(b.screens.get(c.screen)!.elements.find((e) => e.id === c.element)!);
-    const rule = sensitiveRule(`${c.intent} ${describeTarget(el)}`).value;
+    const rule = sensitiveRule(`${c.intent} ${describeTarget(el)}`, c.app).value;
     const q = sensitiveQuestion(c.tool, { element: el }, c.intent);
     const base = { kind: "sensitive" as const, id: c.id, split: c.split, app: c.app, want: c.sensitive, rule };
     try {

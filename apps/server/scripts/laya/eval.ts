@@ -3,11 +3,13 @@
  * it (`realLayaRuntime`, 127.0.0.1, a per-start key), and writes its report.
  *
  *   REALM_LAYA_VENV=<venv with laya[serve]> REALM_LAYA_HF_HOME=<HF cache> \
- *     pnpm --filter @realm/server exec tsx scripts/laya/eval.ts --checkpoint base|typed|<dir> --out <eval.json> [--name <label>] [--results <cases.jsonl>]
+ *     pnpm --filter @realm/server exec tsx scripts/laya/eval.ts --checkpoint base|typed|<dir> --out <eval.json> [--name <label>] [--results <cases.jsonl>] [--bench <dir>]
  *
  * `base` is the pinned download Realm installs; `typed` is convaiinnovations/laya-typed-decisions from
  * the same cache; a directory is a checkpoint a training run wrote. Every question is asked as the
  * shadow asks it (`src/laya/eval.ts`). Nothing is downloaded: the server runs with HF_HUB_OFFLINE=1.
+ * `--bench` scores a benchmark directory of the same shape other than the one Realm ships — one built
+ * on this Mac from its own recordings, say, which never leaves it.
  */
 import { randomBytes } from "node:crypto";
 import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
@@ -36,7 +38,7 @@ const checkpoint = which === "base" ? undefined : which === "typed" ? snapshot("
 
 const dir = bundledLayaDir();
 if (!dir) throw new Error("no resources/laya found");
-const bench = loadBenchmark(join(dir, "benchmark"));
+const bench = loadBenchmark(args.get("bench") || join(dir, "benchmark"));
 const home = mkdtempSync("/tmp/laya-train/home/eval-");
 const rt = realLayaRuntime({ home, env: process.env });
 const port = await rt.freePort();

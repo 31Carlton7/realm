@@ -32,7 +32,16 @@ export type PhysicalDeps = {
   rehearsal?: readonly string[];
   /** A runner that stopped by itself, for the pane showing that device to say so. */
   onExit?: (udid: string, error: RunnerError) => void;
+  /** How long a read of the tree may take: a step's (`readMs`), and a patient reader's (`patientReadMs`) —
+   *  a recording, which would rather wait for a slow app than ask it again. */
+  timing?: { readMs?: number; patientReadMs?: number };
 };
+
+/** A step's read: long enough for any app at rest, short enough for an agent waiting on its answer. */
+const READ_MS = 15_000;
+/** A patient read's: MEASURED on a real iPhone, TikTok's feed took 36 s and more to describe while a
+ *  video played, whatever the depth asked for. */
+const PATIENT_READ_MS = 120_000;
 
 type Live = { client: RunnerClient; points: { width: number; height: number }; bridge: Bridge };
 
@@ -106,8 +115,12 @@ export class PhysicalDevices {
   }
 
   /** The foreground app's tree, in points. Null when the runner answered with something else. */
-  async ax(udid: string): Promise<SimulatorAxTree | null> {
-    return this.of(udid).client.tree();
+  /** The tree of the app in front. `patient`: wait as long as a slow app takes, for a reader that
+   *  would rather do that than ask again (the runner shares a snapshot under way with any read that
+   *  asks during it, so a read that gave up and asked again would be waiting on the same one). */
+  async ax(udid: string, o: { patient?: boolean } = {}): Promise<SimulatorAxTree | null> {
+    const t = this.d.timing ?? {};
+    return this.of(udid).client.tree(o.patient ? t.patientReadMs ?? PATIENT_READ_MS : t.readMs ?? READ_MS);
   }
 
   capture(udid: string): Promise<Buffer> { return this.of(udid).client.screenshot({ format: "png" }); }
