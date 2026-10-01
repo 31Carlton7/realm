@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { onceExpr, parseOnce, type CreateScheduleInput, type Schedule } from "@realm/contracts";
 import { createScheduleAgentProvider, SCHEDULE_PROVIDER_NAME } from "./agent-tools";
 import type { RealmToolProvider } from "../mcp/gateway";
@@ -35,7 +35,14 @@ const row = (input: CreateScheduleInput): Schedule => ({
   lastRunAt: null, lastRunId: null, lastSkippedAt: null, createdAt: 0, updatedAt: 0,
 });
 
+/** The day these tests are set on. Their moments are written as dates, and a one-shot is only ever
+ *  scheduled ahead of now: on the real clock they ran out on 2026-09-30, the date most of them name.
+ *  Only `Date` is held still — the timers stay real. */
+const TODAY = new Date(2026, 8, 29, 9);
+afterEach(() => { vi.useRealTimers(); });
+
 beforeEach(() => {
+  vi.useFakeTimers({ now: TODAY, toFake: ["Date"] });
   rows = [];
   enabled = true;
   provider = createScheduleAgentProvider({
