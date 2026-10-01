@@ -531,6 +531,23 @@ describe("the sensitive rule", () => {
     }
   });
 
+  it("reads Instagram's own labels as their user would: a call, a repost and a reaction held back, a post's menu and a bookmark not", () => {
+    // Labels as Instagram's accessibility tree gives them, from a recording of the app (2026-09-30).
+    for (const label of ["Start audio call", "Start video call", "Repost", "Like comment", "Add to story", "Send", "Follow", "Tap to react with any emoji", "Forward", "Post"]) {
+      expect(sensitiveRule(`tap '${label}'`, "Instagram").value, label).toBe(true);
+    }
+    // THE MUTANTS: "post" as any word, a story closed as one seen. A walk then stops at every post's menu.
+    for (const label of ["Main feed", "Reels", "Explore", "Profile", "Post options", "Save post", "Save", "Close stories to return to feed", "Close story camera", "Followers", "Following", "Edit profile", "Grid", "Tagged", "Search"]) {
+      expect(sensitiveRule(`tap '${label}'`, "Instagram").value, label).toBe(false);
+    }
+    // And in words an agent would use: the post named is a thing, the post done is an act.
+    expect(sensitiveRule("open the post").value).toBe(false);
+    expect(sensitiveRule("save this post to look at later").value).toBe(false);
+    expect(sensitiveRule("post the photo")).toEqual({ value: true, matched: "post" });
+    expect(sensitiveRule("tap 'Post' to share the reel")).toMatchObject({ value: true });
+    expect(sensitiveRule("video call them", "Instagram")).toEqual({ value: true, matched: "video call" });
+  });
+
   it("teaches what other people see as shared with someone, and a gift or coins as money", () => {
     expect(socialStep("tap 'Like'", "Instagram")).toEqual({ matched: "like", part: "send" });
     expect(socialStep("open their story", "Instagram")).toEqual({ matched: "story", part: "send" });

@@ -102,7 +102,9 @@ const SENSITIVE_RULES: RegExp[] = [
   // text does not, and is the one "clear" a walk meets on the way to something else. Formatting is a
   // deletion only when it is a disk being formatted: every Mac app with text has a Format menu.
   /\b(delete|erase|remove|trash|wipe|reset|uninstall|discard)\b|\bclear\b(?! (?:text|search)\b)|\bformat\b(?= (?:the |this |a )?(?:disk|drive|volume|card|partition)\b)/i,
-  /\b(send|post|publish|share|submit|reply|forward|invite|tweet)\b/i,
+  // "Post" is posting when it is the act ("Post", "post the photo"), and a thing when it is named —
+  // "the post", "Save post", "Post options" — which in Instagram is every other label.
+  /\b(send|publish|share|submit|reply|forward|invite|tweet)\b|(?<!\b(?:the|this|that|a|an|your|my|their|his|her|its|each|next|previous|first|last|save) )\bpost\b(?! options\b)/i,
   /\b(password|passcode|passkey|secret|token|api key|credit card|card number|cvv|cvc|ssn|secure text field)\b/i,
   // Dictation turns on the microphone: never a step Realm takes on anyone's behalf.
   // Making an account is a step taken in someone's name, as signing out of one is.
@@ -418,7 +420,8 @@ export function pickCandidates(elements: readonly ObservedElement[], chosen: Obs
 const SOCIAL_APPS = /^(instagram|tiktok|facebook|messenger|threads|x|twitter|snapchat|whatsapp|linkedin|youtube|reddit|telegram|discord|pinterest|bereal|tumblr|bluesky|mastodon)$/i;
 const SOCIAL_RULES: { rule: RegExp; part: SensitivePart }[] = [
   { rule: /\b(like|unlike|love|react|follow|unfollow|comment|repost|retweet|quote|remix|duet|stitch)\b/i, part: "send" },
-  { rule: /\b(story|stories|live|message|messages|messenger|chat|chats|inbox|direct|dm|dms)\b/i, part: "send" },
+  // A story opened is a story seen, and its author sees who; one closed is not. A call rings someone.
+  { rule: /(?<!\bclose )\b(?:story|stories)\b|\b(live|message|messages|messenger|chat|chats|inbox|direct|dm|dms)\b|\bstart (?:an? )?(?:audio |video )?call\b|\b(?:audio|video) call\b/i, part: "send" },
   { rule: /\b(gift|gifts|coins|recharge|tip|tips|super ?chat)\b/i, part: "money" },
   { rule: /\b(report|block|restrict|remove follower)\b/i, part: "send" },
 ];
