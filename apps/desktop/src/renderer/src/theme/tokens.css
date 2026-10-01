@@ -355,9 +355,20 @@ a {
    * references it gets measured against. */
   --hairline-w: 0.5px;
 
-  /* Dark is Realm's primary mode, so the border ramp lightens. */
-  --line: var(--overlay-lighten-300);
-  --line-strong: var(--overlay-lighten-400);
+  /* Dark is Realm's primary mode, so the border ramp lightens.
+   *
+   * One rung softer than tembo's, on purpose: at lighten-300 / -400 the app's edges measured 7.1% and
+   * 10.7% of full range on the panel ground (`border-softness-live.mjs`), and a window of controls
+   * each wearing a ring that bright read as outlined rather than as surfaces. Most of these lines sit
+   * beside a change of surface, which carries the boundary; the line only has to sharpen it. Where a
+   * line is the WHOLE boundary it has its own token and keeps its weight: `--divider` below, and the
+   * window ring. A FILL that used to borrow a line token — a switch's track, a progress track, a
+   * scrollbar thumb, an idle dot — is a mark, not an edge, and is on `--mark` at the old weight so
+   * softening the edges cannot make a control disappear. */
+  --line: var(--overlay-lighten-200);
+  --line-strong: var(--overlay-lighten-300);
+  --mark: var(--overlay-lighten-300);
+  --mark-strong: var(--overlay-lighten-400);
   /* The pane divider, which is its own role rather than a heavier --line. Everywhere else a hairline
    * accompanies a change of surface and the change carries most of the boundary; between two panes
    * there is none — `.main` and every `.panel` paint the same ground — so this line does the whole
@@ -488,12 +499,12 @@ a {
    * SURFACE, which does flip, because a white edge on a white card is nothing.) */
   --fill-bevel: inset 0 1px 0 oklch(1 0 0 / 0.14);
   --shadow-pill: 0 2px 9px 0 #00000052;
-  --shadow-btn: 0 0 0 var(--hairline-w) var(--overlay-lighten-400), 0 1px 2px #00000052;
+  --shadow-btn: 0 0 0 var(--hairline-w) var(--overlay-lighten-300), 0 1px 2px #00000052;
   /* The ring on its own, for the secondary button: the edge WITHOUT the lift. `--shadow-btn` keeps
    * both layers because the SELECTED segment and the pressed documents-mode read as raised — a
    * control inside a strip needs the drop to sit above its neighbours. A standalone button has
    * nothing to sit above, and the drop under it was reading as a smudge rather than as depth. */
-  --btn-ring: var(--overlay-lighten-400);
+  --btn-ring: var(--overlay-lighten-300);
   /* Same two layers, split, for a button the worklet paints. Its border box is a SQUARE there
    * (border-radius: 0), so the ring goes to the painter and the drop becomes a filter, which
    * follows the painted alpha instead of the box. Same numbers as above, deliberately. */
@@ -502,7 +513,7 @@ a {
    * corner is a painted superellipse the ring cuts across the fill and the painter has to stroke the
    * edge itself (--card-ring), leaving box-shadow only the lift. Every other card keeps the whole
    * stack, and there is still one place either half is written. */
-  --card-ring: var(--overlay-lighten-400);
+  --card-ring: var(--overlay-lighten-300); /* one rung softer, with --line above */
   /* A floating WINDOW's own edge, resting and under the pointer — the quick chat today.
    * Its own pair rather than the card ring: a card sits on a pane and takes most of its boundary
    * from the surface step, where a window floats over whatever happens to be behind it and the line
@@ -525,18 +536,21 @@ a {
     drop-shadow(0 4px 2px #00000047) drop-shadow(0 12px 10px #00000029) drop-shadow(0 20px 48px #00000059);
   --shadow-card: 0 0 0 var(--hairline-w) var(--card-ring), var(--shadow-card-lift);
   --shadow-raised:
-    0 0 0 var(--hairline-w) var(--overlay-lighten-500),
+    0 0 0 var(--hairline-w) var(--overlay-lighten-400),
     0 8px 16px #00000038, 0 24px 117px #0000003d;
   --shadow-overlay:
-    0 0 0 var(--hairline-w) var(--overlay-lighten-500),
+    0 0 0 var(--hairline-w) var(--overlay-lighten-400),
     0 4.4px 2.2px -4.4px #00000047, 0 19px 10px #00000029, 0 20px 64px #00000059;
   --shadow-hairline: 0 0 0 var(--hairline-w) var(--line);
   --shadow-inset-field: inset 0 1px 2px #00000066;
 }
 
 :root[data-mode="light"] {
-  --line: var(--overlay-darken-200);
-  --line-strong: var(--overlay-darken-300);
+  /* The same one-rung step as the dark face, and measured the same way. */
+  --line: var(--overlay-darken-100);
+  --line-strong: var(--overlay-darken-200);
+  --mark: var(--overlay-darken-200);
+  --mark-strong: var(--overlay-darken-300);
   /* A step above the dark face's, not its mirror: black-on-near-white loses more of itself than
    * white-on-near-black. At darken-300 the light divider measured 7.2% against dark's 10.7%. */
   --divider: var(--overlay-darken-400);
@@ -548,9 +562,9 @@ a {
 
   --shadow-bevel: inset 0 1px 0.5px #00000026;
   --shadow-pill: 0 2px 9px 0 #0000000f;
-  --shadow-btn: 0 0 0 var(--hairline-w) var(--overlay-darken-300), 0 1px 2px #03071214;
-  --btn-ring: var(--overlay-darken-300);
-  --card-ring: #03071214;
+  --shadow-btn: 0 0 0 var(--hairline-w) var(--overlay-darken-200), 0 1px 2px #03071214;
+  --btn-ring: var(--overlay-darken-200);
+  --card-ring: #0307120e; /* the same tint, one step lighter — with --line above */
   /* Heavier steps than the dark face, not the mirrored ones: black on a near-white ground loses more
      of itself than white on a near-black one, so the same rungs would land as no border and no
      hover. Same correction the pane divider needed. */

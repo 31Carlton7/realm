@@ -149,6 +149,13 @@ Rules:
 
 - Let large work areas rest on `canvas`. Do not wrap every section in a surface.
 - Use surface contrast before adding a border.
+- Edges are quiet. The ordinary line (`--line`, `--line-strong`, `--btn-ring`, `--card-ring`) sits one
+  rung below where tembo puts it — 5.1% and 7.1% of full range on the dark panel, 3.7% and 5.5% on the
+  light one, measured by `border-softness-live.mjs` — because nearly every one of them runs beside a
+  change of surface that already carries the boundary. A window of controls each wearing a bright
+  ring reads as outlined rather than as surfaces. A FILL is not an edge: a switch's track, a progress
+  track, a scrollbar thumb or an idle dot uses `--mark`, which stays at the old weight, so softening
+  the edges can never make a control disappear.
 - A hairline earns its place only where content genuinely passes UNDER a fixed edge. A bar that
   is a flex sibling above a scroller is not that — the scroller clips at its own edge and
   nothing ever crosses the line. The test is mechanical: is the element sticky or absolutely

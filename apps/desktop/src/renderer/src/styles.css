@@ -651,7 +651,7 @@ kbd { font: 11px var(--font-mono); }
    whatever fractions the layout's own `sizes` put them at, which is what lets any arrangement be
    drawn exactly rather than sorted into the nearest grid. */
 .item-glyph { width: 12px; height: 12px; flex: none; overflow: visible; }
-.item-glyph rect { fill: var(--rl-line-strong); }
+.item-glyph rect { fill: var(--mark-strong); }
 /* Panes are neutral; the row's own pane lifts to ink (accent = ink now, V-C1 kept). */
 .item-glyph rect[data-on] { fill: var(--rl-text-dim); }
 .item[data-active] .item-glyph rect[data-on] { fill: var(--rl-text-bright); } /* W3: BUI active icons are ink, not accent */
@@ -2556,7 +2556,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .status-dot[data-status="running"] { background: var(--rl-success); }
 .status-dot[data-status="waiting_permission"] { background: var(--rl-warning); }
 .status-dot[data-status="error"] { background: var(--rl-danger); }
-.status-dot[data-status="idle"] { background: var(--rl-line-strong); } /* idle is a state, not a verdict (V-C5) */
+.status-dot[data-status="idle"] { background: var(--mark-strong); } /* idle is a state, not a verdict (V-C5) */
 .status-dot[data-status="ended"] { background: var(--rl-text-faint); opacity: .6; }
 /* W4: an agent act is in flight on a browser. Accent, not success — this is "Realm is acting here,
    watch", a pointer to activity, not a session verdict. */
@@ -3148,7 +3148,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .fd-add { color: var(--rl-success); } .fd-del { color: var(--rl-danger); }
 /* Five cells, filled in proportion (statCells). Read before the numbers are. */
 .fd-bar { display: flex; gap: 1.5px; }
-.fd-bar i { width: 5px; height: 5px; border-radius: 1px; background: var(--rl-line-strong); }
+.fd-bar i { width: 5px; height: 5px; border-radius: 1px; background: var(--mark-strong); }
 .fd-bar i[data-fill="add"] { background: var(--green); } .fd-bar i[data-fill="del"] { background: var(--red); }
 .fd-body { overflow-x: auto; padding: 4px 0; }
 /* Grid, not flex: every line's two gutters and sign share one column ruler, so the code edge stays
@@ -3199,7 +3199,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .todo-head { display: flex; align-items: baseline; gap: 8px; font-size: 11.5px; }
 .todo-count { flex: none; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
 .todo-active { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.todo-track { height: 3px; border-radius: 2px; background: var(--rl-line); overflow: hidden; }
+.todo-track { height: 3px; border-radius: 2px; background: var(--mark); overflow: hidden; }
 /* The one bar in the app that fills with the accent: it is progress, not state — §3 reserves colour
    for state, and reserves the accent for "the thing that is happening". */
 .todo-fill { height: 100%; border-radius: 2px; background: var(--rl-accent); transition: width var(--dur-slow) var(--ease-out-strong); }
@@ -3213,7 +3213,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .todo-list li[data-status="completed"] { color: var(--rl-text-faint); }
 /* Struck through, not hidden: the plan's history is the point — what the agent decided to do and in
    what order — and a list that deletes its finished items reads as a list that changed its mind. */
-.todo-list li[data-status="completed"] .todo-text { text-decoration: line-through; text-decoration-color: var(--rl-line-strong); }
+.todo-list li[data-status="completed"] .todo-text { text-decoration: line-through; text-decoration-color: var(--mark-strong); }
 .todo-list li[data-status="completed"] .todo-dot { box-shadow: none; background: var(--rl-success); }
 
 /* ── Search results (Grep / Glob) ─────────────────────────────────────────── */
@@ -3876,7 +3876,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .composer-send { position: relative; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
   background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: var(--fill-bevel); flex: none; }
 .composer-send:hover:not(:disabled) { background: var(--accent-ink); }
-.composer-send:disabled { background: var(--line-strong); color: var(--ink-2); box-shadow: none; opacity: 1; }
+.composer-send:disabled { background: var(--mark-strong); color: var(--ink-2); box-shadow: none; opacity: 1; }
 
 /* ── To-do strip (§4): the session's plan, attached to the TOP of the card ─────────────
    The under-strip below, mirrored: same frame fill, same 10px inset, same overlap sliding it behind
@@ -4614,8 +4614,8 @@ select { appearance: none; padding-right: 22px;
    scroller with only the pseudo-element rules reserves the 24px they ask for, one with both reserves
    the 11px the standard property asks for. The 10px width, the thumb colour and the transparent
    track were all already coming from the line above them. */
-:root:not([data-overlay-scrollbars]) { scrollbar-color: var(--rl-line) transparent; }
-:root:not([data-overlay-scrollbars]) :hover { scrollbar-color: var(--rl-line-strong) transparent; }
+:root:not([data-overlay-scrollbars]) { scrollbar-color: var(--mark) transparent; }
+:root:not([data-overlay-scrollbars]) :hover { scrollbar-color: var(--mark-strong) transparent; }
 :where(:root:not([data-overlay-scrollbars])) :where(
   /* chrome and navigation. `.space-body` is NOT here — see the carve-out below. */
   .menu, .mention-picker, .skill-picker-list, .mp-list, .mp-detail-body, .ip-grid,
@@ -4667,21 +4667,21 @@ select { appearance: none; padding-right: 22px;
 :root:not([data-overlay-scrollbars]) [data-dissolve]::-webkit-scrollbar-track { background: transparent; margin-block: var(--fade-top-h, 40px) var(--fade-h, 68px); }
 :root:not([data-overlay-scrollbars]) [data-dissolve-x]::-webkit-scrollbar-track { background: transparent; margin-inline: var(--fade-w, 28px); }
 :root:not([data-overlay-scrollbars]) [data-dissolve]::-webkit-scrollbar-thumb, :root:not([data-overlay-scrollbars]) [data-dissolve-x]::-webkit-scrollbar-thumb {
-  background: var(--rl-line); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
+  background: var(--mark); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
 :root:not([data-overlay-scrollbars]) [data-dissolve]:hover::-webkit-scrollbar-thumb, :root:not([data-overlay-scrollbars]) [data-dissolve-x]:hover::-webkit-scrollbar-thumb {
-  background: var(--rl-line-strong); background-clip: content-box; }
+  background: var(--mark-strong); background-clip: content-box; }
 
 /* The sidebar's column keeps its own, narrower bar: 11px of standard scrollbar reads as heavy in a
    280px column. Everything else about it is the rule above. */
 :root:not([data-overlay-scrollbars]) .space-body { scrollbar-color: auto; scrollbar-width: auto; }
 :root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar { width: 8px; }
 :root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar-track { background: transparent; margin-block: var(--fade-top-h) var(--fade-h); }
-:root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar-thumb { background: var(--rl-line); border-radius: 999px;
+:root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar-thumb { background: var(--mark); border-radius: 999px;
   /* Inset from the 8px channel so the thumb reads as a 4px line with air either side rather than a
      bar wedged against the column's edge. `background-clip: content-box` is what makes the border
      transparent padding instead of a second colour. */
   border: 2px solid transparent; background-clip: content-box; }
-:root:not([data-overlay-scrollbars]) .space-body:hover::-webkit-scrollbar-thumb { background: var(--rl-line-strong); background-clip: content-box; }
+:root:not([data-overlay-scrollbars]) .space-body:hover::-webkit-scrollbar-thumb { background: var(--mark-strong); background-clip: content-box; }
 
 /* ── Scrollbars: on scroll, in the prompter ────────────────────────────────
    Everywhere above keeps the persistent hairline: a transcript, a diff, a settings page is long
@@ -4694,7 +4694,7 @@ select { appearance: none; padding-right: 22px;
    Deliberately scroll-only, not hover-only: `:hover` still matches while idle (the root rule two
    screens up), so hiding the thumb has to out-rank hover too, not just the resting case. */
 :root:not([data-overlay-scrollbars]) .mention-picker, :root:not([data-overlay-scrollbars]) .skill-picker-list { scrollbar-color: transparent transparent; }
-:root:not([data-overlay-scrollbars]) .mention-picker[data-scrolling], :root:not([data-overlay-scrollbars]) .skill-picker-list[data-scrolling] { scrollbar-color: var(--rl-line) transparent; }
+:root:not([data-overlay-scrollbars]) .mention-picker[data-scrolling], :root:not([data-overlay-scrollbars]) .skill-picker-list[data-scrolling] { scrollbar-color: var(--mark) transparent; }
 /* `.mp-list`, `.mp-detail-body` and `.mp-jumps` ride the masked scrollbar's fade at their own two
    ends ([data-dissolve]/[data-dissolve-x], above) — that stays; only the thumb's resting paint
    changes. The reclaim is already true by inheritance from the bare attribute rule above, and is
@@ -4710,7 +4710,7 @@ select { appearance: none; padding-right: 22px;
 :root:not([data-overlay-scrollbars]) .mp-list[data-dissolve]::-webkit-scrollbar-thumb, :root:not([data-overlay-scrollbars]) .mp-detail-body[data-dissolve]::-webkit-scrollbar-thumb,
 :root:not([data-overlay-scrollbars]) .mp-jumps[data-dissolve-x]::-webkit-scrollbar-thumb { background: transparent; }
 :root:not([data-overlay-scrollbars]) .mp-list[data-dissolve][data-scrolling]::-webkit-scrollbar-thumb, :root:not([data-overlay-scrollbars]) .mp-detail-body[data-dissolve][data-scrolling]::-webkit-scrollbar-thumb,
-:root:not([data-overlay-scrollbars]) .mp-jumps[data-dissolve-x][data-scrolling]::-webkit-scrollbar-thumb { background: var(--rl-line); }
+:root:not([data-overlay-scrollbars]) .mp-jumps[data-dissolve-x][data-scrolling]::-webkit-scrollbar-thumb { background: var(--mark); }
 /* The composer's own textarea is not in this list, and cannot be: `scrollbar-width: none` there is
    permanent, not a resting state, because a classic scrollbar reserves gutter width the moment
    content overflows regardless of thumb colour — which would misalign the highlight mirror's wrapped
@@ -4720,7 +4720,7 @@ select { appearance: none; padding-right: 22px;
    measures the viewport to decide the terminal's column count, and its interior is a dark world in
    both app modes (`color-scheme: dark` on .terminal-pane), so the thumb here answers to the terminal
    rather than to whatever the rule above becomes next. */
-:root:not([data-overlay-scrollbars]) .terminal-pane .xterm-viewport { scrollbar-width: thin; scrollbar-color: var(--rl-line-strong) transparent; }
+:root:not([data-overlay-scrollbars]) .terminal-pane .xterm-viewport { scrollbar-width: thin; scrollbar-color: var(--mark-strong) transparent; }
 
 /* Rubber-banding (rubber-band.ts). The scroller's CHILDREN move, never the scroller: its box, its
    mask and its scrollbar stay where they are, the way an NSClipView holds still while the document
@@ -5402,14 +5402,14 @@ select { appearance: none; padding-right: 22px;
  */
 .switch {
   appearance: none; flex: none; width: 34px; height: 20px; margin: 0; border-radius: 999px;
-  background: var(--rl-line); box-shadow: inset 0 0 0 var(--hairline-w) var(--rl-line-strong);
+  background: var(--mark); box-shadow: inset 0 0 0 var(--hairline-w) var(--rl-line-strong);
   position: relative; cursor: default;
   /* Two rungs, because these are two different events: the TRACK's fill is hover feedback and rides
      the hover rung with every other fill in the app, while the knob below is a state change and
      stays on press. Both were on press, which is what made a hover read as a flick. */
   transition: background var(--dur-hover) var(--ease-out-strong), box-shadow var(--dur-hover) ease;
 }
-.switch:hover:not(:disabled) { background: var(--rl-line-strong); }
+.switch:hover:not(:disabled) { background: var(--mark-strong); }
 /* The knob carries its own small lift, which is what stops it reading as a hole in the track. */
 .switch::after {
   content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;

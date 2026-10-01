@@ -940,8 +940,9 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(tokens).toContain("--hairline-w: 0.5px");
     expect(tokens).toMatch(/--shadow-hairline: 0 0 0 var\(--hairline-w\) var\(--line\)/);
     // The border ramp is derived from the overlay ladder, not from a solid grey.
-    expect(tokens).toMatch(/--line: var\(--overlay-lighten-300\)/);
-    expect(tokens).toMatch(/:root\[data-mode="light"\] \{[^}]*--line: var\(--overlay-darken-200\)/);
+    // One rung softer than tembo's in both faces (border-softness-live.mjs measured the old pair).
+    expect(tokens).toMatch(/--line: var\(--overlay-lighten-200\)/);
+    expect(tokens).toMatch(/:root\[data-mode="light"\] \{[^}]*--line: var\(--overlay-darken-100\)/);
   });
 
   it("type carries per-size tracking and explicit line heights, not one em-relative value for the whole document", () => {
@@ -1683,11 +1684,12 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(bodiesFor(".msg-user-files").join(" ")).toContain("list-style: none");
   });
 
-  it("the send circle carries BUI Button's accent treatment: inset top highlight, accent-ink hover, PromptBar's line-strong disabled fill", () => {
+  it("the send circle carries BUI Button's accent treatment: inset top highlight, accent-ink hover, PromptBar's disabled fill", () => {
     expect(bodiesFor(".composer-send").join(" ")).toContain("box-shadow: var(--fill-bevel)");
     expect(bodiesFor(".composer-send:hover:not(:disabled)").join(" ")).toContain("background: var(--accent-ink)");
     const off = bodiesFor(".composer-send:disabled").join(" ");
-    expect(off).toContain("background: var(--line-strong)");
+    // A disabled fill is a mark: it keeps the old line-strong weight now that the edges are softer.
+    expect(off).toContain("background: var(--mark-strong)");
     expect(off).toContain("color: var(--ink-2)");
   });
 
@@ -1966,8 +1968,9 @@ describe("scrollbars", () => {
   it("the track is hidden by INHERITANCE, so a scroller written tomorrow is covered too", () => {
     // The whole point of putting it on :root: `scrollbar-color` inherits, and a list is a thing to
     // keep up with. The transparent second value is the track.
-    expect(bodiesFor(GUARD).join(" ")).toContain("scrollbar-color: var(--rl-line) transparent");
-    expect(bodiesFor(`${GUARD} :hover`).join(" ")).toContain("scrollbar-color: var(--rl-line-strong) transparent");
+    // A thumb is a MARK, not an edge: it keeps its weight when the app's borders soften.
+    expect(bodiesFor(GUARD).join(" ")).toContain("scrollbar-color: var(--mark) transparent");
+    expect(bodiesFor(`${GUARD} :hover`).join(" ")).toContain("scrollbar-color: var(--mark-strong) transparent");
   });
 
   /* On a Mac whose system draws overlay bars, every rule that styles one stands down (App.tsx,
@@ -2434,8 +2437,8 @@ describe("§6 do-NOT-animate list", () => {
     const tokens = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
     const stepOf = (block: string, name: string) =>
       Number(new RegExp(`--${name}: var\\(--overlay-(?:lighten|darken)-(\\d+)\\)`).exec(block)?.[1] ?? NaN);
-    const dark = tokens.slice(tokens.indexOf("--line: var(--overlay-lighten-300)"));
-    const light = tokens.slice(tokens.indexOf("--line: var(--overlay-darken-200)"));
+    const dark = tokens.slice(tokens.indexOf("--line: var(--overlay-lighten-200)"));
+    const light = tokens.slice(tokens.indexOf("--line: var(--overlay-darken-100)"));
 
     // Dragging is always a step above resting, in both faces.
     expect(stepOf(dark, "divider-hover")).toBeGreaterThan(stepOf(dark, "divider"));
@@ -3385,3 +3388,27 @@ describe("the Mac idiom, continued", () => {
   });
 });
 
+describe("softer edges", () => {
+  const tokens = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
+  const stepOf = (block: string, name: string) =>
+    Number(new RegExp(`--${name}: var\\(--overlay-(?:lighten|darken)-(\\d+)\\)`).exec(block)?.[1] ?? NaN);
+  const dark = tokens.slice(tokens.indexOf("--line: var(--overlay-lighten-200)"));
+  const light = tokens.slice(tokens.indexOf(':root[data-mode="light"]'));
+
+  /* The edges went one rung softer; the FILLS that used to borrow their tokens did not. THE mutant is
+     a switch's track left on `--rl-line`: softened with the borders, an off switch on the panel ground
+     reads as a white knob floating on nothing. */
+  it("keeps every mark a rung above the edge it used to share a token with, in both faces", () => {
+    for (const [face, block] of [["dark", dark], ["light", light]] as const) {
+      expect(stepOf(block, "mark"), face).toBeGreaterThan(stepOf(block, "line"));
+      expect(stepOf(block, "mark-strong"), face).toBeGreaterThan(stepOf(block, "line-strong"));
+      // …and a pane divider is still the heaviest line in the app: it is the whole boundary.
+      expect(stepOf(block, "divider"), face).toBeGreaterThan(stepOf(block, "line-strong"));
+    }
+    for (const [sel, decl] of [
+      [".switch", "background: var(--mark)"], [".switch:hover:not(:disabled)", "background: var(--mark-strong)"],
+      [".todo-track", "background: var(--mark)"], ['.status-dot[data-status="idle"]', "background: var(--mark-strong)"],
+      [".item-glyph rect", "fill: var(--mark-strong)"],
+    ] as const) expect(bodiesFor(sel).join(" "), sel).toContain(decl);
+  });
+});
