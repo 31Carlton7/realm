@@ -1615,6 +1615,18 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(bodiesFor(".attach-tile:hover .attach-tip, .attach-tile:focus-within .attach-tip".split(", ")[0]!).join(" ")).toContain("opacity: 1");
   });
 
+  it("a sent attachment's tip opens leftward from the tile's right edge, so it never overhangs the transcript", () => {
+    /* Centred, the tip hung past the right edge of a row that hugs it — unseen at rest but still the
+       scroller's overflow, so every transcript with a screenshot in it scrolled sideways and showed a
+       white corner. THE MUTANT: drop the override and the centred placement returns. (That nothing
+       overhangs is measured in the real window, against a replayed transcript; this pins the rule.) */
+    const sent = bodiesFor(".msg-user-files .attach-tip").join(" ");
+    expect(sent).toContain("left: auto");
+    expect(sent).toContain("right: 0");
+    expect(sent).not.toContain("translateX");
+    expect(bodiesFor(".msg-user-files .attach-tile:hover .attach-tip").join(" ")).toContain("transform: translateY(0)");
+  });
+
   it("sent attachments stack ABOVE the bubble, in a column that keeps the transcript's right edge", () => {
     const row = bodiesFor(".msg-user-row").join(" ");
     expect(row).toContain("flex-direction: column");
@@ -1930,6 +1942,21 @@ describe("scrollbars", () => {
       const body = bodiesFor(owner).join(" ");
       expect(body, `${owner} styles a webkit scrollbar without reclaiming it`).toContain("scrollbar-color: auto");
       expect(body, `${owner} styles a webkit scrollbar without reclaiming it`).toContain("scrollbar-width: auto");
+    }
+  });
+
+  it("every scroller that draws its own bar says what goes where two bars meet", () => {
+    /* Owning the pseudo-elements owns the corner too, and a corner nobody states paints opaque white:
+       the square at the foot of every transcript that scrolled both ways. THE MUTANT: style the bar,
+       the track and the thumb and stop there, which is what all three owners did. An owner is
+       covered by a corner rule on itself or on a selector it compounds (`.mp-list[data-dissolve]` is
+       a `[data-dissolve]`). */
+    const corners = RULES.filter((r) => r.body.includes("background: transparent"))
+      .flatMap((r) => r.selectors).filter((sel) => sel.endsWith("::-webkit-scrollbar-corner"))
+      .map((sel) => sel.slice(0, sel.indexOf("::-webkit-scrollbar-corner")));
+    expect(corners.length).toBeGreaterThan(0);
+    for (const owner of webkitBarOwners()) {
+      expect(corners.some((base) => owner.includes(base)), `${owner} leaves its scrollbar corner to paint white`).toBe(true);
     }
   });
 
