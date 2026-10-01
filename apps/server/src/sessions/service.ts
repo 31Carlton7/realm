@@ -134,7 +134,7 @@ export class SessionService {
     sandbox?: ExecutionSandboxService;
     /** The documents service, for surfacing a file the agent wrote. Optional like every other
      *  nicety here: a server built without it simply shows nothing. */
-    documents?: { openPath(p: { spaceId: string; environmentId?: string; path: string }): Promise<unknown> };
+    documents?: { openPath(p: { spaceId: string; environmentId?: string; path: string; openedBy?: string }): Promise<unknown> };
     /** Plan 11 W3: routes broker-owned permission requestIds (`bperm_…`) and cleans a deleted
      *  session's pending prompts + allow-always grants. Optional — a harness without browser tools
      *  behaves exactly as before. */
@@ -794,7 +794,7 @@ export class SessionService {
     const path = shouldSurfaceWrite(toolName, input);
     if (path === null) return;
     const s = this.d.sessions.get(id); if (!s) return;
-    void this.d.documents.openPath({ spaceId: s.spaceId, environmentId: s.environmentId, path })
+    void this.d.documents.openPath({ spaceId: s.spaceId, environmentId: s.environmentId, path, openedBy: id })
       .catch(() => {});
   }
 

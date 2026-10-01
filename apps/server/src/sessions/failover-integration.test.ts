@@ -162,6 +162,8 @@ describe("a document the agent writes", () => {
     await waitFor(() => c.events.some((e: Any) => e.event === "documents.openRequested"));
     const opened = c.events.find((e: Any) => e.event === "documents.openRequested");
     expect(opened.payload.path).toBe("notes.md");
+    // The writer, so the tab lands in that session's side pane rather than beside whatever has focus.
+    expect(opened.payload.openedBy).toBe(session.id);
     c.close();
   });
 

@@ -359,7 +359,7 @@ describe("simulator_open", () => {
        and the pane never comes into the layout, so the user watches nothing while an agent drives a
        phone. The item id is the one the renderer opens, so it has to be THIS row's item. */
     const opened = calls.broadcasts.filter((b) => b.event === "simulator.agentOpened");
-    expect(opened).toEqual([{ event: "simulator.agentOpened", payload: { spaceId, simulatorId: row!.id, itemId: items.findByRefId(row!.id)!.id } }]);
+    expect(opened).toEqual([{ event: "simulator.agentOpened", payload: { spaceId, simulatorId: row!.id, itemId: items.findByRefId(row!.id)!.id, openedBy: "sess1" } }]);
   });
 
   it("brings back the pane it already has for a device, and leaves a running stream alone", async () => {

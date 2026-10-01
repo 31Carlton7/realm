@@ -598,7 +598,7 @@ const HANDLERS: Record<string, Handler> = {
     if (before !== "running" && before !== "booting" && before !== "serving") d.simulators.start(opened.simulatorId, device.udid, device.platform, device.physical);
     // Before the wait, not after it: the pane's own progress is the thing worth watching during a
     // cold boot, and it can only be watched once the pane is in the layout.
-    d.rpc.broadcast("simulator.agentOpened", { spaceId: ctx.spaceId, simulatorId: opened.simulatorId, itemId: opened.itemId });
+    d.rpc.broadcast("simulator.agentOpened", { spaceId: ctx.spaceId, simulatorId: opened.simulatorId, itemId: opened.itemId, openedBy: ctx.sessionId });
 
     const deadline = Date.now() + wait.timeoutMs;
     let state = d.simulators.stateOf(opened.simulatorId);
