@@ -1,10 +1,10 @@
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { realpath, stat } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { net, protocol } from "electron";
 import {
-  MEDIA_SCHEME, isPlayablePath, mediaKindFor, mimeForPath, pathFromMediaUrl, type MediaFile,
+  MEDIA_SCHEME, expandHome, isPlayablePath, mediaKindFor, mimeForPath, pathFromMediaUrl, type MediaFile,
 } from "@realm/contracts";
 import { quickLookThumbnail } from "./attachments";
 
@@ -23,15 +23,6 @@ import { quickLookThumbnail } from "./attachments";
  * config, a `.env` — has no mime in Realm's table that `mediaKindFor` accepts, so it can never be
  * fetched through this scheme however the URL is spelled.
  */
-
-/** `~` and `~/…`, which is how agents write paths in prose far more often than they write `/Users/…`.
- *  Anything else is returned unchanged; a bare `~user` form is NOT expanded, because guessing another
- *  account's home would be inventing a path rather than resolving one. */
-export function expandHome(path: string, home = homedir()): string {
-  if (path === "~") return home;
-  if (path.startsWith("~/")) return join(home, path.slice(2));
-  return path;
-}
 
 /**
  * The absolute path this candidate names, or null if it is not one Realm will serve.

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { symlink } from "node:fs/promises";
 import { tempDir } from "@realm/test-utils";
 import {
-  describeFiles, fileThumbnail, openablePath, quickLookThumbnail, safeAttachmentName, saveTempAttachment,
+  describeFiles, existingPath, fileThumbnail, openablePath, quickLookThumbnail, safeAttachmentName, saveTempAttachment,
   statFile, sweepTempAttachments, TEMP_ATTACHMENT_TTL_MS, tempAttachmentDir,
 } from "./attachments";
 
@@ -225,6 +225,37 @@ describe("statFile", () => {
     // The renderer's cwd is the app bundle, so a relative path resolves somewhere nobody asked about.
     expect(await statFile("report.md")).toBeNull();
     expect(await statFile(null)).toBeNull();
+  });
+});
+
+/* What `files:reveal` answers. Its loudest caller is the transcript's path menu, so the path is
+   whatever the agent wrote in prose — `~/…` as often as not, and sometimes relative to where it was
+   working. */
+describe("existingPath", () => {
+  it("resolves ~/ against the home folder, the form agents write most", async () => {
+    await mkdir(join(home, "school", "imported"), { recursive: true });
+    // THE MUTANT: drop the expansion. `~/…` is not absolute, so Reveal in Finder did nothing at all.
+    expect(await existingPath("~/school/imported/", undefined, home)).toBe(join(home, "school", "imported"));
+  });
+
+  it("resolves a relative path against the session's working directory", async () => {
+    await writeFile(join(home, "notes.md"), "n");
+    expect(await existingPath("./notes.md", home, "/nowhere")).toBe(join(home, "notes.md"));
+    expect(await existingPath("notes.md", home, "/nowhere")).toBe(join(home, "notes.md"));
+  });
+
+  it("refuses a relative path with no absolute base, and answers null for what is not there", async () => {
+    await writeFile(join(home, "notes.md"), "n");
+    // The renderer's cwd is the app bundle: resolving against it would find something nobody named.
+    expect(await existingPath("notes.md", undefined, home)).toBeNull();
+    expect(await existingPath("notes.md", "relative/base", home)).toBeNull();
+    expect(await existingPath(join(home, "gone.md"))).toBeNull();
+    expect(await existingPath(null)).toBeNull();
+    expect(await existingPath("")).toBeNull();
+  });
+
+  it("answers for a directory as well as a file — revealing a folder is the point", async () => {
+    expect(await existingPath(home)).toBe(home);
   });
 });
 

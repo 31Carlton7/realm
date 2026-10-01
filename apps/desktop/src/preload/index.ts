@@ -82,7 +82,9 @@ contextBridge.exposeInMainWorld("realm", {
     /** A readable picture of the file (a decoded image, or QuickLook's render of a PDF, a sheet, a
      *  page of source), as a data: URL. Null for a type macOS has no generator for. */
     preview: (path: string): Promise<string | null> => ipcRenderer.invoke("files:preview", path),
-    reveal: (path: string): Promise<void> => ipcRenderer.invoke("files:reveal", path),
+    /** Select it in the Finder. `~/…` is the home folder and a relative path is relative to `base`,
+     *  as an agent writes them; false when nothing is there. */
+    reveal: (path: string, base?: string): Promise<boolean> => ipcRenderer.invoke("files:reveal", path, base),
     /** Finder's own icon as a data URL, for the menu item that names it. Takes no argument on
      *  purpose — the bundle path is fixed in main. */
     finderIcon: (): Promise<string | null> => ipcRenderer.invoke("files:finder-icon"),

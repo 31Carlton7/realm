@@ -975,10 +975,12 @@ ipcMain.handle("files:browse", async (_e, root: unknown, dir: unknown): Promise<
 const PREVIEW_PX = 512;
 ipcMain.handle("files:preview", (_e, path: unknown): Promise<string | null> => fileThumbnail(realmHome, path, PREVIEW_PX));
 /** Looser than the other three on purpose: a DIRECTORY is a real thing to reveal, and the transcript's
- *  path menu offers this for one. See `existingPath`. */
-ipcMain.handle("files:reveal", async (_e, path: unknown): Promise<void> => {
-  const found = await existingPath(path);
+ *  path menu offers this for one — as does `~/…`, and a path relative to `base`. See `existingPath`.
+ *  Answers whether there was anything to reveal, so a menu that asked can say when there was not. */
+ipcMain.handle("files:reveal", async (_e, path: unknown, base?: unknown): Promise<boolean> => {
+  const found = await existingPath(path, base);
   if (found) shell.showItemInFolder(found);
+  return found !== null;
 });
 /**
  * Save a copy of a file somewhere the user names.

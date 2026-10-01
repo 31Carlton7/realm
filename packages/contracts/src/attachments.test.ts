@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AgentKindSchema } from "./entities";
 import { AGENT_META } from "./presets";
 import {
-  attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, DEFAULT_MIME,
+  attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, DEFAULT_MIME, expandHome,
   isImageMime, isOpenablePath, MAX_ATTACHMENT_BYTES, mimeForPath,
 } from "./attachments";
 
@@ -35,6 +35,20 @@ describe("basenameOf", () => {
     expect(basenameOf("C:\\Users\\me\\c.png")).toBe("c.png");
     expect(basenameOf("/a/b/")).toBe("b");
     expect(basenameOf("bare.png")).toBe("bare.png");
+  });
+});
+
+describe("expandHome", () => {
+  it("expands the two forms agents actually write", () => {
+    expect(expandHome("~", "/Users/me")).toBe("/Users/me");
+    expect(expandHome("~/out/clip.mp4", "/Users/me")).toBe("/Users/me/out/clip.mp4");
+    expect(expandHome("~/out/", "/Users/me/")).toBe("/Users/me/out/");
+  });
+  it("leaves everything else alone, including another account's home", () => {
+    expect(expandHome("/abs/clip.mp4", "/Users/me")).toBe("/abs/clip.mp4");
+    expect(expandHome("out/clip.mp4", "/Users/me")).toBe("out/clip.mp4");
+    // `~other` is not this user's home and guessing one would be inventing a path.
+    expect(expandHome("~other/clip.mp4", "/Users/me")).toBe("~other/clip.mp4");
   });
 });
 

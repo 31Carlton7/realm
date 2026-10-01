@@ -1,9 +1,10 @@
+import { homedir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { nativeImage } from "electron";
-import { DIRECTORY_MIME, isImageMime, isOpenablePath, mimeForPath } from "@realm/contracts";
+import { DIRECTORY_MIME, expandHome, isImageMime, isOpenablePath, mimeForPath } from "@realm/contracts";
 
 /** What the picker and the paste path hand the renderer. `size` is here so the prompter can refuse a
  *  file over MAX_ATTACHMENT_BYTES before it is ever attached; only `path` and `mime` go on the wire. */
@@ -223,10 +224,20 @@ export async function statFile(path: unknown): Promise<{ path: string; size: num
  *
  * Safe to be loose because `showItemInFolder` neither reads nor runs what it selects. Anything that
  * OPENS a path stays behind `openablePath`'s mime table.
+ *
+ * The path is taken as an agent writes it in prose, because that is where the transcript's path menu
+ * gets it: `~/…` is this account's home, and a relative path (`./out`, `src/main.ts`) is relative to
+ * `base` — the session's working directory, which is where the agent that wrote it was standing.
+ * Refusing both as "not absolute" is how Reveal in Finder on `~/Realm/school/…` did nothing at all.
+ * A relative path with no absolute `base` is still refused: the renderer's cwd is the app bundle, and
+ * resolving against it would answer a question nobody asked.
  */
-export async function existingPath(path: unknown): Promise<string | null> {
-  if (typeof path !== "string" || !isAbsolute(path)) return null;
-  const resolved = resolve(path);
+export async function existingPath(path: unknown, base?: unknown, home = homedir()): Promise<string | null> {
+  if (typeof path !== "string" || path === "") return null;
+  const named = expandHome(path, home);
+  const absolute = isAbsolute(named) ? named : typeof base === "string" && isAbsolute(base) ? join(base, named) : null;
+  if (absolute === null) return null;
+  const resolved = resolve(absolute);
   try { await stat(resolved); return resolved; } catch { return null; }
 }
 

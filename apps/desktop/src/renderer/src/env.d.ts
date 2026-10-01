@@ -67,7 +67,9 @@ interface Window {
       /** A readable picture of the file (a decoded image, or QuickLook's render of a PDF, a sheet,
        *  a page of source). Null for a type macOS has no generator for. */
       preview(path: string): Promise<string | null>;
-      reveal(path: string): Promise<void>;
+      /** Select it in the Finder. `~/…` is the home folder and a relative path is relative to `base`
+       *  — the way an agent writes them. False when nothing is there to select. */
+      reveal(path: string, base?: string): Promise<boolean>;
       /** Finder's own icon as a data URL, read off this machine. Null when it cannot be read. */
       finderIcon(): Promise<string | null>;
       /** Copy it where the user points; the saved path, or null when they cancelled. */

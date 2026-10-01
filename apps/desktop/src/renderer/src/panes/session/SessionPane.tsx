@@ -631,7 +631,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
           constantly, and a menu parented to a message would be torn down under the pointer. */}
       {pathMenu && (
         <PathMenu path={pathMenu.path} anchorRef={asRef(pathMenu.at)} environmentId={session.environmentId}
-          onClose={() => setPathMenu(null)} />
+          cwd={session.cwd} onClose={() => setPathMenu(null)} />
       )}
     </div>
   );

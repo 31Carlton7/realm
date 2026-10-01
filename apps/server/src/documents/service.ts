@@ -1,7 +1,8 @@
 import { readdir, stat } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, isAbsolute } from "node:path";
 import {
-  documentTemplate, emptyGuideProgress, GuideProgressSchema, newId, progressSidecarPath, recordGuideAttempt,
+  documentTemplate, emptyGuideProgress, expandHome, GuideProgressSchema, newId, progressSidecarPath, recordGuideAttempt,
   type DocumentEntry, type DocumentKind, type DocumentWorkspace, type GuideProgress,
 } from "@realm/contracts";
 import type { DocumentPreviewServer } from "./preview";
@@ -87,9 +88,10 @@ export class DocumentService {
        the transcript's own clickable paths, and what an agent writes into its prose is absolute
        (`/Users/…/scholarships/PROFILE.md`). Turning that into a tab is the whole point, and asking
        every caller to know the workspace root first would be asking them to reimplement `relInRoot`.
-       Outside the root is still a refusal, with a message that says so rather than one about
-       traversal. */
-    const rel = isAbsolute(p.path) ? relInRoot(root, p.path) : p.path;
+       `~/…` is absolute too, once expanded — it is how agents write most of them. Outside the root
+       is still a refusal, with a message that says so rather than one about traversal. */
+    const named = expandHome(p.path, homedir());
+    const rel = isAbsolute(named) ? relInRoot(root, named) : named;
     if (rel === null) throw new RpcError("BAD_PATH", `${p.path} is outside this workspace`);
     const abs = resolveInRoot(root, rel);
     let st;
