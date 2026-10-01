@@ -214,7 +214,9 @@ describe("what agents open goes into the side pane of the session that asked", (
     expect(findSidePane(store.getState().layout!, "i-a")?.tabs).toEqual(["i-br1"]);
   });
 
-  it("opens nothing when no session in the chain is on screen — the browser waits in the sidebar", async () => {
+  it("falls back to beside the focused pane when no session in the chain is on screen — the page must be live", async () => {
+    // THE MUTANT: open nothing. A browser that never had a pane has no view, and the agent that just
+    // opened it is refused with "the pane is not open in the app".
     api.data.items.s1 = [item("i-a", "s1", { kind: "session", refId: "a" }), item("i-z", "s1", { kind: "session", refId: "z" })];
     api.data.sessions = [session("a", "s1"), session("z", "s1")];
     const store = createAppStore(api);
@@ -222,7 +224,8 @@ describe("what agents open goes into the side pane of the session that asked", (
     await store.getState().openItem("i-a");
     browser("i-br1");
     await store.getState().applyAgentPaneOpened({ spaceId: "s1", itemId: "i-br1", openedBy: "z" });
-    expect(open(store)).toEqual(["i-a"]);
+    expect(open(store)).toEqual(["i-a", "i-br1"]);
+    expect(store.getState().focusedLeafId).toBe(leafOf(store, "i-a"));
   });
 
   it("an agent's document goes to the same side pane; one a person opened still arrives beside", async () => {

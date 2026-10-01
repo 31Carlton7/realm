@@ -49,7 +49,11 @@ export function PanelBar({ item, leafId, tabs, onSplit, onClose, zoomed = false,
      The browser's bar has no menu to overflow INTO — W2.3 forbids it a dropdown — so it is told it
      has room for everything and keeps the inline cluster it has always had. */
   const budget = useActionBudget(bar);
-  const keep = isBrowser ? Number.POSITIVE_INFINITY : budget;
+  /* In a side pane the strip is the data of unbounded length, so it is the one that gets the slack
+     (design.md: a row whose items compete for width needs a stated yielding order). A kind's own
+     actions go to the ⋯ menu outright rather than squeezing every tab to an ellipsis — except the
+     browser's, which has no menu to go to and only three. */
+  const keep = isBrowser ? Number.POSITIVE_INFINITY : tabs ? 0 : budget;
   const kindItems = usePaneMenuItems(item, keep);
   const Meta = paneMeta[item.kind];
   const Actions = paneActions[item.kind];

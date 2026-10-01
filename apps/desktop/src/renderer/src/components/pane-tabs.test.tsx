@@ -102,3 +102,32 @@ describe("a side pane's tab strip", () => {
     expect(store.getState().focusedLeafId).toBe(side(store).id);
   });
 });
+
+describe("what a side pane keeps mounted", () => {
+  it("every browser tab, hidden behind the one showing — a browser with no pane is a page no agent can drive", async () => {
+    const { store, rerender } = await mount();
+    await store.getState().openItem("i-kid", side(store).id);
+    rerender();
+    // THE MUTANT: mount only the tab showing. The browser behind the preview loses its pane, main
+    // retains it (and evicts the fourth such view), and an agent's next call on it is refused.
+    const slots = [...document.querySelectorAll<HTMLElement>(`[data-leaf-id="${side(store).id}"] .pane-slot`)];
+    expect(slots).toHaveLength(2);
+    expect(slots.filter((s) => s.hidden)).toHaveLength(1);
+    expect(slots.find((s) => s.hidden)!.textContent).toContain("Delta careers");
+    expect(slots.find((s) => !s.hidden)!.textContent).toContain("Agent: apply");
+  });
+});
+
+describe("who yields in a side pane's bar", () => {
+  it("a session tab's own actions go to the ⋯ menu, so the tabs keep their names", async () => {
+    // THE MUTANT: the bar's ordinary budget. A session's six actions take the bar and every tab
+    // shrinks to an ellipsis ("Age…", "Jo…") — measured in the live check before this.
+    const { store, rerender } = await mount();
+    await store.getState().openItem("i-kid", side(store).id);
+    rerender();
+    const bar = document.querySelector<HTMLElement>(`[data-leaf-id="${side(store).id}"] .panel-bar`)!;
+    expect(within(bar).queryByRole("button", { name: "Files for Agent: apply" })).toBeNull();
+    fireEvent.click(within(bar).getByRole("button", { name: "Pane menu for Agent: apply" }));
+    expect(await screen.findByRole("menuitemcheckbox", { name: /Files/ })).toBeInTheDocument();
+  });
+});

@@ -1501,7 +1501,8 @@ export type AppState = {
   openInSidePane(sessionId: string, itemId: string, opts?: { focus?: boolean }): Promise<boolean>;
   /** A tab moved within its strip (drag to reorder). */
   moveTab(leafId: string, itemId: string, index: number): Promise<void>;
-  /** `browser.agentOpened` / `simulator.agentOpened`: into the side pane of the session that opened it. */
+  /** `browser.agentOpened` / `simulator.agentOpened`: into the side pane of the session that opened it,
+   *  or beside the focused pane when none of its chain is on screen. */
   applyAgentPaneOpened(p: { spaceId: string; itemId: string; openedBy: string }): Promise<void>;
   /** Layout-only close: the item leaves the layout but keeps existing (SPACE group). Never deletes. */
   closeFromLayout(itemId: string): Promise<void>;
@@ -3562,7 +3563,11 @@ await get().refreshCustomThemes().catch(() => {});
         if (spaceId !== get().activeSpaceId) return;
         await get().refreshItems();
         if (spaceId !== get().activeSpaceId) return;
-        await get().openInSidePane(openedBy, itemId);
+        if (await get().openInSidePane(openedBy, itemId)) return;
+        // No session of its chain on screen, so no side pane to join. It still has to be MOUNTED: a
+        // browser's view exists only while a pane holds it, and one that never had a pane is a page
+        // the agent cannot drive. Beside the focused pane, quietly, as every agent open used to be.
+        await get().openItemBesideQuiet(itemId);
       },
       async openItemBesideQuiet(itemId) {
         // Already open in ANOTHER group: leave it there. Yanking a pane out of an arrangement the user
