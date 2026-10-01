@@ -1706,6 +1706,224 @@
    "audio stories",
    "listen to the news",
    "narrated articles"
+  ],
+  "Instagram:Main feed": [
+   "my home feed",
+   "see posts from people I follow",
+   "the house icon at the bottom",
+   "back to the top of my feed"
+  ],
+  "Instagram:Reels": [
+   "short videos",
+   "the vertical video clips",
+   "the video tab",
+   "swipe through short clips"
+  ],
+  "Instagram:Explore": [
+   "discover new posts",
+   "the magnifying glass tab",
+   "find trending content",
+   "browse posts from accounts I don't follow"
+  ],
+  "Instagram:Profile": [
+   "my own page",
+   "my account page",
+   "see my posts and followers",
+   "the tab with my picture"
+  ],
+  "Instagram:Send": [
+   "send this post to a friend in a DM",
+   "share it privately with someone",
+   "the paper plane under the post"
+  ],
+  "Instagram:Comment": [
+   "see what people said under this post",
+   "open the replies",
+   "write something under the post",
+   "the speech bubble under the post"
+  ],
+  "Instagram:Like": [
+   "heart this post",
+   "show I enjoyed it",
+   "tap the heart",
+   "give it a like"
+  ],
+  "Instagram:Save": [
+   "bookmark this post",
+   "keep it for later",
+   "add it to my collection"
+  ],
+  "Instagram:Save post": [
+   "bookmark this for later",
+   "keep this one in my saved collection"
+  ],
+  "Instagram:Repost": [
+   "share this to my followers",
+   "put it on my own profile",
+   "boost it to the people who follow me"
+  ],
+  "Instagram:Post options": [
+   "the three dots on this post",
+   "more actions for this post",
+   "the menu on the post"
+  ],
+  "Instagram:Follow": [
+   "start following this account",
+   "see their posts in my feed",
+   "subscribe to their posts"
+  ],
+  "Instagram:Like comment": [
+   "heart that reply",
+   "like what they wrote"
+  ],
+  "Instagram:Add to story": [
+   "put this on my story",
+   "share it for 24 hours"
+  ],
+  "Instagram:Search": [
+   "find an account",
+   "look up a hashtag",
+   "search for people"
+  ],
+  "Instagram:Settings": [
+   "Instagram preferences",
+   "privacy and account options",
+   "the settings and activity page"
+  ],
+  "Instagram:Grid": [
+   "my posts laid out in squares",
+   "the posts tab on my profile"
+  ],
+  "Instagram:Tagged": [
+   "photos I'm tagged in",
+   "posts other people tagged me in"
+  ],
+  "Instagram:Sort": [
+   "change the order",
+   "sort by newest or oldest"
+  ],
+  "Instagram:Emoji": [
+   "insert a smiley",
+   "add an emoji to the message"
+  ],
+  "Instagram:Start audio call": [
+   "voice call them",
+   "ring them without video",
+   "phone them on Instagram"
+  ],
+  "Instagram:Start video call": [
+   "video chat with them",
+   "call them with the camera on"
+  ],
+  "Instagram:Forward": [
+   "pass this message along",
+   "send it on to someone else"
+  ],
+  "Instagram:Create a sticker": [
+   "make a sticker from this",
+   "turn it into a sticker"
+  ],
+  "Instagram:See all": [
+   "show the whole list",
+   "expand this section"
+  ],
+  "Instagram:Followers": [
+   "people who follow me",
+   "my follower list",
+   "who follows this account"
+  ],
+  "Instagram:Following": [
+   "accounts I follow",
+   "who I'm following",
+   "the people this account follows"
+  ],
+  "Instagram:New chat": [
+   "start a new message",
+   "write to someone new",
+   "compose a DM"
+  ],
+  "Instagram:Requests": [
+   "message requests from people I don't follow",
+   "pending DMs"
+  ],
+  "Instagram:Open camera": [
+   "take a photo to send",
+   "snap a picture in the chat"
+  ],
+  "Instagram:More actions": [
+   "other things I can do here",
+   "the overflow menu"
+  ],
+  "Instagram:Audio": [
+   "see the song in this reel",
+   "the sound page for this clip"
+  ],
+  "Instagram:More options for reel": [
+   "the menu for this reel",
+   "other actions for this video"
+  ],
+  "Instagram:Tap to react with any emoji": [
+   "react with a different emoji",
+   "pick an emoji reaction"
+  ],
+  "Instagram:Search or ask Meta AI": [
+   "the search bar at the top",
+   "ask the AI assistant",
+   "search my messages"
+  ],
+  "Instagram:Edit profile": [
+   "change my bio and picture",
+   "update my name or photo",
+   "edit my account details"
+  ],
+  "Instagram:Share profile": [
+   "send someone a link to my page",
+   "show my QR code"
+  ],
+  "Instagram:Create": [
+   "make a new post",
+   "upload a photo or reel",
+   "the plus button"
+  ],
+  "Instagram:Your story": [
+   "my own story",
+   "post something to my story",
+   "see who viewed my story"
+  ],
+  "Instagram:Close stories to return to feed": [
+   "get out of the stories",
+   "back to the feed from stories",
+   "stop watching stories"
+  ],
+  "Instagram:Close story camera": [
+   "leave the story camera",
+   "cancel making a story"
+  ],
+  "Instagram:Boomerang": [
+   "a looping video",
+   "the back and forth clip mode"
+  ],
+  "Instagram:Hands-free": [
+   "record without holding the button"
+  ],
+  "Instagram:Layout": [
+   "put several photos in one frame",
+   "the collage mode"
+  ],
+  "Instagram:Camera settings": [
+   "story camera preferences"
+  ],
+  "Instagram:Notes Tray": [
+   "the notes at the top of the inbox",
+   "short status notes from friends"
+  ],
+  "Instagram:Your note": [
+   "leave a note for my friends",
+   "set my status note"
+  ],
+  "Instagram:Close gallery": [
+   "leave the photo picker",
+   "close the camera roll"
   ]
  }
 }
