@@ -49,7 +49,7 @@ import { LayaService } from "./laya/service";
 import { LayaShadow } from "./laya/shadow";
 import { createLayaAssist, harnessEvalOverride, type LayaAssist } from "./laya/assist";
 import { bundledLayaDir } from "./laya/benchmark";
-import { readEval, trainCheckpoint } from "./laya/training";
+import { machineState, readEval, trainCheckpoint } from "./laya/training";
 import { LayaRecorder } from "./laya/recorder";
 import type { LayaRuntime } from "./laya/runtime";
 import { createTerminalAgentProvider } from "./terminals/agent-tools";
@@ -683,7 +683,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     baseEval: () => (layaRuntime ? readEval(join(layaRuntime.dir, "evals", "convaiinnovations-laya.json")) : null)
       ?? (layaResources ? readEval(join(layaResources, "evals", "convaiinnovations-laya.json")) : null),
     ...(layaRuntime && layaResources
-      ? { train: (o: Parameters<typeof trainCheckpoint>[1]) => trainCheckpoint({ runtime: layaRuntime, resources: layaResources, logFiles: () => layaLog.files(), recorded: () => layaRecorder.screens() }, o) }
+      ? { train: (o: Parameters<typeof trainCheckpoint>[1]) => trainCheckpoint({ runtime: layaRuntime, resources: layaResources, logFiles: () => layaLog.files(), recorded: () => layaRecorder.screens(), machine: () => machineState(layaRuntime.dir) }, o) }
       : {}),
   });
   layaAssist = createLayaAssist({ laya });

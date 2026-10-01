@@ -1,5 +1,7 @@
+import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { statfs } from "node:fs/promises";
 import { join } from "node:path";
 import { LayaEvalReportSchema, type LayaEvalReport, type LayaTrainStep } from "@realm/contracts";
 import { loadBenchmark, type BenchScreen } from "./benchmark";
@@ -32,7 +34,38 @@ export type TrainerDeps = {
   fetchImpl?: typeof fetch;
   /** How long a freshly written checkpoint may take to answer `/health`. */
   startupMs?: number;
+  /** This Mac's memory pressure and the disk's free space (`machineState`), read before a run and
+   *  every `watchMs` during it. Absent, a run is not guarded — tests that are not about it. */
+  machine?: () => Promise<MachineState>;
+  watchMs?: number;
 };
+
+/** What a training run needs of the Mac it runs on, as the kernel and the disk report it. */
+export type MachineState = { pressure: "normal" | "warn" | "critical"; freeDiskBytes: number };
+
+/**
+ * Room for macOS to swap. MEASURED: a run started with 3 GB free hung a 24 GB Mac 2½ minutes in — the
+ * kernel's compressor at its segment limit "with LOW swap space", then a watchdog panic and a reboot.
+ */
+export const MIN_FREE_DISK = 8 * 1024 ** 3;
+/** Critical readings in a row that stop a run: one is a spike, three are the start of a hang. */
+const CRITICAL_READINGS = 3;
+const WATCH_MS = 5_000;
+/** A step's examples, and the steps whose gradients are summed: 4 × 4 is the 16 that 8 × 2 was, with
+ *  half the memory held at once — the margin a Mac in use needs. */
+const BATCH = ["--batch", "4", "--accum", "4"];
+
+/** The kernel's own reading of memory pressure, and the free space on `dir`'s disk. */
+export async function machineState(dir: string): Promise<MachineState> {
+  const level = await new Promise<string>((resolve) => {
+    execFile("sysctl", ["-n", "kern.memorystatus_vm_pressure_level"], { timeout: 5_000 }, (_e, out) => resolve(String(out ?? "").trim()));
+  });
+  const fs = await statfs(dir);
+  // 1 normal, 2 warn, 4 critical (`sysctl kern.memorystatus_vm_pressure_level`).
+  return { pressure: level === "4" ? "critical" : level === "2" ? "warn" : "normal", freeDiskBytes: Number(fs.bavail) * Number(fs.bsize) };
+}
+
+const gb = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 
 export type TrainResult = { name: string; dir: string; report: LayaEvalReport };
 
@@ -47,6 +80,11 @@ export async function trainCheckpoint(d: TrainerDeps, o: { name: string; signal:
   const manifest = JSON.parse(readFileSync(join(d.resources, "benchmark", "benchmark.json"), "utf8")) as { split: { heldoutApps: string[]; validationApps: string[] } };
   const lexicon = JSON.parse(readFileSync(join(d.resources, "lexicon.json"), "utf8")) as Lexicon;
 
+  // Before anything is written: a run that would hang the Mac is not started.
+  const m = await d.machine?.();
+  if (m?.pressure === "critical") throw new Error("This Mac is short of memory right now, and training needs several gigabytes of it. Close what you can and train again.");
+  if (m && m.freeDiskBytes < MIN_FREE_DISK) throw new Error(`Training needs ${gb(MIN_FREE_DISK)} free on this disk, so macOS has room to swap while it runs, and there is ${gb(m.freeDiskBytes)}.`);
+
   o.onProgress({ step: "preparing", detail: "Writing the training set", fraction: null });
   const work = join(rt.dir, "train", o.name);
   mkdirSync(work, { recursive: true, mode: 0o700 });
@@ -59,15 +97,35 @@ export async function trainCheckpoint(d: TrainerDeps, o: { name: string; signal:
   const dir = join(rt.checkpointsDir, o.name);
   mkdirSync(rt.checkpointsDir, { recursive: true, mode: 0o700 });
   o.onProgress({ step: "training", detail: `Training on ${stats.rows.toLocaleString()} questions${stats.fromLog ? `, ${stats.fromLog.toLocaleString()} of them from your log` : ""}`, fraction: 0 });
-  await rt.runScript({
-    script: join(d.resources, "train.py"),
-    args: ["--base", base, "--train", join(work, "train.jsonl"), "--calib", join(work, "calib.jsonl"), "--valid", join(work, "valid.jsonl"), "--out", dir],
-    signal: o.signal,
-    onLine: (line) => {
-      const p = progressOf(line);
-      if (p) o.onProgress(p);
-    },
-  });
+  // Watched while it runs: pressure that stays critical stops the run before the Mac hangs.
+  const run = new AbortController();
+  const stopWith = () => run.abort();
+  o.signal.addEventListener("abort", stopWith);
+  let critical = 0, starved = false;
+  const watch = d.machine ? setInterval(() => {
+    void d.machine!().then((now) => {
+      critical = now.pressure === "critical" ? critical + 1 : 0;
+      if (critical >= CRITICAL_READINGS && !run.signal.aborted) { starved = true; run.abort(); }
+    }, () => {});
+  }, d.watchMs ?? WATCH_MS) : null;
+  try {
+    await rt.runScript({
+      script: join(d.resources, "train.py"),
+      args: ["--base", base, "--train", join(work, "train.jsonl"), "--calib", join(work, "calib.jsonl"), "--valid", join(work, "valid.jsonl"), "--out", dir, ...BATCH],
+      signal: run.signal,
+      onLine: (line) => {
+        const p = progressOf(line);
+        if (p) o.onProgress(p);
+      },
+    });
+  } catch (e) {
+    if (starved) throw new Error("Stopped: this Mac ran short of memory while training, so the run was ended before it could hang. Nothing it made was kept. Close what you can and train again.");
+    throw e;
+  } finally {
+    if (watch) clearInterval(watch);
+    o.signal.removeEventListener("abort", stopWith);
+  }
+  if (starved) throw new Error("Stopped: this Mac ran short of memory while training, so the run was ended before it could hang. Nothing it made was kept. Close what you can and train again.");
 
   o.onProgress({ step: "evaluating", detail: "Loading the new checkpoint", fraction: null });
   const report = await evaluateCheckpoint(d, { dir, checkpoint: localCheckpointLabel(o.name), signal: o.signal, onProgress: o.onProgress });
