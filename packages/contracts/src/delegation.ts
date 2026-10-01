@@ -76,18 +76,6 @@ export const DelegationOutcomeSchema = z.enum(["done", "stopped", "interrupted",
 export type DelegationOutcome = z.infer<typeof DelegationOutcomeSchema>;
 
 /**
- * Settings key for taking a finished sub-agent's pane back out of the layout when its run settles
- * `done` — the renderer's half of `session.agentSettled`. Read only by the renderer: the server
- * announces every settle whatever this says, because the announcement is a fact and this is a
- * preference about what to do with it.
- *
- * On unless it is exactly `false`. An unset key — every home from before the switch existed — and a
- * failed read both mean nobody has said otherwise, and the default is the reason the switch exists:
- * a lead agent that fans out four children otherwise leaves four finished panes to close by hand.
- */
-export const CLOSE_FINISHED_AGENT_PANES_KEY = "sessions.closeFinishedAgentPanes";
-
-/**
  * A run the delegation engine is holding open for a parent session, as the renderer reads it.
  *
  * Deliberately thin. The child is a REAL session, so its title, agent, status and space already

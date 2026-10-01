@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_GROUND_ALPHA, GROUND_ALPHA_RANGE } from "@realm/ui";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { AGENT_CLI_COMMANDS, CLOSE_FINISHED_AGENT_PANES_KEY, DEFAULT_PERMISSION_MODE_KEY, EDITOR_CURSOR_BLINK_COPY, MID_TURN_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_HISTORY_COPY, TERMINALS_HISTORY_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, PAGE_REF_IDS } from "@realm/contracts";
+import { AGENT_CLI_COMMANDS, DEFAULT_PERMISSION_MODE_KEY, EDITOR_CURSOR_BLINK_COPY, MID_TURN_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_HISTORY_COPY, TERMINALS_HISTORY_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, PAGE_REF_IDS } from "@realm/contracts";
 import { engineVersionLabel, SettingsPage } from "./SettingsPage";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, macRow, notification, type FakeData } from "../../state/store.test-fakes";
@@ -214,32 +214,6 @@ describe("App tab", () => {
       // would read as the gesture breaking.
       await openApp();
       expect(screen.getByText(/spaces cannot be dragged/)).toBeInTheDocument();
-    });
-  });
-
-  /** The switch for `session.agentSettled`'s renderer half — the store's own suite covers what it
-   *  closes and what it leaves; these cover that the row reads and writes the one key. */
-  describe("Close a sub-agent's pane when it finishes", () => {
-    const SWITCH = "Close a sub-agent's pane when it finishes";
-
-    it("is on until someone turns it off, and says what it leaves alone", async () => {
-      await openApp();
-      expect(screen.getByRole("switch", { name: SWITCH })).toBeChecked();
-      // A switch that closes things raises one fear, and the line under it answers that one.
-      expect(screen.getByText("Never the pane you are in, and never the session itself")).toBeInTheDocument();
-    });
-
-    it("writes the preference, so it survives a relaunch", async () => {
-      const { store, api } = await openApp();
-      fireEvent.click(screen.getByRole("switch", { name: SWITCH }));
-      await waitFor(() => expect(store.getState().closeFinishedAgentPanes).toBe(false));
-      // THE MUTANT: flip the state and skip the write — off for this session, back on tomorrow.
-      expect(api.calls).toContain(`setSetting:${CLOSE_FINISHED_AGENT_PANES_KEY}=false`);
-    });
-
-    it("renders what a saved preference says", async () => {
-      await openApp({ settings: { [CLOSE_FINISHED_AGENT_PANES_KEY]: false } });
-      expect(screen.getByRole("switch", { name: SWITCH })).not.toBeChecked();
     });
   });
 

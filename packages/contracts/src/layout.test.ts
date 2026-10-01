@@ -436,6 +436,12 @@ describe("side panes (tabbed leaves)", () => {
     expect(findSidePane(l, "s2")?.tabs).toEqual(["b2"]);
   });
 
+  it("what a previewed sub-agent opens joins the strip it is a tab of, not a side pane of its own", () => {
+    const l = openInSidePane(row([leaf("s1"), side(["child"], "child")]), "child", "b1")!;
+    expect((l as LayoutSplit).children).toHaveLength(2);
+    expect(findSidePane(l, "s1")).toMatchObject({ itemId: "b1", tabs: ["child", "b1"] });
+  });
+
   it("is null when the session is not in the layout, so nothing lands beside a stranger", () => {
     expect(openInSidePane(leaf("s1"), "s9", "b1")).toBeNull();
   });

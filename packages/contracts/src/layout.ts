@@ -262,6 +262,9 @@ export function openInSidePane(l: Layout, ownerItemId: string, itemId: string): 
   const base = findLeafOfItem(l, itemId) ? closeItem(l, itemId) : l;
   const owner = findLeafOfItem(base, ownerItemId);
   if (!owner) return null;
+  // The session is itself a tab — a sub-agent previewed in its parent's side pane. What it opens
+  // joins that same strip: a side pane of a side pane is the column-per-agent layout again.
+  if (owner.tabs) return openItem(base, owner.id, itemId);
   const fresh: LayoutLeaf = { type: "leaf", id: newId(), itemId, tabs: [itemId], owner: ownerItemId };
   const grown = insertSibling(base, owner.id, "row", false, fresh);
   if (grown) return grown;
