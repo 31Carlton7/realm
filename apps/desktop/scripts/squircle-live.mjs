@@ -284,9 +284,12 @@ async function main() {
 
   check("the painter loaded in the real bundle, so the cards are off their fallback",
     await evalIn(c, `document.documentElement.hasAttribute("data-squircle")`));
+  // The face is the card's ::after (styles.css: the lift has to be UNDER it), so that is where the
+  // painter has to be found; the card's own background is out of the way with its radius.
   check("the prompter's fill is the worklet's, and its border-radius is out of the way",
-    await evalIn(c, `(() => { const cs = getComputedStyle(document.querySelector(".composer"));
-      return cs.backgroundImage.includes("paint(rl-squircle)") && parseFloat(cs.borderTopLeftRadius) === 0; })()`));
+    await evalIn(c, `(() => { const el = document.querySelector(".composer"), cs = getComputedStyle(el);
+      return getComputedStyle(el, "::after").backgroundImage.includes("paint(rl-squircle)")
+        && cs.backgroundImage === "none" && parseFloat(cs.borderTopLeftRadius) === 0; })()`));
 
   // ── the lift the technique could have eaten ─────────────────────────────
   // A mask (the obvious way to get a superellipse) clips box-shadow away entirely. Painting the fill
@@ -343,6 +346,28 @@ async function main() {
     { rest: cornerRest.fraction, focused: cornerFocus.fraction });
   await evalIn(c, `(() => { document.querySelector(".composer-input").blur(); return true; })()`);
   await sleep(300);
+
+  // ── one face, and no second edge inside it ───────────────────────────────
+  /* The lift is cast by a layer of its own, and that layer has to sit UNDER the card's face. As a
+     negative-z child of a card that is itself a stacking context it painted OVER the face instead —
+     its fill covered all but the card's outer 2px, and its shadow fell into those 2px: a second,
+     darker edge just inside the hairline, wider at the corners, where the layer's smaller curve
+     drifted from the card's. So the fill just inside the ring has to be the fill further in, on the
+     sides the shadow falls toward. Measured in the middle of each run, clear of the chips. */
+  const faceBands = (b64) => `(async () => {
+    const s = await __live.sampler(${JSON.stringify(b64)});
+    const b = document.querySelector(".composer").getBoundingClientRect();
+    const cx = (b.left + b.right) / 2, cy0 = b.top + 38, cy1 = b.top + 50;
+    const pair = (a, z) => ({ edge: +a.toFixed(2), within: +z.toFixed(2) });
+    return {
+      bottom: pair(s.band(cx - 40, b.bottom - 2, cx + 40, b.bottom - 1.25), s.band(cx - 40, b.bottom - 6, cx + 40, b.bottom - 4)),
+      left: pair(s.band(b.left + 1.25, cy0, b.left + 2, cy1), s.band(b.left + 4, cy0, b.left + 6, cy1)),
+      right: pair(s.band(b.right - 2, cy0, b.right - 1.25, cy1), s.band(b.right - 6, cy0, b.right - 4, cy1)),
+    };
+  })()`;
+  const face = await evalIn(c, faceBands(await shotOf(c)));
+  check("the card has one face — no darker band just inside its ring, on any side the lift falls toward",
+    Object.values(face).every((p) => Math.abs(p.edge - p.within) < 1.5), face);
 
   // ── the corner itself ────────────────────────────────────────────────────
   /* The silhouette is the claim, so the edge stroke comes off first: a 0.5px ring lands precisely on

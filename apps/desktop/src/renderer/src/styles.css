@@ -4162,14 +4162,26 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 :root[data-squircle] .composer-todos,
 :root[data-squircle] .composer-goal,
 :root[data-squircle] .composer-overstrip,
-:root[data-squircle] .composer-understrip,
-:root[data-squircle] .install-card,
-:root[data-squircle] .commit-card {
+:root[data-squircle] .composer-understrip {
   border-radius: 0;
   background: paint(rl-squircle);
   --sq-radius-top: var(--r-squircle);
   --sq-radius-bottom: var(--r-squircle);
 }
+/* The three cards that cast a lift are painted the same way, by a layer of their own rather than by
+   their own background — see the lift, further down, for why the order has to be made rather than
+   assumed. The card keeps the radii its face reads, and its position and stacking context are what
+   both layers are placed and ordered in: the composer and the install card are already z-index: 1
+   (each sits over the strips tucked under it), and the commit card isolates. */
+:root[data-squircle] .composer,
+:root[data-squircle] .install-card,
+:root[data-squircle] .commit-card {
+  border-radius: 0;
+  background: none;
+  --sq-radius-top: var(--r-squircle);
+  --sq-radius-bottom: var(--r-squircle);
+}
+:root[data-squircle] .commit-card { position: relative; isolation: isolate; }
 /* The machine screen, and the one surface in this list whose corner had to be PROVED rather than
    declared. A canvas cannot be painted behind — its content is opaque, and `mask-image: paint()`
    parses in this Chromium and does not mask (measured: the masked box renders square). So the curve
@@ -4321,14 +4333,34 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
  * filter on the card promotes it to its own layer and the worklet then stops repainting when
  * `--sq-ring` changes, so focus silently stopped brightening the edge; and filtering the card would
  * put its text through the filter too. The registered `--sq-*` inputs do not inherit, so this layer
- * states its own — it needs only an opaque fill and the same radii, never the ring. */
+ * states its own — it needs only an opaque fill and the same radii, never the ring.
+ *
+ * And it has to be UNDER the card's face, which a negative z-index alone does not make it. Each card
+ * is a stacking context, and a negative-z child of one paints above that element's own background,
+ * never below — so with the face on the card's background this layer sat ON it, inset 2px to keep
+ * clear of the ring: its fill covered all but the outer 2px, and its shadow fell into those 2px, a
+ * second and darker edge inside the hairline that widened at the corners, where a smaller box on the
+ * same radius drifts from the card's curve. The face is a child too now (::after, below), so the
+ * order is the one intended — lift at -2, face at -1, then the card's content — and the lift traces
+ * the card's own curve at inset 0, since nothing of it shows but the shadow beyond the face. */
 :root[data-squircle] .composer::before,
 :root[data-squircle] .install-card::before,
 :root[data-squircle] .commit-card::before {
-  content: ""; position: absolute; inset: 2px; z-index: -1; pointer-events: none;
+  content: ""; position: absolute; inset: 0; z-index: -2; pointer-events: none;
   --sq-fill: var(--surface); --sq-radius-top: var(--r-squircle); --sq-radius-bottom: var(--r-squircle);
   background: paint(rl-squircle);
   filter: var(--shadow-card-lift-filter);
+}
+/* The face: fill and ring, over the lift and under the content. It takes the card's inputs by an
+   explicit `inherit` — they are registered non-inheriting — so every state rule written against the
+   card itself (a mode's tint, focus, a drop target) still drives what is painted. */
+:root[data-squircle] .composer::after,
+:root[data-squircle] .install-card::after,
+:root[data-squircle] .commit-card::after {
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  --sq-fill: inherit; --sq-ring: inherit; --sq-ring-w: inherit;
+  --sq-radius-top: inherit; --sq-radius-bottom: inherit; --sq-n: inherit;
+  background: paint(rl-squircle);
 }
 /* ⌘K's lift, the same way. This is the square at the palette's corners: its `box-shadow` (four
    layers, one of them a ring) drew from the border box, which under the painted regime is a
