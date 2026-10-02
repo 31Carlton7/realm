@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { basenameOf } from "@realm/contracts";
+import { basenameOf, isPictureFile } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { useScrollMemory } from "../scroll-memory";
 
 /**
- * A Word, Excel, PowerPoint or iWork file, shown as the picture macOS renders of it.
+ * A Word, Excel, PowerPoint or iWork file — or a picture — shown as the image macOS renders of it.
  *
  * An `<img>` and not an iframe, deliberately. The server answers this path with a PNG (see
  * `quicklook.ts`), and a frame around one buys nothing but a second scrolling context and a border
@@ -64,11 +64,14 @@ export function QuickLookView({ documentsId, path, version, scrollKey }: {
     <div className="ql-view" ref={viewScroll}>
       <img className="ql-page" src={src} alt={`Preview of ${basenameOf(path)}`} onError={() => setFailed(true)} />
       {/* Under the render, not over it: the limit is worth knowing before you try to select text,
-          and it must not sit on top of the document it is describing. */}
-      <p className="ql-note">
-        A preview of {basenameOf(path)}, rendered by macOS. Realm has no editor for this format, so
-        the text cannot be selected and long files may show their first page only.
-      </p>
+          and it must not sit on top of the document it is describing. A picture has no text and no
+          pages, so it has no limit to state: it is simply shown. */}
+      {!isPictureFile(path) && (
+        <p className="ql-note">
+          A preview of {basenameOf(path)}, rendered by macOS. Realm has no editor for this format, so
+          the text cannot be selected and long files may show their first page only.
+        </p>
+      )}
     </div>
   );
 }
