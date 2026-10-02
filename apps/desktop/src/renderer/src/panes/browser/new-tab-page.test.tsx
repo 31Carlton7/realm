@@ -73,9 +73,28 @@ describe("a blank tab's new-tab page", () => {
     await waitFor(() => expect(store.getState()).toMatchObject({ paletteOpen: true, paletteMode: "files" }));
   });
 
+  it("lists the profile's recent pages, and one chosen loads in this tab rather than a new one", async () => {
+    // THE MUTANT: open the page as a tab of its own. "+ › New tab › Delta careers" would leave the
+    // blank tab standing beside it — the thing a tool taking the tab's place exists to prevent.
+    const navigated: string[] = [];
+    setBrowserBridgesForTests(fakeBrowserBridges({
+      server: { recent: async () => [{ url: "https://jobs.example/delta", title: "Delta careers", visits: 1, lastVisitAt: 1 }] },
+      host: { navigate: async (id, input) => { navigated.push(`${id} ${input}`); return input; } },
+    }));
+    const { api, store } = await mount();
+    const side = () => findSidePane(store.getState().layout!, "i-lead")!;
+    const blank = store.getState().items.find((i) => i.id === side().itemId)!;
+    const made = api.calls.filter((c) => c.startsWith("createBrowser:")).length;
+    const recent = await (await page()).findByRole("region", { name: "Recently visited" });
+    fireEvent.click(within(recent).getByRole("button", { name: "Delta careers" }));
+    await waitFor(() => expect(navigated).toEqual([`${blank.refId} https://jobs.example/delta`]));
+    expect(side().tabs).toEqual([blank.id]);
+    expect(api.calls.filter((c) => c.startsWith("createBrowser:"))).toHaveLength(made);
+  });
+
   it("draws no Recently visited until there are visits to draw, and opens one that is there", () => {
-    // Nothing keeps a history yet, so the section is absent rather than empty. THE MUTANT: render the
-    // heading unconditionally, and every new tab claims a list Realm does not have.
+    // With no visits the section is absent rather than empty. THE MUTANT: render the heading
+    // unconditionally, and a profile that has been nowhere gets a heading over nothing.
     const { unmount } = render(<NewTabPage itemId="i-b" />);
     expect(screen.queryByRole("region", { name: "Recently visited" })).toBeNull();
     unmount();

@@ -5,7 +5,7 @@ import type { MouseEvent as ReactMouseEvent } from "react";
 import type { StoreApi } from "zustand";
 import type { PaneProps } from "../registry";
 import { useAppStoreMaybe, type AppState, type BrowserActionTick } from "../../state/store";
-import { cancelViewRelease, getBrowserBridges, scheduleViewRelease } from "./browser-client";
+import { announceHistoryCleared, cancelViewRelease, getBrowserBridges, onHistoryCleared, scheduleViewRelease } from "./browser-client";
 import { NewTabPage } from "./NewTabPage";
 import { browserMenuItems, parseBrowserMenuChoice, type BrowserMenuChoice } from "./browser-menu";
 import { sessionForPick } from "./pick-target";
@@ -359,6 +359,28 @@ function useSuggestions(spaceId: string, text: string | null, focused: boolean) 
 }
 
 /**
+ * A blank tab's Recently visited (Plan 26 W6): the pages this space's profile went to last.
+ *
+ * Read each time the blank page comes on screen — a tab opened blank, or shown again after the tabs
+ * beside it have been browsing, which a side pane's hidden tab never sees happen — and not on every
+ * render: typing in the address field is not a reason to ask again. A clear empties it outright,
+ * because the list on screen names exactly the pages that were just forgotten.
+ */
+function useRecentVisits(spaceId: string, showing: boolean) {
+  const [pages, setPages] = useState<BrowserHistoryPage[]>([]);
+  useEffect(() => onHistoryCleared(() => setPages([])), []);
+  useEffect(() => {
+    if (!showing) return;
+    let live = true;
+    void getBrowserBridges().server.recent(spaceId)
+      .then((rows) => { if (live) setPages(rows); })
+      .catch(() => { /* the list stays as it was — a failed read is not an empty history */ });
+    return () => { live = false; };
+  }, [spaceId, showing]);
+  return pages;
+}
+
+/**
  * The browser pane (Plan 11 W1): DOM chrome ABOVE a native `WebContentsView` that Electron main owns.
  * The view composites over everything in its rectangle (wontfix), so every control here is an INLINE
  * toolbar button — no DOM dropdown, nothing of this window's that would ever need to open "over" the
@@ -404,6 +426,9 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
 
   const url = state?.url ?? initialUrl ?? "";
   const hasUrl = url !== "";
+  /** No page, and the row has said so: a new tab, which shows the new-tab page where the view would be. */
+  const blank = !hasUrl && initialUrl !== null;
+  const recent = useRecentVisits(item.spaceId, blank && visible);
   const { actions, driving } = useAgentWatch(store, browserId);
   const downloads = useBlockedDownloads(browserId, item.spaceId);
   const passkey = usePasskeyNotice(browserId);
@@ -605,6 +630,8 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
     const loaded = row.kind === "page" ? await host.navigate(browserId, row.page.url) : await host.search(browserId, row.query);
     if (loaded !== null) { setDraft(null); inputRef.current?.blur(); }
   };
+  /** A page picked from the blank tab's Recently visited: this tab goes there. It is not a new tab. */
+  const visit = (address: string) => { void getBrowserBridges().host.navigate(browserId, address); };
 
   /**
    * Take a screenshot: the view's own capture, written to the space's `screenshots/` folder by main,
@@ -656,7 +683,8 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
         if (!cleared) return;
         // The partition is main's; the pages it showed are the server's. Both, or the field would go on
         // suggesting the history of a browser that has just been told to forget it.
-        await getBrowserBridges().server.clearHistory().catch(() => {});
+        const forgot = await getBrowserBridges().server.clearHistory().then(() => true, () => false);
+        if (forgot) announceHistoryCleared();
         toast.say("Cleared browsing data. Every browser pane is signed out of its sites.", "check");
         return;
       }
@@ -864,7 +892,7 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
         {/* A blank tab is a new tab: the tools beside the address field, in place of an empty page.
             Only while there is no page — the native view is hidden until one loads, so this is the
             one thing that can be drawn in this rectangle at all. */}
-        {!hasUrl && initialUrl !== null && <NewTabPage itemId={item.id} />}
+        {blank && <NewTabPage itemId={item.id} recent={recent} onVisit={visit} />}
       </div>
     </div>
   );

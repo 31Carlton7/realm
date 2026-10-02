@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, createEvent, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, createEvent, fireEvent, render, screen, within } from "@testing-library/react";
 import type { BlockedDownload, Browser, BrowserAnnotateResult, BrowserDownloadResult, BrowserFindResult, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, PasskeyNotice } from "@realm/contracts";
 import { BrowserPane, PICK_NOTE_MS, SUGGEST_DEBOUNCE_MS } from "./BrowserPane";
 import { setBrowserBridgesForTests, type BrowserBridges, type BrowserHostBridge, type BrowserServerBridge } from "./browser-client";
@@ -29,6 +29,8 @@ function fakeBridges(row: Partial<Browser> = {}) {
   let cleared = true;
   /** History the server answers `suggest` with; `holdSuggest` makes each answer wait to be released. */
   let history: BrowserHistoryPage[] = [];
+  /** What `recent` answers: the profile's last pages, newest first, as the server ranks them. */
+  let recentPages: BrowserHistoryPage[] = [];
   let holdSuggest = false;
   const heldSuggest: { query: string; release: () => void }[] = [];
   let allowlist: string[] | null = null;
@@ -85,6 +87,7 @@ function fakeBridges(row: Partial<Browser> = {}) {
       if (!holdSuggest) return Promise.resolve(answer);
       return new Promise((resolve) => { heldSuggest.push({ query, release: () => resolve(answer) }); });
     },
+    recent: async (spaceId) => { calls.push(`recent:${spaceId}`); return recentPages; },
     clearHistory: async () => { calls.push("clear-history"); },
   };
   const bridges: BrowserBridges = { host, server };
@@ -108,6 +111,7 @@ function fakeBridges(row: Partial<Browser> = {}) {
     },
     requestFind: (browserId = "b1") => { for (const cb of findRequestCbs) cb({ browserId }); },
     setHistory: (h: BrowserHistoryPage[]) => { history = h; },
+    setRecent: (p: BrowserHistoryPage[]) => { recentPages = p; },
     holdSuggestions: () => { holdSuggest = true; },
     heldSuggest,
     blockDownload: (blocked: BlockedDownload, browserId = "b1") => {
@@ -1120,6 +1124,102 @@ describe("BrowserPane — address suggestions (Plan 26 W7c)", () => {
     await act(async () => { f.heldSuggest[0]!.release(); await vi.advanceTimersByTimeAsync(0); });
     expect(options().some((o) => o?.includes("dogs.example"))).toBe(false);
     expect(options()).toHaveLength(3);
+  });
+});
+
+/**
+ * Plan 26 W6 — a blank tab's Recently visited. The pages come from the server (`browsers.recent`);
+ * these pin what the pane does with them: when it asks, where a chosen one goes, and that a clear
+ * takes the list down with the history it was read from.
+ */
+describe("BrowserPane — Recently visited on a blank tab (Plan 26 W6)", () => {
+  paneTestEnv();
+  afterEach(() => { cleanup(); });
+
+  const RECENT: BrowserHistoryPage[] = [
+    { url: "https://jobs.example/delta", title: "Delta careers", visits: 1, lastVisitAt: 30 },
+    { url: "https://docs.example/start", title: "Getting started", visits: 4, lastVisitAt: 20 },
+  ];
+  const mount = async (row: Partial<Browser> = {}) => {
+    const f = fakeBridges(row);
+    f.setRecent(RECENT);
+    setBrowserBridgesForTests(f.bridges);
+    const view = render(<BrowserPane item={browserItem()} visible />);
+    await settle();
+    return { f, ...view };
+  };
+  const reads = (f: ReturnType<typeof fakeBridges>) => f.calls.filter((c) => c.startsWith("recent:"));
+  const listed = () => {
+    const section = screen.queryByRole("region", { name: "Recently visited" });
+    return section ? within(section).getAllByRole("button").map((b) => b.textContent) : null;
+  };
+  const clearData = async () => {
+    await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: "More" }).at(-1)!); await vi.advanceTimersByTimeAsync(0); });
+  };
+
+  it("lists the space's recent pages under the tools, and one chosen opens in this tab's own view", async () => {
+    // THE mutant: draw the new-tab page without them, which is how it stood before.
+    const { f } = await mount();
+    expect(reads(f)).toEqual(["recent:s1"]);
+    expect(listed()).toEqual(["Delta careers", "Getting started"]);
+    fireEvent.click(screen.getByRole("button", { name: "Getting started" }));
+    expect(f.calls.filter((c) => c.startsWith("navigate:"))).toEqual(["navigate:b1:https://docs.example/start"]);
+  });
+
+  it("a tab with a page asks for none and draws no new-tab page", async () => {
+    // THE mutant: read them whenever the pane is visible, page or not.
+    const { f } = await mount({ url: "https://example.com/" });
+    expect(reads(f)).toEqual([]);
+    expect(screen.queryByRole("region", { name: "New tab" })).toBeNull();
+  });
+
+  it("asks again each time the blank page comes back on screen, and never per render", async () => {
+    /* THE mutants: ask on every render, and each letter typed into the address field is a read; ask
+       once and keep it, and a side pane's blank tab — kept mounted while its neighbours browse —
+       comes back listing the pages from before they went anywhere. */
+    const { f, rerender } = await mount();
+    const field = screen.getByLabelText("Address");
+    fireEvent.focus(field);
+    for (const t of ["d", "do", "doc"]) fireEvent.change(field, { target: { value: t } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(SUGGEST_DEBOUNCE_MS + 1); });
+    fireEvent.blur(field);
+    expect(reads(f)).toEqual(["recent:s1"]);
+    rerender(<BrowserPane item={browserItem()} visible={false} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(reads(f)).toHaveLength(1);
+    f.setRecent([RECENT[1]!]);
+    rerender(<BrowserPane item={browserItem()} visible />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(reads(f)).toHaveLength(2);
+    expect(listed()).toEqual(["Getting started"]);
+  });
+
+  it("Clear browsing data takes the list down once main has cleared — and a Cancel leaves it", async () => {
+    // THE mutant: keep the list as it was read. The page would go on naming what was just forgotten.
+    const { f } = await mount();
+    f.choose("clear-data");
+    f.setCleared(false);
+    await clearData();
+    expect(listed()).toEqual(["Delta careers", "Getting started"]);
+    f.setCleared(true);
+    await clearData();
+    expect(f.calls).toContain("clear-history");
+    expect(listed()).toBeNull();
+  });
+
+  it("…and so does a clear chosen in another pane, since the history is one for every pane", async () => {
+    const f = fakeBridges();
+    f.setRecent(RECENT);
+    setBrowserBridgesForTests(f.bridges);
+    const { container } = render(<>
+      <BrowserPane item={browserItem()} visible />
+      <BrowserPane item={item("i2", "s1", { kind: "browser", refId: "b2", title: "Browser" })} visible />
+    </>);
+    await settle();
+    expect(container.querySelectorAll(".new-tab-section[aria-label='Recently visited']")).toHaveLength(2);
+    f.choose("clear-data");
+    await clearData(); // the second pane's ⋯
+    expect(container.querySelectorAll(".new-tab-section[aria-label='Recently visited']")).toHaveLength(0);
   });
 });
 

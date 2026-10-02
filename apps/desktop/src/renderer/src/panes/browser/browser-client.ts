@@ -117,6 +117,9 @@ export type BrowserServerBridge = {
   screenshotDir(spaceId: string): Promise<string | null>;
   /** Plan 26 W7c: pages this space's profile has visited that match what is being typed, best first. */
   suggest(spaceId: string, query: string): Promise<BrowserHistoryPage[]>;
+  /** Plan 26 W6: the handful of pages this space's profile went to last, newest first — what a blank
+   *  tab lists under its tools. */
+  recent(spaceId: string): Promise<BrowserHistoryPage[]>;
   /** Forget every visited page — Clear browsing data's other half. */
   clearHistory(): Promise<void>;
 };
@@ -141,11 +144,24 @@ export function getBrowserBridges(): BrowserBridges {
       downloadDir: async (spaceId) => (await rpc().call("browsers.downloadDir", { spaceId })).dir,
       screenshotDir: async (spaceId) => (await rpc().call("browsers.screenshotDir", { spaceId })).dir,
       suggest: async (spaceId, query) => (await rpc().call("browsers.suggest", { spaceId, query })).pages,
+      recent: async (spaceId) => (await rpc().call("browsers.recent", { spaceId })).pages,
       clearHistory: async () => { await rpc().call("browsers.clearHistory", {}); },
     },
   });
 }
 export function setBrowserBridgesForTests(b: BrowserBridges | null): void { bridges = b; }
+
+/**
+ * Clear browsing data's word to every pane in this window: the history is gone. The pages are the
+ * server's, but a blank tab's Recently visited is a list each pane read for itself, and one read
+ * before the clear would go on naming pages Realm has just been told to forget.
+ */
+const historyCleared = new Set<() => void>();
+export function onHistoryCleared(cb: () => void): () => void {
+  historyCleared.add(cb);
+  return () => { historyCleared.delete(cb); };
+}
+export function announceHistoryCleared(): void { for (const cb of historyCleared) cb(); }
 
 /**
  * Deferred release of the native view on unmount.
