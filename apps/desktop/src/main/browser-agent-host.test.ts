@@ -876,7 +876,8 @@ describe("BrowserAgentHost — annotate", () => {
     // overlay taken down — the other order would photograph a bare page.
     const all = evals(calls);
     const shot = calls.findIndex((c) => c.method === "Page.captureScreenshot");
-    const prepare = calls.findIndex((c) => c.method === "Runtime.evaluate" && String(c.params?.expression).includes("prepareShot"));
+    // The CALL, not the arming script — which defines `prepareShot` and so contains the word too.
+    const prepare = calls.findIndex((c) => c.method === "Runtime.evaluate" && String(c.params?.expression).includes("window.__realmAnnotator.prepareShot()"));
     const stop = calls.findIndex((c, i) => i > shot && c.method === "Runtime.evaluate" && String(c.params?.expression).includes("__realmAnnotator.stop()"));
     expect(prepare).toBeGreaterThan(-1);
     expect(prepare).toBeLessThan(shot);
