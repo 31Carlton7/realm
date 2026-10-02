@@ -366,6 +366,45 @@ export type BrowserDownloadResult =
   | { ok: true; name: string; bytes: number; relPath: string }
   | { ok: false; error: string; refused?: BrowserRefusal };
 
+/* ---------------------------------- the pane's ⋯ menu (Plan 26 W7) ---------------------------------- */
+
+/**
+ * A download a pane SAVED — the user's own Save, or an agent download they approved — kept so the
+ * pane's ⋯ menu can say what this pane fetched and show it in the Finder.
+ *
+ * Unlike a `BlockedDownload` this carries a path, because the file is the user's and showing it is
+ * the point. It travels only from main to Realm's own renderer: an agent's answer is still `relPath`
+ * and nothing more. In memory, per pane, and bounded — it is what this pane did, not a ledger.
+ */
+export type SavedDownload = { id: string; name: string; path: string; ts: number };
+
+/** One row of a pane's back/forward trail, nearest first (`BrowserPaneHost.historyTrail`). */
+export type BrowserTrailRow = { index: number; label: string };
+
+/** What a pane's ⋯ menu is built from, read from main the moment the menu opens. */
+export type BrowserMenuState = {
+  /** The page's zoom as Chromium reports it, 1 at 100%. */
+  zoom: number;
+  canZoomIn: boolean;
+  canZoomOut: boolean;
+  back: BrowserTrailRow[];
+  forward: BrowserTrailRow[];
+  blocked: BlockedDownload[];
+  saved: SavedDownload[];
+};
+
+/** A find's answer, for the pane's find strip (`found-in-page`). `activeMatchOrdinal` counts from 1. */
+export type BrowserFindResult = { browserId: string; activeMatchOrdinal: number; matches: number; finalUpdate: boolean };
+
+/** The ⋯ menu's Take a screenshot: the PNG it wrote, in the shape an attachment needs. */
+export type BrowserScreenshotSaved =
+  | { ok: true; path: string; name: string; size: number }
+  | { ok: false; error: string };
+
+/** The subfolder of the space's own folder that a pane's screenshots land in — fixed, like
+ *  `DOWNLOAD_DIRNAME`, so a person always knows where to look. */
+export const SCREENSHOT_DIRNAME = "screenshots";
+
 /* ------------------------------------ element picking ------------------------------------ */
 
 /**

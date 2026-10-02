@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, createEvent, fireEvent, render, screen } from "@testing-library/react";
-import type { BlockedDownload, Browser, BrowserDownloadResult, BrowserPickedElement, PasskeyNotice } from "@realm/contracts";
+import { act, cleanup, createEvent, fireEvent, render, screen } from "@testing-library/react";
+import type { BlockedDownload, Browser, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, PasskeyNotice } from "@realm/contracts";
 import { BrowserPane } from "./BrowserPane";
 import { setBrowserBridgesForTests, type BrowserBridges, type BrowserHostBridge, type BrowserServerBridge } from "./browser-client";
 import { SETTLE_MS, shouldShowView, isRealmItemDrag } from "./view-sync";
@@ -18,6 +18,15 @@ function fakeBridges(row: Partial<Browser> = {}) {
   const cbs = new Set<(s: StateMsg) => void>();
   const blockedCbs = new Set<(m: { browserId: string; blocked: BlockedDownload }) => void>();
   const passkeyCbs = new Set<(m: PasskeyNotice) => void>();
+  const foundCbs = new Set<(m: BrowserFindResult) => void>();
+  const findRequestCbs = new Set<(m: { browserId: string }) => void>();
+  /** What the next ⋯ menu is built from, and which row the "user" picks when it pops. */
+  let menuState: BrowserMenuState = { zoom: 1, canZoomIn: true, canZoomOut: true, back: [], forward: [], blocked: [], saved: [] };
+  let menuChoice: string | null = null;
+  const menus: { items: NativeMenuItem[]; at: { x: number; y: number } }[] = [];
+  let screenshotDir: string | null = "/tmp/space/screenshots";
+  let screenshotResult: BrowserScreenshotSaved = { ok: true, path: "/tmp/space/screenshots/example.com-2026-10-01T19-30-05.png", name: "example.com-2026-10-01T19-30-05.png", size: 2048 };
+  let cleared = true;
   let allowlist: string[] | null = null;
   let downloadDir: string | null = "/tmp/proj/downloads";
   let saveResult: BrowserDownloadResult = { ok: true, name: "week-3.pdf", bytes: 2048, relPath: "downloads/week-3.pdf" };
@@ -41,12 +50,25 @@ function fakeBridges(row: Partial<Browser> = {}) {
     dismissDownload: async (id, blockedId) => { calls.push(`dismiss:${id}:${blockedId}`); },
     onDownloadBlocked: (cb) => { blockedCbs.add(cb); return () => blockedCbs.delete(cb); },
     onPasskey: (cb) => { passkeyCbs.add(cb); return () => passkeyCbs.delete(cb); },
+    popupMenu: async (items, at) => { menus.push({ items, at }); calls.push(`menu:${Math.round(at.x)},${Math.round(at.y)}`); return menuChoice; },
+    menuState: async (id) => { calls.push(`menu-state:${id}`); return menuState; },
+    goToIndex: async (id, index) => { calls.push(`go-to-index:${id}:${index}`); },
+    find: async (id, query, step) => { calls.push(`find:${id}:${query}:${step}`); },
+    stopFind: async (id) => { calls.push(`stop-find:${id}`); },
+    onFound: (cb) => { foundCbs.add(cb); return () => foundCbs.delete(cb); },
+    onFindRequest: (cb) => { findRequestCbs.add(cb); return () => findRequestCbs.delete(cb); },
+    zoom: async (id, step) => { calls.push(`zoom:${id}:${step}`); return 1; },
+    print: async (id) => { calls.push(`print:${id}`); },
+    screenshot: async (id, dir) => { calls.push(`screenshot:${id}:${dir}`); return screenshotResult; },
+    clearData: async () => { calls.push("clear-data"); return { cleared }; },
+    reveal: async (path) => { calls.push(`reveal:${path}`); },
   };
   const server: BrowserServerBridge = {
     get: async () => r,
     update: async (id, patch) => { updates.push({ id, ...patch }); },
     allowlist: async () => allowlist,
     downloadDir: async () => downloadDir,
+    screenshotDir: async (spaceId) => { calls.push(`screenshot-dir:${spaceId}`); return screenshotDir; },
   };
   const bridges: BrowserBridges = { host, server };
   return {
@@ -55,6 +77,18 @@ function fakeBridges(row: Partial<Browser> = {}) {
     setDownloadDir: (d: string | null) => { downloadDir = d; },
     setSaveResult: (r: BrowserDownloadResult) => { saveResult = r; },
     settlePick: (el: BrowserPickedElement | null) => { pickResolve?.(el); pickResolve = null; },
+    menus,
+    setMenuState: (m: Partial<BrowserMenuState>) => { menuState = { ...menuState, ...m }; },
+    /** The row the next ⋯ menu answers with — what the user clicks in the OS's menu. */
+    choose: (id: string | null) => { menuChoice = id; },
+    setScreenshotDir: (d: string | null) => { screenshotDir = d; },
+    setScreenshotResult: (r: BrowserScreenshotSaved) => { screenshotResult = r; },
+    setCleared: (c: boolean) => { cleared = c; },
+    found: (m: Partial<BrowserFindResult>) => {
+      const full: BrowserFindResult = { browserId: "b1", activeMatchOrdinal: 1, matches: 1, finalUpdate: true, ...m };
+      for (const cb of foundCbs) cb(full);
+    },
+    requestFind: (browserId = "b1") => { for (const cb of findRequestCbs) cb({ browserId }); },
     blockDownload: (blocked: BlockedDownload, browserId = "b1") => {
       for (const cb of blockedCbs) cb({ browserId, blocked });
     },
@@ -691,5 +725,212 @@ describe("BrowserPane — element picker", () => {
     await press();
     await act(async () => { unmount(); });
     expect(f.calls).toContain("cancel-pick:b1");
+  });
+});
+
+/**
+ * Plan 26 W7 — the ⋯ menu and what it opens.
+ *
+ * The menu itself is the OS's: these tests stand in for main by answering `popupMenu` with the row a
+ * user would click, and pin what the pane does with that answer. What they also pin is the rule the
+ * whole feature is built around — nothing the menu opens is drawn over the page.
+ */
+describe("BrowserPane — the ⋯ menu (Plan 26 W7)", () => {
+  paneTestEnv();
+  // Unmount while the bridges are still in place: a pane closed with its find strip up takes the
+  // page's highlight down on the way out, and that call needs a bridge to go to.
+  afterEach(() => { cleanup(); });
+
+  const sessionItem = item("i2", "s1", { kind: "session", refId: "se1", title: "Session" });
+  const mount = async (over: { withSession?: boolean; focused?: boolean } = {}) => {
+    const f = fakeBridges({ url: "https://example.com/login" });
+    setBrowserBridgesForTests(f.bridges);
+    const store = createAppStore(fakeApi());
+    const items = over.withSession === false ? [browserItem()] : [browserItem(), sessionItem];
+    store.setState({ items, layout: gridPreset("two-col", items.map((i) => i.id)), focusedLeafId: null, activeSpaceId: "s1" });
+    const view = render(<StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible focused={over.focused} /></StoreContext.Provider>);
+    await settle();
+    act(() => f.emit(state({ url: "https://example.com/login", title: "Sign in" })));
+    return { f, store, ...view };
+  };
+  /** Press ⋯ and answer the OS's menu with `id` — the row a user would click, or null for Escape. */
+  const choose = async (f: ReturnType<typeof fakeBridges>, id: string | null) => {
+    f.choose(id);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "More" })); await vi.advanceTimersByTimeAsync(0); });
+  };
+  const rowsOf = (items: NativeMenuItem[]) => items as { label?: string; checked?: boolean; submenu?: { label?: string; checked?: boolean }[] }[];
+
+  it("⋯ is the chrome's last control, and its menu is the OS's: nothing opens in this window's DOM", async () => {
+    const { f, container } = await mount();
+    expect(container.querySelector(".browser-chrome")!.lastElementChild).toHaveAccessibleName("More");
+    await choose(f, null);
+    expect(f.calls).toContain("menu-state:b1");
+    // Anchored at the button's bottom-left (the mocked rect: x 10, bottom 440), like the trail menu.
+    expect(f.calls).toContain("menu:10,440");
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(rowsOf(f.menus[0]!.items).map((r) => r.label ?? "—")[0]).toBe("Find in page…");
+    // Dismissed: nothing ran.
+    expect(f.calls.filter((c) => /^(find|print|zoom|screenshot|clear-data)/.test(c))).toEqual([]);
+  });
+
+  it("Find in page opens a strip ABOVE the view — never inside it, where the page would cover it", async () => {
+    const { f, container } = await mount();
+    await choose(f, "find");
+    const strip = container.querySelector(".browser-find")!;
+    const host = container.querySelector(".browser-view-host")!;
+    expect(strip).toBeInTheDocument();
+    // THE mutant: render the strip in the view host, floating. The view paints over it there.
+    expect(host.contains(strip)).toBe(false);
+    expect(strip.parentElement).toBe(host.parentElement);
+    expect(strip.compareDocumentPosition(host) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Find in page" })).toHaveFocus();
+  });
+
+  it("typing searches the page, Return steps forward, ⇧Return back, and the count is the page's", async () => {
+    const { f } = await mount();
+    await choose(f, "find");
+    const field = screen.getByRole("textbox", { name: "Find in page" });
+    fireEvent.change(field, { target: { value: "sign" } });
+    expect(f.calls.at(-1)).toBe("find:b1:sign:start");
+    act(() => f.found({ activeMatchOrdinal: 1, matches: 3 }));
+    expect(screen.getByRole("search")).toHaveTextContent("1 of 3");
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(f.calls.at(-1)).toBe("find:b1:sign:next");
+    fireEvent.keyDown(field, { key: "Enter", shiftKey: true });
+    expect(f.calls.at(-1)).toBe("find:b1:sign:previous");
+    fireEvent.click(screen.getByRole("button", { name: "Next match" }));
+    expect(f.calls.at(-1)).toBe("find:b1:sign:next");
+    // Another pane's answer is not this one's count.
+    act(() => f.found({ browserId: "b2", activeMatchOrdinal: 9, matches: 9 }));
+    expect(screen.getByRole("search")).toHaveTextContent("1 of 3");
+    act(() => f.found({ activeMatchOrdinal: 0, matches: 0 }));
+    expect(screen.getByRole("search")).toHaveTextContent("No matches");
+  });
+
+  it("a navigation ends the search: the next step starts a new one rather than continuing a dead session", async () => {
+    const { f } = await mount();
+    await choose(f, "find");
+    const field = screen.getByRole("textbox", { name: "Find in page" });
+    fireEvent.change(field, { target: { value: "item" } });
+    act(() => f.found({ activeMatchOrdinal: 2, matches: 4 }));
+    act(() => f.emit(state({ url: "https://example.com/next", title: "Next" })));
+    expect(screen.getByRole("search")).not.toHaveTextContent("of 4");
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(f.calls.at(-1)).toBe("find:b1:item:start");
+  });
+
+  it("Escape closes the strip and takes the page's highlight with it", async () => {
+    const { f } = await mount();
+    await choose(f, "find");
+    const field = screen.getByRole("textbox", { name: "Find in page" });
+    fireEvent.change(field, { target: { value: "sign" } });
+    const ev = createEvent.keyDown(field, { key: "Escape" });
+    fireEvent(field, ev);
+    // Consumed, so the window's Escape (interrupt the focused session) does not also fire.
+    expect(ev.defaultPrevented).toBe(true);
+    expect(screen.queryByRole("search")).toBeNull();
+    expect(f.calls).toContain("stop-find:b1");
+  });
+
+  it("⌘F pressed in the PAGE reaches this pane through main — and another pane's does not open this one", async () => {
+    const { f } = await mount();
+    act(() => f.requestFind("b2"));
+    expect(screen.queryByRole("search")).toBeNull();
+    act(() => f.requestFind("b1"));
+    expect(screen.getByRole("textbox", { name: "Find in page" })).toHaveFocus();
+  });
+
+  it("⌘F in the chrome opens it while this pane is the focused one, and only then", async () => {
+    const unfocused = await mount({ focused: false });
+    fireEvent.keyDown(screen.getByLabelText("Address"), { key: "f", metaKey: true });
+    expect(screen.queryByRole("search")).toBeNull();
+    unfocused.unmount();
+
+    await mount({ focused: true });
+    // ⌘⇧F is pane focus; it must not open find on the way past.
+    fireEvent.keyDown(screen.getByLabelText("Address"), { key: "f", metaKey: true, shiftKey: true });
+    expect(screen.queryByRole("search")).toBeNull();
+    const ev = createEvent.keyDown(screen.getByLabelText("Address"), { key: "f", metaKey: true });
+    fireEvent(screen.getByLabelText("Address"), ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(screen.getByRole("textbox", { name: "Find in page" })).toBeInTheDocument();
+  });
+
+  it("Print, Zoom and History reach the view they were chosen for", async () => {
+    const { f } = await mount();
+    await choose(f, "print");
+    await choose(f, "zoom:in");
+    await choose(f, "zoom:reset");
+    f.setMenuState({ back: [{ index: 0, label: "Home" }], forward: [{ index: 2, label: "Docs" }] });
+    await choose(f, "history:0");
+    expect(f.calls).toEqual(expect.arrayContaining(["print:b1", "zoom:b1:in", "zoom:b1:reset", "go-to-index:b1:0"]));
+    const history = rowsOf(f.menus.at(-1)!.items).find((r) => r.label === "History")!.submenu!;
+    expect(history.map((r) => [r.label, r.checked ?? false])).toEqual([["Docs", false], ["Sign in", true], ["Home", false]]);
+  });
+
+  it("the zoom row carries the page's level", async () => {
+    const { f } = await mount();
+    f.setMenuState({ zoom: 1.25 });
+    await choose(f, null);
+    expect(rowsOf(f.menus[0]!.items).map((r) => r.label)).toContain("Actual size (125%)");
+  });
+
+  it("Take a screenshot saves into the space's folder and lands in the session's prompter", async () => {
+    const { f, store } = await mount();
+    await choose(f, "screenshot");
+    expect(f.calls).toContain("screenshot-dir:s1");
+    expect(f.calls).toContain("screenshot:b1:/tmp/space/screenshots");
+    expect(store.getState().pendingAttachments.se1).toEqual([{
+      path: "/tmp/space/screenshots/example.com-2026-10-01T19-30-05.png", mime: "image/png",
+      name: "example.com-2026-10-01T19-30-05.png", size: 2048,
+    }]);
+    expect(screen.getByRole("status")).toHaveTextContent("Added example.com-2026-10-01T19-30-05.png to Session.");
+  });
+
+  it("…with no session to take it, it is still saved, and the receipt says where", async () => {
+    const { f, store } = await mount({ withSession: false });
+    await choose(f, "screenshot");
+    expect(store.getState().pendingAttachments).toEqual({});
+    expect(screen.getByRole("status")).toHaveTextContent("Saved example.com-2026-10-01T19-30-05.png to screenshots/");
+  });
+
+  it("…and a capture that failed says why instead of attaching nothing", async () => {
+    const { f, store } = await mount();
+    f.setScreenshotResult({ ok: false, error: "The page had nothing on screen to capture." });
+    await choose(f, "screenshot");
+    expect(store.getState().pendingAttachments.se1 ?? []).toEqual([]);
+    expect(screen.getByRole("status")).toHaveTextContent("nothing on screen");
+  });
+
+  it("Downloads saves a blocked file with the server's folder, and shows a saved one in the Finder", async () => {
+    const { f } = await mount();
+    f.setMenuState({
+      blocked: [{ id: "bd_1", name: "week-3.pdf", ts: 1 }],
+      saved: [{ id: "sd_1", name: "report.pdf", path: "/tmp/proj/downloads/report.pdf", ts: 2 }],
+    });
+    await choose(f, "download:save:bd_1");
+    expect(f.calls).toContain("save:b1:bd_1:/tmp/proj/downloads");
+    await choose(f, "download:show:sd_1");
+    expect(f.calls).toContain("reveal:/tmp/proj/downloads/report.pdf");
+    const downloads = rowsOf(f.menus[0]!.items).find((r) => r.label === "Downloads")!.submenu!;
+    expect(downloads.map((r) => r.label ?? "—")).toEqual(["Save week-3.pdf", "—", "Show report.pdf in Finder"]);
+  });
+
+  it("Clear browsing data says so only when it happened — main asks first, and Cancel is a no", async () => {
+    const { f } = await mount();
+    f.setCleared(false);
+    await choose(f, "clear-data");
+    expect(f.calls).toContain("clear-data");
+    expect(screen.queryByRole("status")).toBeNull();
+    f.setCleared(true);
+    await choose(f, "clear-data");
+    expect(screen.getByRole("status")).toHaveTextContent("Every browser pane is signed out");
+  });
+
+  it("Browser settings opens Settings on Sign-ins", async () => {
+    const { f, store } = await mount();
+    await choose(f, "settings");
+    expect(store.getState().pageOverlay?.kind).toBe("settings-page");
+    expect(store.getState().settingsPageTab).toBe("signins");
   });
 });

@@ -1,4 +1,4 @@
-import type { BlockedDownload, PasskeyNotice, Browser, BrowserDownloadResult, BrowserPickedElement } from "@realm/contracts";
+import type { BlockedDownload, PasskeyNotice, Browser, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved } from "@realm/contracts";
 import { rpc } from "../../rpc/client";
 
 /** The per-space origin allowlist's settings key — stored like MCP enablement (`mcp.enabled:<spaceId>`),
@@ -73,6 +73,26 @@ export type BrowserHostBridge = {
   onDownloadBlocked(cb: (m: { browserId: string; blocked: BlockedDownload }) => void): () => void;
   /** A passkey request the pane refused, so a sign-in that goes nowhere says why (passkeys.ts). */
   onPasskey(cb: (m: PasskeyNotice) => void): () => void;
+  /** Plan 26 W7a: a menu the OS draws at a window-relative point — the one surface that can open over
+   *  the page. Resolves the chosen row's id, or null when it was dismissed. */
+  popupMenu(items: NativeMenuItem[], at: { x: number; y: number }): Promise<string | null>;
+  /** Plan 26 W7b: what the ⋯ menu is built from, read as it opens. */
+  menuState(id: string): Promise<BrowserMenuState>;
+  goToIndex(id: string, index: number): Promise<void>;
+  /** `start` is a new query; `next`/`previous` step through what it found. An empty query ends it. */
+  find(id: string, query: string, step: "start" | "next" | "previous"): Promise<void>;
+  stopFind(id: string): Promise<void>;
+  onFound(cb: (m: BrowserFindResult) => void): () => void;
+  /** ⌘F pressed inside the page, where this window cannot hear it. */
+  onFindRequest(cb: (m: { browserId: string }) => void): () => void;
+  /** Step the zoom (null reads it); resolves the level the page is at afterwards. */
+  zoom(id: string, step: "in" | "out" | "reset" | null): Promise<number>;
+  print(id: string): Promise<void>;
+  screenshot(id: string, dir: string): Promise<BrowserScreenshotSaved>;
+  /** Confirms in main first; resolves whether the partition was cleared. */
+  clearData(): Promise<{ cleared: boolean }>;
+  /** Show a file this pane saved in the Finder — `files.reveal`, which only ever selects a file. */
+  reveal(path: string): Promise<void>;
 };
 
 /** The server side: the persisted row and the space's allowlist setting. */
@@ -83,6 +103,9 @@ export type BrowserServerBridge = {
   /** Where this space's downloads land — `<project root>/downloads`, or null with no project. The
    *  SERVER decides, by the same rule the agent's downloads follow; the renderer never joins paths. */
   downloadDir(spaceId: string): Promise<string | null>;
+  /** Where this space's screenshots land — `<space folder>/screenshots`. Same rule as `downloadDir`:
+   *  the server says where, and the renderer only passes it on. */
+  screenshotDir(spaceId: string): Promise<string | null>;
 };
 
 export type BrowserBridges = { host: BrowserHostBridge; server: BrowserServerBridge };
@@ -91,12 +114,19 @@ let bridges: BrowserBridges | null = null;
 
 export function getBrowserBridges(): BrowserBridges {
   return (bridges ??= {
-    host: window.realm.browser,
+    host: {
+      ...window.realm.browser,
+      // The menu bridge is the window's, not the browser's — every pane kind may pop one — but the
+      // browser pane is its first caller, and faking it with the rest keeps its tests in one place.
+      popupMenu: (items, at) => window.realm.popupMenu?.(items, at) ?? Promise.resolve(null),
+      reveal: (path) => window.realm.files?.reveal(path) ?? Promise.resolve(),
+    },
     server: {
       get: (browserId) => rpc().call("browsers.get", { browserId }),
       update: async (browserId, patch) => { await rpc().call("browsers.update", { browserId, ...patch }); },
       allowlist: async (spaceId) => parseAllowlist((await rpc().call("settings.get", { key: allowlistKey(spaceId) })).value),
       downloadDir: async (spaceId) => (await rpc().call("browsers.downloadDir", { spaceId })).dir,
+      screenshotDir: async (spaceId) => (await rpc().call("browsers.screenshotDir", { spaceId })).dir,
     },
   });
 }

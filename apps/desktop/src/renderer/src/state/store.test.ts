@@ -3156,6 +3156,48 @@ describe("openProfilePage (Plan 14 W2)", () => {
   });
 });
 
+describe("openSettingsPage (Plan 26 W7b)", () => {
+  it("opens Settings over the workspace on the tab its opener names", async () => {
+    /* The browser pane's "Browser settings" lands on Sign-ins. THE mutant: open the page and drop the
+       tab, and the row opens Settings on whatever it last showed — Engines, the first time. */
+    const store = createAppStore(fakeApi());
+    await store.getState().boot();
+    expect(store.getState().settingsPageTab).toBe("engines");
+    store.getState().openSettingsPage("signins");
+    expect(store.getState().pageOverlay?.kind).toBe("settings-page");
+    expect(store.getState().settingsPageTab).toBe("signins");
+  });
+
+  it("with no tab, keeps the one the page last showed", async () => {
+    const store = createAppStore(fakeApi());
+    await store.getState().boot();
+    store.getState().setSettingsPageTab("keys");
+    store.getState().openSettingsPage();
+    expect(store.getState().settingsPageTab).toBe("keys");
+  });
+});
+
+describe("attachPicked — a file main already wrote (Plan 26 W7b)", () => {
+  const shot = (path: string, size = 2048) => ({ path, mime: "image/png", name: path.split("/").pop()!, size });
+
+  it("lands on the session it names, through the same path as a drop: one entry per file", async () => {
+    const store = createAppStore(fakeApi());
+    await store.getState().boot();
+    store.getState().attachPicked("se1", [shot("/tmp/space/screenshots/a.png")]);
+    store.getState().attachPicked("se1", [shot("/tmp/space/screenshots/a.png"), shot("/tmp/space/screenshots/b.png")]);
+    expect(store.getState().pendingAttachments.se1!.map((x) => x.path)).toEqual(["/tmp/space/screenshots/a.png", "/tmp/space/screenshots/b.png"]);
+    expect(store.getState().pendingAttachments.se2).toBeUndefined();
+  });
+
+  it("is held to the same cap as everything else attached", async () => {
+    const store = createAppStore(fakeApi());
+    await store.getState().boot();
+    store.getState().attachPicked("se1", [shot("/tmp/huge.png", 21 * 1024 * 1024)]);
+    expect(store.getState().pendingAttachments.se1).toEqual([]);
+    expect(store.getState().error).toContain("huge.png");
+  });
+});
+
 /** The `mcpServers` guard moved off the retired sheet (Plan 12 W3): `mcpPanelSpaceId` — set by the
  *  Connections panel's mount/unmount — decides whether a `mcp.list` response may land. */
 describe("refreshMcpServers guard (space page era)", () => {

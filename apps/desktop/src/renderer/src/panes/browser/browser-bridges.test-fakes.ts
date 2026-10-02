@@ -31,6 +31,18 @@ export function fakeBrowserBridges(over: {
     dismissDownload: async () => {},
     onDownloadBlocked: () => () => {},
     onPasskey: () => () => {},
+    popupMenu: async () => null,
+    menuState: async () => ({ zoom: 1, canZoomIn: true, canZoomOut: true, back: [], forward: [], blocked: [], saved: [] }),
+    goToIndex: async () => {},
+    find: async () => {},
+    stopFind: async () => {},
+    onFound: () => () => {},
+    onFindRequest: () => () => {},
+    zoom: async () => 1,
+    print: async () => {},
+    screenshot: async () => ({ ok: false, error: "no screenshot bridge in this test" }),
+    clearData: async () => ({ cleared: false }),
+    reveal: async () => {},
     ...over.host,
   };
   const server: BrowserServerBridge = {
@@ -38,6 +50,7 @@ export function fakeBrowserBridges(over: {
     update: async () => {},
     allowlist: async () => null,
     downloadDir: async () => null,
+    screenshotDir: async () => null,
     ...over.server,
   };
   return { host, server };

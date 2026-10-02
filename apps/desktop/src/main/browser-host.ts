@@ -145,6 +145,48 @@ export function toViewBounds(rect: ViewRect, dpr: number, scaleFactor: number): 
   return { x: left, y: top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
 }
 
+/**
+ * The zoom a pane steps through — Chrome's own ladder, so a page lands on the levels a person already
+ * knows from every other browser rather than on whatever `zoomLevel ± 0.5` happens to produce.
+ */
+export const ZOOM_FACTORS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5] as const;
+
+/**
+ * The next rung from wherever the page is now. Measured from the LIVE factor, not from an index this
+ * file remembers: ⌘+ with the page focused is the View menu's own zoom role, which steps by half a zoom
+ * level and lands between these rungs, and the next press here should still go to the nearest one.
+ */
+export function nextZoomFactor(current: number, step: "in" | "out" | "reset"): number {
+  if (step === "reset" || !Number.isFinite(current) || current <= 0) return 1;
+  const eps = 0.001;
+  if (step === "in") return ZOOM_FACTORS.find((f) => f > current + eps) ?? ZOOM_FACTORS[ZOOM_FACTORS.length - 1]!;
+  return [...ZOOM_FACTORS].reverse().find((f) => f < current - eps) ?? ZOOM_FACTORS[0]!;
+}
+
+/** What the ⋯ menu prints beside Zoom: the level as a person reads it. */
+export const zoomPercent = (factor: number): number => Math.round(factor * 100);
+
+/** The view's answer to a find, forwarded to the pane's find strip. */
+export type FindResult = { activeMatchOrdinal: number; matches: number; finalUpdate: boolean };
+
+/** The slice of Electron's `before-input-event` input a shortcut is read from. */
+export type KeyInput = { type: string; key: string; meta: boolean; control: boolean; alt: boolean; shift: boolean };
+
+/**
+ * ⌘F, pressed while the PAGE has the keyboard.
+ *
+ * The renderer never sees that keydown — it goes to the view's own webContents, which is a different
+ * renderer process — so the pane's own ⌘F binding cannot hear it. Main can, through
+ * `before-input-event`, and this is the whole test of whether to take it from the page. Only on its
+ * own: ⌘⇧F is pane focus, and a find shortcut that also ate that chord would break the other one.
+ * Control on a Mac is the text cursor's (⌃F moves forward a character in every field), so the Mac key
+ * is Command and only Command.
+ */
+export function isFindShortcut(input: KeyInput, platform: string): boolean {
+  if (input.type !== "keyDown" || input.key.toLowerCase() !== "f" || input.alt || input.shift) return false;
+  return platform === "darwin" ? input.meta && !input.control : input.control && !input.meta;
+}
+
 /** The thin Electron adapter each live view is driven through. */
 export type ViewHandle = {
   setBounds(r: ViewRect): void;
@@ -157,6 +199,13 @@ export type ViewHandle = {
   history(): { entries: { url: string; title: string }[]; activeIndex: number };
   goToIndex(index: number): void;
   getURL(): string; getTitle(): string; isLoading(): boolean;
+  /** `webContents.findInPage` — `findNext` is Electron's "this is a NEW search", not "the next match". */
+  findInPage(text: string, opts: { forward: boolean; findNext: boolean }): void;
+  stopFindInPage(): void;
+  getZoomFactor(): number;
+  setZoomFactor(factor: number): void;
+  /** The system print dialog, for this page. */
+  print(): void;
   destroy(): void;
 };
 
@@ -168,6 +217,10 @@ export type ViewHooks = {
   /** `setWindowOpenHandler` funnel: every window.open/target=_blank is DENIED as a window and offered
    *  back as an in-place navigation of the same view. */
   openInPlace(url: string): void;
+  /** `found-in-page`: the view's answer to the last find. */
+  found(result: FindResult): void;
+  /** ⌘F with the page holding the keyboard (`isFindShortcut`) — the pane opens its find strip. */
+  findShortcut(): void;
 };
 
 export type ViewFactory = (id: string, hooks: ViewHooks) => ViewHandle;
@@ -204,6 +257,10 @@ export class BrowserPaneHost {
     sendState: (s: BrowserViewState) => void;
     /** The window's display scale factor at the time of a bounds sync. */
     scaleFactor: () => number;
+    /** A find's result, for the pane whose view it came from. */
+    sendFound?: (m: FindResult & { id: string }) => void;
+    /** ⌘F was pressed in this view's page. */
+    requestFind?: (id: string) => void;
   }) {}
 
   has(id: string): boolean { return this.views.has(id); }
@@ -218,6 +275,8 @@ export class BrowserPaneHost {
       emitState: () => this.emitState(id),
       allowNavigate: (target) => originAllowed(target, this.views.get(id)?.allowlist ?? null),
       openInPlace: (target) => this.navigate(id, target),
+      found: (result) => this.opts.sendFound?.({ id, ...result }),
+      findShortcut: () => this.opts.requestFind?.(id),
     });
     this.views.set(id, { handle, allowlist });
     const normalized = normalizeAddress(url);
@@ -255,6 +314,44 @@ export class BrowserPaneHost {
   goToIndex(id: string, index: number): void {
     const v = this.views.get(id); if (!v) return;
     v.handle.goToIndex(index);
+  }
+
+  /**
+   * Search the page from the pane's find strip. `start` is a new query — the text changed — and opens a
+   * fresh find session; `next` and `previous` walk the one already open. An empty query ends the find
+   * rather than searching for nothing, which Electron refuses with a throw.
+   *
+   * Electron's option is named backwards for this, and the mutant is the swap: `findNext: true` means
+   * "begin a new session", so passing it on every press restarts the search at the first match and the
+   * Next button never moves.
+   */
+  find(id: string, query: string, step: "start" | "next" | "previous"): void {
+    const v = this.views.get(id); if (!v) return;
+    if (query === "") { v.handle.stopFindInPage(); return; }
+    v.handle.findInPage(query, { forward: step !== "previous", findNext: step === "start" });
+  }
+
+  /** The find strip closed: the highlight goes with it. */
+  stopFind(id: string): void {
+    this.views.get(id)?.handle.stopFindInPage();
+  }
+
+  /**
+   * Step this view's zoom, or with `null` just read it, and answer the level it is at afterwards.
+   *
+   * Read back rather than assumed, because the answer is what the menu prints and Chromium can refuse
+   * or round a level. One thing worth knowing before calling this per-pane: Chromium keeps zoom per
+   * SITE within a session, so a second pane on the same host follows along — exactly as a second
+   * Chrome tab on that host does. The level is in memory only; nothing here persists it.
+   */
+  zoom(id: string, step: "in" | "out" | "reset" | null): number {
+    const v = this.views.get(id); if (!v) return 1;
+    if (step !== null) v.handle.setZoomFactor(nextZoomFactor(v.handle.getZoomFactor(), step));
+    return v.handle.getZoomFactor();
+  }
+
+  print(id: string): void {
+    this.views.get(id)?.handle.print();
   }
 
   navAction(id: string, action: "back" | "forward" | "reload" | "stop"): void {

@@ -1,5 +1,5 @@
 import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, shell, systemPreferences, Tray, type MenuItemConstructorOptions } from "electron";
-import { BrowserCredentialInputSchema, newId, type BrowserAction, type BrowserCredential, type MediaFile, type Passkey } from "@realm/contracts";
+import { BrowserCredentialInputSchema, newId, type BrowserAction, type BrowserCredential, type BrowserMenuState, type BrowserScreenshotSaved, type MediaFile, type Passkey } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { spawn, execFileSync } from "node:child_process";
@@ -20,9 +20,11 @@ import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
 import { compressIconIfNeeded, describeFiles, existingPath, fileThumbnail, openablePath, saveTempAttachment, statFile, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
-import { createBrowserPane, governBrowserDownloads, type BrowserPane } from "./browser-pane";
-import { BlockedDownloads, DownloadGovernor, retryBlockedDownload } from "./downloads";
-import type { BrowserPaneHost, ViewRect } from "./browser-host";
+import { clearBrowserPartition, createBrowserPane, governBrowserDownloads, type BrowserPane } from "./browser-pane";
+import { BlockedDownloads, DownloadGovernor, SavedDownloads, retryBlockedDownload } from "./downloads";
+import { nextZoomFactor, type BrowserPaneHost, type ViewRect } from "./browser-host";
+import { popupNativeMenu } from "./native-menu";
+import { clearBrowsingData, saveBrowserScreenshot } from "./browser-controls";
 import { BrowserAgentHost } from "./browser-agent-host";
 import { AppDriveHost } from "./app-drive";
 import { startBrowserAgentBridge } from "./browser-agent-bridge";
@@ -215,12 +217,16 @@ const computerHost = new ComputerUseHost({
  *  bridge asks it for the `oauth` key at registration, and Settings enrolls into it. Built lazily
  *  because it needs `realmHome`, which arrives with the server's ready line. */
 let secretStore: SecretStore | null = null;
+/** What each pane has saved, for its ⋯ menu's Downloads (Plan 26 W7b). Beside the governor, which
+ *  feeds it: the user's own Save and an approved agent download are both a file this pane put on disk. */
+const savedDownloads = new SavedDownloads(() => Date.now());
 /** The download governor (Plan 23). App-scoped: it owns the partition-wide `will-download` handler,
  *  which is registered once and outlives any window. */
 const downloadGovernor = new DownloadGovernor({
   mkdirp: (dir) => { mkdirSync(dir, { recursive: true }); },
   exists: (p) => existsSync(p),
   now: () => Date.now(),
+  onSaved: (browserId, saved) => savedDownloads.note(browserId, saved),
 });
 /** Plan 23 W4: what the pane's blocked-download bar reads. App-scoped alongside the governor. */
 const blockedDownloads = new BlockedDownloads(() => Date.now());
@@ -412,6 +418,80 @@ ipcMain.handle("browser:history-menu", (e, id: string, dir: "back" | "forward", 
 });
 ipcMain.handle("browser:set-allowlist", (_e, id: string, allowlist: string[] | null) => { browserHost?.setAllowlist(id, allowlist); });
 ipcMain.on("browser:set-bounds", (_e, id: string, rect: ViewRect, dpr: number, visible: boolean) => { browserHost?.setBounds(id, rect, dpr, visible); });
+
+/**
+ * A menu the renderer describes and the OS draws (Plan 26 W7a): the history menu's mechanism with the
+ * rows supplied by the caller, answering with the id of the row chosen or null. See native-menu.ts for
+ * why this, and not a popover, is how anything opens over a browser pane.
+ */
+ipcMain.handle("menu:popup", (e, items: unknown, at: unknown): Promise<string | null> => {
+  const win = BrowserWindow.fromWebContents(e.sender) ?? undefined;
+  return popupNativeMenu(items, at, (template, point, onClose) =>
+    Menu.buildFromTemplate(template).popup({ window: win, x: point.x, y: point.y, callback: onClose }));
+});
+
+/**
+ * The browser pane's ⋯ menu (Plan 26 W7b). The renderer builds the menu; these are the facts it is
+ * built from — the page's zoom and trail, what the pane blocked and saved — read from main the moment
+ * it opens, because they are webContents and download state, and copying them to the renderer on every
+ * page load for a menu most people never open would be a broadcast per navigation.
+ */
+ipcMain.handle("browser:menu-state", (_e, id: string): BrowserMenuState => {
+  const browserId = String(id);
+  const zoom = browserHost?.zoom(browserId, null) ?? 1;
+  return {
+    zoom,
+    canZoomIn: nextZoomFactor(zoom, "in") > zoom,
+    canZoomOut: nextZoomFactor(zoom, "out") < zoom,
+    back: (browserHost?.historyTrail(browserId, "back") ?? []).slice(0, HISTORY_MENU_MAX),
+    forward: (browserHost?.historyTrail(browserId, "forward") ?? []).slice(0, HISTORY_MENU_MAX),
+    blocked: blockedDownloads.list(browserId),
+    saved: savedDownloads.list(browserId),
+  };
+});
+ipcMain.handle("browser:go-to-index", (_e, id: string, index: unknown) => {
+  if (Number.isInteger(index)) browserHost?.goToIndex(String(id), index as number);
+});
+ipcMain.handle("browser:find", (_e, id: string, query: unknown, step: unknown) => {
+  browserHost?.find(String(id), typeof query === "string" ? query : "", step === "next" || step === "previous" ? step : "start");
+});
+ipcMain.handle("browser:stop-find", (_e, id: string) => { browserHost?.stopFind(String(id)); });
+ipcMain.handle("browser:zoom", (_e, id: string, step: unknown): number =>
+  browserHost?.zoom(String(id), step === "in" || step === "out" || step === "reset" ? step : null) ?? 1);
+ipcMain.handle("browser:print", (_e, id: string) => { browserHost?.print(String(id)); });
+/**
+ * Take a screenshot: the VIEW's own capture, written into the space's `screenshots/` folder. `dir` is
+ * the server's answer (`browsers.screenshotDir`), passed through like the download bar's — the
+ * renderer never composes where a file goes.
+ */
+ipcMain.handle("browser:screenshot", async (_e, id: string, dir: unknown): Promise<BrowserScreenshotSaved> => {
+  const pane = browserPane;
+  if (!pane) return { ok: false, error: "The browser pane is not open." };
+  const browserId = String(id);
+  return saveBrowserScreenshot({
+    capture: () => pane.capture(browserId),
+    pageUrl: pane.pageState(browserId)?.url ?? "",
+    dir: typeof dir === "string" ? dir : "",
+    now: () => new Date(),
+    mkdirp: (d) => { mkdirSync(d, { recursive: true }); },
+    exists: (p) => existsSync(p),
+    writeFile: (p, bytes) => writeFile(p, bytes),
+  });
+});
+/**
+ * Clear browsing data, behind the OS's own confirm — a sheet on the window, its copy in
+ * browser-controls.ts. Cancel is the default button: this signs every pane out, and Return should not.
+ */
+ipcMain.handle("browser:clear-data", (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  return clearBrowsingData({
+    confirm: async (copy) => {
+      const options = { type: "warning" as const, buttons: [copy.clear, copy.cancel], defaultId: 1, cancelId: 1, message: copy.message, detail: copy.detail };
+      return (win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options)).response;
+    },
+    clear: () => clearBrowserPartition(),
+  });
+});
 
 /**
  * The user's element picker. `browser:pick-element` does not resolve until the user clicks something

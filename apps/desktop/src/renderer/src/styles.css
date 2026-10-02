@@ -2281,6 +2281,15 @@ button.panel-title:hover { background: var(--rl-hover); }
 .browser-toast-text { font-size: 11.5px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .browser-notice-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--rl-text-dim); }
 .browser-notice-text strong { font-weight: var(--fw-title); color: var(--rl-text-bright); }
+/* Plan 26 W7b's find strip: the download bar's row, holding a field. A strip ABOVE the view like every
+   other one here, because nothing can be drawn over the page — the view gives up the strip's height.
+   Field, count and steps sit together, as in every find bar, rather than spread across the pane. */
+.browser-find { gap: 6px; padding: 4px 8px; }
+.browser-find-input { flex: 1; min-width: 0; max-width: 320px; height: 24px; padding: 0 8px; border-radius: var(--r-ctl);
+  border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; font-size: 12.5px; }
+.browser-find-input::placeholder { color: var(--rl-text-faint); }
+.browser-find-input:focus { border-color: var(--rl-accent); }
+.browser-find-count { flex: none; min-width: 64px; font-size: 11.5px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
 /* The placeholder the native view is bounds-synced onto. Painted the view's own opaque white so the
    sliver the view trails behind during a resize never flashes the panel tone (research: do NOT
    debounce the sync; match the colours instead). Pages are their own light world — like the

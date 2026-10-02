@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { DOWNLOAD_MAX_BYTES } from "@realm/contracts";
-import { BlockedDownloads, DownloadGovernor, decideDownload, retryBlockedDownload, type DownloadGrant, type DownloadItemLike } from "./downloads";
+import { BlockedDownloads, DownloadGovernor, SavedDownloads, decideDownload, retryBlockedDownload, type DownloadGrant, type DownloadItemLike } from "./downloads";
 
 /**
  * Plan 23's named mutants. Each is a one-line change to `downloads.ts` that one of these must catch:
@@ -395,5 +395,38 @@ describe("retryBlockedDownload — the user's Save button", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+/**
+ * Plan 26 W7b — what a pane has SAVED, for its ⋯ menu's Downloads. The mutants: a download that did
+ * not finish listed as if it had; one pane's files showing in another's menu.
+ */
+describe("SavedDownloads", () => {
+  it("the governor reports a finished download, with the file's real path, and nothing else", async () => {
+    const saved: { browserId: string; name: string; path: string }[] = [];
+    const governor = new DownloadGovernor({ mkdirp: () => {}, exists: () => false, now: () => NOW, onSaved: (browserId, s) => saved.push({ browserId, ...s }) });
+    const done = fakeItem();
+    await governor.run("b1", grant(), async () => { governor.handle("b1", done.item); done.finish(); return { ok: true }; });
+    expect(saved).toEqual([{ browserId: "b1", name: "week-3.pdf", path: "/tmp/proj/downloads/week-3.pdf" }]);
+
+    // An interrupted download is not a file the user has; the menu must not offer to show it.
+    const broken = fakeItem({ filename: "broken.pdf" });
+    await governor.run("b1", grant(), async () => { governor.handle("b1", broken.item); broken.finish("interrupted"); return { ok: true }; });
+    expect(saved.map((s) => s.name)).toEqual(["week-3.pdf"]);
+  });
+
+  it("keeps each pane's saves apart, newest last, capped", () => {
+    const s = new SavedDownloads(() => NOW);
+    for (let i = 0; i < 12; i++) s.note("b1", { name: `f${i}.pdf`, path: `/tmp/proj/downloads/f${i}.pdf` });
+    s.note("b2", { name: "other.pdf", path: "/tmp/proj/downloads/other.pdf" });
+    const list = s.list("b1");
+    expect(list.length).toBeLessThan(12);
+    expect(list.at(-1)).toMatchObject({ name: "f11.pdf", path: "/tmp/proj/downloads/f11.pdf", ts: NOW });
+    expect(s.list("b2").map((x) => x.name)).toEqual(["other.pdf"]);
+    expect(s.find("b1", list[0]!.id)?.name).toBe(list[0]!.name);
+    expect(s.find("b2", list[0]!.id)).toBeNull();
+    s.release("b1");
+    expect(s.list("b1")).toEqual([]);
   });
 });

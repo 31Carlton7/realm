@@ -759,6 +759,9 @@ export type SessionDock = { kind: "summary" } | { kind: "files" } | { kind: "sub
 export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "scripts" | "sandbox" | "sessions" | "tasks" | "history";
 /** The profile page's rail (Plan 14 W2). */
 export type ProfilePageTab = "skills" | "connections" | "memory";
+/** The Settings page's tabs, in rail order — the store holds which one is showing so an opener can land
+ *  on one (the browser pane's "Browser settings" opens Sign-ins). */
+export type SettingsPageTab = "engines" | "usage" | "app" | "keys" | "signins" | "import" | "permissions";
 
 /** Sessions are never created through a sheet (W3): "+"/⌘N/palette create one instantly and every
  *  choice lives on the prompter's chips. What remains here is genuinely form-shaped. */
@@ -1352,6 +1355,10 @@ export type AppState = {
    *  openers land on a section ("Edit in profile" on an MCP row lands on Connections; the memory
    *  row's on Memory) whether or not the page is already open. */
   profilePageTab: Record<string, ProfilePageTab>;
+  /** The Settings page's tab. In the store rather than the page for `profilePageTab`'s reason: an
+   *  opener lands on a section whether or not the page is already up. One value, not keyed — Settings
+   *  are the app's, not a space's. */
+  settingsPageTab: SettingsPageTab;
   /**
    * The skill the Library page is READING, per space — null (or absent) means it is showing its tabs.
    *
@@ -1883,6 +1890,9 @@ export type AppState = {
   attachFiles(sessionId: string, files: readonly File[]): Promise<void>;
   /** The prompter's attach button — the native multi-select picker. */
   attachFromPicker(sessionId: string): Promise<void>;
+  /** Attach files already on disk and already described — a browser pane's screenshot, which main
+   *  wrote and measured. Same path as a drop: the same cap, the same dedupe by path. */
+  attachPicked(sessionId: string, picked: readonly PickedAttachment[]): void;
   /** Drop one pending attachment (its chip's ×). Keyed by path, which is unique within the row. */
   removeAttachment(sessionId: string, path: string): void;
   /** Show/hide the session's terminal panel (pane-header toggle, ⌘J). Opening it is the one and only
@@ -2003,6 +2013,9 @@ export type AppState = {
   openProfilePage(tab?: ProfilePageTab): void;
   /** The profile page's tab, per profile — see `profilePageTab`. */
   setProfilePageTab(profileId: string, tab: ProfilePageTab): void;
+  /** Open Settings over the workspace, on `tab` when one is given — `openProfilePage`'s two steps. */
+  openSettingsPage(tab?: SettingsPageTab): void;
+  setSettingsPageTab(tab: SettingsPageTab): void;
   /** Which skill the Library page is reading, for `spaceId` — see `librarySkill`. Null closes it. */
   setLibrarySkill(spaceId: string, id: string | null): void;
   /** Open the Library on one skill's page, from a list that is not the Library's own. The same
@@ -2994,7 +3007,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
       laya: null,
-      spacePageTab: {}, profilePageTab: {}, librarySkill: {}, mcpPanelSpaceId: null, agentsView: "list", officeWorld: null,
+      spacePageTab: {}, profilePageTab: {}, settingsPageTab: "engines", librarySkill: {}, mcpPanelSpaceId: null, agentsView: "list", officeWorld: null,
       sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
@@ -4898,6 +4911,7 @@ await get().refreshCustomThemes().catch(() => {});
         addAttachments(sessionId, picked);
       },
       async attachFromPicker(sessionId) { addAttachments(sessionId, await api.pickFiles()); },
+      attachPicked(sessionId, picked) { addAttachments(sessionId, picked); },
       removeAttachment(sessionId, path) {
         const left = (get().pendingAttachments[sessionId] ?? []).filter((a) => a.path !== path);
         set({ pendingAttachments: { ...get().pendingAttachments, [sessionId]: left } });
@@ -5239,6 +5253,11 @@ await get().refreshCustomThemes().catch(() => {});
         if (tab) get().setProfilePageTab(space.profileId, tab);
         set({ pageOverlay: { kind: "profile-page", refId: PAGE_REF_IDS["profile-page"], spaceId } });
       },
+      openSettingsPage(tab) {
+        if (tab) get().setSettingsPageTab(tab);
+        get().openDestinationPage("settings-page");
+      },
+      setSettingsPageTab(tab) { set({ settingsPageTab: tab }); },
       /** Put it away. Nothing is destroyed — a page has no object under it, which is why it can be a
        *  view in the first place. */
       closePageOverlay() { set({ pageOverlay: null }); },

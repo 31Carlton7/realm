@@ -21,6 +21,9 @@ interface Window {
     /** `process.platform` from the preload. Absent in jsdom, which has no bridge — every reader has
      *  to treat "unknown" as "no window material" rather than guessing macOS. */
     platform?: string;
+    /** A native menu at a window-relative point; resolves the chosen row's id, or null. The one
+     *  surface that can open over a browser pane's page. Optional: jsdom has no bridge. */
+    popupMenu?(items: NativeMenuItem[], at: { x: number; y: number }): Promise<string | null>;
     pickFolder(): Promise<string | null>;
     /** Native multi-select file picker; [] when cancelled. */
     pickFiles(): Promise<PickedFile[]>;
@@ -158,9 +161,26 @@ interface Window {
       /** Per-frame, fire-and-forget: placeholder rect (CSS px) + devicePixelRatio + visibility. */
       setBounds(id: string, rect: { x: number; y: number; width: number; height: number }, dpr: number, visible: boolean): void;
       onState(cb: (s: BrowserViewState) => void): () => void;
+      /** Plan 26 W7b — the ⋯ menu's facts, and its rows. */
+      menuState(id: string): Promise<import("@realm/contracts").BrowserMenuState>;
+      goToIndex(id: string, index: number): Promise<void>;
+      find(id: string, query: string, step: "start" | "next" | "previous"): Promise<void>;
+      stopFind(id: string): Promise<void>;
+      onFound(cb: (m: import("@realm/contracts").BrowserFindResult) => void): () => void;
+      /** ⌘F pressed inside a pane's page, which this window never hears directly. */
+      onFindRequest(cb: (m: { browserId: string }) => void): () => void;
+      zoom(id: string, step: "in" | "out" | "reset" | null): Promise<number>;
+      print(id: string): Promise<void>;
+      screenshot(id: string, dir: string): Promise<import("@realm/contracts").BrowserScreenshotSaved>;
+      clearData(): Promise<{ cleared: boolean }>;
     };
   };
 }
+/** Mirrors NativeMenuItem in main/native-menu.ts — one row of a menu the OS draws. A row with no `id`
+ *  is a line of information, never a choice. */
+type NativeMenuItem =
+  | { type: "separator" }
+  | { id?: string; label: string; enabled?: boolean; checked?: boolean; accelerator?: string; submenu?: NativeMenuItem[] };
 /** Mirrors UpdateState/UpdateStatus in main/updater.ts — the Updates row's payload. Every kind is a
  *  fact main reported; `disabled` carries the reason so the row can say why, honestly. */
 type UpdateState =

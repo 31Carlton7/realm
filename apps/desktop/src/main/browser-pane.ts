@@ -1,5 +1,5 @@
 import { WebContentsView, screen, session, type BrowserWindow, type WebContents } from "electron";
-import { BrowserPaneHost, browserUserAgent, type ViewFactory } from "./browser-host";
+import { BrowserPaneHost, browserUserAgent, isFindShortcut, type ViewFactory } from "./browser-host";
 import type { CdpBinding } from "./browser-agent-host";
 import type { DownloadDecision, DownloadItemLike } from "./downloads";
 import type { PasskeyCdp } from "./passkeys";
@@ -111,6 +111,13 @@ export function electronViewFactory(
       "page-title-updated", "did-fail-load",
     ] as const;
     for (const ev of stateEvents) wc.on(ev as Parameters<typeof wc.on>[0], () => hooks.emitState());
+    wc.on("found-in-page", (_e, r) => hooks.found({ activeMatchOrdinal: r.activeMatchOrdinal, matches: r.matches, finalUpdate: r.finalUpdate }));
+    // ⌘F with the page holding the keyboard. That keydown goes to this view's renderer, never to the
+    // window's, so this is the only place it can be heard; taken from the page so a site's own ⌘F
+    // handler (or Chromium's, which there is none of here) does not also run.
+    wc.on("before-input-event", (e, input) => {
+      if (isFindShortcut(input, process.platform)) { e.preventDefault(); hooks.findShortcut(); }
+    });
 
     return {
       setBounds: (r) => view.setBounds(r),
@@ -143,6 +150,12 @@ export function electronViewFactory(
       },
       getTitle: () => wc.getTitle(),
       isLoading: () => wc.isLoading(),
+      findInPage: (text, opts) => { wc.findInPage(text, opts); },
+      stopFindInPage: () => wc.stopFindInPage("clearSelection"),
+      getZoomFactor: () => wc.getZoomFactor(),
+      setZoomFactor: (factor) => wc.setZoomFactor(factor),
+      // The system dialog, attached to the window. A failure or a cancel is the dialog's to report.
+      print: () => wc.print({}, () => {}),
       destroy: () => {
         onView?.(id, null);
         // On window close, Electron tears the child views down WITH the window before our "closed"
@@ -179,18 +192,25 @@ export type BrowserPane = {
   downloadURL(id: string, url: string): void;
   /** Fires on view destruction, so the agent host can drop buffers and snapshot state. */
   onViewDestroyed(cb: (id: string) => void): void;
+  /** The view's visible viewport as a PNG, or null when there is no view or nothing was drawn.
+   *  The VIEW's own capture: the window's `capturePage` composites no child view and comes back blank
+   *  over the whole of the page. */
+  capture(id: string): Promise<Uint8Array | null>;
 };
 
 export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: PasskeyInstaller): BrowserPane {
   const views = new Map<string, WebContents>();
   const destroyedCbs: ((id: string) => void)[] = [];
+  const send = (channel: string, payload: unknown) => { if (!win.isDestroyed()) win.webContents.send(channel, payload); };
   const host = new BrowserPaneHost({
     createView: electronViewFactory(win, (id, wc) => {
       if (wc) views.set(id, wc);
       else { views.delete(id); for (const cb of destroyedCbs) cb(id); }
     }, installPasskeysFor),
-    sendState: (s) => { if (!win.isDestroyed()) win.webContents.send("realm:browser-state", s); },
+    sendState: (s) => send("realm:browser-state", s),
     scaleFactor: () => screen.getDisplayMatching(win.getBounds()).scaleFactor,
+    sendFound: ({ id, ...result }) => send("realm:browser-found", { browserId: id, ...result }),
+    requestFind: (id) => send("realm:browser-find-request", { browserId: id }),
   });
   applyBrowserUserAgent();
   // The views composite into this window; they must never outlive it.
@@ -211,6 +231,12 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
       if (wc && !wc.isDestroyed()) wc.downloadURL(url);
     },
     onViewDestroyed: (cb) => destroyedCbs.push(cb),
+    capture: async (id) => {
+      const wc = views.get(id);
+      if (!wc || wc.isDestroyed()) return null;
+      const image = await wc.capturePage();
+      return image.isEmpty() ? null : new Uint8Array(image.toPNG());
+    },
     attachCdp: (id) => {
       const wc = views.get(id);
       if (!wc || wc.isDestroyed()) return null;
@@ -269,4 +295,17 @@ export function governBrowserDownloads(d: {
     // sanitized by `BlockedDownloads.note` before it is stored or shown — never used as a path here.
     d.onBlocked(wcId, item.getURL(), decision.refused, item.getFilename());
   });
+}
+
+/**
+ * Cookies, site storage and the HTTP cache of the browser partition (Plan 26 W7b's Clear browsing
+ * data). Every pane's at once, and not as a side effect: the panes share this one partition, which is
+ * what keeps a sign-in made in one pane good in the next — and so what one clear takes from all of them.
+ * Realm's saved sign-ins and passkeys are not in the partition (they are in the Keychain-sealed secret
+ * store), so they are untouched by this.
+ */
+export async function clearBrowserPartition(): Promise<void> {
+  const ses = session.fromPartition(BROWSER_PARTITION);
+  await ses.clearStorageData();
+  await ses.clearCache();
 }

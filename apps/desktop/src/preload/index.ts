@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
-import type { BlockedDownload, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, BrowserPickedElement, MediaFile, Passkey, PasskeyNotice } from "@realm/contracts";
+import type { BlockedDownload, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, MediaFile, Passkey, PasskeyNotice } from "@realm/contracts";
+import type { NativeMenuItem } from "../main/native-menu";
 import type { TccRow } from "../main/tcc";
 import type { MacAccessStatus } from "../main/mac-access";
 import type { ComputerAccessStatus } from "../main/computer-access";
@@ -25,6 +26,9 @@ contextBridge.exposeInMainWorld("realm", {
    *  platform where the window has a material behind it, so the sidebar's transparency has nothing
    *  to reveal anywhere else (main/index.ts gives Windows and Linux an opaque backgroundColor). */
   platform: process.platform,
+  /** A native menu at a window-relative point, its rows described here and drawn by the OS — the one
+   *  surface that can open over a browser pane's page. Resolves the chosen row's id, or null. */
+  popupMenu: (items: NativeMenuItem[], at: { x: number; y: number }): Promise<string | null> => ipcRenderer.invoke("menu:popup", items, at),
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke("pick-folder"),
   /** Native multi-select file picker; [] when cancelled. */
   pickFiles: (): Promise<PickedFile[]> => ipcRenderer.invoke("pick-files"),
@@ -263,5 +267,29 @@ contextBridge.exposeInMainWorld("realm", {
       ipcRenderer.on("realm:browser-passkey", handler);
       return () => ipcRenderer.removeListener("realm:browser-passkey", handler);
     },
+    /** Plan 26 W7b — the ⋯ menu. `menuState` is read as the menu opens; the rest are its rows. */
+    menuState: (id: string): Promise<BrowserMenuState> => ipcRenderer.invoke("browser:menu-state", id),
+    goToIndex: (id: string, index: number): Promise<void> => ipcRenderer.invoke("browser:go-to-index", id, index),
+    /** `start` is a new query; `next`/`previous` step through the matches it found. */
+    find: (id: string, query: string, step: "start" | "next" | "previous"): Promise<void> => ipcRenderer.invoke("browser:find", id, query, step),
+    stopFind: (id: string): Promise<void> => ipcRenderer.invoke("browser:stop-find", id),
+    onFound: (cb: (m: BrowserFindResult) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, m: BrowserFindResult) => cb(m);
+      ipcRenderer.on("realm:browser-found", handler);
+      return () => ipcRenderer.removeListener("realm:browser-found", handler);
+    },
+    /** ⌘F pressed inside a pane's PAGE, which this window never hears directly. */
+    onFindRequest: (cb: (m: { browserId: string }) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, m: { browserId: string }) => cb(m);
+      ipcRenderer.on("realm:browser-find-request", handler);
+      return () => ipcRenderer.removeListener("realm:browser-find-request", handler);
+    },
+    /** Step the page's zoom (or with null, read it); resolves the level it is at afterwards. */
+    zoom: (id: string, step: "in" | "out" | "reset" | null): Promise<number> => ipcRenderer.invoke("browser:zoom", id, step),
+    print: (id: string): Promise<void> => ipcRenderer.invoke("browser:print", id),
+    /** Capture the view into `dir` — the server's `browsers.screenshotDir`, never a path made here. */
+    screenshot: (id: string, dir: string): Promise<BrowserScreenshotSaved> => ipcRenderer.invoke("browser:screenshot", id, dir),
+    /** Asks first, in main, with the OS's own dialog; resolves whether anything was cleared. */
+    clearData: (): Promise<{ cleared: boolean }> => ipcRenderer.invoke("browser:clear-data"),
   },
 });

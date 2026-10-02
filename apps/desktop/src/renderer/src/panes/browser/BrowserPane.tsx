@@ -1,11 +1,12 @@
-import type { BlockedDownload, BrowserPickedElement, PasskeyNotice } from "@realm/contracts";
-import { Icon } from "@realm/ui";
+import type { BlockedDownload, BrowserMenuState, BrowserPickedElement, PasskeyNotice } from "@realm/contracts";
+import { Icon, type IconName } from "@realm/ui";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import type { StoreApi } from "zustand";
 import type { PaneProps } from "../registry";
 import { useAppStoreMaybe, type AppState, type BrowserActionTick } from "../../state/store";
 import { cancelViewRelease, getBrowserBridges, scheduleViewRelease } from "./browser-client";
+import { browserMenuItems, parseBrowserMenuChoice, type BrowserMenuChoice } from "./browser-menu";
 import { sessionForPick } from "./pick-target";
 import { SETTLE_MS, isRealmItemDrag, shouldShowView } from "./view-sync";
 
@@ -137,9 +138,8 @@ function usePasskeyNotice(browserId: string) {
  * lands nowhere says so rather than being quietly dropped, because the user's evidence that it
  * worked is a chip appearing in a pane they may not be looking at.
  */
-function useElementPicker(browserId: string, store: StoreApi<AppState> | null) {
+function useElementPicker(browserId: string, store: StoreApi<AppState> | null, setNote: (note: string | null) => void) {
   const [armed, setArmed] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
 
   // Only when armed: a pane that never picked has nothing to take down, and main would be answering
   // a cancel for a view it holds no pick on. Through a ref so the effect does not re-run — and so
@@ -187,24 +187,90 @@ function useElementPicker(browserId: string, store: StoreApi<AppState> | null) {
       : `Added ${label} to ${target.title}.`);
   };
 
-  /*
-   * The note goes away on its own.
-   *
-   * It was a banner across the chrome with a manual dismiss, and it stayed until you closed it —
-   * which for "Added button#submit to Refactor the parser" is a receipt for something you have
-   * already watched happen. A toast is the right shape.
-   *
-   * It lives in the browser CHROME rather than floating over the pane, and that is not a
-   * compromise: a native `WebContentsView` composites over anything in its rectangle (W2's
-   * no-overlay rule), so a toast placed over the view is a toast nobody sees.
-   */
+  return { armed, toggle };
+}
+
+/**
+ * The pane's receipt — for a pick, a screenshot, a cleared partition.
+ *
+ * It goes away on its own. It was a banner across the chrome with a manual dismiss, and it stayed
+ * until you closed it — which for "Added button#submit to Refactor the parser" is a receipt for
+ * something you have already watched happen. A toast is the right shape.
+ *
+ * It lives in the browser CHROME rather than floating over the pane, and that is not a compromise: a
+ * native `WebContentsView` composites over anything in its rectangle (W2's no-overlay rule), so a
+ * toast placed over the view is a toast nobody sees.
+ */
+function useToast() {
+  const [note, setNote] = useState<{ text: string; icon: IconName } | null>(null);
   useEffect(() => {
     if (!note) return;
     const t = setTimeout(() => setNote(null), PICK_NOTE_MS);
     return () => clearTimeout(t);
   }, [note]);
+  /** The glyph names what the receipt is FOR — the picker's target, a screenshot's picture. */
+  const say = useCallback((text: string | null, icon: IconName = "target") => setNote(text === null ? null : { text, icon }), []);
+  return { note, say };
+}
 
-  return { armed, note, toggle, clearNote: () => setNote(null) };
+/**
+ * Find in page (Plan 26 W7b): a strip ABOVE the view, like the download bar, because nothing can be
+ * drawn over the page — the view's height gives up the strip's, through the same ResizeObserver.
+ *
+ * The search runs in the page (`webContents.findInPage`), so Chromium does the matching and the
+ * highlighting, and what comes back is a count. Typing starts a new search; Return and the arrows step
+ * through it. A navigation ends the search the page was answering, so the next step starts a new one
+ * rather than asking Chromium to continue a session it has already thrown away.
+ */
+function useFindInPage(browserId: string, url: string) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [result, setResult] = useState<{ active: number; matches: number } | null>(null);
+  /** Bumped by every request to open, so a second ⌘F re-focuses and re-selects a strip already up. */
+  const [focusTick, setFocusTick] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const live = useRef(false);
+  const openRef = useRef(false);
+  openRef.current = open;
+
+  useEffect(() => getBrowserBridges().host.onFound((m) => {
+    if (m.browserId !== browserId) return;
+    setResult({ active: m.activeMatchOrdinal, matches: m.matches });
+  }), [browserId]);
+
+  useEffect(() => { live.current = false; setResult(null); }, [url]);
+
+  useEffect(() => {
+    if (focusTick === 0) return;
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [focusTick]);
+
+  // A pane closed with its strip up takes the highlight down with it.
+  useEffect(() => () => { if (openRef.current) void getBrowserBridges().host.stopFind(browserId).catch(() => {}); }, [browserId]);
+
+  const run = (q: string, step: "start" | "next" | "previous") => {
+    live.current = q !== "";
+    void getBrowserBridges().host.find(browserId, q, step).catch(() => {});
+  };
+
+  const show = () => {
+    if (!open && query !== "") run(query, "start"); // reopened on the last query, as browsers do
+    setOpen(true);
+    setFocusTick((n) => n + 1);
+  };
+  const search = (q: string) => { setQuery(q); setResult(null); run(q, "start"); };
+  const step = (dir: "next" | "previous") => {
+    if (query === "") return;
+    run(query, live.current ? dir : "start");
+  };
+  const close = () => {
+    setOpen(false);
+    setResult(null);
+    live.current = false;
+    void getBrowserBridges().host.stopFind(browserId).catch(() => {});
+  };
+  return { open, query, result, inputRef, show, search, step, close };
 }
 
 /**
@@ -228,6 +294,7 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
   const [draft, setDraft] = useState<string | null>(null);
   const [initialUrl, setInitialUrl] = useState<string | null>(null); // null until the row loads
   const hostRef = useRef<HTMLDivElement>(null);
+  const paneRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
@@ -253,7 +320,10 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
   const { actions, driving } = useAgentWatch(store, browserId);
   const downloads = useBlockedDownloads(browserId, item.spaceId);
   const passkey = usePasskeyNotice(browserId);
-  const picker = useElementPicker(browserId, store);
+  const toast = useToast();
+  const picker = useElementPicker(browserId, store, toast.say);
+  const find = useFindInPage(browserId, url);
+  const [menuOpen, setMenuOpen] = useState(false);
   const lastAction = actions.length > 0 ? actions[actions.length - 1]! : null;
 
   useEffect(() => {
@@ -384,6 +454,33 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
     if (focused && !hasUrl && initialUrl !== null) inputRef.current?.focus();
   }, [focused, hasUrl, initialUrl]);
 
+  /*
+   * ⌘F, from either side of the glass. With the page holding the keyboard the keydown goes to the
+   * view's own renderer, and main relays it (`onFindRequest`); with the keyboard anywhere in this pane's
+   * chrome — the address field included, as in every browser — it is heard here. Only while this pane
+   * is the focused one, and only from inside it: ⌘F typed into another pane's field is that pane's.
+   */
+  const findRef = useRef(find);
+  findRef.current = find;
+  const pageRef = useRef(hasUrl);
+  pageRef.current = hasUrl;
+  useEffect(() => getBrowserBridges().host.onFindRequest((m) => {
+    if (m.browserId === browserId && pageRef.current) findRef.current.show();
+  }), [browserId]);
+  useEffect(() => {
+    if (!focused) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.key.toLowerCase() !== "f" || !e.metaKey || e.shiftKey || e.altKey || e.ctrlKey) return;
+      const t = e.target;
+      const inside = t === document.body || (t instanceof Node && !!paneRef.current?.contains(t));
+      if (!inside || !pageRef.current) return;
+      e.preventDefault();
+      findRef.current.show();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [focused]);
+
   const nav = (action: "back" | "forward" | "reload" | "stop") => { void getBrowserBridges().host.nav(browserId, action); };
   /* Right-click either arrow for the trail behind it — the gesture every browser has. The menu is
      the OS's, popped by main: this pane bans dropdowns because the native view composites over
@@ -400,8 +497,79 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
     if (loaded !== null) { setDraft(null); inputRef.current?.blur(); }
   };
 
+  /**
+   * Take a screenshot: the view's own capture, written to the space's `screenshots/` folder by main,
+   * then attached to a session's prompter — the same session a pick would go to (`sessionForPick`),
+   * for the same reason: by the time the menu answers, the focused leaf is this browser's, and "the
+   * prompter" has to be decided by where sessions sit, not by what was clicked last.
+   */
+  const takeScreenshot = async () => {
+    const { host, server } = getBrowserBridges();
+    const dir = await server.screenshotDir(item.spaceId).catch(() => null);
+    if (!dir) { toast.say("This space has no folder to save a screenshot in."); return; }
+    const shot = await host.screenshot(browserId, dir);
+    if (!shot.ok) { toast.say(shot.error); return; }
+    const st = store?.getState();
+    const target = st ? sessionForPick(st.items, st.layout, st.focusedLeafId) : null;
+    if (!st || !target) {
+      toast.say(`Saved ${shot.name} to screenshots/. Open a session pane in this group to attach it.`, "image");
+      return;
+    }
+    st.attachPicked(target.refId, [{ path: shot.path, mime: "image/png", name: shot.name, size: shot.size }]);
+    toast.say(`Added ${shot.name} to ${target.title}.`, "image");
+  };
+
+  /** One chosen row of the ⋯ menu. `menu` is what the menu was built from, so a row acts on the
+   *  entry it named even if the pane's own lists moved while the menu was up. */
+  const runMenuChoice = async (choice: BrowserMenuChoice, menu: BrowserMenuState) => {
+    const { host } = getBrowserBridges();
+    switch (choice.kind) {
+      case "find": find.show(); return;
+      case "print": await host.print(browserId); return;
+      case "zoom": await host.zoom(browserId, choice.step); return;
+      case "screenshot": await takeScreenshot(); return;
+      case "save-download": {
+        const entry = menu.blocked.find((b) => b.id === choice.id);
+        if (entry) await downloads.save(entry);
+        return;
+      }
+      case "show-download": {
+        const saved = menu.saved.find((d) => d.id === choice.id);
+        if (saved) await host.reveal(saved.path);
+        return;
+      }
+      case "history": await host.goToIndex(browserId, choice.index); return;
+      case "clear-data": {
+        const { cleared } = await host.clearData();
+        if (cleared) toast.say("Cleared browsing data. Every browser pane is signed out of its sites.", "check");
+        return;
+      }
+      case "settings": store?.getState().openSettingsPage("signins"); return;
+    }
+  };
+
+  /* The ⋯ menu. The OS's, popped by main at this button's bottom-left — the history menu's mechanism,
+     with rows built here from facts main reads off the view as the menu opens. Window coordinates are
+     DIPs, and the renderer's rect is CSS px, so a zoomed window would otherwise drop the menu off the
+     button. */
+  const openMenu = async (e: ReactMouseEvent<HTMLButtonElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const zoom = window.realm?.zoomFactor?.() ?? 1;
+    const { host } = getBrowserBridges();
+    setMenuOpen(true);
+    try {
+      const menu = await host.menuState(browserId);
+      const items = browserMenuItems({ ...menu, hasPage: hasUrl, current: state?.title?.trim() || url });
+      const choice = parseBrowserMenuChoice(await host.popupMenu(items, { x: r.left * zoom, y: r.bottom * zoom }));
+      setMenuOpen(false);
+      if (choice) await runMenuChoice(choice, menu);
+    } finally {
+      setMenuOpen(false);
+    }
+  };
+
   return (
-    <div className="browser-pane">
+    <div className="browser-pane" ref={paneRef}>
       <div className="browser-chrome">
         <button className="icon-btn" aria-label="Back" title="Back — right-click for the pages behind this one"
           disabled={!state?.canGoBack} onClick={() => nav("back")} onContextMenu={historyMenu("back")}>
@@ -452,7 +620,41 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
             )}
           </div>
         )}
+        {/* Last in the row, where a browser keeps its menu. The menu is the OS's (see `openMenu`), so
+            nothing in this pane's DOM ever opens over the view; the button is lit while it is up. */}
+        <button className="icon-btn browser-more" aria-label="More" data-on={menuOpen || undefined}
+          title="More: find, print, zoom, screenshot, downloads, history"
+          onClick={(e) => { void openMenu(e); }}>
+          <Icon name="more" size={14} />
+        </button>
       </div>
+      {find.open && (
+        <div className="browser-notice browser-find" role="search">
+          <Icon name="search" size={12} />
+          <input ref={find.inputRef} className="browser-find-input" aria-label="Find in page" placeholder="Find in page"
+            value={find.query} spellCheck={false} autoCorrect="off" autoCapitalize="off"
+            onChange={(e) => find.search(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); find.step(e.shiftKey ? "previous" : "next"); }
+              else if (e.key === "Escape") { e.preventDefault(); find.close(); }
+            }} />
+          {/* Polite, so a count that changes on every keystroke is read when typing pauses. */}
+          <span className="browser-find-count" aria-live="polite">
+            {find.query === "" || find.result === null ? "" : find.result.matches === 0 ? "No matches" : `${find.result.active} of ${find.result.matches}`}
+          </span>
+          <button type="button" className="icon-btn" aria-label="Previous match" title="Previous match (⇧↩)"
+            disabled={find.query === ""} onClick={() => find.step("previous")}>
+            <Icon name="chevronUp" size={12} />
+          </button>
+          <button type="button" className="icon-btn" aria-label="Next match" title="Next match (↩)"
+            disabled={find.query === ""} onClick={() => find.step("next")}>
+            <Icon name="chevronDown" size={12} />
+          </button>
+          <button type="button" className="icon-btn" aria-label="Close find" title="Close (Esc)" onClick={find.close}>
+            <Icon name="close" size={12} />
+          </button>
+        </div>
+      )}
       {/* Below the chrome and ABOVE the view host, never over it: the native view composites over
           anything inside its rectangle, so a floating toast here would be invisible (W2's invariant).
           Its height comes out of the view's, which the ResizeObserver already syncs. */}
@@ -491,10 +693,10 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
           </button>
         </div>
       )}
-      {picker.note && (
+      {toast.note && (
         <div className="browser-toast" role="status">
-          <Icon name="target" size={12} />
-          <span className="browser-toast-text">{picker.note}</span>
+          <Icon name={toast.note.icon} size={12} />
+          <span className="browser-toast-text">{toast.note.text}</span>
         </div>
       )}
       <div className="browser-view-host" ref={hostRef}>

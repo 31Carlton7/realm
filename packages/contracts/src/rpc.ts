@@ -756,6 +756,13 @@ export const Methods = {
    * than by the renderer joining paths of its own.
    */
   "browsers.downloadDir": { params: z.object({ spaceId: IdSchema }), result: z.object({ dir: z.string().nullable() }) },
+  /**
+   * Where a pane's Take a screenshot lands (Plan 26 W7b): `<space folder>/screenshots`, or null for a
+   * space that does not exist. The SPACE's folder rather than a project's, because a screenshot is the
+   * user's picture of a page, not a file a checkout needs — the simulator's screenshots live in the
+   * same folder for the same reason. Resolved here for `downloadDir`'s reason: one rule, in one place.
+   */
+  "browsers.screenshotDir": { params: z.object({ spaceId: IdSchema }), result: z.object({ dir: z.string().nullable() }) },
 
   /**
    * The document workspace (Plan 17 W1). Unlike the browser trio, the SERVER owns the content here —

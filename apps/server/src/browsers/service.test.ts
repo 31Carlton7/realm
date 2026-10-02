@@ -1,4 +1,6 @@
 import { describe, expect, it, afterEach } from "vitest";
+import { join } from "node:path";
+import { newId } from "@realm/contracts";
 import { tempDir } from "@realm/test-utils";
 import WebSocket from "ws";
 import { createApp, type App } from "../app";
@@ -112,6 +114,18 @@ describe("browsers RPC", () => {
     const { browserId } = (await c.call("browsers.create", { spaceId: space.id })).result;
     expect((await c.call("spaces.delete", { id: space.id })).ok).toBe(true);
     expect(new BrowsersStore(app.db).get(browserId)).toBeNull();
+    c.close();
+  });
+
+  it("screenshotDir is the space's own folder, under screenshots/ — and nothing for a space that is not there", async () => {
+    /* A pane's Take a screenshot writes where this says. THE mutant: a project's root instead of the
+       space's folder — a space with no project would then have nowhere to put the picture it just took. */
+    const home = tempDir("realm-home-");
+    const app = await createApp({ home, port: 0 }); apps.push(app);
+    const c = await client(app.port);
+    const space = await makeSpace(c);
+    expect((await c.call("browsers.screenshotDir", { spaceId: space.id })).result).toEqual({ dir: join(space.folderPath, "screenshots") });
+    expect((await c.call("browsers.screenshotDir", { spaceId: newId() })).result).toEqual({ dir: null });
     c.close();
   });
 });
