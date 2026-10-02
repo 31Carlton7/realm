@@ -284,6 +284,9 @@ export type FakeData = {
   /** Realm-native providers `mcp.providers.list` answers with (W4). Flat like `mcpServers`: these
    *  fakes exercise one space at a time. */
   mcpProviders?: { name: string; enabled: boolean; offered: boolean | null; needs: string | null }[];
+  /** The same, per space, for a test where spaces must differ (Settings ▸ Computer use). A space
+   *  missing here answers with `mcpProviders`. */
+  mcpProvidersBySpace?: Record<string, { name: string; enabled: boolean; offered: boolean | null; needs: string | null }[]>;
   /** Profile memory docs by profile id (W4's Library page). */
   profileMemoryDocs?: Record<string, string>;
   /** Per-space disable override for the inherited profile doc — mirrors the server's polarity
@@ -477,6 +480,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     mcpToolsError: overrides.mcpToolsError ?? {},
     mcpCalls: overrides.mcpCalls ?? [],
     mcpProviders: overrides.mcpProviders ?? [{ name: "realm-browser", enabled: true, offered: true, needs: null }],
+    mcpProvidersBySpace: overrides.mcpProvidersBySpace ?? {},
     profileMemoryDocs: overrides.profileMemoryDocs ?? {},
     profileDocDisabled: overrides.profileDocDisabled ?? {},
     documentWorkspaces: overrides.documentWorkspaces ?? {},
@@ -1508,11 +1512,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
       data.mcpServers[i] = { ...data.mcpServers[i]!, scope: { kind: "space", spaceId } };
     },
-    listMcpProviders: async (spaceId) => { calls.push(`listMcpProviders:${spaceId}`); return data.mcpProviders.map((p) => ({ ...p })); },
+    listMcpProviders: async (spaceId) => { calls.push(`listMcpProviders:${spaceId}`); return (data.mcpProvidersBySpace[spaceId] ?? data.mcpProviders).map((p) => ({ ...p })); },
     setMcpProviderEnabled: async (spaceId, name, enabled) => {
       calls.push(`setMcpProviderEnabled:${spaceId}:${name}=${enabled}`);
-      const i = data.mcpProviders.findIndex((p) => p.name === name); if (i < 0) throw new Error(`no provider ${name}`);
-      data.mcpProviders[i] = { ...data.mcpProviders[i]!, enabled };
+      const list = data.mcpProvidersBySpace[spaceId] ?? data.mcpProviders;
+      const i = list.findIndex((p) => p.name === name); if (i < 0) throw new Error(`no provider ${name}`);
+      list[i] = { ...list[i]!, enabled };
     },
     mcpToolsList: async (id) => {
       calls.push(`mcpToolsList:${id}`);

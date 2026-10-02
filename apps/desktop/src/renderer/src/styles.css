@@ -42,7 +42,7 @@
 .theme-import textarea, .tool-body pre, .tool-stat, .tool-summary, .tool-well, .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .composer-queue-item .queue-position, .composer-queue-item .queue-attach, .terminal-dock-title,
-.sim-detail, .sb-chat-mono, .upl-path, .laya-facts code, .laya-reason {
+.sim-detail, .sb-chat-mono, .upl-path, .laya-facts code, .laya-reason, .computer-app-id {
   letter-spacing: normal;
 }
 
@@ -6303,6 +6303,12 @@ select { appearance: none; padding-right: 22px;
 .mac-row-actions .btn-quiet { white-space: nowrap; }
 /* The command Realm is about to run, shown before it runs. */
 .mac-grant-cmd code { font: 11px var(--font-mono); color: var(--rl-text-bright); }
+/* Settings ▸ Computer use: one card per space — its mark, its name and its switch — and under it the
+   apps it lets agents drive. Those are bundle ids, which are identifiers and read as code. */
+.computer-space { align-items: center; }
+.computer-space-mark { flex: none; display: inline-flex; color: var(--rl-text-dim); }
+.computer-app-id { font: 12px var(--font-mono); color: var(--rl-text-dim); overflow-wrap: anywhere; }
+.computer-app { align-items: center; }
 .settings-page-pane .settings-tabs { max-width: 340px; }
 /* Every Settings tab is a stack of titled groups now, and `.form`'s 12px gap already separates
    them — so the heads drop the top margin they carry where they punctuate free-standing controls. */

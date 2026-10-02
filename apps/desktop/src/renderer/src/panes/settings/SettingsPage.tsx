@@ -24,6 +24,7 @@ import { FailoverPanel } from "./FailoverPanel";
 import { LayaSection } from "./LayaSection";
 import { Signature } from "./Signature";
 import { KeybindingsPanel } from "../../components/settings/KeybindingsPanel";
+import { SpaceIcon } from "../../components/SpaceIcon";
 import { CATEGORY_COPY, SETTINGS_GROUPS, searchSettings, settingPlace, type SettingEntry, type SettingsTab } from "./settings-index";
 
 /**
@@ -116,6 +117,7 @@ export function SettingsPage(_props: PaneProps) {
               {tab === "usage" && <UsagePanel />}
               {tab === "signins" && <SignInsTab />}
               {tab === "permissions" && <PermissionsTab />}
+              {tab === "computer-use" && <ComputerUseTab />}
               {tab === "import" && <ImportPanel />}
             </>
           )}
@@ -1912,10 +1914,90 @@ const TCC_STATE_LABEL = { granted: "Granted", denied: "Not granted", unknown: "C
 function PermissionsTab() {
   return (
     <div className="form">
-      <ComputerAccessSection />
       <MacAccessSection />
       <RealmAccessSection />
     </div>
+  );
+}
+
+/**
+ * Computer use: the two macOS grants the `realm-computer` tools need, and then every space's own
+ * switch for them with the apps its agents may drive without asking.
+ *
+ * It gathers and does not decide. Whether a space's agents may control this Mac stays that space's
+ * — the same provider switch its Connections tab draws, written through the same call — and an app
+ * still only arrives in a list from its own permission card. What this page adds is the answer to
+ * "where is this on", which otherwise meant opening every space in turn.
+ */
+function ComputerUseTab() {
+  const spaces = useApp((s) => s.spaces);
+  const profiles = useApp((s) => s.profiles);
+  const refreshComputerControl = useApp((s) => s.refreshComputerControl);
+  const refreshComputerAllowedApps = useApp((s) => s.refreshComputerAllowedApps);
+  const run = useApp((s) => s.run);
+  const ids = spaces.map((sp) => sp.id).join(",");
+  useEffect(() => {
+    for (const id of ids.split(",").filter(Boolean)) {
+      void run(() => refreshComputerControl(id));
+      void run(() => refreshComputerAllowedApps(id));
+    }
+  }, [ids, refreshComputerControl, refreshComputerAllowedApps, run]);
+  const profileName = (id: string) => profiles.find((p) => p.id === id)?.name ?? null;
+  return (
+    <div className="form">
+      <ComputerAccessSection />
+      <h3 className="settings-head" data-setting="computer-spaces">Spaces</h3>
+      {/* The two things the switches below do not say on their face: they start off, and turning one
+          on still asks before each app. */}
+      <p className="settings-hint" title="An app is listed under a space when you answer Always allow on its permission card there, and removing it takes effect at once, in sessions already running too. Realm, System Settings, password prompts and terminals can never be driven.">
+        Off until a space turns it on. Agents still ask before each app that is not listed under it.
+      </p>
+      {spaces.length === 0 ? <p className="env-empty">No spaces yet.</p> : spaces.map((sp) => (
+        <ComputerSpaceRows key={sp.id} spaceId={sp.id} name={sp.name} icon={sp.icon}
+          profile={profiles.length > 1 ? profileName(sp.profileId) : null} />
+      ))}
+    </div>
+  );
+}
+
+/** One space: its switch, then the apps it lets agents drive, as one card. The switch reads what the
+ *  space asked for; where this Mac cannot honour it, the state takes the switch's place, exactly as
+ *  the space's own Connections row does. */
+function ComputerSpaceRows({ spaceId, name, icon, profile }: { spaceId: string; name: string; icon: string; profile: string | null }) {
+  const provider = useApp((s) => s.computerControl[spaceId]);
+  const apps = useApp((s) => s.computerAllowedApps[spaceId]);
+  const setComputerControl = useApp((s) => s.setComputerControl);
+  const setComputerAllowedApps = useApp((s) => s.setComputerAllowedApps);
+  const run = useApp((s) => s.run);
+  const listed = apps ?? [];
+  return (
+    <ul className="settings-list" aria-label={`Computer control in ${name}`}>
+      <li className="settings-row computer-space">
+        <span className="computer-space-mark" aria-hidden="true"><SpaceIcon icon={icon} size={16} /></span>
+        <div className="settings-row-main">
+          <span className="settings-row-name">{name}</span>
+          {profile && <span className="settings-row-detail">{profile}</span>}
+        </div>
+        {provider === undefined || provider?.offered === null ? <span className="mcp-provider-state" data-state="checking">Checking…</span>
+          : provider === null ? <span className="mcp-provider-state" data-state="missing">Not available</span>
+          : provider.offered ? (
+            <input type="checkbox" role="switch" className="switch" aria-label={`Let agents in ${name} control this Mac`}
+              checked={provider.enabled} onChange={(e) => run(() => setComputerControl(spaceId, e.target.checked))} />
+          ) : (
+            <span className="mcp-provider-state" data-state="missing"
+              title={`${name}'s switch is kept, and comes back as it was once ${provider.needs ?? "what it needs"} is on this Mac.`}>
+              {provider.needs ? `Needs ${provider.needs}` : "Not available on this Mac"}
+            </span>
+          )}
+      </li>
+      {listed.map((bundleId) => (
+        <li key={bundleId} className="settings-row computer-app">
+          <div className="settings-row-main"><code className="computer-app-id">{bundleId}</code></div>
+          <button type="button" className="btn-quiet" aria-label={`Remove ${bundleId} from ${name}`}
+            onClick={() => run(() => setComputerAllowedApps(spaceId, listed.filter((a) => a !== bundleId)))}>Remove</button>
+        </li>
+      ))}
+    </ul>
   );
 }
 

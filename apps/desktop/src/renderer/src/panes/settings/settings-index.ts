@@ -8,7 +8,7 @@ export type SettingsTab =
   | "general" | "appearance" | "keys" | "notifications"
   | "engines" | "usage"
   | "signins"
-  | "permissions"
+  | "permissions" | "computer-use"
   | "import";
 
 /**
@@ -23,7 +23,7 @@ export const SETTINGS_GROUPS: readonly { label: string; tabs: readonly { id: Set
   { label: "You", tabs: [{ id: "general", label: "General" }, { id: "appearance", label: "Appearance" }, { id: "keys", label: "Keys" }, { id: "notifications", label: "Notifications" }] },
   { label: "Engines", tabs: [{ id: "engines", label: "Engines" }, { id: "usage", label: "Usage" }] },
   { label: "Browser", tabs: [{ id: "signins", label: "Sign-ins" }] },
-  { label: "Computer", tabs: [{ id: "permissions", label: "Permissions" }] },
+  { label: "Computer", tabs: [{ id: "permissions", label: "Permissions" }, { id: "computer-use", label: "Computer use" }] },
   { label: "Data", tabs: [{ id: "import", label: "Import" }] },
 ];
 
@@ -138,7 +138,8 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "touch-id", tab: "signins", label: "Touch ID", terms: "fingerprint presence biometric" },
 
   // Permissions
-  { id: "computer-control", tab: "permissions", label: "Computer control", terms: "accessibility screen recording grant macos" },
+  { id: "computer-control", tab: "computer-use", label: "Computer control", terms: "accessibility screen recording grant macos" },
+  { id: "computer-spaces", tab: "computer-use", label: "Computer control in each space", terms: "realm-computer apps always allowed bundle switch drive" },
   { id: "mac-apps", tab: "permissions", label: "Apps on this Mac", terms: "calendar reminders contacts mail messages notes automation full disk access grant macos" },
   { id: "realm-access", tab: "permissions", label: "Realm's own access", terms: "files folders full disk grant macos" },
 

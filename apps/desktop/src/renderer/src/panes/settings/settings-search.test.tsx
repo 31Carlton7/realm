@@ -47,7 +47,7 @@ describe("the rail is grouped", () => {
       ["You", ["General", "Appearance", "Keys", "Notifications"]],
       ["Engines", ["Engines", "Usage"]],
       ["Browser", ["Sign-ins"]],
-      ["Computer", ["Permissions"]],
+      ["Computer", ["Permissions", "Computer use"]],
       ["Data", ["Import"]],
     ]);
   });
@@ -122,10 +122,10 @@ describe("searching", () => {
   });
 
   it("ranks rows whose label holds the words first, then their page or section, then their terms", () => {
-    // "permission" is a label word of one row, the page of three, and a term of one. THE unranked
+    // "permission" is a label word of one row, the page of two, and a term of one. THE unranked
     // mutant: page order, which puts the term-only match — General's default mode — first.
     expect(searchSettings("permission").map((e) => e.id))
-      .toEqual(["notify:permission", "computer-control", "mac-apps", "realm-access", "default-permission"]);
+      .toEqual(["notify:permission", "mac-apps", "realm-access", "default-permission"]);
   });
 
   it("lights no page while results stand in for one, and a page clicked gives the column back", async () => {

@@ -908,10 +908,16 @@ describe("Permissions tab (macOS TCC)", () => {
   });
 
   /**
-   * The "Computer control" section — the only rows on this page that can raise a prompt for Realm
-   * itself. Queries are scoped to `.computer-access-field` because the TCC section above renders rows
-   * with the same two labels, and a bare label lookup would be ambiguous the moment the fixtures agree.
+   * The "Computer control" section — the only rows that can raise a prompt for Realm itself, and on
+   * the Computer use page now, beside the spaces that use them. Queries are scoped to
+   * `.computer-access-field` because Permissions renders TCC rows with the same two labels, and a bare
+   * label lookup would be ambiguous the moment the fixtures agree.
    */
+  const openComputerUse = async (overrides: FakeData = {}) => {
+    const mounted = await mount({ macAccess: emptyMacAccess, ...overrides });
+    fireEvent.click(screen.getByRole("radio", { name: "Computer use" }));
+    return mounted;
+  };
   const computerRow = (label: string) => {
     const rows = [...document.querySelectorAll(".computer-access-field .settings-row")];
     const row = rows.find((r) => r.querySelector(".settings-row-name")?.textContent === label);
@@ -920,7 +926,7 @@ describe("Permissions tab (macOS TCC)", () => {
   };
 
   it("offers to ask only for the grant that is missing", async () => {
-    const { api } = await openPermissions();
+    const { api } = await openComputerUse();
     await waitFor(() => expect(api.calls).toContain("computerAccessStatus"));
     // Accessibility is not granted in the fixture, so it can be asked for.
     expect(within(computerRow("Accessibility")).getByRole("button", { name: "Ask macOS" })).toBeInTheDocument();
@@ -929,7 +935,7 @@ describe("Permissions tab (macOS TCC)", () => {
   });
 
   it("asking does not turn the row green — macOS only deep-links, the switch is in System Settings", async () => {
-    const { api } = await openPermissions();
+    const { api } = await openComputerUse();
     await waitFor(() => expect(api.calls).toContain("computerAccessStatus"));
     fireEvent.click(within(computerRow("Accessibility")).getByRole("button", { name: "Ask macOS" }));
     await waitFor(() => expect(api.calls).toContain("computerAccessRequest:accessibility"));
@@ -938,21 +944,21 @@ describe("Permissions tab (macOS TCC)", () => {
   });
 
   it("shows the grant once the user has actually flipped the switch", async () => {
-    const { api } = await openPermissions({ computerGrantAnswers: { accessibility: "granted" } });
+    const { api } = await openComputerUse({ computerGrantAnswers: { accessibility: "granted" } });
     await waitFor(() => expect(api.calls).toContain("computerAccessStatus"));
     fireEvent.click(within(computerRow("Accessibility")).getByRole("button", { name: "Ask macOS" }));
     await waitFor(() => expect(computerRow("Accessibility").querySelector('.tcc-state[data-state="granted"]')).not.toBeNull());
   });
 
   it("deep-links by ROW ID, never a URL from the renderer", async () => {
-    const { api } = await openPermissions();
+    const { api } = await openComputerUse();
     await waitFor(() => expect(api.calls).toContain("computerAccessStatus"));
     fireEvent.click(within(computerRow("Accessibility")).getByRole("button", { name: "Open System Settings" }));
     await waitFor(() => expect(api.calls).toContain("computerAccessOpenSettings:accessibility"));
   });
 
   it("says computer control is unavailable when the build has no helper", async () => {
-    await openPermissions({ computerAccess: {
+    await openComputerUse({ computerAccess: {
       hostName: "Realm", packaged: true, helperAvailable: false,
       rows: [{ id: "accessibility", label: "Accessibility", state: "granted", detail: "Granted.", canPrompt: false, needsSettings: false, askExplanation: null }],
     } });
@@ -960,7 +966,7 @@ describe("Permissions tab (macOS TCC)", () => {
   });
 
   it("warns that a dev build's grants attach to Electron, not Realm.app", async () => {
-    await openPermissions({ computerAccess: {
+    await openComputerUse({ computerAccess: {
       hostName: "Electron", packaged: false, helperAvailable: true,
       rows: [{ id: "accessibility", label: "Accessibility", state: "denied", detail: "Required.", canPrompt: true, needsSettings: true, askExplanation: "macOS will open System Settings." }],
     } });
