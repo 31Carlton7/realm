@@ -20,6 +20,8 @@
  *      main exactly while a turn runs (`pmset -g assertions`).
  *   8. Computer use (W9d): a space's card reads and writes that space's own provider and its
  *      always-allowed apps, read back from the server.
+ *   9. Archived (W9e): sessions archived in two spaces listed together; Restore and the two-step
+ *      Delete, each read back from the server.
  *
  * Ports: LIVE_SERVER_PORT (8962), LIVE_CDP_PORT (9362). Touches only a scratch dir. Nothing is billed:
  * no message is sent to any session.
@@ -245,7 +247,7 @@ async function main() {
   let r = await evalIn(c, `__live.rail()`);
   check("the rail lists the pages under their five headings", JSON.stringify(r.groups) === JSON.stringify([
     ["You", ["General", "Appearance", "Keys", "Notifications"]], ["Engines", ["Engines", "Usage"]],
-    ["Browser", ["Sign-ins"]], ["Computer", ["Permissions", "Computer use"]], ["Data", ["Import"]],
+    ["Browser", ["Sign-ins"]], ["Computer", ["Permissions", "Computer use"]], ["Data", ["Import", "Archived"]],
   ]), r.groups);
   check("Settings opens on General", JSON.stringify(r.selected) === '["General"]', r.selected);
   check("the search sits at the top of the rail, the column's own width", r.search.t <= r.tabs[0].t && r.search.l === r.rail.l && r.search.r === r.rail.r, { search: r.search, rail: r.rail });
@@ -400,6 +402,70 @@ async function main() {
   await appearanceChecks(c, size);
   await generalChecks(c, size);
   await computerUseChecks(c, size);
+  await archivedChecks(c, size);
+}
+
+/* ══ W9e: Archived ═════════════════════════════════════════════════════════════════════════════
+   Sessions archived in two spaces, read back from the server after each action: Restore puts the
+   item back in its space's list, and Delete — asked twice, the confirm preference being on by
+   default — takes the session with it. */
+async function archivedChecks(c, size) {
+  await size(1300);
+  const [first] = await api.call("spaces.list", {});
+  const second = await api.call("spaces.create", { profileId: first.profileId, name: "Second room" });
+  const made = [];
+  for (const [space, title] of [[first, "Shelved in the first room"], [second, "Shelved in the second room"]]) {
+    const { session } = await api.call("sessions.create", { spaceId: space.id, agentKind: "fake", title });
+    const items = await api.call("items.list", { spaceId: space.id });
+    const it = items.find((i) => i.refId === session.id);
+    await api.call("items.update", { id: it.id, archived: true });
+    made.push({ space, session, item: it, title });
+    await sleep(50);
+  }
+  await until(() => evalIn(c, `__live.openSettings()`), 15_000, "settings for archived");
+  await evalIn(c, `__live.page("archived")`);
+  await until(() => evalIn(c, `document.querySelectorAll('.settings-page-pane [aria-label="Archived sessions"] .archived-row').length >= 2`), 10_000, "archived rows");
+  const rows = () => evalIn(c, `[...document.querySelectorAll('.settings-page-pane [aria-label="Archived sessions"] .archived-row')].map((r) => ({
+    title: r.querySelector('.settings-row-name').textContent, detail: r.querySelector('.settings-row-detail').textContent, ...__live.box(r) }))`);
+  const listed = await rows();
+  note("archived rows", listed);
+  check("both rooms' archived sessions are listed, newest first, each naming its room",
+    listed.length === 2 && listed[0].title === made[1].title && listed[1].title === made[0].title
+      && listed[0].detail.startsWith("Second room") && listed[1].detail.startsWith(first.name), listed);
+  check("every row is a desktop hit area tall", listed.every((r) => r.h >= 40), listed.map((r) => r.h));
+  const page = await evalIn(c, `__live.box(document.querySelector('.settings-page-pane [aria-label="Archived sessions"]'))`);
+  await shoot(c, "archived-dark", { x: page.l - 12, y: Math.max(0, page.t - 12), width: page.w + 24, height: page.h + 24 });
+  await evalIn(c, `__live.page("appearance")`);
+  await evalIn(c, `(() => { document.querySelector('input[name="settings-theme"][value="light"]').click(); return true; })()`);
+  await sleep(400);
+  await evalIn(c, `__live.page("archived")`);
+  await until(() => evalIn(c, `document.querySelectorAll('.settings-page-pane [aria-label="Archived sessions"] .archived-row').length >= 2`), 10_000, "archived rows, light");
+  const lightPage = await evalIn(c, `__live.box(document.querySelector('.settings-page-pane [aria-label="Archived sessions"]'))`);
+  await shoot(c, "archived-light", { x: lightPage.l - 12, y: Math.max(0, lightPage.t - 12), width: lightPage.w + 24, height: lightPage.h + 24 });
+
+  // Restore the newer one: back in its room's list on the server, and off the page.
+  await evalIn(c, `(() => { document.querySelector('.settings-page-pane button[aria-label="Restore ${made[1].title}"]').click(); return true; })()`);
+  const restored = await until(async () => { const items = await api.call("items.list", { spaceId: second.id }); const it = items.find((i) => i.id === made[1].item.id); return it && it.archived === false ? it : null; }, 5000, "restored").catch(() => null);
+  check("Restore puts the session back in its room's list", !!restored, restored);
+  await until(async () => (await rows()).length === 1, 5000, "restored row gone");
+
+  // Delete the other: the first press only arms it.
+  const del = (label) => evalIn(c, `(() => { const b = document.querySelector('.settings-page-pane button[aria-label="${label}"]'); if (!b) return false; b.click(); return true; })()`);
+  await del(`Delete ${made[0].title}`);
+  await sleep(300);
+  const stillThere = (await api.call("items.list", { spaceId: first.id })).some((i) => i.id === made[0].item.id);
+  const armedLabel = await evalIn(c, `document.querySelector('.settings-page-pane .archived-row .btn-quiet.danger')?.textContent ?? null`);
+  check("the first press of Delete only asks, and nothing is gone yet", stillThere && armedLabel === "Really delete?", { stillThere, armedLabel });
+  await del(`Really delete ${made[0].title}`);
+  const gone = await until(async () => {
+    const items = await api.call("items.list", { spaceId: first.id });
+    const sessions = await api.call("sessions.listAll", {});
+    return !items.some((i) => i.id === made[0].item.id) && !sessions.some((x) => x.id === made[0].session.id) ? true : null;
+  }, 5000, "deleted").catch(() => false);
+  check("the second press deletes the session itself, not only its row", gone === true, null);
+  await until(async () => (await evalIn(c, `!!document.querySelector('.settings-page-pane .env-empty')`)), 5000, "empty page");
+  const empty = await evalIn(c, `document.querySelector('.settings-page-pane .page-content').innerText`);
+  check("with nothing left the page says what archiving is for", /No archived sessions/.test(empty), empty);
 }
 
 /* ══ W9d: Computer use ═════════════════════════════════════════════════════════════════════════
