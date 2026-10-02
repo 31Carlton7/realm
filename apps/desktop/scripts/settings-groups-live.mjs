@@ -18,6 +18,8 @@
  *   7. General (W9c): the editors this Mac has, offered on a path in a real transcript; the session
  *      terminal docked to the pane's foot with the prompter above it; and the Mac held awake by
  *      main exactly while a turn runs (`pmset -g assertions`).
+ *   8. Computer use (W9d): a space's card reads and writes that space's own provider and its
+ *      always-allowed apps, read back from the server.
  *
  * Ports: LIVE_SERVER_PORT (8962), LIVE_CDP_PORT (9362). Touches only a scratch dir. Nothing is billed:
  * no message is sent to any session.
@@ -243,7 +245,7 @@ async function main() {
   let r = await evalIn(c, `__live.rail()`);
   check("the rail lists the pages under their five headings", JSON.stringify(r.groups) === JSON.stringify([
     ["You", ["General", "Appearance", "Keys", "Notifications"]], ["Engines", ["Engines", "Usage"]],
-    ["Browser", ["Sign-ins"]], ["Computer", ["Permissions"]], ["Data", ["Import"]],
+    ["Browser", ["Sign-ins"]], ["Computer", ["Permissions", "Computer use"]], ["Data", ["Import"]],
   ]), r.groups);
   check("Settings opens on General", JSON.stringify(r.selected) === '["General"]', r.selected);
   check("the search sits at the top of the rail, the column's own width", r.search.t <= r.tabs[0].t && r.search.l === r.rail.l && r.search.r === r.rail.r, { search: r.search, rail: r.rail });
@@ -397,6 +399,64 @@ async function main() {
 
   await appearanceChecks(c, size);
   await generalChecks(c, size);
+  await computerUseChecks(c, size);
+}
+
+/* ══ W9d: Computer use ═════════════════════════════════════════════════════════════════════════
+   The page gathers; the space decides. So every reading here is taken from the server for the
+   space, not from the page: the switch moves the space's own provider, and an app removed on the
+   page is gone from that space's list. */
+async function computerUseChecks(c, size) {
+  await size(1300);
+  const [space] = await api.call("spaces.list", {});
+  const computerProvider = async () => (await api.call("mcp.providers.list", { spaceId: space.id })).providers.find((p) => p.name === "realm-computer");
+  await api.call("computer.allowedApps.set", { spaceId: space.id, apps: ["com.apple.Notes", "com.apple.TextEdit"] });
+  const before = await computerProvider();
+  note("the space's realm-computer provider before", before);
+  await until(() => evalIn(c, `__live.openSettings()`), 15_000, "settings for computer use");
+  // The light face first: the General pass leaves the window on dark.
+  await evalIn(c, `__live.page("appearance")`);
+  await evalIn(c, `(() => { document.querySelector('input[name="settings-theme"][value="light"]').click(); return true; })()`);
+  await sleep(400);
+  await evalIn(c, `__live.page("computer-use")`);
+  await until(() => evalIn(c, `!![...document.querySelectorAll('.settings-page-pane .computer-app-id')].length`), 10_000, "allowed apps");
+  const page = await evalIn(c, `(() => {
+    const card = document.querySelector('.settings-page-pane [aria-label="Computer control in ${space.name}"]');
+    const sw = card.querySelector('input[role="switch"]');
+    const rows = [...card.querySelectorAll('.settings-row')].map((r) => __live.box(r));
+    return { grants: !!document.querySelector('.settings-page-pane .computer-access-field'),
+      switch: sw ? { checked: sw.checked, label: sw.getAttribute('aria-label') } : null,
+      state: card.querySelector('.mcp-provider-state')?.textContent ?? null,
+      apps: [...card.querySelectorAll('.computer-app-id')].map((a) => a.textContent),
+      rows, card: __live.box(card), mono: getComputedStyle(card.querySelector('.computer-app-id')).fontFamily };
+  })()`);
+  note("the space's card", page);
+  check("Computer use holds the macOS grants and the space's card", page.grants && page.card.h > 0, { grants: page.grants });
+  check("the card lists the apps the space lets agents drive, as identifiers", JSON.stringify(page.apps) === '["com.apple.Notes","com.apple.TextEdit"]' && /Mono|monospace/.test(page.mono), { apps: page.apps, mono: page.mono });
+  check("every row of the card is a desktop hit area tall", page.rows.every((r) => r.h >= 40), page.rows.map((r) => r.h));
+  if (page.switch) {
+    check("the switch reads the space's own provider", page.switch.checked === before.enabled, { page: page.switch, server: before });
+    await evalIn(c, `(() => { document.querySelector('.settings-page-pane input[aria-label="Let agents in ${space.name} control this Mac"]').click(); return true; })()`);
+    const moved = await until(async () => { const p = await computerProvider(); return p.enabled !== before.enabled ? p : null; }, 5000, "provider written").catch(() => null);
+    check("flipping it writes the space's provider on the server", !!moved, moved);
+    await evalIn(c, `(() => { document.querySelector('.settings-page-pane input[aria-label="Let agents in ${space.name} control this Mac"]').click(); return true; })()`);
+    const back = await until(async () => { const p = await computerProvider(); return p.enabled === before.enabled ? p : null; }, 5000, "provider back").catch(() => null);
+    check("…and flipping it back restores it", !!back, back);
+  } else {
+    check("where this Mac cannot honour the switch, the card says why instead", typeof page.state === "string" && page.state.length > 0, page.state);
+  }
+  const clip = { x: page.card.l - 12, y: Math.max(0, page.card.t - 12), width: page.card.w + 24, height: page.card.h + 24 };
+  await shoot(c, "computer-use-light", clip);
+  await evalIn(c, `(() => { document.querySelector('.settings-page-pane button[aria-label="Remove com.apple.Notes from ${space.name}"]').click(); return true; })()`);
+  const left = await until(async () => { const { apps } = await api.call("computer.allowedApps.list", { spaceId: space.id }); return apps.length === 1 ? apps : null; }, 5000, "app removed").catch(() => null);
+  check("Remove takes the app out of that space's list on the server", JSON.stringify(left) === '["com.apple.TextEdit"]', left);
+  await evalIn(c, `__live.page("appearance")`);
+  await evalIn(c, `(() => { document.querySelector('input[name="settings-theme"][value="dark"]').click(); return true; })()`);
+  await sleep(400);
+  await evalIn(c, `__live.page("computer-use")`);
+  await sleep(500);
+  const dark = await evalIn(c, `__live.box(document.querySelector('.settings-page-pane [aria-label="Computer control in ${space.name}"]'))`);
+  await shoot(c, "computer-use-dark", { x: dark.l - 12, y: Math.max(0, dark.t - 12), width: dark.w + 24, height: dark.h + 24 });
 }
 
 /* ══ W9c: General ══════════════════════════════════════════════════════════════════════════════
