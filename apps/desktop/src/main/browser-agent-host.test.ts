@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PICK_HTML_MAX, PICK_TEXT_MAX, type BrowserSnapshotResult } from "@realm/contracts";
+import { MAX_ELEMENT_CHIPS, PICK_HTML_MAX, PICK_TEXT_MAX, type BrowserSnapshotResult } from "@realm/contracts";
 import { BrowserAgentHost, type CdpBinding } from "./browser-agent-host";
 import { createBridgeCore } from "./browser-agent-bridge";
 
@@ -22,6 +22,8 @@ function setup(opts: {
   now?: () => number;
   /** Run while the page is being captured — something the page does mid-snapshot. */
   duringCapture?: () => void;
+  /** Answers that depend on the params — consulted first, `undefined` falls through to the rest. */
+  respond?: (method: string, params?: Record<string, unknown>) => unknown;
 } = {}) {
   let emit: ((method: string, params: unknown) => void) | null = null;
   const calls: { method: string; params?: Record<string, unknown> }[] = [];
@@ -32,6 +34,8 @@ function setup(opts: {
   const binding: CdpBinding = {
     send: async (method, params) => {
       calls.push({ method, params });
+      const answer = opts.respond?.(method, params);
+      if (answer !== undefined) return answer;
       if (method === "DOMSnapshot.captureSnapshot") { opts.duringCapture?.(); return opts.responses?.[method] ?? { documents: [], strings: [] }; }
       if (method === "Runtime.evaluate") return { result: { value: "page text here" } };
       if (method === "Page.captureScreenshot") return { data: "c2NyZWVu" };
@@ -824,5 +828,159 @@ describe("what the browser says about a page, with each snapshot", () => {
     expect((await pageOf(s.host))!.requests).toBe(500);
     s.emitEvent("Network.loadingFinished", { requestId: "r500" });
     expect((await pageOf(s.host))!.requests).toBe(499);
+  });
+});
+
+/**
+ * Plan 26 W7d — annotate: the picker kept armed. What these pin is the session's lifetime and its
+ * order: every way it can end, and that what Send carries is every pin the user made, in the order
+ * they made them, with the page captured while the pins were drawn on it.
+ */
+describe("BrowserAgentHost — annotate", () => {
+  /** Pin n's stamp resolves to node 100+n, backend 40+n, named "Item n" — so pins can be told apart. */
+  const respond = (method: string, params?: Record<string, unknown>) => {
+    if (method === "DOM.getDocument") return { root: { nodeId: 1 } };
+    if (method === "DOM.querySelector") {
+      const n = Number(/data-realm-annotated="(\d+)"/.exec(String(params?.selector ?? ""))?.[1] ?? 0);
+      return { nodeId: n ? 100 + n : 0 };
+    }
+    if (method === "DOM.describeNode") {
+      const nodeId = Number(params?.nodeId ?? 0);
+      if (nodeId > 100) return { node: { backendNodeId: nodeId - 60, nodeName: "LI", attributes: [] } };
+      const backend = Number(params?.backendNodeId ?? 0);
+      return { node: { backendNodeId: backend, nodeName: "LI", attributes: [] } };
+    }
+    if (method === "Accessibility.getPartialAXTree") return { nodes: [{ role: { value: "listitem" }, name: { value: `Item ${Number(params?.backendNodeId) - 40}` } }] };
+    if (method === "Runtime.callFunctionOn") return { result: { value: { selector: "li", text: "", html: "<li></li>", rect: { x: 0, y: 0, w: 1, h: 1 } } } };
+    if (method === "Page.captureScreenshot") return { data: Buffer.from("pins drawn").toString("base64") };
+    return undefined;
+  };
+  const report = (emitEvent: (m: string, p: unknown) => void, msg: Record<string, unknown>) =>
+    emitEvent("Runtime.bindingCalled", { name: "__realmAnnotate", payload: JSON.stringify(msg) });
+  const pin = (emitEvent: (m: string, p: unknown) => void, n: number) => report(emitEvent, { type: "pin", n, x: 0.5, y: 0.5, surface: null });
+  const evals = (calls: { method: string; params?: Record<string, unknown> }[]) =>
+    calls.filter((c) => c.method === "Runtime.evaluate").map((c) => String(c.params?.expression ?? ""));
+
+  it("every click pins one, and Send resolves with all of them in order and the page as it looked", async () => {
+    const { host, calls, emitEvent } = setup({ respond });
+    const pending = host.annotate("b1");
+    await Promise.resolve();
+    pin(emitEvent, 1); pin(emitEvent, 2); pin(emitEvent, 3);
+    report(emitEvent, { type: "send" });
+    const done = await pending;
+    expect(done.outcome).toBe("sent");
+    if (done.outcome !== "sent") return;
+    expect(done.elements.map((e) => [e.ref, e.name, e.url])).toEqual([[41, "Item 1", "https://example.com/x"], [42, "Item 2", "https://example.com/x"], [43, "Item 3", "https://example.com/x"]]);
+    expect(Buffer.from(done.png!).toString()).toBe("pins drawn");
+    // The capture is taken with the pins drawn and the toolbar out of the way, and only then is the
+    // overlay taken down — the other order would photograph a bare page.
+    const all = evals(calls);
+    const shot = calls.findIndex((c) => c.method === "Page.captureScreenshot");
+    const prepare = calls.findIndex((c) => c.method === "Runtime.evaluate" && String(c.params?.expression).includes("prepareShot"));
+    const stop = calls.findIndex((c, i) => i > shot && c.method === "Runtime.evaluate" && String(c.params?.expression).includes("__realmAnnotator.stop()"));
+    expect(prepare).toBeGreaterThan(-1);
+    expect(prepare).toBeLessThan(shot);
+    expect(stop).toBeGreaterThan(shot);
+    expect(calls.find((c) => c.method === "Page.captureScreenshot")?.params).toEqual({ format: "png" });
+    expect(all.some((e) => e.includes("addEventListener") && e.includes("__realmAnnotate"))).toBe(true);
+  });
+
+  it("a Send right behind a click still carries that click's pin", async () => {
+    /* THE mutant: answer Send without waiting for the pins in front of it. Each pin is three CDP round
+       trips to resolve, and a Send pressed straight after a click would leave that pin behind. */
+    const { host, emitEvent } = setup({ respond });
+    const pending = host.annotate("b1");
+    await Promise.resolve();
+    pin(emitEvent, 1);
+    report(emitEvent, { type: "send" });
+    const done = await pending;
+    expect(done.outcome === "sent" && done.elements.map((e) => e.ref)).toEqual([41]);
+  });
+
+  it("Clear takes every pin off, and the count starts again", async () => {
+    const { host, emitEvent } = setup({ respond });
+    const pending = host.annotate("b1");
+    await Promise.resolve();
+    pin(emitEvent, 1); pin(emitEvent, 2);
+    report(emitEvent, { type: "clear" });
+    pin(emitEvent, 1);
+    report(emitEvent, { type: "send" });
+    const done = await pending;
+    expect(done.outcome === "sent" && done.elements.map((e) => e.ref)).toEqual([41]);
+  });
+
+  it("carries no more pins than one message carries elements", async () => {
+    const { host, emitEvent } = setup({ respond });
+    const pending = host.annotate("b1");
+    await Promise.resolve();
+    for (let n = 1; n <= MAX_ELEMENT_CHIPS + 2; n++) pin(emitEvent, n);
+    report(emitEvent, { type: "send" });
+    const done = await pending;
+    expect(done.outcome === "sent" && done.elements).toHaveLength(MAX_ELEMENT_CHIPS);
+  });
+
+  it("a Send with nothing pinned sends nothing; the toolbar's close then ends it empty", async () => {
+    const { host, calls, emitEvent } = setup({ respond });
+    const pending = host.annotate("b1");
+    await Promise.resolve();
+    let settled = false;
+    void pending.then(() => { settled = true; });
+    report(emitEvent, { type: "send" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(settled).toBe(false);
+    report(emitEvent, { type: "close" });
+    expect(await pending).toEqual({ outcome: "closed" });
+    expect(calls.some((c) => c.method === "Page.captureScreenshot")).toBe(false);
+    expect(evals(calls).some((e) => e.includes("__realmAnnotator.stop()"))).toBe(true);
+  });
+
+  it("a navigation ends it and says the pins went with the page; a subframe's does not", async () => {
+    const { host, emitEvent } = setup({ respond });
+    const pending = host.annotate("b1");
+    await Promise.resolve();
+    emitEvent("Page.frameNavigated", { frame: { id: "f2", parentId: "f1", url: "https://ads.example/" } });
+    emitEvent("Page.frameNavigated", { frame: { id: "f1", url: "https://example.com/next" } });
+    expect(await pending).toEqual({ outcome: "left" });
+  });
+
+  it("closing the pane, or cancelling, ends it instead of leaving the button lit", async () => {
+    const a = setup({ respond });
+    const first = a.host.annotate("b1");
+    a.host.release("b1");
+    expect(await first).toEqual({ outcome: "closed" });
+    const b = setup({ respond });
+    const second = b.host.annotate("b1");
+    await Promise.resolve();
+    b.host.cancelAnnotate("b1");
+    expect(await second).toEqual({ outcome: "closed" });
+  });
+
+  it("one mode at a time: a pick ends annotate, and annotate ends a pick", async () => {
+    const { host } = setup({ respond });
+    const annotating = host.annotate("b1");
+    await Promise.resolve();
+    const picking = host.pickElement("b1");
+    expect(await annotating).toEqual({ outcome: "closed" });
+    const again = host.annotate("b1");
+    expect(await picking).toBeNull();
+    host.cancelAnnotate("b1");
+    expect(await again).toEqual({ outcome: "closed" });
+  });
+
+  it("takes the picker and the agent's own marks down before arming", async () => {
+    const { host, calls } = setup({ respond });
+    const pending = host.annotate("b1");
+    await new Promise((r) => setTimeout(r, 0));
+    const e = evals(calls);
+    const arm = e.findIndex((x) => x.includes("addEventListener") && x.includes("__realmAnnotate"));
+    expect(e.findIndex((x) => x.includes("__realmPicker.stop()"))).toBeLessThan(arm);
+    expect(e.findIndex((x) => x.includes("data-realm-agent-highlight"))).toBeLessThan(arm);
+    host.cancelAnnotate("b1");
+    await pending;
+  });
+
+  it("a pane that is not open answers closed rather than throwing at the toolbar", async () => {
+    const { host } = setup({ respond });
+    expect(await host.annotate("nope")).toEqual({ outcome: "closed" });
   });
 });

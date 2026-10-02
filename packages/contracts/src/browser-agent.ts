@@ -401,6 +401,17 @@ export type BrowserScreenshotSaved =
   | { ok: true; path: string; name: string; size: number }
   | { ok: false; error: string };
 
+/**
+ * How an annotate session ended, as the pane hears it (Plan 26 W7d). `sent` carries every pinned
+ * element in pin order and the screenshot of the pins, already written to the space's screenshots/
+ * folder — null when the page would not draw one, which does not stop the elements going. `left` is
+ * the page navigating, which took the pins with it.
+ */
+export type BrowserAnnotateResult =
+  | { outcome: "sent"; elements: BrowserPickedElement[]; shot: { path: string; name: string; size: number } | null }
+  | { outcome: "closed" }
+  | { outcome: "left" };
+
 /** The subfolder of the space's own folder that a pane's screenshots land in — fixed, like
  *  `DOWNLOAD_DIRNAME`, so a person always knows where to look. */
 export const SCREENSHOT_DIRNAME = "screenshots";

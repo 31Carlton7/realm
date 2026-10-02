@@ -503,7 +503,7 @@ kbd { font: 11px var(--font-mono); }
    "Realm is acting here, watch". It also has to carry more weight than the rest: on Realm's side of
    the glass this button is the ONLY thing saying the mode is armed, because the highlight the user
    follows is Chrome's own overlay, drawn inside the native view where nothing of Realm's can paint. */
-.browser-pick[aria-pressed="true"] { background: color-mix(in srgb, var(--rl-accent) 18%, transparent); color: var(--rl-accent); }
+.browser-pick[aria-pressed="true"], .browser-annotate[aria-pressed="true"] { background: color-mix(in srgb, var(--rl-accent) 18%, transparent); color: var(--rl-accent); }
 /* Hit-target extension (V-F8): the visual button stays small; the click target grows 6px each way.
    .tool-copy joins the list — its 20px box sits alone at its row's right edge, so the overhang
    never crosses another interactive element. */

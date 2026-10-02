@@ -7,7 +7,7 @@ import {
   lectureWrapUpPrompt, localDateStamp, sessionEvent,
   activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveGroup as groupsMove, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
-  AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
+  AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, annotationChipLabel, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_FAST_SUPPORT_KEY, readFastSupport, EDITOR_CURSOR_BLINK_DEFAULT, EDITOR_CURSOR_BLINK_KEY, isTerminalCursorStyle, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, type TerminalCursorStyle, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
@@ -1780,6 +1780,11 @@ export type AppState = {
    *  the chip went in under, so the browser pane can name what it just sent — or null when the draft
    *  is already carrying `MAX_ELEMENT_CHIPS`. */
   addElementChip(sessionId: string, element: BrowserPickedElement): string | null;
+  /** Plan 26 W7d: an annotation — several elements pinned on one page and Sent together — as ONE chip,
+   *  `@[3 annotations]`, whose sidecar entries share its label and carry their pin numbers. `shot` is
+   *  the screenshot of the pins, named so the agent is told which attachment shows them. Answers the
+   *  label, or null when the draft cannot carry that many more elements. */
+  addAnnotationChip(sessionId: string, elements: readonly BrowserPickedElement[], shot: string | null): string | null;
   /** Point this draft at another session. Answers why it refused, so the pane can say so. */
   addSessionRef(sessionId: string, ref: SessionRef): "ok" | "self" | "duplicate" | "full";
   removeSessionRef(sessionId: string, refId: string): void;
@@ -4752,6 +4757,19 @@ await get().refreshCustomThemes().catch(() => {});
         // there is no caret here to speak of — the composer this lands in may never have been focused.
         const lead = draft === "" || /\s$/.test(draft) ? "" : " ";
         set({ draftElements: { ...get().draftElements, [sessionId]: [...chips, { label, element }] } });
+        get().setDraft(sessionId, `${draft}${lead}${elementChipToken(label)} `);
+        return label;
+      },
+      addAnnotationChip(sessionId, elements, shot) {
+        const draft = get().drafts[sessionId] ?? "";
+        const chips = get().draftElements[sessionId] ?? [];
+        // Every pin is an element on the wire, so the cap counts them, not the one token — refused
+        // here for `addElementChip`'s reason: a draft that would bounce on send must not be built.
+        if (elements.length === 0 || chips.length + elements.length > MAX_ELEMENT_CHIPS) return null;
+        const label = annotationChipLabel(elements.length, chips.map((c) => c.label));
+        const pins = elements.map((element, i) => ({ label, element, pin: i + 1, ...(shot ? { shot } : {}) }));
+        const lead = draft === "" || /\s$/.test(draft) ? "" : " ";
+        set({ draftElements: { ...get().draftElements, [sessionId]: [...chips, ...pins] } });
         get().setDraft(sessionId, `${draft}${lead}${elementChipToken(label)} `);
         return label;
       },

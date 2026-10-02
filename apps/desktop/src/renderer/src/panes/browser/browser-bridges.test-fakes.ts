@@ -26,6 +26,8 @@ export function fakeBrowserBridges(over: {
     onState: () => () => {},
     pickElement: async () => null,
     cancelPick: async () => {},
+    annotate: async () => ({ outcome: "closed" }),
+    cancelAnnotate: async () => {},
     setAccent: () => {},
     blockedDownloads: async () => [],
     saveDownload: async () => ({ ok: false, error: "no download bridge in this test" }),

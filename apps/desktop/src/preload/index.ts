@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
-import type { BlockedDownload, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, MediaFile, Passkey, PasskeyNotice } from "@realm/contracts";
+import type { BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, MediaFile, Passkey, PasskeyNotice } from "@realm/contracts";
 import type { NativeMenuItem } from "../main/native-menu";
 import type { TccRow } from "../main/tcc";
 import type { MacAccessStatus } from "../main/mac-access";
@@ -240,6 +240,10 @@ contextBridge.exposeInMainWorld("realm", {
     pickElement: (id: string, accent?: string): Promise<BrowserPickedElement | null> =>
       ipcRenderer.invoke("browser:pick-element", id, accent),
     cancelPick: (id: string): Promise<void> => ipcRenderer.invoke("browser:cancel-pick", id),
+    /** Plan 26 W7d — the picker kept armed. Pending until the user presses Send in the page's toolbar,
+     *  or ends it; `dir` is where Send's screenshot of the pins goes (`browsers.screenshotDir`). */
+    annotate: (id: string, accent?: string, dir?: string | null): Promise<BrowserAnnotateResult> => ipcRenderer.invoke("browser:annotate", id, accent, dir),
+    cancelAnnotate: (id: string): Promise<void> => ipcRenderer.invoke("browser:cancel-annotate", id),
     /** The theme accent main paints the agent's marks — the action ring, the cursor, the
      *  controlled-screen frame — in. A page carries none of Realm's CSS, so main cannot read it and
      *  the renderer has to push it. `send`, not `invoke`, like `setBounds`: nothing waits on a

@@ -2793,6 +2793,60 @@ describe("element chips in the draft", () => {
   });
 });
 
+describe("annotation chips (Plan 26 W7d)", () => {
+  const pin = (n: number): BrowserPickedElement => ({
+    ref: 40 + n, url: "https://example.com/list", title: "List", rect: { x: 0, y: 0, w: 1, h: 1 },
+    selector: `li:nth-of-type(${n})`, tag: "li", role: "listitem", name: `Item ${n}`, text: `Item ${n}`, html: "<li></li>",
+  });
+  const ready = async () => {
+    const a = fakeApi({
+      items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Sess" })] },
+      sessions: [session("se1", "s1", { agentKind: "claude" })],
+    });
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().openSession("se1");
+    return { a, store };
+  };
+
+  it("several pins go into the draft as ONE token, and every pin rides the wire with its number", async () => {
+    const { a, store } = await ready();
+    expect(store.getState().addAnnotationChip("se1", [pin(1), pin(2)], "shot.png")).toBe("2 annotations");
+    const text = store.getState().drafts.se1!;
+    expect(text).toBe("@[2 annotations] ");
+    await store.getState().sendMessage("se1", `look ${text}`);
+    expect(a.sent[0]!.elements).toEqual([
+      { label: "2 annotations", element: pin(1), pin: 1, shot: "shot.png" },
+      { label: "2 annotations", element: pin(2), pin: 2, shot: "shot.png" },
+    ]);
+  });
+
+  it("deleting the token forgets every pin it stood for", async () => {
+    const { store } = await ready();
+    store.getState().addAnnotationChip("se1", [pin(1), pin(2), pin(3)], null);
+    store.getState().setDraft("se1", "never mind");
+    expect(store.getState().draftElements.se1).toEqual([]);
+  });
+
+  it("a second annotation is its own chip, not a second name for the first", async () => {
+    const { store } = await ready();
+    store.getState().addAnnotationChip("se1", [pin(1), pin(2)], null);
+    expect(store.getState().addAnnotationChip("se1", [pin(3), pin(4)], null)).toBe("2 annotations 2");
+    expect(store.getState().drafts.se1).toBe("@[2 annotations] @[2 annotations 2] ");
+  });
+
+  it("counts every pin against what one message carries, and refuses rather than build a draft that bounces", async () => {
+    /* THE mutant: count the token, not its pins. Two annotations of five would look fine in the
+       composer and then fail the wire's own limit on send, with the user holding a message they cannot post. */
+    const { store } = await ready();
+    store.getState().addAnnotationChip("se1", [1, 2, 3, 4, 5].map(pin), null);
+    expect(store.getState().addAnnotationChip("se1", [6, 7, 8, 9].map(pin), null)).toBeNull();
+    expect(store.getState().draftElements.se1).toHaveLength(5);
+    expect(store.getState().addAnnotationChip("se1", [6, 7, 8].map(pin), null)).toBe("3 annotations");
+    expect(store.getState().addAnnotationChip("se1", [], null)).toBeNull();
+  });
+});
+
 describe("browser watching state (Plan 11 W4)", () => {
   it("applyBrowserAction appends per browser and caps the ring at BROWSER_ACTIONS_MAX", () => {
     const store = createAppStore(fakeApi());

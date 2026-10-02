@@ -5,8 +5,8 @@
  * (filled from CDP events from the moment of first attach), the download-block notes, and the
  * previous snapshot's fingerprint index that `*[new]` markers diff against.
  */
-import { DOWNLOAD_GRANT_TTL_MS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
-import { DEFAULT_AGENT_ACCENT, PICK_BINDING, armElementPick, buildSnapshot, cancelFileChooser, describeElement, describePick, disarmElementPick, markAct, performAct, performFillCredential, performUpload, readPageText, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex } from "./browser-agent";
+import { DOWNLOAD_GRANT_TTL_MS, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
+import { ANNOTATE_BINDING, DEFAULT_AGENT_ACCENT, PICK_BINDING, armAnnotate, armElementPick, buildSnapshot, cancelFileChooser, captureAnnotated, describeElement, describePick, disarmAnnotate, disarmElementPick, markAct, performAct, performFillCredential, performUpload, readPageText, resolveAnnotatedNode, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex } from "./browser-agent";
 import type { CredentialAuditEntry } from "./secret-store";
 import { axElementAt, readAxSnapshot } from "./device-ax";
 
@@ -44,6 +44,25 @@ function parseSurface(v: unknown): PickPoint["surface"] {
   const box = { x: s.x as number, y: s.y as number, w: s.w as number, h: s.h as number };
   return box.w > 0 && box.h > 0 ? box : null;
 }
+
+/**
+ * How an annotate session ended (Plan 26 W7d). `sent` carries every pin, in the order they were made,
+ * and the page as it looked with the pins drawn; `left` is the page navigating out from under them,
+ * which takes the pins with it and is worth saying, unlike a close the user chose.
+ */
+export type AnnotateOutcome =
+  | { outcome: "sent"; elements: BrowserPickedElement[]; png: Uint8Array | null }
+  | { outcome: "closed" }
+  | { outcome: "left" };
+
+/** One annotate session on one view. `queue` orders the page's reports: each pin is resolved before
+ *  the next report is read, so a Send that arrives right behind a click still includes that pin. */
+type AnnotateSession = {
+  browserId: string;
+  pins: { n: number; element: BrowserPickedElement }[];
+  queue: Promise<void>;
+  finish: (o: AnnotateOutcome) => void;
+};
 
 /** Device strings are the device's own and travel into a prompt like every other picked field. */
 const clipField = (v: string, max = PICK_NAME_MAX): string => (v.length > max ? v.slice(0, max) : v);
@@ -161,6 +180,10 @@ type Attached = {
   pickPoint: PickPoint | null;
   /** Bumped by every `pickElement`, so a superseded call can tell it no longer owns inspect mode. */
   pickGen: number;
+  /** The annotate session armed on this view, if any — see `annotate`. */
+  annotate: AnnotateSession | null;
+  /** Bumped by every `annotate`, for `pickGen`'s reason. */
+  annotateGen: number;
   /** File-chooser interception state for this view — see `FileChooserState`. */
   chooser: FileChooserState;
 };
@@ -233,6 +256,7 @@ export class BrowserAgentHost {
     // lit for a view that no longer exists.
     const entry = this.attached.get(browserId);
     entry?.pick?.(null);
+    if (entry?.annotate) this.finishAnnotate(entry, { outcome: "closed" });
     // A chooser waiter on a dead view resolves empty rather than hanging out its timeout, and the
     // disarm timer is cleared — it would otherwise fire against a binding whose view is gone.
     if (entry) {
@@ -264,6 +288,8 @@ export class BrowserAgentHost {
     const entry = this.ensure(browserId);
     const gen = ++entry.pickGen;
     entry.pick?.(null);
+    // One mode at a time: a pick over a page with pins on it would be two overlays answering one click.
+    if (entry.annotate) { this.finishAnnotate(entry, { outcome: "closed" }); await disarmAnnotate(entry.binding.send); }
     const ref = await new Promise<number | null>((resolve) => {
       entry.pick = resolve;
       void armElementPick(entry.binding.send, accent ?? this.accent).catch(() => this.settlePick(entry, null));
@@ -273,6 +299,12 @@ export class BrowserAgentHost {
     if (entry.pickGen !== gen) return null;
     await disarmElementPick(entry.binding.send);
     if (ref === null) return null;
+    return this.pickedElement(entry, browserId, ref, entry.pickPoint);
+  }
+
+  /** A resolved ref → the element a prompt carries. Shared by a pick and by every annotate pin, so the
+   *  two are described, clipped and upgraded to a device element in exactly one way. */
+  private async pickedElement(entry: Attached, browserId: string, ref: number, point: PickPoint | null): Promise<BrowserPickedElement | null> {
     const state = this.d.pageState(browserId);
     const picked = await describePick(entry.binding.send, ref).catch(() => null);
     if (!picked) return null;
@@ -283,7 +315,77 @@ export class BrowserAgentHost {
     // difference between "a page made its title enormous" and "this did not come from the picker".
     const url = (state?.url ?? "").slice(0, PICK_URL_MAX);
     const base: BrowserPickedElement = { ...picked, url, title: (state?.title ?? "").slice(0, PICK_TITLE_MAX) };
-    return (await this.asDeviceElement(base, url, entry.pickPoint)) ?? base;
+    return (await this.asDeviceElement(base, url, point)) ?? base;
+  }
+
+  /**
+   * Annotate (Plan 26 W7d): the picker kept armed. Resolves when the user presses Send in the page's
+   * toolbar — with every pin and a capture of the page showing them — or when the session ends without
+   * a send: the toolbar's close or Escape, the pane closing, a pick taking the view, the page navigating.
+   *
+   * Off the agent bridge for `pickElement`'s reason: this is a person pointing at their own screen, and
+   * it reaches main over the pane's own IPC. At most `MAX_ELEMENT_CHIPS` pins, because a message carries
+   * no more elements than that however many tokens stand for them; the page says so at the limit.
+   */
+  async annotate(browserId: string, accent?: string): Promise<AnnotateOutcome> {
+    if (!this.d.hasView(browserId)) return { outcome: "closed" };
+    const entry = this.ensure(browserId);
+    const gen = ++entry.annotateGen;
+    if (entry.pick) this.cancelPick(browserId);
+    if (entry.annotate) this.finishAnnotate(entry, { outcome: "closed" });
+    const outcome = await new Promise<AnnotateOutcome>((resolve) => {
+      entry.annotate = { browserId, pins: [], queue: Promise.resolve(), finish: resolve };
+      void armAnnotate(entry.binding.send, accent ?? this.accent, MAX_ELEMENT_CHIPS).catch(() => this.finishAnnotate(entry, { outcome: "closed" }));
+    });
+    // A later `annotate` owns the page now, and taking the overlay down would take ITS down. (A pick
+    // that took the page has already taken this one's down itself.)
+    if (entry.annotateGen === gen) await disarmAnnotate(entry.binding.send);
+    return outcome;
+  }
+
+  /** Take annotate mode down without sending. The armed promise resolves `closed`. */
+  cancelAnnotate(browserId: string): void {
+    const entry = this.attached.get(browserId);
+    if (!entry?.annotate) return;
+    this.finishAnnotate(entry, { outcome: "closed" });
+    void disarmAnnotate(entry.binding.send);
+  }
+
+  private finishAnnotate(entry: Attached, outcome: AnnotateOutcome): void {
+    const session = entry.annotate;
+    entry.annotate = null;
+    session?.finish(outcome);
+  }
+
+  /** A report from the page's annotator. Read in order, through the session's queue. */
+  private onAnnotate(entry: Attached, payload: string): void {
+    const session = entry.annotate;
+    if (!session) return;
+    let msg: { type?: unknown; n?: unknown; x?: unknown; y?: unknown; surface?: unknown };
+    try { msg = JSON.parse(payload) as typeof msg; } catch { return; }
+    const live = () => entry.annotate === session;
+    if (msg.type === "pin" && typeof msg.n === "number") {
+      const n = msg.n;
+      const point = parsePickPoint(JSON.stringify({ x: msg.x, y: msg.y, surface: msg.surface }));
+      session.queue = session.queue.then(async () => {
+        if (!live() || session.pins.length >= MAX_ELEMENT_CHIPS) return;
+        const ref = await resolveAnnotatedNode(entry.binding.send, n);
+        const element = ref === null ? null : await this.pickedElement(entry, session.browserId, ref, point);
+        if (element && live()) session.pins.push({ n, element });
+      });
+    } else if (msg.type === "clear") {
+      session.queue = session.queue.then(() => { if (live()) session.pins = []; });
+    } else if (msg.type === "send") {
+      session.queue = session.queue.then(async () => {
+        if (!live() || session.pins.length === 0) return;
+        const png = await captureAnnotated(entry.binding.send);
+        if (!live()) return;
+        const elements = [...session.pins].sort((a, b) => a.n - b.n).map((p) => p.element);
+        this.finishAnnotate(entry, { outcome: "sent", elements, png });
+      });
+    } else if (msg.type === "close") {
+      this.finishAnnotate(entry, { outcome: "closed" });
+    }
   }
 
   /**
@@ -680,7 +782,7 @@ export class BrowserAgentHost {
     if (cached) return cached;
     const binding = this.d.attach(browserId);
     if (!binding) throw new Error(`could not attach the debugger to browser ${browserId}`);
-    const entry: Attached = { binding, consoleLines: [], network: new Map(), networkOrder: [], open: new Map(), networkAt: this.now(), lastSnapshot: null, pick: null, pickPoint: null, pickGen: 0, chooser: newChooserState() };
+    const entry: Attached = { binding, consoleLines: [], network: new Map(), networkOrder: [], open: new Map(), networkAt: this.now(), lastSnapshot: null, pick: null, pickPoint: null, pickGen: 0, annotate: null, annotateGen: 0, chooser: newChooserState() };
     binding.onEvent((method, rawParams) => this.onCdpEvent(entry, method, rawParams));
     this.attached.set(browserId, entry);
     // Enable the event domains the buffers feed on. Fire-and-forget: an enable that fails costs a
@@ -743,6 +845,8 @@ export class BrowserAgentHost {
         entry.pickPoint = parsePickPoint(String(p.payload ?? ""));
         void resolvePickedNode(entry.binding.send).then((ref) => this.settlePick(entry, ref));
       }
+    } else if (method === "Runtime.bindingCalled" && p.name === ANNOTATE_BINDING) {
+      this.onAnnotate(entry, String(p.payload ?? ""));
     } else if (method === "Page.fileChooserOpened") {
       /* The page tried to open a file picker and interception caught it — NOTHING is on screen. The
          node travels with the event only because interception is on; without it Chromium would have
@@ -761,6 +865,8 @@ export class BrowserAgentHost {
       // Settling it empty is what keeps the toolbar button from staying lit over a page it can no
       // longer pick from; the user presses it again on the new page.
       this.settlePick(entry, null);
+      // The same for annotate, except that it says so: the pins went with the page they were on.
+      if (entry.annotate) this.finishAnnotate(entry, { outcome: "left" });
       // The same navigation took any pending file chooser's node with it. Forgotten rather than
       // cancelled: there is nothing left to tell, and holding a dead backendNodeId is what would
       // keep interception armed forever on a page that never asked for it.

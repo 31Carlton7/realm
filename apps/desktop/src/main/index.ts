@@ -1,5 +1,5 @@
 import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, shell, systemPreferences, Tray, type MenuItemConstructorOptions } from "electron";
-import { BrowserCredentialInputSchema, newId, type BrowserAction, type BrowserCredential, type BrowserMenuState, type BrowserScreenshotSaved, type MediaFile, type Passkey } from "@realm/contracts";
+import { BrowserCredentialInputSchema, newId, type BrowserAction, type BrowserAnnotateResult, type BrowserCredential, type BrowserMenuState, type BrowserScreenshotSaved, type MediaFile, type Passkey } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { spawn, execFileSync } from "node:child_process";
@@ -506,6 +506,30 @@ ipcMain.handle("browser:clear-data", (e) => {
  */
 ipcMain.handle("browser:pick-element", (_e, id: string, accent?: string) => agentHost?.pickElement(String(id), typeof accent === "string" ? accent : undefined) ?? null);
 ipcMain.handle("browser:cancel-pick", (_e, id: string) => { agentHost?.cancelPick(String(id)); });
+
+/**
+ * Annotate (Plan 26 W7d): the picker kept armed, pending until the user presses Send in the page's
+ * own toolbar or ends the session. A send's capture — the page with its pins drawn — is written into
+ * the space's screenshots/ folder here, beside the menu's own screenshots, so the pane is handed a
+ * file it can attach rather than bytes. `dir` is the server's `browsers.screenshotDir`, passed on.
+ */
+ipcMain.handle("browser:annotate", async (_e, id: string, accent: unknown, dir: unknown): Promise<BrowserAnnotateResult> => {
+  const host = agentHost;
+  if (!host) return { outcome: "closed" };
+  const browserId = String(id);
+  const pageUrl = browserPane?.pageState(browserId)?.url ?? "";
+  const r = await host.annotate(browserId, typeof accent === "string" ? accent : undefined);
+  if (r.outcome !== "sent") return r;
+  const png = r.png;
+  const shot = png && typeof dir === "string"
+    ? await saveBrowserScreenshot({
+      capture: async () => png, pageUrl, dir, now: () => new Date(), nameSuffix: "-annotations",
+      mkdirp: (d) => { mkdirSync(d, { recursive: true }); }, exists: (p) => existsSync(p), writeFile: (p, bytes) => writeFile(p, bytes),
+    })
+    : null;
+  return { outcome: "sent", elements: r.elements, shot: shot?.ok ? { path: shot.path, name: shot.name, size: shot.size } : null };
+});
+ipcMain.handle("browser:cancel-annotate", (_e, id: string) => { agentHost?.cancelAnnotate(String(id)); });
 
 /** The renderer's theme accent, for the marks main draws INSIDE a driven page (Plan 25 W1). Not per
  *  browser id: it is one value per window, and this process has one agent host per window. */

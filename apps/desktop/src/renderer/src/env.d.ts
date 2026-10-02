@@ -151,6 +151,9 @@ interface Window {
       /** Arms the element picker. See `BrowserHostBridge` for the promise's lifetime. */
       pickElement(id: string): Promise<import("@realm/contracts").BrowserPickedElement | null>;
       cancelPick(id: string): Promise<void>;
+      /** Plan 26 W7d: annotate — pending until Send in the page's toolbar, or the session ends. */
+      annotate(id: string, accent?: string, dir?: string | null): Promise<import("@realm/contracts").BrowserAnnotateResult>;
+      cancelAnnotate(id: string): Promise<void>;
       setAccent(accent: string): void;
       /** Plan 23 W4: downloads the pane blocked, and the user's own consent to fetch one. */
       blockedDownloads(id: string): Promise<import("@realm/contracts").BlockedDownload[]>;

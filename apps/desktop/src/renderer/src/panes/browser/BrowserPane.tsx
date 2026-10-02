@@ -1,4 +1,4 @@
-import type { BlockedDownload, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, PasskeyNotice } from "@realm/contracts";
+import type { BlockedDownload, BrowserAnnotateResult, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, PasskeyNotice } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
@@ -191,6 +191,52 @@ function useElementPicker(browserId: string, store: StoreApi<AppState> | null, s
 }
 
 /**
+ * Annotate (Plan 26 W7d): the picker kept armed. While it is on, every click in the page pins a
+ * numbered outline that stays, and the page's own toolbar — drawn inside the view, because nothing of
+ * Realm's can be drawn over it — counts them and offers Send. This side owns the button's lit state
+ * and where a Send goes: ONE chip in the same session a pick would go to (`sessionForPick`), carrying
+ * every pinned element, with the screenshot of the pins attached beside it.
+ */
+function useAnnotate(browserId: string, spaceId: string, store: StoreApi<AppState> | null, say: (text: string | null, icon?: IconName) => void) {
+  const [armed, setArmed] = useState(false);
+  const armedRef = useRef(false);
+  armedRef.current = armed;
+  // A pane closed mid-annotation takes the page's toolbar and pins down with it.
+  useEffect(() => () => { if (armedRef.current) void getBrowserBridges().host.cancelAnnotate(browserId).catch(() => {}); }, [browserId]);
+
+  const toggle = async () => {
+    const { host, server } = getBrowserBridges();
+    if (armed) {
+      setArmed(false);
+      await host.cancelAnnotate(browserId).catch(() => {});
+      return;
+    }
+    setArmed(true);
+    say(null);
+    let result: BrowserAnnotateResult = { outcome: "closed" };
+    try {
+      const accent = getComputedStyle(document.documentElement).getPropertyValue("--rl-accent").trim();
+      const dir = await server.screenshotDir(spaceId).catch(() => null);
+      result = await host.annotate(browserId, accent || undefined, dir);
+    } catch {
+      say("Realm could not take control of this page — is DevTools open on it?");
+    } finally {
+      setArmed(false);
+    }
+    if (result.outcome === "left") { say("The page changed, so its pins were cleared.", "pin"); return; }
+    if (result.outcome !== "sent") return; // closed by the user — nothing to say
+    const st = store?.getState();
+    const target = st ? sessionForPick(st.items, st.layout, st.focusedLeafId) : null;
+    if (!st || !target) { say("Nothing to send these to — open a session pane in this group first.", "pin"); return; }
+    const label = st.addAnnotationChip(target.refId, result.elements, result.shot?.name ?? null);
+    if (label === null) { say(`${target.title} is already carrying as many picked elements as one message can.`, "pin"); return; }
+    if (result.shot) st.attachPicked(target.refId, [{ path: result.shot.path, mime: "image/png", name: result.shot.name, size: result.shot.size }]);
+    say(`Added ${label} to ${target.title}.`, "pin");
+  };
+  return { armed, toggle };
+}
+
+/**
  * The pane's receipt — for a pick, a screenshot, a cleared partition.
  *
  * It goes away on its own. It was a banner across the chrome with a manual dismiss, and it stayed
@@ -362,6 +408,7 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
   const passkey = usePasskeyNotice(browserId);
   const toast = useToast();
   const picker = useElementPicker(browserId, store, toast.say);
+  const annotate = useAnnotate(browserId, item.spaceId, store, toast.say);
   const find = useFindInPage(browserId, url);
   const suggest = useSuggestions(item.spaceId, draft, addressFocused);
   const suggestId = `browser-suggest-${browserId}`;
@@ -659,6 +706,13 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
           title="Pick an element to send to the prompter"
           disabled={!hasUrl} onClick={() => { void picker.toggle(); }}>
           <Icon name="target" size={14} />
+        </button>
+        {/* The picker kept armed: pins stay on the page until Send, and the page's own toolbar is
+            where they are counted and sent — this button only says the mode is on, and ends it. */}
+        <button className="icon-btn browser-annotate" aria-label="Annotate" aria-pressed={annotate.armed}
+          title="Annotate: pin elements on the page, then send them together"
+          disabled={!hasUrl} onClick={() => { void annotate.toggle(); }}>
+          <Icon name="pin" size={14} />
         </button>
         <form className="browser-address" data-loading={state?.loading || undefined}
           onSubmit={(e) => { e.preventDefault(); void submit(); }}>

@@ -1,4 +1,4 @@
-import type { BlockedDownload, PasskeyNotice, Browser, BrowserDownloadResult, BrowserFindResult, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved } from "@realm/contracts";
+import type { BlockedDownload, PasskeyNotice, Browser, BrowserAnnotateResult, BrowserDownloadResult, BrowserFindResult, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved } from "@realm/contracts";
 import { rpc } from "../../rpc/client";
 
 /** The per-space origin allowlist's settings key — stored like MCP enablement (`mcp.enabled:<spaceId>`),
@@ -66,6 +66,10 @@ export type BrowserHostBridge = {
   /** `accent` is the theme colour the page-side overlay is drawn in. */
   pickElement(id: string, accent?: string): Promise<BrowserPickedElement | null>;
   cancelPick(id: string): Promise<void>;
+  /** Plan 26 W7d — the picker kept armed: pending until the user presses Send in the page's own
+   *  toolbar (every pin, and a screenshot of them saved into `dir`) or ends the session. */
+  annotate(id: string, accent?: string, dir?: string | null): Promise<BrowserAnnotateResult>;
+  cancelAnnotate(id: string): Promise<void>;
   /** The theme accent main paints the agent's in-page marks in. Fire-and-forget; pushed on every
    *  theme apply, because the page it is drawn into carries none of Realm's CSS. */
   setAccent(accent: string): void;

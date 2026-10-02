@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, createEvent, fireEvent, render, screen } from "@testing-library/react";
-import type { BlockedDownload, Browser, BrowserDownloadResult, BrowserFindResult, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, PasskeyNotice } from "@realm/contracts";
-import { BrowserPane, SUGGEST_DEBOUNCE_MS } from "./BrowserPane";
+import type { BlockedDownload, Browser, BrowserAnnotateResult, BrowserDownloadResult, BrowserFindResult, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, PasskeyNotice } from "@realm/contracts";
+import { BrowserPane, PICK_NOTE_MS, SUGGEST_DEBOUNCE_MS } from "./BrowserPane";
 import { setBrowserBridgesForTests, type BrowserBridges, type BrowserHostBridge, type BrowserServerBridge } from "./browser-client";
 import { SETTLE_MS, shouldShowView, isRealmItemDrag } from "./view-sync";
 import { StoreContext, createAppStore } from "../../state/store";
@@ -36,6 +36,8 @@ function fakeBridges(row: Partial<Browser> = {}) {
   let saveResult: BrowserDownloadResult = { ok: true, name: "week-3.pdf", bytes: 2048, relPath: "downloads/week-3.pdf" };
   /** The armed pick's resolver — the real bridge stays pending until the user clicks in the view. */
   let pickResolve: ((el: BrowserPickedElement | null) => void) | null = null;
+  /** The armed annotation's resolver — pending until the user presses Send in the page's toolbar. */
+  let annotateResolve: ((r: BrowserAnnotateResult) => void) | null = null;
   const host: BrowserHostBridge = {
     create: async (id, url, list) => { calls.push(`create:${id}:${url}:${JSON.stringify(list)}`); },
     destroy: async (id) => { calls.push(`destroy:${id}`); },
@@ -49,6 +51,8 @@ function fakeBridges(row: Partial<Browser> = {}) {
     onState: (cb) => { cbs.add(cb); return () => cbs.delete(cb); },
     pickElement: (id) => { calls.push(`pick:${id}`); return new Promise((resolve) => { pickResolve = resolve; }); },
     cancelPick: async (id) => { calls.push(`cancel-pick:${id}`); pickResolve?.(null); pickResolve = null; },
+    annotate: (id, accent, dir) => { calls.push(`annotate:${id}:${dir}`); return new Promise((resolve) => { annotateResolve = resolve; }); },
+    cancelAnnotate: async (id) => { calls.push(`cancel-annotate:${id}`); annotateResolve?.({ outcome: "closed" }); annotateResolve = null; },
     setAccent: (accent) => { calls.push(`set-accent:${accent}`); },
     blockedDownloads: async () => [],
     saveDownload: async (id, blockedId, dir) => { calls.push(`save:${id}:${blockedId}:${dir}`); return saveResult; },
@@ -89,6 +93,7 @@ function fakeBridges(row: Partial<Browser> = {}) {
     setDownloadDir: (d: string | null) => { downloadDir = d; },
     setSaveResult: (r: BrowserDownloadResult) => { saveResult = r; },
     settlePick: (el: BrowserPickedElement | null) => { pickResolve?.(el); pickResolve = null; },
+    settleAnnotate: (r: BrowserAnnotateResult) => { annotateResolve?.(r); annotateResolve = null; },
     menus,
     setMenuState: (m: Partial<BrowserMenuState>) => { menuState = { ...menuState, ...m }; },
     /** The row the next ⋯ menu answers with — what the user clicks in the OS's menu. */
@@ -1086,5 +1091,113 @@ describe("BrowserPane — address suggestions (Plan 26 W7c)", () => {
     await act(async () => { f.heldSuggest[0]!.release(); await vi.advanceTimersByTimeAsync(0); });
     expect(options().some((o) => o?.includes("dogs.example"))).toBe(false);
     expect(options()).toHaveLength(3);
+  });
+});
+
+/**
+ * Plan 26 W7d — annotate, the pane's half. The pins and the toolbar are drawn in the page (main's
+ * injected annotator, tested against a real DOM in annotator.test.ts); what the pane owns is the
+ * button's lit state and where a Send lands: ONE chip, every pinned element under it, and the
+ * screenshot of the pins attached beside it.
+ */
+describe("BrowserPane — annotate (Plan 26 W7d)", () => {
+  paneTestEnv();
+  afterEach(() => { cleanup(); });
+
+  const el = (n: number): BrowserPickedElement => ({
+    ref: 40 + n, url: "https://example.com/list", title: "List", rect: { x: 0, y: 0, w: 10, h: 10 },
+    selector: `li:nth-of-type(${n})`, tag: "li", role: "listitem", name: `Item ${n}`, text: `Item ${n}`, html: "<li></li>",
+  });
+  const SHOT = { path: "/tmp/space/screenshots/example.com-2026-10-01T19-30-05-annotations.png", name: "example.com-2026-10-01T19-30-05-annotations.png", size: 4096 };
+  const sessionItem = item("i2", "s1", { kind: "session", refId: "se1", title: "Session" });
+  const mount = async (over: { withSession?: boolean } = {}) => {
+    const f = fakeBridges({ url: "https://example.com/list" });
+    setBrowserBridgesForTests(f.bridges);
+    const store = createAppStore(fakeApi());
+    const items = over.withSession === false ? [browserItem()] : [browserItem(), sessionItem];
+    store.setState({ items, layout: gridPreset("two-col", items.map((i) => i.id)), focusedLeafId: null });
+    const view = render(<StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible /></StoreContext.Provider>);
+    await settle();
+    return { f, store, ...view };
+  };
+  const press = async () => { await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Annotate" })); await vi.advanceTimersByTimeAsync(0); }); };
+
+  it("is a mode the button wears while it is on, armed with where its screenshot goes", async () => {
+    const { f } = await mount();
+    await press();
+    expect(screen.getByRole("button", { name: "Annotate" })).toHaveAttribute("aria-pressed", "true");
+    expect(f.calls).toContain("annotate:b1:/tmp/space/screenshots");
+    await press();
+    expect(f.calls).toContain("cancel-annotate:b1");
+    expect(screen.getByRole("button", { name: "Annotate" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("Send lands as ONE chip carrying every pin, in order, with the screenshot of the pins attached", async () => {
+    /* THE mutant: one chip per pin. Three pins would be three chips in the prompter, and the thing the
+       user did — mark three places on one page as one remark — would be lost in the draft. */
+    const { f, store } = await mount();
+    await press();
+    await act(async () => { f.settleAnnotate({ outcome: "sent", elements: [el(1), el(2), el(3)], shot: SHOT }); await vi.advanceTimersByTimeAsync(0); });
+    const st = store.getState();
+    expect(st.drafts.se1).toBe("@[3 annotations] ");
+    expect(st.draftElements.se1!.map((c) => [c.label, c.pin, c.element.ref, c.shot])).toEqual([
+      ["3 annotations", 1, 41, SHOT.name], ["3 annotations", 2, 42, SHOT.name], ["3 annotations", 3, 43, SHOT.name],
+    ]);
+    expect(st.pendingAttachments.se1).toEqual([{ path: SHOT.path, mime: "image/png", name: SHOT.name, size: 4096 }]);
+    expect(screen.getByRole("status")).toHaveTextContent("Added 3 annotations to Session.");
+    expect(screen.getByRole("button", { name: "Annotate" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("a Send whose page would not draw still lands its pins, naming no screenshot", async () => {
+    const { f, store } = await mount();
+    await press();
+    await act(async () => { f.settleAnnotate({ outcome: "sent", elements: [el(1)], shot: null }); await vi.advanceTimersByTimeAsync(0); });
+    expect(store.getState().drafts.se1).toBe("@[1 annotation] ");
+    expect(store.getState().draftElements.se1![0]).not.toHaveProperty("shot");
+    expect(store.getState().pendingAttachments.se1 ?? []).toEqual([]);
+  });
+
+  it("a page that navigates says its pins went with it; a close the user chose says nothing", async () => {
+    const { f } = await mount();
+    await press();
+    await act(async () => { f.settleAnnotate({ outcome: "left" }); await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByRole("status")).toHaveTextContent("The page changed, so its pins were cleared.");
+    await act(async () => { await vi.advanceTimersByTimeAsync(PICK_NOTE_MS + 10); });
+    await press();
+    await act(async () => { f.settleAnnotate({ outcome: "closed" }); await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("a Send with nowhere to go says so rather than dropping the pins", async () => {
+    const { f, store } = await mount({ withSession: false });
+    await press();
+    await act(async () => { f.settleAnnotate({ outcome: "sent", elements: [el(1)], shot: SHOT }); await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByRole("status")).toHaveTextContent("open a session pane in this group first");
+    expect(store.getState().drafts).toEqual({});
+  });
+
+  it("a draft that cannot carry that many more elements refuses the whole annotation, and says so", async () => {
+    const { f, store } = await mount();
+    for (let i = 0; i < 7; i++) store.getState().addElementChip("se1", { ...el(10 + i), name: `Pick ${i}` });
+    await press();
+    await act(async () => { f.settleAnnotate({ outcome: "sent", elements: [el(1), el(2)], shot: SHOT }); await vi.advanceTimersByTimeAsync(0); });
+    expect(store.getState().draftElements.se1).toHaveLength(7);
+    expect(store.getState().pendingAttachments.se1 ?? []).toEqual([]);
+    expect(screen.getByRole("status")).toHaveTextContent("already carrying as many picked elements as one message can");
+  });
+
+  it("closing the pane takes the page's pins and toolbar down with it", async () => {
+    const { f, unmount } = await mount();
+    await press();
+    await act(async () => { unmount(); });
+    expect(f.calls).toContain("cancel-annotate:b1");
+  });
+
+  it("has no page, has nothing to annotate", async () => {
+    const f = fakeBridges();
+    setBrowserBridgesForTests(f.bridges);
+    render(<BrowserPane item={browserItem()} visible />);
+    await settle();
+    expect(screen.getByRole("button", { name: "Annotate" })).toBeDisabled();
   });
 });

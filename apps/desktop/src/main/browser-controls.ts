@@ -18,14 +18,14 @@ import { safeAttachmentName } from "./attachments";
  * never the page's title — and goes through the same sanitizer as a pasted file, so nothing a page
  * controls can put a slash in it.
  */
-export function screenshotFileName(pageUrl: string, now: Date): string {
+export function screenshotFileName(pageUrl: string, now: Date, suffix = ""): string {
   let host = "page";
   try {
     const u = new URL(pageUrl);
     if (u.host) host = u.host;
   } catch { /* about:blank, or nothing at all */ }
   const stamp = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  return safeAttachmentName(`${host.replace(/:/g, "-")}-${stamp}.png`, "page.png");
+  return safeAttachmentName(`${host.replace(/:/g, "-")}-${stamp}${suffix}.png`, "page.png");
 }
 
 export type ScreenshotDeps = {
@@ -34,6 +34,8 @@ export type ScreenshotDeps = {
   /** Absolute. Resolved by the server (`browsers.screenshotDir`), never composed by the renderer. */
   dir: string;
   now(): Date;
+  /** Said in the name after the time — `-annotations` for a capture with an annotation's pins on it. */
+  nameSuffix?: string;
   mkdirp(dir: string): void;
   exists(path: string): boolean;
   writeFile(path: string, bytes: Uint8Array): Promise<void>;
@@ -52,7 +54,7 @@ export async function saveBrowserScreenshot(d: ScreenshotDeps): Promise<BrowserS
   const png = await d.capture().catch(() => null);
   if (!png || png.length === 0) return { ok: false, error: "The page had nothing on screen to capture." };
   d.mkdirp(d.dir);
-  const path = uniquePath(d.dir, screenshotFileName(d.pageUrl, d.now()), d.exists);
+  const path = uniquePath(d.dir, screenshotFileName(d.pageUrl, d.now(), d.nameSuffix), d.exists);
   await d.writeFile(path, png);
   return { ok: true, path, name: basename(path), size: png.length };
 }
