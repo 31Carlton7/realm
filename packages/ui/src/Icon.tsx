@@ -3,7 +3,7 @@ import {
   Add01Icon, Cancel01Icon, Folder01Icon, Briefcase01Icon, MortarboardIcon, Home01Icon, UserIcon,
   ComputerTerminal01Icon, GlobeIcon, SmartPhone01Icon, File01Icon, BrainIcon, LayoutGridIcon,
   Settings01Icon, MoreHorizontalIcon, ChatIcon, Search01Icon, PinIcon, PinOffIcon, ArrowLeft01Icon, ArrowRight01Icon,
-  Tick01Icon, Delete02Icon, PencilEdit02Icon, Sun03Icon, Moon02Icon, RefreshIcon,
+  Tick01Icon, PencilEdit02Icon, Sun03Icon, Moon02Icon, RefreshIcon,
   SentIcon, StopIcon, SparklesIcon, ArrowDown01Icon, ArrowDown02Icon, ArrowUp02Icon, CheckmarkCircle02Icon, CancelCircleIcon,
   Alert02Icon, BotIcon, Wrench01Icon, CodeIcon, IdeaIcon, Copy01Icon, Attachment01Icon, Image01Icon,
   Task01Icon, GitBranchIcon, GitCompareIcon, GitCommitIcon, GitPullRequestIcon, LaptopIcon, PlugSocketIcon, QuoteUpIcon,
@@ -41,7 +41,7 @@ export const icons = {
   artifact: File01Icon, documents: File01Icon, context: BrainIcon, layout: LayoutGridIcon, settings: Settings01Icon, more: MoreHorizontalIcon,
   sidebar: SidebarLeft01Icon,
   session: ChatIcon, search: Search01Icon, pin: PinIcon, unpin: PinOffIcon, chevronLeft: ArrowLeft01Icon, chevronRight: ArrowRight01Icon,
-  check: Tick01Icon, trash: Delete02Icon, edit: PencilEdit02Icon, sun: Sun03Icon, moon: Moon02Icon,
+  check: Tick01Icon, trash: Cancel01Icon, edit: PencilEdit02Icon, sun: Sun03Icon, moon: Moon02Icon,
   send: SentIcon, stop: StopIcon, sparkles: SparklesIcon, chevronDown: ArrowDown01Icon, arrowDown: ArrowDown02Icon, arrowUp: ArrowUp02Icon,
   checkCircle: CheckmarkCircle02Icon, errorCircle: CancelCircleIcon, alert: Alert02Icon, bot: BotIcon, tool: Wrench01Icon, code: CodeIcon, idea: IdeaIcon,
   /* Hermes Agent's glyph (AGENT_META), and the one agent here whose mark is NOT vendored into

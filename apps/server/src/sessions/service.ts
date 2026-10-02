@@ -73,6 +73,9 @@ export function resolveDefaultPermissionMode(kind: AgentKind, raw: unknown): str
 /** `skillsInjected` remembers whether THIS handle was started with Realm's library — the fact mention
  *  resolution gates on, because a `/realm:<name>` prepend into a session that never loaded the plugin
  *  is a command that does not exist there. */
+/** How long a steer waits for the interrupted turn to settle before sending anyway. */
+const INTERRUPT_SETTLE_TIMEOUT_MS = 10_000;
+
 type Live = { handle: AgentHandle; pump: Promise<void>; skillsInjected: boolean };
 
 /**
@@ -102,6 +105,8 @@ export class SessionService {
    * durable anywhere: `drafts` is renderer memory.
    */
   private queued = new Map<string, { prompt: QueuedPrompt; msg: SendMessage }[]>();
+  /** Called on the next settle of each session — see `interruptAndSettle`. */
+  private settleWaiters = new Map<string, Set<() => void>>();
   /**
    * The truncating resume the CURRENT handle was booted with, per session — the in-memory half of a
    * restore's armed fork.
@@ -296,8 +301,39 @@ export class SessionService {
    * the agent's first write would record a tree that never existed").
    */
   private async steer(id: string, msg: SendMessage): Promise<void> {
-    if (steerInterrupts(this.get(id).agentKind)) await this.live.get(id)?.handle.interrupt();
+    const handle = this.live.get(id)?.handle;
+    if (handle && steerInterrupts(this.get(id).agentKind)) await this.interruptAndSettle(id, handle);
     await this.deliver(id, msg, { checkpoint: false });
+  }
+
+  /**
+   * Stop the running turn and wait for it to SETTLE, not just for the interrupt to be acknowledged.
+   *
+   * The two are not the same moment on Claude: `q.interrupt()` resolves on the control response,
+   * and the cancelled turn's `result` — and with it the `idle` — arrives after. A message pushed in
+   * between reaches the CLI while the old turn is still unwinding and is lost with it, and the late
+   * `idle` then leaves the session sitting still with the user's message unanswered. Waiting for the
+   * settle makes the new message the next turn rather than the tail of the old one.
+   *
+   * Bounded, so an adapter that never reports the settle costs a pause rather than the message.
+   */
+  private async interruptAndSettle(id: string, handle: AgentHandle): Promise<void> {
+    const status = this.d.sessions.get(id)?.status;
+    if (status !== "running" && status !== "waiting_permission") { await handle.interrupt(); return; }
+    let done!: () => void;
+    const settled = new Promise<void>((resolve) => { done = resolve; });
+    const waiters = this.settleWaiters.get(id) ?? new Set();
+    waiters.add(done);
+    this.settleWaiters.set(id, waiters);
+    const timer = setTimeout(done, INTERRUPT_SETTLE_TIMEOUT_MS);
+    try {
+      await handle.interrupt();
+      await settled;
+    } finally {
+      clearTimeout(timer);
+      waiters.delete(done);
+      if (waiters.size === 0 && this.settleWaiters.get(id) === waiters) this.settleWaiters.delete(id);
+    }
   }
 
   /**
@@ -488,7 +524,7 @@ export class SessionService {
     await this.ensurePorts(id);
     const handle = this.ensureLive(id);
     const interrupted = wasLive && opts.interruptFirst;
-    if (interrupted) await handle.interrupt();
+    if (interrupted) await this.interruptAndSettle(id, handle);
     this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: [], from: msg.from }));
     await handle.send({ text: msg.text, attachments: [] });
     return { interrupted };
@@ -1252,6 +1288,9 @@ export class SessionService {
            reason above — this runs inside the adapter pump, and a continuation's own first events
            must not be waited for from inside it. */
         void this.d.goals?.onSettled(id, { interrupted: ev.payload.interrupted === true }).catch(() => {});
+      }
+      if (ev.payload.status === "idle" || ev.payload.status === "ended" || ev.payload.status === "error") {
+        for (const settle of this.settleWaiters.get(id) ?? []) settle();
       }
     }
     if (PERSISTED_EVENT_TYPES.includes(ev.type)) {
