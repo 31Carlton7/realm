@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { allItems, PAGE_REF_IDS } from "@realm/contracts";
 /* The pane components register themselves by side effect (`panes/index.ts`); the overlay renders
    through the same registry, so a test that never imports them gets the placeholder. */
@@ -113,5 +113,17 @@ describe("the pages a previous version left in the layout", () => {
     for (const id of ["p1", "p2", "p3"]) expect(api.calls).toContain(`deleteItem:${id}`);
     // …and only those: a session is an object with a transcript under it.
     expect(api.calls).not.toContain("deleteItem:keep");
+  });
+});
+
+describe("the page about you", () => {
+  it("opens as an overlay like every other destination, its bar saying what it is", async () => {
+    // The mutant this kills is a page kind with no registered component: the overlay would open
+    // over the workspace and draw the placeholder under its bar.
+    const { store } = await mount();
+    act(() => store.getState().openDestinationPage("you-page"));
+    const dialog = await screen.findByRole("dialog", { name: "You" });
+    expect(within(dialog).getByRole("heading", { level: 1, name: "Carlton" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Close You" })).toBeInTheDocument();
   });
 });

@@ -48,4 +48,5 @@ export const PAGE_LABEL: Partial<Record<Item["kind"], string>> = {
   "settings-page": "Settings",
   "space-page": "Overview",
   "profile-page": "Profile",
+  "you-page": "You",
 };

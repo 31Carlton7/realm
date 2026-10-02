@@ -7194,6 +7194,30 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .usage-caveats strong { font-weight: var(--fw-medium); color: var(--rl-text-dim); }
 .usage-caveats svg { vertical-align: -2px; }
 
+/* ── The page about you (YouPage.tsx) ─────────────────────────────────────
+   The face first: the picture the person chose, or the first letter of their name on the accent's
+   tint until they choose one — the accent being the colour they picked for the app. A circle, the
+   one shape a Mac draws a person's picture in; nothing else on this ladder is a person. */
+.avatar { flex: none; display: inline-grid; place-items: center; border-radius: 50%; object-fit: cover; }
+.avatar[data-size="56"] { width: 56px; height: 56px; font-size: 24px; }
+.avatar[data-size="16"] { width: 16px; height: 16px; font-size: 11px; }
+.avatar-initial { background: var(--accent-tint); color: var(--accent-ink); font-weight: var(--fw-title); line-height: 1; user-select: none; }
+/* The edge every picture in the app gets (`.md img`): white at low alpha on dark, black on light. */
+img.avatar { outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
+:root[data-mode="light"] img.avatar { outline-color: rgba(0, 0, 0, 0.1); }
+/* Centred rather than on the title's baseline: the face is a picture, and a picture sat on a text
+   baseline hangs below the line it is beside. */
+.you-page .page-head { align-items: center; }
+.you-actions { flex: none; display: flex; align-items: center; gap: 8px; }
+/* Five figures, and five across the 720px column — `.usage-tiles`' 160px floor put the fifth on a row
+   of its own. Tabular here, unlike the Usage tab's tiles: these are five numbers read side by side
+   as one row of records, not one hero figure on its own. */
+.you-figures { grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); }
+.you-figures .stat-value { font-variant-numeric: tabular-nums; }
+/* The longest turn's session title: one line, because a title is user data of any length and a
+   tile five abreast has room for a dozen characters of it. The whole title is the tooltip. */
+.you-figure-sub { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 @container (max-width: 640px) {
   .stat-hero { grid-column: span 1; }
   .bd-bar-row { grid-template-columns: minmax(70px, 1fr) minmax(60px, 2fr) auto; }

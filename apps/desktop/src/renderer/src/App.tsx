@@ -350,6 +350,9 @@ export function App() {
       const st = store.getState();
       st.run(() => st.refreshFonts());
     });
+    // The picture on the page about you changed, here or in another window. The payload is the new
+    // copy's path, so it is applied as it stands rather than re-read.
+    const offAv = rpc().on("avatar.changed", ({ path }) => store.getState().applyAvatarChanged(path));
     // A space's memory document or AGENTS.md changed. Same held-only rule as skills.
     const offMem = rpc().on("memory.changed", ({ spaceId }) => {
       const st = store.getState();
@@ -463,7 +466,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offSc(); offI(); offV(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offMem(); offB(); offSO(); offDO(); offSA(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offSc(); offI(); offV(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offSO(); offDO(); offSA(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

@@ -2241,6 +2241,8 @@ describe("light mode", () => {
     // The base half of a pair, like `.md img` above it: a Quick Look render is a picture on the
     // pane's own ground, and the rule below flips its outline for light mode.
     [".ql-page", "paired with a light override"],
+    // The picture on the page about you: a photo on the page's ground, paired the same way.
+    ["img.avatar", "paired with a light override"],
   ]);
 
   it("no rule paints a raw black or white that the mode cannot reach", () => {
@@ -2255,7 +2257,7 @@ describe("light mode", () => {
   });
 
   it("every literal that is half a pair really does have its other half", () => {
-    for (const sel of [".md img", ".ql-page"]) {
+    for (const sel of [".md img", ".ql-page", "img.avatar"]) {
       expect(bodiesFor(sel).join(" "), sel).toContain("outline: 1px solid rgba(255, 255, 255, 0.1)");
       expect(bodiesFor(`:root[data-mode="light"] ${sel}`).join(" "), sel).toContain("outline-color: rgba(0, 0, 0, 0.1)");
     }

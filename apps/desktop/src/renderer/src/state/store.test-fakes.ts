@@ -3,7 +3,7 @@ import { activeLayout, setActiveLayout, COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_K
 import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { basenameOf, expandCommand, mimeForPath, nextFireOf } from "@realm/contracts";
-import type { CliStatus, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageSummary, UsageTotals } from "@realm/contracts";
+import type { CliStatus, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
 export const usageTotals = (extra: Partial<UsageTotals> = {}): UsageTotals =>
@@ -18,6 +18,15 @@ export const emptyUsageSummary = (extra: Partial<UsageSummary> = {}): UsageSumma
   activity: { toolCalls: 0, userMessages: 0, errors: 0, mcpCalls: 0, mcpFailures: 0, mcpMedianMs: 0, topTools: [], topMcpServers: [] },
   budget: { budget: { monthlyUsd: null, thresholds: [0.5, 0.8, 1], includeEstimated: true }, monthSpendUsd: 0, monthStart: 0, projectedUsd: null },
   unmeasuredKinds: [], unpricedModels: [],
+  ...extra,
+});
+
+/** The page about you on a home where nothing has happened yet — what `usage.records` really
+ *  answers on a fresh install, and so what the page's empty state must be tested against. */
+export const emptyUsageRecords = (extra: Partial<UsageRecords> = {}): UsageRecords => ({
+  tokens: { input: 0, output: 0 }, unmeasuredSessions: 0, peakDay: null, longestTurn: null,
+  streak: { current: { days: 0, from: null, to: null }, longest: { days: 0, from: null, to: null } },
+  models: [], efforts: [], skills: [], tools: [],
   ...extra,
 });
 
@@ -139,6 +148,10 @@ export type FakeData = {
   importScan?: ImportScan; importResult?: ImportResult;
   usageSummary?: UsageSummary;
   usageActiveDays?: UsageDay[];
+  usageRecords?: UsageRecords;
+  /** The server's copy of the picture on the page about you, or null for none. `setAvatar` writes
+   *  a new path here as the server would; `clearAvatar` empties it. */
+  avatarPath?: string | null;
   schedules?: Schedule[];
   /** Terminals already created for a session (sessionId → the trio openSessionTerminal returns). */
   sessionTerminals?: Record<string, { terminalId: string; itemId: string }>;
@@ -435,6 +448,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     guideProgress: overrides.guideProgress ?? {},
     usageSummary: overrides.usageSummary ?? emptyUsageSummary(),
     usageActiveDays: overrides.usageActiveDays ?? [],
+    usageRecords: overrides.usageRecords ?? emptyUsageRecords(),
+    avatarPath: overrides.avatarPath ?? null,
     schedules: overrides.schedules ?? [],
     importScan: overrides.importScan ?? { sessions: [], memories: [], skills: [], sources: [] },
     importResult: overrides.importResult ?? { sessions: [], memories: [], skills: [], spacesCreated: [] },
@@ -1271,6 +1286,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return data.modelCatalog;
     },
     usageActiveDays: async (p) => { calls.push(`usageActiveDays:${p.from}:${p.to}`); return data.usageActiveDays; },
+    usageRecords: async () => { calls.push("usageRecords"); return data.usageRecords; },
+    getAvatar: async () => { calls.push("getAvatar"); return data.avatarPath; },
+    // A fresh name under the home on every pick, as the server's copy has: the path handed in is
+    // never what comes back.
+    setAvatar: async (path) => { calls.push(`setAvatar:${path}`); data.avatarPath = `/realm-home/avatar/${++n}.png`; return data.avatarPath; },
+    clearAvatar: async () => { calls.push("clearAvatar"); data.avatarPath = null; },
     listSchedules: async (spaceId) => { calls.push(`listSchedules:${spaceId}`); return data.schedules.filter((r) => r.spaceId === spaceId); },
     createSchedule: async (input) => {
       calls.push(`createSchedule:${input.spaceId}`);

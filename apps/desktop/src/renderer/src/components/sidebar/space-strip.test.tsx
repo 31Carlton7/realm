@@ -304,4 +304,20 @@ describe("SpaceStrip profile scoping", () => {
     fireEvent.click(within(await screen.findByRole("menu", { name: "Profiles" })).getByRole("menuitem", { name: "Profile" }));
     await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("profile-page"));
   });
+
+  it("opens the page about you from an entry under your own name, wearing your face", async () => {
+    const { store } = await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Profile: Work" }));
+    const entry = within(await screen.findByRole("menu", { name: "Profiles" })).getByRole("menuitem", { name: "Carlton" });
+    expect(entry.querySelector(".menu-icon .avatar-initial")!.textContent).toBe("C");
+    fireEvent.click(entry);
+    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("you-page"));
+  });
+
+  it("calls the entry You when the Mac has no real name for the account", async () => {
+    const { store } = await mount();
+    act(() => store.setState({ userName: "" }));
+    fireEvent.click(screen.getByRole("button", { name: "Profile: Work" }));
+    expect(within(await screen.findByRole("menu", { name: "Profiles" })).getByRole("menuitem", { name: "You" })).toBeInTheDocument();
+  });
 });

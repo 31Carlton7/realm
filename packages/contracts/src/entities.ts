@@ -61,7 +61,7 @@ export type Project = z.infer<typeof ProjectSchema>;
  *  a durable row behind it, whose `refId` is a `machines` row id. Deliberately NOT the reserved
  *  `simulator`, which `Icon.tsx` maps to a phone and which `device-ax.ts` speaks about specifically.
  *  A machine is not a phone. */
-export const ItemKindSchema = z.enum(["session", "terminal", "browser", "machine", "simulator", "artifact", "context", "diff", "documents", "space-page", "library-page", "connections-page", "notifications-page", "settings-page", "profile-page", "schedules-page", "agents-page"]);
+export const ItemKindSchema = z.enum(["session", "terminal", "browser", "machine", "simulator", "artifact", "context", "diff", "documents", "space-page", "library-page", "connections-page", "notifications-page", "settings-page", "profile-page", "schedules-page", "agents-page", "you-page"]);
 export type ItemKind = z.infer<typeof ItemKindSchema>;
 
 /**
@@ -90,6 +90,10 @@ export const PAGE_REF_IDS = {
   /** Every agent across every space, by what it needs from you. The page a manager of several
    *  sessions keeps open: what is waiting on a permission, what is working, what has finished. */
   "agents-page": "00000000000000000000000007",
+  /** The person, not a space or a profile: your name and picture, the figures every session adds
+   *  up to, and the rhythm of the days you used Realm. Read from every space, so the vantage space
+   *  an overlay carries is only where it was opened from. */
+  "you-page": "00000000000000000000000008",
 } as const;
 export type DestinationPageKind = keyof typeof PAGE_REF_IDS;
 

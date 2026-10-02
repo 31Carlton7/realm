@@ -86,10 +86,12 @@ export function monthLabels(weeks: readonly CalendarCell[][]): { index: number; 
 }
 
 const plural = (n: number, one: string) => `${n.toLocaleString()} ${one}${n === 1 ? "" : "s"}`;
-export const readableDay = (day: string) => {
-  const [y, m, d] = day.split("-").map(Number);
-  return `${MONTHS[(m ?? 1) - 1]} ${d}, ${y}`;
+/** "Sep 3" for "2026-09-03", and with its year, "Sep 3, 2026" — how a day is named in words. */
+export const shortDay = (day: string) => {
+  const [, m, d] = day.split("-").map(Number);
+  return `${MONTHS[(m ?? 1) - 1]} ${d}`;
 };
+export const readableDay = (day: string) => `${shortDay(day)}, ${day.slice(0, 4)}`;
 
 /** A cell's words: the same number its colour stands for, said in the mode's own terms. */
 export function cellLabel(cell: CalendarCell, mode: CalendarMode, week: readonly CalendarCell[], first: string): string {
