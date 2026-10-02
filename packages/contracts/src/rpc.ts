@@ -1476,6 +1476,16 @@ export const Methods = {
    * are — Realm runs on the Mac whose calendar it is.
    */
   "usage.records": { params: z.object({}), result: UsageRecordsSchema },
+  /**
+   * The picture the page about you shows, as a path under the Realm home, or null for none.
+   *
+   * `avatar.set` COPIES the file it is given into the home and answers with the copy; the path it
+   * was handed is never stored, so the picture survives the original being moved, edited or deleted,
+   * and nothing outside the home is read again. `avatar.clear` deletes the copy.
+   */
+  "avatar.get": { params: z.object({}), result: z.object({ path: z.string().nullable() }) },
+  "avatar.set": { params: z.object({ path: z.string().min(1) }), result: z.object({ path: z.string() }) },
+  "avatar.clear": { params: z.object({}), result: z.object({ path: z.null() }) },
   /** Availability of the local Graphify extractor. `force` bypasses the shared probe cache. */
   "graphify.probe": {
     params: z.object({ force: z.boolean().default(false) }),
@@ -1717,6 +1727,9 @@ export const Events = {
   "themes.changed":   z.object({}),
   /** A font family was installed or removed. */
   "fonts.changed":    z.object({}),
+  /** The picture on the page about you changed — chosen, replaced or removed. Carries the new path
+   *  (or null) so every window shows the same face without a re-read. */
+  "avatar.changed":   z.object({ path: z.string().nullable() }),
   /** An MCP server was added, edited, removed, or toggled for a space. Carries no payload because the
    *  server list is global: add/edit/remove change what EVERY space lists, and a per-space event would
    *  leave the other spaces' open settings panes stale. Clients holding a list re-fetch. */

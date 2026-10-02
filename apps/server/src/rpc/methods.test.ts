@@ -593,4 +593,19 @@ describe("the page about you over rpc", () => {
     });
     c.close();
   });
+
+  it("avatar.set copies the picture into the home, tells every window, and avatar.clear takes it back", async () => {
+    const { home, c } = await boot();
+    const picked = join(tempDir("realm-avatar-pick-"), "me.png");
+    writeFileSync(picked, "png");
+    expect((await c.call("avatar.get", {})).result).toEqual({ path: null });
+    const set = (await c.call("avatar.set", { path: picked })).result;
+    expect(set.path.startsWith(join(home, "avatar"))).toBe(true);
+    expect((await c.call("avatar.get", {})).result).toEqual({ path: set.path });
+    await waitFor(() => c.events.some((x) => x.event === "avatar.changed" && x.payload?.path === set.path));
+    expect((await c.call("avatar.clear", {})).result).toEqual({ path: null });
+    expect(existsSync(set.path)).toBe(false);
+    await waitFor(() => c.events.some((x) => x.event === "avatar.changed" && x.payload?.path === null));
+    c.close();
+  });
 });
