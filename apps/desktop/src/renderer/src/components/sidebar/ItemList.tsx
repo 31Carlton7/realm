@@ -156,6 +156,7 @@ export function ItemList({ items, variant, layout: groupLayout }: {
     <div className="item-list">
       {items.map((it) => (
         <div key={it.id} className="item" data-active={(variant === "open" && it.id === focusedItemId) || undefined}
+          data-actions={variant === "open" ? 2 : 1}
           data-dragging={draggingId === it.id || undefined}
           draggable
           onDragStart={(e) => { e.dataTransfer.setData("application/x-realm-item", it.id); e.dataTransfer.effectAllowed = "move"; setDraggingId(it.id); }}
@@ -172,6 +173,9 @@ export function ItemList({ items, variant, layout: groupLayout }: {
                   : it.kind === "machine" ? `${it.title} — ${MACHINE_WORDS[machineState[it.refId]?.status ?? "off"]}` : it.title}
                 onClick={() => activate(it)}>
                 <Icon name={it.kind} size={16} /><span className="item-title">{it.title}</span>
+                {/* The row's state, at its far end — the same slot its actions take under the
+                    pointer, so a row at rest gives its title every pixel the state does not need. */}
+                <span className="item-trail">
                 {it.kind === "session" && sessionStatus[it.refId] && (
                   <span className="status-dot item-status" data-status={sessionStatus[it.refId]} title={STATUS_LABEL[sessionStatus[it.refId]!]} />
                 )}
@@ -204,7 +208,9 @@ export function ItemList({ items, variant, layout: groupLayout }: {
                     title={MACHINE_WORDS[machineState[it.refId]?.status ?? "off"]} />
                 )}
                 {variant === "open" && <ItemGlyph layout={layout} itemId={it.id} />}
+                </span>
               </button>
+              <span className="item-actions">
               {/* Sessions alone get the shelf. The gesture is a session's — put a conversation away
                   when it is done with — and the other kinds have no answer for what archiving means:
                   a destination page is one per space, a diff is a view of a checkout. The `archived`
@@ -234,6 +240,7 @@ export function ItemList({ items, variant, layout: groupLayout }: {
               {variant === "open" && (
                 <button className="item-close" aria-label={`Close ${it.title}`} onClick={() => run(() => closeFromLayout(it.id))}><Icon name="close" size={12} /></button>
               )}
+              </span>
             </>
           )}
         </div>

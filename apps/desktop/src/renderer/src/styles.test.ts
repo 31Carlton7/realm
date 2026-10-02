@@ -2514,6 +2514,29 @@ describe("row and control layout", () => {
     expect(bodiesFor(".page-row > svg").join(" ")).toContain("flex: none");
   });
 
+  it("a sidebar row's state and its actions share one slot at the far end", () => {
+    /* The actions sat after the row at opacity 0 — hidden, but still taking ~50px of every row's
+       title and parking the state in the middle of the line. THE MUTANTS: put the actions back in the
+       flow, leave the state on screen under the buttons, or reveal on `:focus-within`, which a click
+       satisfies — the row just opened would show its buttons instead of its state. */
+    const actions = bodiesFor(".item-actions").join(" ");
+    expect(actions).toContain("position: absolute");
+    expect(actions).toContain("opacity: 0");
+    expect(actions).toContain("pointer-events: none");
+    for (const when of [":hover", ":has(:focus-visible)", ":has([data-confirming])"]) {
+      expect(bodiesFor(`.item${when} .item-actions`).join(" "), when).toContain("opacity: 1");
+      expect(bodiesFor(`.item${when} .item-trail`).join(" "), when).toContain("display: none");
+      expect(bodiesFor(`.item${when} .item-row`).join(" "), when).toContain("padding-right:");
+    }
+    expect(css).not.toMatch(/\.item:focus-within \.item-actions/);
+    // The title gives way by the actions' width, so a row with two takes more than a row with one.
+    const one = parseFloat(/padding-right: ([\d.]+)px/.exec(bodiesFor(".item:hover .item-row").join(" "))![1]!);
+    const two = parseFloat(/padding-right: ([\d.]+)px/.exec(bodiesFor('.item[data-actions="2"]:hover .item-row').join(" "))![1]!);
+    expect(two - one).toBe(24);
+    // No button reserves its own width any more: the slot is the overlay's.
+    expect(bodiesFor(".item-close, .item-shelf, .item-delete".split(", ")[0]!).join(" ")).not.toContain("opacity: 0");
+  });
+
   it("a page pane can shrink to its slot — otherwise it is painted over by the pane beside it", () => {
     // A pane is a flex ITEM, and a flex item's default `min-width: auto` floors it at its content's
     // min-content width. Without this, a page whose content did not fit grew PAST its slot and the

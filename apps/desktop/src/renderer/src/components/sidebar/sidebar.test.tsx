@@ -590,6 +590,34 @@ describe("Arc sidebar", () => {
     expect(store.getState().items.map((i) => i.id)).toContain("i1"); // still exists, just unopened
   });
 
+  it("a row's state sits in one trailing group, and its actions in an overlay sized by how many there are", async () => {
+    /* The state and the buttons share the row's far end (styles.css says how). THE MUTANTS: leave a
+       mark outside the trailing group — it would stay on screen under the buttons — or count the
+       actions wrong, so the title gives way by the wrong amount on hover. */
+    const layout: Layout = { type: "split", id: "S", dir: "row", sizes: [50, 50], children: [
+      { type: "leaf", id: "L1", itemId: "i1" }, { type: "leaf", id: "L2", itemId: "i3" },
+    ] };
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout })],
+      items: { s1: [item("i1", "s1", { kind: "session", refId: "se1", title: "Alpha" }), item("i2", "s1", { title: "Beta" }),
+        item("i3", "s1", { kind: "browser", refId: "b1", title: "Gamma" })] },
+      sessions: [session("se1", "s1", { status: "running" })],
+    });
+    await mount(api);
+    const row = (name: RegExp) => screen.getByRole("button", { name }).closest(".item")!;
+    const alpha = row(/^Alpha/);
+    // Every mark the open session row wears is inside the trailing group: its dot and its pane glyph.
+    expect(alpha.querySelector(".item-row > .status-dot, .item-row > .item-glyph")).toBeNull();
+    expect(alpha.querySelectorAll(".item-trail .status-dot, .item-trail .item-glyph")).toHaveLength(2);
+    // The actions are one overlay, after the row button, never inside it.
+    expect([...alpha.querySelectorAll(".item-actions > button")].map((b) => b.getAttribute("aria-label"))).toEqual(["Archive Alpha", "Close Alpha"]);
+    expect(alpha.querySelector(".item-row .item-actions")).toBeNull();
+    expect(alpha.getAttribute("data-actions")).toBe("2");
+    // A row in the Sessions list has one action, and says so.
+    expect(row(/^Beta/).getAttribute("data-actions")).toBe("1");
+    expect(row(/^Beta/).querySelectorAll(".item-actions > button")).toHaveLength(1);
+  });
+
   it("context menu: Close only for open items (closes from layout); Delete always (destructive)", async () => {
     const layout: Layout = { type: "leaf", id: "L1", itemId: "i1" };
     const api = fakeApi({
