@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
-import type { BlockedDownload, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, BrowserPickedElement, MediaFile, Passkey, PasskeyNotice, ReducedMotionPref } from "@realm/contracts";
+import type { BlockedDownload, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, BrowserPickedElement, MediaFile, Passkey, PasskeyNotice, ReducedMotionPref, EditorId, InstalledEditor } from "@realm/contracts";
 import type { TccRow } from "../main/tcc";
 import type { MacAccessStatus } from "../main/mac-access";
 import type { ComputerAccessStatus } from "../main/computer-access";
@@ -29,6 +29,15 @@ contextBridge.exposeInMainWorld("realm", {
    *  for `prefers-reduced-motion`, so the stylesheet's own media queries are what carry it out. */
   motion: {
     set: (pref: ReducedMotionPref): Promise<void> => ipcRenderer.invoke("motion:set", pref),
+  },
+  /** Settings ▸ General ▸ Power. Main holds the blocker; this only tells it the switch moved. */
+  power: {
+    preventSleep: (on: boolean): Promise<void> => ipcRenderer.invoke("power:prevent-sleep", on),
+  },
+  /** The code editors installed on this Mac, and opening a path in one (the transcript's path menu). */
+  editors: {
+    list: (): Promise<InstalledEditor[]> => ipcRenderer.invoke("editors:list"),
+    open: (id: EditorId, path: string): Promise<boolean> => ipcRenderer.invoke("editors:open", id, path),
   },
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke("pick-folder"),
   /** Native multi-select file picker; [] when cancelled. */

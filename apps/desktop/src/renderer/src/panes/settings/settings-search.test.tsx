@@ -100,6 +100,7 @@ describe("searching", () => {
       "Keep terminal scrollback, in General ▸ Terminals",
       "Blink the terminal cursor, in General ▸ Terminals",
       "Terminal cursor, in General ▸ Terminals",
+      "Session terminal, in General ▸ Terminals",
     ]);
   });
 

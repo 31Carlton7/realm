@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { activeLayout, setActiveLayout, COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_KEYBINDINGS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack } from "@realm/contracts";
-import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult } from "@realm/contracts";
+import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { basenameOf, expandCommand, mimeForPath, nextFireOf } from "@realm/contracts";
 import type { CliStatus, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageSummary, UsageTotals } from "@realm/contracts";
@@ -230,6 +230,9 @@ export type FakeData = {
   /** Laya's status. Defaults to what a fresh install on a Mac with Homebrew's 3.13 says: not
    *  installed, and off. */
   laya?: LayaStatus;
+  /** The code editors `editors.list` reports as installed. None by default — a test that wants the
+   *  path menu's editor item says which. */
+  editors?: InstalledEditor[];
   /** What `cli.status` answers. Empty by default: a test that is not about the CLI manager should
    *  see no install or update offers at all. */
   cliStatus?: CliStatus[];
@@ -421,6 +424,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     pixelWorldJson: overrides.pixelWorldJson ?? "{}",
     pixelSpriteJson: overrides.pixelSpriteJson ?? "{}",
     failover: overrides.failover ?? DEFAULT_FAILOVER_POLICY,
+    editors: overrides.editors ?? [],
     laya: overrides.laya ?? { mode: "off", installed: false, runtime: { state: "not-installed", python: { path: "/opt/homebrew/bin/python3.13", version: "3.13.12" } }, stepsLogged: 0, dir: "/Users/u/Realm/laya", assist: { available: false, reason: "No checkpoint has been evaluated yet. Train Laya on this Mac first; Assist unlocks when one scores 95% on held-out steps.", threshold: null, accuracy: null } },
     cliStatus: overrides.cliStatus ?? [],
     // The model catalog the picker's detail pane reads. Empty by default because that is the state
@@ -1244,6 +1248,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     resyncTerminals: () => { calls.push("resyncTerminals"); },
     setBadgeCount: async (count) => { calls.push(`setBadgeCount:${count}`); data.badgeCount = count; },
     setReducedMotion: async (pref) => { calls.push(`setReducedMotion:${pref}`); },
+    setPreventSleep: async (on) => { calls.push(`setPreventSleep:${on}`); },
+    listEditors: async () => { calls.push("listEditors"); return [...data.editors]; },
+    openInEditor: async (id, path) => { calls.push(`openInEditor:${id}:${path}`); return data.editors.some((e) => e.id === id); },
     probeAgents: async (force) => {
       calls.push(`probeAgents:${force}`);
       await wait("probeAgents");

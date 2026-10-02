@@ -1,7 +1,8 @@
 import { PageScroll } from "../../components/ScrollFades";
 import { EDITOR_CURSOR_BLINK_COPY, TERMINAL_CURSOR_STYLES, TERMINALS_CURSOR_STYLE_COPY, type TerminalCursorStyle, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
-  PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, type ReducedMotionPref, } from "@realm/contracts";
+  PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, type ReducedMotionPref,
+  EDITOR_NAMES, resolveEditor, type OpenFilesIn, type TerminalDockEdge, } from "@realm/contracts";
 import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED,
   THEMES, contrastMisses, deriveVars, exportTheme, importTheme, isHexColour, isOverridden, overrideKey,
   allThemes, paletteFor, seedFor, themeModes, themeSwatches,
@@ -495,6 +496,49 @@ function TranslucencyRow({ id, label, amount, alpha, range, fallback, material, 
 const MOTION_CHOICES: { pref: ReducedMotionPref; label: string }[] = [
   { pref: "system", label: "System" }, { pref: "on", label: "On" }, { pref: "off", label: "Off" },
 ];
+
+const TERMINAL_DOCK_CHOICES: { edge: TerminalDockEdge; label: string }[] = [
+  { edge: "right", label: "Right" }, { edge: "bottom", label: "Bottom" },
+];
+
+/**
+ * The editor the transcript's path menu offers, from the ones this Mac has.
+ *
+ * Only installed editors are listed: one that is not here could only be a choice that does nothing.
+ * A preference naming an editor since removed keeps its own option, marked, the way a missing font
+ * family does — a blank select would say the setting was empty when it is not. And on a Mac with
+ * none of them the control is absent and the row says why, which is the one sentence it owes.
+ */
+function OpenFilesInRow() {
+  const editors = useApp((s) => s.editors);
+  const pref = useApp((s) => s.openFilesIn);
+  const setOpenFilesIn = useApp((s) => s.setOpenFilesIn);
+  const refreshEditors = useApp((s) => s.refreshEditors);
+  const run = useApp((s) => s.run);
+  // Read again here, not only at boot: this is where someone looks after installing one.
+  useEffect(() => { void run(() => refreshEditors()); }, [run, refreshEditors]);
+  const chosen = resolveEditor(pref, editors);
+  const missing = pref !== null && pref !== "realm" && chosen === null ? pref : null;
+  return (
+    <div className="settings-row" data-setting="open-files-in"
+      title="A click on a file or folder a session names offers to open it in this editor. Realm's own documents pane is offered beside it.">
+      <div className="settings-row-main">
+        <span className="settings-row-name">Open files in</span>
+        {editors.length === 0 && !missing && (
+          <span className="settings-row-desc">This Mac has none of Cursor, VS Code, Zed or Xcode, so files open in Realm.</span>
+        )}
+      </div>
+      {(editors.length > 0 || missing) && (
+        <select aria-label="Open files in" value={missing ?? chosen?.id ?? "realm"}
+          onChange={(e) => run(() => setOpenFilesIn(e.target.value as OpenFilesIn))}>
+          {editors.map((ed) => <option key={ed.id} value={ed.id}>{ed.name}</option>)}
+          {missing && <option value={missing}>{EDITOR_NAMES[missing]} — not installed</option>}
+          <option value="realm">Realm</option>
+        </select>
+      )}
+    </div>
+  );
+}
 
 const SUBMIT_KEY_CHOICES: { pref: SubmitKey; label: string }[] = [
   { pref: "enter", label: "Enter" }, { pref: "cmdEnter", label: "⌘/Ctrl+Enter" },
@@ -1119,6 +1163,10 @@ function GeneralTab() {
   const setTerminalCursorStyle = useApp((s) => s.setTerminalCursorStyle);
   const lowPower = useApp((s) => s.lowPower);
   const setLowPower = useApp((s) => s.setLowPower);
+  const preventSleep = useApp((s) => s.preventSleep);
+  const setPreventSleep = useApp((s) => s.setPreventSleep);
+  const terminalDock = useApp((s) => s.terminalDock);
+  const setTerminalDock = useApp((s) => s.setTerminalDock);
   const easterEggs = useApp((s) => s.easterEggs);
   const setEasterEggs = useApp((s) => s.setEasterEggs);
   const run = useApp((s) => s.run);
@@ -1226,6 +1274,9 @@ function GeneralTab() {
           sits on the gesture it changes, and moving it here to make a fuller section would take a
           control away from the thing it acts on. It used to appear twice, a second "Sort by
           activity" further down the page writing the same key; one switch is one setting. */}
+      <h3 className="settings-head">Files</h3>
+      <OpenFilesInRow />
+
       <h3 className="settings-head">Sidebar</h3>
       <ul className="settings-list">
         <li className="settings-row" data-setting="sidebar-activity-order" title="The strip keeps the order you dragged it into. This orders it by what is happening instead — a space with a question waiting first, then whichever moved most recently — and leaves the dragged order untouched underneath, so turning this off puts it back exactly as you left it.">
@@ -1294,6 +1345,18 @@ function GeneralTab() {
             ))}
           </select>
         </li>
+        <li className="settings-row" data-setting="terminal-dock" title="Where ⌘J opens a session's terminal: beside the transcript, or under it. Either way it pins when the pane has the room and floats when it does not, and closing it keeps the shell.">
+          <div className="settings-row-main"><span className="settings-row-name">Session terminal</span></div>
+          <fieldset className="settings-tabs" aria-label="Session terminal">
+            {TERMINAL_DOCK_CHOICES.map((c) => (
+              <label key={c.edge} className="settings-tab" data-selected={terminalDock === c.edge || undefined}>
+                <input type="radio" name="settings-terminal-dock" value={c.edge} checked={terminalDock === c.edge}
+                  onChange={() => run(() => setTerminalDock(c.edge))} />
+                {c.label}
+              </label>
+            ))}
+          </fieldset>
+        </li>
       </ul>
 
       <h3 className="settings-head">Updates</h3>
@@ -1301,6 +1364,17 @@ function GeneralTab() {
 
       <h3 className="settings-head">Power</h3>
       <ul className="settings-list">
+        {/* Says what it leaves alone, because "keep the Mac awake" sounds like a lit screen all night:
+            it holds only while a session is working, and the display may sleep throughout. */}
+        <li className="settings-row" data-setting="prevent-sleep" title="Realm holds macOS's app-suspension assertion only while a session is running and lets go when the last turn ends. A session waiting on your answer is not working, and does not keep the Mac up.">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Keep the Mac awake while agents work</span>
+            <span className="settings-row-detail">The display still sleeps</span>
+          </div>
+          <input type="checkbox" role="switch" className="switch" aria-label="Keep the Mac awake while agents work"
+            checked={preventSleep}
+            onChange={(e) => run(() => setPreventSleep(e.target.checked))} />
+        </li>
         <li className="settings-row" data-setting="low-power" title="Realm already stops its animations while its window is in the background. This keeps them off while you are looking at it too, and stops the transcript's dissolve from blurring what passes under it. Nothing about what an agent does changes.">
           <div className="settings-row-main">
             <span className="settings-row-name">Low power</span>

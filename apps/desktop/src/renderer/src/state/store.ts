@@ -8,7 +8,7 @@ import {
   activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveGroup as groupsMove, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_FAST_SUPPORT_KEY, readFastSupport, EDITOR_CURSOR_BLINK_DEFAULT, EDITOR_CURSOR_BLINK_KEY, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, isTerminalCursorStyle, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, type TerminalCursorStyle, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo,
+  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_FAST_SUPPORT_KEY, readFastSupport, EDITOR_CURSOR_BLINK_DEFAULT, EDITOR_CURSOR_BLINK_KEY, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, isTerminalCursorStyle, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, type EditorId, type InstalledEditor, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, type TerminalCursorStyle, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
   type AgentKind, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageSummary,
@@ -480,6 +480,12 @@ export type Api = {
   setBadgeCount(count: number): Promise<void>;
   /** Tell main which answer this window should give for `prefers-reduced-motion`. */
   setReducedMotion(pref: ReducedMotionPref): Promise<void>;
+  /** Tell main the keep-awake switch moved; main holds the blocker while a session works. */
+  setPreventSleep(on: boolean): Promise<void>;
+  /** The code editors installed on this Mac. */
+  listEditors(): Promise<InstalledEditor[]>;
+  /** Open an existing path in one of them; false when main refused (not installed, no such path). */
+  openInEditor(id: EditorId, path: string): Promise<boolean>;
   /** `workspace.gitInfo`: null when cwd is not a git repo (server caches ~3s). */
   gitInfo(cwd: string): Promise<GitInfo | null>;
   /** `workspace.diff` — the changed-file list. Null when cwd is not a repo. */
@@ -2143,6 +2149,20 @@ export type AppState = {
   setTerminalCursorBlink(on: boolean): Promise<void>;
   setTerminalCursorStyle(style: TerminalCursorStyle): Promise<void>;
   setEditorCursorBlink(on: boolean): Promise<void>;
+  /** Which edge of a session pane its terminal (⌘J) docks to (Settings ▸ General ▸ Terminals). */
+  terminalDock: TerminalDockEdge;
+  setTerminalDock(edge: TerminalDockEdge): Promise<void>;
+  /** Keep the Mac awake while a session works (Settings ▸ General ▸ Power). Off by default. */
+  preventSleep: boolean;
+  setPreventSleep(on: boolean): Promise<void>;
+  /** Which editor the transcript's path menu offers — an id, "realm" for none, null for the first
+   *  installed one (see `resolveEditor`). */
+  openFilesIn: OpenFilesIn | null;
+  setOpenFilesIn(pref: OpenFilesIn): Promise<void>;
+  /** The editors this Mac has, read at boot and again when Settings shows the choice. */
+  editors: InstalledEditor[];
+  refreshEditors(): Promise<void>;
+  openPathInEditor(id: EditorId, path: string): Promise<void>;
   /** The Settings→App sound switch and its level (0…1). Each writes its key and holds the answer, so
    *  the next broadcast sounds under the new one without waiting for a settings refresh. */
   setSoundCues(enabled: boolean): Promise<void>;
@@ -3018,7 +3038,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
-      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, editorCursorBlink: EDITOR_CURSOR_BLINK_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, notificationsSelectedId: null, paneHistory: {},
+      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, openFilesIn: null, editors: [], editorCursorBlink: EDITOR_CURSOR_BLINK_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, notificationsSelectedId: null, paneHistory: {},
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       activeProfileId() { return get().activeSpace()?.profileId ?? null; },
@@ -3108,6 +3128,15 @@ await get().refreshCustomThemes().catch(() => {});
         set({ editorCursorBlink: editorBlink !== false });
         const cursorStyle = await api.getSetting(TERMINALS_CURSOR_STYLE_KEY).catch(() => null);
         set({ terminalCursorStyle: isTerminalCursorStyle(cursorStyle) ? cursorStyle : TERMINALS_CURSOR_STYLE_DEFAULT });
+        const dockEdge = await api.getSetting(TERMINALS_DOCK_KEY).catch(() => null);
+        set({ terminalDock: isTerminalDockEdge(dockEdge) ? dockEdge : TERMINALS_DOCK_DEFAULT });
+        // Only an explicit `true` keeps a Mac awake: an unset key and a failed read both mean nobody
+        // asked, and the battery is not ours to spend on a guess.
+        const awake = await api.getSetting(POWER_PREVENT_SLEEP_KEY).catch(() => null);
+        set({ preventSleep: awake === true });
+        void api.setPreventSleep(awake === true).catch(() => {});
+        const openIn = await api.getSetting(FILES_OPEN_IN_KEY).catch(() => null);
+        set({ openFilesIn: isOpenFilesIn(openIn) ? openIn : null, editors: await api.listEditors().catch(() => []) });
         // Defaulted ON like the cursor blink: only a stored `false` is someone switching it off (see
         // CLOSE_FINISHED_AGENT_PANES_KEY for why the default is the point).
         const closeAgents = await api.getSetting(CLOSE_FINISHED_AGENT_PANES_KEY).catch(() => null);
@@ -5580,6 +5609,29 @@ await get().refreshCustomThemes().catch(() => {});
       async setTerminalCursorStyle(style) {
         set({ terminalCursorStyle: style });
         await api.setSetting(TERMINALS_CURSOR_STYLE_KEY, style);
+      },
+      async setTerminalDock(edge) {
+        set({ terminalDock: edge });
+        await api.setSetting(TERMINALS_DOCK_KEY, edge);
+      },
+      async setPreventSleep(on) {
+        set({ preventSleep: on });
+        // Both: the stored value is what main reads when it next connects with no window, and the
+        // push is what reaches a turn already running.
+        await Promise.all([api.setSetting(POWER_PREVENT_SLEEP_KEY, on), api.setPreventSleep(on)]);
+      },
+      async setOpenFilesIn(pref) {
+        set({ openFilesIn: pref });
+        await api.setSetting(FILES_OPEN_IN_KEY, pref);
+      },
+      async refreshEditors() {
+        set({ editors: await api.listEditors() });
+      },
+      async openPathInEditor(id, path) {
+        const opened = await api.openInEditor(id, path);
+        // Main refuses a path that no longer exists or an editor since removed; say which, because
+        // a menu item that silently does nothing reads as a click that did not land.
+        if (!opened) throw new Error(`${path} could not be opened in that editor — it may have moved, or the editor is no longer installed.`);
       },
       async setEditorCursorBlink(on) {
         set({ editorCursorBlink: on });

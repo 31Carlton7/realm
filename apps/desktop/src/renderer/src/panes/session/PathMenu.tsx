@@ -1,4 +1,4 @@
-import { basenameOf, documentKindFor } from "@realm/contracts";
+import { basenameOf, documentKindFor, resolveEditor } from "@realm/contracts";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { useApp } from "../../state/store";
 
@@ -20,6 +20,11 @@ import { useApp } from "../../state/store";
  * menu's one universal action silently did nothing for a `.ts`, a `.json` or a folder — which is
  * nearly everything an agent names. `files.reveal` gates on existence, which is the question
  * revealing actually asks.
+ *
+ * And the editor Settings ▸ General ▸ Open files in names, when this Mac has it — for a folder as
+ * much as a file, since a folder is what an editor opens as a workspace. Offered beside Realm's own
+ * open rather than instead of it: the documents pane is still the one that keeps the file in the
+ * space, and an editor is somewhere else entirely.
  */
 export function PathMenu({ path, anchorRef, environmentId, onClose }: {
   path: string;
@@ -30,6 +35,10 @@ export function PathMenu({ path, anchorRef, environmentId, onClose }: {
   onClose: () => void;
 }) {
   const openDocumentPath = useApp((s) => s.openDocumentPath);
+  const openPathInEditor = useApp((s) => s.openPathInEditor);
+  const openFilesIn = useApp((s) => s.openFilesIn);
+  const editors = useApp((s) => s.editors);
+  const editor = resolveEditor(openFilesIn, editors);
   const run = useApp((s) => s.run);
   const name = basenameOf(path);
   // A trailing slash, or a name with no extension, is a folder as far as an offer goes. Being wrong
@@ -42,6 +51,7 @@ export function PathMenu({ path, anchorRef, environmentId, onClose }: {
       label: editable ? `Open ${name}` : `Preview ${name}`,
       onSelect: () => run(() => openDocumentPath(path, environmentId)),
     }] : []),
+    ...(editor ? [{ label: `Open in ${editor.name}`, onSelect: () => run(() => openPathInEditor(editor.id, path)) }] : []),
     { label: "Reveal in Finder", onSelect: () => { void window.realm?.files?.reveal?.(path); } },
     { kind: "separator" } as MenuItem,
     { label: "Copy path", onSelect: () => { void navigator.clipboard.writeText(path); } },

@@ -189,6 +189,11 @@
      `80vw` so a narrow window still gives the shell most of what it has — at that width the dock is
      floating over the transcript anyway, so there is nothing beside it to leave room for. */
   --terminal-dock-w: min(560px, 92vw);
+  /* …and its height when it docks to the pane's BOTTOM instead (Settings ▸ General ▸ Terminals): a
+     dozen-odd lines of shell and its bar, and never more than half a short window. `DOCK_H_TERMINAL`
+     in pane-dock.ts is this number for the pin arithmetic. */
+  --terminal-dock-h: min(320px, 45vh);
+  --dock-h: var(--terminal-dock-h);
   /* Which of those two the pane currently has to make room for. Declared here so the stylesheet
      defines everything it reads, and REWRITTEN on the pane node by `useDockPinned` — the pane is the
      panel's sibling, so the panel cannot hand it a width any other way. The summary's is the default
@@ -803,6 +808,9 @@ kbd { font: 11px var(--font-mono); }
    the panels are no longer one width and the pane cannot read a property set on its own sibling. The
    fallback keeps the rule honest if the attribute is ever set without the width. */
 .session-pane[data-dock-pinned] { padding-right: calc(var(--dock-w) + var(--sidebar-inset) * 2); }
+/* The same, along the foot: the pane gives up the dock's height, so the transcript ends and the
+   prompter sits above the shell rather than under its card. */
+.session-pane[data-dock-bottom] { padding-bottom: calc(var(--dock-h) + var(--sidebar-inset) * 2); }
 /* A floating panel is over the pane, so it wants the overlay's lift; a pinned one sits beside it in
    space the pane gave up, and a drop shadow there would draw a seam between two things that are not
    overlapping. */
@@ -824,10 +832,14 @@ kbd { font: 11px var(--font-mono); }
 /* The terminal fills what the bar leaves. `min-height: 0` because xterm measures its own viewport
    and a flex child that refuses to shrink would report a height the dock does not have. */
 .terminal-dock .terminal-pane { flex: 1; min-height: 0; }
+/* Docked to the bottom: the pane's width (the fixed box runs from its left edge to its right, inset
+   by the card's margin) and the shell's own height, arriving from the edge it docks to. */
+.terminal-dock[data-edge="bottom"] { width: auto; height: var(--terminal-dock-h); animation-name: rl-dock-up; }
 /* From the edge it docks to, so it reads as arriving from beside the pane rather than fading in
    over it. Enter only: the panel is removed on toggle, and an exit that had to be awaited would
    make the button feel unresponsive on the way out. */
 @keyframes rl-summary-in { from { translate: 12px 0; opacity: 0; } to { translate: 0 0; opacity: 1; } }
+@keyframes rl-dock-up { from { translate: 0 12px; opacity: 0; } to { translate: 0 0; opacity: 1; } }
 .summary-panel-head {
   flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 8px 8px 14px;
 }
