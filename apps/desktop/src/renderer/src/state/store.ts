@@ -1513,6 +1513,14 @@ export type AppState = {
    *  screen is the one state the sidebar could not explain — so this is `updateItem` plus that close,
    *  in that order; unarchiving only clears the flag and leaves the item unopened in the SPACE group. */
   archiveItem(itemId: string, archived: boolean): Promise<void>;
+  /** Settings ▸ Archived: every space's archived sessions, the most recently active first. Null
+   *  until the page has read them. */
+  archivedSessions: Item[] | null;
+  refreshArchivedSessions(): Promise<void>;
+  /** Back into its space's list, unopened — `archiveItem(id, false)`, from wherever the space is. */
+  restoreArchivedSession(itemId: string): Promise<void>;
+  /** The session itself, and its transcript, as the sidebar's own Delete does. */
+  deleteArchivedSession(itemId: string): Promise<void>;
   /** Open an item into `leafId` ?? the focused leaf ?? the first leaf, replacing what it held (the
    *  replaced item returns to the SPACE group); focuses that leaf. With no explicit `leafId`, an
    *  already-open item is only focused (click = go there) — layout untouched, nothing persisted. */
@@ -3031,7 +3039,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     return {
       booted: false,
       sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", sidebarActivityOrder: false, confirmDelete: true, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
-      allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
+      allItems: [], archivedSessions: null, lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
@@ -3612,6 +3620,21 @@ await get().refreshCustomThemes().catch(() => {});
           const live = new Set(get().items.filter((i) => !i.archived).map((i) => i.id));
           set({ paneHistory: forgetNavItems(get().paneHistory, live) });
         }
+      },
+      async refreshArchivedSessions() {
+        // Each space's own list, not `items.listAll`: that one leaves archived rows out on purpose,
+        // because the palette offers what is live.
+        const lists = await Promise.all(get().spaces.map((sp) => api.listItems(sp.id).catch(() => [] as Item[])));
+        const at = (i: Item) => get().sessionUpdatedAt[i.refId] ?? i.updatedAt;
+        set({ archivedSessions: lists.flat().filter((i) => i.kind === "session" && i.archived).sort((a, b) => at(b) - at(a)) });
+      },
+      async restoreArchivedSession(itemId) {
+        await get().archiveItem(itemId, false);
+        set({ archivedSessions: (get().archivedSessions ?? []).filter((i) => i.id !== itemId) });
+      },
+      async deleteArchivedSession(itemId) {
+        await get().deleteItem(itemId);
+        set({ archivedSessions: (get().archivedSessions ?? []).filter((i) => i.id !== itemId) });
       },
       /** Agent-opened panes arrive BESIDE the user's focused pane, never replacing it. Replacing was a
        *  live-found deadlock: the browser evicted the very session whose permission card the user had to

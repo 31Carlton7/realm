@@ -119,6 +119,7 @@ export function SettingsPage(_props: PaneProps) {
               {tab === "permissions" && <PermissionsTab />}
               {tab === "computer-use" && <ComputerUseTab />}
               {tab === "import" && <ImportPanel />}
+              {tab === "archived" && <ArchivedTab />}
             </>
           )}
         </PageScroll>
@@ -1610,6 +1611,78 @@ function Attribution() {
   );
 }
 
+
+/**
+ * Archived: the sessions shelved out of every space's list, in one place, newest first.
+ *
+ * The sidebar's shelf is per space and collapsed by design, which is right for the space you are in
+ * and no help finding the session you put away in another one last week. A row names its space and
+ * when it last moved, which is enough to pick it out without opening it.
+ *
+ * Restore and Delete are the shelf's own two actions, through the same calls. Delete is the session
+ * itself and its transcript, so it asks twice whenever the confirm preference does — the same
+ * preference the sidebar's Delete reads — and says what it takes on its title.
+ */
+function ArchivedTab() {
+  const archived = useApp((s) => s.archivedSessions);
+  const spaces = useApp((s) => s.spaces);
+  const updatedAt = useApp((s) => s.sessionUpdatedAt);
+  const refreshArchivedSessions = useApp((s) => s.refreshArchivedSessions);
+  const run = useApp((s) => s.run);
+  useEffect(() => { void run(() => refreshArchivedSessions()); }, [run, refreshArchivedSessions]);
+  const spaceName = (id: string) => spaces.find((sp) => sp.id === id)?.name ?? null;
+  return (
+    <div className="form">
+      {archived === null ? <p className="env-empty">Loading…</p> : archived.length === 0 ? (
+        <p className="env-empty">No archived sessions. Archiving one from its row in the sidebar keeps it here, out of its space's list.</p>
+      ) : (
+        <ul className="settings-list" aria-label="Archived sessions">
+          {archived.map((it) => (
+            <ArchivedRow key={it.id} itemId={it.id} title={it.title} spaceName={spaceName(it.spaceId)}
+              at={updatedAt[it.refId] ?? it.updatedAt} />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** How long an armed Delete waits for its second click — the bypass confirm's five seconds. */
+const DELETE_ARMED_MS = 5000;
+
+function ArchivedRow({ itemId, title, spaceName, at }: { itemId: string; title: string; spaceName: string | null; at: number }) {
+  const confirmDelete = useApp((s) => s.confirmDelete);
+  const restoreArchivedSession = useApp((s) => s.restoreArchivedSession);
+  const deleteArchivedSession = useApp((s) => s.deleteArchivedSession);
+  const run = useApp((s) => s.run);
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), DELETE_ARMED_MS);
+    return () => clearTimeout(t);
+  }, [armed]);
+  return (
+    <li className="settings-row archived-row">
+      <div className="settings-row-main">
+        <span className="settings-row-name">{title}</span>
+        <span className="settings-row-detail">{[spaceName, at ? relativeTime(at, Date.now()) : null].filter(Boolean).join(" · ")}</span>
+      </div>
+      <div className="archived-actions">
+        <button type="button" className="btn-quiet" aria-label={`Restore ${title}`} title="Back into its space's list, unopened"
+          onClick={() => run(() => restoreArchivedSession(itemId))}>Restore</button>
+        <button type="button" className="btn-quiet danger" aria-label={armed ? `Really delete ${title}` : `Delete ${title}`}
+          title="Deletes the session and its transcript. Nothing in Realm brings it back."
+          onClick={() => {
+            if (confirmDelete && !armed) { setArmed(true); return; }
+            setArmed(false);
+            void run(() => deleteArchivedSession(itemId));
+          }}>
+          {armed ? "Really delete?" : "Delete"}
+        </button>
+      </div>
+    </li>
+  );
+}
 
 /** How long one Touch ID check licenses further fills. "Every time" is the default and the honest
  *  one; the windows exist because an SSO sign-in is often two fills a few seconds apart. */

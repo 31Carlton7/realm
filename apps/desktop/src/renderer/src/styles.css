@@ -6309,6 +6309,10 @@ select { appearance: none; padding-right: 22px;
 .computer-space-mark { flex: none; display: inline-flex; color: var(--rl-text-dim); }
 .computer-app-id { font: 12px var(--font-mono); color: var(--rl-text-dim); overflow-wrap: anywhere; }
 .computer-app { align-items: center; }
+/* Settings ▸ Archived: a session's title takes the slack, and its two actions keep their width at the
+   end of the row rather than squeezing the name to make room. */
+.archived-row { align-items: center; }
+.archived-actions { flex: none; display: flex; gap: 4px; }
 .settings-page-pane .settings-tabs { max-width: 340px; }
 /* Every Settings tab is a stack of titled groups now, and `.form`'s 12px gap already separates
    them — so the heads drop the top margin they carry where they punctuate free-standing controls. */

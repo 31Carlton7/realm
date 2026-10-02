@@ -9,7 +9,7 @@ export type SettingsTab =
   | "engines" | "usage"
   | "signins"
   | "permissions" | "computer-use"
-  | "import";
+  | "import" | "archived";
 
 /**
  * The rail, in reading order: a heading per kind of question, and the pages that answer it.
@@ -24,7 +24,7 @@ export const SETTINGS_GROUPS: readonly { label: string; tabs: readonly { id: Set
   { label: "Engines", tabs: [{ id: "engines", label: "Engines" }, { id: "usage", label: "Usage" }] },
   { label: "Browser", tabs: [{ id: "signins", label: "Sign-ins" }] },
   { label: "Computer", tabs: [{ id: "permissions", label: "Permissions" }, { id: "computer-use", label: "Computer use" }] },
-  { label: "Data", tabs: [{ id: "import", label: "Import" }] },
+  { label: "Data", tabs: [{ id: "import", label: "Import" }, { id: "archived", label: "Archived" }] },
 ];
 
 export function settingsTabLabel(tab: SettingsTab): string {
@@ -145,6 +145,9 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
 
   // Import
   { id: "import", tab: "import", label: "Import from the agent CLIs", terms: "claude codex cursor transcripts memory skills history", page: true },
+
+  // Archived
+  { id: "archived", tab: "archived", label: "Archived sessions", terms: "archive restore unarchive delete shelf old", page: true },
 ];
 
 /** Words, lower-cased and split on everything that is not a letter or a digit — so "sign in" finds
