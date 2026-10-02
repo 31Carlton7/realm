@@ -24,7 +24,7 @@ describe("documentKindFor", () => {
   });
 
   it("answers unsupported for binaries and extensionless files", () => {
-    expect(documentKindFor("image.png")).toBe("unsupported");
+    expect(documentKindFor("disk.dmg")).toBe("unsupported");
     // Extensionless, so nothing to match on. `Makefile` and `Dockerfile` are genuinely editable text
     // and this is the honest limit of an extension-only table, not a judgement that they are not code.
     expect(documentKindFor("Makefile")).toBe("unsupported");
@@ -52,6 +52,14 @@ describe("documentKindFor", () => {
     // picture Quick Look renders.
     for (const name of ["report.docx", "Q3.xlsx", "deck.pptx", "notes.pages", "budget.numbers",
                         "talk.key", "memo.rtf", "book.epub", "sheet.ods"]) {
+      expect(documentKindFor(name), name).toBe("preview");
+    }
+  });
+
+  it("previews a picture rather than refusing it", () => {
+    // THE MUTANT: leave images out of the set. Opening one then put a tab on the strip that the pane
+    // would not draw, under "Nothing open yet" — and an agent's docs_open reported it opened.
+    for (const name of ["after-on-hover.png", "Screenshot 2026-10-01.PNG", "photo.jpeg", "shot.jpg", "anim.gif", "img.webp", "IMG_0001.HEIC"]) {
       expect(documentKindFor(name), name).toBe("preview");
     }
   });
