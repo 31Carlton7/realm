@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import type { Session } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { useAnchoredPopover } from "../use-anchored-popover";
-import { PendingCard } from "../../panes/session/PendingCard";
+import { PendingRequest } from "../../panes/session/PendingRequest";
 
 /**
  * The sidebar column's width below which the chip says only its number. Its words are the part of
@@ -104,9 +104,8 @@ function WaitingSession({ session, spaceName, onGo }: { session: Session; spaceN
         </button>
       </div>
       {pending.map((p) => (
-        <PendingCard key={p.requestId} permission={p}
-          onDecide={(d) => run(() => respondPermission(session.id, p.requestId, d))}
-          onAnswer={(answers) => run(() => respondPermission(session.id, p.requestId, "allow", answers))} />
+        <PendingRequest key={p.requestId} permission={p}
+          onDecide={(...decision) => run(() => respondPermission(session.id, p.requestId, ...decision))} />
       ))}
     </li>
   );

@@ -9,7 +9,7 @@ import { MessageActions } from "./MessageActions";
 import { SelectionBar } from "./SelectionBar";
 import { MessageSources } from "./MessageSources";
 import { sourcesFor, type Source } from "./message-sources";
-import { PendingCard } from "./PendingCard";
+import { PendingRequest } from "./PendingRequest";
 import { PlanCard } from "./PlanCard";
 import { ToolCard, ToolGroup } from "./ToolCard";
 import { finishedAt, finishedOn, formatDuration, groupTranscript, withEnter } from "./tool-group";
@@ -462,11 +462,11 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             </div>;
           }
         })}
-        {/* Which card a request is — permission, question or plan — is PendingCard's, shared with
-            the "need you" list so the two can never draw one request two ways. */}
+        {/* Only what really is a permission keeps the Allow / Allow always / Deny gate — a question
+            and a plan get cards of their own (`PendingRequest`). */}
         {permissions.map((p, i) => (
-          <PendingCard key={p.requestId} permission={p} autoFocus={focused && i === 0} enter={isEntering(permKey(p.requestId))}
-            onDecide={(d) => onDecide(p.requestId, d)} onAnswer={(answers) => onDecide(p.requestId, "allow", answers)} />
+          <PendingRequest key={p.requestId} permission={p} autoFocus={focused && i === 0}
+            enter={isEntering(permKey(p.requestId))} onDecide={(...decision) => onDecide(p.requestId, ...decision)} />
         ))}
         {/* Plan 9 W2: BUI LoadingState's shimmer label — shown by the session's real status, never a clock.
             The word is this run's (run-label.ts), and `run.startedAt` holds it still: seeding it on
