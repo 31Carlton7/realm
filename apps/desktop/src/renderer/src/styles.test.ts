@@ -2153,6 +2153,8 @@ describe("squircle surfaces", () => {
   const worklet = readFileSync(repoFile("apps/desktop/src/renderer/public/squircle-paint.js"), "utf8");
   const registrar = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/squircle.ts"), "utf8");
   const SURFACES = [".composer", ".composer-drop-hint", ".composer-todos", ".composer-overstrip", ".composer-understrip", ".install-card", ".commit-card"];
+  /** The cards that cast a lift from a layer of their own. */
+  const LIFTED = [".composer", ".install-card", ".commit-card"];
 
   it("every squircle surface keeps a circular-corner fallback AND the declarative form", () => {
     // `corner-shape` is a no-op on Chromium 138 (measured in squircle-live.mjs) and takes over at
@@ -2168,9 +2170,11 @@ describe("squircle surfaces", () => {
   it("the painted treatment is gated on the mark theme/squircle.ts only sets once the worklet loaded", () => {
     // `paint()` with no registered painter resolves to nothing, so a card that opted in before the
     // module arrived would render as an invisible box. The gate is what makes that unreachable.
+    // A card that casts a lift paints its face on its ::after instead of on itself (see below).
     for (const sel of SURFACES) {
       const body = bodiesFor(`:root[data-squircle] ${sel}`).join(" ");
-      expect(body, sel).toContain("background: paint(rl-squircle)");
+      const face = LIFTED.includes(sel) ? bodiesFor(`:root[data-squircle] ${sel}::after`).join(" ") : body;
+      expect(face, sel).toContain("background: paint(rl-squircle)");
       // The background painting area is clipped by the radius, and a superellipse sits FURTHER into
       // the corner than the arc of the same radius — left in place it shaves the painted corner
       // straight back into the rounded rect this replaces.
@@ -2197,6 +2201,33 @@ describe("squircle surfaces", () => {
       expect(focus, sel).not.toContain("0 0 0 1px");
     }
     expect(bodiesFor(":root[data-squircle] .composer[data-dropping]").join(" ")).toContain("--sq-ring: var(--rl-accent)");
+  });
+
+  it("a lifted card's shadow is under its face — both are children, ordered, in the card's own stacking context", () => {
+    /* A negative-z child of a stacking context paints ABOVE that element's own background, never
+       below it. With the face on the card's background the lift layer sat on top of it: its fill
+       covered all but the card's outer 2px, and its shadow darkened those 2px into a second edge
+       inside the ring — measured 8 luminance levels darker than the fill beside it, and wider at the
+       corners. THE MUTANTS: paint the face on the card again (its background), put the lift above the
+       face, or leave a card without the stacking context its two layers are ordered in. */
+    for (const sel of LIFTED) {
+      const card = bodiesFor(`:root[data-squircle] ${sel}`).join(" ");
+      expect(card, sel).toContain("background: none");
+      const lift = bodiesFor(`:root[data-squircle] ${sel}::before`).join(" ");
+      const face = bodiesFor(`:root[data-squircle] ${sel}::after`).join(" ");
+      expect(lift, sel).toContain("z-index: -2");
+      expect(face, sel).toContain("z-index: -1");
+      // The face covers the whole card, ring included; the lift may sit inside it, since only its
+      // shadow beyond the face is ever seen.
+      expect(face, sel).toContain("inset: 0");
+      // The face is driven by the card's own state rules, so it takes every input the painter reads.
+      for (const input of ["--sq-fill", "--sq-ring", "--sq-ring-w", "--sq-radius-top", "--sq-radius-bottom", "--sq-n"]) {
+        expect(face, `${sel} ${input}`).toContain(`${input}: inherit`);
+      }
+      const context = [...bodiesFor(sel), card].join(" ");
+      expect(context, `${sel} orders its layers in a context of its own`).toMatch(/z-index: 1|isolation: isolate/);
+      expect(context, `${sel} places its layers against itself`).toContain("position: relative");
+    }
   });
 
   it("--shadow-card is composed from the ring and the lift, in both modes", () => {

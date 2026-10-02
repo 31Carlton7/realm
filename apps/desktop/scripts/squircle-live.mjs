@@ -32,7 +32,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
+import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9338), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8904);
@@ -284,9 +284,12 @@ async function main() {
 
   check("the painter loaded in the real bundle, so the cards are off their fallback",
     await evalIn(c, `document.documentElement.hasAttribute("data-squircle")`));
+  // The face is the card's ::after (styles.css: the lift has to be UNDER it), so that is where the
+  // painter has to be found; the card's own background is out of the way with its radius.
   check("the prompter's fill is the worklet's, and its border-radius is out of the way",
-    await evalIn(c, `(() => { const cs = getComputedStyle(document.querySelector(".composer"));
-      return cs.backgroundImage.includes("paint(rl-squircle)") && parseFloat(cs.borderTopLeftRadius) === 0; })()`));
+    await evalIn(c, `(() => { const el = document.querySelector(".composer"), cs = getComputedStyle(el);
+      return getComputedStyle(el, "::after").backgroundImage.includes("paint(rl-squircle)")
+        && cs.backgroundImage === "none" && parseFloat(cs.borderTopLeftRadius) === 0; })()`));
 
   // ── the lift the technique could have eaten ─────────────────────────────
   // A mask (the obvious way to get a superellipse) clips box-shadow away entirely. Painting the fill
@@ -343,6 +346,28 @@ async function main() {
     { rest: cornerRest.fraction, focused: cornerFocus.fraction });
   await evalIn(c, `(() => { document.querySelector(".composer-input").blur(); return true; })()`);
   await sleep(300);
+
+  // ── one face, and no second edge inside it ───────────────────────────────
+  /* The lift is cast by a layer of its own, and that layer has to sit UNDER the card's face. As a
+     negative-z child of a card that is itself a stacking context it painted OVER the face instead —
+     its fill covered all but the card's outer 2px, and its shadow fell into those 2px: a second,
+     darker edge just inside the hairline, wider at the corners, where the layer's smaller curve
+     drifted from the card's. So the fill just inside the ring has to be the fill further in, on the
+     sides the shadow falls toward. Measured in the middle of each run, clear of the chips. */
+  const faceBands = (b64) => `(async () => {
+    const s = await __live.sampler(${JSON.stringify(b64)});
+    const b = document.querySelector(".composer").getBoundingClientRect();
+    const cx = (b.left + b.right) / 2, cy0 = b.top + 38, cy1 = b.top + 50;
+    const pair = (a, z) => ({ edge: +a.toFixed(2), within: +z.toFixed(2) });
+    return {
+      bottom: pair(s.band(cx - 40, b.bottom - 2, cx + 40, b.bottom - 1.25), s.band(cx - 40, b.bottom - 6, cx + 40, b.bottom - 4)),
+      left: pair(s.band(b.left + 1.25, cy0, b.left + 2, cy1), s.band(b.left + 4, cy0, b.left + 6, cy1)),
+      right: pair(s.band(b.right - 2, cy0, b.right - 1.25, cy1), s.band(b.right - 6, cy0, b.right - 4, cy1)),
+    };
+  })()`;
+  const face = await evalIn(c, faceBands(await shotOf(c)));
+  check("the card has one face — no darker band just inside its ring, on any side the lift falls toward",
+    Object.values(face).every((p) => Math.abs(p.edge - p.within) < 1.5), face);
 
   // ── the corner itself ────────────────────────────────────────────────────
   /* The silhouette is the claim, so the edge stroke comes off first: a 0.5px ring lands precisely on
@@ -555,7 +580,13 @@ async function main() {
 
 main()
   .catch((e) => { console.error("ERROR", e.message); process.exitCode = 1; })
-  .finally(() => {
+  .finally(async () => {
     electron?.kill("SIGTERM");
-    setTimeout(() => { electron?.kill("SIGKILL"); fs.rmSync(scratch, { recursive: true, force: true }); process.exit(process.exitCode ?? 0); }, 1200);
+    await sleep(1200);
+    electron?.kill("SIGKILL");
+    // The server is a second Electron that outlives the app it was spawned for, reparented to init and
+    // still holding SERVER_PORT — so the next run refused to start. Stopped by the home it served.
+    await stopDaemons(path.join(scratch, "home"));
+    fs.rmSync(scratch, { recursive: true, force: true });
+    process.exit(process.exitCode ?? 0);
   });
