@@ -145,10 +145,26 @@ describe("Arc sidebar", () => {
     act(() => store.getState().applySessionStatus("se1", "waiting_permission"));
     expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "waiting_permission");
     expect(row()).toHaveAccessibleName("Fix the build — needs permission");
+    // Idle is where most rows rest, so it wears nothing and is not read out.
     act(() => store.getState().applySessionStatus("se1", "idle"));
-    expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "idle");
-    expect(row()).toHaveAccessibleName("Fix the build — idle");
+    expect(row().querySelector(".status-dot")).toBeNull();
+    expect(row()).toHaveAccessibleName("Fix the build");
     expect(screen.getByRole("button", { name: "Terminal" }).querySelector(".status-dot")).toBeNull();
+  });
+
+  it("an idle session with something new wears the unread ring; a running one keeps its dot instead", async () => {
+    /* THE MUTANT this kills is the one that was shipped: a dot for every status, idle included. The
+       ring is only drawn on a row with no other mark, so it could never appear. */
+    const { store } = await mount(fakeApi({
+      items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Fix the build" })] },
+      sessions: [session("se1", "s1", { status: "idle", seenSeq: 3, lastEventSeq: 5 })],
+    }));
+    const row = () => screen.getByRole("button", { name: /^Fix the build/ });
+    await waitFor(() => expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "unseen"));
+    expect(row()).toHaveAccessibleName("Fix the build — new since you were here");
+    act(() => store.getState().applySessionStatus("se1", "running"));
+    expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "running");
+    expect(row().querySelectorAll(".status-dot")).toHaveLength(1);
   });
 
   it("an empty space shows one faint hint line pointing at New session (A-L6)", async () => {
