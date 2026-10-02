@@ -1792,7 +1792,10 @@ button.panel-title:hover { background: var(--rl-hover); }
   overflow-x: auto; scrollbar-width: none; }
 .pane-tabs-add { flex: none; color: var(--rl-text-faint); }
 .pane-tabs-add[aria-expanded="true"] { background: var(--rl-hover); color: var(--rl-text-bright); }
-.pane-tab { display: flex; align-items: center; flex: 0 1 180px; min-width: 88px; height: 28px; border-radius: var(--r-chip);
+/* A width rather than a flex basis: the strip is sized from its tabs now that the "+" follows them, and
+   a basis is not what a flex container's own size is measured from — every tab came out at the width
+   of its words, and a seven-letter name ran to an ellipsis in a pane with room for four of them. */
+.pane-tab { display: flex; align-items: center; flex: 0 1 auto; width: 180px; min-width: 88px; height: 28px; border-radius: var(--r-chip);
   transition: background-color var(--dur-hover) var(--ease-out-strong); }
 .pane-tab:hover { background: var(--rl-hover); }
 .pane-tab[data-active] { background: var(--rl-hover); }
