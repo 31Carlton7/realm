@@ -27,6 +27,10 @@ describe("screenshotFileName", () => {
     expect(screenshotFileName("http://127.0.0.1:8971/", NOW)).toBe("127.0.0.1-8971-2026-10-01T19-30-05.png");
   });
 
+  it("an annotation's capture says so in its name, after the time", () => {
+    expect(screenshotFileName("https://example.com/list", NOW, "-annotations")).toBe("example.com-2026-10-01T19-30-05-annotations.png");
+  });
+
   it("a page with no host is still a file with a name", () => {
     expect(screenshotFileName("about:blank", NOW)).toBe("page-2026-10-01T19-30-05.png");
     expect(screenshotFileName("", NOW)).toBe("page-2026-10-01T19-30-05.png");
@@ -40,6 +44,11 @@ describe("saveBrowserScreenshot", () => {
     expect(r).toEqual({ ok: true, path: "/tmp/space/screenshots/example.com-2026-10-01T19-30-05.png", name: "example.com-2026-10-01T19-30-05.png", size: PNG.length });
     expect(made).toEqual(["/tmp/space/screenshots"]);
     expect([...written.values()]).toEqual([PNG]);
+  });
+
+  it("names the file with the suffix it is given", async () => {
+    const { d } = deps({ nameSuffix: "-annotations" });
+    expect(await saveBrowserScreenshot(d)).toMatchObject({ ok: true, name: "example.com-2026-10-01T19-30-05-annotations.png" });
   });
 
   it("two shots in the same second are two files — the first is never overwritten", async () => {

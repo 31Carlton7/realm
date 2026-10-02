@@ -26,6 +26,10 @@
  *  11. Suggestions (Plan 26 W7c): typing in the address field lists the visited pages that match, most
  *      visited first, as a strip that pushes the view down; ↓ and Return open a page, the last row
  *      searches the web for the text, Escape closes the list, and Clear browsing data empties it.
+ *  12. Annotate (Plan 26 W7d): every click in the page pins a numbered outline that stays, and the
+ *      page's own toolbar counts them; Send captures the page WITH the pins and without the toolbar,
+ *      lands one "3 annotations" chip and the capture in the session's prompter, and — sent — the
+ *      agent is told each pin by its number. Escape ends it with nothing; a navigation says so.
  *
  * Ports: LIVE_SERVER_PORT (8961), LIVE_CDP_PORT (9361), LIVE_MAIN_INSPECT_PORT (9461), LIVE_SITE_PORT
  * (8971). Touches only a scratch dir; kills only what listens on its own ports. Browses nothing but its
@@ -153,6 +157,10 @@ const ROUTES = {
   "/docs": () => page("Docs — Fixture", "<h1>Docs</h1><p>Every setting lives in one file.</p>"),
   "/files": () => page("Files — Fixture", '<h1>Files</h1><p><a id="dl" href="/files/notes.txt">notes.txt</a></p>'),
   "/cookie": () => page("Cookie — Fixture", "<h1>Cookie</h1><p>This page set a cookie.</p>"),
+  // Big targets with a link in each, so pinning one proves a click on a link changes nothing.
+  "/list": () => page("List — Fixture", `<h1>List</h1><style>li { list-style: none; width: 340px; margin: 10px 0; padding: 14px 18px;
+    border: 1px solid #ddd; border-radius: 8px; font-size: 18px; } li a { color: #222; }</style><ul style="padding:0">${
+    [1, 2, 3, 4].map((n) => `<li id="i${n}"><a href="#item-${n}">Item ${n}</a></li>`).join("")}</ul>`),
 };
 
 function startSite() {
@@ -306,7 +314,7 @@ async function main() {
   const [space] = await api.call("spaces.list", {});
   // A project, so a saved download has somewhere to go: `<project root>/downloads`, as the agent's do.
   await api.call("projects.create", { spaceId: space.id, name: "Live", rootPath: space.folderPath });
-  await api.call("sessions.create", { spaceId: space.id, agentKind: "fake", title: TITLE });
+  const { session: fakeSession } = await api.call("sessions.create", { spaceId: space.id, agentKind: "fake", title: TITLE });
   await until(() => evalIn(c, `[...document.querySelectorAll('.item-list .item-row')].some((b) => b.textContent.includes(${JSON.stringify(TITLE)}))`), 20_000, "session row");
   await evalIn(c, `(() => { [...document.querySelectorAll('.item-list .item-row')].find((b) => b.textContent.includes(${JSON.stringify(TITLE)})).click(); return true; })()`);
   await until(() => evalIn(c, `[...document.querySelectorAll('.panel-title')].some((t) => t.textContent === ${JSON.stringify(TITLE)})`), 10_000, "session pane");
@@ -627,6 +635,105 @@ async function main() {
   const afterClear = await until(suggestions, 5_000, "suggestions after clearing").catch(() => null);
   check("…and the address field has forgotten the pages: only the web search is left", JSON.stringify(afterClear?.rows.map((r) => r.title)) === JSON.stringify(["Search the web for “fixture”"]), afterClear?.rows);
   await key("Escape");
+
+  // ── 12. Annotate ──────────────────────────────────────────────────────────────────────────────
+  await go("/list");
+  await sleep(400);
+  /** A real click in the VIEW, the way a hand makes one: the move, then the press and the release. */
+  const clickInView = (pt) => mainEval(`(async () => {
+    const { BrowserWindow, WebContentsView } = require("electron");
+    for (const w of BrowserWindow.getAllWindows()) for (const v of w.contentView.children) {
+      if (!(v instanceof WebContentsView) || !v.webContents.getURL().startsWith(${JSON.stringify(SITE)})) continue;
+      const wc = v.webContents, at = { x: ${pt.x}, y: ${pt.y} };
+      wc.sendInputEvent({ type: "mouseMove", ...at });
+      await new Promise((r) => setTimeout(r, 40));
+      wc.sendInputEvent({ type: "mouseDown", ...at, button: "left", clickCount: 1 });
+      wc.sendInputEvent({ type: "mouseUp", ...at, button: "left", clickCount: 1 });
+      await new Promise((r) => setTimeout(r, 200));
+      return true;
+    }
+    return false; })()`);
+  const centreOf = (js) => inView(`(() => { const r = (${js}).getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`);
+  const annotateLit = () => evalIn(c, `document.querySelector('.browser-pane button[aria-label=Annotate]')?.getAttribute('aria-pressed')`);
+  const barText = () => inView(`document.querySelector('[role=toolbar][aria-label=Annotate]')?.textContent ?? null`);
+  const pressAnnotate = () => evalIn(c, `(() => { document.querySelector('.browser-pane button[aria-label=Annotate]').click(); return true; })()`);
+  await pressAnnotate();
+  const armedBar = await until(barText, 5_000, "the page's annotate toolbar").catch(() => null);
+  check("Annotate arms the page: its own toolbar is up in the page, and the pane's button is lit", !!armedBar?.includes("click to pin") && (await annotateLit()) === "true", { armedBar });
+  for (const n of [1, 2, 3]) await clickInView(await centreOf(`document.getElementById("i${n}")`));
+  const pinned = await until(async () => { const t = await barText(); return t?.includes("Annotating · 3") ? t : null; }, 5_000, "three pins").catch(() => barText());
+  check("every click pins one and numbers it, and the toolbar counts them", !!pinned?.includes("Annotating · 3"), pinned);
+  check("…and pinning a link changed nothing about the page", (await view())?.url === `${SITE}/list`, (await view())?.url);
+  const geometry = await inView(`(() => {
+    const bar = document.querySelector('[role=toolbar][aria-label=Annotate]');
+    const pins = [...bar.parentElement.children[1].children].map((b) => { const r = b.getBoundingClientRect(); return { left: r.left, top: r.top, width: r.width, height: r.height, n: b.textContent }; });
+    const r = bar.getBoundingClientRect();
+    return { bar: { x: r.left + r.width / 2, y: r.top + r.height / 2 }, pins, viewport: { w: innerWidth, h: innerHeight } };
+  })()`);
+  check("three numbered outlines stay on the page, one per pin", geometry.pins.length === 3 && geometry.pins.map((p) => p.n).join() === "1,2,3", geometry.pins);
+  await shotView(mainEval, "annotate-page");
+  const shotsBefore = new Set(fs.existsSync(shotsDir) ? fs.readdirSync(shotsDir) : []);
+  await clickInView(await centreOf(`[...document.querySelectorAll('[role=toolbar][aria-label=Annotate] button')].find((b) => b.textContent === "Send")`));
+  const capture = await until(() => (fs.existsSync(shotsDir) ? fs.readdirSync(shotsDir) : []).find((f) => !shotsBefore.has(f) && f.endsWith("-annotations.png")) ?? null, 10_000, "the annotated capture").catch(() => null);
+  const capturePath = capture ? path.join(shotsDir, capture) : null;
+  check("Send writes the page as it looked, pins and all, into the space's screenshots/ folder", !!capturePath, capture);
+  if (capturePath) { fs.copyFileSync(capturePath, OUT("annotate-capture")); console.log(`SCREENSHOT annotate-capture ${OUT("annotate-capture")}`); }
+  // Read the capture's own pixels: the pins must be in it and Realm's toolbar must not.
+  const pixels = capturePath ? await mainEval(`(() => {
+    const { nativeImage } = require("electron");
+    const img = nativeImage.createFromPath(${JSON.stringify(capturePath)});
+    const { width, height } = img.getSize();
+    const bmp = img.toBitmap();
+    const k = width / ${geometry.viewport.w};
+    const at = (x, y) => { const i = (Math.round(y * k) * width + Math.round(x * k)) * 4; return { r: bmp[i + 2], g: bmp[i + 1], b: bmp[i] }; };
+    const p1 = ${JSON.stringify(geometry.pins[0] ?? null)};
+    // The badge is centred on the outline's corner with its white digit in the middle, so its fill is
+    // read beside the digit rather than on it.
+    return { toolbar: at(${geometry.bar.x}, ${geometry.bar.y}), badge: p1 ? at(p1.left - 7, p1.top) : null, border: p1 ? at(p1.left + 1, p1.top + p1.height / 2) : null };
+  })()`) : null;
+  note("capture pixels", pixels);
+  const blue = (px) => !!px && px.b > 150 && px.b > px.r + 40;
+  check("…the capture shows the numbered pins in the accent", blue(pixels?.badge) && blue(pixels?.border), pixels);
+  check("…and not the toolbar, which is Realm's, not the page's", !!pixels && pixels.toolbar.r > 200 && pixels.toolbar.g > 200 && pixels.toolbar.b > 200, pixels?.toolbar);
+  const after = await until(async () => ((await barText()) === null && (await annotateLit()) === "false" ? true : null), 5_000, "annotate taken down").catch(() => false);
+  check("Send takes the pins and the toolbar off the page and puts the button out", after);
+  const landed = await until(() => evalIn(c, `(() => {
+    const pane = [...document.querySelectorAll('.panehost .panel')].find((p) => p.querySelector('.panel-title')?.textContent === ${JSON.stringify(TITLE)});
+    const draft = pane?.querySelector('textarea')?.value ?? "";
+    const files = [...(pane?.querySelectorAll('.composer-attachments li') ?? [])].map((li) => li.textContent);
+    return draft.includes("@[3 annotations]") ? { draft, files, toast: document.querySelector('.browser-toast')?.textContent ?? null } : null; })()`), 5_000, "the chip in the prompter").catch(() => null);
+  check("…and ONE chip, \"3 annotations\", is waiting in the session's prompter", !!landed && (landed.draft.match(/@\[/g) ?? []).length === 1, landed?.draft);
+  check("…with the capture of the pins attached beside it", !!landed?.files.some((f) => f.includes(capture ?? "nothing")), landed?.files);
+  check("…and a receipt that names the chip and the session", landed?.toast === `Added 3 annotations to ${TITLE}.`, landed?.toast);
+  await shot(c, "annotate-prompter");
+  // Sent for real, through the composer: the fake agent echoes what it was handed, which is the message
+  // plus what the chip stands for — so this reads exactly what an agent would be told.
+  const box = await evalIn(c, `(() => { const pane = [...document.querySelectorAll('.panehost .panel')].find((p) => p.querySelector('.panel-title')?.textContent === ${JSON.stringify(TITLE)});
+    const r = pane.querySelector('textarea').getBoundingClientRect(); return { x: r.left + 30, y: r.top + r.height / 2 }; })()`);
+  for (const type of ["mousePressed", "mouseReleased"]) await c.send("Input.dispatchMouseEvent", { type, x: box.x, y: box.y, button: "left", clickCount: 1 });
+  await sleep(200);
+  await key("Enter");
+  const echoed = await until(async () => {
+    const evs = await api.call("sessions.events", { id: fakeSession.id, afterSeq: 0, limit: 500 });
+    return evs.map((e) => e.event).find((e) => e.type === "assistant_text" && e.payload.text.includes("@[3 annotations] pin 3"))?.payload.text ?? null;
+  }, 15_000, "the agent's echo").catch(() => null);
+  check("the agent is told each pin by its number, under one token", !!echoed && [1, 2, 3].every((n) => echoed.includes(`@[3 annotations] pin ${n}\nurl: ${SITE}/list`)) && (echoed.match(/ {2}@\[3 annotations\] — /g) ?? []).length === 1, echoed?.slice(0, 600));
+  check("…and which attached file shows the numbers", !!echoed?.includes(`the attached ${capture} shows each number`), echoed?.match(/An annotation chip[^\n]*/)?.[0]);
+  // Escape in the page ends it with nothing; a navigation ends it and says so.
+  await pressAnnotate();
+  await until(barText, 5_000, "armed again");
+  await mainEval(`(() => { const { BrowserWindow, WebContentsView } = require("electron");
+    for (const w of BrowserWindow.getAllWindows()) for (const v of w.contentView.children)
+      if (v instanceof WebContentsView && v.webContents.getURL().startsWith(${JSON.stringify(SITE)})) { v.webContents.focus(); v.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" }); v.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" }); }
+    return true; })()`);
+  const escaped = await until(async () => ((await barText()) === null && (await annotateLit()) === "false" ? true : null), 5_000, "escaped").catch(() => false);
+  check("Escape in the page ends annotating, with nothing sent", escaped && !(await evalIn(c, `document.querySelector('.browser-toast')?.textContent?.includes("annotation") ?? false`)));
+  await pressAnnotate();
+  await until(barText, 5_000, "armed a third time");
+  await clickInView(await centreOf(`document.getElementById("i4")`));
+  await go("/");
+  const leftToast = await until(() => evalIn(c, `document.querySelector('.browser-toast')?.textContent ?? null`), 5_000, "left toast").catch(() => null);
+  check("a navigation ends it and says the pins went with the page", leftToast === "The page changed, so its pins were cleared." && (await annotateLit()) === "false", leftToast);
 
   // ── 10. Browser settings ──────────────────────────────────────────────────────────────────────
   await choose(["Browser settings"]);
