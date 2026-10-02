@@ -209,6 +209,40 @@ describe("useKeybindings", () => {
     await tick();
     expect(store.getState().activeSpaceId).toBe("s2");
   });
+
+  it("goes back to where you were on ⌃-, room and all, and forward again on ⌃⇧- — from the prompter too", async () => {
+    /* `code` is what the hook reads, so the events carry it: ⌃⇧- arrives with `key` "_" on a US
+       layout, and a binding read off `key` would never fire. */
+    const { store } = await mount(undefined, {
+      spaces: [space("s1", "p1", "Versed", { layout: { type: "leaf", id: "L1", itemId: "i1" } }), space("s2", "p1", "Homework")],
+      items: { s1: [item("i1", "s1", { kind: "session", refId: "se1", title: "Mine" })], s2: [item("i2", "s2", { kind: "session", refId: "se2", title: "Theirs" })] },
+      sessions: [session("se1", "s1"), session("se2", "s2", { status: "waiting_permission" })],
+    });
+    await act(async () => { await store.getState().revealSession("se2", "s2"); });
+    const prompter = document.createElement("textarea");
+    document.body.appendChild(prompter);
+    key({ key: "-", code: "Minus", ctrlKey: true }, prompter);
+    await waitFor(() => expect(store.getState().activeSpaceId).toBe("s1"));
+    expect(store.getState().focusedLeafId).toBe("L1");
+    key({ key: "_", code: "Minus", ctrlKey: true, shiftKey: true }, prompter);
+    await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
+    prompter.remove();
+  });
+
+  it("leaves ⌃- to a terminal, where readline reads it as undo", async () => {
+    const { store } = await mount(undefined, {
+      items: { s1: [item("i1", "s1", { title: "Terminal" })], s2: [] },
+    });
+    await act(async () => { await store.getState().selectSpace("s2"); });
+    const xterm = document.createElement("div"); xterm.className = "xterm";
+    const helper = document.createElement("textarea"); xterm.appendChild(helper);
+    document.body.appendChild(xterm);
+    const ev = fireEvent.keyDown(helper, { key: "-", code: "Minus", ctrlKey: true });
+    await tick();
+    expect(ev).toBe(true); // not consumed
+    expect(store.getState().activeSpaceId).toBe("s2");
+    xterm.remove();
+  });
 });
 
 /**

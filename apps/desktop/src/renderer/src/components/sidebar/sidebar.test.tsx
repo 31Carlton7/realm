@@ -1173,3 +1173,28 @@ describe("Active — what needs you, from every room", () => {
     expect(titles(container)).toEqual(["Wants a yes"]);
   });
 });
+
+describe("opening a session in another room", () => {
+  it("switches the room in place: the page lands with no slide, and nothing is queued to animate", async () => {
+    /* The page slide belongs to a two-finger gesture alone (§6). A session opened from a list is a
+       jump to a place, and a page sliding in under the pointer would read as the sidebar moving. */
+    let queued = 0;
+    vi.stubGlobal("requestAnimationFrame", () => { queued++; return queued; });
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    const { container, store } = await mount(fakeApi({
+      items: { s1: [item("i1", "s1", { title: "Terminal" })], s2: [item("i2", "s2", { kind: "session", refId: "asks", title: "Wants a yes" })] },
+      sessions: [session("asks", "s2", { title: "Wants a yes", status: "waiting_permission" })],
+    }));
+    const track = container.querySelector<HTMLElement>(".swiper-track")!;
+    const row = container.querySelector<HTMLElement>(".sb-active .item-row")!;
+    queued = 0;
+    fireEvent.click(row);
+    await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
+    await waitFor(() => expect(allItems(store.getState().layout!)).toContain("i2"));
+    expect(track.style.transform).toBe("translateX(-100%)");
+    expect(track.style.transition).toBe("");
+    expect(queued).toBe(0);
+    // The row clicked is still there, lit: the list above the room did not change under the pointer.
+    expect(container.querySelector(".sb-active .item")).toHaveAttribute("data-active");
+  });
+});

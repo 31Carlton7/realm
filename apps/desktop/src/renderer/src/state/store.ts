@@ -2,6 +2,7 @@ import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiv
 import { destinationTarget, pageItemId } from "./page-item";
 import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sources";
 import { createStore, useStore, type StoreApi } from "zustand";
+import { EMPTY_TRAIL, pushStop, settleStop, stepTarget, type WindowStop, type WindowTrail } from "./window-trail";
 import {
   allItems, closeItem as layoutClose, closeLeaf as layoutCloseLeaf, emptyLayout, equalizeSplit as layoutEqualize, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, modeWireValue, sessionModeOf,
   lectureWrapUpPrompt, localDateStamp, sessionEvent,
@@ -964,6 +965,21 @@ export type AppState = {
    *  `writeGroups`, which reconciles it against the layout on every structural write — plus the two
    *  explicit actions (`navigateInPane`, `stepPaneNav`) and the item prune in `refreshItems`. */
   paneHistory: PaneHistory;
+  /**
+   * Where the window has been, rooms included — what Go back and Go forward step through (see
+   * `WindowTrail`). Recorded from one place, a subscription to every write, so no path that moves the
+   * keyboard has to remember to: a compound move (a room switch, opening a session in another room)
+   * holds the recording until it lands and is one stop, not its halfway points. NOT persisted, for the
+   * reason the pane trails are not: it is the trail you walked in this sitting.
+   */
+  windowTrail: WindowTrail;
+  /**
+   * The session that should have the keyboard once its pane is up, as a pulse (`n` grows) — set when
+   * a session is opened from a list of sessions rather than from its own pane, so the hand that
+   * clicked can type at once. The pane takes it (SessionPane); a card already holding the keyboard
+   * there — a permission waiting for an answer — keeps it.
+   */
+  keyboardFor: { sessionId: string; n: number } | null;
   /** The notifications page's selected row, or null for the bare list. USER-level, not per space and
    *  not per item: the feed is one global thing, so the page's vantage into it is too — opening
    *  Notifications from any space lands on the row you were reading. Panes record moves into their own
@@ -1550,6 +1566,11 @@ export type AppState = {
   /** Step one pane `delta` stops along its own trail (`-1` back, `+1` forward) and put it back exactly
    *  as it stood — item AND in-pane view. No-op at either end. */
   stepPaneNav(leafId: string, delta: number): Promise<void>;
+  /** Step the window `delta` stops along `windowTrail` (`-1` back, `+1` forward): into the room, onto
+   *  the pane that had the keyboard there. No-op at either end. */
+  stepWindow(delta: number): Promise<void>;
+  /** Is there somewhere to go `delta` steps along the window's trail? */
+  canStepWindow(delta: number): boolean;
   /** Is there a stop `delta` steps from where `leafId` stands? What greys the arrows out. */
   canPaneNav(leafId: string | null, delta: number): boolean;
   /** Move pane focus to the structural neighbor in that direction (see neighborLeafId); no-op without one. */
@@ -2485,7 +2506,7 @@ const scheduleFrame = (fn: () => void): number =>
   typeof requestAnimationFrame === "function" ? requestAnimationFrame(fn) : (setTimeout(fn, 16) as unknown as number);
 
 export function createAppStore(api: Api): StoreApi<AppState> {
-  return createStore<AppState>((set, get) => {
+  return createStore<AppState>((set, get, storeApi) => {
     let persistTimer: ReturnType<typeof setTimeout> | null = null;
     /** Monotonic id for fetches of the active space's items. Reconcile is destructive (it prunes open
      *  items missing from the list), so only the newest-started fetch may apply: the Api makes no
@@ -3021,6 +3042,32 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       await get().openItem(itemId, targetLeafId);
     };
 
+    /* ── The window's trail ──────────────────────────────────────────────────────────────────────
+       Recorded from ONE place: a subscription to every write. Every way the keyboard moves — a row
+       clicked, a pane clicked, a group switched, a room switched, a pane closed under you — ends in a
+       write, so offering each one to `pushStop` catches them all, and `pushStop` itself ignores the
+       writes that land where the window already stands. A compound move holds the recording
+       (`holdTrail`) and is recorded once when it lands: a room switch passes through an empty room and
+       a restored pane on its way to the one you asked for, and neither of those is somewhere you were. */
+    let trailHeld = 0;
+    /** Where the window stands now — null while a room is still loading, which is nowhere yet. */
+    const here = (): WindowStop | null => {
+      const s = get();
+      if (!s.activeSpaceId || !layoutHydrated) return null;
+      return { spaceId: s.activeSpaceId, itemId: itemIdOfLeaf(s.layout, s.focusedLeafId) };
+    };
+    const noteStop = () => {
+      const stop = here(); if (!stop) return;
+      const t = get().windowTrail;
+      const next = pushStop(t, stop);
+      if (next !== t) set({ windowTrail: next });
+    };
+    storeApi.subscribe(() => { if (trailHeld === 0) noteStop(); });
+    const holdTrail = async <T,>(fn: () => Promise<T>): Promise<T> => {
+      trailHeld++;
+      try { return await fn(); } finally { if (--trailHeld === 0) noteStop(); }
+    };
+
     let groundAlphaTimer: ReturnType<typeof setTimeout> | null = null;
     let sidebarWidthTimer: ReturnType<typeof setTimeout> | null = null;
     let contrastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -3043,7 +3090,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
-      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, editorCursorBlink: EDITOR_CURSOR_BLINK_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, notificationsSelectedId: null, paneHistory: {},
+      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, editorCursorBlink: EDITOR_CURSOR_BLINK_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, notificationsSelectedId: null, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null,
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       activeProfileId() { return get().activeSpace()?.profileId ?? null; },
@@ -3145,7 +3192,7 @@ await get().refreshCustomThemes().catch(() => {});
         // asking a registry on every launch. It only ever LOOKS; applying an update stays a click.
         void get().refreshCliStatus().catch(() => {});
       },
-      async selectSpace(id, opts) {
+      selectSpace(id, opts) { return holdTrail(async () => {
         await flushPersist();
         itemsFetchSeq++; // in-flight item fetches from the previous activation are now stale
         layoutHydrated = false;
@@ -3168,7 +3215,7 @@ await get().refreshCustomThemes().catch(() => {});
         // Space activation refreshes git context for the focused pane's session, if any.
         const focusedItem = get().items.find((i) => i.id === itemIdOfLeaf(get().layout, get().focusedLeafId));
         if (focusedItem?.kind === "session") refreshGitFor(focusedItem.refId);
-      },
+      }); },
       async nextSpace() {
         const list = get().profileSpaces(); const i = list.findIndex((s) => s.id === get().activeSpaceId);
         const n = list[i + 1]; if (i >= 0 && n) await get().selectSpace(n.id);
@@ -3804,6 +3851,31 @@ await get().refreshCustomThemes().catch(() => {});
         set(writeLayout(layout, { focusedLeafId: leafId }));
         applyNavView(entry);
         await persist();
+      },
+      canStepWindow(delta) {
+        const known = new Set(get().spaces.map((s) => s.id));
+        return stepTarget(get().windowTrail, delta, (stop) => known.has(stop.spaceId)) !== null;
+      },
+      async stepWindow(delta) {
+        const t = get().windowTrail;
+        const known = new Set(get().spaces.map((s) => s.id));
+        const i = stepTarget(t, delta, (stop) => known.has(stop.spaceId));
+        if (i === null) return;
+        const stop = t.stops[i]!;
+        trailHeld++;
+        try {
+          set({ windowTrail: { stops: t.stops, index: i } });
+          if (stop.spaceId !== get().activeSpaceId) await get().selectSpace(stop.spaceId, { land: false });
+          // "Go there": the item's pane gets the keyboard, in whichever group holds it. An item since
+          // deleted or put away leaves the room as it stands.
+          const item = stop.itemId ? get().items.find((it) => it.id === stop.itemId && !it.archived) : undefined;
+          if (item) await get().openItem(item.id);
+        } finally {
+          trailHeld--;
+          // Where the step landed IS that stop now (`settleStop`): an item gone since must not fork the trail.
+          const landed = here();
+          if (landed) { const cur = get().windowTrail; const next = settleStop(cur, landed); if (next !== cur) set({ windowTrail: next }); }
+        }
       },
       focusNeighbor(dir) {
         const { layout, focusedLeafId } = get();
@@ -5541,7 +5613,7 @@ await get().refreshCustomThemes().catch(() => {});
           void get().run(() => get().refreshNotifications());
         }
       },
-      async revealSession(sessionId, spaceId) {
+      revealSession(sessionId, spaceId) { return holdTrail(async () => {
         // `sessionSpace` is the authority when it has an answer: a session that was MOVED between
         // spaces leaves the caller's remembered id stale, and switching to the old space would open
         // nothing and look like a dead button.
@@ -5553,8 +5625,10 @@ await get().refreshCustomThemes().catch(() => {});
         // than leave the user somewhere new with nothing opened.
         if (!item) return false;
         await get().openItem(item.id);
+        // Opened from a list of sessions, so the keyboard follows: the hand that clicked can type.
+        set({ keyboardFor: { sessionId, n: (get().keyboardFor?.n ?? 0) + 1 } });
         return true;
-      },
+      }); },
       async openNotificationTarget(n) {
         // Read first, before anything moves: the row is read because the user clicked it, not because
         // a landing turned out to be reachable. selectNotification below then finds it already read

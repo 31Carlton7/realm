@@ -476,6 +476,10 @@ export const KEY_COMMANDS: readonly KeyCommand[] = [
   { id: "palette.grep", label: "Find in files", group: "App" },
   { id: "sidebar.toggle", label: "Show/hide the sidebar", group: "App" },
   { id: "activity.open", label: "MCP Activity", group: "App" },
+  /* The WINDOW's trail, rooms included — where you were, not what this pane showed (that is
+     `pane.navBack`). Following an agent into another room and coming back is one Go back. */
+  { id: "window.back", label: "Go back", group: "App" },
+  { id: "window.forward", label: "Go forward", group: "App" },
 ];
 
 /**
@@ -543,6 +547,14 @@ export const DEFAULT_KEYBINDINGS: readonly Keybinding[] = [
   { key: "mod+j", command: "terminal.toggle", when: "!overlayOpen && sessionFocus" },
   { key: "mod+shift+enter", command: "session.dispatchDraft", when: "!overlayOpen && sessionFocus" },
   { key: "escape", command: "session.interrupt", when: "!overlayOpen && sessionRunning" },
+  /* ⌃- / ⌃⇧-, the Go back / Go forward of VS Code and Cursor on a Mac. NOT ⌘[ / ⌘], the browser
+     convention Codex uses for this: those are `pane.navBack` / `pane.navForward` above, the focused
+     pane's own trail, and taking them would rebind a shortcut people already use. Typing is allowed
+     (`inputFocus` is not in the clause) because the hand is usually in a composer when it wants to go
+     back, and ⌃- types nothing there; a terminal is left out because ⌃- is a keystroke there — readline
+     reads it as undo. */
+  { key: "ctrl+-", command: "window.back", when: "!overlayOpen && !terminalFocus" },
+  { key: "ctrl+shift+-", command: "window.forward", when: "!overlayOpen && !terminalFocus" },
 ];
 
 /**
