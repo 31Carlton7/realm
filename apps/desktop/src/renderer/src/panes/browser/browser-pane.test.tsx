@@ -71,7 +71,7 @@ function fakeBridges(row: Partial<Browser> = {}) {
     setDevice: async (id, preset) => { calls.push(`set-device:${id}:${preset}`); },
     screenshot: async (id, dir) => { calls.push(`screenshot:${id}:${dir}`); return screenshotResult; },
     clearData: async () => { calls.push("clear-data"); return { cleared }; },
-    reveal: async (path) => { calls.push(`reveal:${path}`); },
+    reveal: async (path) => { calls.push(`reveal:${path}`); return !path.includes("/gone/"); },
   };
   const server: BrowserServerBridge = {
     get: async () => r,
@@ -936,6 +936,18 @@ describe("BrowserPane — the ⋯ menu (Plan 26 W7)", () => {
     expect(f.calls).toContain("reveal:/tmp/proj/downloads/report.pdf");
     const downloads = rowsOf(f.menus[0]!.items).find((r) => r.label === "Downloads")!.submenu!;
     expect(downloads.map((r) => r.label ?? "—")).toEqual(["Save week-3.pdf", "—", "Show report.pdf in Finder"]);
+    expect(screen.queryByText(/Nothing is at/)).toBeNull();
+  });
+
+  it("says so when a saved download has gone, rather than doing nothing", async () => {
+    // THE MUTANT: drop the answer from `reveal`. The Finder shows nothing for a path with no file, so
+    // the click would do nothing at all — the report that started the reveal fix.
+    const { f } = await mount();
+    f.setMenuState({ blocked: [], saved: [{ id: "sd_2", name: "old.pdf", path: "/tmp/gone/old.pdf", ts: 3 }] });
+    await choose(f, "download:show:sd_2");
+    expect(f.calls).toContain("reveal:/tmp/gone/old.pdf");
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText("Nothing is at /tmp/gone/old.pdf. It may have been moved or deleted.")).toBeTruthy();
   });
 
   it("Clear browsing data says so only when it happened — main asks first, and Cancel is a no", async () => {

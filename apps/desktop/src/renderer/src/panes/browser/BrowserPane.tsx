@@ -645,7 +645,9 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
       }
       case "show-download": {
         const saved = menu.saved.find((d) => d.id === choice.id);
-        if (saved) await host.reveal(saved.path);
+        // A reveal of a file that has gone does nothing in the Finder, so it says so here instead —
+        // in the words the transcript's path menu uses for the same thing.
+        if (saved && !(await host.reveal(saved.path))) toast.say(`Nothing is at ${saved.path}. It may have been moved or deleted.`, "alert");
         return;
       }
       case "history": await host.goToIndex(browserId, choice.index); return;

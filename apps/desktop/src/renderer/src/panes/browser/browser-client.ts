@@ -99,8 +99,9 @@ export type BrowserHostBridge = {
   screenshot(id: string, dir: string): Promise<BrowserScreenshotSaved>;
   /** Confirms in main first; resolves whether the partition was cleared. */
   clearData(): Promise<{ cleared: boolean }>;
-  /** Show a file this pane saved in the Finder — `files.reveal`, which only ever selects a file. */
-  reveal(path: string): Promise<void>;
+  /** Show a file this pane saved in the Finder — `files.reveal`, which only ever selects a file.
+   *  False when nothing is at the path any more (moved or deleted since it was saved). */
+  reveal(path: string): Promise<boolean>;
 };
 
 /** The server side: the persisted row and the space's allowlist setting. */
@@ -131,7 +132,7 @@ export function getBrowserBridges(): BrowserBridges {
       // The menu bridge is the window's, not the browser's — every pane kind may pop one — but the
       // browser pane is its first caller, and faking it with the rest keeps its tests in one place.
       popupMenu: (items, at) => window.realm.popupMenu?.(items, at) ?? Promise.resolve(null),
-      reveal: (path) => window.realm.files?.reveal(path) ?? Promise.resolve(),
+      reveal: (path) => window.realm.files?.reveal(path) ?? Promise.resolve(false),
     },
     server: {
       get: (browserId) => rpc().call("browsers.get", { browserId }),

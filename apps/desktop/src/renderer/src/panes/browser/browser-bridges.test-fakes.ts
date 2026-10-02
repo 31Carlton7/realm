@@ -46,7 +46,7 @@ export function fakeBrowserBridges(over: {
     setDevice: async () => {},
     screenshot: async () => ({ ok: false, error: "no screenshot bridge in this test" }),
     clearData: async () => ({ cleared: false }),
-    reveal: async () => {},
+    reveal: async () => true,
     ...over.host,
   };
   const server: BrowserServerBridge = {
