@@ -3,6 +3,7 @@ import { Icon } from "@realm/ui";
 import type { Notification, NotificationCategory } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { PermissionCard } from "../session/PermissionCard";
+import { PeekButton, usePeekable } from "../../components/PeekButton";
 import { Sheet } from "../../components/Sheet";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import type { PaneProps } from "../registry";
@@ -63,6 +64,7 @@ export function NotificationsPage({ item }: PaneProps) {
   const cursor = useApp((s) => s.notificationsCursor);
   const detachedSince = useApp((s) => s.detachedSince);
   const run = useApp((s) => s.run);
+  const canPeek = usePeekable();
 
   useEffect(() => { void run(() => refreshNotifications()); }, [run, refreshNotifications]);
 
@@ -106,6 +108,7 @@ export function NotificationsPage({ item }: PaneProps) {
                     <ul className="notif-cards">
                       {sec.rows.map((n) => (
                         <NotificationRow key={n.id} n={n} selected={n.id === selectedId}
+                          peekable={n.sessionId !== null && canPeek(n.sessionId, n.spaceId)}
                           onSelect={() => run(() => selectNotification(item.id, n.id))} />
                       ))}
                     </ul>
@@ -128,8 +131,13 @@ export function NotificationsPage({ item }: PaneProps) {
  * One card. A plain `<button>`, not a clickable div: the list is a set of choices, and the whole
  * card is the target. That it is a button is also why the pending permission card lives in the
  * MODAL and not inline here — Allow/Deny are buttons, and buttons do not nest.
+ *
+ * A row about a session carries the Agents page's eye (W11b) where that page would offer it, as the
+ * row's sibling for the same reason. A look at the session is a look at what the row was about, so a
+ * peek that lands reads the row, as opening it would.
  */
-function NotificationRow({ n, selected, onSelect }: { n: Notification; selected: boolean; onSelect: () => void }) {
+function NotificationRow({ n, selected, peekable, onSelect }: { n: Notification; selected: boolean; peekable: boolean; onSelect: () => void }) {
+  const markNotificationsRead = useApp((s) => s.markNotificationsRead);
   return (
     <li>
       <button type="button" className="notif-row" onClick={onSelect} aria-label={n.title}
@@ -148,6 +156,12 @@ function NotificationRow({ n, selected, onSelect }: { n: Notification; selected:
         </span>
         {n.readAt === null && <span className="notif-dot" aria-label="Unread" />}
       </button>
+      {peekable && n.sessionId && (
+        <span className="notif-line-end">
+          <PeekButton sessionId={n.sessionId} spaceId={n.spaceId} name={n.title}
+            onPeeked={n.readAt === null ? () => markNotificationsRead([n.id]) : undefined} />
+        </span>
+      )}
     </li>
   );
 }

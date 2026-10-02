@@ -5904,12 +5904,14 @@ select { appearance: none; padding-right: 22px;
 .agents-row-mono { font-family: var(--font-mono); font-size: 11px; }
 .agents-row-when { flex: none; font-size: 11.5px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 /* The row's eye (W11b) takes the time's slot under the pointer or the keyboard, rather than a slot
-   of its own the time would have to give up at rest: one at the far right, whichever is showing. */
+   of its own the time would have to give up at rest: one at the far right, whichever is showing.
+   The same eye rides the Notifications page's rows (`PeekButton`), revealed the same way. */
 .agents-list > li { position: relative; }
-.agents-peek { opacity: 0; transition: opacity var(--dur-hover) var(--ease-out-strong); }
-.agents-list > li:hover .agents-peek, .agents-list > li:focus-within .agents-peek { opacity: 1; }
-.agents-list > li:has(.agents-peek):hover .agents-row-when,
-.agents-list > li:has(.agents-peek):focus-within .agents-row-when { visibility: hidden; }
+.peek-btn { opacity: 0; transition: opacity var(--dur-hover) var(--ease-out-strong); }
+.agents-list > li:hover .peek-btn, .agents-list > li:focus-within .peek-btn,
+.notif-cards > li:hover .peek-btn, .notif-cards > li:focus-within .peek-btn { opacity: 1; }
+.agents-list > li:has(.peek-btn):hover .agents-row-when,
+.agents-list > li:has(.peek-btn):focus-within .agents-row-when { visibility: hidden; }
 .agents-more { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; padding: 4px 6px; font-size: 11.5px;
   color: var(--rl-text-dim); border-radius: var(--r-chip); corner-shape: squircle; }
 .agents-more:hover { color: var(--rl-text-bright); background: var(--rl-hover); }
@@ -6358,6 +6360,15 @@ select { appearance: none; padding-right: 22px;
 .notif-kind { flex: none; font-size: 11px; color: var(--rl-text-faint); }
 .notif-row[data-unread] .notif-title { color: var(--rl-text-bright); font-weight: var(--fw-title); }
 .notif-time { flex: none; font-size: 11px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+/* A session row's eye (W11b), placed as the Agents page places it: a sibling over the row's far end,
+   since the row is a button, and in the slot the time and the unread dot hold at rest — they give it
+   up while it shows, and nothing is reserved for it while it does not. Centred on the TITLE's line
+   rather than on the row: a row with a body is taller than its first line, which is where the time
+   and the dot sit. 7px is the row's 11px padding plus half the 20px line, less half the 28px button. */
+.notif-cards > li { position: relative; }
+.notif-line-end { position: absolute; right: 8px; top: 7px; display: flex; align-items: center; }
+.notif-cards > li:has(.peek-btn):hover :is(.notif-time, .notif-dot),
+.notif-cards > li:has(.peek-btn):focus-within :is(.notif-time, .notif-dot) { visibility: hidden; }
 .notif-body { font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim); overflow-wrap: anywhere; }
 .notif-inline-card { margin-top: 4px; }
 .notif-sheet { display: flex; flex-direction: column; gap: 10px; }
