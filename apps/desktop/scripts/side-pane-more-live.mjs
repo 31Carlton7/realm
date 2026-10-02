@@ -18,6 +18,8 @@
  *      the lead's side pane, eye and italic, its card answered in place, no prompter — never in the
  *      space's saved groups, gone on a space switch. Peek from a sidebar row's menu, then Open
  *      session, keeps a same-space session as a saved tab; Open session on another space's goes there.
+ *   7. "N need you" in the sidebar's head: absent while nothing waits, a count across spaces beside
+ *      the bell when sessions do, a list that answers each card in place and goes to the session.
  *
  * Ports: LIVE_SERVER_PORT (8964), LIVE_CDP_PORT (9364), LIVE_MAIN_INSPECT_PORT (9464), LIVE_SITE_PORT
  * (8974). Touches only a scratch dir; kills only what is listening on its own ports. Browses nothing
@@ -271,6 +273,11 @@ async function main() {
     await sleep(100);
   };
 
+  const chipNow = () => evalIn(c, `(() => { const b = document.querySelector('.sb-head .needs-you'); if (!b) return null;
+    const r = b.getBoundingClientRect(); const bell = document.querySelector('.sb-head .sb-bell').getBoundingClientRect();
+    return { text: b.textContent, name: b.getAttribute('aria-label'), left: Math.round(r.left), right: Math.round(r.right), bellLeft: Math.round(bell.left) }; })()`);
+  check("no need-you count in the head band while nothing waits", (await chipNow()) === null);
+
   // ── The lead's agent opens a browser: a side pane with one tab, its view on screen ────────────
   const opened = await call("realm-browser__browser_open", { url: `${SITE}/job-1` });
   if (opened.isError) throw new Error(`browser_open: ${text(opened)}`);
@@ -466,6 +473,8 @@ async function main() {
   const answered = await until(async () => { const st = (await api.call("sessions.get", { id: other.id })).status; return st !== "waiting_permission" ? st : null; }, 10_000, "the card answered").catch(() => "waiting_permission");
   const cardGone = await until(async () => { const p = await peekPane(); return p && !p.card ? true : null; }, 5_000, "the card gone").catch(() => false);
   check("Allow in the peek answers the other space's card", answered !== "waiting_permission" && cardGone === true, { status: answered });
+  const chipGone = await until(async () => ((await chipNow()) === null ? true : null), 5_000, "the count gone").catch(chipNow);
+  check("…and with nothing else waiting, the need-you count leaves the head band", chipGone === true, chipGone);
 
   // A space switch takes it away — and coming back does not bring it.
   await evalIn(c, `(() => { document.querySelector('button[aria-label="Switch to space Homework"]').click(); return true; })()`);
@@ -511,6 +520,50 @@ async function main() {
   const there = await evalIn(c, `(() => { const p = document.querySelector('.panehost .panel[data-focused]'); return p ? p.querySelector('.panel-title')?.textContent ?? [...p.querySelectorAll('.pane-tabs [role=tab][aria-selected=true]')].map((t) => t.textContent).join() : null; })()`);
   check("Open session on another space's peek switches there with the session in front", (await activeSpace()) === "Switch to space Homework" && there === "Peek target" && (await peekTab()) === null, { space: await activeSpace(), focused: there });
   await shot(c, "peek-opened");
+
+  // ── 7. N need you ────────────────────────────────────────────────────────────────────────
+  await evalIn(c, `(() => { document.querySelector('button[aria-label="Switch to space Live"]').click(); return true; })()`);
+  await until(async () => (await activeSpace()) === "Switch to space Live", 10_000, "back in Live for the count");
+  await api.call("sessions.send", { id: second.id, text: "PERMIT", attachments: [], mentions: [] });
+  await until(async () => (await api.call("sessions.get", { id: second.id })).status === "waiting_permission", 30_000, "Second session waiting");
+  await api.call("sessions.send", { id: other.id, text: "PERMIT", attachments: [], mentions: [] });
+  await until(async () => (await api.call("sessions.get", { id: other.id })).status === "waiting_permission", 30_000, "Peek target waiting again");
+  const chip2 = await until(async () => { const ch = await chipNow(); return ch?.text === "2 need you" ? ch : null; }, 10_000, "the count at two").catch(chipNow);
+  check("two sessions waiting, in two spaces, read \"2 need you\" beside the bell and clear of the traffic lights",
+    chip2?.text === "2 need you" && chip2.name === "2 sessions need you" && chip2.right <= chip2.bellLeft && chip2.left >= 76, chip2);
+  // A browser view on screen under the popover's way: Job 1 in the lead's side pane.
+  await evalIn(c, `(() => { [...document.querySelectorAll('.pane-tabs [role=tab]')].find((t) => t.textContent === 'Job 1').click(); return true; })()`);
+  await sleep(800);
+  await evalIn(c, `(() => { document.querySelector('.sb-head .needs-you').click(); return true; })()`);
+  const pop = await until(() => evalIn(c, `(() => { const d = document.querySelector('[role=dialog][aria-label="Waiting on you"]');
+    if (!d || getComputedStyle(d).visibility !== 'visible') return null;
+    const groups = [...d.querySelectorAll('.needs-you-session')].map((g) => ({ name: g.getAttribute('aria-label'), card: !!g.querySelector('.permission-card') }));
+    if (!groups.length || !groups.every((g) => g.card)) return null;
+    const r = d.getBoundingClientRect(); return { rect: { x: r.x, y: r.y, width: r.width, height: r.height }, groups }; })()`), 10_000, "the list with both cards").catch(() => null);
+  const shownViews = Object.values(await views()).filter((v) => v.shown && v.width > 0);
+  check("its list names both sessions and their spaces, each with its card", !!pop && pop.groups.map((g) => g.name).sort().join("|") === "Peek target, in Homework|Second session, in Live", pop?.groups);
+  check("…and sits clear of the browser view on screen", !!pop && shownViews.length > 0 && shownViews.every((v) => !intersects(pop.rect, v)), { pop: pop?.rect, views: shownViews });
+  await sleep(300);
+  await shot(c, "needs-you");
+  await evalIn(c, `(() => { const g = [...document.querySelectorAll('.needs-you-session')].find((x) => x.getAttribute('aria-label') === 'Second session, in Live');
+    g.querySelector('.permission-card button[aria-label="Allow"]').click(); return true; })()`);
+  const secondSt = await until(async () => { const st = (await api.call("sessions.get", { id: second.id })).status; return st !== "waiting_permission" ? st : null; }, 10_000, "Second answered").catch(() => "waiting_permission");
+  const chip1 = await until(async () => { const ch = await chipNow(); return ch?.text === "1 needs you" ? ch : null; }, 10_000, "the count at one").catch(chipNow);
+  check("Allow in the list answers that session's card, and the count drops to one", secondSt !== "waiting_permission" && chip1?.text === "1 needs you", { status: secondSt, chip: chip1 });
+  // The list may have closed when its row went; open it again if so, then go to the other one.
+  if (!(await evalIn(c, `!!document.querySelector('[role=dialog][aria-label="Waiting on you"]')`))) await evalIn(c, `(() => { document.querySelector('.sb-head .needs-you').click(); return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector('button[aria-label="Go to Peek target"]')`), 10_000, "Go to Peek target");
+  await evalIn(c, `(() => { document.querySelector('button[aria-label="Go to Peek target"]').click(); return true; })()`);
+  await until(async () => (await activeSpace()) === "Switch to space Homework", 10_000, "gone to Homework").catch(() => {});
+  await sleep(600);
+  const went = await evalIn(c, `document.querySelector('.panehost .panel[data-focused] .panel-title')?.textContent ?? null`);
+  const listShut = await evalIn(c, `!document.querySelector('[role=dialog][aria-label="Waiting on you"]')`);
+  check("Go to the session switches to its space with it in front, and the list closes", (await activeSpace()) === "Switch to space Homework" && went === "Peek target" && listShut, { space: await activeSpace(), focused: went });
+  await evalIn(c, `(() => { document.querySelector('.sb-head .needs-you').click(); return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector('.needs-you-session .permission-card button[aria-label="Allow"]')`), 10_000, "Peek target's card in the list");
+  await evalIn(c, `(() => { document.querySelector('.needs-you-session .permission-card button[aria-label="Allow"]').click(); return true; })()`);
+  const none = await until(async () => ((await chipNow()) === null ? true : null), 10_000, "nothing waiting").catch(chipNow);
+  check("with the last card answered, the count leaves the head band", none === true, none);
 }
 
 /** The window as the renderer draws it. Native browser views are not in a DOM capture, so a tab's
