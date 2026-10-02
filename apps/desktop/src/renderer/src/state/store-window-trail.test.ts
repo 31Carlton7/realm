@@ -91,10 +91,12 @@ describe("the window's trail — where you were, rooms included", () => {
     expect(where(store)).toEqual({ spaceId: "s1", itemId: "i1" });
   });
 
-  it("opening a session from a list hands it the keyboard", async () => {
+  it("opening a session from a list hands it the keyboard, and Go back hands it back", async () => {
     const { store } = await boot(rooms());
     expect(store.getState().keyboardFor).toBeNull();
     await store.getState().revealSession("se2", "s2");
     expect(store.getState().keyboardFor).toEqual({ sessionId: "se2", n: 1 });
+    await store.getState().stepWindow(-1);
+    expect(store.getState().keyboardFor).toEqual({ sessionId: "se1", n: 2 });
   });
 });

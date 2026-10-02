@@ -3870,6 +3870,9 @@ await get().refreshCustomThemes().catch(() => {});
           // deleted or put away leaves the room as it stands.
           const item = stop.itemId ? get().items.find((it) => it.id === stop.itemId && !it.archived) : undefined;
           if (item) await get().openItem(item.id);
+          // …and the keyboard with it, as an open from a list hands it over: coming back to a session
+          // is coming back to typing in it.
+          if (item?.kind === "session") set({ keyboardFor: { sessionId: item.refId, n: (get().keyboardFor?.n ?? 0) + 1 } });
         } finally {
           trailHeld--;
           // Where the step landed IS that stop now (`settleStop`): an item gone since must not fork the trail.
