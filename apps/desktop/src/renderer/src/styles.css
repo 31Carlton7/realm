@@ -2318,11 +2318,22 @@ button.panel-title:hover { background: var(--rl-hover); }
    debounce the sync; match the colours instead). Pages are their own light world — like the
    terminal's always-dark interior, but inverted. */
 .browser-view-host { position: relative; flex: 1; min-width: 0; min-height: 0; background: #fff; }
-/* Before the first navigation there is no view to match — the empty state sits on the panel tone. */
-.browser-pane:has(.browser-hint) .browser-view-host { background: var(--rl-panel); }
-.browser-hint { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 4px;
-  text-align: center; pointer-events: none; user-select: none; font-size: 12px; }
-.browser-hint-title { font-size: 14px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
+/* Before the first navigation there is no view to match — the new-tab page sits on the panel tone. */
+.browser-pane:has(.new-tab) .browser-view-host { background: var(--rl-panel); }
+/* A blank tab's tools (NewTabPage): one column of rows, set high in the pane rather than centred in
+   it — the address field it continues is at the top, and a list floated to the middle of a tall
+   pane reads as an empty state rather than as the next thing to pick. Scrolls past a short pane. */
+.new-tab { position: absolute; inset: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: center;
+  gap: 20px; padding: 48px 16px 24px; }
+.new-tab-section { width: min(360px, 100%); display: flex; flex-direction: column; gap: 6px; }
+.new-tab-label { margin: 0 0 0 10px; font-size: 12px; font-weight: var(--fw-title); color: var(--rl-text-dim); }
+.new-tab-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.new-tab-row { width: 100%; display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px;
+  border-radius: var(--r-ctl); font-size: 13px; color: var(--rl-text-bright); text-align: left;
+  transition: background-color var(--dur-hover) var(--ease-out-strong); }
+.new-tab-row > svg { flex: none; color: var(--rl-text-dim); }
+.new-tab-row:hover:not(:disabled) { background: var(--rl-hover); }
+.new-tab-row-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .error-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 8px 6px; padding: 6px 10px; border-radius: var(--r-ctl);
   background: color-mix(in srgb, var(--rl-danger) 8%, var(--rl-panel)); color: var(--rl-danger); font-size: 12px; -webkit-app-region: no-drag; }
@@ -4636,6 +4647,8 @@ select { appearance: none; padding-right: 22px;
   .subagent-body, .subagent-prose,
   /* the Google Fonts browser's result list */
   .font-results,
+  /* a blank browser tab's tools, in a pane short enough to need it */
+  .new-tab,
   /* a machine's resting bodies — the connect form, and the failure's own detail well */
   .machine-body,
   /* and a simulator's, which is the device picker and the same kind of failure well */

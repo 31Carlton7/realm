@@ -79,3 +79,102 @@ describe("a new tab in a side pane", () => {
     expect(findLeafOfItem(store.getState().layout!, newest(store))!.id).toBe(side(store).id);
   });
 });
+
+/**
+ * The new-tab page's tools (W6): each opens where the blank tab stood and the blank tab goes; Files
+ * opens the ⌘P palette, and the file picked there takes the tab's place.
+ */
+describe("a tool picked on a new tab", () => {
+  /** The lead's side pane with Job 1 and a fresh blank tab after it, showing. */
+  async function withNewTab(over: Parameters<typeof session>[2] = {}) {
+    const api = fakeApi({
+      items: { s1: [item("i-lead", "s1", { kind: "session", refId: "lead", title: "Lead" }), item("i-br", "s1", { kind: "browser", refId: "br", title: "Job 1" })] },
+      sessions: [session("lead", "s1", over)],
+    });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openItem("i-lead");
+    await store.getState().openInSidePane("lead", "i-br");
+    await store.getState().newTab(side(store).id);
+    return { api, store, blank: newest(store) };
+  }
+  const kindOf = (store: Store, id: string) => store.getState().items.find((i) => i.id === id)?.kind;
+
+  it("Terminal takes the blank tab's place in the strip, and the blank tab goes", async () => {
+    // THE MUTANT: open the terminal and keep the blank tab — "+ › New tab › Terminal" leaves an empty
+    // browser behind every time.
+    const { api, store, blank } = await withNewTab();
+    await store.getState().openFromNewTab(blank, "terminal");
+    const tabs = side(store).tabs!;
+    expect(tabs).toHaveLength(2);
+    expect(tabs[0]).toBe("i-br");
+    expect(kindOf(store, tabs[1]!)).toBe("terminal");
+    expect(side(store).itemId).toBe(tabs[1]);
+    expect(api.calls).toContain(`deleteItem:${blank}`);
+  });
+
+  it("lands in the tab's own strip even with the keyboard somewhere else", async () => {
+    // THE MUTANT: open the tool without naming the blank tab's leaf — it goes to whichever pane has
+    // the keyboard, and evicts the lead.
+    const { store, blank } = await withNewTab();
+    store.getState().focusLeaf(findLeafOfItem(store.getState().layout!, "i-lead")!.id);
+    await store.getState().openFromNewTab(blank, "machine");
+    expect(kindOf(store, side(store).tabs![1]!)).toBe("machine");
+    expect(allItems(store.getState().layout!)).toContain("i-lead");
+  });
+
+  it("starts a terminal in the checkout of the session the strip serves", async () => {
+    // THE MUTANT: leave the cwd off, and the shell opens in the space's primary checkout while the
+    // session it sits beside works in a worktree.
+    const { api, store, blank } = await withNewTab({ cwd: "/repo/.worktrees/fix-parser" });
+    await store.getState().openFromNewTab(blank, "terminal");
+    expect(api.calls).toContain("createTerminal:s1:/repo/.worktrees/fix-parser");
+  });
+
+  it("opens documents on that session's own checkout", async () => {
+    const { api, store, blank } = await withNewTab({ environmentId: "env-worktree" });
+    await store.getState().openFromNewTab(blank, "documents");
+    expect(api.calls).toContain("createDocuments:s1:env-worktree");
+    expect(kindOf(store, side(store).itemId!)).toBe("documents");
+  });
+
+  it("goes to a tool already open rather than pulling it out of the user's own arrangement", async () => {
+    // The documents pane is one per checkout, and this one is already a pane of the user's. THE
+    // MUTANT: test only the blank tab's own leaf, and the user's pane is moved into the side pane.
+    const { api, store, blank } = await withNewTab();
+    const { itemId: docs } = await api.createDocuments("s1");
+    await store.getState().refreshItems();
+    await store.getState().openItemAt(docs, findLeafOfItem(store.getState().layout!, "i-lead")!.id, "bottom");
+    const before = findLeafOfItem(store.getState().layout!, docs)!.id;
+    await store.getState().openFromNewTab(blank, "documents");
+    expect(findLeafOfItem(store.getState().layout!, docs)!.id).toBe(before);
+    expect(store.getState().focusedLeafId).toBe(before);
+    expect(side(store).tabs).toEqual(["i-br"]);
+  });
+
+  it("Files opens the ⌘P palette, and the file picked there takes the blank tab's place", async () => {
+    // THE MUTANT: open the picked file the ordinary way — it joins the strip, and the blank tab the
+    // person was replacing stays.
+    const { api, store, blank } = await withNewTab();
+    await store.getState().openFromNewTab(blank, "files");
+    expect(store.getState()).toMatchObject({ paletteOpen: true, paletteMode: "files", paletteReplaces: blank });
+    await store.getState().openDocumentPath("README.md");
+    store.getState().setPaletteOpen(false);
+    expect(kindOf(store, side(store).itemId!)).toBe("documents");
+    expect(side(store).tabs).toHaveLength(2);
+    expect(api.calls).toContain(`deleteItem:${blank}`);
+    expect(store.getState().paletteReplaces).toBeNull();
+  });
+
+  it("forgets the blank tab when the palette is opened again some other way", async () => {
+    // THE MUTANT: clear the mark only on a pick. Dismiss the palette, press ⌘P later, and the file
+    // picked then deletes a tab nobody asked to replace.
+    const { api, store, blank } = await withNewTab();
+    await store.getState().openFromNewTab(blank, "files");
+    store.getState().setPaletteOpen(false);
+    store.getState().setPaletteOpen(true, "files");
+    expect(store.getState().paletteReplaces).toBeNull();
+    await store.getState().openDocumentPath("README.md");
+    expect(api.calls).not.toContain(`deleteItem:${blank}`);
+  });
+});

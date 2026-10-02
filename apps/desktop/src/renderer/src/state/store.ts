@@ -163,7 +163,8 @@ export type Api = {
    *  one write. Every layout persist goes through this now; `setLayout` survives only for the fakes
    *  and for callers that genuinely mean "just the active group's tree". */
   setGroups(spaceId: string, groups: SpaceGroups, activeItemId: string | null): Promise<Space>;
-  createTerminal(spaceId: string): Promise<{ terminalId: string; itemId: string }>;
+  /** `cwd`: the checkout the shell starts in — the server's primary one when absent. */
+  createTerminal(spaceId: string, cwd?: string): Promise<{ terminalId: string; itemId: string }>;
   /** `browsers.create` — row + item; the native view is the pane's own business (Plan 11 W1). */
   createBrowser(spaceId: string): Promise<{ browserId: string; itemId: string; url: string }>;
   /** `machines.create` — row + item, with no address yet (Plan 25 W3). The connect flow is the
@@ -652,6 +653,9 @@ export type Beside = boolean | { sessionId: string };
 /** Which question the command palette is asking. One surface, three narrowings: ⌘K searches Realm's
  *  own records, ⌘P the checkout's file names, ⌘⇧F the checkout's contents. */
 export type PaletteMode = "all" | "files" | "grep";
+/** What a blank browser tab's new-tab page offers: the ⌘P palette, and the panes a session opens
+ *  beside itself. */
+export type NewTabTool = "files" | "terminal" | "documents" | "simulator" | "machine";
 
 export const SETTING_ACTIVE_SPACE = "ui.activeSpaceId";
 export const SETTING_THEME = "ui.theme";
@@ -1811,6 +1815,16 @@ export type AppState = {
   /** Which question the palette is asking. ⌘K is "all"; ⌘P and ⌘⇧F open the same surface narrowed. */
   paletteMode: PaletteMode;
   setPaletteOpen(open: boolean, mode?: PaletteMode): void;
+  /** The blank tab a file picked in the palette takes the place of — set while the palette is open
+   *  from a new-tab page's Files, and cleared whenever the palette opens or closes any other way. */
+  paletteReplaces: string | null;
+  /**
+   * A tool picked on a blank browser tab's new-tab page. It opens where the tab stood — a tab of the
+   * same strip, or the pane the browser had — and the blank tab goes. "files" opens the ⌘P palette
+   * instead, and the file picked there takes the tab's place. A terminal starts in, and documents
+   * open on, the checkout of the session the tab's side pane serves.
+   */
+  openFromNewTab(itemId: string, tool: NewTabTool): Promise<void>;
   setKeybindings(rules: readonly Keybinding[]): void;
   /* Each of these re-reads the space's scripts afterwards, and the refresh is load-bearing rather
      than cosmetic: `spaceScripts` is what `ownsScriptCommand` reads SYNCHRONOUSLY when a keystroke
@@ -2891,6 +2905,25 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const leaf = findLeafOfItem(layout, itemId);
       if (leaf) await get().focusPaneFull(leaf.id);
     };
+    /**
+     * What a new-tab page opened takes the blank tab's place: into the leaf holding it — a tab of the
+     * same strip, where the new tab stood, or the pane itself — and the blank tab goes, since a
+     * browser that never had a page is nothing anyone needs back.
+     *
+     * Something already open somewhere (one documents pane per checkout) is gone TO instead: the
+     * user's own arrangement is not rearranged to fill a new tab.
+     */
+    const replaceNewTab = async (sid: string, blankId: string, itemId: string) => {
+      const seq = ++itemsFetchSeq;
+      const items = await api.listItems(sid);
+      if (!isSpace(sid)) return;
+      if (seq === itemsFetchSeq) set({ items });
+      const gs = get().groups ?? groupsFromLayout(get().layout);
+      const leaf = findLeafOfItem(get().layout ?? emptyLayout(), blankId);
+      if (groupOfItem(gs, itemId) || !leaf) await get().openItem(itemId);
+      else await get().openItem(itemId, leaf.id);
+      if (itemId !== blankId) await get().deleteItem(blankId);
+    };
 
     /**
      * Take the page off the workspace.
@@ -2974,7 +3007,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", sidebarActivityOrder: false, confirmDelete: true, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
-      keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
+      keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", paletteReplaces: null, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
       laya: null,
       spacePageTab: {}, profilePageTab: {}, librarySkill: {}, mcpPanelSpaceId: null, agentsView: "list", officeWorld: null,
@@ -3917,7 +3950,25 @@ await get().refreshCustomThemes().catch(() => {});
       async saveScript(spaceId, script) { await api.saveScript(spaceId, script); await get().refreshScripts(spaceId); },
       async removeScript(spaceId, id) { await api.removeScript(spaceId, id); await get().refreshScripts(spaceId); },
       async reorderScripts(spaceId, ids) { await api.reorderScripts(spaceId, ids); await get().refreshScripts(spaceId); },
-      setPaletteOpen(open, mode = "all") { set(open ? { paletteOpen: true, paletteMode: mode, spacesOpen: false, sheet: null, ...restoreSnap() } : { paletteOpen: false, paletteMode: "all" }); },
+      setPaletteOpen(open, mode = "all") { set(open ? { paletteOpen: true, paletteMode: mode, paletteReplaces: null, spacesOpen: false, sheet: null, ...restoreSnap() } : { paletteOpen: false, paletteMode: "all", paletteReplaces: null }); },
+      async openFromNewTab(itemId, tool) {
+        const sid = get().activeSpaceId; if (!sid) return;
+        if (tool === "files") {
+          get().setPaletteOpen(true, "files");
+          set({ paletteReplaces: itemId });
+          return;
+        }
+        // The session the tab's side pane serves, whose checkout the tool opens on. A browser that is
+        // a pane of its own serves nobody, and the space's primary checkout is the server's default.
+        const owner = findLeafOfItem(get().layout ?? emptyLayout(), itemId)?.owner;
+        const ownerItem = owner ? get().items.find((i) => i.id === owner) : undefined;
+        const session = ownerItem?.kind === "session" ? get().sessions[ownerItem.refId] : undefined;
+        const made = tool === "terminal" ? await api.createTerminal(sid, session?.cwd)
+          : tool === "documents" ? await api.createDocuments(sid, session?.environmentId)
+          : tool === "simulator" ? await api.createSimulator(sid, "Simulator")
+          : await api.createMachine(sid, "New machine");
+        await replaceNewTab(sid, itemId, made.itemId);
+      },
       // Same one-slot rule the palette and the sheets keep: two overlays are never on screen at once.
       setSpacesOpen(open) { set(open ? { spacesOpen: true, paletteOpen: false, sheet: null, ...restoreSnap() } : { spacesOpen: false }); },
       openSheet(sheet) { set({ sheet, paletteOpen: false, spacesOpen: false, ...maybeSnapForSheet() }); },
@@ -5112,7 +5163,11 @@ await get().refreshCustomThemes().catch(() => {});
       },
       async openDocumentPath(path, environmentId = null) {
         const sid = get().activeSpaceId; if (!sid) return;
+        // Read before the round trip: the palette closes once this resolves, and its close clears it.
+        const replacing = get().paletteReplaces;
         const { itemId } = await api.openDocumentPath(sid, path, environmentId ?? undefined);
+        // Picked from a new-tab page's Files: the documents pane takes the blank tab's place.
+        if (replacing && findLeafOfItem(get().layout ?? emptyLayout(), replacing)) { await replaceNewTab(sid, replacing, itemId); return; }
         const layout = get().layout;
         if (layout && findLeafOfItem(layout, itemId)) { await get().openItem(itemId); return; }
         await adoptItem(sid, itemId, null);

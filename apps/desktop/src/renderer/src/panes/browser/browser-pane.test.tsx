@@ -198,7 +198,7 @@ describe("BrowserPane", () => {
     await settle();
     expect(f.bounds.length).toBeGreaterThan(0);
     expect(f.bounds.every((b) => !b.visible)).toBe(true);
-    expect(screen.getByText("Where to?")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "New tab" })).toBeInTheDocument();
   });
 
   it("a realm item drag hides the view immediately and dragend restores it; OS file drags don't", async () => {
