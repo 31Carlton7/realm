@@ -78,11 +78,21 @@ export function scanLinkChips(text: string): Chip[] {
 }
 
 /** A picked element and the label its chip goes by, kept together because the label is the only
- *  thing linking the sidecar entry to the token in the draft text. */
-export type ElementChip = { label: string; element: BrowserPickedElement };
+ *  thing linking the sidecar entry to the token in the draft text.
+ *
+ *  `pin` marks one of several elements an ANNOTATION chip carries (Plan 26 W7d): the user pinned them
+ *  on one page and Sent them together, so one token — `@[3 annotations]` — stands for every entry that
+ *  shares its label, and `pin` is the number the user saw drawn on the page. `shot` names the
+ *  screenshot of those pins, attached to the same message. Both absent on an ordinary pick. */
+export type ElementChip = { label: string; element: BrowserPickedElement; pin?: number; shot?: string };
 
 /** Long enough to name a control, short enough that a chip is still one glance in a one-line draft. */
 export const CHIP_LABEL_MAX = 56;
+
+/** How many picked elements one message may carry. A prompt that names eight things is already past
+ *  the point where naming a ninth helps, and the cap bounds the fenced block's size at the schema.
+ *  An annotation's pins count one each: they are elements, however many tokens stand for them. */
+export const MAX_ELEMENT_CHIPS = 8;
 
 /**
  * Element chips as they cross the RPC — the one place their strings arrive from another process.
@@ -117,11 +127,11 @@ export const ElementChipSchema = z.object({
       screen: z.object({ width: z.number().positive(), height: z.number().positive() }),
     }).optional(),
   }),
+  /** Plan 26 W7d — see `ElementChip`. Optional, so every chip written before annotations parses. */
+  pin: z.number().int().min(1).max(MAX_ELEMENT_CHIPS).optional(),
+  shot: z.string().max(PICK_NAME_MAX).optional(),
 });
 
-/** How many picked elements one message may carry. A prompt that names eight things is already past
- *  the point where naming a ninth helps, and the cap bounds the fenced block's size at the schema. */
-export const MAX_ELEMENT_CHIPS = 8;
 
 /**
  * A label may not contain a bracket, a newline or an `@`.
@@ -211,6 +221,21 @@ export function elementChipLabel(el: BrowserPickedElement, taken: Iterable<strin
 }
 
 /**
+ * The label an annotation chip goes by: how many pins it carries, as a person counts them — "1
+ * annotation", "3 annotations" — made unique among `taken` the way `elementChipLabel` makes a pick's.
+ */
+export function annotationChipLabel(count: number, taken: Iterable<string> = []): string {
+  const base = count === 1 ? "1 annotation" : `${count} annotations`;
+  const used = new Set(taken);
+  if (!used.has(base)) return base;
+  for (let n = 2; n <= MAX_ELEMENT_CHIPS + 1; n++) {
+    const candidate = `${base} ${n}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  return base;
+}
+
+/**
  * What the picked elements add to the message the agent receives, appended to the user's text at send.
  *
  * It is appended rather than substituted because the transcript keeps what the user typed, exactly as
@@ -228,7 +253,8 @@ export function elementContext(chips: readonly ElementChip[]): string {
   const detail = chips.map((c) => {
     const d = c.element.device;
     return [
-      elementChipToken(c.label),
+      // One token, several pins: each block says which number the user saw drawn on the page.
+      c.pin ? `${elementChipToken(c.label)} pin ${c.pin}` : elementChipToken(c.label),
       `url: ${c.element.url}`,
       // A device element has no CSS path and no markup, so it is described by what it DOES have:
       // the device's own identity and the geometry a tap is computed from. Printing an empty
@@ -242,14 +268,27 @@ export function elementContext(chips: readonly ElementChip[]): string {
       ...(c.element.html ? [`html: ${c.element.html}`] : []),
     ].join("\n");
   }).join("\n\n");
-  const index = chips.map((c) => `  ${elementChipToken(c.label)} — ${normalizeOrigin(c.element.url) ?? "(no ordinary web origin)"}`).join("\n");
+  // One line per TOKEN. An annotation chip is one token standing for every pin under its label, and
+  // listing it once per pin would read as that many different chips.
+  const tokens = [...new Map(chips.map((c) => [c.label, c])).values()];
+  const pinsOf = (label: string) => chips.filter((c) => c.label === label && c.pin).length;
+  const index = tokens.map((c) => {
+    const pins = pinsOf(c.label);
+    return `  ${elementChipToken(c.label)} — ${normalizeOrigin(c.element.url) ?? "(no ordinary web origin)"}${pins ? `, ${pins} pin${pins === 1 ? "" : "s"}` : ""}`;
+  }).join("\n");
   // Said in Realm's own voice, OUTSIDE the fence, because it is a fact about the tools rather than
   // anything the page or the device said: an agent that tries `browser_act` on one of these clicks
   // the middle of a video frame and reports success.
   const deviceNote = chips.some((c) => c.element.device)
     ? "\nOne or more of these is a DEVICE element, inside a simulator streamed into the pane. It has no DOM node, so browser_act cannot address it — drive it through the device's own input channel, computing the tap from the frame below.\n"
     : "";
-  return `\n\nElements the user picked in Realm's browser pane, one per chip above:\n${index}\n${deviceNote}\n${fenceUntrusted(detail)}`;
+  // Realm's own voice, outside the fence, like the device note: what the numbers are, and which of the
+  // attached files shows them. Only for a message that carries pins — every other one is unchanged.
+  const shots = [...new Set(chips.map((c) => c.shot).filter((x): x is string => !!x))];
+  const pinNote = chips.some((c) => c.pin)
+    ? `\nAn annotation chip stands for several elements the user pinned on one page, numbered in the order they pinned them${shots.length ? `; the attached ${shots.join(", ")} shows each number where it is on the page` : ""}.\n`
+    : "";
+  return `\n\nElements the user picked in Realm's browser pane, one per chip above:\n${index}\n${deviceNote}${pinNote}\n${fenceUntrusted(detail)}`;
 }
 
 /** Device frames arrive as floats (`293.33333333333337`). A prompt is read by a person and a model,
