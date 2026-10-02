@@ -228,6 +228,21 @@ export function useSessionMenuItems(item: Item, keep: number): MenuItem[] {
   }, [actions, keep, item.kind]);
 }
 
+/**
+ * Where a peek's prompter would be (W11b): what the tab is, which space the session lives in when it
+ * is not this one, and the way in. Peeks answer cards and nothing more — no composer, by the user's
+ * decision — so writing to the session is opening it, and the button says where that will be.
+ */
+function PeekBar({ spaceName, elsewhere, onOpen }: { spaceName: string; elsewhere: boolean; onOpen: () => void }) {
+  return (
+    <div className="peek-bar" role="group" aria-label="Peek">
+      <span className="peek-where"><Icon name="peek" size={14} /><span className="peek-where-text">{elsewhere ? `Peek · ${spaceName}` : "Peek"}</span></span>
+      <button type="button" className="btn" onClick={onOpen}
+        title={elsewhere ? `Switches to ${spaceName} and opens it there` : "Keeps it as a tab here"}>Open session</button>
+    </div>
+  );
+}
+
 /** Transcript + composer for one agent session (item.refId = session id). PanelBar renders the header. */
 /** Stable, so a pane with no references hands the Composer the same array every render. */
 const EMPTY_REFS: readonly { sessionId: string; title: string; agent: string }[] = [];
@@ -268,6 +283,10 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const setSessionAgent = useApp((s) => s.setSessionAgent);
   const setSessionMode = useApp((s) => s.setSessionMode);
   const planReturn = useApp((s) => s.planReturn[id] ?? null);
+  /* Looked at, not opened: a peek keeps the transcript and its cards and gives up the prompter. */
+  const peek = useApp((s) => s.peek?.item.id === item.id);
+  const activeSpaceId = useApp((s) => s.activeSpaceId);
+  const openPeek = useApp((s) => s.openPeek);
   const run = useApp((s) => s.run);
   const transcript = entry?.t ?? emptyTranscript();
   // Store-owned, keyed by session id (A-M9): layout reshapes/remounts never lose typed text, and a
@@ -525,7 +544,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   ];
   const body = (
     <div ref={setPane} className="session-pane" data-visible={visible || undefined} data-focused={focused || undefined} data-composer={hero ? "hero" : "docked"}
-      data-dropping={fileDrop.dropping || undefined} {...fileDrop.handlers}>
+      data-peek={peek || undefined}
+      data-dropping={fileDrop.dropping || undefined} {...(peek ? {} : fileDrop.handlers)}>
       <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd}
         onExpandPlan={(planId) => openSheet({ kind: "session-plan", sessionId: id, planId })}
         mode={sessionModeOf(session.permissionMode)}
@@ -540,7 +560,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
         onDecide={(requestId, d, answers) => run(() => respondPermission(id, requestId, d, answers))}
         onRetry={() => { setSends((n) => n + 1); run(() => retryLastTurn(id)); }}
         onRate={(messageId, rating) => run(() => rateMessage(id, messageId, rating))} />
-      {blocked && isBlocked(availability)
+      {peek
+        ? <PeekBar spaceName={space?.name ?? "another space"} elsewhere={session.spaceId !== activeSpaceId} onOpen={() => run(() => openPeek())} />
+        : blocked && isBlocked(availability)
         ? <InstallCard availability={availability} onRetry={reprobe}
             onOpenInTerminal={(command) => run(() => prefillTerminal(id, command))}
             offer={cliOffer} job={cliJob ?? null}

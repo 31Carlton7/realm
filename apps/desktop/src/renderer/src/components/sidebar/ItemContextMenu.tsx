@@ -10,7 +10,9 @@ export type ItemMenuState = { item: Item; x: number; y: number } | null;
  *  it is open somewhere else),
  *  Focus/Unfocus (fill the space with this pane, offered only while it is open), Move to group… (when
  *  the space has more than one), Move to space… (sessions only), Close
- *  (layout-only, offered only while the item is open), Delete (destructive, always offered). */
+ *  (layout-only, offered only while the item is open), Delete (destructive, always offered).
+ *  Peek (sessions only, W11b): the session as a transient tab beside the one in focus — offered only
+ *  where a row click would not already show it, and only while a session is on screen to be beside. */
 export function useItemContextMenu(onRename: (item: Item) => void) {
   const [menu, setMenu] = useState<ItemMenuState>(null);
   // Two-step destructive confirm (U-H2): the first Delete click arms this in place; only the second
@@ -38,6 +40,10 @@ export function useItemContextMenu(onRename: (item: Item) => void) {
   const openCheckpoints = useApp((s) => s.openCheckpoints);
   const openItem = useApp((s) => s.openItem);
   const focusedLeafId = useApp((s) => s.focusedLeafId);
+  const peekSession = useApp((s) => s.peekSession);
+  // Read at render, like the rest of this menu's offers: a menu opened with no session on screen has
+  // nowhere for a peek to go, so it does not offer one.
+  const peekOwner = useApp((s) => s.peekOwner());
   const run = useApp((s) => s.run);
   const onContextMenu = useCallback((item: Item) => (e: MouseEvent) => {
     e.preventDefault(); setConfirmingDelete(false); setMovingToSpace(false); setMovingToGroup(false);
@@ -92,6 +98,12 @@ export function useItemContextMenu(onRename: (item: Item) => void) {
             ...(elsewhere
               ? [{ label: "Open here", title: "Move this pane into the focused one",
                    onSelect: () => run(() => openItem(menu.item.id, focusedLeafId)) }]
+              : []),
+            // Not open anywhere in this space: a look at it beside the session in focus, without
+            // opening it into the layout. Open, a row click already shows it.
+            ...(menu.item.kind === "session" && !holder && !menu.item.archived && peekOwner
+              ? [{ label: "Peek", title: "Look at it beside this session, without opening it",
+                   onSelect: () => run(async () => { await peekSession(menu.item.refId, menu.item.spaceId); }) }]
               : []),
             // The focus gesture the pane bar also carries — offered here because the sidebar row is
             // where you are when you decide a pane deserves the whole space.

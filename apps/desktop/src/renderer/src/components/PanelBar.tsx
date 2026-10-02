@@ -54,6 +54,10 @@ export function PanelBar({ item, leafId, tabs, onSplit, onClose, zoomed = false,
      actions go to the ⋯ menu outright rather than squeezing every tab to an ellipsis — except the
      browser's, which has no menu to go to and only three. */
   const keep = isBrowser ? Number.POSITIVE_INFINITY : tabs ? 0 : budget;
+  /* A peek is for reading and answering its cards (W11b), so its bar carries none of the session's
+     own actions, no rename and no delete: the way to do more with it is to open it, which the pane
+     offers where the prompter would be. Layout rows — split, focus, close — still apply to the tab. */
+  const peek = useApp((s) => s.peek?.item.id === item.id);
   const kindItems = usePaneMenuItems(item, keep);
   const Meta = paneMeta[item.kind];
   const Actions = paneActions[item.kind];
@@ -114,7 +118,7 @@ export function PanelBar({ item, leafId, tabs, onSplit, onClose, zoomed = false,
         )}
       <span className="panel-meta">{Meta ? <Meta item={item} /> : null}</span>
       <span className="panel-actions">
-        {Actions ? <Actions item={item} keep={keep} /> : null}
+        {Actions && !peek ? <Actions item={item} keep={keep} /> : null}
         {isBrowser ? (
           // W2.3 (no-overlay): a browser pane's header may never spawn a dropdown — the native view
           // paints over anything that opens below the bar. Everything the ⋯ menu carried is inline:
@@ -156,11 +160,13 @@ export function PanelBar({ item, leafId, tabs, onSplit, onClose, zoomed = false,
              layout marks, focus is the bar's expand arrows, and delete is the trash the bar's
              trailing control shows. A menu whose icons were invented here would teach a second
              vocabulary for the one it is a shortcut to. */
-          { label: "Rename", icon: <Icon name="edit" size={14} />, onSelect: () => setRenaming(true) },
-          /* The pane kind's own rows, above the layout ones every pane shares — a machine's Send key
-             and Clipboard belong with the thing they act on rather than under Split right. */
-          ...kindItems,
-          { kind: "separator" },
+          ...(peek ? [] : [
+            { label: "Rename", icon: <Icon name="edit" size={14} />, onSelect: () => setRenaming(true) },
+            /* The pane kind's own rows, above the layout ones every pane shares — a machine's Send key
+               and Clipboard belong with the thing they act on rather than under Split right. */
+            ...kindItems,
+            { kind: "separator" as const },
+          ]),
           { label: "Split right", icon: <Icon name="splitRight" size={14} />, kbd: "⌘\\", onSelect: () => onSplit("row") },
           { label: "Split down", icon: <Icon name="splitDown" size={14} />, kbd: "⌘⇧\\", onSelect: () => onSplit("col") },
           /* The bar no longer carries a focus glyph, so this row is the whole control: the word, the
@@ -173,7 +179,7 @@ export function PanelBar({ item, leafId, tabs, onSplit, onClose, zoomed = false,
           { label: deletesOnClose ? "Close pane (keep in space)" : "Close", icon: <Icon name="close" size={14} />, kbd: "⌘W", onSelect: onClose },
           // Delete lives in the bar for those kinds; repeating it here would be two controls for
           // one action, and only one of them would ever wear the armed state.
-          ...(deletesOnClose ? [] : [
+          ...(deletesOnClose || peek ? [] : [
             { kind: "separator" as const },
             confirmingDelete
               ? { label: <strong>Really delete?</strong>, icon: <Icon name="trash" size={14} />, danger: true, onSelect: () => run(() => deleteItem(item.id)) }

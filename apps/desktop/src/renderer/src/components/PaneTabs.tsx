@@ -25,6 +25,10 @@ import { DELETES_ON_CLOSE, PAGE_KINDS } from "./pane-close";
  * pane filling the host ("full view", which is pane focus). A menu rather than two buttons, because
  * the strip is the bar's data of unbounded length and a second control would come out of its width.
  * The menu is the shared one, so it goes round a browser view rather than under it (no-overlay.ts).
+ *
+ * A peek's tab says what it is twice over, in the shape and the words: an eye where the kind's glyph
+ * goes and its title in italic, because it is the one tab here that will not be here tomorrow — and
+ * it does not drag, since an edge would make it part of an arrangement it was never written into.
  */
 export function PaneTabs({ leafId, tabs, activeId, onRename }: {
   leafId: string;
@@ -40,6 +44,7 @@ export function PaneTabs({ leafId, tabs, activeId, onRename }: {
   const confirmDelete = useApp((s) => s.confirmDelete);
   const newTab = useApp((s) => s.newTab);
   const keybindings = useApp((s) => s.keybindings);
+  const peekId = useApp((s) => s.peek?.item.id ?? null);
   const run = useApp((s) => s.run);
   const [arming, setArming] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
@@ -58,6 +63,7 @@ export function PaneTabs({ leafId, tabs, activeId, onRename }: {
       <div className="pane-tabs" role="tablist" aria-label="Tabs">
         {tabs.map((t, i) => {
           const active = t.id === activeId;
+          const peek = t.id === peekId;
           const deletes = DELETES_ON_CLOSE.has(t.kind);
           const close = () => {
             if (!deletes) { run(() => closeFromLayout(t.id)); return; }
@@ -66,7 +72,7 @@ export function PaneTabs({ leafId, tabs, activeId, onRename }: {
             run(() => deleteItem(t.id));
           };
           return (
-            <div key={t.id} className="pane-tab" data-active={active || undefined} data-over={over === t.id || undefined}
+            <div key={t.id} className="pane-tab" data-active={active || undefined} data-over={over === t.id || undefined} data-peek={peek || undefined}
               onDragOver={(e) => { if (carriesItem(e)) { e.preventDefault(); e.stopPropagation(); setOver(t.id); } }}
               onDragLeave={() => setOver((o) => (o === t.id ? null : o))}
               onDrop={(e) => {
@@ -81,11 +87,13 @@ export function PaneTabs({ leafId, tabs, activeId, onRename }: {
                 if (ids.includes(id)) run(() => moveTab(leafId, id, i));
                 else run(async () => { await openItem(id, leafId); await moveTab(leafId, id, i); });
               }}>
-              <button type="button" role="tab" className="pane-tab-label" aria-selected={active} title={t.title}
-                draggable onDragStart={(e) => { e.dataTransfer.setData(REALM_ITEM_TYPE, t.id); e.dataTransfer.effectAllowed = "move"; }}
+              <button type="button" role="tab" className="pane-tab-label" aria-selected={active}
+                aria-label={peek ? `Peek: ${t.title}` : undefined}
+                title={peek ? `${t.title} — a peek, not kept in this space's layout` : t.title}
+                draggable={!peek} onDragStart={peek ? undefined : (e) => { e.dataTransfer.setData(REALM_ITEM_TYPE, t.id); e.dataTransfer.effectAllowed = "move"; }}
                 onClick={() => { if (!active) run(() => openItem(t.id, leafId)); }}
-                onDoubleClick={active ? onRename : undefined}>
-                <Icon name={t.kind} size={14} />
+                onDoubleClick={active && !peek ? onRename : undefined}>
+                <Icon name={peek ? "peek" : t.kind} size={14} />
                 <span className="pane-tab-title">{t.title}</span>
               </button>
               {arming === t.id ? (

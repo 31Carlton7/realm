@@ -132,9 +132,11 @@ export function appCommands(store: StoreApi<AppState>): Readonly<Record<string, 
   };
 }
 
-/** The item in the focused leaf, or null when the leaf is empty. */
+/** The item in the focused leaf, or null when the leaf is empty. A peek's is its own row, which may
+ *  be another space's and so in no list of this one's. */
 function focusedItem(s: AppState): Item | null {
   const id = itemIdOfLeaf(s.layout, s.focusedLeafId);
+  if (id && s.peek?.item.id === id) return s.peek.item;
   return id ? s.items.find((i) => i.id === id) ?? null : null;
 }
 

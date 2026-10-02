@@ -1806,6 +1806,8 @@ button.panel-title:hover { background: var(--rl-hover); }
 .pane-tab[data-active] .pane-tab-label { color: var(--rl-text-bright); }
 .panel[data-focused] .pane-tab[data-active] .pane-tab-label svg { color: var(--rl-accent); }
 .pane-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* A peek (W11b): the one tab that goes when the space does. */
+.pane-tab[data-peek] .pane-tab-title { font-style: italic; }
 .pane-tab .pane-tab-close { width: 22px; --btn-h: 22px; flex: none; margin-right: 3px; opacity: 0;
   transition: opacity var(--dur-hover) var(--ease-out-strong); }
 .pane-tab:hover .pane-tab-close, .pane-tab[data-active] .pane-tab-close, .pane-tab-close:focus-visible { opacity: 1; }
@@ -3439,6 +3441,15 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .composer-dock { position: relative; z-index: 2; flex: none; width: min(var(--prompter-w), 100% - 48px);
   margin: 8px auto max(12px, env(safe-area-inset-bottom));
   transition: transform var(--dur-move) var(--ease-in-out-strong); }
+/* A peek's stand-in for the prompter (W11b): one quiet row on the prompter's column, what the tab is
+   and the way to open it. No surface — it is not a place to type, and a card where the prompter
+   stood would read as one waiting to be clicked into. */
+.peek-bar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: min(var(--prompter-w), 100% - 48px); margin: 8px auto 12px; }
+.peek-where { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; color: var(--rl-text-dim); }
+.peek-where > svg { flex: none; }
+.peek-where-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.peek-bar .btn { flex: none; }
 /* Hero (§4): card centered at ~38% pane height. It stays bottom-anchored in flow and is lifted by
    transform only — translateY % is own-height, cqh is pane height. The max() keeps the card from
    crossing ~60px below the pane top in short panes. */
@@ -5693,6 +5704,14 @@ select { appearance: none; padding-right: 22px;
 .agents-row-sub > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agents-row-mono { font-family: var(--font-mono); font-size: 11px; }
 .agents-row-when { flex: none; font-size: 11.5px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+/* The row's eye (W11b) takes the time's slot under the pointer or the keyboard, rather than a slot
+   of its own the time would have to give up at rest: one at the far right, whichever is showing. */
+.agents-list > li { position: relative; }
+.agents-peek { position: absolute; right: 8px; top: 50%; translate: 0 -50%; opacity: 0;
+  transition: opacity var(--dur-hover) var(--ease-out-strong); }
+.agents-list > li:hover .agents-peek, .agents-list > li:focus-within .agents-peek { opacity: 1; }
+.agents-list > li:has(.agents-peek):hover .agents-row-when,
+.agents-list > li:has(.agents-peek):focus-within .agents-row-when { visibility: hidden; }
 .agents-more { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; padding: 4px 6px; font-size: 11.5px;
   color: var(--rl-text-dim); border-radius: var(--r-chip); corner-shape: squircle; }
 .agents-more:hover { color: var(--rl-text-bright); background: var(--rl-hover); }

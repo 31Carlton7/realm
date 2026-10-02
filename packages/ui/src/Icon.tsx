@@ -32,6 +32,8 @@ import {
   CaduceusIcon,
   // A session's file browser, laid out as cards (SessionFiles.tsx).
   GridViewIcon,
+  // A peek: a session looked at, not opened (the side pane's transient tab, the Agents page's rows).
+  ViewIcon,
 } from "@hugeicons-pro/core-stroke-standard";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
 
@@ -77,6 +79,9 @@ export const icons = {
      square quartered by two rules — at 12px that reads as a single box, and it already stands for
      "All spaces…" and the simulator's element overlay. */
   grid: GridViewIcon,
+  /* An eye: a session LOOKED AT rather than opened. On the peek's tab it stands where the kind's
+     glyph does, which is what marks the tab as one that will not stay. */
+  peek: ViewIcon,
   laptop: LaptopIcon, plug: PlugSocketIcon, download: Download04Icon,
   /* A trace, not a bar chart: `Activity01` and its siblings draw the line inside a framed box, and
      at 14px beside the sidebar toggle the frame is most of what survives — two glyphs that read as

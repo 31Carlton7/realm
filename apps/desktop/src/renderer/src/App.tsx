@@ -215,7 +215,11 @@ function SheetHost() {
  *  palette. Exported for the app-shell tests. */
 export function Main() {
   const layout = useApp((s) => s.layout);
-  const items = useApp((s) => s.items);
+  const spaceItems = useApp((s) => s.items);
+  /* A peek may be another space's session, whose row is in no list of this space's — and the host
+     draws a tab only from a row it was handed. */
+  const peek = useApp((s) => s.peek?.item ?? null);
+  const items = useMemo(() => (peek && !spaceItems.some((i) => i.id === peek.id) ? [...spaceItems, peek] : spaceItems), [spaceItems, peek]);
   const spaceId = useApp((s) => s.activeSpaceId);
   const booted = useApp((s) => s.booted);
   const spaces = useApp((s) => s.spaces);

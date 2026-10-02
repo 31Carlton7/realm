@@ -1278,6 +1278,25 @@ export type AppState = {
   simulatorElements: Record<string, boolean>;
   quickChat: { sessionId: string } | null;
   /**
+   * A session looked at without being opened (W11b): a tab of the focused session's side pane, from
+   * this space or any other, beside `owner` (the session item it was opened beside). TRANSIENT, which
+   * is the whole of what makes it a peek: it is never written into the space's saved groups, and a
+   * space switch takes it away. One at a time — the next replaces it, as a preview tab does.
+   *
+   * `item` is the session's own row, from whichever space holds it: `items` is this space's alone,
+   * and the pane host needs the row to draw the tab.
+   */
+  peek: { item: Item; owner: string } | null;
+  /** The session item a peek would open beside right now — the focused session, the session whose
+   *  side pane has the focus, or else the first session on screen. Null when no session is. */
+  peekOwner(): string | null;
+  /** Peek at a session (see `peek`). Already open in this space: that pane is gone to instead.
+   *  False when there is no session on screen to be beside, or the session has no row. */
+  peekSession(sessionId: string, spaceId?: string | null): Promise<boolean>;
+  /** The peek's "Open session": the normal way in. A session of this space keeps its tab, which stops
+   *  being a peek; another space's goes there, the way its row would open it. */
+  openPeek(): Promise<void>;
+  /**
    * Where the quick chat's window sits, as its top-left in viewport pixels — null until it has been
    * dragged, which is what puts it in the bottom-right corner.
    *
@@ -2285,6 +2304,12 @@ export function reconcileLayout(layout: Layout | null, items: Item[]): Layout {
   return l;
 }
 
+/** Every stop for one item gone from the back/forward trails, on `forgetNavItems`' terms. */
+function forgetNavItem(h: PaneHistory, itemId: string): PaneHistory {
+  const keep = new Set(Object.values(h).flatMap((lh) => lh.entries.map((e) => e.itemId)).filter((id) => id !== itemId));
+  return forgetNavItems(h, keep);
+}
+
 /** True when a leaf with this id exists anywhere in the layout (splits don't count). */
 export function hasLeafIn(l: Layout, leafId: string): boolean {
   return l.type === "leaf" ? l.id === leafId : l.children.some((c) => hasLeafIn(c, leafId));
@@ -2536,12 +2561,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       // persists is the layout the user actually built (restored on close anyway — a crash or
       // space switch mid-sheet must not cement the snap). Only the ACTIVE group is ever snapped, so
       // substituting the saved tree back into it leaves every other group's arrangement alone.
-      const persistable = sheetSnap && sheetSnap.spaceId === activeSpaceId ? setActiveLayout(groups, sheetSnap.saved) : groups;
+      // A peek is never saved: what persists is the arrangement without its tab, and the focus it had
+      // goes to the session it was opened beside.
+      const persistable = withoutPeek(sheetSnap && sheetSnap.spaceId === activeSpaceId ? setActiveLayout(groups, sheetSnap.saved) : groups);
       // Focus rides along in the SAME call as the layout it was captured against. The ITEM, not the
       // leaf: a leaf id is a fact about one arrangement, and the same pane rebuilt into a new split
       // gets a new leaf, so a stored leaf id would restore focus to nothing the first time anybody
       // moved a divider.
-      const saved = await api.setGroups(activeSpaceId, persistable, itemIdOfLeaf(get().layout, get().focusedLeafId));
+      const focusedItem = itemIdOfLeaf(get().layout, get().focusedLeafId);
+      const peek = get().peek;
+      const saved = await api.setGroups(activeSpaceId, persistable, peek && focusedItem === peek.item.id ? peek.owner : focusedItem);
       // Keep the cached Space current so a later selectSpace seeds from the newest groups.
       set({ spaces: get().spaces.map((x) => (x.id === saved.id ? saved : x)) });
     };
@@ -2602,6 +2631,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const id = get().quickChat?.sessionId;
       const held = id ? get().sessions[id] : undefined;
       return id && held && !next[id] ? { ...next, [id]: held } : next;
+    };
+    /** The quick chat's row, and the peek's for the same reason: a peek may be another space's. */
+    const keepHeldSessions = (next: Record<string, Session>): Record<string, Session> => {
+      const kept = keepQuickChatSession(next);
+      const id = get().peek?.item.refId;
+      const held = id ? get().sessions[id] : undefined;
+      return id && held && !kept[id] ? { ...kept, [id]: held } : kept;
     };
     const panelOf = (id: string): TerminalPanel => get().terminalPanel[id] ?? { open: false, width: TERMINAL_PANEL_WIDTH };
     const setPanel = (id: string, p: TerminalPanel) => set({ terminalPanel: { ...get().terminalPanel, [id]: p } });
@@ -2784,8 +2820,25 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  preset, group switch — ends here, so reconciling once covers all of them (see reconcileNav).
      *  `extra` still wins, which is what lets `stepPaneNav` seat its own cursor: the reconcile that
      *  runs first then sees the stepped entry already current and records nothing. */
-    const writeGroups = (groups: SpaceGroups, extra: Partial<AppState> = {}): Partial<AppState> =>
-      ({ groups, layout: activeLayout(groups), paneHistory: reconcileNav(get().paneHistory, groups), ...extra });
+    const writeGroups = (groups: SpaceGroups, extra: Partial<AppState> = {}): Partial<AppState> => {
+      // A peek lives exactly as long as its tab does, and is checked HERE because this is where every
+      // close, prune and rebuild of a layout lands: closed, pruned or rebuilt out, it is over.
+      const was = get().peek;
+      const next = "peek" in extra ? extra.peek ?? null : was;
+      const held = new Set(allGroupItems(groups));
+      const peek = next && held.has(next.item.id) ? next : null;
+      // A peek that has left takes its stops in the back/forward trails with it: it was never this
+      // arrangement's, and Back would put it there for good — another space's session included.
+      const history = was && !held.has(was.item.id) ? forgetNavItem(get().paneHistory, was.item.id) : get().paneHistory;
+      return { groups, layout: activeLayout(groups), paneHistory: reconcileNav(history, groups), ...extra, peek };
+    };
+    /** The groups as they are saved: with the peek's tab taken out, wherever it is. */
+    const withoutPeek = (gs: SpaceGroups): SpaceGroups => {
+      const id = get().peek?.item.id;
+      if (!id) return gs;
+      const all = allGroupItems(gs);
+      return all.includes(id) ? reconcileGroups(gs, new Set(all.filter((x) => x !== id))) : gs;
+    };
     /** The ONE way the active group's layout is written — every split/open/close/resize goes through
      *  here rather than `set({ layout })`, which would leave `groups` holding the pre-edit tree. */
     const writeLayout = (layout: Layout, extra: Partial<AppState> = {}): Partial<AppState> => {
@@ -3009,7 +3062,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", sidebarActivityOrder: false, confirmDelete: true, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
-      keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", paletteReplaces: null, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
+      keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", paletteReplaces: null, peek: null, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
       laya: null,
       spacePageTab: {}, profilePageTab: {}, librarySkill: {}, mcpPanelSpaceId: null, agentsView: "list", officeWorld: null,
@@ -3128,6 +3181,7 @@ await get().refreshCustomThemes().catch(() => {});
         // `sessions` is emptied because it holds the space being LEFT — except for the quick chat's
         // row, which belongs to no space's list and whose window stays up across the switch.
         set(writeGroups(seedGroups(space), { activeSpaceId: id, focusedLeafId: null, items: [], projects: [], environments: {}, sessions: keepQuickChatSession({}), error: null,
+          peek: null, // a peek belongs to the room it was opened in, and never went into its saved layout
           sheetSnap: null, // a snap belongs to the layout being left; that layout persisted UNsnapped
           diffs: {}, diffLoading: {}, patches: {} }));
         get().run(() => api.setSetting(SETTING_ACTIVE_SPACE, id));
@@ -3196,6 +3250,9 @@ await get().refreshCustomThemes().catch(() => {});
         // window's archive, or one taken while a different group was on screen. `items` itself keeps
         // them: the sidebar's Archived section is drawn from the full list.
         const live = new Set(items.filter((i) => !i.archived).map((i) => i.id));
+        // Another space's peek is in no list of this space's, and is not stale for it.
+        const peek = get().peek;
+        if (peek && peek.item.spaceId !== sid) live.add(peek.item.id);
         const groups = reconcileGroups(get().groups ?? groupsFromLayout(get().layout), live);
         const layout = activeLayout(groups);
         const firstHydrate = !layoutHydrated;
@@ -3623,6 +3680,56 @@ await get().refreshCustomThemes().catch(() => {});
           await get().openItemBeside(itemId);
         }
         if (opts.full) await zoomItemPane(itemId);
+      },
+      peekOwner() {
+        const layout = get().layout; if (!layout) return null;
+        const items = get().items;
+        const isSession = (id: string | null | undefined) => !!id && items.some((i) => i.id === id && i.kind === "session");
+        const focused = get().focusedLeafId ? findLeaf(layout, get().focusedLeafId!) : null;
+        // The keyboard in a side pane: the session it serves. In a session's own pane: that session.
+        if (focused?.tabs) return isSession(focused.owner) ? focused.owner! : null;
+        if (isSession(focused?.itemId)) return focused!.itemId;
+        // Elsewhere — a terminal, a page, nothing: the first session on screen that is not a tab.
+        return allItems(layout).find((id) => isSession(id) && !findLeafOfItem(layout, id)!.tabs) ?? null;
+      },
+      async peekSession(sessionId, spaceId = null) {
+        const active = get().activeSpaceId; if (!active) return false;
+        const where = get().sessionSpace[sessionId] ?? spaceId ?? active;
+        const item = where === active
+          ? get().items.find((i) => i.kind === "session" && i.refId === sessionId)
+          : (await api.listItems(where)).find((i) => i.kind === "session" && i.refId === sessionId);
+        if (!item || get().activeSpaceId !== active) return false;
+        // Open in one of this space's arrangements already: looking at it is going there.
+        const gs0 = get().groups ?? groupsFromLayout(get().layout);
+        if (item.spaceId === active && groupOfItem(gs0, item.id) && get().peek?.item.id !== item.id) { await get().openItem(item.id); return true; }
+        const owner = get().peekOwner();
+        if (!owner) return false;
+        // The row, held so the pane can draw it: another space's is not in `sessions`.
+        if (!get().sessions[sessionId]) {
+          const row = await api.getSession(sessionId).catch(() => null);
+          if (!row || get().activeSpaceId !== active) return false;
+          set({ sessions: { ...get().sessions, [row.id]: row }, sessionStatus: { ...get().sessionStatus, [row.id]: get().sessionStatus[row.id] ?? row.status },
+            sessionSpace: { ...get().sessionSpace, [row.id]: row.spaceId } });
+        }
+        // One at a time: the last peek leaves first. Not persisted — there is nothing to save.
+        const gs = withoutPeek(get().groups ?? groupsFromLayout(get().layout));
+        const layout = layoutOpenInSidePane(activeLayout(gs), owner, item.id);
+        if (!layout) return false;
+        const leaf = findLeafOfItem(layout, item.id)!;
+        revealPanes();
+        set(writeGroups(revealing(setActiveLayout(gs, layout), leaf.id), { focusedLeafId: leaf.id, peek: { item, owner } }));
+        return true;
+      },
+      async openPeek() {
+        const peek = get().peek; if (!peek) return;
+        if (peek.item.spaceId === get().activeSpaceId) {
+          // A row of this space already: the tab stays where it is and becomes part of the layout.
+          set({ peek: null });
+          await persist();
+          return;
+        }
+        await get().closeFromLayout(peek.item.id);
+        await get().revealSession(peek.item.refId, peek.item.spaceId);
       },
       async applyAgentPaneOpened({ spaceId, itemId, openedBy }) {
         if (spaceId !== get().activeSpaceId) return;
@@ -4103,7 +4210,7 @@ await get().refreshCustomThemes().catch(() => {});
         for (const [id, st] of Object.entries(get().sessionStatus)) if (!(id in get().sessions)) sessionStatus[id] = st;
         const sessionUpdatedAt = { ...get().sessionUpdatedAt };
         for (const s of list) { sessions[s.id] = s; sessionStatus[s.id] = s.status; sessionSpace[s.id] = s.spaceId; sessionUpdatedAt[s.id] = s.updatedAt; }
-        set({ sessions: keepQuickChatSession(sessions), sessionStatus, sessionSpace, sessionUpdatedAt });
+        set({ sessions: keepHeldSessions(sessions), sessionStatus, sessionSpace, sessionUpdatedAt });
       },
       listAllSessions(profileId = null) { return api.listAllSessions(profileId); },
       async refreshAllSessions() {
