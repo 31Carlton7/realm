@@ -1739,8 +1739,9 @@ export const Events = {
   "documents.fileChanged": z.object({ environmentId: IdSchema, path: z.string(), hash: z.string().nullable() }),
   /** `documents.openPath` ran (Plan 22): a mounted pane over this workspace opens the tab, and the
    *  store puts the item on screen if the space is active. Carries the item so the store need not
-   *  re-list. */
-  "documents.openRequested": z.object({ spaceId: IdSchema, environmentId: IdSchema, documentsId: IdSchema, itemId: IdSchema, path: z.string() }),
+   *  re-list. `openedBy` is the session whose agent asked, which is the session whose side pane the
+   *  tab belongs in; absent when a person opened the file. */
+  "documents.openRequested": z.object({ spaceId: IdSchema, environmentId: IdSchema, documentsId: IdSchema, itemId: IdSchema, path: z.string(), openedBy: IdSchema.optional() }),
   /** `runId` and `seq` are what make this the app's one delta stream a client can catch up on. Every
    *  other broadcast carries whole current state and is repaired by a refetch; terminal output is a
    *  delta, so a client that missed some has no way back without a cursor. `runId` changes whenever a
@@ -1775,12 +1776,14 @@ export const Events = {
   "session.agentSettled": z.object({ spaceId: IdSchema, sessionId: IdSchema, itemId: IdSchema, outcome: DelegationOutcomeSchema }),
   /** An agent opened a browser pane via `browser_open` (Plan 11 W3). The row + item already exist
    *  (`items.changed` was broadcast too); this tells the renderer to bring the pane INTO the layout —
-   *  an agent-driven browser the user cannot see defeats the point of the architecture. */
-  "browser.agentOpened": z.object({ spaceId: IdSchema, browserId: IdSchema, itemId: IdSchema }),
+   *  an agent-driven browser the user cannot see defeats the point of the architecture. `openedBy` is
+   *  the session whose tool call opened it: the pane goes into THAT session's side pane, not beside
+   *  whichever pane happens to have focus. */
+  "browser.agentOpened": z.object({ spaceId: IdSchema, browserId: IdSchema, itemId: IdSchema, openedBy: IdSchema }),
   /** An agent opened a device in a simulator pane via `simulator_open`. The row + item already exist
    *  (`items.changed` was broadcast too); this brings the pane INTO the layout beside the session, for
    *  `browser.agentOpened`'s reason — a device an agent is running an app on is one the user watches. */
-  "simulator.agentOpened": z.object({ spaceId: IdSchema, simulatorId: IdSchema, itemId: IdSchema }),
+  "simulator.agentOpened": z.object({ spaceId: IdSchema, simulatorId: IdSchema, itemId: IdSchema, openedBy: IdSchema }),
   /** The notifications feed changed (Plan 12 W5). `unread` is the fresh global unread count — the
    *  sidebar pill applies it directly, so the count has exactly one derivation site (the server's).
    *  `notification` is the row an event just created or re-surfaced, so the renderer can react to it

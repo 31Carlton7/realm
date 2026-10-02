@@ -6,6 +6,7 @@ import type { StoreApi } from "zustand";
 import type { PaneProps } from "../registry";
 import { useAppStoreMaybe, type AppState, type BrowserActionTick } from "../../state/store";
 import { cancelViewRelease, getBrowserBridges, scheduleViewRelease } from "./browser-client";
+import { NewTabPage } from "./NewTabPage";
 import { sessionForPick } from "./pick-target";
 import { SETTLE_MS, isRealmItemDrag, shouldShowView } from "./view-sync";
 
@@ -498,12 +499,10 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
         </div>
       )}
       <div className="browser-view-host" ref={hostRef}>
-        {!hasUrl && initialUrl !== null && (
-          <div className="browser-hint muted">
-            <div className="browser-hint-title">Where to?</div>
-            <div>Type a URL above — https is assumed.</div>
-          </div>
-        )}
+        {/* A blank tab is a new tab: the tools beside the address field, in place of an empty page.
+            Only while there is no page — the native view is hidden until one loads, so this is the
+            one thing that can be drawn in this rectangle at all. */}
+        {!hasUrl && initialUrl !== null && <NewTabPage itemId={item.id} />}
       </div>
     </div>
   );

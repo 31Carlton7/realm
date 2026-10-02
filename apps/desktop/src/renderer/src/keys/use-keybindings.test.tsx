@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { act, fireEvent, renderHook, waitFor } from "@testing-library/react";
-import type { Keybinding } from "@realm/contracts";
+import { activeGroup, findSidePane, type Keybinding } from "@realm/contracts";
 import { useKeybindings } from "./use-keybindings";
 import { createAppStore } from "../state/store";
 import { fakeApi, item, session, space } from "../state/store.test-fakes";
@@ -184,6 +184,21 @@ describe("useKeybindings", () => {
     const before = store.getState().groups!.groups.length;
     key({ key: "G", code: "KeyG", metaKey: true, shiftKey: true });
     await waitFor(() => expect(store.getState().groups!.groups).toHaveLength(before + 1));
+  });
+
+  it("opens a side pane tab beside the focused session on ⌘⇧B, and one in full view on ⌥⌘B", async () => {
+    // THE MUTANT: drop either runner. The chord stays in the shipped table and the catalog, so a user
+    // pressing it — or setting it in Settings — gets nothing at all.
+    const { api, store } = await mount(undefined, focusedSession);
+    // Through the store rather than `focusSessionPane`: the side pane is found through the pane
+    // GROUPS, which a bare layout write leaves behind.
+    await act(async () => { await store.getState().openItem("i1"); });
+    key({ key: "B", code: "KeyB", metaKey: true, shiftKey: true });
+    await waitFor(() => expect(findSidePane(store.getState().layout!, "i1")?.tabs).toHaveLength(1));
+    expect(made(api, "createBrowser")).toBe(true);
+    await act(async () => { await store.getState().openItem("i1"); });
+    key({ key: "∫", code: "KeyB", metaKey: true, altKey: true });
+    await waitFor(() => expect(activeGroup(store.getState().groups!).zoomedLeafId).not.toBeNull());
   });
 
   it("picks up a new keymap without missing a keystroke", async () => {

@@ -130,11 +130,13 @@ export function PaneHost(p: PaneHostProps) {
   function renderNode(n: Layout): JSX.Element {
     if (n.type === "leaf") {
       const item = n.itemId ? byId.get(n.itemId) ?? null : null;
+      const tabs = n.tabs ? n.tabs.map((id) => byId.get(id)).filter((t): t is Item => !!t) : undefined;
       return (
         <div className="panel" data-leaf-id={n.id} data-focused={n.id === p.focusedLeafId || undefined}
+          data-tabbed={tabs ? true : undefined}
           data-first-leaf={n.id === firstLeafId || undefined}
           data-empty={!item || undefined} onPointerDownCapture={() => p.onFocus(n.id)}>
-          {item && <PanelBar item={item} leafId={n.id} onSplit={(dir) => p.onSplit(n.id, dir)} onClose={() => p.onClose(item.id)}
+          {item && <PanelBar item={item} leafId={n.id} tabs={tabs} onSplit={(dir) => p.onSplit(n.id, dir)} onClose={() => p.onClose(item.id)}
             zoomed={n.id === p.zoomedLeafId}
             onZoom={canFocus && p.onZoom ? () => p.onZoom!(n.id) : undefined} onUnzoom={canFocus ? p.onUnzoom : undefined} />}
           {/* An empty pane gets a bar of its own — a title-less strip whose only control is the trash
@@ -167,7 +169,19 @@ export function PaneHost(p: PaneHostProps) {
                 Keying forces a remount so component-local state (composer draft, expanded thinking
                 blocks, …) never leaks from the old item to the new one — and lets .panel-body .pane-slot's
                 rl-settle animation (styles.css) naturally replay on every swap. */}
-            {item && <div key={item.id} className="pane-slot"><PaneFor item={item} visible focused={n.id === p.focusedLeafId} /></div>}
+            {item && !tabs && <div key={item.id} className="pane-slot"><PaneFor item={item} visible focused={n.id === p.focusedLeafId} /></div>}
+            {/* A side pane mounts the tab showing, and every BROWSER tab behind it, hidden. A browser's
+                view exists only while a pane holds it or main retains it, and main retains three: a
+                tab never mounted is a page an agent cannot drive ("the pane is not open in the
+                app"), and one unmounted is a view the fourth retain evicts. Mounted with
+                `visible={false}`, the view is hidden and kept — what a column per browser bought,
+                without the columns. Every other kind mounts only on screen, as a pane in another
+                group does. */}
+            {item && tabs && tabs.filter((t) => t.id === item.id || t.kind === "browser").map((t) => (
+              <div key={t.id} className="pane-slot" hidden={t.id !== item.id || undefined}>
+                <PaneFor item={t} visible={t.id === item.id} focused={t.id === item.id && n.id === p.focusedLeafId} />
+              </div>
+            ))}
           </div>
           {dragging && <DropOverlay leafId={n.id} onDropItem={p.onDropItem} onDropNewSession={p.onDropNewSession} />}
         </div>

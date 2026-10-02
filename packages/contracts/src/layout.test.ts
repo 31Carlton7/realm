@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   LayoutSchema, allItems, closeItem, closeLeaf, emptyLayout, findLeafOfItem, firstLeaf,
-  equalSizes, equalizeSplit, gridPreset, migrateLayout, openItem, splitLeaf, updateSizes,
-  type Layout, type LayoutLeaf, type LayoutSplit,
+  equalSizes, equalizeSplit, findSidePane, gridPreset, itemIdOfLeaf, migrateLayout, moveTab, openInSidePane, openItem,
+  splitLeaf, updateSizes, type Layout, type LayoutLeaf, type LayoutSplit,
 } from "./layout";
 
 const leaf = (itemId: string | null): LayoutLeaf => ({ type: "leaf", id: `L-${itemId ?? "empty"}`, itemId });
@@ -404,5 +404,107 @@ describe("closeLeaf", () => {
     expect(out.type).toBe("split");
     expect(out.sizes.reduce((x, y) => x + y, 0)).toBeCloseTo(100);
     expect(out.sizes[0]! / out.sizes[1]!).toBeCloseTo(50 / 30);
+  });
+});
+
+describe("side panes (tabbed leaves)", () => {
+  const side = (tabs: string[], active: string, owner = "s1"): LayoutLeaf => ({ type: "leaf", id: "SIDE", itemId: active, tabs, owner });
+
+  it("opens a session's first agent pane to its right, as a one-tab side pane", () => {
+    const l = openInSidePane(leaf("s1"), "s1", "b1")!;
+    expect(l).toMatchObject({ type: "split", dir: "row", children: [{ itemId: "s1" }, { itemId: "b1", tabs: ["b1"], owner: "s1" }] });
+  });
+
+  it("puts every later open in the SAME pane as a tab, on screen, after the one showing", () => {
+    // THE MUTANT this pins: a split per open — eight agent browsers as eight columns.
+    let l: Layout = openInSidePane(leaf("s1"), "s1", "b1")!;
+    l = openInSidePane(l, "s1", "b2")!;
+    l = openInSidePane(l, "s1", "b3")!;
+    expect((l as LayoutSplit).children).toHaveLength(2);
+    expect(findSidePane(l, "s1")).toMatchObject({ itemId: "b3", tabs: ["b1", "b2", "b3"] });
+  });
+
+  it("goes beside the session that asked, not whichever pane has focus", () => {
+    const l = openInSidePane(row([leaf("s1"), leaf("s2")]), "s2", "b1")!;
+    expect((l as LayoutSplit).children.map((c) => (c as LayoutLeaf).itemId)).toEqual(["s1", "s2", "b1"]);
+  });
+
+  it("gives each session its own side pane", () => {
+    let l: Layout = openInSidePane(row([leaf("s1"), leaf("s2")]), "s1", "b1")!;
+    l = openInSidePane(l, "s2", "b2")!;
+    expect(findSidePane(l, "s1")?.tabs).toEqual(["b1"]);
+    expect(findSidePane(l, "s2")?.tabs).toEqual(["b2"]);
+  });
+
+  it("what a previewed sub-agent opens joins the strip it is a tab of, not a side pane of its own", () => {
+    const l = openInSidePane(row([leaf("s1"), side(["child"], "child")]), "child", "b1")!;
+    expect((l as LayoutSplit).children).toHaveLength(2);
+    expect(findSidePane(l, "s1")).toMatchObject({ itemId: "b1", tabs: ["child", "b1"] });
+  });
+
+  it("is null when the session is not in the layout, so nothing lands beside a stranger", () => {
+    expect(openInSidePane(leaf("s1"), "s9", "b1")).toBeNull();
+  });
+
+  it("brings an item already open elsewhere in as a tab instead of duplicating it", () => {
+    const l = openInSidePane(row([leaf("s1"), side(["b1"], "b1"), leaf("b2")]), "s1", "b2")!;
+    expect(allItems(l).filter((i) => i === "b2")).toHaveLength(1);
+    expect(findSidePane(l, "s1")?.tabs).toEqual(["b1", "b2"]);
+  });
+
+  it("counts a tab behind another as open — one place per item, on screen or not", () => {
+    const l = row([leaf("s1"), side(["b1", "b2"], "b1")]);
+    expect(allItems(l)).toEqual(["s1", "b1", "b2"]);
+    expect(findLeafOfItem(l, "b2")?.id).toBe("SIDE");
+    expect(itemIdOfLeaf(l, "SIDE")).toBe("b1");
+  });
+
+  it("closing the tab on screen shows the next one, else the one before", () => {
+    const l = row([leaf("s1"), side(["b1", "b2", "b3"], "b2")]);
+    expect(findSidePane(closeItem(l, "b2"), "s1")).toMatchObject({ itemId: "b3", tabs: ["b1", "b3"] });
+    expect(findSidePane(closeItem(row([leaf("s1"), side(["b1", "b2"], "b2")]), "b2"), "s1")).toMatchObject({ itemId: "b1" });
+  });
+
+  it("closing a tab behind another leaves the one on screen alone", () => {
+    expect(findSidePane(closeItem(row([leaf("s1"), side(["b1", "b2"], "b1")]), "b2"), "s1")).toMatchObject({ itemId: "b1", tabs: ["b1"] });
+  });
+
+  it("closing the last tab takes the side pane with it", () => {
+    expect(closeItem(row([leaf("s1"), side(["b1"], "b1")]), "b1")).toEqual(leaf("s1"));
+  });
+
+  it("opening a tab that is already there brings it to the front", () => {
+    const l = openItem(row([leaf("s1"), side(["b1", "b2"], "b1")]), "SIDE", "b2");
+    expect(findSidePane(l, "s1")).toMatchObject({ itemId: "b2", tabs: ["b1", "b2"] });
+  });
+
+  it("an item dropped onto a side pane joins its tabs rather than replacing the one showing", () => {
+    const l = openItem(row([leaf("s1"), side(["b1"], "b1"), leaf("d1")]), "SIDE", "d1");
+    expect(findSidePane(l, "s1")).toMatchObject({ itemId: "d1", tabs: ["b1", "d1"] });
+  });
+
+  it("dragging a tab out to an edge makes it a pane of its own and leaves the strip", () => {
+    const l = splitLeaf(row([leaf("s1"), side(["b1", "b2"], "b1")]), "L-s1", "col", "b2");
+    expect(findSidePane(l, "s1")?.tabs).toEqual(["b1"]);
+    expect(findLeafOfItem(l, "b2")).toMatchObject({ itemId: "b2" });
+    expect(findLeafOfItem(l, "b2")?.tabs).toBeUndefined();
+  });
+
+  it("reorders a tab within its strip", () => {
+    const l = moveTab(row([leaf("s1"), side(["b1", "b2", "b3"], "b1")]), "SIDE", "b3", 0);
+    expect(findSidePane(l, "s1")?.tabs).toEqual(["b3", "b1", "b2"]);
+  });
+
+  it("survives a persist round trip, and repairs a strip whose active tab is not in it", () => {
+    const l = row([leaf("s1"), side(["b1", "b2"], "b2")]);
+    expect(LayoutSchema.parse(JSON.parse(JSON.stringify(l)))).toEqual(l);
+    const bad = LayoutSchema.parse(row([leaf("s1"), side(["b1", "b2"], "gone")]));
+    expect(findSidePane(bad, "s1")).toMatchObject({ itemId: "b1" });
+  });
+
+  it("dedupes tabs across the tree like any other open item", () => {
+    const parsed = LayoutSchema.parse(row([leaf("b1"), side(["b1", "b2"], "b1")]));
+    expect(allItems(parsed)).toEqual(["b1", "b2"]);
+    expect(findSidePane(parsed, "s1")).toMatchObject({ itemId: "b2", tabs: ["b2"] });
   });
 });

@@ -215,7 +215,11 @@ function SheetHost() {
  *  palette. Exported for the app-shell tests. */
 export function Main() {
   const layout = useApp((s) => s.layout);
-  const items = useApp((s) => s.items);
+  const spaceItems = useApp((s) => s.items);
+  /* A peek may be another space's session, whose row is in no list of this space's — and the host
+     draws a tab only from a row it was handed. */
+  const peek = useApp((s) => s.peek?.item ?? null);
+  const items = useMemo(() => (peek && !spaceItems.some((i) => i.id === peek.id) ? [...spaceItems, peek] : spaceItems), [spaceItems, peek]);
   const spaceId = useApp((s) => s.activeSpaceId);
   const booted = useApp((s) => s.booted);
   const spaces = useApp((s) => s.spaces);
@@ -357,17 +361,12 @@ export function App() {
     });
     // An agent opened a browser pane (Plan 11 W3): bring it into the layout — the whole point of the
     // architecture is that the user WATCHES agent-driven browsing, and the native view only exists
-    // once the pane mounts. Other spaces just gain the sidebar item via items.changed.
-    const offB = rpc().on("browser.agentOpened", ({ spaceId, itemId }) => {
-      const st = store.getState();
-      if (spaceId === st.activeSpaceId) st.run(async () => { await st.refreshItems(); await st.openItemBeside(itemId); });
-    });
+    // once the pane mounts. It goes in as a tab of the side pane of the session that opened it, not as
+    // a column beside whatever has focus. Other spaces just gain the sidebar item via items.changed.
+    const offB = rpc().on("browser.agentOpened", (p) => { const st = store.getState(); st.run(() => st.applyAgentPaneOpened(p)); });
     // An agent opened a device with `simulator_open`: the same idiom, for the same reason — the user
     // watches the app the agent is running, and the pane's own "Booting…" is the progress worth seeing.
-    const offSO = rpc().on("simulator.agentOpened", ({ spaceId, itemId }) => {
-      const st = store.getState();
-      if (spaceId === st.activeSpaceId) st.run(async () => { await st.refreshItems(); await st.openItemBeside(itemId); });
-    });
+    const offSO = rpc().on("simulator.agentOpened", (p) => { const st = store.getState(); st.run(() => st.applyAgentPaneOpened(p)); });
     // A session delegated a browsing goal to a browser-agent session (Plan 11 W5): same idiom — the
     // child is a real session, and the point of it being one is that the user watches its whole
     // trace, so it comes into the layout the moment it exists. Other spaces gain the sidebar item
@@ -377,8 +376,7 @@ export function App() {
     // and quietly, so a guide an agent just wrote appears beside the session without stealing focus.
     const offDO = rpc().on("documents.openRequested", (p) => { const st = store.getState(); st.run(() => st.applyDocumentOpenRequested(p)); });
     const offSA = rpc().on("session.agentOpened", (p) => { const st = store.getState(); st.run(() => st.applyAgentOpened(p)); });
-    // The same child's run settled. The store decides whether the pane it opened goes: only a clean
-    // finish, only a pane that is still Realm's, and after a beat (`applyAgentSettled`).
+    // The same child's run settled. A clean finish reads its "Finished a turn" row (`applyAgentSettled`).
     const offSS = rpc().on("session.agentSettled", (p) => store.getState().applyAgentSettled(p));
     // W4's watching feed: settled actions into the pane chrome's ticker, in-flight acts onto the
     // driving dot. Applied for every space (like session.status) — the maps are cheap and a switch

@@ -100,15 +100,19 @@ export function placeAnchored(i: AnchoredInput): AnchoredPlacement {
   const primary = i.placement === "down" ? (fitsBelow || !fitsAbove ? below : above)
     : (fitsAbove || !fitsBelow ? above : below);
   const secondary = primary === below ? above : below;
+  // The other side only where it FITS. Clamped back into the window, a flip with no room is drawn
+  // over the anchor itself: a menu off a strip under the window's top edge, with a browser view below,
+  // came up over its own "+" and the tabs beside it. Sliding along the edge keeps both in sight.
+  const sides = (secondary.above ? fitsAbove : fitsBelow) ? [primary, secondary] : [primary];
   const clear = (r: Rect) => !i.avoid.some((b) => b.width > 0 && b.height > 0 && intersects(r, b));
   const at = (left: number, top: number): Rect => ({ x: left, y: clampY(top), width: size.width, height: size.height });
 
-  for (const s of [primary, secondary]) {
+  for (const s of sides) {
     if (clear(at(baseLeft, s.top))) return { left: baseLeft, top: clampY(s.top), above: s.above, fallback: false };
   }
   // Slide along the (horizontal) anchor edge: candidate lefts are just past the far edges of the
   // offending rects; the nearest clear one to the anchor-aligned left wins.
-  for (const s of [primary, secondary]) {
+  for (const s of sides) {
     const top = clampY(s.top);
     const slid = i.avoid
       .flatMap((b) => [b.x - size.width - margin, b.x + b.width + margin])

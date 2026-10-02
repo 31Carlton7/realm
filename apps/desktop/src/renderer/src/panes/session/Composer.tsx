@@ -17,7 +17,6 @@ import { heroGreeting } from "./greeting";
 import { appendQuote, chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, isChipKind, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
 import { AttachmentTile } from "./AttachmentTile";
 import { whenLabel } from "../schedules/SchedulesPage";
-import { DelegatedRuns } from "./DelegatedRuns";
 import { TodoStrip } from "./TodoStrip";
 import { SessionUsage } from "./SessionUsage";
 import type { Usage } from "./transcript-model";
@@ -1144,7 +1143,6 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
           Inside the dock, so the hero→docked move carries them and none is left behind
           mid-transition. In flow, so they grow UPWARD into the transcript rather than pushing the
           prompter's own controls off the bottom edge they sit on. */}
-      {!compact && <DelegatedRuns sessionId={session.id} />}
       {/* Above the plan, because a goal outranks it: the plan is how this turn is going, the goal is
           why there is a turn at all. */}
       {!compact && goal}

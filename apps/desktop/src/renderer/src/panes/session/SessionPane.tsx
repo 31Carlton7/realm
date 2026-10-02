@@ -17,6 +17,7 @@ import { useFileDrop } from "../../components/use-file-drop";
 import { InstallCard } from "./InstallCard";
 import { Transcript } from "./Transcript";
 import { SubagentPanel } from "./SubagentPanel";
+import { RunningAgents } from "./DelegatedRuns";
 import { TerminalDock } from "./TerminalDock";
 import { emptyTranscript } from "./transcript-model";
 import { promptHint } from "./prompt-hint";
@@ -46,6 +47,8 @@ export function SessionMeta({ item }: { item: Item }) {
       {/* The status dot, alone. The cost used to sit here; it now rides the summary button, which is
           where the rest of what a session produced already lives — and a number in the bar was one
           more thing competing with the title for a strip that has four buttons on the other end. */}
+      {/* The agents this session has working — at the bar's right, where "what is it doing" is read. */}
+      <RunningAgents sessionId={id} />
       <span className="status-dot" data-status={status} title={STATUS_LABEL[status]} aria-label={`Status: ${STATUS_LABEL[status]}`} />
     </>
   );
@@ -145,10 +148,10 @@ function useSessionActions(item: Item): BarAction[] {
     if (environmentId) list.push({
       id: "documents", label: "Documents", title: "Documents", icon: "documents",
       aria: `Open documents for ${item.title}`,
-      /* Beside, not instead. This is pressed FROM a session to read something alongside it, and
-         taking the session's own pane to do that left the reader with a back button as the only way
-         home. An empty focused leaf is still filled rather than split; see `openItemBeside`. */
-      onSelect: () => run(() => openDocuments(environmentId, null, true)),
+      /* Beside, not instead: a tab of this session's side pane, where what its agents open goes too.
+         Taking the session's own pane to do that left the reader with a back button as the only way
+         home. */
+      onSelect: () => run(() => openDocuments(environmentId, null, { sessionId: id })),
     });
     /* The last three take no precondition and are always offered, on one reasoning: each opens a
        PLACE YOU GO rather than a view of this session's checkout, so gating any of them on an
@@ -159,17 +162,17 @@ function useSessionActions(item: Item): BarAction[] {
     list.push({
       id: "browser", label: "Browser", title: "Browser", icon: "browser",
       aria: `Open a browser beside ${item.title}`,
-      onSelect: () => run(() => newBrowser(null, true)),
+      onSelect: () => run(() => newBrowser(null, { sessionId: id })),
     });
     list.push({
       id: "machine", label: "Machine", title: "Machine", icon: "machine",
       aria: `Connect a machine beside ${item.title}`,
-      onSelect: () => run(() => newMachine(null, true)),
+      onSelect: () => run(() => newMachine(null, { sessionId: id })),
     });
     list.push({
       id: "simulator", label: "Simulator", title: "Simulator", icon: "simulator",
       aria: `Open a simulator beside ${item.title}`,
-      onSelect: () => run(() => newSimulator(null, true)),
+      onSelect: () => run(() => newSimulator(null, { sessionId: id })),
     });
     return list;
   }, [id, item.title, dock, environmentId, summaryLive, toggleSessionDock, openDocuments, newBrowser, newMachine, newSimulator, run]);
@@ -225,6 +228,21 @@ export function useSessionMenuItems(item: Item, keep: number): MenuItem[] {
   }, [actions, keep, item.kind]);
 }
 
+/**
+ * Where a peek's prompter would be (W11b): what the tab is, which space the session lives in when it
+ * is not this one, and the way in. Peeks answer cards and nothing more — no composer, by the user's
+ * decision — so writing to the session is opening it, and the button says where that will be.
+ */
+function PeekBar({ spaceName, elsewhere, onOpen }: { spaceName: string; elsewhere: boolean; onOpen: () => void }) {
+  return (
+    <div className="peek-bar" role="group" aria-label="Peek">
+      <span className="peek-where"><Icon name="peek" size={14} /><span className="peek-where-text">{elsewhere ? `Peek · ${spaceName}` : "Peek"}</span></span>
+      <button type="button" className="btn" onClick={onOpen}
+        title={elsewhere ? `Switches to ${spaceName} and opens it there` : "Keeps it as a tab here"}>Open session</button>
+    </div>
+  );
+}
+
 /** Transcript + composer for one agent session (item.refId = session id). PanelBar renders the header. */
 /** Stable, so a pane with no references hands the Composer the same array every render. */
 const EMPTY_REFS: readonly { sessionId: string; title: string; agent: string }[] = [];
@@ -265,6 +283,10 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const setSessionAgent = useApp((s) => s.setSessionAgent);
   const setSessionMode = useApp((s) => s.setSessionMode);
   const planReturn = useApp((s) => s.planReturn[id] ?? null);
+  /* Looked at, not opened: a peek keeps the transcript and its cards and gives up the prompter. */
+  const peek = useApp((s) => s.peek?.item.id === item.id);
+  const activeSpaceId = useApp((s) => s.activeSpaceId);
+  const openPeek = useApp((s) => s.openPeek);
   const run = useApp((s) => s.run);
   const transcript = entry?.t ?? emptyTranscript();
   // Store-owned, keyed by session id (A-M9): layout reshapes/remounts never lose typed text, and a
@@ -522,7 +544,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   ];
   const body = (
     <div ref={setPane} className="session-pane" data-visible={visible || undefined} data-focused={focused || undefined} data-composer={hero ? "hero" : "docked"}
-      data-dropping={fileDrop.dropping || undefined} {...fileDrop.handlers}>
+      data-peek={peek || undefined}
+      data-dropping={fileDrop.dropping || undefined} {...(peek ? {} : fileDrop.handlers)}>
       <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd}
         onExpandPlan={(planId) => openSheet({ kind: "session-plan", sessionId: id, planId })}
         mode={sessionModeOf(session.permissionMode)}
@@ -537,7 +560,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
         onDecide={(requestId, d, answers) => run(() => respondPermission(id, requestId, d, answers))}
         onRetry={() => { setSends((n) => n + 1); run(() => retryLastTurn(id)); }}
         onRate={(messageId, rating) => run(() => rateMessage(id, messageId, rating))} />
-      {blocked && isBlocked(availability)
+      {peek
+        ? <PeekBar spaceName={space?.name ?? "another space"} elsewhere={session.spaceId !== activeSpaceId} onOpen={() => run(() => openPeek())} />
+        : blocked && isBlocked(availability)
         ? <InstallCard availability={availability} onRetry={reprobe}
             onOpenInTerminal={(command) => run(() => prefillTerminal(id, command))}
             offer={cliOffer} job={cliJob ?? null}

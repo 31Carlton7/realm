@@ -23,7 +23,7 @@ export const liveApi = (): Api => ({
   createProject: (spaceId, name, rootPath) => rpc().call("projects.create", { spaceId, name, rootPath }),
   setLayout: (id, layout) => rpc().call("spaces.setLayout", { id, layout }),
   setGroups: (id, groups, activeItemId) => rpc().call("spaces.setGroups", { id, groups, activeItemId }),
-  createTerminal: (spaceId) => rpc().call("terminals.create", { spaceId }),
+  createTerminal: (spaceId, cwd) => rpc().call("terminals.create", cwd ? { spaceId, cwd } : { spaceId }),
   createBrowser: (spaceId) => rpc().call("browsers.create", { spaceId }),
   createMachine: (spaceId, name) => rpc().call("machines.create", { spaceId, name }),
   createSimulator: (spaceId, name) => rpc().call("simulators.create", { spaceId, name, udid: null }),

@@ -521,8 +521,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     // Plan 17 W1. An in-memory filesystem keyed by workspace id: enough for the store's own tests to
     // exercise open/save without touching disk. The DocumentsPane's own behaviour is covered by
     // buffers.test.ts (the transitions) and the server's service.test.ts (the real filesystem).
-    createDocuments: async (spaceId) => {
-      calls.push(`createDocuments:${spaceId}`);
+    createDocuments: async (spaceId, environmentId) => {
+      calls.push(`createDocuments:${spaceId}${environmentId ? `:${environmentId}` : ""}`);
       const existing = (data.items[spaceId] ?? []).find((i) => i.kind === "documents");
       if (existing) return { documentsId: existing.refId, itemId: existing.id };
       const documentsId = `docs${++n}`;
@@ -568,6 +568,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     openDocumentPath: async (spaceId, path, environmentId) => {
       calls.push(`openDocumentPath:${spaceId}:${path}`);
       const { documentsId, itemId } = await api.createDocuments(spaceId, environmentId);
+      await wait(`openDocumentPath:${spaceId}`);
       const ws = data.documentWorkspaces[documentsId]!;
       const openPaths = ws.openPaths.includes(path) ? ws.openPaths : [...ws.openPaths, path];
       data.documentWorkspaces[documentsId] = { ...ws, openPaths, activePath: path };
@@ -710,7 +711,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       if (i >= 0) data.spaces[i] = s;
       return s;
     },
-    createTerminal: async (sid) => {
+    createTerminal: async (sid, cwd) => {
+      calls.push(`createTerminal:${sid}${cwd ? `:${cwd}` : ""}`);
       const it = item(`i${++n}`, sid, { title: "Terminal" }); (data.items[sid] ??= []).push(it);
       api.onCreateTerminal?.(); await wait("createTerminal");
       return { terminalId: it.refId, itemId: it.id };

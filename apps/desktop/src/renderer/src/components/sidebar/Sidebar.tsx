@@ -1,6 +1,7 @@
 import { ChatFeed } from "./ChatFeed";
 import { Destinations } from "./Destinations";
 import { SidebarActivity } from "./SidebarActivity";
+import { NeedsYou } from "./NeedsYou";
 import { NewSessionRow } from "./NewSessionRow";
 import { SidebarNotifications } from "./SidebarNotifications";
 import { SidebarResizer } from "./SidebarResizer";
@@ -28,7 +29,8 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
           a second toggle living in here — inert, but still in the tree — would be two buttons with
           one name, told apart only by a property jsdom does not implement and a reader cannot see.
           One control, wherever it currently lives. */}
-      <div className="sb-head">{!collapsed && <><SidebarNotifications /><SidebarActivity /><SidebarToggle /></>}</div>
+      {/* "N need you" leads the band, beside the bell: what is waiting on you, answered where it is. */}
+      <div className="sb-head">{!collapsed && <><NeedsYou /><SidebarNotifications /><SidebarActivity /><SidebarToggle /></>}</div>
       {/* The space's name heads the column, rather than sitting above the list.
           It used to sit inside each swiper page, which made it N headers with N identical "Space
           menu" buttons — one per space, told apart only by `inert`. There is one space you are in,

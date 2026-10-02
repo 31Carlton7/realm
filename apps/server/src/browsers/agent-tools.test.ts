@@ -316,6 +316,8 @@ describe("results and scoping", () => {
        bar already saying so. The ticker reports what an agent did in a pane; the act that created
        the pane is reported by the pane appearing. */
     expect(calls.broadcasts.map((b) => b.event)).toEqual(["browser.agentOpened"]);
+    // The session that asked, which is the session whose side pane the browser belongs in.
+    expect(calls.broadcasts[0]!.payload).toMatchObject({ openedBy: "sess1" });
   });
 
   it("the provider disabled for a space lists no tools and refuses calls", async () => {
