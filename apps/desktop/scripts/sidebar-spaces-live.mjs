@@ -16,6 +16,10 @@
  *   6. The Active list heads the body above the room: what needs you from every room, in order, four
  *      rows then "Show all"; each row's room name stays whole while a long title gives way; and a row
  *      clicked to read it stays exactly where it was while the room changes underneath.
+ *   7. Opening a session in another room switches the room IN PLACE: sampled every frame across the
+ *      switch, the page track jumps once with nothing in between, nothing in the column scrolls, the
+ *      Active list does not move, and the keyboard lands in the session's prompter. Go back (⌃-)
+ *      returns to the room and pane you left, the same way, and Go forward (⌃⇧-) returns again.
  *
  * Each layout measurement is paired with a mutant that reproduces the failure it pins, so a check that
  * has quietly stopped measuring anything fails instead of passing. Screenshots of both faces are
@@ -97,9 +101,13 @@ function rpc(port, token) {
   const s = socket(`ws://127.0.0.1:${port}`, tokenProtocols(token));
   return {
     ready: s.ready,
+    /* Bounded: a server that went away mid-run must fail the run with its name on it, not leave it
+       waiting forever for a reply that is never coming. The fake's held turns are sent with `void`
+       and never awaited, so nothing legitimate waits this long. */
     call: (method, params) => new Promise((res, rej) => {
       const i = String(s.next());
-      s.pending.set(i, (msg) => (msg.ok ? res(msg.result) : rej(new Error(`${method}: ${msg.error?.message}`))));
+      const timer = setTimeout(() => { s.pending.delete(i); rej(new Error(`${method}: no answer in 30s — is the server still up?`)); }, 30000);
+      s.pending.set(i, (msg) => { clearTimeout(timer); s.pending.delete(i); return msg.ok ? res(msg.result) : rej(new Error(`${method}: ${msg.error?.message}`)); });
       s.ws.send(JSON.stringify({ id: i, method, params }));
     }),
     close: () => s.ws.close(),
@@ -167,6 +175,33 @@ globalThis.__live = {
       inScroller: !!el.closest('.space-body'), inSwiper: !!el.closest('.swiper'), swiperTop: __live.box(document.querySelector('.swiper')).t };
   },
   header() { return document.querySelector('.space-header .space-name')?.textContent ?? null; },
+  /** Every frame from now until stopped: the page track's painted transform and every scroll offset
+   *  in the column — what "the room switched in place" means, measured rather than assumed. */
+  sample() {
+    const track = document.querySelector('.swiper-track');
+    const out = [];
+    globalThis.__samples = out;
+    globalThis.__sampling = true;
+    const tick = () => {
+      const pages = [...document.querySelectorAll('.space-page')];
+      out.push({ transform: getComputedStyle(track).transform,
+        // Where the page on screen actually is — what a reader sees move, whatever moved it.
+        pageLeft: Math.round((document.querySelector('.space-page:not([inert])')?.getBoundingClientRect().left ?? 0) * 2) / 2,
+        scroll: [document.querySelector('.sidebar'), document.querySelector('.swiper'), ...pages].map((el) => el.scrollTop + el.scrollLeft),
+        body: document.querySelector('.space-page:not([inert]) .space-body')?.scrollTop ?? null,
+        activeTop: document.querySelector('.sb-active')?.getBoundingClientRect().top ?? null });
+      if (globalThis.__sampling) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    return true;
+  },
+  stopSampling() { globalThis.__sampling = false; return globalThis.__samples; },
+  focusIn() {
+    const el = document.activeElement;
+    const pane = el?.closest('.session-pane');
+    return { tag: el?.tagName ?? null, cls: el?.className ?? null, inPane: !!pane, paneFocused: pane?.hasAttribute('data-focused') ?? false,
+      title: document.querySelector('.session-pane[data-focused]')?.closest('.panel')?.querySelector('.panel-title, .panel-bar')?.textContent ?? null };
+  },
   addStyle(id, text) { const st = document.createElement('style'); st.id = id; st.textContent = text; document.head.appendChild(st); return true; },
   dropStyle(id) { document.getElementById(id)?.remove(); return true; },
 };
@@ -480,6 +515,71 @@ async function main() {
   check("…and nothing in it moved: every row is where it was before the room changed",
     afterHold.rows.every((r, i) => Math.abs(r.row.t - beforeHold.rows[i].row.t) < 0.5) && Math.abs(afterHold.box.t - beforeHold.box.t) < 0.5,
     { before: beforeHold.rows.map((r) => r.row.t), after: afterHold.rows.map((r) => r.row.t) });
+
+  /* ── 7. Opening a session in another room switches the room in place ─────────────────────────── */
+  const switchIn = async (tag, act) => {
+    const before = await evalIn(c, `({ active: __live.active(), transition: getComputedStyle(document.querySelector('.swiper-track')).transitionDuration })`);
+    await evalIn(c, `__live.sample()`);
+    await sleep(120);
+    await act();
+    await sleep(1400);
+    const samples = await evalIn(c, `__live.stopSampling()`);
+    const after = await evalIn(c, `({ active: __live.active(), header: __live.header(), focus: __live.focusIn() })`);
+    const transforms = [...new Set(samples.map((x) => x.transform))];
+    return { tag, before, after, transforms, pageLefts: [...new Set(samples.map((x) => x.pageLeft))], scrolled: samples.some((x) => x.scroll.some((v) => v !== 0)),
+      bodyMoved: [...new Set(samples.map((x) => x.body).filter((v) => v !== null))],
+      activeMoved: [...new Set(samples.map((x) => x.activeTop).filter((v) => v !== null).map((v) => Math.round(v * 2) / 2))], frames: samples.length };
+  };
+  await clickAt(c, centre((await evalIn(c, `__live.room("Live")`)).title));
+  await until(async () => (await evalIn(c, `__live.header()`)) === "Live", 10000, "in Live for the switch");
+  await park(c);
+  await sleep(500);
+  const longHaul = (await evalIn(c, `__live.active()`)).rows.find((r) => r.title === "Long haul");
+  const opened = await switchIn("open", () => clickAt(c, centre(longHaul.titleBox)));
+  check("opening a session in another room lands in that room", opened.after.header === "Thesis", { header: opened.after.header });
+  check("…in place: the page track jumps once, nothing painted in between, and has no transition",
+    opened.transforms.length === 2 && opened.before.transition === "0s" && opened.frames > 30, { transforms: opened.transforms, transition: opened.before.transition, frames: opened.frames });
+  check("…and the page on screen never moves: every frame has it at the column's left edge",
+    opened.pageLefts.length === 1, { pageLefts: opened.pageLefts });
+  check("…nothing in the column scrolls, and the new room's list starts and stays at its top",
+    !opened.scrolled && opened.bodyMoved.every((v) => v === 0), { scrolled: opened.scrolled, body: opened.bodyMoved });
+  check("…and the Active list above it does not move", opened.activeMoved.length === 1, { activeTop: opened.activeMoved });
+  check("the keyboard lands in the session's prompter", opened.after.focus.inPane && opened.after.focus.paneFocused && /composer-input/.test(opened.after.focus.cls ?? ""), opened.after.focus);
+
+  /* The mutant: slide the incoming page in, the failure this pins. Not a transition on the track — the
+     switch replaces the page under it in the same frame the track moves, and Chromium starts no
+     transition across that (measured: a direct write to the track animates, a room switch does not,
+     with the same rule on it) — so an animation on the page itself, which is what a slide would be. */
+  await evalIn(c, `__live.addStyle('mutant-slide', '@keyframes mutant-slide { from { translate: 60% 0; } } .space-page:not([inert]) { animation: mutant-slide 400ms ease !important; }')`);
+  await sleep(700); // the page on screen takes the rule too, and slides once; aim only after it has landed
+  const liveRow = await evalIn(c, `__live.room("Live")`);
+  const slid = await switchIn("mutant", () => clickAt(c, centre(liveRow.title)));
+  check("the mutant reproduces the failure (a page that slides in ⇒ the sampler sees it between the edges)", slid.pageLefts.length > 2,
+    { pageLefts: slid.pageLefts.slice(0, 8), header: slid.after.header, frames: slid.frames });
+  await evalIn(c, `__live.dropStyle('mutant-slide')`);
+  await until(async () => (await evalIn(c, `__live.header()`)) === "Live", 10000, "back in Live after the mutant");
+  // The mutant's own click was a step on the trail; go forward to the session again so Back has a known place to go.
+  const again = (await evalIn(c, `__live.active()`)).rows.find((r) => r.title === "Long haul");
+  await clickAt(c, centre(again.titleBox));
+  await until(async () => (await evalIn(c, `__live.header()`)) === "Thesis", 10000, "Thesis again");
+  await sleep(500);
+
+  /* Go back and Go forward, by the keys, from the prompter. */
+  const press = async (shift) => {
+    const modifiers = 2 | (shift ? 8 : 0); // ctrl, shift
+    for (const type of ["keyDown", "keyUp"]) {
+      await c.send("Input.dispatchKeyEvent", { type, modifiers, key: shift ? "_" : "-", code: "Minus", windowsVirtualKeyCode: 189, nativeVirtualKeyCode: 189 });
+    }
+  };
+  const back = await switchIn("back", () => press(false));
+  check("Go back (⌃-) from the prompter returns to the room you left, the keyboard in the prompter you left",
+    back.after.header === "Live" && back.after.focus.paneFocused && /composer-input/.test(back.after.focus.cls ?? ""), { header: back.after.header, focus: back.after.focus });
+  check("…in place as well: one jump, the page never moving, nothing scrolled", back.transforms.length === 2 && back.pageLefts.length === 1 && !back.scrolled,
+    { transforms: back.transforms, pageLefts: back.pageLefts, scrolled: back.scrolled });
+  const forward = await switchIn("forward", () => press(true));
+  check("Go forward (⌃⇧-) goes back into the session", forward.after.header === "Thesis"
+    && (await evalIn(c, `document.querySelector('.session-pane[data-focused]')?.closest('.panel')?.textContent.includes('Long haul') ?? false`)), { header: forward.after.header });
+  await shot(c, "across-rooms", SIDEBAR);
 
   /* ── The light face ─────────────────────────────────────────────────────────────────────────── */
   await api.call("settings.set", { key: "ui.theme", value: "light" });
