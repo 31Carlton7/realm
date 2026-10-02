@@ -23,6 +23,9 @@
  *   8. History lists the pane's own trail and goes where it is told.
  *   9. Clear browsing data asks first, as a sheet on the window: Cancel keeps the cookie, Clear takes it.
  *  10. Browser settings opens Settings on Sign-ins.
+ *  11. Suggestions (Plan 26 W7c): typing in the address field lists the visited pages that match, most
+ *      visited first, as a strip that pushes the view down; ↓ and Return open a page, the last row
+ *      searches the web for the text, Escape closes the list, and Clear browsing data empties it.
  *
  * Ports: LIVE_SERVER_PORT (8961), LIVE_CDP_PORT (9361), LIVE_MAIN_INSPECT_PORT (9461), LIVE_SITE_PORT
  * (8971). Touches only a scratch dir; kills only what listens on its own ports. Browses nothing but its
@@ -382,7 +385,12 @@ async function main() {
   check("the strip sits ABOVE the view, and the view gives up its height to it",
     !strip.inHost && pushed.bounds.y >= Math.floor(strip.bottom) - 1 && Math.abs(pushed.bounds.y - strip.hostTop) <= 1, { stripBottom: strip.bottom, hostTop: strip.hostTop, viewY: pushed.bounds.y });
   const key = async (k, modifiers = 0) => {
-    for (const type of ["keyDown", "keyUp"]) await c.send("Input.dispatchKeyEvent", { type, key: k, code: k === "Enter" ? "Enter" : k === "Escape" ? "Escape" : `Key${k.toUpperCase()}`, windowsVirtualKeyCode: k === "Enter" ? 13 : k === "Escape" ? 27 : k.toUpperCase().charCodeAt(0), modifiers });
+    const named = { Enter: 13, Escape: 27, ArrowDown: 40, ArrowUp: 38 };
+    for (const type of ["keyDown", "keyUp"]) await c.send("Input.dispatchKeyEvent", {
+      type, key: k, code: k in named ? k : `Key${k.toUpperCase()}`, windowsVirtualKeyCode: named[k] ?? k.toUpperCase().charCodeAt(0), modifiers,
+      // Return's character is what a form's implicit submission listens for; a bare key-down never sends it.
+      ...(type === "keyDown" && k === "Enter" ? { text: "\r" } : {}),
+    });
   };
   await key("Enter");
   const second = await until(async () => { const t = await count(); return t === "2 of 3" ? t : null; }, 5_000, "2 of 3").catch(() => count());
@@ -525,6 +533,78 @@ async function main() {
   const wentBack = await until(async () => { const v = await view(); return v?.url === `${SITE}/` ? v : null; }, 10_000, "history step").catch(() => view());
   check("choosing a page goes there", wentBack?.url === `${SITE}/`, wentBack?.url);
 
+  // ── 11. Suggestions under the address field ─────────────────────────────────────────────────
+  /** Click into the address field for real — which selects what is in it — and type over it. */
+  const typeAddress = async (text) => {
+    const at = await evalIn(c, `(() => { const r = document.querySelector('.browser-pane input[aria-label=Address]').getBoundingClientRect(); return { x: r.left + 40, y: r.top + r.height / 2 }; })()`);
+    for (const type of ["mousePressed", "mouseReleased"]) await c.send("Input.dispatchMouseEvent", { type, x: at.x, y: at.y, button: "left", clickCount: 1 });
+    await sleep(150);
+    // The click leaves a caret where it landed; select the address so the typing replaces it, as ⌘A would.
+    await c.send("Input.dispatchKeyEvent", { type: "keyDown", key: "a", code: "KeyA", windowsVirtualKeyCode: 65, modifiers: 4, commands: ["selectAll"] });
+    await c.send("Input.dispatchKeyEvent", { type: "keyUp", key: "a", code: "KeyA", windowsVirtualKeyCode: 65, modifiers: 4 });
+    if (text) await c.send("Input.insertText", { text });
+    await sleep(400); // the list waits for typing to pause, then asks the server
+  };
+  const suggestions = () => evalIn(c, `(() => { const l = document.querySelector('.browser-suggest'); if (!l) return null;
+    return { rows: [...l.querySelectorAll('[role=option]')].map((o) => ({ title: o.querySelector('.browser-suggest-title')?.textContent ?? "", url: o.querySelector('.browser-suggest-url')?.textContent ?? null, selected: o.getAttribute('aria-selected') === 'true' })),
+      bottom: l.getBoundingClientRect().bottom, inHost: !!document.querySelector('.browser-view-host .browser-suggest'),
+      hostTop: document.querySelector('.browser-view-host').getBoundingClientRect().top }; })()`);
+  await typeAddress("");
+  check("focusing the address field alone opens no list", (await suggestions()) === null);
+  await key("Escape");
+  await typeAddress("fixture");
+  const list = await until(suggestions, 5_000, "suggestions").catch(() => null);
+  note("suggestions for \"fixture\"", list?.rows.map((r) => `${r.title}${r.url ? ` · ${r.url}` : ""}`));
+  check("typing lists the pages this profile visited, the one gone back to most first, then a web search",
+    JSON.stringify(list?.rows.map((r) => r.title)) === JSON.stringify(["Fixture", "Docs — Fixture", "Files — Fixture", "Search the web for “fixture”"]), list?.rows);
+  await sleep(300);
+  const under = await view();
+  // Anything else above the view (the download bar from step 7 is still up) sits between the two, so
+  // the test is that the list ends above where the view begins, and the view begins where its host does.
+  check("the list is a strip ABOVE the view, and the view gives up its height to it",
+    !!list && !list.inHost && list.bottom <= list.hostTop + 1 && Math.abs(under.bounds.y - list.hostTop) <= 1, { listBottom: list?.bottom, hostTop: list?.hostTop, viewY: under.bounds.y });
+  const edges = await evalIn(c, `(() => { const row = document.querySelector('.browser-suggest [role=option]').getBoundingClientRect();
+    const field = document.querySelector('.browser-pane input[aria-label=Address]').getBoundingClientRect();
+    return { rowLeft: Math.round(row.left), rowRight: Math.round(row.right), fieldLeft: Math.round(field.left), fieldRight: Math.round(field.right) }; })()`);
+  check("its rows hang from the field's own edges, so the list reads as the field's", Math.abs(edges.rowLeft - edges.fieldLeft) <= 1 && Math.abs(edges.rowRight - edges.fieldRight) <= 1, edges);
+  await shot(c, "suggestions");
+  await key("ArrowDown");
+  await key("ArrowDown");
+  const moved = await suggestions();
+  check("↓ moves through the rows", moved?.rows[1]?.selected === true && moved.rows.filter((r) => r.selected).length === 1, moved?.rows);
+  await key("Enter");
+  const picked = await until(async () => { const v = await view(); return v?.url === `${SITE}/docs` ? v : null; }, 10_000, "suggestion opened").catch(() => view());
+  check("Return opens the row it is on", picked?.url === `${SITE}/docs`, picked?.url);
+  check("…and the list goes with it", (await suggestions()) === null);
+  await typeAddress("fix");
+  await until(suggestions, 5_000, "suggestions again");
+  await key("Escape");
+  await sleep(200);
+  const restored = await evalIn(c, `({ list: !!document.querySelector('.browser-suggest'), value: document.querySelector('.browser-pane input[aria-label=Address]').value })`);
+  check("Escape closes the list and puts the page's own address back", !restored.list && restored.value === `${SITE}/docs`, restored);
+  // The web search row: the typed text searched, even though it reads like a word on this site. The
+  // search engine is never actually reached — the view's load is stood in for — because this check
+  // browses nothing but its own fixture.
+  await mainEval(`(() => {
+    const { BrowserWindow, WebContentsView } = require("electron");
+    for (const w of BrowserWindow.getAllWindows()) for (const v of w.contentView.children) {
+      if (!(v instanceof WebContentsView) || !v.webContents.getURL().startsWith(${JSON.stringify(SITE)})) continue;
+      const wc = v.webContents, load = wc.loadURL.bind(wc);
+      globalThis.__live.loads = [];
+      wc.loadURL = (url, opts) => { globalThis.__live.loads.push(url); return url.startsWith(${JSON.stringify(SITE)}) ? load(url, opts) : Promise.resolve(); };
+    }
+    return true; })()`);
+  await typeAddress("fixture");
+  await until(suggestions, 5_000, "suggestions for the search");
+  for (let i = 0; i < 6; i++) await key("ArrowDown");
+  const onSearch = await suggestions();
+  check("the last row is the search, and ↓ stops there", onSearch?.rows.at(-1)?.selected === true, onSearch?.rows.map((r) => r.selected));
+  await key("Enter");
+  await sleep(500);
+  const loads = await mainEval(`globalThis.__live.loads.slice()`);
+  check("…and Return on it searches the web for exactly what was typed", loads.includes("https://www.google.com/search?q=fixture"), loads);
+  await go("/");
+
   // ── 9. Clear browsing data ────────────────────────────────────────────────────────────────────
   await go("/cookie");
   const cookies = () => mainEval(`require("electron").session.fromPartition("persist:browser").cookies.get({ url: ${JSON.stringify(SITE)} }).then((cs) => cs.map((c) => c.name))`);
@@ -543,6 +623,10 @@ async function main() {
   check("Clear takes it", gone, await cookies());
   const clearedToast = await until(() => evalIn(c, `document.querySelector('.browser-toast')?.textContent ?? null`), 3_000, "clear receipt").catch(() => null);
   check("…and the pane says every browser pane is signed out", /Every browser pane is signed out/.test(clearedToast ?? ""), clearedToast);
+  await typeAddress("fixture");
+  const afterClear = await until(suggestions, 5_000, "suggestions after clearing").catch(() => null);
+  check("…and the address field has forgotten the pages: only the web search is left", JSON.stringify(afterClear?.rows.map((r) => r.title)) === JSON.stringify(["Search the web for “fixture”"]), afterClear?.rows);
+  await key("Escape");
 
   // ── 10. Browser settings ──────────────────────────────────────────────────────────────────────
   await choose(["Browser settings"]);
