@@ -781,6 +781,7 @@ describe("BrowserPane — the ⋯ menu (Plan 26 W7)", () => {
     expect(strip).toBeInTheDocument();
     // THE mutant: render the strip in the view host, floating. The view paints over it there.
     expect(host.contains(strip)).toBe(false);
+    expect(host.querySelector(".browser-find, [role=search], input")).toBeNull();
     expect(strip.parentElement).toBe(host.parentElement);
     expect(strip.compareDocumentPosition(host) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole("textbox", { name: "Find in page" })).toHaveFocus();
