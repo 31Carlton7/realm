@@ -398,6 +398,10 @@ string staying that way.
   the top surface cannot save it: expanding a picture out of a sheet closed the sheet too. A full
   window overlay should REPLACE what it covers rather than sit on it — the thing underneath is
   invisible anyway, and unmounting it is what takes its key handler with it.
+- Escape is a way out, so it must never also be an answer. In the transcript a request card takes
+  Escape as Deny or Skip, and that is the card's whole surface; carried onto a page or popover whose
+  Escape means "leave", the same key denied a request the person had only looked at. A surface that
+  hosts a card catches Escape before the card does and leaves; a field being typed in keeps its own.
 - Destructive actions must name their target and distinguish removing from a layout from deleting the
   underlying object.
 
