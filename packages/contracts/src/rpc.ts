@@ -772,6 +772,15 @@ export const Methods = {
     params: z.object({ spaceId: IdSchema, query: z.string().max(2_048), limit: z.number().int().min(1).max(20).default(6) }),
     result: z.object({ pages: z.array(BrowserHistoryPageSchema) }),
   },
+  /**
+   * A blank tab's Recently visited (Plan 26 W6): the pages this space's PROFILE went to last, most
+   * recent first. A handful by default — the new-tab page lists them under its tools, and the rest of
+   * the history is the address field's to search.
+   */
+  "browsers.recent": {
+    params: z.object({ spaceId: IdSchema, limit: z.number().int().min(1).max(20).default(5) }),
+    result: z.object({ pages: z.array(BrowserHistoryPageSchema) }),
+  },
   /** Forget every visited page — Clear browsing data's other half, after main has cleared the partition. */
   "browsers.clearHistory": { params: z.object({}), result: z.object({ ok: z.literal(true) }) },
 

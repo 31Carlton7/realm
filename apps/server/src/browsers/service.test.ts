@@ -193,6 +193,27 @@ describe("browsers RPC", () => {
       c.close();
     });
 
+    it("a blank tab's recent pages are the space's profile's, newest first, and a handful unless asked for more", async () => {
+      /* THE mutants: read the history without the space's profile, and the newest visit anywhere — a
+         page in another profile — heads this one's list; drop the default bound, and the new-tab page
+         lists the whole history under its tools. */
+      const { c, a, b, other, pane } = await setup();
+      const recent = async (spaceId: string, limit?: number) =>
+        ((await c.call("browsers.recent", { spaceId, ...(limit ? { limit } : {}) })).result.pages as { title: string }[]).map((x) => x.title);
+      const p = await pane(a.id);
+      for (let i = 1; i <= 7; i++) {
+        await c.call("browsers.update", { browserId: p, url: `https://docs.example/${i}`, title: `Page ${i}` });
+        await new Promise((r) => setTimeout(r, 3)); // recency is the order, so no two visits share a millisecond
+      }
+      await c.call("browsers.update", { browserId: await pane(other.id), url: "https://games.example/", title: "Games" });
+      expect(await recent(a.id)).toEqual(["Page 7", "Page 6", "Page 5", "Page 4", "Page 3"]);
+      // Another space of the same profile lists the same pages; the other profile lists only its own.
+      expect(await recent(b.id, 2)).toEqual(["Page 7", "Page 6"]);
+      expect(await recent(other.id)).toEqual(["Games"]);
+      expect(await recent(newId())).toEqual([]);
+      c.close();
+    });
+
     it("an empty query suggests nothing, and clearHistory forgets every profile's pages", async () => {
       const { c, a, other, pane, suggest } = await setup();
       await c.call("browsers.update", { browserId: await pane(a.id), url: "https://a.example/", title: "A" });

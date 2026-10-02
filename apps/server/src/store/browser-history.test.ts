@@ -89,6 +89,34 @@ describe("BrowserHistoryStore", () => {
     expect(history.search("p1", "fresh", 1)).toHaveLength(1);
   });
 
+  it("recent lists the pages visited last, newest first, however often the others were", () => {
+    /* THE mutant: rank them as search does, most visited first. The page opened forty times last
+       month would head a list called Recently visited. */
+    const { history } = store();
+    for (let i = 0; i < 5; i++) history.recordVisit("p1", "https://often.example/", "Often", 10 + i);
+    history.recordVisit("p1", "https://older.example/", "Older", 50);
+    history.recordVisit("p1", "https://newest.example/", "Newest", 100);
+    expect(history.recent("p1", 10).map((p) => p.title)).toEqual(["Newest", "Older", "Often"]);
+  });
+
+  it("recent breaks a tie on the millisecond toward the page gone back to more", () => {
+    // THE mutant: recency alone. The tie then falls to whichever row was written first — "Once".
+    const { history } = store();
+    history.recordVisit("p1", "https://once.example/", "Once", 40);
+    history.recordVisit("p1", "https://twice.example/", "Twice", 10);
+    history.recordVisit("p1", "https://twice.example/", "Twice", 40);
+    expect(history.recent("p1", 10).map((p) => [p.title, p.visits])).toEqual([["Twice", 2], ["Once", 1]]);
+  });
+
+  it("recent is one profile's own, and only as many as asked for", () => {
+    const { history } = store();
+    for (let i = 0; i < 4; i++) history.recordVisit("p1", `https://work.example/${i}`, `Work ${i}`, 10 + i);
+    history.recordVisit("p2", "https://home.example/", "Home", 100);
+    expect(history.recent("p1", 2).map((p) => p.title)).toEqual(["Work 3", "Work 2"]);
+    expect(history.recent("p2", 10).map((p) => p.title)).toEqual(["Home"]);
+    expect(history.recent("nobody", 10)).toEqual([]);
+  });
+
   it("clearAll forgets every profile's pages", () => {
     const { history } = store();
     history.recordVisit("p1", "https://a.example/", "A", 1);
