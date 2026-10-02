@@ -1,6 +1,7 @@
 import { AGENT_META, DEFAULT_MODEL_LABEL, type Session, type SessionStatus } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useState } from "react";
+import { AgentAsk, AgentStop } from "./AgentAnswer";
 import { AgentOffice } from "./AgentOffice";
 import { AgentWall } from "./AgentWall";
 import { useApp, type AgentsView } from "../../state/store";
@@ -140,7 +141,9 @@ export function AgentsPage({ item, visible }: PaneProps) {
               </h2>
               <ul className="agents-list">
                 {shown.map((s) => (
-                  <li key={s.id}>
+                  /* The row opens the session; what it is waiting on, and Stop, are its siblings —
+                     an answer given here must never also be a click that goes somewhere. */
+                  <li key={s.id} className="agents-item" data-status={g.state.status}>
                     <button type="button" className="agents-row" data-status={g.state.status}
                       title={`${s.title} — ${spaceName(s.spaceId)} · ${s.cwd}`}
                       onClick={() => run(() => reveal(s.id, s.spaceId))}>
@@ -157,6 +160,8 @@ export function AgentsPage({ item, visible }: PaneProps) {
                       </span>
                       <span className="agents-row-when">{ago(s.updatedAt)}</span>
                     </button>
+                    {g.state.status === "running" && <AgentStop session={s} />}
+                    {g.state.status === "waiting_permission" && <AgentAsk session={s} />}
                   </li>
                 ))}
               </ul>
