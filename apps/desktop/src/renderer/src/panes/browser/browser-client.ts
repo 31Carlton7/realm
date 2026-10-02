@@ -1,4 +1,4 @@
-import type { BlockedDownload, PasskeyNotice, Browser, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved } from "@realm/contracts";
+import type { BlockedDownload, PasskeyNotice, Browser, BrowserDownloadResult, BrowserFindResult, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved } from "@realm/contracts";
 import { rpc } from "../../rpc/client";
 
 /** The per-space origin allowlist's settings key — stored like MCP enablement (`mcp.enabled:<spaceId>`),
@@ -54,6 +54,8 @@ export type BrowserHostBridge = {
   retain(id: string): Promise<void>;
   navigate(id: string, input: string): Promise<string | null>;
   nav(id: string, action: "back" | "forward" | "reload" | "stop"): Promise<void>;
+  /** Plan 26 W7c: the typed text as a web search, even when it looks like an address. */
+  search(id: string, query: string): Promise<string | null>;
   /** The trail as an OS menu — see main's handler for why it cannot be a popover in this pane. */
   historyMenu(id: string, dir: "back" | "forward", at: { x: number; y: number }): Promise<void>;
   setAllowlist(id: string, allowlist: string[] | null): Promise<void>;
@@ -106,6 +108,10 @@ export type BrowserServerBridge = {
   /** Where this space's screenshots land — `<space folder>/screenshots`. Same rule as `downloadDir`:
    *  the server says where, and the renderer only passes it on. */
   screenshotDir(spaceId: string): Promise<string | null>;
+  /** Plan 26 W7c: pages this space's profile has visited that match what is being typed, best first. */
+  suggest(spaceId: string, query: string): Promise<BrowserHistoryPage[]>;
+  /** Forget every visited page — Clear browsing data's other half. */
+  clearHistory(): Promise<void>;
 };
 
 export type BrowserBridges = { host: BrowserHostBridge; server: BrowserServerBridge };
@@ -127,6 +133,8 @@ export function getBrowserBridges(): BrowserBridges {
       allowlist: async (spaceId) => parseAllowlist((await rpc().call("settings.get", { key: allowlistKey(spaceId) })).value),
       downloadDir: async (spaceId) => (await rpc().call("browsers.downloadDir", { spaceId })).dir,
       screenshotDir: async (spaceId) => (await rpc().call("browsers.screenshotDir", { spaceId })).dir,
+      suggest: async (spaceId, query) => (await rpc().call("browsers.suggest", { spaceId, query })).pages,
+      clearHistory: async () => { await rpc().call("browsers.clearHistory", {}); },
     },
   });
 }

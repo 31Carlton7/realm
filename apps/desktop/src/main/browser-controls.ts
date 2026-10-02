@@ -76,7 +76,7 @@ function uniquePath(dir: string, name: string, exists: (p: string) => boolean): 
  */
 export const CLEAR_BROWSING_DATA_COPY = {
   message: "Clear browsing data for every browser pane?",
-  detail: "This removes the cookies, site data and cache of Realm's browser. Every browser pane is signed out of the sites it was signed in to. Saved sign-ins and passkeys in Settings are kept.",
+  detail: "This removes the cookies, site data, cache and history of Realm's browser. Every browser pane is signed out of the sites it was signed in to. Saved sign-ins and passkeys in Settings are kept.",
   clear: "Clear browsing data",
   cancel: "Cancel",
 } as const;

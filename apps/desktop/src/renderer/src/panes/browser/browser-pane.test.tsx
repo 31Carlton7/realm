@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, createEvent, fireEvent, render, screen } from "@testing-library/react";
-import type { BlockedDownload, Browser, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, PasskeyNotice } from "@realm/contracts";
-import { BrowserPane } from "./BrowserPane";
+import type { BlockedDownload, Browser, BrowserDownloadResult, BrowserFindResult, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, PasskeyNotice } from "@realm/contracts";
+import { BrowserPane, SUGGEST_DEBOUNCE_MS } from "./BrowserPane";
 import { setBrowserBridgesForTests, type BrowserBridges, type BrowserHostBridge, type BrowserServerBridge } from "./browser-client";
 import { SETTLE_MS, shouldShowView, isRealmItemDrag } from "./view-sync";
 import { StoreContext, createAppStore } from "../../state/store";
@@ -27,6 +27,10 @@ function fakeBridges(row: Partial<Browser> = {}) {
   let screenshotDir: string | null = "/tmp/space/screenshots";
   let screenshotResult: BrowserScreenshotSaved = { ok: true, path: "/tmp/space/screenshots/example.com-2026-10-01T19-30-05.png", name: "example.com-2026-10-01T19-30-05.png", size: 2048 };
   let cleared = true;
+  /** History the server answers `suggest` with; `holdSuggest` makes each answer wait to be released. */
+  let history: BrowserHistoryPage[] = [];
+  let holdSuggest = false;
+  const heldSuggest: { query: string; release: () => void }[] = [];
   let allowlist: string[] | null = null;
   let downloadDir: string | null = "/tmp/proj/downloads";
   let saveResult: BrowserDownloadResult = { ok: true, name: "week-3.pdf", bytes: 2048, relPath: "downloads/week-3.pdf" };
@@ -38,6 +42,7 @@ function fakeBridges(row: Partial<Browser> = {}) {
     retain: async (id) => { calls.push(`retain:${id}`); },
     navigate: async (id, input) => { calls.push(`navigate:${id}:${input}`); return input.trim() === "" ? null : `https://${input}`; },
     nav: async (id, a) => { calls.push(`nav:${id}:${a}`); },
+    search: async (id, q) => { calls.push(`search:${id}:${q}`); return `https://www.google.com/search?q=${encodeURIComponent(q)}`; },
     historyMenu: async (id, dir, at) => { calls.push(`historyMenu:${id}:${dir}:${Math.round(at.x)},${Math.round(at.y)}`); },
     setAllowlist: async () => {},
     setBounds: (id, rect, dpr, visible) => { bounds.push({ id, rect, dpr, visible }); },
@@ -69,6 +74,13 @@ function fakeBridges(row: Partial<Browser> = {}) {
     allowlist: async () => allowlist,
     downloadDir: async () => downloadDir,
     screenshotDir: async (spaceId) => { calls.push(`screenshot-dir:${spaceId}`); return screenshotDir; },
+    suggest: (spaceId, query) => {
+      calls.push(`suggest:${spaceId}:${query}`);
+      const answer = history.filter((h) => `${h.url} ${h.title}`.toLowerCase().includes(query.toLowerCase()));
+      if (!holdSuggest) return Promise.resolve(answer);
+      return new Promise((resolve) => { heldSuggest.push({ query, release: () => resolve(answer) }); });
+    },
+    clearHistory: async () => { calls.push("clear-history"); },
   };
   const bridges: BrowserBridges = { host, server };
   return {
@@ -89,6 +101,9 @@ function fakeBridges(row: Partial<Browser> = {}) {
       for (const cb of foundCbs) cb(full);
     },
     requestFind: (browserId = "b1") => { for (const cb of findRequestCbs) cb({ browserId }); },
+    setHistory: (h: BrowserHistoryPage[]) => { history = h; },
+    holdSuggestions: () => { holdSuggest = true; },
+    heldSuggest,
     blockDownload: (blocked: BlockedDownload, browserId = "b1") => {
       for (const cb of blockedCbs) cb({ browserId, blocked });
     },
@@ -923,9 +938,12 @@ describe("BrowserPane — the ⋯ menu (Plan 26 W7)", () => {
     await choose(f, "clear-data");
     expect(f.calls).toContain("clear-data");
     expect(screen.queryByRole("status")).toBeNull();
+    expect(f.calls).not.toContain("clear-history");
     f.setCleared(true);
     await choose(f, "clear-data");
     expect(screen.getByRole("status")).toHaveTextContent("Every browser pane is signed out");
+    // …and the pages it showed go too, or the address field would go on suggesting them.
+    expect(f.calls).toContain("clear-history");
   });
 
   it("Browser settings opens Settings on Sign-ins", async () => {
@@ -933,5 +951,140 @@ describe("BrowserPane — the ⋯ menu (Plan 26 W7)", () => {
     await choose(f, "settings");
     expect(store.getState().pageOverlay?.kind).toBe("settings-page");
     expect(store.getState().settingsPageTab).toBe("signins");
+  });
+});
+
+/**
+ * Plan 26 W7c — what the address field suggests while it is being typed in. The pane's own history
+ * comes from the server (`browsers.suggest`); these pin what the pane does with it: when it asks, where
+ * the list is drawn, and what each key does.
+ */
+describe("BrowserPane — address suggestions (Plan 26 W7c)", () => {
+  paneTestEnv();
+  afterEach(() => { cleanup(); });
+
+  const PAGES: BrowserHistoryPage[] = [
+    { url: "https://docs.example/start", title: "Getting started", visits: 5, lastVisitAt: 10 },
+    { url: "https://docs.example/config", title: "Configuration", visits: 2, lastVisitAt: 20 },
+    { url: "https://dogs.example/", title: "", visits: 1, lastVisitAt: 30 },
+  ];
+  const mount = async () => {
+    const f = fakeBridges({ url: "https://example.com/" });
+    f.setHistory(PAGES);
+    setBrowserBridgesForTests(f.bridges);
+    const view = render(<StoreContext.Provider value={createAppStore(fakeApi())}><BrowserPane item={browserItem()} visible /></StoreContext.Provider>);
+    await settle();
+    act(() => f.emit(state({ url: "https://example.com/", title: "Example" })));
+    return { f, ...view };
+  };
+  const field = () => screen.getByLabelText("Address");
+  const type = async (...texts: string[]) => {
+    fireEvent.focus(field());
+    for (const t of texts) fireEvent.change(field(), { target: { value: t } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(SUGGEST_DEBOUNCE_MS + 1); });
+  };
+  const options = () => screen.queryAllByRole("option").map((o) => o.textContent);
+  const press = (key: string, init: Record<string, unknown> = {}) => fireEvent.keyDown(field(), { key, ...init });
+  const enter = async () => { await act(async () => { fireEvent.submit(field().closest("form")!); await vi.advanceTimersByTimeAsync(0); }); };
+
+  it("focusing the field shows the page's address, not a list — a list is for text someone types", async () => {
+    const { f } = await mount();
+    fireEvent.focus(field());
+    await act(async () => { await vi.advanceTimersByTimeAsync(SUGGEST_DEBOUNCE_MS * 2); });
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(f.calls.some((c) => c.startsWith("suggest:"))).toBe(false);
+  });
+
+  it("typing lists the space's visited pages that match, best first, then a search for the text", async () => {
+    const { f } = await mount();
+    // A word typed at speed is one question, not one per letter.
+    await type("d", "do", "doc", "docs");
+    expect(f.calls.filter((c) => c.startsWith("suggest:"))).toEqual(["suggest:s1:docs"]);
+    expect(options()).toEqual([
+      "Getting starteddocs.example/start",
+      "Configurationdocs.example/config",
+      "Search the web for “docs”",
+    ]);
+    // A combobox the way a screen reader expects one: expanded, pointing at its list.
+    expect(field()).toHaveAttribute("aria-expanded", "true");
+    expect(field()).toHaveAttribute("aria-controls", screen.getByRole("listbox").id);
+  });
+
+  it("the list is a strip ABOVE the view — never a dropdown inside it, where the page would cover it", async () => {
+    const { container } = await mount();
+    await type("docs");
+    const list = screen.getByRole("listbox");
+    const host = container.querySelector(".browser-view-host")!;
+    // THE mutant: draw it floating in the view host. The native view paints over everything there.
+    expect(host.contains(list)).toBe(false);
+    expect(list.parentElement).toBe(host.parentElement);
+    expect(list.compareDocumentPosition(host) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container.querySelector(".browser-chrome [aria-haspopup]")).toBeNull();
+  });
+
+  it("↓ moves onto a row and Return opens that page", async () => {
+    const { f } = await mount();
+    await type("docs");
+    press("ArrowDown");
+    expect(screen.getAllByRole("option")[0]).toHaveAttribute("aria-selected", "true");
+    expect(field()).toHaveAttribute("aria-activedescendant", screen.getAllByRole("option")[0]!.id);
+    press("ArrowDown");
+    await enter();
+    expect(f.calls).toContain("navigate:b1:https://docs.example/config");
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("↑ back past the first row returns to the field, and Return goes where the text says", async () => {
+    const { f } = await mount();
+    await type("docs");
+    press("ArrowDown"); press("ArrowUp"); press("ArrowUp");
+    expect(screen.getAllByRole("option").every((o) => o.getAttribute("aria-selected") === "false")).toBe(true);
+    await enter();
+    expect(f.calls).toContain("navigate:b1:docs");
+  });
+
+  it("the search row searches the typed text, even when it looks like an address", async () => {
+    const { f } = await mount();
+    await type("docs.example");
+    for (let i = 0; i < 5; i++) press("ArrowDown"); // held at the last row, which is the search
+    expect(screen.getAllByRole("option").at(-1)).toHaveAttribute("aria-selected", "true");
+    await enter();
+    expect(f.calls).toContain("search:b1:docs.example");
+    expect(f.calls.some((c) => c.startsWith("navigate:"))).toBe(false);
+  });
+
+  it("Escape closes the list and puts the page's own address back in the field", async () => {
+    await mount();
+    await type("docs");
+    press("Escape");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(field()).toHaveValue("https://example.com/");
+  });
+
+  it("a click picks the row — the press keeps the field's focus, so the list is still there to click", async () => {
+    const { f } = await mount();
+    await type("dog");
+    const row = screen.getAllByRole("option")[0]!;
+    // A page with no title is named by its address rather than drawn as a blank row.
+    expect(row).toHaveTextContent("dogs.example");
+    const down = createEvent.mouseDown(row);
+    fireEvent(row, down);
+    expect(down.defaultPrevented).toBe(true);
+    await act(async () => { fireEvent.click(row); await vi.advanceTimersByTimeAsync(0); });
+    expect(f.calls).toContain("navigate:b1:https://dogs.example/");
+  });
+
+  it("an answer that arrives after the text has moved on is dropped, not shown against the wrong words", async () => {
+    const { f } = await mount();
+    f.holdSuggestions();
+    await type("do");
+    await type("docs");
+    expect(f.heldSuggest.map((h) => h.query)).toEqual(["do", "docs"]);
+    await act(async () => { f.heldSuggest[1]!.release(); await vi.advanceTimersByTimeAsync(0); });
+    expect(options()).not.toContain("dogs.exampledogs.example");
+    // THE mutant: no staleness check. The earlier question's answer lands last and wins.
+    await act(async () => { f.heldSuggest[0]!.release(); await vi.advanceTimersByTimeAsync(0); });
+    expect(options().some((o) => o?.includes("dogs.example"))).toBe(false);
+    expect(options()).toHaveLength(3);
   });
 });

@@ -221,6 +221,8 @@ contextBridge.exposeInMainWorld("realm", {
     /** Resolves the normalized URL actually loaded, or null when refused (allowlist) / empty. */
     navigate: (id: string, input: string): Promise<string | null> => ipcRenderer.invoke("browser:navigate", id, input),
     nav: (id: string, action: "back" | "forward" | "reload" | "stop"): Promise<void> => ipcRenderer.invoke("browser:nav", id, action),
+    /** The typed text as a web search, even when it looks like an address. Null when refused. */
+    search: (id: string, query: string): Promise<string | null> => ipcRenderer.invoke("browser:search", id, query),
     /** Pops the OS back/forward menu under a button whose window-relative corner this carries. */
     historyMenu: (id: string, dir: "back" | "forward", at: { x: number; y: number }): Promise<void> =>
       ipcRenderer.invoke("browser:history-menu", id, dir, at),

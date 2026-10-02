@@ -22,7 +22,7 @@ import { startScrollPhaseStream } from "./scroll-phase";
 import { compressIconIfNeeded, describeFiles, existingPath, fileThumbnail, openablePath, saveTempAttachment, statFile, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
 import { clearBrowserPartition, createBrowserPane, governBrowserDownloads, type BrowserPane } from "./browser-pane";
 import { BlockedDownloads, DownloadGovernor, SavedDownloads, retryBlockedDownload } from "./downloads";
-import { nextZoomFactor, type BrowserPaneHost, type ViewRect } from "./browser-host";
+import { nextZoomFactor, searchUrl, type BrowserPaneHost, type ViewRect } from "./browser-host";
 import { popupNativeMenu } from "./native-menu";
 import { clearBrowsingData, saveBrowserScreenshot } from "./browser-controls";
 import { BrowserAgentHost } from "./browser-agent-host";
@@ -386,6 +386,11 @@ ipcMain.handle("browser:destroy", (_e, id: string) => { browserHost?.destroy(id)
 ipcMain.handle("browser:retain", (_e, id: string) => { browserHost?.retain(id); });
 ipcMain.handle("browser:navigate", (_e, id: string, input: string): string | null => browserHost?.navigate(id, input) ?? null);
 ipcMain.handle("browser:nav", (_e, id: string, action: "back" | "forward" | "reload" | "stop") => { browserHost?.navAction(id, action); });
+/** The suggestion list's "Search the web" row (Plan 26 W7c): the typed text as a search, even when it
+ *  looks like an address — which is the only reason to pick that row over Return. The same allowlist
+ *  and normalization as every other navigation, because it goes through the same `navigate`. */
+ipcMain.handle("browser:search", (_e, id: string, query: unknown): string | null =>
+  typeof query === "string" && query.trim() !== "" ? browserHost?.navigate(String(id), searchUrl(query.trim())) ?? null : null);
 /** How many rows a back menu offers. Safari shows a dozen or so and then stops; a trail of 300 is a
  *  scroll, not a menu, and nobody navigates by it. */
 const HISTORY_MENU_MAX = 12;

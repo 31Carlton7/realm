@@ -19,6 +19,7 @@ export function fakeBrowserBridges(over: {
     retain: async () => {},
     navigate: async () => null,
     nav: async () => {},
+    search: async () => null,
     historyMenu: async () => {},
     setAllowlist: async () => {},
     setBounds: () => {},
@@ -51,6 +52,8 @@ export function fakeBrowserBridges(over: {
     allowlist: async () => null,
     downloadDir: async () => null,
     screenshotDir: async () => null,
+    suggest: async () => [],
+    clearHistory: async () => {},
     ...over.server,
   };
   return { host, server };

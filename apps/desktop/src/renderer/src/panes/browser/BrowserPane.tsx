@@ -1,4 +1,4 @@
-import type { BlockedDownload, BrowserMenuState, BrowserPickedElement, PasskeyNotice } from "@realm/contracts";
+import type { BlockedDownload, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, PasskeyNotice } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
@@ -273,6 +273,44 @@ function useFindInPage(browserId: string, url: string) {
   return { open, query, result, inputRef, show, search, step, close };
 }
 
+/** How long typing has to pause before the history is asked. Short enough to feel like the list is
+ *  keeping up; long enough that a word typed at speed is one query, not one per letter. */
+export const SUGGEST_DEBOUNCE_MS = 80;
+
+export type SuggestionRow = { kind: "page"; page: BrowserHistoryPage } | { kind: "search"; query: string };
+
+/** An address as a person reads it in a list: no scheme, no lone trailing slash. */
+const shortUrl = (url: string) => url.replace(/^https?:\/\//i, "").replace(/\/$/, "");
+
+/**
+ * The address field's suggestions (Plan 26 W7c): the pages this space's profile has visited that
+ * match what is being typed, best first, then a row that searches the web for it.
+ *
+ * Asked only while the field is focused and holds text someone typed — focusing the field shows the
+ * page's own address, and that is not a question. A response that comes back after the text has moved
+ * on is dropped rather than shown against words it was not asked about.
+ */
+function useSuggestions(spaceId: string, text: string | null, focused: boolean) {
+  const [pages, setPages] = useState<BrowserHistoryPage[]>([]);
+  /** Which row ↑/↓ is on; -1 is the field itself, where Return goes to what was typed. */
+  const [highlight, setHighlight] = useState(-1);
+  const query = focused && text !== null ? text.trim() : "";
+  useEffect(() => {
+    setHighlight(-1);
+    if (query === "") { setPages([]); return; }
+    let live = true;
+    const t = setTimeout(() => {
+      void getBrowserBridges().server.suggest(spaceId, query)
+        .then((rows) => { if (live) setPages(rows); })
+        .catch(() => { if (live) setPages([]); });
+    }, SUGGEST_DEBOUNCE_MS);
+    return () => { live = false; clearTimeout(t); };
+  }, [spaceId, query]);
+  const rows: SuggestionRow[] = query === "" ? [] : [...pages.map((page) => ({ kind: "page" as const, page })), { kind: "search", query }];
+  const move = (by: 1 | -1) => setHighlight((h) => Math.max(-1, Math.min(rows.length - 1, h + by)));
+  return { rows, highlight: Math.min(highlight, rows.length - 1), setHighlight, move };
+}
+
 /**
  * The browser pane (Plan 11 W1): DOM chrome ABOVE a native `WebContentsView` that Electron main owns.
  * The view composites over everything in its rectangle (wontfix), so every control here is an INLINE
@@ -293,6 +331,7 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
   const [state, setState] = useState<BrowserViewState | null>(null);
   /** Non-null while the address input is being edited; otherwise it shows the live url. */
   const [draft, setDraft] = useState<string | null>(null);
+  const [addressFocused, setAddressFocused] = useState(false);
   const [initialUrl, setInitialUrl] = useState<string | null>(null); // null until the row loads
   const hostRef = useRef<HTMLDivElement>(null);
   const paneRef = useRef<HTMLDivElement>(null);
@@ -324,6 +363,8 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
   const toast = useToast();
   const picker = useElementPicker(browserId, store, toast.say);
   const find = useFindInPage(browserId, url);
+  const suggest = useSuggestions(item.spaceId, draft, addressFocused);
+  const suggestId = `browser-suggest-${browserId}`;
   const [menuOpen, setMenuOpen] = useState(false);
   const lastAction = actions.length > 0 ? actions[actions.length - 1]! : null;
 
@@ -493,8 +534,16 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
     void getBrowserBridges().host.historyMenu(browserId, dir, { x: r.left, y: r.bottom });
   };
   const submit = async () => {
+    const row = suggest.highlight >= 0 ? suggest.rows[suggest.highlight] : undefined;
+    if (row) { await openSuggestion(row); return; }
     const input = draft ?? url;
     const loaded = await getBrowserBridges().host.navigate(browserId, input);
+    if (loaded !== null) { setDraft(null); inputRef.current?.blur(); }
+  };
+  /** A page goes to its address; the search row searches the typed text even when it looks like one. */
+  const openSuggestion = async (row: SuggestionRow) => {
+    const { host } = getBrowserBridges();
+    const loaded = row.kind === "page" ? await host.navigate(browserId, row.page.url) : await host.search(browserId, row.query);
     if (loaded !== null) { setDraft(null); inputRef.current?.blur(); }
   };
 
@@ -542,7 +591,11 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
       case "history": await host.goToIndex(browserId, choice.index); return;
       case "clear-data": {
         const { cleared } = await host.clearData();
-        if (cleared) toast.say("Cleared browsing data. Every browser pane is signed out of its sites.", "check");
+        if (!cleared) return;
+        // The partition is main's; the pages it showed are the server's. Both, or the field would go on
+        // suggesting the history of a browser that has just been told to forget it.
+        await getBrowserBridges().server.clearHistory().catch(() => {});
+        toast.say("Cleared browsing data. Every browser pane is signed out of its sites.", "check");
         return;
       }
       case "settings": store?.getState().openSettingsPage("signins"); return;
@@ -599,11 +652,20 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
         <form className="browser-address" data-loading={state?.loading || undefined}
           onSubmit={(e) => { e.preventDefault(); void submit(); }}>
           <input ref={inputRef} aria-label="Address" placeholder="Enter a URL"
+            role="combobox" aria-autocomplete="list" aria-expanded={suggest.rows.length > 0}
+            aria-controls={suggest.rows.length > 0 ? suggestId : undefined}
+            aria-activedescendant={suggest.highlight >= 0 ? `${suggestId}-${suggest.highlight}` : undefined}
             value={draft ?? url} spellCheck={false} autoCorrect="off" autoCapitalize="off"
             onChange={(e) => setDraft(e.target.value)}
-            onFocus={(e) => e.target.select()}
-            onBlur={() => setDraft(null)}
-            onKeyDown={(e) => { if (e.key === "Escape") { setDraft(null); e.currentTarget.blur(); } }} />
+            onFocus={(e) => { setAddressFocused(true); e.target.select(); }}
+            onBlur={() => { setAddressFocused(false); setDraft(null); }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") { setDraft(null); e.currentTarget.blur(); }
+              else if ((e.key === "ArrowDown" || e.key === "ArrowUp") && suggest.rows.length > 0) {
+                e.preventDefault();
+                suggest.move(e.key === "ArrowDown" ? 1 : -1);
+              }
+            }} />
         </form>
         {/* W4's action ticker: the last settled agent action (its permission-card wording — page
             text only ever inside the attributed framing), a quiet time, and the driving dot while
@@ -629,6 +691,32 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
           <Icon name="more" size={14} />
         </button>
       </div>
+      {/* Under the field it belongs to and ABOVE the view, pushing the page down while it is up —
+          never a dropdown over the page, which the view would paint over (W2.3). Rows keep the
+          field's focus on press, so a click picks the row instead of blurring the list away. */}
+      {suggest.rows.length > 0 && (
+        <div className="browser-suggest" role="listbox" id={suggestId} aria-label="Suggestions">
+          {suggest.rows.map((row, i) => (
+            <div key={row.kind === "page" ? row.page.url : "search"} id={`${suggestId}-${i}`} role="option"
+              aria-selected={i === suggest.highlight} className="browser-suggest-row"
+              onMouseDown={(e) => e.preventDefault()} onMouseMove={() => suggest.setHighlight(i)}
+              onClick={() => { void openSuggestion(row); }}>
+              {row.kind === "page" ? (
+                <>
+                  <Icon name="clock" size={12} />
+                  <span className="browser-suggest-title">{row.page.title.trim() || shortUrl(row.page.url)}</span>
+                  <span className="browser-suggest-url">{shortUrl(row.page.url)}</span>
+                </>
+              ) : (
+                <>
+                  <Icon name="search" size={12} />
+                  <span className="browser-suggest-title">Search the web for “{row.query}”</span>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
       {find.open && (
         <div className="browser-notice browser-find" role="search">
           <Icon name="search" size={12} />
