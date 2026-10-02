@@ -5483,8 +5483,12 @@ await get().refreshCustomThemes().catch(() => {});
         const row = get().sessions[sessionId];
         if (!t || !row || t.lastSeq <= row.seenSeq) return;
         // Optimistic, because the dot is on screen and waiting a round trip to clear it is a flicker
-        // the user reads as the app not noticing them.
-        mergeSession({ ...row, seenSeq: t.lastSeq });
+        // the user reads as the app not noticing them. Only the read mark moves: writing the whole row
+        // back would write its status over the live one too, and the row is only as fresh as the last
+        // list — the focused pane reads on arrival now, which may be long after that.
+        const all = get().allSessions[sessionId];
+        set({ sessions: { ...get().sessions, [sessionId]: { ...row, seenSeq: t.lastSeq } },
+          ...(all ? { allSessions: { ...get().allSessions, [sessionId]: { ...all, seenSeq: t.lastSeq } } } : {}) });
         await api.markSessionSeen(sessionId, t.lastSeq);
       },
       async markNotificationsRead(ids) {

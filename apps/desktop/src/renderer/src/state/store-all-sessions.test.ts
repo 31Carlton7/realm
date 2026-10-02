@@ -55,7 +55,14 @@ describe("allSessions — a row for every session, in every room", () => {
     expect(writes).toBe(1);
   });
 
-  it("a row written locally — the optimistic read mark — lands here too", async () => {
+  it("a row the server answers a write with lands here too", async () => {
+    const { store } = await boot(elsewhere());
+    await store.getState().selectSpace("s2");
+    await store.getState().setSessionOptions("se2", { model: "fake-xl" });
+    expect(store.getState().allSessions["se2"]!.model).toBe("fake-xl");
+  });
+
+  it("the optimistic read mark lands here too, and moves nothing but the mark", async () => {
     const { store } = await boot(elsewhere());
     await store.getState().selectSpace("s2");
     await store.getState().openSession("se2");
@@ -63,8 +70,13 @@ describe("allSessions — a row for every session, in every room", () => {
     // The fake hands the store its own row objects and its `markSessionSeen` marks them in place, so
     // this copy is detached first — otherwise it would read 9 whether or not the store wrote it.
     store.setState({ allSessions: { ...store.getState().allSessions, se2: { ...store.getState().allSessions["se2"]! } } });
+    // The live status has moved on since the row was listed; reading must not write the row's back.
+    store.getState().applySessionStatus("se2", "waiting_permission");
+    store.setState({ sessions: { ...store.getState().sessions, se2: { ...store.getState().sessions["se2"]!, status: "running" } } });
     await store.getState().markSessionSeen("se2");
     expect(store.getState().allSessions["se2"]!.seenSeq).toBe(9);
+    expect(store.getState().sessions["se2"]!.seenSeq).toBe(9);
+    expect(store.getState().sessionStatus["se2"]).toBe("waiting_permission");
   });
 });
 

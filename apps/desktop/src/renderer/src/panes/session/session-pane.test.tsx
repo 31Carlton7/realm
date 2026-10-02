@@ -508,6 +508,37 @@ describe("SessionPane", () => {
   });
 });
 
+describe("reading a session by opening it", () => {
+  /* The unread ring — and the session's row in every list of what needs you — stays until the session
+     is read. Watching events arrive in the focused pane stamps them; this is the other half: what was
+     already there when the pane got the keyboard. THE MUTANT is the old rule alone, where a session
+     opened to read its news kept the ring until it said something new. */
+  const mountAt = async (focused: boolean) => {
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle", seenSeq: 2, lastEventSeq: 4 })] });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessions: { se1: { ...store.getState().sessions["se1"]!, seenSeq: 2, lastEventSeq: 4 } },
+      sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 4, t: seeded() } } });
+    const pane = (f: boolean) => <StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible focused={f} /></StoreContext.Provider>;
+    const r = render(pane(focused));
+    return { api, store, rerender: (f: boolean) => r.rerender(pane(f)) };
+  };
+
+  it("the focused pane reads what it holds", async () => {
+    const { api, store } = await mountAt(true);
+    await waitFor(() => expect(api.calls).toContain("markSessionSeen:se1@4"));
+    expect(store.getState().sessions["se1"]!.seenSeq).toBe(4);
+  });
+
+  it("a pane without the keyboard reads nothing — until it gets it", async () => {
+    const { api, store, rerender } = await mountAt(false);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(api.calls.some((c) => c.startsWith("markSessionSeen"))).toBe(false);
+    expect(store.getState().sessions["se1"]!.seenSeq).toBe(2);
+    rerender(true);
+    await waitFor(() => expect(api.calls).toContain("markSessionSeen:se1@4"));
+  });
+});
+
 describe("permission keyboard (U-H4)", () => {
   async function mountFocused(focused: boolean) {
     const api = fakeApi({ sessions: [session("se1", "s1", { status: "waiting_permission" })] });
