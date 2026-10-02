@@ -15,6 +15,9 @@
  *   6. Appearance (W9b): Reduce motion answers through prefers-reduced-motion itself; the sidebar
  *      and panes take their own alphas; UI and code sizes scale their own text and hold the 11px
  *      floor without touching page zoom; prose takes the content face and the chrome does not.
+ *   7. General (W9c): the editors this Mac has, offered on a path in a real transcript; the session
+ *      terminal docked to the pane's foot with the prompter above it; and the Mac held awake by
+ *      main exactly while a turn runs (`pmset -g assertions`).
  *
  * Ports: LIVE_SERVER_PORT (8962), LIVE_CDP_PORT (9362). Touches only a scratch dir. Nothing is billed:
  * no message is sent to any session.
@@ -89,8 +92,19 @@ globalThis.__live = {
   async openSettings() {
     if (document.querySelector(".settings-page-pane")) return true;
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
-    for (let i = 0; i < 40 && !document.querySelector(".palette-list"); i++) await new Promise((r) => setTimeout(r, 25));
-    [...document.querySelectorAll(".palette-list [role=option], .palette-list button")].find((b) => /settings/i.test(b.textContent))?.click();
+    for (let i = 0; i < 40 && !document.querySelector(".palette input"); i++) await new Promise((r) => setTimeout(r, 25));
+    // Typed, not picked from the opening list: with a session focused that list leads with the
+    // session's own commands, and "Open settings" is only certain to be there once asked for.
+    const input = document.querySelector(".palette input");
+    if (input) {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "settings");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    for (let i = 0; i < 40; i++) {
+      const hit = [...document.querySelectorAll(".palette-list [role=option], .palette-list button")].find((b) => /open settings/i.test(b.textContent));
+      if (hit) { hit.click(); break; }
+      await new Promise((r) => setTimeout(r, 25));
+    }
     for (let i = 0; i < 80 && !document.querySelector(".settings-page-pane"); i++) await new Promise((r) => setTimeout(r, 25));
     return !!document.querySelector(".settings-page-pane");
   },
@@ -382,6 +396,129 @@ async function main() {
   await shoot(c, "page-light");
 
   await appearanceChecks(c, size);
+  await generalChecks(c, size);
+}
+
+/* ══ W9c: General ══════════════════════════════════════════════════════════════════════════════
+   The three settings that reach past the page: an editor this Mac really has, offered on a path in
+   a real transcript; the session's terminal docked to the pane's foot; and the Mac kept awake by
+   main for exactly as long as a turn runs, read off `pmset -g assertions`. Every message goes to
+   the scripted fake agent. Nothing is ever opened in the editor: the click would launch it on this
+   Mac, and the unit tests already hold what it would run. */
+async function generalChecks(c, size) {
+  await size(1300);
+  await evalIn(c, `__live.openSettings()`);
+  await evalIn(c, `__live.page("general")`);
+  await sleep(400);
+  const installed = await evalIn(c, `window.realm.editors.list()`);
+  note("editors this Mac has", installed);
+  const options = await evalIn(c, `(() => { const s = document.querySelector('select[aria-label="Open files in"]'); return s ? { value: s.value, options: [...s.options].map((o) => o.textContent) } : null; })()`);
+  check("Open files in lists exactly the editors this Mac has, then Realm, the first chosen",
+    installed.length === 0 ? options === null : !!options && JSON.stringify(options.options) === JSON.stringify([...installed.map((e) => e.name), "Realm"]) && options.value === installed[0].id,
+    { installed, options });
+  await evalIn(c, `(() => { document.querySelector('input[name="settings-terminal-dock"][value="bottom"]').click(); return true; })()`);
+  await evalIn(c, `(() => { const s = document.querySelector('input[aria-label="Keep the Mac awake while agents work"]'); if (!s.checked) s.click(); return true; })()`);
+  await sleep(400);
+  const general = await evalIn(c, `(() => { const r = document.querySelector('.settings-page-pane [data-setting="open-files-in"]'); r.scrollIntoView({ block: 'start', behavior: 'instant' });
+    const b = r.getBoundingClientRect(); return { x: b.left - 8, y: Math.max(0, b.top - 40), width: b.width + 16, height: 120 }; })()`);
+  await shoot(c, "general-files-light", general);
+
+  // A fake session, opened in the space.
+  const [space] = await api.call("spaces.list", {});
+  const TITLE = "Settings live check";
+  const { session } = await api.call("sessions.create", { spaceId: space.id, agentKind: "fake", title: TITLE });
+  await until(() => evalIn(c, `[...document.querySelectorAll('.item-list .item-row')].some((b) => b.textContent.includes(${JSON.stringify(TITLE)}))`), 20_000, "session row");
+  await evalIn(c, `(() => { [...document.querySelectorAll('.item-list .item-row')].find((b) => b.textContent.includes(${JSON.stringify(TITLE)})).click(); return true; })()`);
+  await sleep(800);
+
+  /* ── The path menu offers the editor ────────────────────────────────────────────────────── */
+  const file = path.join(scratch, "notes.md");
+  fs.writeFileSync(file, "# Notes\n");
+  await api.call("sessions.send", { id: session.id, text: `Look at ${file} please`, attachments: [], mentions: [] });
+  await until(() => evalIn(c, `!!document.querySelector('.msg-assistant .md-path')`), 20_000, "path in the reply");
+  await evalIn(c, `(() => { document.querySelector('.msg-assistant .md-path').click(); return true; })()`);
+  await sleep(400);
+  const menu = await evalIn(c, `[...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((b) => b.textContent)`);
+  const expect = installed.length ? `Open in ${installed[0].name}` : null;
+  check("a path in the transcript offers the chosen editor beside Realm's own open", expect ? menu.includes(expect) && menu[0] === "Open notes.md" : !menu.some((m) => m.startsWith("Open in")), menu);
+  const menuBox = await evalIn(c, `__live.box(document.querySelector('[role="menu"]'))`);
+  if (menuBox) await shoot(c, "path-menu-light", { x: menuBox.l - 12, y: menuBox.t - 12, width: menuBox.w + 24, height: menuBox.h + 24 });
+  await evalIn(c, `(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true; })()`);
+  await sleep(300);
+
+  /* ── The session terminal at the pane's foot ────────────────────────────────────────────── */
+  const toggleTerminal = () => evalIn(c, `(() => {
+    const b = document.querySelector('[aria-label$="terminal for ${TITLE}"]');
+    if (b) { b.click(); return "button"; }
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', code: 'KeyJ', metaKey: true, bubbles: true })); return "chord"; })()`);
+  note("terminal toggled by", await toggleTerminal());
+  await until(() => evalIn(c, `!!document.querySelector('.terminal-dock')`), 10_000, "terminal dock");
+  await sleep(700);
+  const term = await evalIn(c, `(() => {
+    const dock = document.querySelector('.terminal-dock'), pane = document.querySelector('.session-pane');
+    const composer = pane.querySelector('.composer-dock');
+    return { edge: dock.getAttribute('data-edge'), pinned: dock.hasAttribute('data-pinned'),
+      dock: __live.box(dock), pane: __live.box(pane), composer: __live.box(composer),
+      bottomReserved: pane.hasAttribute('data-dock-bottom'), rightReserved: pane.hasAttribute('data-dock-pinned') };
+  })()`);
+  check("Bottom: the terminal docks along the pane's foot, the pane's width, at the shell's height",
+    term.edge === "bottom" && Math.abs(term.dock.b - term.pane.b) <= 16 && term.dock.l >= term.pane.l && term.dock.r <= term.pane.r && term.dock.w >= term.pane.w - 32 && Math.abs(term.dock.h - 320) <= 2,
+    { dock: term.dock, pane: term.pane });
+  check("…pinned in a tall pane, which gives up its foot and keeps its right side", term.pinned && term.bottomReserved && !term.rightReserved, term);
+  check("…and the prompter sits above the shell rather than under its card", term.composer.b <= term.dock.t, { composer: term.composer, dock: term.dock });
+  await shoot(c, "terminal-bottom-light", { x: term.pane.l, y: term.pane.t, width: term.pane.w, height: term.pane.h });
+  await toggleTerminal();
+  await until(async () => !(await evalIn(c, `!!document.querySelector('.terminal-dock')`)), 5000, "terminal closed");
+  // The same dock on the dark face: Settings, Appearance, Dark, then back to the session.
+  await until(() => evalIn(c, `__live.openSettings()`), 15_000, "settings again");
+  await evalIn(c, `__live.page("appearance")`);
+  await evalIn(c, `(() => { document.querySelector('input[name="settings-theme"][value="dark"]').click(); return true; })()`);
+  await sleep(400);
+  await evalIn(c, `(() => { [...document.querySelectorAll('.item-list .item-row')].find((b) => b.textContent.includes(${JSON.stringify(TITLE)})).click(); return true; })()`);
+  await sleep(600);
+  await toggleTerminal();
+  await until(() => evalIn(c, `!!document.querySelector('.terminal-dock')`), 10_000, "terminal dock, dark");
+  await sleep(700);
+  const darkPane = await evalIn(c, `__live.box(document.querySelector('.session-pane'))`);
+  await shoot(c, "terminal-bottom-dark", { x: darkPane.l, y: darkPane.t, width: darkPane.w, height: darkPane.h });
+  /* The grid against the card it is drawn in: xterm sizes its columns off the element it is fitted
+     to, and a grid wider than the card loses its last column under the card's clip. Measured in both
+     placements, so a clipped column can be told apart as this edge's doing or the dock's own. */
+  const grid = () => evalIn(c, `(() => { const d = document.querySelector('.terminal-dock'); const card = d.getBoundingClientRect();
+    const scr = d.querySelector('.xterm-screen').getBoundingClientRect(); const host = d.querySelector('.terminal-pane').getBoundingClientRect();
+    return { edge: d.getAttribute('data-edge'), card: { l: Math.round(card.left), r: Math.round(card.right) }, host: { l: Math.round(host.left), r: Math.round(host.right) },
+      screen: { l: Math.round(scr.left), r: Math.round(scr.right) }, overRight: Math.round(scr.right - card.right) }; })()`);
+  const bottomGrid = await grid();
+  await toggleTerminal();
+  await until(async () => !(await evalIn(c, `!!document.querySelector('.terminal-dock')`)), 5000, "terminal closed, dark");
+  await until(() => evalIn(c, `__live.openSettings()`), 15_000, "settings for the right edge");
+  await evalIn(c, `__live.page("general")`);
+  await evalIn(c, `(() => { document.querySelector('input[name="settings-terminal-dock"][value="right"]').click(); return true; })()`);
+  await sleep(300);
+  await evalIn(c, `(() => { [...document.querySelectorAll('.item-list .item-row')].find((b) => b.textContent.includes(${JSON.stringify(TITLE)})).click(); return true; })()`);
+  await sleep(600);
+  await toggleTerminal();
+  await until(() => evalIn(c, `!!document.querySelector('.terminal-dock')`), 10_000, "terminal dock, right");
+  await sleep(700);
+  const rightGrid = await grid();
+  note("the shell's grid against its card, bottom then right", { bottomGrid, rightGrid });
+  check("at the bottom the shell's grid is no wider than its card than it is on the right", bottomGrid.overRight <= Math.max(0, rightGrid.overRight), { bottomGrid, rightGrid });
+  const rightPane = await evalIn(c, `__live.box(document.querySelector('.session-pane'))`);
+  await shoot(c, "terminal-right-dark", { x: rightPane.l, y: rightPane.t, width: rightPane.w, height: rightPane.h });
+  await toggleTerminal();
+  await until(async () => !(await evalIn(c, `!!document.querySelector('.terminal-dock')`)), 5000, "terminal closed, right");
+
+  /* ── Awake for exactly as long as a turn runs ───────────────────────────────────────────── */
+  const held = () => {
+    const out = execFileSync("pmset", ["-g", "assertions"], { encoding: "utf8" });
+    return out.split("\n").filter((l) => l.includes(`pid ${electron.pid}(`) && /PreventUserIdleSystemSleep|NoIdleSleep/.test(l));
+  };
+  check("nothing is held while no turn runs", held().length === 0, held());
+  await api.call("sessions.send", { id: session.id, text: "stream slowly", attachments: [], mentions: [] });
+  const during = await until(() => { const h = held(); return h.length ? h : null; }, 4000, "assertion during the turn").catch(() => []);
+  check("while the fake agent streams, main holds the app-suspension assertion", during.length > 0, during);
+  const after = await until(() => (held().length === 0 ? true : null), 15_000, "assertion released").catch(() => false);
+  check("and lets go once the turn ends", after === true, held());
 }
 
 /* ══ W9b: Appearance ═══════════════════════════════════════════════════════════════════════════
