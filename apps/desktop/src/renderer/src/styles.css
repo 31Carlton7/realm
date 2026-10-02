@@ -521,7 +521,7 @@ kbd { font: 11px var(--font-mono); }
    "Realm is acting here, watch". It also has to carry more weight than the rest: on Realm's side of
    the glass this button is the ONLY thing saying the mode is armed, because the highlight the user
    follows is Chrome's own overlay, drawn inside the native view where nothing of Realm's can paint. */
-.browser-pick[aria-pressed="true"] { background: color-mix(in srgb, var(--rl-accent) 18%, transparent); color: var(--rl-accent); }
+.browser-pick[aria-pressed="true"], .browser-annotate[aria-pressed="true"] { background: color-mix(in srgb, var(--rl-accent) 18%, transparent); color: var(--rl-accent); }
 /* Hit-target extension (V-F8): the visual button stays small; the click target grows 6px each way.
    .tool-copy joins the list — its 20px box sits alone at its row's right edge, so the overhang
    never crosses another interactive element. */
@@ -2306,7 +2306,8 @@ button.panel-title:hover { background: var(--rl-hover); }
 
 /* ── Browser pane (Plan 11 W1) ─────────────────────────────────────────────
    Chrome sits ABOVE the native WebContentsView; the view's bounds start below it. Every control is
-   an inline toolbar button — no dropdowns, no menus (W2's no-overlay invariant starts here). */
+   an inline toolbar button — no DOM dropdowns (W2's no-overlay invariant starts here); the ⋯ menu is
+   the OS's, drawn by main above the window. */
 .browser-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 /* No seam: below this sits a native view showing a page, which is white far more often than not.
    A hairline between dark chrome and a white document is a line drawn along an edge that is already
@@ -2345,11 +2346,34 @@ button.panel-title:hover { background: var(--rl-hover); }
 .browser-toast-text { font-size: 11.5px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .browser-notice-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--rl-text-dim); }
 .browser-notice-text strong { font-weight: var(--fw-title); color: var(--rl-text-bright); }
+/* Plan 26 W7b's find strip: the download bar's row, holding a field. A strip ABOVE the view like every
+   other one here, because nothing can be drawn over the page — the view gives up the strip's height.
+   Field, count and steps sit together, as in every find bar, rather than spread across the pane. */
+.browser-find { gap: 6px; padding: 4px 8px; }
+.browser-find-input { flex: 1; min-width: 0; max-width: 320px; height: 24px; padding: 0 8px; border-radius: var(--r-ctl);
+  border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; font-size: 12.5px; }
+.browser-find-input::placeholder { color: var(--rl-text-faint); }
+.browser-find-input:focus { border-color: var(--rl-accent); }
+.browser-find-count { flex: none; min-width: 64px; font-size: 11.5px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+/* Plan 26 W7c's suggestions: a strip under the address field and ABOVE the view, never a dropdown over
+   the page (W2.3) — the view gives up its height while the field is being typed in. Its rows hang from
+   the field's own edges (measured by the pane; the padding here is the fallback). In a row, the title
+   is what a person reads, so it keeps its width and the address beside it is the part that yields. */
+.browser-suggest { flex: none; display: flex; flex-direction: column; gap: 1px; padding: 2px 8px 6px;
+  border-bottom: var(--hairline-w) solid var(--rl-hairline); }
+.browser-suggest-row { display: flex; align-items: center; gap: 8px; min-width: 0; height: 28px; padding: 0 10px;
+  border-radius: var(--r-ctl); color: var(--rl-text-faint); font-size: 12.5px; cursor: default; }
+.browser-suggest-row[aria-selected="true"] { background: var(--rl-hover); }
+.browser-suggest-title { flex: 0 1 auto; max-width: 60%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
+.browser-suggest-url { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); }
 /* The placeholder the native view is bounds-synced onto. Painted the view's own opaque white so the
    sliver the view trails behind during a resize never flashes the panel tone (research: do NOT
    debounce the sync; match the colours instead). Pages are their own light world — like the
    terminal's always-dark interior, but inverted. */
 .browser-view-host { position: relative; flex: 1; min-width: 0; min-height: 0; background: #fff; }
+/* At a device size (Plan 26 W7e) the view is narrower than its host, and white beside a white page
+   would hide the device's edge. The pane's own ground frames it instead. */
+.browser-view-host[data-device] { background: var(--rl-panel); }
 /* Before the first navigation there is no view to match — the new-tab page sits on the panel tone. */
 .browser-pane:has(.new-tab) .browser-view-host { background: var(--rl-panel); }
 /* A blank tab's tools (NewTabPage): one column of rows, set high in the pane rather than centred in

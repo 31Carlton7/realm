@@ -2793,6 +2793,60 @@ describe("element chips in the draft", () => {
   });
 });
 
+describe("annotation chips (Plan 26 W7d)", () => {
+  const pin = (n: number): BrowserPickedElement => ({
+    ref: 40 + n, url: "https://example.com/list", title: "List", rect: { x: 0, y: 0, w: 1, h: 1 },
+    selector: `li:nth-of-type(${n})`, tag: "li", role: "listitem", name: `Item ${n}`, text: `Item ${n}`, html: "<li></li>",
+  });
+  const ready = async () => {
+    const a = fakeApi({
+      items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Sess" })] },
+      sessions: [session("se1", "s1", { agentKind: "claude" })],
+    });
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().openSession("se1");
+    return { a, store };
+  };
+
+  it("several pins go into the draft as ONE token, and every pin rides the wire with its number", async () => {
+    const { a, store } = await ready();
+    expect(store.getState().addAnnotationChip("se1", [pin(1), pin(2)], "shot.png")).toBe("2 annotations");
+    const text = store.getState().drafts.se1!;
+    expect(text).toBe("@[2 annotations] ");
+    await store.getState().sendMessage("se1", `look ${text}`);
+    expect(a.sent[0]!.elements).toEqual([
+      { label: "2 annotations", element: pin(1), pin: 1, shot: "shot.png" },
+      { label: "2 annotations", element: pin(2), pin: 2, shot: "shot.png" },
+    ]);
+  });
+
+  it("deleting the token forgets every pin it stood for", async () => {
+    const { store } = await ready();
+    store.getState().addAnnotationChip("se1", [pin(1), pin(2), pin(3)], null);
+    store.getState().setDraft("se1", "never mind");
+    expect(store.getState().draftElements.se1).toEqual([]);
+  });
+
+  it("a second annotation is its own chip, not a second name for the first", async () => {
+    const { store } = await ready();
+    store.getState().addAnnotationChip("se1", [pin(1), pin(2)], null);
+    expect(store.getState().addAnnotationChip("se1", [pin(3), pin(4)], null)).toBe("2 annotations 2");
+    expect(store.getState().drafts.se1).toBe("@[2 annotations] @[2 annotations 2] ");
+  });
+
+  it("counts every pin against what one message carries, and refuses rather than build a draft that bounces", async () => {
+    /* THE mutant: count the token, not its pins. Two annotations of five would look fine in the
+       composer and then fail the wire's own limit on send, with the user holding a message they cannot post. */
+    const { store } = await ready();
+    store.getState().addAnnotationChip("se1", [1, 2, 3, 4, 5].map(pin), null);
+    expect(store.getState().addAnnotationChip("se1", [6, 7, 8, 9].map(pin), null)).toBeNull();
+    expect(store.getState().draftElements.se1).toHaveLength(5);
+    expect(store.getState().addAnnotationChip("se1", [6, 7, 8].map(pin), null)).toBe("3 annotations");
+    expect(store.getState().addAnnotationChip("se1", [], null)).toBeNull();
+  });
+});
+
 describe("browser watching state (Plan 11 W4)", () => {
   it("applyBrowserAction appends per browser and caps the ring at BROWSER_ACTIONS_MAX", () => {
     const store = createAppStore(fakeApi());
@@ -3153,6 +3207,48 @@ describe("openProfilePage (Plan 14 W2)", () => {
     store.getState().openProfilePage();
     expect(store.getState().pageOverlay).toBeNull();
     expect(api.calls.some((c) => c.startsWith("createItem:"))).toBe(false);
+  });
+});
+
+describe("openSettingsPage (Plan 26 W7b)", () => {
+  it("opens Settings over the workspace on the tab its opener names", async () => {
+    /* The browser pane's "Browser settings" lands on Sign-ins. THE mutant: open the page and drop the
+       tab, and the row opens Settings on whatever it last showed — Engines, the first time. */
+    const store = createAppStore(fakeApi());
+    await store.getState().boot();
+    expect(store.getState().settingsPageTab).toBe("engines");
+    store.getState().openSettingsPage("signins");
+    expect(store.getState().pageOverlay?.kind).toBe("settings-page");
+    expect(store.getState().settingsPageTab).toBe("signins");
+  });
+
+  it("with no tab, keeps the one the page last showed", async () => {
+    const store = createAppStore(fakeApi());
+    await store.getState().boot();
+    store.getState().setSettingsPageTab("keys");
+    store.getState().openSettingsPage();
+    expect(store.getState().settingsPageTab).toBe("keys");
+  });
+});
+
+describe("attachPicked — a file main already wrote (Plan 26 W7b)", () => {
+  const shot = (path: string, size = 2048) => ({ path, mime: "image/png", name: path.split("/").pop()!, size });
+
+  it("lands on the session it names, through the same path as a drop: one entry per file", async () => {
+    const store = createAppStore(fakeApi());
+    await store.getState().boot();
+    store.getState().attachPicked("se1", [shot("/tmp/space/screenshots/a.png")]);
+    store.getState().attachPicked("se1", [shot("/tmp/space/screenshots/a.png"), shot("/tmp/space/screenshots/b.png")]);
+    expect(store.getState().pendingAttachments.se1!.map((x) => x.path)).toEqual(["/tmp/space/screenshots/a.png", "/tmp/space/screenshots/b.png"]);
+    expect(store.getState().pendingAttachments.se2).toBeUndefined();
+  });
+
+  it("is held to the same cap as everything else attached", async () => {
+    const store = createAppStore(fakeApi());
+    await store.getState().boot();
+    store.getState().attachPicked("se1", [shot("/tmp/huge.png", 21 * 1024 * 1024)]);
+    expect(store.getState().pendingAttachments.se1).toEqual([]);
+    expect(store.getState().error).toContain("huge.png");
   });
 });
 

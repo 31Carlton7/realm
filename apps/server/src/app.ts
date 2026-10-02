@@ -19,6 +19,7 @@ import { Drain } from "./daemon/drain";
 const DRAIN_TICK_MS = 1_000;
 import { TerminalService } from "./terminals/service";
 import { BrowsersStore } from "./store/browsers";
+import { BrowserHistoryStore } from "./store/browser-history";
 import { GraphifyService } from "./graphify/service";
 import { DocumentsStore } from "./store/documents";
 import { DocumentService } from "./documents/service";
@@ -474,7 +475,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     spaces: { folderPathOf: (spaceId: string): string | null => spaces.get(spaceId)?.folderPath ?? null },
   });
   const browsersStore = new BrowsersStore(db);
-  const browsers = new BrowserService({ db, rpc, spaces, items, browsers: browsersStore });
+  const browsers = new BrowserService({ db, rpc, spaces, items, browsers: browsersStore, history: new BrowserHistoryStore(db) });
 
   /* Machines (Plan 25 W3). The proxy and the service are mutually late-bound: the proxy asks the
      service for an address at CONNECT time — never a cached one, so an edited machine cannot be

@@ -10,7 +10,50 @@ export type ViewRect = { x: number; y: number; width: number; height: number };
  *  change. Favicon deliberately skipped for W1. */
 export type BrowserViewState = {
   id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean;
+  /** The device preset the view is showing the page at (Plan 26 W7e), or null when it fits the pane.
+   *  On the state channel because the view outlives its pane: a pane that remounts learns it here. */
+  device: DevicePresetId | null;
 };
+
+/**
+ * The widths the ⋯ menu's Device size offers (Plan 26 W7e) — one phone, one tablet, one desktop, the
+ * three a layout is usually checked at. A width only: the height is the pane's, because a preview that
+ * scrolled inside a box shorter than the pane would be a frame around a frame.
+ *
+ * What emulating them does NOT do, said here so nobody expects it: the user agent stays Realm's own
+ * (browserUserAgent never claims to be a browser it is not), and touch input is not emulated — a site
+ * that sniffs the UA for a phone, rather than reading its width, still sees a Mac.
+ */
+export type DevicePresetId = "phone" | "tablet" | "desktop";
+export type DevicePreset = { id: DevicePresetId; label: string; width: number; mobile: boolean };
+export const DEVICE_PRESETS: readonly DevicePreset[] = [
+  { id: "phone", label: "iPhone", width: 390, mobile: true },
+  { id: "tablet", label: "iPad", width: 820, mobile: true },
+  { id: "desktop", label: "Desktop", width: 1440, mobile: false },
+];
+export const devicePreset = (id: unknown): DevicePreset | null => DEVICE_PRESETS.find((d) => d.id === id) ?? null;
+
+/** `Emulation.setDeviceMetricsOverride`'s parameters. `deviceScaleFactor: 0` keeps the display's own. */
+export type DeviceMetrics = { width: number; height: number; deviceScaleFactor: 0; mobile: boolean; scale: number };
+
+/**
+ * Where a preset's view sits in the pane, and what it is told to emulate.
+ *
+ * The VIEW is narrowed to the device's box rather than left at the pane's width, because measured on
+ * Electron 37 an emulated viewport smaller than its view is drawn into the view's top-left corner with
+ * nothing defined beside it, and one larger is cropped. Narrowed, centred and — for a device wider than
+ * the pane — scaled down to fit, the view shows exactly the emulated page, and the pane's own ground
+ * frames it. The emulated height is the pane's, divided by that scale, so the box is always full.
+ */
+export function deviceFit(host: ViewRect, preset: DevicePreset): { view: ViewRect; metrics: DeviceMetrics } | null {
+  if (host.width <= 0 || host.height <= 0) return null;
+  const scale = Math.min(1, host.width / preset.width);
+  const width = Math.min(host.width, Math.round(preset.width * scale));
+  return {
+    view: { x: host.x + Math.floor((host.width - width) / 2), y: host.y, width, height: host.height },
+    metrics: { width: preset.width, height: Math.round(host.height / scale), deviceScaleFactor: 0, mobile: preset.mobile, scale },
+  };
+}
 
 /** A search query → the search URL it runs. Google, because that is what the address bar promises
  *  when the input is plainly not a host. */
@@ -145,6 +188,48 @@ export function toViewBounds(rect: ViewRect, dpr: number, scaleFactor: number): 
   return { x: left, y: top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
 }
 
+/**
+ * The zoom a pane steps through — Chrome's own ladder, so a page lands on the levels a person already
+ * knows from every other browser rather than on whatever `zoomLevel ± 0.5` happens to produce.
+ */
+export const ZOOM_FACTORS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5] as const;
+
+/**
+ * The next rung from wherever the page is now. Measured from the LIVE factor, not from an index this
+ * file remembers: ⌘+ with the page focused is the View menu's own zoom role, which steps by half a zoom
+ * level and lands between these rungs, and the next press here should still go to the nearest one.
+ */
+export function nextZoomFactor(current: number, step: "in" | "out" | "reset"): number {
+  if (step === "reset" || !Number.isFinite(current) || current <= 0) return 1;
+  const eps = 0.001;
+  if (step === "in") return ZOOM_FACTORS.find((f) => f > current + eps) ?? ZOOM_FACTORS[ZOOM_FACTORS.length - 1]!;
+  return [...ZOOM_FACTORS].reverse().find((f) => f < current - eps) ?? ZOOM_FACTORS[0]!;
+}
+
+/** What the ⋯ menu prints beside Zoom: the level as a person reads it. */
+export const zoomPercent = (factor: number): number => Math.round(factor * 100);
+
+/** The view's answer to a find, forwarded to the pane's find strip. */
+export type FindResult = { activeMatchOrdinal: number; matches: number; finalUpdate: boolean };
+
+/** The slice of Electron's `before-input-event` input a shortcut is read from. */
+export type KeyInput = { type: string; key: string; meta: boolean; control: boolean; alt: boolean; shift: boolean };
+
+/**
+ * ⌘F, pressed while the PAGE has the keyboard.
+ *
+ * The renderer never sees that keydown — it goes to the view's own webContents, which is a different
+ * renderer process — so the pane's own ⌘F binding cannot hear it. Main can, through
+ * `before-input-event`, and this is the whole test of whether to take it from the page. Only on its
+ * own: ⌘⇧F is pane focus, and a find shortcut that also ate that chord would break the other one.
+ * Control on a Mac is the text cursor's (⌃F moves forward a character in every field), so the Mac key
+ * is Command and only Command.
+ */
+export function isFindShortcut(input: KeyInput, platform: string): boolean {
+  if (input.type !== "keyDown" || input.key.toLowerCase() !== "f" || input.alt || input.shift) return false;
+  return platform === "darwin" ? input.meta && !input.control : input.control && !input.meta;
+}
+
 /** The thin Electron adapter each live view is driven through. */
 export type ViewHandle = {
   setBounds(r: ViewRect): void;
@@ -157,6 +242,13 @@ export type ViewHandle = {
   history(): { entries: { url: string; title: string }[]; activeIndex: number };
   goToIndex(index: number): void;
   getURL(): string; getTitle(): string; isLoading(): boolean;
+  /** `webContents.findInPage` — `findNext` is Electron's "this is a NEW search", not "the next match". */
+  findInPage(text: string, opts: { forward: boolean; findNext: boolean }): void;
+  stopFindInPage(): void;
+  getZoomFactor(): number;
+  setZoomFactor(factor: number): void;
+  /** The system print dialog, for this page. */
+  print(): void;
   destroy(): void;
 };
 
@@ -168,6 +260,10 @@ export type ViewHooks = {
   /** `setWindowOpenHandler` funnel: every window.open/target=_blank is DENIED as a window and offered
    *  back as an in-place navigation of the same view. */
   openInPlace(url: string): void;
+  /** `found-in-page`: the view's answer to the last find. */
+  found(result: FindResult): void;
+  /** ⌘F with the page holding the keyboard (`isFindShortcut`) — the pane opens its find strip. */
+  findShortcut(): void;
 };
 
 export type ViewFactory = (id: string, hooks: ViewHooks) => ViewHandle;
@@ -194,7 +290,13 @@ export const RETAINED_VIEW_LIMIT = 3;
  * explicit close or delete `destroy`s it. What bounds the cost is `RETAINED_VIEW_LIMIT`, below.
  */
 export class BrowserPaneHost {
-  private views = new Map<string, { handle: ViewHandle; allowlist: string[] | null }>();
+  private views = new Map<string, {
+    handle: ViewHandle; allowlist: string[] | null;
+    /** Plan 26 W7e: the preset the page is shown at, and the rect the pane last gave the view. */
+    device: DevicePreset | null; host: ViewRect | null;
+    /** The metrics last sent, so a resize that changes nothing sends nothing. */
+    emulated: string | null;
+  }>();
   /** Retained ids in least-recently-used order — `Set` iterates by insertion, so re-adding after a
    *  delete moves an id to the back. Views with a mounted pane are absent, never evictable. */
   private retained = new Set<string>();
@@ -204,6 +306,13 @@ export class BrowserPaneHost {
     sendState: (s: BrowserViewState) => void;
     /** The window's display scale factor at the time of a bounds sync. */
     scaleFactor: () => number;
+    /** A find's result, for the pane whose view it came from. */
+    sendFound?: (m: FindResult & { id: string }) => void;
+    /** ⌘F was pressed in this view's page. */
+    requestFind?: (id: string) => void;
+    /** Emulate a device on this view's page, or (null) stop. Over CDP, so best-effort: a view with
+     *  DevTools already attached simply shows the page at the narrowed width instead. */
+    emulate?: (id: string, metrics: DeviceMetrics | null) => void;
   }) {}
 
   has(id: string): boolean { return this.views.has(id); }
@@ -218,8 +327,10 @@ export class BrowserPaneHost {
       emitState: () => this.emitState(id),
       allowNavigate: (target) => originAllowed(target, this.views.get(id)?.allowlist ?? null),
       openInPlace: (target) => this.navigate(id, target),
+      found: (result) => this.opts.sendFound?.({ id, ...result }),
+      findShortcut: () => this.opts.requestFind?.(id),
     });
-    this.views.set(id, { handle, allowlist });
+    this.views.set(id, { handle, allowlist, device: null, host: null, emulated: null });
     const normalized = normalizeAddress(url);
     if (normalized && originAllowed(normalized, allowlist)) handle.loadURL(normalized);
     this.emitState(id);
@@ -257,6 +368,44 @@ export class BrowserPaneHost {
     v.handle.goToIndex(index);
   }
 
+  /**
+   * Search the page from the pane's find strip. `start` is a new query — the text changed — and opens a
+   * fresh find session; `next` and `previous` walk the one already open. An empty query ends the find
+   * rather than searching for nothing, which Electron refuses with a throw.
+   *
+   * Electron's option is named backwards for this, and the mutant is the swap: `findNext: true` means
+   * "begin a new session", so passing it on every press restarts the search at the first match and the
+   * Next button never moves.
+   */
+  find(id: string, query: string, step: "start" | "next" | "previous"): void {
+    const v = this.views.get(id); if (!v) return;
+    if (query === "") { v.handle.stopFindInPage(); return; }
+    v.handle.findInPage(query, { forward: step !== "previous", findNext: step === "start" });
+  }
+
+  /** The find strip closed: the highlight goes with it. */
+  stopFind(id: string): void {
+    this.views.get(id)?.handle.stopFindInPage();
+  }
+
+  /**
+   * Step this view's zoom, or with `null` just read it, and answer the level it is at afterwards.
+   *
+   * Read back rather than assumed, because the answer is what the menu prints and Chromium can refuse
+   * or round a level. One thing worth knowing before calling this per-pane: Chromium keeps zoom per
+   * SITE within a session, so a second pane on the same host follows along — exactly as a second
+   * Chrome tab on that host does. The level is in memory only; nothing here persists it.
+   */
+  zoom(id: string, step: "in" | "out" | "reset" | null): number {
+    const v = this.views.get(id); if (!v) return 1;
+    if (step !== null) v.handle.setZoomFactor(nextZoomFactor(v.handle.getZoomFactor(), step));
+    return v.handle.getZoomFactor();
+  }
+
+  print(id: string): void {
+    this.views.get(id)?.handle.print();
+  }
+
   navAction(id: string, action: "back" | "forward" | "reload" | "stop"): void {
     const v = this.views.get(id); if (!v) return;
     if (action === "back") v.handle.goBack();
@@ -270,8 +419,33 @@ export class BrowserPaneHost {
    *  research's bounds-lag mitigation lives on the renderer side, where the drag is known). */
   setBounds(id: string, rect: ViewRect, dpr: number, visible: boolean): void {
     const v = this.views.get(id); if (!v) return;
-    v.handle.setBounds(toViewBounds(rect, dpr, this.opts.scaleFactor()));
+    v.host = toViewBounds(rect, dpr, this.opts.scaleFactor());
+    this.place(id);
     v.handle.setVisible(visible);
+  }
+
+  /** Show the page at a device preset's width, or (null) fit the pane again. In memory, per view. */
+  setDevice(id: string, preset: DevicePresetId | null): void {
+    const v = this.views.get(id); if (!v) return;
+    v.device = devicePreset(preset);
+    this.place(id);
+    this.emitState(id);
+  }
+
+  deviceOf(id: string): DevicePresetId | null {
+    return this.views.get(id)?.device?.id ?? null;
+  }
+
+  /** The view's bounds from the pane's rect: the rect itself, or a preset's box inside it — and the
+   *  emulation that goes with it, sent only when it changed. */
+  private place(id: string): void {
+    const v = this.views.get(id); if (!v || !v.host) return;
+    const fit = v.device ? deviceFit(v.host, v.device) : null;
+    v.handle.setBounds(fit?.view ?? v.host);
+    const key = fit ? JSON.stringify(fit.metrics) : null;
+    if (key === v.emulated) return;
+    v.emulated = key;
+    this.opts.emulate?.(id, fit?.metrics ?? null);
   }
 
   setAllowlist(id: string, allowlist: string[] | null): void {
@@ -329,7 +503,7 @@ export class BrowserPaneHost {
     const v = this.views.get(id); if (!v) return;
     this.opts.sendState({
       id, url: v.handle.getURL(), title: v.handle.getTitle(), loading: v.handle.isLoading(),
-      canGoBack: v.handle.canGoBack(), canGoForward: v.handle.canGoForward(),
+      canGoBack: v.handle.canGoBack(), canGoForward: v.handle.canGoForward(), device: v.device?.id ?? null,
     });
   }
 }

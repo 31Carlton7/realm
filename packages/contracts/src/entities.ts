@@ -126,6 +126,16 @@ export const BrowserSchema = z.object({
 export type Browser = z.infer<typeof BrowserSchema>;
 
 /**
+ * A page a profile's browser panes have shown (Plan 26 W7c) — what the address field suggests. Per
+ * profile and keyed on the address, so `visits` is how often and `lastVisitAt` how recently: the two
+ * things a suggestion is ranked by, in that order.
+ */
+export const BrowserHistoryPageSchema = z.object({
+  url: z.string(), title: z.string(), visits: z.number().int().positive(), lastVisitAt: z.number().int(),
+});
+export type BrowserHistoryPage = z.infer<typeof BrowserHistoryPageSchema>;
+
+/**
  * A document workspace's persisted half (Plan 17 W1) — the tab strip, so a restart reopens what was
  * open. Modelled on `BrowserSchema`: the row carries only what a restart needs, and everything live
  * (buffer text, dirty state, undo history, cursor) belongs to the renderer and dies with the pane.

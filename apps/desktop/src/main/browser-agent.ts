@@ -1795,3 +1795,219 @@ export async function describePick(send: CdpSend, backendNodeId: number): Promis
     ...detail,
   };
 }
+
+/* ---------------------------------- annotate (Plan 26 W7d) ---------------------------------- */
+
+/**
+ * Annotate: the picker kept armed. Every click pins a numbered outline that STAYS on the page, and a
+ * toolbar drawn in the page counts them and offers Hide pins, Clear, Send and close. Send hands main
+ * every pinned element at once; main takes a screenshot with the pins drawn, and the pane turns the lot
+ * into ONE chip in a session's prompter.
+ *
+ * Page-side for the picker's reason: the native view composites over everything the renderer draws in
+ * its rectangle, so marks that have to sit ON the page — and a toolbar that has to stay with them —
+ * can only be drawn by the page itself. Everything it reports goes through its own binding, and
+ * everything downstream of a pin is the picker's: the stamped attribute becomes a backendNodeId, and
+ * that becomes the same `BrowserPickedElement` a single pick does.
+ *
+ * Clicks, and the presses before them, are taken in the CAPTURE phase and cancelled, so pinning a link
+ * or a button changes nothing about the page under it. The toolbar's own buttons are the one exception.
+ * No backticks inside: this is embedded in a template literal.
+ */
+export const ANNOTATE_BINDING = "__realmAnnotate";
+export const ANNOTATE_ATTR = "data-realm-annotated";
+
+const ANNOTATOR_SCRIPT = `(() => {
+  if (window.__realmAnnotator) window.__realmAnnotator.stop();
+  const ACCENT = ACCENT_RGB;
+  const MAX = MAX_PINS;
+  const report = (msg) => window[BINDING_NAME](JSON.stringify(msg));
+  const host = document.createElement("div");
+  host.style.cssText = "position:fixed;inset:0;z-index:2147483647;pointer-events:none";
+  const hover = document.createElement("div");
+  hover.style.cssText = "position:absolute;box-sizing:border-box;border:2px solid " + ACCENT
+    + ";border-radius:10px;box-shadow:inset 0 0 18px -6px " + ACCENT + ";opacity:0;transition:opacity 90ms";
+  const layer = document.createElement("div");
+  layer.style.cssText = "position:absolute;inset:0";
+  const bar = document.createElement("div");
+  bar.setAttribute("role", "toolbar");
+  bar.setAttribute("aria-label", "Annotate");
+  bar.style.cssText = "position:absolute;left:50%;bottom:18px;transform:translateX(-50%);display:flex;align-items:center;gap:2px;"
+    + "padding:5px;border-radius:14px;background:rgba(30,30,33,0.96);color:#f4f4f5;font:500 12px/1 -apple-system,system-ui,sans-serif;"
+    + "box-shadow:0 0 0 1px rgba(255,255,255,0.08),0 2px 6px rgba(0,0,0,0.25),0 12px 32px rgba(0,0,0,0.3);pointer-events:auto;user-select:none";
+  const count = document.createElement("span");
+  count.style.cssText = "padding:0 10px 0 8px;white-space:nowrap;font-variant-numeric:tabular-nums";
+  const button = (text, title, primary) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = text; b.title = title;
+    const rest = primary ? "background:" + ACCENT + ";color:#fff" : "background:transparent;color:#d4d4d8";
+    b.style.cssText = "all:unset;box-sizing:border-box;height:28px;padding:0 11px;border-radius:9px;white-space:nowrap;cursor:default;" + rest;
+    b.addEventListener("mouseenter", () => { if (!primary && !b.disabled) b.style.background = "rgba(255,255,255,0.1)"; });
+    b.addEventListener("mouseleave", () => { if (!primary) b.style.background = "transparent"; });
+    return b;
+  };
+  const toggle = button("Hide pins", "Hide the pins to see the page under them", false);
+  const clear = button("Clear", "Take every pin off", false);
+  const send = button("Send", "Send these to the session", true);
+  const close = button("\\u00d7", "Stop annotating (Esc)", false);
+  close.setAttribute("aria-label", "Stop annotating");
+  close.style.fontSize = "16px";
+  bar.append(count, toggle, clear, send, close);
+  host.append(hover, layer, bar);
+  document.documentElement.appendChild(host);
+
+  const pins = [];
+  let hidden = false;
+  let current = null;
+  let full = false;
+  const say = () => {
+    count.textContent = full ? "That is as many as one message carries"
+      : pins.length === 0 ? "Annotating \\u00b7 click to pin" : "Annotating \\u00b7 " + pins.length;
+    const none = pins.length === 0;
+    send.disabled = none; clear.disabled = none; toggle.disabled = none;
+    send.style.opacity = none ? "0.45" : "1"; clear.style.opacity = none ? "0.45" : "1"; toggle.style.opacity = none ? "0.45" : "1";
+  };
+  const place = (box, el) => {
+    const r = el.getBoundingClientRect();
+    box.style.left = r.left + "px"; box.style.top = r.top + "px";
+    box.style.width = r.width + "px"; box.style.height = r.height + "px";
+  };
+  const layout = () => { for (const p of pins) place(p.box, p.el); };
+  const pin = (el) => {
+    const n = pins.length + 1;
+    const box = document.createElement("div");
+    box.style.cssText = "position:absolute;box-sizing:border-box;border:2px solid " + ACCENT + ";border-radius:8px";
+    const badge = document.createElement("div");
+    badge.textContent = String(n);
+    badge.style.cssText = "position:absolute;left:-10px;top:-10px;min-width:20px;height:20px;padding:0 5px;box-sizing:border-box;border-radius:10px;"
+      + "background:" + ACCENT + ";color:#fff;font:600 11px/20px -apple-system,system-ui,sans-serif;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,0.35)";
+    box.appendChild(badge);
+    layer.appendChild(box);
+    pins.push({ el, box });
+    place(box, el);
+    return n;
+  };
+  const inBar = (t) => t instanceof Node && bar.contains(t);
+  const aim = (e) => {
+    if (inBar(e.target)) { current = null; hover.style.opacity = "0"; return; }
+    host.style.display = "none";
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    host.style.display = "";
+    current = el;
+    if (!el || hidden) { hover.style.opacity = "0"; return; }
+    const r = el.getBoundingClientRect();
+    hover.style.opacity = "1";
+    hover.style.left = r.left + "px"; hover.style.top = r.top + "px";
+    hover.style.width = r.width + "px"; hover.style.height = r.height + "px";
+  };
+  const swallow = (e) => { if (inBar(e.target)) return; e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); };
+  const onClick = (e) => {
+    if (inBar(e.target)) return;
+    swallow(e);
+    const el = current;
+    if (!el || pins.some((p) => p.el === el)) return;
+    if (pins.length >= MAX) { full = true; say(); return; }
+    const stack = typeof document.elementsFromPoint === "function" ? document.elementsFromPoint(e.clientX, e.clientY) : [];
+    const surfaceEl = stack.find((n) => n.tagName === "CANVAS" || n.tagName === "IMG") || null;
+    const box = (surfaceEl || el).getBoundingClientRect();
+    const nx = box.width > 0 ? (e.clientX - box.left) / box.width : 0;
+    const ny = box.height > 0 ? (e.clientY - box.top) / box.height : 0;
+    const surface = surfaceEl ? { x: box.left, y: box.top, w: box.width, h: box.height } : null;
+    const n = pin(el);
+    el.setAttribute(ATTR_NAME, String(n));
+    if (hidden) { hidden = false; layer.style.display = ""; toggle.textContent = "Hide pins"; }
+    say();
+    report({ type: "pin", n, x: nx, y: ny, surface });
+  };
+  const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); report({ type: "close" }); } };
+  toggle.addEventListener("click", () => {
+    hidden = !hidden;
+    layer.style.display = hidden ? "none" : "";
+    hover.style.opacity = "0";
+    toggle.textContent = hidden ? "Show pins" : "Hide pins";
+  });
+  clear.addEventListener("click", () => {
+    for (const p of pins) { p.box.remove(); p.el.removeAttribute(ATTR_NAME); }
+    pins.length = 0; full = false; say();
+    report({ type: "clear" });
+  });
+  send.addEventListener("click", () => { if (pins.length > 0) report({ type: "send" }); });
+  close.addEventListener("click", () => report({ type: "close" }));
+  const PRESSES = ["pointerdown", "mousedown", "pointerup", "mouseup", "dblclick", "contextmenu"];
+  window.addEventListener("mousemove", aim, true);
+  window.addEventListener("click", onClick, true);
+  for (const t of PRESSES) window.addEventListener(t, swallow, true);
+  window.addEventListener("keydown", onKey, true);
+  window.addEventListener("scroll", layout, true);
+  window.addEventListener("resize", layout);
+  function stop() {
+    window.removeEventListener("mousemove", aim, true);
+    window.removeEventListener("click", onClick, true);
+    for (const t of PRESSES) window.removeEventListener(t, swallow, true);
+    window.removeEventListener("keydown", onKey, true);
+    window.removeEventListener("scroll", layout, true);
+    window.removeEventListener("resize", layout);
+    for (const p of pins) p.el.removeAttribute(ATTR_NAME);
+    host.remove();
+    window.__realmAnnotator = null;
+  }
+  /* The picture Send takes: every pin drawn where it is, and nothing else of Realm's — no toolbar, no
+     hover box. Resolves after two frames, so the capture that follows sees what this changed. */
+  function prepareShot() {
+    bar.style.display = "none"; hover.style.opacity = "0"; layer.style.display = "";
+    layout();
+    return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))));
+  }
+  say();
+  window.__realmAnnotator = { stop, prepareShot, count: () => pins.length };
+})()`;
+
+/** The annotator with its page-side constants substituted in. */
+export function annotatorScript(accent: string, maxPins: number): string {
+  return ANNOTATOR_SCRIPT
+    .replace("ACCENT_RGB", JSON.stringify(accent))
+    .replace("MAX_PINS", String(Math.max(1, Math.floor(maxPins))))
+    .replace(/ATTR_NAME/g, JSON.stringify(ANNOTATE_ATTR))
+    .replace(/BINDING_NAME/g, JSON.stringify(ANNOTATE_BINDING));
+}
+
+/** Arm annotate mode. The caller listens for `Runtime.bindingCalled` on `ANNOTATE_BINDING`. */
+export async function armAnnotate(send: CdpSend, accent: string, maxPins: number): Promise<void> {
+  await send("Runtime.enable").catch(() => {});
+  await send("Runtime.addBinding", { name: ANNOTATE_BINDING });
+  // The picker and the agent's own marks would be two more accent overlays chasing the same hand.
+  await send("Runtime.evaluate", { expression: "window.__realmPicker && window.__realmPicker.stop()" }).catch(() => {});
+  await send("Runtime.evaluate", { expression: REMOVE_AGENT_MARKS_JS }).catch(() => {});
+  await send("Runtime.evaluate", { expression: annotatorScript(accent, maxPins), returnByValue: true });
+}
+
+/**
+ * Pin `n`'s stamped element → its `backendNodeId`, clearing the stamp — `resolvePickedNode`, for one
+ * numbered pin. The pin's outline stays: the page holds the element itself, not the attribute.
+ */
+export async function resolveAnnotatedNode(send: CdpSend, n: number): Promise<number | null> {
+  if (!Number.isInteger(n) || n < 1) return null;
+  try {
+    const { root } = await send("DOM.getDocument", { depth: 0 }) as { root: { nodeId: number } };
+    const { nodeId } = await send("DOM.querySelector", { nodeId: root.nodeId, selector: `[${ANNOTATE_ATTR}="${n}"]` }) as { nodeId: number };
+    if (!nodeId) return null;
+    const { node } = await send("DOM.describeNode", { nodeId }) as { node: { backendNodeId: number } };
+    await send("DOM.removeAttribute", { nodeId, name: ANNOTATE_ATTR }).catch(() => {});
+    return node.backendNodeId > 0 ? node.backendNodeId : null;
+  } catch { return null; }
+}
+
+/** Draw every pin and nothing else of Realm's, then capture the viewport as a PNG. Null if the page
+ *  would not draw or the capture came back empty — Send still goes, without a picture. */
+export async function captureAnnotated(send: CdpSend): Promise<Uint8Array | null> {
+  await send("Runtime.evaluate", { expression: "window.__realmAnnotator ? window.__realmAnnotator.prepareShot() : true", awaitPromise: true }).catch(() => {});
+  try {
+    const shot = await send("Page.captureScreenshot", { format: "png" }) as { data?: string };
+    return shot.data ? Uint8Array.from(Buffer.from(shot.data, "base64")) : null;
+  } catch { return null; }
+}
+
+export async function disarmAnnotate(send: CdpSend): Promise<void> {
+  await send("Runtime.evaluate", { expression: "window.__realmAnnotator && window.__realmAnnotator.stop()" }).catch(() => {});
+  await send("Runtime.removeBinding", { name: ANNOTATE_BINDING }).catch(() => {});
+}

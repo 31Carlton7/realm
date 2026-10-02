@@ -1,7 +1,7 @@
 import { WebContentsView, screen, session, type BrowserWindow, type WebContents } from "electron";
-import { BrowserPaneHost, browserUserAgent, type ViewFactory } from "./browser-host";
+import { BrowserPaneHost, browserUserAgent, isFindShortcut, type ViewFactory } from "./browser-host";
 import type { CdpBinding } from "./browser-agent-host";
-import type { DownloadDecision, DownloadItemLike } from "./downloads";
+import { asDownloadItem, type DownloadDecision, type DownloadItemLike } from "./downloads";
 import type { PasskeyCdp } from "./passkeys";
 
 /** The browser views' session partition. Persistent and Realm's own: never the user's daily Chrome
@@ -106,11 +106,30 @@ export function electronViewFactory(
     wc.on("will-navigate", guard);
     wc.on("will-redirect", guard);
 
+    /* Realm's `about:blank` bootstrap (above) commits a history entry like any page does, so the first
+       real page had a Back — and a row in the back menu and in History — that went to a blank view the
+       address bar still named as the page. Once the first real page commits, the bootstrap entry goes.
+       Registered ahead of the state events below, so the state they send already has no Back. */
+    const dropBootstrapEntry = (_e: unknown, url: string) => {
+      if (url === "about:blank") return;
+      wc.off("did-navigate", dropBootstrapEntry);
+      const history = wc.navigationHistory;
+      if (history.getActiveIndex() > 0 && history.getEntryAtIndex(0)?.url === "about:blank") history.removeEntryAtIndex(0);
+    };
+    if (installPasskeysFor) wc.on("did-navigate", dropBootstrapEntry);
+
     const stateEvents = [
       "did-start-loading", "did-stop-loading", "did-navigate", "did-navigate-in-page",
       "page-title-updated", "did-fail-load",
     ] as const;
     for (const ev of stateEvents) wc.on(ev as Parameters<typeof wc.on>[0], () => hooks.emitState());
+    wc.on("found-in-page", (_e, r) => hooks.found({ activeMatchOrdinal: r.activeMatchOrdinal, matches: r.matches, finalUpdate: r.finalUpdate }));
+    // ⌘F with the page holding the keyboard. That keydown goes to this view's renderer, never to the
+    // window's, so this is the only place it can be heard; taken from the page so a site's own ⌘F
+    // handler (or Chromium's, which there is none of here) does not also run.
+    wc.on("before-input-event", (e, input) => {
+      if (isFindShortcut(input, process.platform)) { e.preventDefault(); hooks.findShortcut(); }
+    });
 
     return {
       setBounds: (r) => view.setBounds(r),
@@ -143,6 +162,12 @@ export function electronViewFactory(
       },
       getTitle: () => wc.getTitle(),
       isLoading: () => wc.isLoading(),
+      findInPage: (text, opts) => { wc.findInPage(text, opts); },
+      stopFindInPage: () => wc.stopFindInPage("clearSelection"),
+      getZoomFactor: () => wc.getZoomFactor(),
+      setZoomFactor: (factor) => wc.setZoomFactor(factor),
+      // The system dialog, attached to the window. A failure or a cancel is the dialog's to report.
+      print: () => wc.print({}, () => {}),
       destroy: () => {
         onView?.(id, null);
         // On window close, Electron tears the child views down WITH the window before our "closed"
@@ -179,18 +204,40 @@ export type BrowserPane = {
   downloadURL(id: string, url: string): void;
   /** Fires on view destruction, so the agent host can drop buffers and snapshot state. */
   onViewDestroyed(cb: (id: string) => void): void;
+  /** The view's visible viewport as a PNG, or null when there is no view or nothing was drawn.
+   *  The VIEW's own capture: the window's `capturePage` composites no child view and comes back blank
+   *  over the whole of the page. */
+  capture(id: string): Promise<Uint8Array | null>;
 };
 
 export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: PasskeyInstaller): BrowserPane {
   const views = new Map<string, WebContents>();
   const destroyedCbs: ((id: string) => void)[] = [];
+  const send = (channel: string, payload: unknown) => { if (!win.isDestroyed()) win.webContents.send(channel, payload); };
   const host = new BrowserPaneHost({
     createView: electronViewFactory(win, (id, wc) => {
       if (wc) views.set(id, wc);
       else { views.delete(id); for (const cb of destroyedCbs) cb(id); }
     }, installPasskeysFor),
-    sendState: (s) => { if (!win.isDestroyed()) win.webContents.send("realm:browser-state", s); },
+    sendState: (s) => send("realm:browser-state", s),
     scaleFactor: () => screen.getDisplayMatching(win.getBounds()).scaleFactor,
+    sendFound: ({ id, ...result }) => send("realm:browser-found", { browserId: id, ...result }),
+    // The keyboard is in the VIEW when this fires, and focusing an input inside the window's own page
+    // does not move it — typing would go on landing in the site. Handing focus to the window's
+    // webContents first is what lets the find field the pane focuses actually receive the keys.
+    requestFind: (id) => {
+      if (win.isDestroyed()) return;
+      win.webContents.focus();
+      send("realm:browser-find-request", { browserId: id });
+    },
+    emulate: (id, metrics) => {
+      const wc = views.get(id);
+      if (!wc || wc.isDestroyed()) return;
+      try { if (!wc.debugger.isAttached()) wc.debugger.attach("1.3"); } catch { return; } // DevTools has it
+      void (metrics
+        ? wc.debugger.sendCommand("Emulation.setDeviceMetricsOverride", metrics)
+        : wc.debugger.sendCommand("Emulation.clearDeviceMetricsOverride")).catch(() => {});
+    },
   });
   applyBrowserUserAgent();
   // The views composite into this window; they must never outlive it.
@@ -211,6 +258,19 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
       if (wc && !wc.isDestroyed()) wc.downloadURL(url);
     },
     onViewDestroyed: (cb) => destroyedCbs.push(cb),
+    capture: async (id) => {
+      const wc = views.get(id);
+      if (!wc || wc.isDestroyed()) return null;
+      // At a device preset the view's own capture is the emulated SURFACE — for a desktop width scaled
+      // into a narrow pane, a page shrunk into one corner of a mostly blank picture (measured). CDP's
+      // capture is the emulated viewport at full size, which is the screenshot a person asked for.
+      if (host.deviceOf(id) && wc.debugger.isAttached()) {
+        const shot = await wc.debugger.sendCommand("Page.captureScreenshot", { format: "png" }).catch(() => null) as { data?: string } | null;
+        if (shot?.data) return new Uint8Array(Buffer.from(shot.data, "base64"));
+      }
+      const image = await wc.capturePage();
+      return image.isEmpty() ? null : new Uint8Array(image.toPNG());
+    },
     attachCdp: (id) => {
       const wc = views.get(id);
       if (!wc || wc.isDestroyed()) return null;
@@ -262,11 +322,24 @@ export function governBrowserDownloads(d: {
   downloadsGoverned = true;
   session.fromPartition(BROWSER_PARTITION).on("will-download", (event, item, wc) => {
     const wcId = wc?.id ?? -1;
-    const decision = d.decide(d.browserIdFor(wcId), item as unknown as DownloadItemLike);
+    const decision = d.decide(d.browserIdFor(wcId), asDownloadItem(item));
     if (decision.allow) return; // the governor already called setSavePath and wired the item
     event.preventDefault();
     // The filename travels too, so W4's bar can name what was blocked. Page/server-authored, and
     // sanitized by `BlockedDownloads.note` before it is stored or shown — never used as a path here.
     d.onBlocked(wcId, item.getURL(), decision.refused, item.getFilename());
   });
+}
+
+/**
+ * Cookies, site storage and the HTTP cache of the browser partition (Plan 26 W7b's Clear browsing
+ * data). Every pane's at once, and not as a side effect: the panes share this one partition, which is
+ * what keeps a sign-in made in one pane good in the next — and so what one clear takes from all of them.
+ * Realm's saved sign-ins and passkeys are not in the partition (they are in the Keychain-sealed secret
+ * store), so they are untouched by this.
+ */
+export async function clearBrowserPartition(): Promise<void> {
+  const ses = session.fromPartition(BROWSER_PARTITION);
+  await ses.clearStorageData();
+  await ses.clearCache();
 }

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_GROUND_ALPHA, GROUND_ALPHA_RANGE } from "@realm/ui";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AGENT_CLI_COMMANDS, DEFAULT_PERMISSION_MODE_KEY, EDITOR_CURSOR_BLINK_COPY, MID_TURN_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_HISTORY_COPY, TERMINALS_HISTORY_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, PAGE_REF_IDS } from "@realm/contracts";
 import { engineVersionLabel, SettingsPage } from "./SettingsPage";
 import { StoreContext, createAppStore } from "../../state/store";
@@ -65,6 +65,18 @@ describe("the Settings page (Plan 12 W6)", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Usage" }));
     await waitFor(() => expect(api.calls.some((c) => c.startsWith("usageSummary:"))).toBe(true));
     expect(await screen.findByText("Spend in range")).toBeInTheDocument();
+  });
+
+  it("opens on the tab an opener asked for — a browser pane's Browser settings lands on Sign-ins", async () => {
+    /* THE mutant: the page keeping its own tab state again. Then `openSettingsPage("signins")` opens
+       Settings on Engines and the menu row named for sign-ins shows the agent list. */
+    const { store } = await mount();
+    act(() => { store.getState().openSettingsPage("signins"); });
+    expect(screen.getByRole("radio", { name: "Sign-ins" })).toBeChecked();
+    expect(await screen.findByText("Saved sign-ins")).toBeInTheDocument();
+    // …and a click on the rail is what moves it from there.
+    fireEvent.click(screen.getByRole("radio", { name: "Keys" }));
+    expect(store.getState().settingsPageTab).toBe("keys");
   });
 });
 

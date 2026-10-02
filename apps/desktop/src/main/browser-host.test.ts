@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  BrowserPaneHost, RETAINED_VIEW_LIMIT, browserUserAgent, normalizeAddress, originAllowed, toViewBounds,
-  type BrowserViewState, type ViewHandle, type ViewHooks,
+  BrowserPaneHost, DEVICE_PRESETS, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, deviceFit, isFindShortcut, nextZoomFactor, normalizeAddress, originAllowed, toViewBounds, zoomPercent,
+  type DeviceMetrics,
+  type BrowserViewState, type FindResult, type ViewHandle, type ViewHooks,
 } from "./browser-host";
 
 describe("normalizeAddress", () => {
@@ -94,7 +95,7 @@ describe("toViewBounds", () => {
 /** A fake ViewHandle that records calls and simulates the webContents state getters. */
 function fakeView() {
   const nav = { url: "", title: "", loading: false, back: false, forward: false,
-    entries: [] as { url: string; title: string }[], activeIndex: 0 };
+    entries: [] as { url: string; title: string }[], activeIndex: 0, zoom: 1 };
   const calls: string[] = [];
   let hooks: ViewHooks | null = null;
   const handle: ViewHandle = {
@@ -107,6 +108,11 @@ function fakeView() {
     getURL: () => nav.url, getTitle: () => nav.title, isLoading: () => nav.loading,
     history: () => ({ entries: nav.entries, activeIndex: nav.activeIndex }),
     goToIndex: (i) => calls.push(`goToIndex:${i}`),
+    findInPage: (text, o) => calls.push(`find:${text}:${o.forward ? "forward" : "backward"}:${o.findNext ? "new" : "step"}`),
+    stopFindInPage: () => calls.push("stop-find"),
+    getZoomFactor: () => nav.zoom,
+    setZoomFactor: (f) => { calls.push(`zoom:${f}`); nav.zoom = f; },
+    print: () => calls.push("print"),
     destroy: () => calls.push("destroy"),
   };
   return { handle, calls, nav, setHooks: (h: ViewHooks) => { hooks = h; }, getHooks: () => hooks! };
@@ -115,11 +121,18 @@ function fakeView() {
 function makeHost(scaleFactor = 2) {
   const views = new Map<string, ReturnType<typeof fakeView>>();
   const states: BrowserViewState[] = [];
+  const found: (FindResult & { id: string })[] = [];
+  const findRequests: string[] = [];
+  const emulations: { id: string; metrics: DeviceMetrics | null }[] = [];
   const factory = vi.fn((id: string, hooks: ViewHooks) => {
     const v = fakeView(); v.setHooks(hooks); views.set(id, v); return v.handle;
   });
-  const host = new BrowserPaneHost({ createView: factory, sendState: (s) => states.push(s), scaleFactor: () => scaleFactor });
-  return { host, views, states, factory };
+  const host = new BrowserPaneHost({
+    createView: factory, sendState: (s) => states.push(s), scaleFactor: () => scaleFactor,
+    sendFound: (m) => found.push(m), requestFind: (id) => findRequests.push(id),
+    emulate: (id, metrics) => emulations.push({ id, metrics }),
+  });
+  return { host, views, states, factory, found, findRequests, emulations };
 }
 
 const alive = (v: ReturnType<typeof fakeView>) => !v.calls.includes("destroy");
@@ -470,5 +483,184 @@ describe("browserUserAgent", () => {
   it("does not disturb a UA that never carried an Electron token", () => {
     const chrome = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36";
     expect(browserUserAgent(chrome)).toBe(chrome);
+  });
+});
+
+/* ------------------------------ the ⋯ menu's view calls (Plan 26 W7b) ------------------------------ */
+
+describe("find in page", () => {
+  it("a new query starts a session; Next and Previous step through it without restarting", () => {
+    /* THE mutant is Electron's own naming: `findNext: true` means "begin a NEW search". Passed on every
+       press, the search restarts at the first match and the Next button never moves. */
+    const { host, views } = makeHost();
+    host.create("b1", "https://example.com", null);
+    host.find("b1", "agent", "start");
+    host.find("b1", "agent", "next");
+    host.find("b1", "agent", "previous");
+    expect(views.get("b1")!.calls.filter((c) => c.startsWith("find:"))).toEqual([
+      "find:agent:forward:new", "find:agent:forward:step", "find:agent:backward:step",
+    ]);
+  });
+
+  it("an emptied field ends the find instead of searching for nothing", () => {
+    const { host, views } = makeHost();
+    host.create("b1", "https://example.com", null);
+    host.find("b1", "", "start");
+    host.stopFind("b1");
+    const calls = views.get("b1")!.calls;
+    expect(calls.filter((c) => c.startsWith("find:"))).toEqual([]);
+    expect(calls.filter((c) => c === "stop-find")).toHaveLength(2);
+    expect(() => host.find("nope", "x", "start")).not.toThrow();
+  });
+
+  it("a view's result and its ⌘F reach the pane they came from, by id", () => {
+    const { host, views, found, findRequests } = makeHost();
+    host.create("b1", "https://a.example", null);
+    host.create("b2", "https://b.example", null);
+    views.get("b2")!.getHooks().found({ activeMatchOrdinal: 2, matches: 5, finalUpdate: true });
+    views.get("b1")!.getHooks().findShortcut();
+    expect(found).toEqual([{ id: "b2", activeMatchOrdinal: 2, matches: 5, finalUpdate: true }]);
+    expect(findRequests).toEqual(["b1"]);
+  });
+});
+
+describe("isFindShortcut", () => {
+  const key = (over: Partial<Parameters<typeof isFindShortcut>[0]> = {}) =>
+    ({ type: "keyDown", key: "f", meta: true, control: false, alt: false, shift: false, ...over });
+
+  it("is ⌘F on a Mac, on key-down, and nothing else", () => {
+    expect(isFindShortcut(key(), "darwin")).toBe(true);
+    expect(isFindShortcut(key({ key: "F" }), "darwin")).toBe(true);
+    expect(isFindShortcut(key({ type: "keyUp" }), "darwin")).toBe(false);
+    expect(isFindShortcut(key({ key: "g" }), "darwin")).toBe(false);
+    // ⌘⇧F is pane focus. Taking it from the page here would break the other shortcut.
+    expect(isFindShortcut(key({ shift: true }), "darwin")).toBe(false);
+    expect(isFindShortcut(key({ alt: true }), "darwin")).toBe(false);
+  });
+
+  it("leaves ⌃F to the text cursor on a Mac, where it moves forward a character", () => {
+    expect(isFindShortcut(key({ meta: false, control: true }), "darwin")).toBe(false);
+    expect(isFindShortcut(key({ meta: false, control: true }), "linux")).toBe(true);
+  });
+});
+
+describe("zoom", () => {
+  it("steps along Chrome's ladder and answers the level the view is at afterwards", () => {
+    const { host, views } = makeHost();
+    host.create("b1", "https://example.com", null);
+    expect(host.zoom("b1", null)).toBe(1); // a read changes nothing
+    expect(views.get("b1")!.calls.filter((c) => c.startsWith("zoom:"))).toEqual([]);
+    expect(host.zoom("b1", "in")).toBe(1.1);
+    expect(host.zoom("b1", "in")).toBe(1.25);
+    expect(host.zoom("b1", "out")).toBe(1.1);
+    expect(host.zoom("b1", "reset")).toBe(1);
+    expect(host.zoom("nope", "in")).toBe(1);
+  });
+
+  it("reads back what Chromium actually did rather than what was asked", () => {
+    const { host, views } = makeHost();
+    host.create("b1", "https://example.com", null);
+    // A view that refuses the level (a crashed page, say) keeps its old one, and the menu must say so.
+    views.get("b1")!.handle.setZoomFactor = () => {};
+    expect(host.zoom("b1", "in")).toBe(1);
+  });
+
+  it("goes to the nearest rung from a level the View menu's own zoom left between them", () => {
+    // ⌘+ with the page focused is Electron's zoom role, which steps half a zoom level: 1.0954…
+    expect(nextZoomFactor(1.0954, "in")).toBe(1.1);
+    expect(nextZoomFactor(1.0954, "out")).toBe(1);
+    expect(nextZoomFactor(1.1, "in")).toBe(1.25);
+    // The ends hold rather than run off the ladder.
+    expect(nextZoomFactor(ZOOM_FACTORS[ZOOM_FACTORS.length - 1]!, "in")).toBe(5);
+    expect(nextZoomFactor(ZOOM_FACTORS[0]!, "out")).toBe(0.25);
+    expect(nextZoomFactor(Number.NaN, "in")).toBe(1);
+    expect(zoomPercent(1.1)).toBe(110);
+    expect(zoomPercent(0.33)).toBe(33);
+  });
+});
+
+describe("print", () => {
+  it("reaches the view it was asked for, and an unknown one is a no-op", () => {
+    const { host, views } = makeHost();
+    host.create("b1", "https://a.example", null);
+    host.create("b2", "https://b.example", null);
+    host.print("b2");
+    expect(views.get("b2")!.calls).toContain("print");
+    expect(views.get("b1")!.calls).not.toContain("print");
+    expect(() => host.print("nope")).not.toThrow();
+  });
+});
+
+/* ------------------------------ Device size (Plan 26 W7e) ------------------------------ */
+
+const preset = (id: string) => DEVICE_PRESETS.find((d) => d.id === id)!;
+
+describe("deviceFit", () => {
+  it("a phone in a wider pane is its own width, centred, at full scale, as tall as the pane", () => {
+    expect(deviceFit({ x: 900, y: 80, width: 600, height: 840 }, preset("phone"))).toEqual({
+      view: { x: 1005, y: 80, width: 390, height: 840 },
+      metrics: { width: 390, height: 840, deviceScaleFactor: 0, mobile: true, scale: 1 },
+    });
+  });
+
+  it("a desktop in a narrow pane is scaled down to the pane's width, and told the height that fills it", () => {
+    /* THE mutant: no scale. A 1440-wide page in a 600-wide view is cropped to its left two-fifths, and
+       the box is not a preview of anything. */
+    const fit = deviceFit({ x: 900, y: 80, width: 600, height: 840 }, preset("desktop"))!;
+    expect(fit.view).toEqual({ x: 900, y: 80, width: 600, height: 840 });
+    expect(fit.metrics).toMatchObject({ width: 1440, mobile: false });
+    expect(fit.metrics.scale).toBeCloseTo(600 / 1440, 6);
+    expect(fit.metrics.height).toBe(Math.round(840 / (600 / 1440)));
+  });
+
+  it("never draws outside the pane it was given, and has nothing to fit in an empty one", () => {
+    for (const p of DEVICE_PRESETS) for (const width of [200, 389, 390, 391, 820, 1439, 1441, 2000]) {
+      const fit = deviceFit({ x: 10, y: 20, width, height: 500 }, p)!;
+      expect(fit.view.x).toBeGreaterThanOrEqual(10);
+      expect(fit.view.x + fit.view.width).toBeLessThanOrEqual(10 + width);
+    }
+    expect(deviceFit({ x: 0, y: 0, width: 0, height: 500 }, preset("phone"))).toBeNull();
+  });
+});
+
+describe("BrowserPaneHost — device size", () => {
+  const setup = () => {
+    const h = makeHost(1);
+    h.host.create("b1", "https://example.com", null);
+    h.host.setBounds("b1", { x: 900, y: 80, width: 600, height: 840 }, 1, true);
+    return h;
+  };
+  const lastBounds = (calls: string[]) => calls.filter((c) => c.startsWith("bounds:")).at(-1);
+
+  it("a preset narrows the view to the device's box and emulates it; Fit the pane undoes both", () => {
+    const { host, views, emulations, states } = setup();
+    host.setDevice("b1", "phone");
+    expect(lastBounds(views.get("b1")!.calls)).toBe("bounds:1005,80,390,840");
+    expect(emulations.at(-1)).toEqual({ id: "b1", metrics: { width: 390, height: 840, deviceScaleFactor: 0, mobile: true, scale: 1 } });
+    expect(states.at(-1)!.device).toBe("phone");
+    host.setDevice("b1", null);
+    expect(lastBounds(views.get("b1")!.calls)).toBe("bounds:900,80,600,840");
+    expect(emulations.at(-1)).toEqual({ id: "b1", metrics: null });
+    expect(states.at(-1)!.device).toBeNull();
+  });
+
+  it("the box follows the pane as it resizes, and a resize that changes nothing sends nothing", () => {
+    const { host, views, emulations } = setup();
+    host.setDevice("b1", "phone");
+    const sent = emulations.length;
+    host.setBounds("b1", { x: 900, y: 80, width: 600, height: 840 }, 1, true);
+    expect(emulations).toHaveLength(sent);
+    host.setBounds("b1", { x: 700, y: 80, width: 800, height: 700 }, 1, true);
+    expect(lastBounds(views.get("b1")!.calls)).toBe("bounds:905,80,390,700");
+    expect(emulations.at(-1)!.metrics).toMatchObject({ width: 390, height: 700 });
+  });
+
+  it("a view never given a device never emulates, and an unknown preset is the pane", () => {
+    const { host, emulations } = setup();
+    host.setBounds("b1", { x: 900, y: 80, width: 500, height: 840 }, 1, true);
+    expect(emulations).toEqual([]);
+    host.setDevice("b1", "watch" as never);
+    expect(host.deviceOf("b1")).toBeNull();
+    expect(emulations).toEqual([]);
   });
 });

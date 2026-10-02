@@ -1,4 +1,6 @@
 import { describe, expect, it, afterEach } from "vitest";
+import { join } from "node:path";
+import { newId } from "@realm/contracts";
 import { tempDir } from "@realm/test-utils";
 import WebSocket from "ws";
 import { createApp, type App } from "../app";
@@ -113,5 +115,93 @@ describe("browsers RPC", () => {
     expect((await c.call("spaces.delete", { id: space.id })).ok).toBe(true);
     expect(new BrowsersStore(app.db).get(browserId)).toBeNull();
     c.close();
+  });
+
+  it("screenshotDir is the space's own folder, under screenshots/ — and nothing for a space that is not there", async () => {
+    /* A pane's Take a screenshot writes where this says. THE mutant: a project's root instead of the
+       space's folder — a space with no project would then have nowhere to put the picture it just took. */
+    const home = tempDir("realm-home-");
+    const app = await createApp({ home, port: 0 }); apps.push(app);
+    const c = await client(app.port);
+    const space = await makeSpace(c);
+    expect((await c.call("browsers.screenshotDir", { spaceId: space.id })).result).toEqual({ dir: join(space.folderPath, "screenshots") });
+    expect((await c.call("browsers.screenshotDir", { spaceId: newId() })).result).toEqual({ dir: null });
+    c.close();
+  });
+
+  describe("history and the address field's suggestions (Plan 26 W7c)", () => {
+    async function setup() {
+      const home = tempDir("realm-home-");
+      const app = await createApp({ home, port: 0 }); apps.push(app);
+      const c = await client(app.port);
+      const work = (await c.call("profiles.create", { name: "Work" })).result;
+      const play = (await c.call("profiles.create", { name: "Play" })).result;
+      const a = (await c.call("spaces.create", { profileId: work.id, name: "Realm" })).result;
+      const b = (await c.call("spaces.create", { profileId: work.id, name: "Site" })).result;
+      const other = (await c.call("spaces.create", { profileId: play.id, name: "Games" })).result;
+      const pane = async (spaceId: string) => (await c.call("browsers.create", { spaceId })).result.browserId as string;
+      const suggest = async (spaceId: string, query: string) =>
+        ((await c.call("browsers.suggest", { spaceId, query })).result.pages as { url: string; title: string; visits: number }[]);
+      return { c, a, b, other, pane, suggest };
+    }
+
+    it("a pane's navigation is a visit, offered back to every space of the same profile", async () => {
+      const { c, a, b, other, pane, suggest } = await setup();
+      const p = await pane(a.id);
+      await c.call("browsers.update", { browserId: p, url: "https://docs.example/start", title: "Getting started" });
+      await c.call("browsers.update", { browserId: p, url: "https://docs.example/config", title: "Configuration" });
+      expect((await suggest(a.id, "docs")).map((x) => x.title).sort()).toEqual(["Configuration", "Getting started"]);
+      // Another space in the same profile is offered the same pages; a different profile is not.
+      expect((await suggest(b.id, "docs")).map((x) => x.title).sort()).toEqual(["Configuration", "Getting started"]);
+      expect(await suggest(other.id, "docs")).toEqual([]);
+      c.close();
+    });
+
+    it("the same page renaming itself is not another visit — or every app that retitles would rank first", async () => {
+      /* THE mutant: count every update. The renderer persists on every settled state, and a page
+         that sets its title after load (or a single-page app that retitles each view) would gain a
+         visit per rename. */
+      const { c, a, pane, suggest } = await setup();
+      const p = await pane(a.id);
+      await c.call("browsers.update", { browserId: p, url: "https://mail.example/", title: "Loading…" });
+      await c.call("browsers.update", { browserId: p, url: "https://mail.example/", title: "Inbox (3)" });
+      expect(await suggest(a.id, "mail")).toEqual([expect.objectContaining({ url: "https://mail.example/", title: "Inbox (3)", visits: 1 })]);
+      // Coming back to it later is a visit.
+      await c.call("browsers.update", { browserId: p, url: "https://news.example/", title: "News" });
+      await c.call("browsers.update", { browserId: p, url: "https://mail.example/", title: "Inbox (3)" });
+      expect((await suggest(a.id, "mail"))[0]!.visits).toBe(2);
+      c.close();
+    });
+
+    it("ranks what a person goes back to above what they saw once", async () => {
+      const { c, a, pane, suggest } = await setup();
+      const p = await pane(a.id);
+      for (const url of ["https://x.example/once", "https://x.example/often", "https://x.example/other", "https://x.example/often"]) {
+        await c.call("browsers.update", { browserId: p, url, title: url.split("/").pop() });
+        await new Promise((r) => setTimeout(r, 3)); // recency is the tiebreak, so no two visits share a millisecond
+      }
+      expect((await suggest(a.id, "x.example")).map((x) => x.title)).toEqual(["often", "other", "once"]);
+      c.close();
+    });
+
+    it("records nothing that is not an address: Realm's blank page, a credential, an empty pane", async () => {
+      const { c, a, pane, suggest } = await setup();
+      const p = await pane(a.id);
+      await c.call("browsers.update", { browserId: p, url: "about:blank", title: "" });
+      await c.call("browsers.update", { browserId: p, url: "https://me:hunter2@intranet.example/", title: "Intranet" });
+      expect(await suggest(a.id, "a")).toEqual([]);
+      c.close();
+    });
+
+    it("an empty query suggests nothing, and clearHistory forgets every profile's pages", async () => {
+      const { c, a, other, pane, suggest } = await setup();
+      await c.call("browsers.update", { browserId: await pane(a.id), url: "https://a.example/", title: "A" });
+      await c.call("browsers.update", { browserId: await pane(other.id), url: "https://b.example/", title: "B" });
+      expect(await suggest(a.id, "")).toEqual([]);
+      expect((await c.call("browsers.clearHistory", {})).result).toEqual({ ok: true });
+      expect(await suggest(a.id, "example")).toEqual([]);
+      expect(await suggest(other.id, "example")).toEqual([]);
+      c.close();
+    });
   });
 });

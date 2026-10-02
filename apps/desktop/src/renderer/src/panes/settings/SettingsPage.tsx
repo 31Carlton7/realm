@@ -13,7 +13,7 @@ import { relativeTime } from "../../components/CheckpointsSheet";
 import { Spinner } from "../../components/Spinner";
 import { CommandCopy } from "../../components/CommandCopy";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
-import { useApp, type CliJob, type SubmitKey } from "../../state/store";
+import { useApp, type CliJob, type SettingsPageTab, type SubmitKey } from "../../state/store";
 import type { PaneProps } from "../registry";
 import { hasWindowMaterial, useResolvedMode, type ThemePref } from "../../theme/useTheme";
 import { ImportPanel } from "../../components/settings/ImportPanel";
@@ -23,8 +23,7 @@ import { LayaSection } from "./LayaSection";
 import { Signature } from "./Signature";
 import { KeybindingsPanel } from "../../components/settings/KeybindingsPanel";
 
-type SettingsTab = "engines" | "usage" | "app" | "keys" | "signins" | "import" | "permissions";
-const TABS: { id: SettingsTab; label: string }[] = [
+const TABS: { id: SettingsPageTab; label: string }[] = [
   { id: "engines", label: "Engines" }, { id: "usage", label: "Usage" }, { id: "app", label: "App" }, { id: "keys", label: "Keys" },
   { id: "signins", label: "Sign-ins" }, { id: "import", label: "Import" }, { id: "permissions", label: "Permissions" },
 ];
@@ -48,7 +47,9 @@ export function engineVersionLabel(version: string): string {
 }
 
 export function SettingsPage(_props: PaneProps) {
-  const [tab, setTab] = useState<SettingsTab>("engines");
+  // In the store so an opener can land on a tab — the browser pane's "Browser settings" opens Sign-ins.
+  const tab = useApp((s) => s.settingsPageTab);
+  const setTab = useApp((s) => s.setSettingsPageTab);
   return (
     <div className="page settings-page-pane">
       <header className="page-head">

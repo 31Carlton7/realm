@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  CHIP_LABEL_MAX, chipLabel, ElementChipSchema, elementChipLabel, elementChipToken, elementContext,
+  annotationChipLabel, CHIP_LABEL_MAX, chipLabel, ElementChipSchema, elementChipLabel, elementChipToken, elementContext,
   chipRuns, keepLiveChips, MAX_ELEMENT_CHIPS, PICK_HTML_MAX, scanChips, scanElementChips, type BrowserPickedElement,
 } from "./index";
 
@@ -197,5 +197,53 @@ describe("chipRuns", () => {
 
   it("is one plain run for text with no chips at all", () => {
     expect(chipRuns("just words", ["mac"])).toEqual([{ chip: null, text: "just words" }]);
+  });
+});
+
+/**
+ * Plan 26 W7d — an ANNOTATION: several elements pinned on one page and sent as one chip. One token
+ * stands for every sidecar entry under its label; `pin` is the number the user saw on the page.
+ */
+describe("annotation chips", () => {
+  const pins = (label = "3 annotations", shot?: string) => [1, 2, 3].map((n) => ({
+    label, element: picked({ ref: 40 + n, name: `Item ${n}`, selector: `#item-${n}` }), pin: n, ...(shot ? { shot } : {}),
+  }));
+
+  it("count the pins as a person would, and never collide with a chip already in the draft", () => {
+    expect(annotationChipLabel(1)).toBe("1 annotation");
+    expect(annotationChipLabel(3)).toBe("3 annotations");
+    expect(annotationChipLabel(3, ["3 annotations"])).toBe("3 annotations 2");
+  });
+
+  it("one token keeps every pin it stands for, and deleting it forgets them all", () => {
+    const chips = pins();
+    expect(keepLiveChips(`look at ${elementChipToken("3 annotations")} please`, chips)).toEqual(chips);
+    expect(keepLiveChips("look at these please", chips)).toEqual([]);
+  });
+
+  it("the agent is told each pin by its number, and the token is listed once, not once per pin", () => {
+    const out = elementContext(pins("3 annotations", "127.0.0.1-8971-2026-10-01T19-30-05-annotations.png"));
+    const fence = out.match(/untrusted-[0-9a-f]{16}/)![0];
+    const outside = out.slice(0, out.indexOf(`<<<${fence}`));
+    const inside = out.slice(out.indexOf(`<<<${fence}`), out.indexOf(`${fence}>>>`));
+    // THE mutant: one index line per entry. Three lines of the same token read as three chips.
+    expect(outside.split("\n").filter((l) => l.includes("@[3 annotations]"))).toEqual(["  @[3 annotations] — https://example.com, 3 pins"]);
+    for (const n of [1, 2, 3]) expect(inside).toContain(`@[3 annotations] pin ${n}\nurl: https://example.com/login\nselector: #item-${n}`);
+    // Realm's own voice, outside the fence: what the numbers are, and which attachment shows them.
+    expect(outside).toContain("numbered in the order they pinned them; the attached 127.0.0.1-8971-2026-10-01T19-30-05-annotations.png shows each number");
+  });
+
+  it("an ordinary pick goes out exactly as it did before annotations existed", () => {
+    const out = elementContext([{ label: 'button "Sign in"', element: picked() }]);
+    expect(out).not.toContain("annotation");
+    expect(out).not.toContain(" pin ");
+    expect(out).toContain('  @[button "Sign in"] — https://example.com\n');
+  });
+
+  it("the wire carries a pin and its screenshot, and still takes a chip from before either existed", () => {
+    expect(ElementChipSchema.parse({ label: "3 annotations", element: picked(), pin: 2, shot: "a.png" })).toMatchObject({ pin: 2, shot: "a.png" });
+    expect(ElementChipSchema.safeParse({ label: "x", element: picked() }).success).toBe(true);
+    expect(ElementChipSchema.safeParse({ label: "x", element: picked(), pin: 0 }).success).toBe(false);
+    expect(ElementChipSchema.safeParse({ label: "x", element: picked(), pin: MAX_ELEMENT_CHIPS + 1 }).success).toBe(false);
   });
 });

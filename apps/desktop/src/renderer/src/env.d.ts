@@ -21,6 +21,9 @@ interface Window {
     /** `process.platform` from the preload. Absent in jsdom, which has no bridge — every reader has
      *  to treat "unknown" as "no window material" rather than guessing macOS. */
     platform?: string;
+    /** A native menu at a window-relative point; resolves the chosen row's id, or null. The one
+     *  surface that can open over a browser pane's page. Optional: jsdom has no bridge. */
+    popupMenu?(items: NativeMenuItem[], at: { x: number; y: number }): Promise<string | null>;
     pickFolder(): Promise<string | null>;
     /** Native multi-select file picker; [] when cancelled. */
     pickFiles(): Promise<PickedFile[]>;
@@ -144,10 +147,15 @@ interface Window {
       /** Resolves the normalized URL actually loaded, or null when refused (allowlist) / empty. */
       navigate(id: string, input: string): Promise<string | null>;
       nav(id: string, action: "back" | "forward" | "reload" | "stop"): Promise<void>;
+      /** The typed text as a web search, even when it looks like an address. */
+      search(id: string, query: string): Promise<string | null>;
       historyMenu(id: string, dir: "back" | "forward", at: { x: number; y: number }): Promise<void>;
       /** Arms the element picker. See `BrowserHostBridge` for the promise's lifetime. */
       pickElement(id: string): Promise<import("@realm/contracts").BrowserPickedElement | null>;
       cancelPick(id: string): Promise<void>;
+      /** Plan 26 W7d: annotate — pending until Send in the page's toolbar, or the session ends. */
+      annotate(id: string, accent?: string, dir?: string | null): Promise<import("@realm/contracts").BrowserAnnotateResult>;
+      cancelAnnotate(id: string): Promise<void>;
       setAccent(accent: string): void;
       /** Plan 23 W4: downloads the pane blocked, and the user's own consent to fetch one. */
       blockedDownloads(id: string): Promise<import("@realm/contracts").BlockedDownload[]>;
@@ -160,9 +168,27 @@ interface Window {
       /** Per-frame, fire-and-forget: placeholder rect (CSS px) + devicePixelRatio + visibility. */
       setBounds(id: string, rect: { x: number; y: number; width: number; height: number }, dpr: number, visible: boolean): void;
       onState(cb: (s: BrowserViewState) => void): () => void;
+      /** Plan 26 W7b — the ⋯ menu's facts, and its rows. */
+      menuState(id: string): Promise<import("@realm/contracts").BrowserMenuState>;
+      goToIndex(id: string, index: number): Promise<void>;
+      find(id: string, query: string, step: "start" | "next" | "previous"): Promise<void>;
+      stopFind(id: string): Promise<void>;
+      onFound(cb: (m: import("@realm/contracts").BrowserFindResult) => void): () => void;
+      /** ⌘F pressed inside a pane's page, which this window never hears directly. */
+      onFindRequest(cb: (m: { browserId: string }) => void): () => void;
+      zoom(id: string, step: "in" | "out" | "reset" | null): Promise<number>;
+      print(id: string): Promise<void>;
+      setDevice(id: string, preset: "phone" | "tablet" | "desktop" | null): Promise<void>;
+      screenshot(id: string, dir: string): Promise<import("@realm/contracts").BrowserScreenshotSaved>;
+      clearData(): Promise<{ cleared: boolean }>;
     };
   };
 }
+/** Mirrors NativeMenuItem in main/native-menu.ts — one row of a menu the OS draws. A row with no `id`
+ *  is a line of information, never a choice. */
+type NativeMenuItem =
+  | { type: "separator" }
+  | { id?: string; label: string; enabled?: boolean; checked?: boolean; accelerator?: string; submenu?: NativeMenuItem[] };
 /** Mirrors UpdateState/UpdateStatus in main/updater.ts — the Updates row's payload. Every kind is a
  *  fact main reported; `disabled` carries the reason so the row can say why, honestly. */
 type UpdateState =
@@ -227,7 +253,9 @@ interface ComputerAccessStatus {
   helperAvailable: boolean;
 }
 /** Mirrors BrowserViewState in the preload — the main→renderer browser state channel's payload. */
-interface BrowserViewState { id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean }
+interface BrowserViewState { id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean;
+  /** The device preset the page is shown at (Plan 26 W7e), or null when it fits the pane. */
+  device: "phone" | "tablet" | "desktop" | null }
 
 /**
  * noVNC ships no types (Plan 25 W3). Declared here rather than pulled from DefinitelyTyped, which

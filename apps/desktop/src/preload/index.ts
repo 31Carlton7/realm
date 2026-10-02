@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
-import type { BlockedDownload, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, BrowserPickedElement, MediaFile, Passkey, PasskeyNotice } from "@realm/contracts";
+import type { BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, MediaFile, Passkey, PasskeyNotice } from "@realm/contracts";
+import type { NativeMenuItem } from "../main/native-menu";
 import type { TccRow } from "../main/tcc";
 import type { MacAccessStatus } from "../main/mac-access";
 import type { ComputerAccessStatus } from "../main/computer-access";
@@ -8,7 +9,7 @@ const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`
 const port = arg("realm-port");
 export type PickedFile = { path: string; mime: string; name: string; size: number };
 export type ScrollPhaseMessage = { phase: string; momentum: string; dx: number; dy: number; ts: number };
-export type BrowserViewState = { id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean };
+export type BrowserViewState = { id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; device: "phone" | "tablet" | "desktop" | null };
 contextBridge.exposeInMainWorld("realm", {
   port: port === undefined ? NaN : Number(port), home: arg("realm-home") ?? "",
   /** The RPC token, offered as the `realm.<token>` subprotocol on every dial. Realm's socket binds
@@ -25,6 +26,9 @@ contextBridge.exposeInMainWorld("realm", {
    *  platform where the window has a material behind it, so the sidebar's transparency has nothing
    *  to reveal anywhere else (main/index.ts gives Windows and Linux an opaque backgroundColor). */
   platform: process.platform,
+  /** A native menu at a window-relative point, its rows described here and drawn by the OS — the one
+   *  surface that can open over a browser pane's page. Resolves the chosen row's id, or null. */
+  popupMenu: (items: NativeMenuItem[], at: { x: number; y: number }): Promise<string | null> => ipcRenderer.invoke("menu:popup", items, at),
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke("pick-folder"),
   /** Native multi-select file picker; [] when cancelled. */
   pickFiles: (): Promise<PickedFile[]> => ipcRenderer.invoke("pick-files"),
@@ -219,6 +223,8 @@ contextBridge.exposeInMainWorld("realm", {
     /** Resolves the normalized URL actually loaded, or null when refused (allowlist) / empty. */
     navigate: (id: string, input: string): Promise<string | null> => ipcRenderer.invoke("browser:navigate", id, input),
     nav: (id: string, action: "back" | "forward" | "reload" | "stop"): Promise<void> => ipcRenderer.invoke("browser:nav", id, action),
+    /** The typed text as a web search, even when it looks like an address. Null when refused. */
+    search: (id: string, query: string): Promise<string | null> => ipcRenderer.invoke("browser:search", id, query),
     /** Pops the OS back/forward menu under a button whose window-relative corner this carries. */
     historyMenu: (id: string, dir: "back" | "forward", at: { x: number; y: number }): Promise<void> =>
       ipcRenderer.invoke("browser:history-menu", id, dir, at),
@@ -236,6 +242,10 @@ contextBridge.exposeInMainWorld("realm", {
     pickElement: (id: string, accent?: string): Promise<BrowserPickedElement | null> =>
       ipcRenderer.invoke("browser:pick-element", id, accent),
     cancelPick: (id: string): Promise<void> => ipcRenderer.invoke("browser:cancel-pick", id),
+    /** Plan 26 W7d — the picker kept armed. Pending until the user presses Send in the page's toolbar,
+     *  or ends it; `dir` is where Send's screenshot of the pins goes (`browsers.screenshotDir`). */
+    annotate: (id: string, accent?: string, dir?: string | null): Promise<BrowserAnnotateResult> => ipcRenderer.invoke("browser:annotate", id, accent, dir),
+    cancelAnnotate: (id: string): Promise<void> => ipcRenderer.invoke("browser:cancel-annotate", id),
     /** The theme accent main paints the agent's marks — the action ring, the cursor, the
      *  controlled-screen frame — in. A page carries none of Realm's CSS, so main cannot read it and
      *  the renderer has to push it. `send`, not `invoke`, like `setBounds`: nothing waits on a
@@ -265,5 +275,31 @@ contextBridge.exposeInMainWorld("realm", {
       ipcRenderer.on("realm:browser-passkey", handler);
       return () => ipcRenderer.removeListener("realm:browser-passkey", handler);
     },
+    /** Plan 26 W7b — the ⋯ menu. `menuState` is read as the menu opens; the rest are its rows. */
+    menuState: (id: string): Promise<BrowserMenuState> => ipcRenderer.invoke("browser:menu-state", id),
+    goToIndex: (id: string, index: number): Promise<void> => ipcRenderer.invoke("browser:go-to-index", id, index),
+    /** `start` is a new query; `next`/`previous` step through the matches it found. */
+    find: (id: string, query: string, step: "start" | "next" | "previous"): Promise<void> => ipcRenderer.invoke("browser:find", id, query, step),
+    stopFind: (id: string): Promise<void> => ipcRenderer.invoke("browser:stop-find", id),
+    onFound: (cb: (m: BrowserFindResult) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, m: BrowserFindResult) => cb(m);
+      ipcRenderer.on("realm:browser-found", handler);
+      return () => ipcRenderer.removeListener("realm:browser-found", handler);
+    },
+    /** ⌘F pressed inside a pane's PAGE, which this window never hears directly. */
+    onFindRequest: (cb: (m: { browserId: string }) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, m: { browserId: string }) => cb(m);
+      ipcRenderer.on("realm:browser-find-request", handler);
+      return () => ipcRenderer.removeListener("realm:browser-find-request", handler);
+    },
+    /** Step the page's zoom (or with null, read it); resolves the level it is at afterwards. */
+    zoom: (id: string, step: "in" | "out" | "reset" | null): Promise<number> => ipcRenderer.invoke("browser:zoom", id, step),
+    print: (id: string): Promise<void> => ipcRenderer.invoke("browser:print", id),
+    /** Plan 26 W7e: show the page at a device preset's width, or (null) fit the pane. */
+    setDevice: (id: string, preset: "phone" | "tablet" | "desktop" | null): Promise<void> => ipcRenderer.invoke("browser:set-device", id, preset),
+    /** Capture the view into `dir` — the server's `browsers.screenshotDir`, never a path made here. */
+    screenshot: (id: string, dir: string): Promise<BrowserScreenshotSaved> => ipcRenderer.invoke("browser:screenshot", id, dir),
+    /** Asks first, in main, with the OS's own dialog; resolves whether anything was cleared. */
+    clearData: (): Promise<{ cleared: boolean }> => ipcRenderer.invoke("browser:clear-data"),
   },
 });

@@ -808,3 +808,93 @@ describe("migration v34 — a real device", () => {
     db.close();
   });
 });
+
+/**
+ * The v34 shapes of what v35 touches, hand-written for the reason every fixture above is: replaying
+ * `migrations[0..33]` would agree with an in-place edit of a shipped migration, including folding
+ * v35's table into an earlier entry — and a home already stamped 34 would then never get it.
+ *
+ * `profiles` is its real shape, because the history's foreign key points at it and the cascade is part
+ * of what is under test. `spaces` is a stub (nothing here reads a column of it), and `browsers` carries
+ * a pane that is already somewhere — which is what a backfill would be tempted to turn into a visit.
+ */
+const V34_HISTORY_SCHEMA = `
+CREATE TABLE profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT NOT NULL, color TEXT NOT NULL,
+  sort_order INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE spaces (id TEXT PRIMARY KEY, profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE);
+CREATE TABLE browsers (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  url TEXT NOT NULL, title TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE INDEX browsers_space ON browsers(space_id);
+`;
+
+/** A v34 home with two profiles and a browser pane already on a page. */
+function v34Fixture(path: string): void {
+  const db = new DatabaseSync(path);
+  db.exec("PRAGMA foreign_keys = ON;");
+  db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+  db.exec(V34_HISTORY_SCHEMA);
+  for (let v = 1; v <= 34; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  const profile = db.prepare("INSERT INTO profiles VALUES (?, ?, 'user', '#000000', 0, 1, 1)");
+  profile.run("p1", "Work");
+  profile.run("p2", "Home");
+  db.prepare("INSERT INTO spaces (id, profile_id) VALUES ('sp1', 'p1')").run();
+  db.prepare("INSERT INTO browsers VALUES ('b1', 'sp1', 'https://example.com/docs', 'Docs', 1, 2)").run();
+  db.close();
+}
+
+describe("migration v35 — browser history", () => {
+  const migrated = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    v34Fixture(p);
+    return { p, db: openDatabase(p) };
+  };
+  const visit = (db: DatabaseSync, profile: string, url: string, n = 1) =>
+    db.prepare("INSERT INTO browser_history (profile_id, url, title, visit_count, last_visit_at) VALUES (?, ?, 'T', ?, 10)").run(profile, url, n);
+
+  it("is appended, not folded into v34: a v34 home reaches the end of the chain and gains the table", () => {
+    const { db } = migrated();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBeGreaterThan(34);
+    const cols = (db.prepare("PRAGMA table_info(browser_history)").all() as { name: string }[]).map((c) => c.name);
+    expect(cols).toEqual(["profile_id", "url", "title", "visit_count", "last_visit_at"]);
+    db.close();
+  });
+
+  it("backfills NOTHING: a pane that is already on a page is not a visit anyone made", () => {
+    const { db } = migrated();
+    expect((db.prepare("SELECT COUNT(*) AS n FROM browser_history").get() as { n: number }).n).toBe(0);
+    // …and the pane's own row is exactly as it was.
+    expect(db.prepare("SELECT url, title, updated_at FROM browsers WHERE id = 'b1'").get()).toEqual({ url: "https://example.com/docs", title: "Docs", updated_at: 2 });
+    db.close();
+  });
+
+  it("holds one row per page per profile — a second visit has to be an update, not a second row", () => {
+    const { db } = migrated();
+    visit(db, "p1", "https://example.com/");
+    expect(() => visit(db, "p1", "https://example.com/")).toThrow(/UNIQUE|PRIMARY/);
+    // The same page in ANOTHER profile is that profile's own row.
+    expect(() => visit(db, "p2", "https://example.com/")).not.toThrow();
+    db.close();
+  });
+
+  it("a profile's history goes with the profile, and only that profile's", () => {
+    const { db } = migrated();
+    visit(db, "p1", "https://a.example/");
+    visit(db, "p2", "https://b.example/");
+    db.prepare("DELETE FROM profiles WHERE id = 'p1'").run();
+    expect(db.prepare("SELECT profile_id, url FROM browser_history").all()).toEqual([{ profile_id: "p2", url: "https://b.example/" }]);
+    db.close();
+  });
+
+  it("is idempotent: reopening twice more neither re-runs the CREATE nor loses a visit made since", () => {
+    const { p, db } = migrated();
+    visit(db, "p1", "https://example.com/", 3);
+    db.close();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    const again = openDatabase(p);
+    expect(again.prepare("SELECT url, visit_count FROM browser_history").all()).toEqual([{ url: "https://example.com/", visit_count: 3 }]);
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    again.close();
+  });
+});

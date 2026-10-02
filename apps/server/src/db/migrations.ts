@@ -698,4 +698,24 @@ export const migrations: string[] = [
   // decides how the device is reached (Realm's test runner, not simctl) and that its input card is
   // asked even under bypassPermissions — nothing a udid's shape should be trusted to say.
   `ALTER TABLE simulators ADD COLUMN physical INTEGER NOT NULL DEFAULT 0;`,
+  // v35 — browser history: the pages a profile's browser panes have shown, for the address field's
+  // suggestions (Plan 26 W7c).
+  //
+  // One row per page per PROFILE, not per pane or per space. A profile is the boundary everything else
+  // a person carries is scoped to (skills, connections, memory), and a page visited in one of its
+  // spaces is a page they would expect to be offered in the next. Keyed on the url itself, so a second
+  // visit is an UPDATE of the same row — `visit_count` is how often, `last_visit_at` how recently, and
+  // those two are the whole ranking.
+  //
+  // A new table, empty, with nothing backfilled: Realm kept no record of where a pane had been before
+  // this — the `browsers` row holds only where each pane IS — and inventing visits from that would be
+  // a claim about the past. The cascade is the cleanup: a profile's history goes with the profile.
+  `
+  CREATE TABLE browser_history (
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    url TEXT NOT NULL, title TEXT NOT NULL,
+    visit_count INTEGER NOT NULL DEFAULT 1, last_visit_at INTEGER NOT NULL,
+    PRIMARY KEY (profile_id, url));
+  CREATE INDEX browser_history_recent ON browser_history(profile_id, last_visit_at DESC);
+  `,
 ];

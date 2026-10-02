@@ -1,7 +1,7 @@
 import { z } from "zod";
 import {
   BROWSER_READ_ONLY_TOOLS, BrowserActionSchema, BrowserReadKindSchema, CREDENTIAL_2FA_NOTE,
-  DOWNLOAD_DIRNAME, DOWNLOAD_MAX_BYTES, UPLOAD_MAX_FILES, formatUploadSize,
+  DOWNLOAD_DIRNAME, DOWNLOAD_MAX_BYTES, SCREENSHOT_DIRNAME, UPLOAD_MAX_FILES, formatUploadSize,
   type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserDescribeResult,
   type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserNavigateResult,
   type BrowserReadResult, type BrowserScreenshotResult, type BrowserSnapshotResult,
@@ -895,6 +895,16 @@ export function spaceDownloadDir(projects: Pick<ProjectsStore, "list">, spaceId:
 }
 
 const downloadDir = (d: Deps, spaceId: string): string | null => spaceDownloadDir(d.projects, spaceId);
+
+/**
+ * Where a pane's screenshots land: the space's own folder, under `screenshots/`. Beside
+ * `spaceDownloadDir` so the two rules for "where does a browser pane put a file" are read together.
+ * Null for a space that is not there — never a guess at somewhere else.
+ */
+export function spaceScreenshotDir(spaces: { get(id: string): { folderPath: string } | null | undefined }, spaceId: string): string | null {
+  const folder = spaces.get(spaceId)?.folderPath;
+  return folder ? join(folder, SCREENSHOT_DIRNAME) : null;
+}
 
 const noDestination =
   "refused: this space has no project, so there is nowhere for a download to land where the user would see it. Add a project to the space first (its folder is where downloads go, and they show up in the diff pane).";
