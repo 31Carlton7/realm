@@ -227,6 +227,25 @@ streaks, peak and longest turn; everything else already exists in `usage.summary
 - *W11c — The counter.* "N need you" in the window's top strip when anything is waiting, its list
   answering cards in place; hidden when nothing is.
 
+## Status (2026-10-01)
+
+Built on one branch per workstream, every one gated (typecheck, build, full suite) and checked in the
+built app, and merged together on `integration/plan-26`, which passes the same gates. Not pushed.
+
+- **Built:** W1, W3 (every space under the room, and Active above it), W4 (no slide; Go back and Go
+  forward on ⌃- / ⌃⇧-, since ⌘[ / ⌘] are the pane's own trail), W6, W7a–e, W8, W9a–e, W10, W11a–c, and
+  W5's "+" with *New tab* / *New tab in full view* (⌘⇧B / ⌥⌘B).
+- **Not built:** W2 (the rail), and with it W5's one top strip across the window. The need-you count
+  (W11c) sits in the sidebar's head band until there is a strip; the Agents page (W11a) is still an
+  overlay until the rail can make it Home.
+- **Left over:** the new-tab page's *Recently visited* (W6) is not drawn yet, though W7c's history now
+  exists beside it; per-pin notes (W7d) were left out, since a note typed into the page's DOM is the
+  page's to rewrite; "Full view by default" (W9c); a peek from a notification row (W11b); Go menu rows
+  for Go back / Go forward once the Mac menu bar's Go menu reaches this line.
+- **Open for a decision:** with the sidebar open, "needs you" now shows three times — the head band's
+  count, the Agents row's pill and Active's first rows; and whether Active retires the activity lens
+  (the builder's view: it does not — the lens is the only list of every chat by day).
+
 ## Not in this plan
 
 - Voice input. Realm has none, and the honest version needs a local model (Laya) or the system's
