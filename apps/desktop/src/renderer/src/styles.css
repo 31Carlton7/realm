@@ -4292,6 +4292,18 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 :root[data-squircle] .btn.destructive,
 :root[data-squircle] .btn.danger,
 :root[data-squircle] .btn.primary:disabled { box-shadow: none; filter: none; --sq-ring-w: 0; }
+/* Keyboard focus on a PAINTED control goes to the painter, the way the simulator's screen does it
+   above. These controls are `border-radius: 0` — the worklet draws their curve — so the app's
+   outline traced a square around a squircle, which is the one shape a Mac focus ring never takes:
+   AppKit's follows the control. On the curve it is drawn just inside the edge, so it still draws
+   IN, from a wide clear band down to its width, on the same timing as every other ring. A filled
+   control takes the ring in its label's colour, because an accent ring inside an accent fill is no
+   ring at all. */
+:root[data-squircle] :is(.btn, .ghost-chip, .mp-use, .palette-opt):focus-visible {
+  outline: none; --sq-ring: var(--rl-accent); --sq-ring-w: 2px;
+  animation: rl-focus-ring-painted var(--dur-slow) var(--spring-smooth); }
+:root[data-squircle] .btn.primary:focus-visible { --sq-ring: color-mix(in srgb, var(--rl-accent-contrast) 75%, transparent); }
+@keyframes rl-focus-ring-painted { from { --sq-ring: transparent; --sq-ring-w: 6px; } }
 /* The selected row in ⌘K gets no ring either. What marks it is the fill; a border on a painted
    corner would be a second, competing outline of the same shape. */
 

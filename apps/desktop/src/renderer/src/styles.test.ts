@@ -3412,3 +3412,20 @@ describe("softer edges", () => {
     ] as const) expect(bodiesFor(sel).join(" "), sel).toContain(decl);
   });
 });
+
+describe("the focus ring on a painted control", () => {
+  /* THE mutant: the outline left on a control the worklet paints. Its border-radius is 0, so the
+     outline is a square around a squircle — measured live (visual-review-live.mjs), a blue rectangle
+     around the composer's model chip. */
+  it("is drawn by the painter on the control's own curve, not as a square outline", () => {
+    const rule = bodiesFor(":root[data-squircle] :is(.btn, .ghost-chip, .mp-use, .palette-opt):focus-visible").join(" ");
+    expect(rule).toContain("outline: none");
+    expect(rule).toContain("--sq-ring: var(--rl-accent)");
+    expect(rule).toContain(`animation: rl-focus-ring-painted ${"var(--dur-slow)"} var(--spring-smooth)`);
+    expect(blockAfter("@keyframes rl-focus-ring-painted")).toContain("--sq-ring: transparent");
+    // Every control the worklet paints is covered — the list must not drift from the paint rule's.
+    const painted = RULES.find((r) => r.body.includes("background: paint(rl-squircle)") && r.selectors.includes(":root[data-squircle] .ghost-chip"))!;
+    for (const sel of painted.selectors) expect(sel.replace(":root[data-squircle] ", ""), sel).toMatch(/^\.(btn|ghost-chip|mp-use|palette-opt)$/);
+    expect(bodiesFor(":root[data-squircle] .btn.primary:focus-visible").join(" ")).toContain("--rl-accent-contrast");
+  });
+});
