@@ -5181,6 +5181,10 @@ await get().refreshCustomThemes().catch(() => {});
       },
       async applyDocumentOpenRequested({ spaceId, itemId, openedBy }) {
         if (spaceId !== get().activeSpaceId) return;
+        // This window's own palette, picking for a new tab: `openDocumentPath` puts the file in the
+        // tab's place once its call returns, and the broadcast arrives first. Opened quietly beside
+        // the focused pane here, it would already be somewhere, and be gone to rather than placed.
+        if (!openedBy && get().paletteOpen && get().paletteReplaces) return;
         const leaf = findLeafOfItem(get().layout ?? emptyLayout(), itemId);
         // On screen in a pane of its own: the pane opens the tab itself.
         if (leaf && !leaf.tabs) return;

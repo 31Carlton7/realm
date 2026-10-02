@@ -166,6 +166,20 @@ describe("a tool picked on a new tab", () => {
     expect(store.getState().paletteReplaces).toBeNull();
   });
 
+  it("places the picked file even when the server's broadcast of the open beats the call's answer", async () => {
+    // It does, on the wire: the server broadcasts `documents.openRequested` while answering. THE
+    // MUTANT: let that broadcast open the pane quietly beside the focused one, and the pick finds the
+    // file already on screen — gone to in a split of its own, and never in the tab's place.
+    const { api, store, blank } = await withNewTab();
+    await store.getState().openFromNewTab(blank, "files");
+    const { documentsId, itemId } = await api.createDocuments("s1");
+    await store.getState().applyDocumentOpenRequested({ spaceId: "s1", environmentId: "env-s1", documentsId, itemId, path: "README.md" });
+    await store.getState().openDocumentPath("README.md");
+    expect(side(store).tabs).toEqual(["i-br", itemId]);
+    const root = store.getState().layout!;
+    expect(root.type === "split" ? root.children : [root]).toHaveLength(2);
+  });
+
   it("forgets the blank tab when the palette is dismissed and opened again", async () => {
     // THE MUTANT: clear the mark only on a pick. Dismiss the palette, press ⌘P later, and the file
     // picked then deletes a tab nobody asked to replace.
