@@ -106,6 +106,18 @@ export function electronViewFactory(
     wc.on("will-navigate", guard);
     wc.on("will-redirect", guard);
 
+    /* Realm's `about:blank` bootstrap (above) commits a history entry like any page does, so the first
+       real page had a Back — and a row in the back menu and in History — that went to a blank view the
+       address bar still named as the page. Once the first real page commits, the bootstrap entry goes.
+       Registered ahead of the state events below, so the state they send already has no Back. */
+    const dropBootstrapEntry = (_e: unknown, url: string) => {
+      if (url === "about:blank") return;
+      wc.off("did-navigate", dropBootstrapEntry);
+      const history = wc.navigationHistory;
+      if (history.getActiveIndex() > 0 && history.getEntryAtIndex(0)?.url === "about:blank") history.removeEntryAtIndex(0);
+    };
+    if (installPasskeysFor) wc.on("did-navigate", dropBootstrapEntry);
+
     const stateEvents = [
       "did-start-loading", "did-stop-loading", "did-navigate", "did-navigate-in-page",
       "page-title-updated", "did-fail-load",
