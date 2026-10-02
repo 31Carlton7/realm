@@ -100,8 +100,10 @@ export function SettingsPage(_props: PaneProps) {
         {/* Both ends dissolve, but only when there is something under them — and only over the
             column. The rail is a sibling of the wrapper rather than a thing under a band: a blurred
             tab row reads as a rendering fault, and it is the one row that has to stay legible while
-            the content beneath it scrolls. */}
-        <PageScroll>
+            the content beneath it scrolls. Keyed by what it shows, because a scroll position belongs
+            to a page: one scroller for all of them opened General as far down as Appearance had been
+            left, which a jump to a row near the bottom of a page made the usual case. */}
+        <PageScroll key={results === null ? tab : "results"}>
           {results !== null ? <SearchResults query={query.trim()} results={results} onPick={jump} /> : (
             <>
               {tab === "general" && <GeneralTab />}

@@ -5540,11 +5540,26 @@ select { appearance: none; padding-right: 22px;
    one box of their own so that narrow, where the rail lies down, the field keeps a full line and only
    the pages become the scrolling strip — a search box that scrolled away with the tabs would be gone
    exactly when the strip is too long to scan. */
-.settings-rail-lists { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+/* Nine pages under five headings are taller than the page at the smallest window the app allows
+   (530px against 479 at 600), so the lists scroll under a search that stays put rather than the
+   last pages falling off the bottom with nothing to scroll them back. */
+.page-rail.settings-rail { min-height: 0; max-height: 100%; }
+.settings-rail-lists { display: flex; flex-direction: column; gap: 16px; min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; }
 .settings-search { flex: none; }
+/* `--field` is the canvas itself on the light face (both 0.961), so a field laid on this page's
+   ground had no edge at all there. The raised surface is the step the light cards already take off
+   the same ground, and a little more: measured, the field reads 1.12:1 against it where the rows
+   read 1.07. Dark keeps `--field`, a step up off its darker canvas. Under the painter `background`
+   is spent on `paint()`, so the fill goes through `--sq-fill` there and through `background` only
+   where nothing is painting it. */
+:root[data-mode="light"] .settings-page-pane .search-field { --sq-fill: var(--surface); }
+:root[data-mode="light"]:not([data-squircle]) .settings-page-pane .search-field { background: var(--surface); }
 @container (max-width: 640px) {
-  .page-rail.settings-rail { flex-direction: column; gap: 8px; overflow: visible; }
-  .settings-rail-lists { flex-direction: row; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+  .page-rail.settings-rail { flex-direction: column; gap: 8px; overflow: visible; max-height: none; }
+  .settings-rail-lists { flex-direction: row; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
+  /* Each headed list keeps its own width in the strip. Left to shrink (`.page-rail-list` is
+     `min-width: 0`), the lists squeezed to the strip's width and their tabs ran over each other. */
+  .settings-rail-lists > .page-rail-list { flex: none; }
 }
 /* A search result is a row of the same list the pages draw, holding one button the width of the row:
    the label takes the slack, and where it lives is a fixed column at the end. */

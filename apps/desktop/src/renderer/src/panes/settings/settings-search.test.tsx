@@ -60,6 +60,18 @@ describe("the rail is grouped", () => {
     expect(rail().querySelectorAll("[data-selected]")).toHaveLength(1);
   });
 
+  it("opens each page at its own top, not where the last one was left", async () => {
+    // THE shared-scroller mutant: one column for every page, so General opens as far down as
+    // Appearance was left — which a jump to a row near the foot of a page makes the common case.
+    await mount();
+    fireEvent.click(screen.getByRole("radio", { name: "Appearance" }));
+    const column = () => document.querySelector(".page-content") as HTMLElement;
+    column().scrollTop = 300;
+    fireEvent.click(screen.getByRole("radio", { name: "General" }));
+    await waitFor(() => expect(screen.getByRole("radio", { name: "General" })).toBeChecked());
+    expect(column().scrollTop).toBe(0);
+  });
+
   it("puts the search at the top of the rail, above the first heading", async () => {
     await mount();
     const field = search();
