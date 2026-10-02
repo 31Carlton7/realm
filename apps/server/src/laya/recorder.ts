@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LayaRecording, SimulatorAxElement, SimulatorAxTree } from "@realm/contracts";
+import { clip } from "../mcp/tool-result";
 import { RpcError } from "../store/rows";
 import type { BenchElement, BenchScreen } from "./benchmark";
 
@@ -241,7 +242,7 @@ function kept(e: SimulatorAxElement): BenchElement[] {
   if (!label && !e.id) return [];
   if (READ_ONLY_TEXT.test(e.role) && label.length > LONG_TEXT) return [];
   const out: BenchElement = {
-    id: e.path, role: e.role, label: label.length > LONG_TEXT ? `${label.slice(0, LONG_TEXT - 1)}…` : label,
+    id: e.path, role: e.role, label: clip(label, LONG_TEXT),
     frame: [Math.round(e.frame.x), Math.round(e.frame.y), Math.round(e.frame.width), Math.round(e.frame.height)],
   };
   if (SWITCH.test(e.role) && (e.value === "0" || e.value === "1")) out.value = e.value;
