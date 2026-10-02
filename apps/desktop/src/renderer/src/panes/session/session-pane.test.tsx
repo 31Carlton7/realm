@@ -118,7 +118,8 @@ describe("SessionPane", () => {
     // One line out of greeting.ts's pool, picked from the session id — never "what should we build",
     // since a space is as often a course as a repo.
     expect(title).toHaveTextContent("What's on your mind in Versed?");
-    expect(title?.querySelector("em")).toHaveTextContent("Versed");
+    // The space's name is the line's link to the space's page now, not an emphasised word.
+    expect(title?.querySelector("button.hero-greeting-place")).toHaveTextContent("Versed");
     // The name from `system.info` reaches the greeting: without one, the pool it draws from is the
     // smaller, name-less half, so the same session lands on a different line.
     act(() => store.setState({ userName: "" }));

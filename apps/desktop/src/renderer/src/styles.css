@@ -3591,6 +3591,15 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    than wrap. With the floor lifted, `overflow-wrap` can do its job on the one word that needs it. */
 .hero-greeting > span { min-width: 0; text-align: center; text-wrap: balance; overflow-wrap: break-word; }
 .hero-greeting em { font-style: normal; }
+/* The place the greeting names, as a link to the space's page: a link in prose — the accent and the
+   line's own type, no underline until the pointer is on it (design.md). A button, so the keyboard
+   reaches it. A button lays out as one box whatever `display` asks for (Chromium computes `inline` to
+   `inline-block` — measured), so the name travels as a unit: it sits on the sentence's own baseline,
+   moves to the next line whole when the line breaks, and only a name longer than the line wraps
+   inside itself. The focus ring is the global one. */
+.hero-greeting-place { padding: 0; border: 0; background: none; font: inherit; letter-spacing: inherit;
+  color: var(--rl-accent); text-align: inherit; cursor: pointer; border-radius: var(--r-chip); }
+.hero-greeting-place:hover { text-decoration: underline; text-decoration-thickness: 0.06em; text-underline-offset: 0.14em; }
 /* The greeting nods when its emphasised word is clicked (Composer.tsx sets the mark). Pivoting on
    the baseline, so the line dips on the ruler it sits on rather than swinging around its middle;
    the whole line moves rather than the word alone, because a transform needs a block box and giving
