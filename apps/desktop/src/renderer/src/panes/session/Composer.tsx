@@ -419,7 +419,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, supportsFastMode, links, onLinkPaste, quote = null, compact = false }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, supportsFastMode, links, onLinkPaste, quote = null, compact = false }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /**
    * The quick chat's prompter: the card, and only the card.
@@ -484,6 +484,13 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   modelInfo: Record<string, ModelInfo>;
   onToggleModelFavorite: (key: string) => void;
   hero: boolean; spaceName: string;
+  /**
+   * The place the hero greeting names, and where it leads: the space's page. `name` is the space's own
+   * name when the session runs in the space's folder, and the checkout's folder name when it runs
+   * somewhere else — a worktree, a linked project — because that is the place it is working in. Absent,
+   * the greeting names `spaceName` and links nowhere.
+   */
+  place?: { name: string; title: string; onOpen: () => void };
   /** The person's first name, for the hero greeting. "" (the default) means the greeting keeps to
    *  the space — never a "Good evening, " with nothing after the comma. */
   userName?: string;
@@ -638,8 +645,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   // The greeting is picked once per session (and re-picked only if the space is renamed or the name
   // arrives late from boot): the time of day is read at that moment, so an open hero never rewrites
   // itself mid-sentence at 6pm.
-  const greeting = useMemo(() => heroGreeting({ spaceName, userName, seed: session.id, extra: eggs ? packGreetings : [] }),
-    [spaceName, userName, session.id, eggs, packGreetings]);
+  const placeName = place?.name ?? spaceName;
+  const greeting = useMemo(() => heroGreeting({ spaceName: placeName, userName, seed: session.id, extra: eggs ? packGreetings : [] }),
+    [placeName, userName, session.id, eggs, packGreetings]);
 
   // ── Rich text (highlight mirror) ───────────────────────────────────────
   // The textarea keeps every character; what it does NOT keep is its own colour. Its text is painted
@@ -1111,8 +1119,10 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   return (
     <div className="composer-dock">
       {hero && (
-        /* Click the emphasised word — your name, or the space's — and the line nods back. Nothing
-           announces it, nothing reaches it by keyboard, and nothing depends on it having happened.
+        /* The place the line names is a link to the space's page: a real button, so the keyboard
+           reaches it, drawn as a link in prose. Click the person's name instead and the line nods
+           back — the one flourish left, which nothing announces, nothing reaches by keyboard, and
+           nothing depends on having happened.
            The mark goes on the element and comes off when the animation ends, so there is no state,
            no timer and nothing to clean up. Taking it off and putting it straight back would replay
            nothing — the browser only sees the value it holds at the end of the frame — so the read
@@ -1132,7 +1142,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
               anonymous flex item would have its leading and trailing spaces collapsed away —
               "working on in" would sit flush against the space's name. */}
           <span>
-            {greeting.map((part, i) => (part.em ? <em key={i}>{part.text}</em> : <Fragment key={i}>{part.text}</Fragment>))}
+            {greeting.map((part, i) => (part.place && place
+              ? <button key={i} type="button" className="hero-greeting-place" title={place.title} onClick={place.onOpen}>{part.text}</button>
+              : part.em ? <em key={i}>{part.text}</em> : <Fragment key={i}>{part.text}</Fragment>))}
           </span>
         </div>
       )}

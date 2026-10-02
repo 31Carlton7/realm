@@ -1,6 +1,6 @@
 import { Icon, type IconName } from "@realm/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AGENT_SKILL_SUPPORT, PLAN_PERMISSION_MODE, fastSupportKey, offeredModes, sessionModeOf, type Item, type LinkChip, type SessionMode, type Skill, runnableCommands, type UserCommand } from "@realm/contracts";
+import { AGENT_SKILL_SUPPORT, PLAN_PERMISSION_MODE, basenameOf, fastSupportKey, offeredModes, sessionModeOf, type Item, type LinkChip, type SessionMode, type Skill, runnableCommands, type UserCommand } from "@realm/contracts";
 
 /** A stable empty list for the commands selector. A fresh `[]` in the selector is a new reference on
  *  every render, which is how a zustand subscription turns into a render loop. */
@@ -229,6 +229,8 @@ export function useSessionMenuItems(item: Item, keep: number): MenuItem[] {
 /** Stable, so a pane with no references hands the Composer the same array every render. */
 const EMPTY_REFS: readonly { sessionId: string; title: string; agent: string }[] = [];
 
+const trimSlash = (path: string): string => path.replace(/\/+$/, "");
+
 export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const id = item.refId;
   const session = useApp((s) => s.sessions[id]);
@@ -425,6 +427,14 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
      throw takes the whole window down to a blank screen. */
   if (!session) return <div className="pane-placeholder muted">Loading session…</div>;
   const space = spaces.find((s) => s.id === session.spaceId);
+  /* What the empty session's greeting names, and links to the space's page: the space, when the
+     session works in the space's own folder; otherwise the checkout it works in, by its folder name,
+     because that is the place the next message runs. The environment's kind says which when it has
+     loaded; until then the paths do. */
+  const ownEnv = environments[session.environmentId];
+  const inSpaceFolder = ownEnv ? ownEnv.kind === "primary" : space !== undefined && trimSlash(session.cwd) === trimSlash(space.folderPath);
+  const place = space ? { name: inSpaceFolder ? space.name : basenameOf(session.cwd), title: `Open ${space.name}`,
+    onOpen: () => openSpacePage(space.id) } : undefined;
   // Hero vs docked (§4): the prompter centers as the hero only while there is nothing to read —
   // no transcript blocks and no visible permission cards (pending ones only show while waiting).
   const hero = transcript.blocks.length === 0 && (status !== "waiting_permission" || transcript.pendingPermissions.length === 0);
@@ -594,7 +604,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onManageConnections={() => openSpacePage(session.spaceId, "connections")}
             submitKey={submitKey}
             eggs={easterEggs}
-            hero={hero} spaceName={space?.name ?? "this space"}
+            hero={hero} spaceName={space?.name ?? "this space"} place={place}
             promptHint={hint} usage={transcript.usage} slashCommands={slashCommands}
             packGreetings={packGreetings}
             goal={<GoalStrip goal={goal}

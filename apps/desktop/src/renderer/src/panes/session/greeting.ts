@@ -6,8 +6,9 @@
  *  The pick is seeded by session id, not random: a re-render (or a tab away and back) must not
  *  reshuffle the words under the reader, while a NEW session gets a fresh line. */
 
-/** A run of the greeting. `em` marks the varying proper noun — the space, or the person. */
-export type GreetingPart = { text: string; em?: true };
+/** A run of the greeting. `em` marks a varying proper noun — the place, or the person. `place` marks
+ *  the place: the space, or the checkout the session runs in, which the line links to (Composer). */
+export type GreetingPart = { text: string; em?: true; place?: true };
 
 export type DayPart = "morning" | "afternoon" | "evening";
 
@@ -24,21 +25,22 @@ type Variant = (c: Ctx) => GreetingPart[];
 
 const t = (text: string): GreetingPart => ({ text });
 const em = (text: string): GreetingPart => ({ text, em: true });
+const place = (text: string): GreetingPart => ({ text, em: true, place: true });
 
 /** Always in the pool: these need nothing but the space's name. */
 const ANY: Variant[] = [
-  (c) => [t("What should we do in "), em(c.space), t(" today?")],
-  (c) => [t("Where should we start in "), em(c.space), t("?")],
-  (c) => [t("What's next in "), em(c.space), t("?")],
-  (c) => [t("What are we working on in "), em(c.space), t("?")],
-  (c) => [t("What's on your mind in "), em(c.space), t("?")],
+  (c) => [t("What should we do in "), place(c.space), t(" today?")],
+  (c) => [t("Where should we start in "), place(c.space), t("?")],
+  (c) => [t("What's next in "), place(c.space), t("?")],
+  (c) => [t("What are we working on in "), place(c.space), t("?")],
+  (c) => [t("What's on your mind in "), place(c.space), t("?")],
 ];
 
 /** Only in the pool when a name is known — the alternative is greeting a blank. */
 const NAMED: Variant[] = [
   (c) => [t(`Good ${c.part}, `), em(c.name), t(".")],
-  (c) => [t(`Good ${c.part}, `), em(c.name), t(" — what's next in "), em(c.space), t("?")],
-  (c) => [t("What should we do in "), em(c.space), t(", "), em(c.name), t("?")],
+  (c) => [t(`Good ${c.part}, `), em(c.name), t(" — what's next in "), place(c.space), t("?")],
+  (c) => [t("What should we do in "), place(c.space), t(", "), em(c.name), t("?")],
 ];
 
 /** FNV-1a, for a stable spread of session ids over the pool. */

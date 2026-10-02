@@ -42,6 +42,23 @@ describe("heroGreeting", () => {
     }
   });
 
+  it("marks the place — and only the place — as the run the line links to its page", () => {
+    /* THE MUTANT: mark the person's name as the place too. The line would link "Carlton" to the
+       space's page, which is a control pointing somewhere its words do not name. */
+    for (let i = 0; i < 200; i++) {
+      const parts = heroGreeting({ spaceName: "Versed", userName: "Carlton", seed: `s${i}` });
+      const places = parts.filter((p) => p.place);
+      expect(places.length).toBeLessThanOrEqual(1);
+      for (const p of places) { expect(p.text).toBe("Versed"); expect(p.em).toBe(true); }
+      expect(parts.some((p) => p.place && p.text === "Carlton")).toBe(false);
+    }
+    // Every line that names the space names it as the place.
+    for (let i = 0; i < 200; i++) {
+      const parts = heroGreeting({ spaceName: "Versed", seed: `s${i}` });
+      expect(parts.filter((p) => p.place).map((p) => p.text)).toEqual(["Versed"]);
+    }
+  });
+
   it("greets by name and by hour only when a name is known", () => {
     const anonymous = all({ spaceName: "Versed", at: at(19) });
     for (const g of anonymous) {
