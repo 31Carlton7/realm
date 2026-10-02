@@ -151,6 +151,21 @@ describe("the Agents page answers in place", () => {
     stayed();
   });
 
+  it("takes Escape on a card as leaving the page, never as Deny", async () => {
+    // The cards deny on Escape. THE MUTANT: let it reach the card — someone closing the page from
+    // inside a card would deny a request they only looked at.
+    const { answered, store, stayed } = await mount();
+    store.setState({ pageOverlay: { kind: "agents-page", refId: PAGE_REF_IDS["agents-page"], spaceId: "s1" } });
+    const card = await within(await itemOf(/^Session se1/)).findByRole("group", { name: "Permission request" });
+    fireEvent.keyDown(within(card).getByRole("button", { name: "Allow" }), { key: "Escape" });
+    expect(store.getState().pageOverlay).toBeNull();
+    const question = await within(await itemOf(/^Session se3/)).findByRole("group", { name: "Base" });
+    fireEvent.keyDown(within(question).getAllByRole("button")[0]!, { key: "Escape" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(answered).toEqual([]);
+    stayed();
+  });
+
   it("offers the card's own Allow always, and Deny", async () => {
     const { answered, stayed } = await mount();
     const card = await within(await itemOf(/^Session se1/)).findByRole("group", { name: "Permission request" });

@@ -1,6 +1,6 @@
 import type { Session } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useEffect } from "react";
+import { useEffect, type KeyboardEvent } from "react";
 import { emptyTranscript } from "../session/transcript-model";
 import { PendingRequest } from "../session/PendingRequest";
 import { useApp } from "../../state/store";
@@ -18,6 +18,11 @@ const NO_REQUESTS = emptyTranscript().pendingPermissions;
  *
  * Nothing here navigates. The card sits beside the row that opens the session, never inside it, so
  * answering a question cannot also be a click that takes you somewhere else.
+ *
+ * Nor does Escape answer. In the transcript the cards take Escape as Deny (or Skip), but on this page
+ * Escape is the page's own way out, and a Deny sent by someone leaving would answer a request they
+ * only looked at. So it is caught before any card sees it and closes the page. A field you are typing
+ * an answer into keeps its own Escape, which steps out of the field and answers nothing.
  */
 export function AgentAsk({ session }: { session: Session }) {
   const loaded = useApp((s) => s.transcripts[session.id] !== undefined);
@@ -25,10 +30,16 @@ export function AgentAsk({ session }: { session: Session }) {
   const openSession = useApp((s) => s.openSession);
   const respondPermission = useApp((s) => s.respondPermission);
   const run = useApp((s) => s.run);
+  const closePage = useApp((s) => s.closePageOverlay);
   useEffect(() => { if (!loaded) void run(() => openSession(session.id)); }, [loaded, session.id, run, openSession]);
   if (pending.length === 0) return null;
+  const onKeyDownCapture = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Escape" || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    e.preventDefault(); e.stopPropagation();
+    closePage();
+  };
   return (
-    <div className="agents-ask">
+    <div className="agents-ask" onKeyDownCapture={onKeyDownCapture}>
       {pending.map((p) => (
         <PendingRequest key={p.requestId} permission={p}
           onDecide={(...decision) => run(() => respondPermission(session.id, p.requestId, ...decision))} />
