@@ -398,6 +398,16 @@ async function main() {
   }, 15000, "the session open in Homework");
   check("a click on another room's session opens it in that room, its question on screen", landed.header === "Homework" && landed.card, landed);
 
+  // Opening a session is reading it: the ring goes as soon as its pane has the keyboard, not on the
+  // next thing it says.
+  const ringOn = () => evalIn(c, `(() => { const r = [...__live.page().querySelectorAll('.item-row')].find((b) => b.querySelector('.item-title')?.textContent === 'Has news');
+    return r ? r.querySelector('.status-dot')?.getAttribute('data-status') ?? null : 'missing'; })()`);
+  const ringBefore = await ringOn();
+  const newsRow = await evalIn(c, `__live.box([...__live.page().querySelectorAll('.item-row')].find((b) => b.querySelector('.item-title')?.textContent === 'Has news'))`);
+  await clickAt(c, centre(newsRow));
+  const ringAfter = await until(async () => { const r = await ringOn(); return r === null ? "cleared" : null; }, 8000, "the ring cleared").catch(() => "still there");
+  check("opening an unread session clears its ring at once", ringBefore === "unseen" && ringAfter === "cleared", { ringBefore, ringAfter });
+
   /* ── The light face ─────────────────────────────────────────────────────────────────────────── */
   await api.call("settings.set", { key: "ui.theme", value: "light" });
   await c.send("Page.reload", {});
