@@ -2,7 +2,7 @@ export { Icon, icons, isIconName, type IconName } from "./Icon";
 /* The marks by name, for the one renderer that writes HTML rather than React: assistant markdown,
    which draws a link to a known app as a chip and needs the path data as a string. */
 export { brandMarks, type BrandName } from "./brand-icons";
-export { applyTheme, clampGroundAlpha, DEFAULT_GROUND_ALPHA, GROUND_ALPHA_RANGE, type Mode } from "./theme";
+export { applyTheme, clampGroundAlpha, clampPaneAlpha, DEFAULT_GROUND_ALPHA, DEFAULT_PANE_ALPHA, GROUND_ALPHA_RANGE, PANE_ALPHA_RANGE, paneAlphaFromGround, type Mode } from "./theme";
 /* The colour maths, the seed shape and the VS Code translator moved to `@realm/contracts` — the
    server imports all three to translate a theme file, and this package is React. Import them from
    there; nothing is re-exported here, so there is one place each of them comes from. */
@@ -12,7 +12,7 @@ export { applyTheme, clampGroundAlpha, DEFAULT_GROUND_ALPHA, GROUND_ALPHA_RANGE,
    walk) stay exported from their own modules, where applyTheme and the package's own suites import
    them directly — a barrel entry for each would advertise a public API nothing consumes. */
 export { exportTheme, importTheme } from "./theme-io";
-export { clampLeading, DEFAULT_FONTS, FONT_FACES, FONT_WEIGHTS, LEADING_RANGE, parseFontPref,
+export { clampLeading, CODE_SIZE_RANGE, DEFAULT_FONTS, FONT_FACES, FONT_WEIGHTS, LEADING_RANGE, parseFontPref, UI_SIZE_RANGE,
   type FontId, type FontPref, type FontRole, type FontWeight } from "./fonts";
 export { allThemes, clampContrast, CONTRAST_RANGE, contrastMisses, DEFAULT_SELECTION, deriveVars, isHexColour, isOverridden,
   isThemeName, overrideKey, paletteFor, parseThemeOverrides, REALM_SEED, seedFor, setCustomThemes, THEMES, themeModes, themeSwatches,

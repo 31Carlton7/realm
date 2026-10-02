@@ -107,8 +107,8 @@ window.__live = window.__live ?? {
     hit.click();
     return true;
   },
-  slider() { return document.querySelector('input[aria-label="Background transparency"]'); },
-  toggle() { return document.querySelector('input[aria-label="Translucent sidebar"]'); },
+  slider() { return document.querySelector('input[aria-label="Sidebar transparency"]'); },
+  toggle() { return document.querySelector('input[aria-label="Sidebar translucency"]'); },
   /** The settings tabs are radio INPUTS inside labels, so the visible word is on the label. */
   tab(name) {
     const hit = [...document.querySelectorAll("label")].find((l) => l.textContent.trim() === name && l.querySelector('input[type="radio"]'));

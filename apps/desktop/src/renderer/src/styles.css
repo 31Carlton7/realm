@@ -77,6 +77,12 @@
      survives in terminals, diffs, code and kbd. */
   --font-ui: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  /* Prose — messages, markdown, the documents editor — reads in the UI face until Settings ▸
+     Appearance names another. The two scales multiply every text size (`theme/text-scale.ts`); both
+     are written by applyTheme, and 1 is the stylesheet exactly as drawn. */
+  --font-content: var(--font-ui);
+  --ui-text-scale: 1;
+  --code-text-scale: 1;
   /* surface ladder: frame → panel → raised keeps its meaning, stepped on BUI's ramp */
   --rl-frame: var(--page);                       /* BUI --page: window ground + sunken wells */
   --rl-panel: var(--canvas);                     /* BUI --canvas: the working ground */
@@ -2771,7 +2777,7 @@ a.msg-chip:hover { text-decoration: underline; text-underline-offset: 2px; }
    (see the squircle block below). */
 .msg-user { max-width: 85%; padding: 14px 16px; border-radius: var(--r-squircle-msg); corner-shape: squircle;
   background: var(--rl-raised); text-align: left;
-  font-size: 15px; line-height: calc(1.6 + var(--lh-shift)); white-space: pre-wrap; overflow-wrap: anywhere; }
+  font-family: var(--font-content); font-size: 15px; line-height: calc(1.6 + var(--lh-shift)); white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Plan 20: a message another SESSION delivered. An attribution line plus a muted accent ring, so it
    reads as "an agent asked this" rather than as something the user typed. */
 .msg-user-row[data-from] { gap: 3px; }
@@ -2798,7 +2804,7 @@ a.msg-chip:hover { text-decoration: underline; text-underline-offset: 2px; }
 /* The message and everything the message owns — its media strip, its action bar — in one column, at
    the gap `.transcript-col` used to give them as siblings, so growing the wrapper moved nothing. */
 .msg-assistant-row { display: flex; flex-direction: column; gap: 8px; }
-.msg-assistant { max-width: 72ch; font-size: 15px; line-height: calc(1.6 + var(--lh-shift)); }
+.msg-assistant { max-width: 72ch; font-family: var(--font-content); font-size: 15px; line-height: calc(1.6 + var(--lh-shift)); }
 /* The bar under a finished message. The negative inset is optical, not spacing: the first glyph is
    14px inside a 26px box, so without it the row of buttons would hang 6px right of the prose it
    belongs to and read as indented. */
@@ -2862,7 +2868,7 @@ a.msg-chip:hover { text-decoration: underline; text-underline-offset: 2px; }
    above, so [2] in a sentence and 2 in the disclosure are one page. */
 .md-cite { margin-left: 1px; padding: 0 3px; border-radius: var(--r-chip); vertical-align: super;
   font-size: 9px; font-variant-numeric: tabular-nums; color: var(--rl-text-dim); background: var(--rl-raised); }
-.md { line-height: calc(1.55 + var(--lh-shift)); overflow-wrap: anywhere; }
+.md { font-family: var(--font-content); line-height: calc(1.55 + var(--lh-shift)); overflow-wrap: anywhere; }
 .msg-assistant.md { line-height: calc(1.6 + var(--lh-shift)); }
 .md > div > :first-child { margin-top: 0; } .md > div > :last-child { margin-bottom: 0; }
 .md p { margin: 0 0 8px; text-wrap: pretty; } .md ul, .md ol { margin: 0 0 8px; padding-left: 20px; }
@@ -6476,7 +6482,7 @@ select { appearance: none; padding-right: 22px;
 .documents-surface > * { min-height: 0; }
 .documents-rich .tiptap, .documents-rich-surface { outline: none; padding: 18px 22px; }
 /* Soft line breaks are preserved as real newlines in the model, so they must render as breaks. */
-.documents-rich-surface { white-space: pre-wrap; line-height: calc(1.65 + var(--lh-shift)); font-size: 14px; }
+.documents-rich-surface { white-space: pre-wrap; font-family: var(--font-content); line-height: calc(1.65 + var(--lh-shift)); font-size: 14px; }
 .documents-rich-surface > * + * { margin-top: 0.7em; }
 .documents-rich-surface h1 { font-size: 1.55em; font-weight: var(--fw-title); letter-spacing: -1.5%; }
 .documents-rich-surface h2 { font-size: 1.3em; font-weight: var(--fw-title); letter-spacing: -1.5%; }

@@ -68,7 +68,9 @@ const surface = EditorView.theme({
   "&.cm-focused": { outline: "none" },
   ".cm-scroller": {
     fontFamily: "var(--font-mono)",
-    fontSize: "12.5px",
+    // On the code scale like every stylesheet size (`theme/text-scale.ts`), written out here because
+    // CodeMirror mints this rule at runtime where the build's rewrite never sees it.
+    fontSize: "max(11px, calc(12.5px * var(--code-text-scale, 1)))",
     lineHeight: "1.65",
     // The app's scrollbar rule in styles.css lists its scrollers by class and cannot know about one
     // CodeMirror mints at runtime, so this scroller asks for the same bar itself.

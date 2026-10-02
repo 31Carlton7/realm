@@ -17,7 +17,7 @@ export type TerminalLike = {
   /** xterm's live options bag. Optional because the only things the hub writes back into it are the
    *  code face and whether the cursor blinks, and a fake that cares about neither should not have to
    *  carry one. */
-  options?: { fontFamily?: string; cursorBlink?: boolean; cursorStyle?: TerminalCursorStyle };
+  options?: { fontFamily?: string; fontSize?: number; cursorBlink?: boolean; cursorStyle?: TerminalCursorStyle };
 };
 export type FitLike = { fit(): void };
 export type TerminalFactory = () => { term: TerminalLike; fit: FitLike };
@@ -55,11 +55,20 @@ export function terminalFont(doc: Document = document): string {
   return rootVar("--font-mono", '"JetBrains Mono", ui-monospace, Menlo, monospace', doc);
 }
 
+/** The terminal's text size: 13px at the default, times the code scale every other code surface is
+ *  set at — "Code font size" is the size of everything in the code face, and a terminal is the
+ *  largest thing in it. A scale that does not read as a positive number leaves the default. */
+export const TERMINAL_FONT_SIZE = 13;
+export function terminalFontSize(doc: Document = document): number {
+  const scale = Number(rootVar("--code-text-scale", "1", doc));
+  return Number.isFinite(scale) && scale > 0 ? +(TERMINAL_FONT_SIZE * scale).toFixed(2) : TERMINAL_FONT_SIZE;
+}
+
 const defaultFactory: TerminalFactory = () => {
   /* `cursorBlink` is the hub's to set — it is a preference, and the hub is what knows the current
      answer for a terminal opened at any moment. Constructed on, then corrected in `acquire`, so a
      terminal opened while the switch is off never blinks even once. */
-  const term = new Terminal({ cursorBlink: true, fontSize: 13, fontFamily: terminalFont(), theme: { background: terminalBackground() }, allowProposedApi: true });
+  const term = new Terminal({ cursorBlink: true, fontSize: terminalFontSize(), fontFamily: terminalFont(), theme: { background: terminalBackground() }, allowProposedApi: true });
   const fit = new FitAddon(); term.loadAddon(fit);
   return { term, fit };
 };
@@ -329,9 +338,11 @@ export class TerminalHub {
 
   refreshFont() {
     const font = terminalFont(this.doc);
+    const size = terminalFontSize(this.doc);
     for (const e of this.entries.values()) {
-      if (!e.term.options || e.term.options.fontFamily === font) continue;
+      if (!e.term.options || (e.term.options.fontFamily === font && e.term.options.fontSize === size)) continue;
       e.term.options.fontFamily = font;
+      e.term.options.fontSize = size;
       if (e.opened) try { e.fit.fit(); } catch { /* not measurable while detached */ }
     }
   }

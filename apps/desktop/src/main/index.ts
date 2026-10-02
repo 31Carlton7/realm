@@ -39,6 +39,7 @@ import { RealmUpdater, UPDATE_FEED_LIVE, updaterDecision } from "./updater";
 import { SecretStore, SecretStoreError } from "./secret-store";
 import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
+import { applyReducedMotion } from "./reduced-motion";
 import { browseFolder, type BrowseResult } from "./browse";
 import { handleMediaProtocol, mediaPoster, registerMediaScheme, servablePath, statMedia } from "./media";
 
@@ -887,6 +888,9 @@ const desktopNotifier = new DesktopNotifier({
 ipcMain.handle("daemon:quit-and-stop", () => quitAndStopAll());
 ipcMain.handle("notify:show", (_e, input: DesktopNotificationInput) => desktopNotifier.show(input));
 ipcMain.handle("notify:badge", (_e, count: number) => { desktopNotifier.badge(Number(count)); });
+/** Settings ▸ Appearance ▸ Reduce motion, answered on the window that asked — the quick chat is a
+ *  window of its own and keeps its own answer in step by asking at its own boot. */
+ipcMain.handle("motion:set", (e, pref: unknown) => applyReducedMotion(e.sender, pref));
 
 /** Attachment thumbnails. An attached file can only ever be NAMED in the renderer unless the pixels
  *  get there somehow: the renderer has no filesystem access (contextIsolation), and the page's CSP is

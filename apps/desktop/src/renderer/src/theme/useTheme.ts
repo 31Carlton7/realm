@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from "react";
-import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_SELECTION, applyTheme, overrideKey,
+import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_PANE_ALPHA, DEFAULT_SELECTION, applyTheme, overrideKey,
   paletteFor, type FontPref, type Mode, type ThemeOverrides, type ThemeSelection } from "@realm/ui";
 
 export type ThemePref = "system" | "light" | "dark";
@@ -59,19 +59,20 @@ export type AppliedTheme = {
   contrast?: number;
   fonts?: FontPref;
   groundAlpha?: number;
+  paneAlpha?: number;
 };
 
 export function useApplyTheme({ color, pref, themes = DEFAULT_SELECTION, overrides = {},
-  contrast = CONTRAST_RANGE.default, fonts = DEFAULT_FONTS, groundAlpha = DEFAULT_GROUND_ALPHA }: AppliedTheme): Mode {
+  contrast = CONTRAST_RANGE.default, fonts = DEFAULT_FONTS, groundAlpha = DEFAULT_GROUND_ALPHA, paneAlpha = DEFAULT_PANE_ALPHA }: AppliedTheme): Mode {
   const mode = useResolvedMode(pref);
   const theme = paletteFor(themes, mode);
   const override = overrides[overrideKey(theme, mode)];
   // Layout effect so the first paint already carries the mode (no flash of default vars).
   useLayoutEffect(() => {
     const done = suppressTransitions(document.documentElement);
-    applyTheme({ space: color ?? "#7c6cff", mode, theme, override, contrast, fonts, groundAlpha });
+    applyTheme({ space: color ?? "#7c6cff", mode, theme, override, contrast, fonts, groundAlpha, paneAlpha });
     return done;
-  }, [color, mode, theme, override, contrast, fonts, groundAlpha]);
+  }, [color, mode, theme, override, contrast, fonts, groundAlpha, paneAlpha]);
   return mode;
 }
 

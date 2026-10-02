@@ -21,6 +21,9 @@ interface Window {
     /** `process.platform` from the preload. Absent in jsdom, which has no bridge — every reader has
      *  to treat "unknown" as "no window material" rather than guessing macOS. */
     platform?: string;
+    /** Settings ▸ Appearance ▸ Reduce motion: main changes what this window reports for
+     *  `prefers-reduced-motion`. Optional like the other late bridges — jsdom has none. */
+    motion?: { set(pref: import("@realm/contracts").ReducedMotionPref): Promise<void> };
     pickFolder(): Promise<string | null>;
     /** Native multi-select file picker; [] when cancelled. */
     pickFiles(): Promise<PickedFile[]>;

@@ -1243,6 +1243,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     playCue: (cue, volume) => { calls.push(`playCue:${cue}@${volume}`); },
     resyncTerminals: () => { calls.push("resyncTerminals"); },
     setBadgeCount: async (count) => { calls.push(`setBadgeCount:${count}`); data.badgeCount = count; },
+    setReducedMotion: async (pref) => { calls.push(`setReducedMotion:${pref}`); },
     probeAgents: async (force) => {
       calls.push(`probeAgents:${force}`);
       await wait("probeAgents");

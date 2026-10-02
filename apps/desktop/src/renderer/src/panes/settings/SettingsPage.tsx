@@ -1,11 +1,12 @@
 import { PageScroll } from "../../components/ScrollFades";
 import { EDITOR_CURSOR_BLINK_COPY, TERMINAL_CURSOR_STYLES, TERMINALS_CURSOR_STYLE_COPY, type TerminalCursorStyle, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
-  PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, } from "@realm/contracts";
+  PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, type ReducedMotionPref, } from "@realm/contracts";
 import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED,
   THEMES, contrastMisses, deriveVars, exportTheme, importTheme, isHexColour, isOverridden, overrideKey,
   allThemes, paletteFor, seedFor, themeModes, themeSwatches,
-  type FontId, type FontRole, type FontWeight, type Mode, type ThemeName, type ThemeOverride, LEADING_RANGE } from "@realm/ui";
+  type FontId, type FontRole, type FontWeight, type Mode, type ThemeName, type ThemeOverride, LEADING_RANGE,
+  CODE_SIZE_RANGE, DEFAULT_PANE_ALPHA, PANE_ALPHA_RANGE, UI_SIZE_RANGE } from "@realm/ui";
 import type { ThemeSeed } from "@realm/contracts";
 import { useEffect, useId, useReducer, useRef, useState, type CSSProperties, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { Sheet } from "../../components/Sheet";
@@ -444,12 +445,56 @@ const THEME_CHOICES: { pref: ThemePref; label: string }[] = [
   { pref: "system", label: "System" }, { pref: "light", label: "Light" }, { pref: "dark", label: "Dark" },
 ];
 
-/** Opacity ⇄ transparency across the allowed range. Its own involution, so one function serves the
- *  read and the write and the two can never disagree about which end is which. */
-const flip = (pct: number): number => GROUND_ALPHA_RANGE.min + GROUND_ALPHA_RANGE.max - pct;
+/** Opacity ⇄ transparency across a surface's allowed range. Its own involution, so one function
+ *  serves the read and the write and the two can never disagree about which end is which. */
+const flip = (range: { min: number; max: number }, pct: number): number => range.min + range.max - pct;
 
-/** Only for the sentence explaining why the transparency control is inert; nothing branches on it. */
+/** Only for the sentence explaining why the transparency controls are inert; nothing branches on it. */
 const PLATFORM_NAMES: Record<string, string> = { win32: "Windows", linux: "Linux" };
+
+/**
+ * One surface's translucency: a switch and an amount over ONE stored number, not two controls that
+ * can disagree. Fully opaque IS off, because covering the material completely is the same as not
+ * having asked for it — so the switch reads `alpha < max` and writes either the maximum or the
+ * surface's default, and the slider is inert while it is off.
+ *
+ * The slider runs the way its label reads — right is MORE transparent — while the stored value is the
+ * ground's OPACITY, because that is what the stylesheet composes; `flip` is the one place the two
+ * meet. Step 1, not a coarser grid: a range may span an odd number of points, and any step above 1
+ * leaves one of its two ends unreachable.
+ *
+ * Two of these since Plan 26 rather than one control moving both: the sidebar holds labels and goes
+ * to 55%, a pane holds the reading and stops at 86, and someone who wants one see-through and the
+ * other solid could not say so.
+ */
+function TranslucencyRow({ id, label, amount, alpha, range, fallback, material, title, why, onChange }: {
+  id: string; label: string; amount: string; alpha: number; range: { min: number; max: number }; fallback: number;
+  material: boolean; title: string; why?: string; onChange: (alpha: number) => void;
+}) {
+  const on = alpha < range.max;
+  return (
+    <div className="settings-row" data-setting={id}>
+      <div className="settings-row-main">
+        <span className="settings-row-name">{label}</span>
+        {why && <span className="settings-row-desc">{why}</span>}
+      </div>
+      <div className="slider-row" title={material ? title : undefined}>
+        <input type="checkbox" role="switch" className="switch" aria-label={label}
+          disabled={!material} checked={on}
+          onChange={(e) => onChange(e.target.checked ? fallback : range.max)} />
+        <Slider aria-label={amount} disabled={!material || !on}
+          min={range.min} max={range.max} step={1}
+          value={flip(range, alpha)} onChange={(e) => onChange(flip(range, Number(e.target.value)))} />
+        <span className="slider-value">{100 - alpha}%</span>
+      </div>
+    </div>
+  );
+}
+
+/** System is the Mac's own Reduce Motion; On and Off are Realm's answer whatever the Mac says. */
+const MOTION_CHOICES: { pref: ReducedMotionPref; label: string }[] = [
+  { pref: "system", label: "System" }, { pref: "on", label: "On" }, { pref: "off", label: "Off" },
+];
 
 const SUBMIT_KEY_CHOICES: { pref: SubmitKey; label: string }[] = [
   { pref: "enter", label: "Enter" }, { pref: "cmdEnter", label: "⌘/Ctrl+Enter" },
@@ -573,6 +618,8 @@ function ImportedThemes({ face, live }: { face: Mode; live?: boolean }) {
  * regardless — the OS list carries no category, and refusing to show someone a font they have
  * installed because Realm cannot tell what kind it is would be guessing at their expense.
  */
+const FONT_ROLE_LABEL: Record<FontRole, string> = { ui: "UI font", code: "Code font", content: "Content font" };
+
 function FontSelect({ role, value, onPick }: { role: FontRole; value: FontId; onPick: (id: FontId) => void }) {
   const installed = useApp((s) => s.installedFonts);
   const local = useApp((s) => s.localFonts);
@@ -585,10 +632,10 @@ function FontSelect({ role, value, onPick }: { role: FontRole; value: FontId; on
      file edited by hand. Without a matching option the select renders BLANK, which tells the reader
      their font setting is empty when it is not: the stack still names that family and still falls
      through to the fallback behind it. So it gets an option of its own that says what happened. */
-  const known = value === "bundled" || value === "system"
+  const known = FONT_FACES[role].some((f) => f.id === value)
     || installed.some((f) => f.family === value) || local.includes(value);
   return (
-    <select aria-label={role === "ui" ? "UI font" : "Code font"} value={value}
+    <select aria-label={FONT_ROLE_LABEL[role]} value={value}
       onChange={(e) => onPick(e.target.value)}>
       {FONT_FACES[role].map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
       {!known && <option value={value}>{value} — not installed</option>}
@@ -860,6 +907,10 @@ function AppearanceTab() {
   const setFonts = useApp((s) => s.setFonts);
   const groundAlpha = useApp((s) => s.groundAlpha);
   const setGroundAlpha = useApp((s) => s.setGroundAlpha);
+  const paneAlpha = useApp((s) => s.paneAlpha);
+  const setPaneAlpha = useApp((s) => s.setPaneAlpha);
+  const reduceMotion = useApp((s) => s.reduceMotion);
+  const setReduceMotion = useApp((s) => s.setReduceMotion);
   const editorCursorBlink = useApp((s) => s.editorCursorBlink);
   const setEditorCursorBlink = useApp((s) => s.setEditorCursorBlink);
   const run = useApp((s) => s.run);
@@ -869,7 +920,6 @@ function AppearanceTab() {
   const mode = useResolvedMode(themePref);
   const other: Mode = mode === "light" ? "dark" : "light";
   const material = hasWindowMaterial();
-  const translucent = groundAlpha < GROUND_ALPHA_RANGE.max;
 
   return (
     <div className="form">
@@ -931,45 +981,36 @@ function AppearanceTab() {
           </div>
         </div>
 
-        <div className="settings-row" data-setting="translucency">
-          <div className="settings-row-main">
-            <span className="settings-row-name">Window translucency</span>
-            {/* Off macOS the control is inert, and a disabled control with no reason beside it is the
-                one case where the sentence has to stay on the page: there is nothing else to explain
-                why this row does nothing. On a Mac the same explanation is a title, because the
-                control works and reads correctly without it. */}
-            {!material && (
-              <span className="settings-row-desc">
-                {`${PLATFORM_NAMES[window.realm?.platform ?? ""] ?? "This platform"} has no window material — there is nothing behind the window to reveal. The setting is kept and applies on a Mac.`}
-              </span>
-            )}
-          </div>
-          {/* A switch and an amount over ONE stored number, not two controls that can disagree: fully
-              opaque IS off, because covering the material completely is the same as not having asked
-              for it. So the switch reads `groundAlpha < max` and writes either the maximum or the
-              default, and the slider is inert while it is off — nothing here can put the app in a
-              state where the switch says one thing and the amount another.
-              The slider runs the way its label reads — right is MORE transparent — while the stored
-              value is the ground's OPACITY, because that is what the stylesheet composes. `flip` is the
-              one place the two meet. step 1, not a coarser grid: the range spans an odd number of
-              points, so any step above 1 leaves one of its two ends unreachable. */}
-          <div className="slider-row" title={material
-            ? "The sidebar and the panes both show the desktop behind the window, each as thinly as its own text allows: the sidebar holds labels and goes furthest, a pane holds the reading and stops where body text would fall below the contrast every theme here is held to. Realm also follows the system's Reduce Transparency setting — with it on both surfaces are opaque whatever this says, and your value comes back when you turn it off."
-            : undefined}>
-            <input type="checkbox" role="switch" className="switch" aria-label="Window translucency"
-              disabled={!material} checked={translucent}
-              onChange={(e) => run(() => setGroundAlpha(e.target.checked ? DEFAULT_GROUND_ALPHA : GROUND_ALPHA_RANGE.max))} />
-            <Slider aria-label="Background transparency" disabled={!material || !translucent}
-              min={GROUND_ALPHA_RANGE.min} max={GROUND_ALPHA_RANGE.max} step={1}
-              value={flip(groundAlpha)} onChange={(e) => run(() => setGroundAlpha(flip(Number(e.target.value))))} />
-            <span className="slider-value">{100 - groundAlpha}%</span>
-          </div>
+        <TranslucencyRow id="sidebar-translucency" label="Sidebar translucency" amount="Sidebar transparency"
+          alpha={groundAlpha} range={GROUND_ALPHA_RANGE} fallback={DEFAULT_GROUND_ALPHA} material={material}
+          onChange={(v) => run(() => setGroundAlpha(v))}
+          title="The sidebar shows the desktop behind the window as thinly as its labels allow. Realm also follows the system's Reduce Transparency setting — with it on the sidebar is opaque whatever this says, and your value comes back when you turn it off."
+          /* Off macOS both controls are inert, and a disabled control with no reason beside it is
+             the one case where the sentence has to stay on the page. Once, on the first of the two:
+             the second is disabled for the same reason, directly under it. */
+          why={material ? undefined : `${PLATFORM_NAMES[window.realm?.platform ?? ""] ?? "This platform"} has no window material — there is nothing behind the window to reveal. Both settings are kept and apply on a Mac.`} />
+        <TranslucencyRow id="pane-translucency" label="Pane translucency" amount="Pane transparency"
+          alpha={paneAlpha} range={PANE_ALPHA_RANGE} fallback={DEFAULT_PANE_ALPHA} material={material}
+          onChange={(v) => run(() => setPaneAlpha(v))}
+          title="A pane holds the reading, so it goes only as thin as body text can stay above the contrast every theme here is held to over the worst desktop — 14% at most. Reduce Transparency makes it opaque as well." />
+
+        {/* The app's one motion mechanism is the system's `prefers-reduced-motion`, and this is an
+            answer to that same question rather than a second one: main has the window report the
+            chosen value, so every rule and listener that already honours the Mac honours this. */}
+        <div className="settings-row" data-setting="reduce-motion">
+          <div className="settings-row-main"><span className="settings-row-name">Reduce motion</span></div>
+          <fieldset className="settings-tabs" aria-label="Reduce motion"
+            title="System follows the Mac's own Reduce Motion setting. On and Off decide it for Realm whatever the Mac says.">
+            {MOTION_CHOICES.map((m) => (
+              <label key={m.pref} className="settings-tab" data-selected={reduceMotion === m.pref || undefined}>
+                <input type="radio" name="settings-reduce-motion" value={m.pref} checked={reduceMotion === m.pref}
+                  onChange={() => run(() => setReduceMotion(m.pref))} />
+                {m.label}
+              </label>
+            ))}
+          </fieldset>
         </div>
       </div>
-      {/* One line, not a switch (Plan 14 W5): the OS setting is the control, and styles.css's global
-          prefers-reduced-motion kill is what makes this sentence true. It stays visible because it is
-          the only place the app answers "where is the motion setting" — but it is a clause now. */}
-      <p className="settings-hint">Animations follow the system's Reduce Motion setting.</p>
 
       <h3 className="settings-head">Text</h3>
       <div className="settings-group">
@@ -981,6 +1022,23 @@ function AppearanceTab() {
               onChange={(e) => run(() => setFonts({ uiWeight: e.target.value as FontWeight }))}>
               {FONT_WEIGHTS.map((w) => <option key={w.id} value={w.id}>{w.label}</option>)}
             </select>
+          </div>
+        </div>
+        <div className="settings-row" data-setting="ui-font-size">
+          <div className="settings-row-main"><span className="settings-row-name">UI font size</span></div>
+          {/* The size the body text is set at, every other size in proportion to it — what ⌘+ and ⌘−
+              do to the text without what they do to the layout. They stay page zoom. */}
+          <div className="slider-row" title="Every label, row and message, in proportion — the smallest labels stop at 11px. ⌘+ and ⌘− still zoom the whole window, layout and all.">
+            <Slider aria-label="UI font size"
+              min={UI_SIZE_RANGE.min} max={UI_SIZE_RANGE.max} step={1}
+              value={fonts.uiSize} onChange={(e) => run(() => setFonts({ uiSize: Number(e.target.value) }))} />
+            <span className="slider-value">{fonts.uiSize}px</span>
+          </div>
+        </div>
+        <div className="settings-row" data-setting="content-font">
+          <div className="settings-row-main"><span className="settings-row-name">Content font</span></div>
+          <div className="font-row" title="Messages, rendered markdown and documents. Everything else stays in the UI font.">
+            <FontSelect role="content" value={fonts.content} onPick={(id) => run(() => setFonts({ content: id }))} />
           </div>
         </div>
         <div className="settings-row" data-setting="line-height">
@@ -997,6 +1055,21 @@ function AppearanceTab() {
             <span className="slider-value">{(1.6 + fonts.leading / 100).toFixed(2)}</span>
           </div>
         </div>
+        <div className="settings-row" data-setting="code-font">
+          <div className="settings-row-main"><span className="settings-row-name">Code font</span></div>
+          <div className="font-row" title="Code, diffs, terminals and keyboard hints. Open terminals change face with this setting.">
+            <FontSelect role="code" value={fonts.code} onPick={(id) => run(() => setFonts({ code: id }))} />
+          </div>
+        </div>
+        <div className="settings-row" data-setting="code-font-size">
+          <div className="settings-row-main"><span className="settings-row-name">Code font size</span></div>
+          <div className="slider-row" title="Everything set in the code font: code blocks, diffs, the editor, terminals and keyboard hints.">
+            <Slider aria-label="Code font size"
+              min={CODE_SIZE_RANGE.min} max={CODE_SIZE_RANGE.max} step={1}
+              value={fonts.codeSize} onChange={(e) => run(() => setFonts({ codeSize: Number(e.target.value) }))} />
+            <span className="slider-value">{fonts.codeSize}px</span>
+          </div>
+        </div>
         <div className="settings-row" data-setting="editor-caret-blink">
           <div className="settings-row-main">
             <span className="settings-row-name">{EDITOR_CURSOR_BLINK_COPY.label}</span>
@@ -1007,12 +1080,6 @@ function AppearanceTab() {
           <input type="checkbox" role="switch" className="switch" aria-label={EDITOR_CURSOR_BLINK_COPY.label}
             checked={editorCursorBlink}
             onChange={(e) => run(() => setEditorCursorBlink(e.target.checked))} />
-        </div>
-        <div className="settings-row" data-setting="code-font">
-          <div className="settings-row-main"><span className="settings-row-name">Code font</span></div>
-          <div className="font-row" title="Code, diffs, terminals and keyboard hints. Open terminals change face with this setting; their font size does not follow it.">
-            <FontSelect role="code" value={fonts.code} onPick={(id) => run(() => setFonts({ code: id }))} />
-          </div>
         </div>
       </div>
       {/* Kept on the page, where the rest of this page's prose went to a title: it explains a control

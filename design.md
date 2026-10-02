@@ -215,7 +215,8 @@ Rules:
 - Translucency is not free and is not uniform. What shows through a pane is the desktop, which nobody
   chose, so the alpha is derived from the type it has to carry rather than picked by eye: the sidebar
   holds labels and goes to 55%, a pane holds the reading and stops where body text would cross WCAG
-  AA over the worst desktop. One control moves both, each over its own range (`pane-ground.test.ts`).
+  AA over the worst desktop. Each has its own control over its own range (`pane-ground.test.ts`): a
+  see-through sidebar beside solid reading is a reasonable thing to want, and one control could not say it.
   A claim about what the material does to contrast is a real screen capture, never a CDP screenshot —
   the material is not in the DOM.
 - A dissolve belongs to the SCROLLER, not to the layout band that happens to contain it. A fade
@@ -417,7 +418,9 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - Contextual icon swaps use opacity, blur from 4 px to 0, and scale from 0.25 to 1 with no bounce.
 - Do not animate content merely because it scrolled into view.
 - Do not add parallax, auto-scrolling marquees, simulated typing, or decorative pulsing.
-- Respect reduced-motion and reduced-transparency preferences.
+- Respect reduced-motion and reduced-transparency preferences. Realm's own Reduce motion setting is
+  applied by changing what the window reports for `prefers-reduced-motion`, so a surface that honours
+  the media query honours both, and nothing should ask about motion any other way.
 - Playful motion is the one exception to the rule above it, and it is fenced. It ships only behind
   the easter-eggs switch, which defaults off, so the rules in this section still describe what Realm
   does out of the box. It never carries information a person would otherwise have to read from it, it

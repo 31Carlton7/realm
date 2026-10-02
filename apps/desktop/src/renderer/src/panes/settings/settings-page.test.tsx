@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_GROUND_ALPHA, GROUND_ALPHA_RANGE } from "@realm/ui";
+import { DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, GROUND_ALPHA_RANGE } from "@realm/ui";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AGENT_CLI_COMMANDS, CLOSE_FINISHED_AGENT_PANES_KEY, DEFAULT_PERMISSION_MODE_KEY, EDITOR_CURSOR_BLINK_COPY, MID_TURN_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_HISTORY_COPY, TERMINALS_HISTORY_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, PAGE_REF_IDS } from "@realm/contracts";
 import { engineVersionLabel, SettingsPage } from "./SettingsPage";
@@ -183,8 +183,9 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
 
   it("theme is the existing themePref as a segmented control; choosing writes ui.theme", async () => {
     const { store, api } = await openPage("Appearance");
-    expect(screen.getByRole("radio", { name: "System" })).toBeChecked();
-    fireEvent.click(screen.getByRole("radio", { name: "Dark" }));
+    const theme = within(screen.getByRole("group", { name: "Theme" }));
+    expect(theme.getByRole("radio", { name: "System" })).toBeChecked();
+    fireEvent.click(theme.getByRole("radio", { name: "Dark" }));
     await waitFor(() => expect(store.getState().themePref).toBe("dark"));
     expect(api.calls).toContain("setSetting:ui.theme=dark");
   });
@@ -341,7 +342,7 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
     // claiming to be a choice between three things.
     await openPage("Appearance");
     const frames = (name: string) =>
-      [...screen.getByRole("radio", { name }).closest(".mode-card")!.querySelectorAll(".mini-window")];
+      [...within(screen.getByRole("group", { name: "Theme" })).getByRole("radio", { name }).closest(".mode-card")!.querySelectorAll(".mini-window")];
     expect(frames("Light")).toHaveLength(1);
     expect(frames("Dark")).toHaveLength(1);
     // "System" cannot promise which face you will get, so its card does not pretend to either.
@@ -385,7 +386,7 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
     const { store, api } = await openPage("Appearance");
     expect((screen.getByRole("combobox", { name: "UI font" }) as HTMLSelectElement).value).toBe("bundled");
     fireEvent.change(screen.getByRole("combobox", { name: "UI font" }), { target: { value: "system" } });
-    await waitFor(() => expect(store.getState().fonts).toEqual({ ui: "system", uiWeight: "regular", code: "bundled", leading: 0 }));
+    await waitFor(() => expect(store.getState().fonts).toEqual({ ...DEFAULT_FONTS, ui: "system" }));
     fireEvent.change(screen.getByRole("combobox", { name: "UI font weight" }), { target: { value: "medium" } });
     await waitFor(() => expect(store.getState().fonts.uiWeight).toBe("medium"));
     expect(store.getState().fonts.code).toBe("bundled");
@@ -457,20 +458,20 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
     // other control on the same row contradicting it.
     vi.stubGlobal("realm", { platform: "darwin" });
     const { store } = await openPage("Appearance");
-    const sw = screen.getByRole("switch", { name: "Window translucency" });
-    const slider = screen.getByRole("slider", { name: "Background transparency" });
+    const sw = screen.getByRole("switch", { name: "Sidebar translucency" });
+    const slider = screen.getByRole("slider", { name: "Sidebar transparency" });
     expect(sw).toBeChecked();               // the default is translucent
     fireEvent.click(sw);
     await waitFor(() => expect(store.getState().groundAlpha).toBe(100));
-    expect(screen.getByRole("switch", { name: "Window translucency" })).not.toBeChecked();
+    expect(screen.getByRole("switch", { name: "Sidebar translucency" })).not.toBeChecked();
     // Off means opaque, and the amount is inert rather than showing a value nothing is using.
-    expect(screen.getByRole("slider", { name: "Background transparency" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("switch", { name: "Window translucency" }));
+    expect(screen.getByRole("slider", { name: "Sidebar transparency" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("switch", { name: "Sidebar translucency" }));
     await waitFor(() => expect(store.getState().groundAlpha).toBe(DEFAULT_GROUND_ALPHA));
     // Dragging the amount to fully opaque turns the switch off, because that IS off.
     fireEvent.change(slider, { target: { value: "55" } });
     await waitFor(() => expect(store.getState().groundAlpha).toBe(100));
-    expect(screen.getByRole("switch", { name: "Window translucency" })).not.toBeChecked();
+    expect(screen.getByRole("switch", { name: "Sidebar translucency" })).not.toBeChecked();
   });
 
   it("background transparency runs the way its label reads and persists the ground's opacity", async () => {
@@ -478,10 +479,10 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
     // stubbed rather than assumed. An unstubbed renderer must not guess macOS.
     vi.stubGlobal("realm", { platform: "darwin" });
     const { store, api } = await openPage("Appearance");
-    const slider = screen.getByRole("slider", { name: "Background transparency" });
+    const slider = screen.getByRole("slider", { name: "Sidebar transparency" });
     expect(slider).not.toBeDisabled();
     // The stored value is an OPACITY and the label reads as transparency, so they are complements.
-    expect(screen.getByText(`${100 - DEFAULT_GROUND_ALPHA}%`)).toBeInTheDocument();
+    expect(within(slider.closest(".settings-row") as HTMLElement).getByText(`${100 - DEFAULT_GROUND_ALPHA}%`)).toBeInTheDocument();
     /* Dragged to the slider's LOW end, which the flip makes the opaque end of the stored range.
        Away from the default rather than toward it: the default is the transparent end now, so
        dragging that way would leave the value where it started and assert nothing.
@@ -491,15 +492,17 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
        beside it counted down toward 0%. */
     fireEvent.change(slider, { target: { value: String(GROUND_ALPHA_RANGE.min) } });
     await waitFor(() => expect(store.getState().groundAlpha).toBe(GROUND_ALPHA_RANGE.max));
-    expect(screen.getByText(`${100 - GROUND_ALPHA_RANGE.max}%`)).toBeInTheDocument();
+    expect(within(slider.closest(".settings-row") as HTMLElement).getByText(`${100 - GROUND_ALPHA_RANGE.max}%`)).toBeInTheDocument();
     await waitFor(() => expect(api.calls).toContain(`setSetting:ui.groundAlpha=${GROUND_ALPHA_RANGE.max}`));
   });
 
   it("off macOS the control is inert and says why, rather than appearing and doing nothing", async () => {
     vi.stubGlobal("realm", { platform: "win32" });
     await openPage("Appearance");
-    expect(screen.getByRole("slider", { name: "Background transparency" })).toBeDisabled();
-    expect(screen.getByText(/Windows has no window material/)).toBeInTheDocument();
+    expect(screen.getByRole("slider", { name: "Sidebar transparency" })).toBeDisabled();
+    expect(screen.getByRole("slider", { name: "Pane transparency" })).toBeDisabled();
+    // Said once, for both: the second row is disabled for the same reason, directly under it.
+    expect(screen.getAllByText(/Windows has no window material/)).toHaveLength(1);
   });
 
   it("submit key defaults to Enter and can switch to ⌘/Ctrl+Enter, writing ui.submitKey", async () => {

@@ -194,6 +194,7 @@ export const liveApi = (): Api => ({
   playCue: (cue, volume) => { play(cue, { volume }); },
   resyncTerminals: () => { getTerminalHub().resyncAll(); },
   setBadgeCount: (count) => window.realm.notify.badge(count),
+  setReducedMotion: (pref) => window.realm.motion?.set(pref) ?? Promise.resolve(),
   gitInfo: (cwd) => rpc().call("workspace.gitInfo", { cwd }),
   diff: (cwd) => rpc().call("workspace.diff", { cwd }),
   fileDiff: (cwd, path, staged) => rpc().call("workspace.fileDiff", { cwd, path, staged }),

@@ -8,7 +8,7 @@ import {
   activeGroup, activeLayout, addGroup as groupsAdd, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveGroup as groupsMove, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_FAST_SUPPORT_KEY, readFastSupport, EDITOR_CURSOR_BLINK_DEFAULT, EDITOR_CURSOR_BLINK_KEY, isTerminalCursorStyle, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, type TerminalCursorStyle, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo,
+  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_FAST_SUPPORT_KEY, readFastSupport, EDITOR_CURSOR_BLINK_DEFAULT, EDITOR_CURSOR_BLINK_KEY, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, isTerminalCursorStyle, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, type TerminalCursorStyle, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
   type AgentKind, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageSummary,
@@ -17,7 +17,7 @@ import { createContext, useCallback, useContext, useMemo, useSyncExternalStore }
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
 import { getMachineHub } from "../panes/machine/machine-hub";
 import { CUE_BY_CATEGORY, cueVolume, type CueName } from "./cues";
-import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_SELECTION, clampContrast, clampGroundAlpha,
+import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_PANE_ALPHA, DEFAULT_SELECTION, clampContrast, clampGroundAlpha, clampPaneAlpha, paneAlphaFromGround,
   isOverridden, parseFontPref, type FontPref,
   isThemeName, overrideKey, parseThemeOverrides, themeModes,
   type Mode, type ThemeName, type ThemeOverride, type ThemeOverrides, type ThemeSelection, setCustomThemes, type ThemeDef }  from "@realm/ui";
@@ -478,6 +478,8 @@ export type Api = {
   resyncTerminals(): void;
   /** Push the dock badge. Every unread change goes through here; 0 clears it. */
   setBadgeCount(count: number): Promise<void>;
+  /** Tell main which answer this window should give for `prefers-reduced-motion`. */
+  setReducedMotion(pref: ReducedMotionPref): Promise<void>;
   /** `workspace.gitInfo`: null when cwd is not a git repo (server caches ~3s). */
   gitInfo(cwd: string): Promise<GitInfo | null>;
   /** `workspace.diff` — the changed-file list. Null when cwd is not a repo. */
@@ -687,6 +689,9 @@ const SETTING_CONTRAST = "ui.contrast";
 const SETTING_FONTS = "ui.fonts";
 /** How opaque the sidebar's ground is over the macOS window material, in percent. */
 const SETTING_GROUND_ALPHA = "ui.groundAlpha";
+/** How opaque the panes' ground is, in percent, over their own range (`PANE_ALPHA_RANGE`). Absent in
+ *  a home saved while one control moved both; boot carries that home's value over once. */
+export const SETTING_PANE_ALPHA = "ui.paneAlpha";
 /** Agent of the most recent session the user created or switched to — what "+"/⌘N reach for next. */
 export const SETTING_LAST_AGENT = "ui.lastAgentKind";
 const SETTING_SWIPE_INVERT = "ui.swipeInvert";
@@ -833,6 +838,12 @@ export type AppState = {
    *  set on a Mac should survive opening the same home somewhere without a material, and come back
    *  unchanged. */
   groundAlpha: number;
+  /** The panes' opacity over the same material, 86–100 (`PANE_ALPHA_RANGE`, whose floor is where body
+   *  text would fall under WCAG AA over the worst desktop). Its own control since Plan 26. */
+  paneAlpha: number;
+  /** Settings ▸ Appearance ▸ Reduce motion. "system" follows the Mac; "on" and "off" override it by
+   *  changing what the window reports for `prefers-reduced-motion` (see `@realm/contracts` motion). */
+  reduceMotion: ReducedMotionPref;
   /** Invert the two-finger swipe direction (default: fingers-left → next space, like Arc/Spaces). */
   swipeInvert: boolean;
   /**
@@ -1425,6 +1436,8 @@ export type AppState = {
   setContrast(level: number): Promise<void>;
   setFonts(patch: Partial<FontPref>): Promise<void>;
   setGroundAlpha(pct: number): Promise<void>;
+  setPaneAlpha(pct: number): Promise<void>;
+  setReduceMotion(pref: ReducedMotionPref): Promise<void>;
   setSwipeInvert(v: boolean): Promise<void>;
   setSidebarActivityOrder(v: boolean): Promise<void>;
   setLowPower(v: boolean): Promise<void>;
@@ -2983,12 +2996,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     };
 
     let groundAlphaTimer: ReturnType<typeof setTimeout> | null = null;
+    let paneAlphaTimer: ReturnType<typeof setTimeout> | null = null;
     let sidebarWidthTimer: ReturnType<typeof setTimeout> | null = null;
     let contrastTimer: ReturnType<typeof setTimeout> | null = null;
 
     return {
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", sidebarActivityOrder: false, confirmDelete: true, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
+      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", sidebarActivityOrder: false, confirmDelete: true, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
@@ -3012,9 +3026,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, swipeInvert, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, panels, quick, filesView, system] = await Promise.all([
+        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, swipeInvert, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, panels, quick, filesView, system] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME),
-          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
+          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_PANE_ALPHA), api.getSetting(REDUCED_MOTION_KEY), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
           api.getSetting(SETTING_TERMINAL_PANEL),
           api.getSetting(SETTING_QUICK_CHAT),
@@ -3024,9 +3038,20 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           api.systemInfo().catch(() => ({ machineName: "", userName: "", detachedSince: null })),
         ]);
         const agent = AgentKindSchema.safeParse(lastAgent);
+        /* The panes' own value, or — in a home saved while one control moved both — the value that
+           control had them at, written back once so the two are independent from here on. Writing
+           it is what makes the carry-over happen once: read-only, the panes would follow the
+           sidebar again on every launch until someone happened to touch their slider. */
+        const carriedPane = typeof paneAlpha === "number" ? clampPaneAlpha(paneAlpha)
+          : typeof groundAlpha === "number" ? paneAlphaFromGround(groundAlpha) : DEFAULT_PANE_ALPHA;
+        if (typeof paneAlpha !== "number" && typeof groundAlpha === "number") void api.setSetting(SETTING_PANE_ALPHA, carriedPane).catch(() => {});
+        // Every boot, "system" included: the window may still hold the answer an earlier preference
+        // gave it, and asking is how it is put back.
+        void api.setReducedMotion(isReducedMotionPref(motion) ? motion : REDUCED_MOTION_DEFAULT).catch(() => {});
         set({ profiles, themePref: isThemePref(theme) ? theme : "system", themeNames: { light: storedPalette(light, legacyName, "light"), dark: storedPalette(dark, legacyName, "dark") },
           themeOverrides: parseThemeOverrides(overrides), contrast: typeof contrast === "number" ? clampContrast(contrast) : CONTRAST_RANGE.default, fonts: parseFontPref(fonts),
           groundAlpha: typeof groundAlpha === "number" ? clampGroundAlpha(groundAlpha) : DEFAULT_GROUND_ALPHA, swipeInvert: swipeInvert === true, lowPower: lowPower === true,
+          paneAlpha: carriedPane, reduceMotion: isReducedMotionPref(motion) ? motion : REDUCED_MOTION_DEFAULT,
           submitKey: isSubmitKey(submitKey) ? submitKey : "enter", sidebarCollapsed: sidebarCollapsed === true,
           sidebarWidth: typeof sidebarWidth === "number" ? clampSidebarWidth(sidebarWidth) : SIDEBAR_WIDTH.default,
           // Rows unless the row says cards: an unset key, and a word a newer build wrote that this
@@ -3370,6 +3395,18 @@ await get().refreshCustomThemes().catch(() => {});
         // Through `run`, like the layout persist above: this fires long after the caller's promise
         // settled, so a failed write has nowhere else to surface and would otherwise be swallowed.
         groundAlphaTimer = setTimeout(() => { groundAlphaTimer = null; get().run(() => api.setSetting(SETTING_GROUND_ALPHA, next)); }, PERSIST_DEBOUNCE_MS);
+      },
+      async setPaneAlpha(pct) {
+        // Exactly setGroundAlpha's shape: clamped before it is stored, painted on every step of the
+        // drag, written once it settles.
+        const next = clampPaneAlpha(pct);
+        set({ paneAlpha: next });
+        if (paneAlphaTimer) clearTimeout(paneAlphaTimer);
+        paneAlphaTimer = setTimeout(() => { paneAlphaTimer = null; get().run(() => api.setSetting(SETTING_PANE_ALPHA, next)); }, PERSIST_DEBOUNCE_MS);
+      },
+      async setReduceMotion(pref) {
+        set({ reduceMotion: pref });
+        await Promise.all([api.setSetting(REDUCED_MOTION_KEY, pref), api.setReducedMotion(pref)]);
       },
       async setSwipeInvert(v) {
         set({ swipeInvert: v });

@@ -3368,3 +3368,16 @@ describe("Settings' search and grouped rail", () => {
     expect(bodiesFor(".settings-page-pane .settings-row").join(" ")).toMatch(/transition: box-shadow var\(--dur-slow\)/);
   });
 });
+
+/** The content face (Plan 26 W9b). jsdom computes no cascade, so `settings-groups-live.mjs` reads the
+ *  computed family off probes in the real window; this pins the declarations that reading depends on. */
+describe("prose reads in the content face", () => {
+  it("every surface prose is read on names --font-content, and the root starts it as the UI face", () => {
+    /* THE missed-surface mutant: leave one off, and choosing a serif changes the transcript but not
+       the documents editor — two faces for the same kind of reading in one window. */
+    for (const sel of [".msg-assistant", ".msg-user", ".md", ".documents-rich-surface"]) {
+      expect(bodiesFor(sel).join(" "), sel).toContain("font-family: var(--font-content)");
+    }
+    expect(bodiesFor(":root").join(" ")).toContain("--font-content: var(--font-ui)");
+  });
+});

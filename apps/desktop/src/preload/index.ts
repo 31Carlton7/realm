@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
-import type { BlockedDownload, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, BrowserPickedElement, MediaFile, Passkey, PasskeyNotice } from "@realm/contracts";
+import type { BlockedDownload, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, BrowserPickedElement, MediaFile, Passkey, PasskeyNotice, ReducedMotionPref } from "@realm/contracts";
 import type { TccRow } from "../main/tcc";
 import type { MacAccessStatus } from "../main/mac-access";
 import type { ComputerAccessStatus } from "../main/computer-access";
@@ -25,6 +25,11 @@ contextBridge.exposeInMainWorld("realm", {
    *  platform where the window has a material behind it, so the sidebar's transparency has nothing
    *  to reveal anywhere else (main/index.ts gives Windows and Linux an opaque backgroundColor). */
   platform: process.platform,
+  /** Settings ▸ Appearance ▸ Reduce motion. Main answers it by changing what this window reports
+   *  for `prefers-reduced-motion`, so the stylesheet's own media queries are what carry it out. */
+  motion: {
+    set: (pref: ReducedMotionPref): Promise<void> => ipcRenderer.invoke("motion:set", pref),
+  },
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke("pick-folder"),
   /** Native multi-select file picker; [] when cancelled. */
   pickFiles: (): Promise<PickedFile[]> => ipcRenderer.invoke("pick-files"),

@@ -659,29 +659,25 @@ a {
 :root {
   --ground-alpha: 100%;
   --sidebar-ground: color-mix(in srgb, var(--page) var(--ground-alpha), transparent);
-  /* The panes take the same material, over their OWN range.
+  /* The panes take the same material, over their OWN range and, since Plan 26, from their own
+   * control (Settings ▸ Appearance ▸ Pane translucency): somebody who wants a see-through sidebar
+   * beside opaque reading, or the reverse, was being made to take both or neither.
    *
-   * One setting, two surfaces, because somebody who turns the window's translucency down is saying
-   * something about the window rather than about one column of it. But the two surfaces cannot
-   * take the same number: the sidebar holds short labels and the panes hold the reading, and a
-   * pane's ground is whatever the desktop behind the window happens to be.
+   * The range is the reading's, not the sidebar's. 86 is measured, not chosen (`pane-ground.test.ts`
+   * walks it against `PANE_ALPHA_RANGE` in packages/ui/src/theme.ts). Composite each face's
+   * `--canvas` over a WHITE desktop and over a BLACK one — the two extremes every wallpaper sits
+   * between — and 86% opacity is the thinnest at which `--ink` still clears WCAG AA on all eighteen
+   * faces. Below that, body text on a light face over a dark desktop goes under 4.5:1, and body text
+   * is the one thing here that may never be a judgement call.
    *
-   * 86 is measured, not chosen (`pane-ground.test.ts` walks it). Composite each face's `--canvas`
-   * over a WHITE desktop and over a BLACK one — the two extremes every wallpaper sits between — and
-   * 86% opacity is the thinnest at which `--ink` still clears WCAG AA on all eighteen faces. Below
-   * that, body text on a light face over a dark desktop goes under 4.5:1, and body text is the one
-   * thing here that may never be a judgement call.
-   *
-   * So the slider's own range maps onto the pane's: 55 → 86 at the thin end, 100 → 100 at the other.
-   * Every position still moves both surfaces, the sidebar still goes as thin as it ever did, and the
-   * pane goes as thin as it can without putting the reading below the floor the palettes are
-   * derived against. The multiplier is (100 - 86) / (100 - 55).
+   * Written by applyTheme like `--ground-alpha`; the 100% here is the same honest failure, an opaque
+   * pane rather than a see-through one, for a renderer that never got that far.
    *
    * What this does NOT cover is the two quiet tiers: `--ink-2` and `--ink-3` ship with almost no
    * headroom on some vendored palettes (one/light's hint tier is 2.41 against a 2.4 floor), so any
    * translucency at all can cost them a fraction over a hostile desktop. The test names that set
    * rather than hiding it, and it is a hint tier on a borrowed palette, not the reading. */
-  --pane-alpha: calc(86% + (var(--ground-alpha) - 55%) * 0.3111);
+  --pane-alpha: 100%;
   --pane-ground: color-mix(in srgb, var(--canvas) var(--pane-alpha), transparent);
 }
 

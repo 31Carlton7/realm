@@ -95,11 +95,16 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "theme-colours", tab: "appearance", label: "Accent, background and foreground", terms: "colours colors hex copy custom" },
   { id: "vscode-theme", tab: "appearance", label: "Import a VS Code theme", terms: "colours colors palette json" },
   { id: "contrast", tab: "appearance", label: "Contrast", terms: "ink text legibility readability" },
-  { id: "translucency", tab: "appearance", label: "Window translucency", terms: "transparency transparent vibrancy material opacity" },
+  { id: "sidebar-translucency", tab: "appearance", label: "Sidebar translucency", terms: "transparency transparent vibrancy material opacity window" },
+  { id: "pane-translucency", tab: "appearance", label: "Pane translucency", terms: "transparency transparent vibrancy material opacity window" },
+  { id: "reduce-motion", tab: "appearance", label: "Reduce motion", terms: "animation movement accessibility" },
   { id: "ui-font", tab: "appearance", section: "Text", label: "UI font", terms: "typeface family weight interface" },
+  { id: "ui-font-size", tab: "appearance", section: "Text", label: "UI font size", terms: "text bigger smaller larger zoom px" },
+  { id: "content-font", tab: "appearance", section: "Text", label: "Content font", terms: "prose messages markdown documents serif typeface family" },
   { id: "line-height", tab: "appearance", section: "Text", label: "Line height", terms: "leading spacing" },
-  { id: "editor-caret-blink", tab: "appearance", section: "Text", label: EDITOR_CURSOR_BLINK_COPY.label, terms: "cursor" },
   { id: "code-font", tab: "appearance", section: "Text", label: "Code font", terms: "monospace typeface family" },
+  { id: "code-font-size", tab: "appearance", section: "Text", label: "Code font size", terms: "text bigger smaller larger terminal px" },
+  { id: "editor-caret-blink", tab: "appearance", section: "Text", label: EDITOR_CURSOR_BLINK_COPY.label, terms: "cursor" },
   { id: "font-library", tab: "appearance", section: "Text", label: "Add a font from Google Fonts", terms: "download install typeface family" },
 
   // Keys: every command a chord can be bound to, under the group the page lists it in.
