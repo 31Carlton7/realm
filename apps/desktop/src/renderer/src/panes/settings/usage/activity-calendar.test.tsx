@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { activityLevel, dayKey, USAGE_CALENDAR_DAYS } from "@realm/contracts";
 import { createAppStore, StoreContext } from "../../../state/store";
 import { fakeApi } from "../../../state/store.test-fakes";
@@ -11,6 +11,9 @@ const DAY_MS = 86_400_000;
 /** A fixed Wednesday, so the grid's Sunday padding is a fact rather than a coincidence of the clock. */
 const NOW = new Date(2026, 8, 2, 15, 0, 0).getTime(); // 2026-09-02
 const at = (daysAgo: number) => dayKey(NOW - daysAgo * DAY_MS);
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** "Sep 1, 2026" for "2026-09-01" — how a cell's label names its day. */
+const readable = (day: string) => { const [y, m, d] = day.split("-").map(Number); return `${MONTH_NAMES[m! - 1]} ${d}, ${y}`; };
 
 describe("activityLevel", () => {
   it("scales against the reader's OWN busiest day, not a fixed ceiling", () => {
@@ -64,6 +67,46 @@ describe("calendarWeeks", () => {
   });
 });
 
+describe("calendarWeeks — the three readings", () => {
+  /** The cell for a day, and the week (column) it sits in. */
+  const find = (weeks: ReturnType<typeof calendarWeeks>, day: string) => {
+    const week = weeks.find((w) => w.some((c) => c.day === day))!;
+    return { cell: week.find((c) => c.day === day)!, week };
+  };
+
+  it("paints every day of a week by the week's total when read weekly", () => {
+    // Two weeks back: a message on each of seven days. Five weeks back: one message, one day.
+    const busy = calendarWeeks([], NOW).at(-3)!.map((c) => ({ day: c.day, messages: 1, sessions: 1 }));
+    const quiet = calendarWeeks([], NOW).at(-6)![2]!;
+    const weeks = calendarWeeks([...busy, { day: quiet.day, messages: 1, sessions: 1 }], NOW, "weekly");
+    const busyWeek = weeks.at(-3)!;
+    expect(busyWeek.map((c) => c.value)).toEqual([7, 7, 7, 7, 7, 7, 7]);
+    expect(busyWeek.every((c) => c.level === 4)).toBe(true);
+    // Scaled by the busiest WEEK, not the busiest day: a one-message week is a light one. Scaled by
+    // the day, every week with anything in it would be solid.
+    expect(weeks.at(-6)!.map((c) => c.level)).toEqual([1, 1, 1, 1, 1, 1, 1]);
+    // …and the day's own count rides along unchanged.
+    expect(find(weeks, quiet.day).cell.messages).toBe(1);
+  });
+
+  it("climbs through every day from the first shown when read cumulatively", () => {
+    const weeks = calendarWeeks([
+      { day: at(10), messages: 2, sessions: 1 },
+      { day: at(5), messages: 2, sessions: 1 },
+    ], NOW, "cumulative");
+    expect(find(weeks, at(11)).cell).toMatchObject({ value: 0, level: 0 });
+    // A quiet day after the first message still carries everything sent before it.
+    expect(find(weeks, at(7)).cell).toMatchObject({ messages: 0, value: 2, level: 2 });
+    expect(find(weeks, at(0)).cell).toMatchObject({ value: 4, level: 4 });
+  });
+
+  it("is the day's own count when read daily, as it always was", () => {
+    const weeks = calendarWeeks([{ day: at(2), messages: 3, sessions: 1 }, { day: at(1), messages: 12, sessions: 1 }], NOW);
+    expect(find(weeks, at(2)).cell).toMatchObject({ value: 3, level: 1 });
+    expect(find(weeks, at(1)).cell).toMatchObject({ value: 12, level: 4 });
+  });
+});
+
 describe("monthLabels", () => {
   it("names each month over the week that contains its first day", () => {
     const labels = monthLabels(calendarWeeks([], NOW));
@@ -111,6 +154,48 @@ describe("the calendar card", () => {
   it("says so plainly when there is nothing yet", async () => {
     await mount([]);
     await waitFor(() => expect(screen.getByText("No sent messages in the last year")).toBeInTheDocument());
+  });
+
+  it("switches between daily, weekly and cumulative, and the words follow the colour", async () => {
+    await mount([{ day: at(1), messages: 4, sessions: 1 }, { day: at(2), messages: 2, sessions: 1 }]);
+    const cellFor = (day: string) => [...document.querySelectorAll<HTMLElement>(".cal-grid .cal-cell")]
+      .find((c) => c.title.startsWith(`${readable(day)}:`))!;
+    await waitFor(() => expect(cellFor(at(1)).title).toMatch(/4 messages$/));
+
+    fireEvent.click(screen.getByRole("radio", { name: "Weekly" }));
+    // Both days fall in this week (NOW is a Wednesday): every day of the column now says six.
+    await waitFor(() => expect(document.querySelector<HTMLElement>(".cal-grid .cal-cell[data-level='4']")!.title).toMatch(/^Week of .*: 6 messages$/));
+
+    fireEvent.click(screen.getByRole("radio", { name: "Cumulative" }));
+    await waitFor(() => expect(cellFor(at(0)).title).toMatch(/: 6 messages since /));
+    expect(cellFor(at(1)).title).toMatch(/: 6 messages since /);
+    expect(cellFor(at(2)).title).toMatch(/: 2 messages since /);
+    expect(screen.getByRole("radio", { name: "Cumulative" })).toBeChecked();
+  });
+
+  it("keeps the present end in view when the window narrows under it — until the reader scrolls back", async () => {
+    // jsdom lays nothing out, so the geometry is staged by hand and the observer is one we can fire.
+    const observers: (() => void)[] = [];
+    const Real = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class { constructor(cb: () => void) { observers.push(cb); } observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
+    try {
+      await mount([{ day: at(1), messages: 4, sessions: 1 }]);
+      const el = document.querySelector<HTMLElement>(".cal-scroll")!;
+      const stage = (p: Record<string, number>) => { for (const [k, v] of Object.entries(p)) Object.defineProperty(el, k, { value: v, configurable: true, writable: true }); };
+      // It opened wide enough to fit: nothing to scroll. Then the window narrows to half that.
+      stage({ scrollWidth: 760, clientWidth: 760, scrollLeft: 0 });
+      stage({ clientWidth: 380 });
+      act(() => observers.forEach((fire) => fire()));
+      expect(el.scrollLeft).toBe(760);
+      // The reader scrolls back to look at the spring: the next resize leaves them there.
+      stage({ scrollLeft: 120 });
+      fireEvent.scroll(el);
+      stage({ clientWidth: 360 });
+      act(() => observers.forEach((fire) => fire()));
+      expect(el.scrollLeft).toBe(120);
+    } finally {
+      globalThis.ResizeObserver = Real;
+    }
   });
 
   it("gives every cell its count as text, so the colour is never the only telling", async () => {

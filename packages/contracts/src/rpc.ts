@@ -25,7 +25,7 @@ import { DelegatedRunSchema, DelegationOutcomeSchema } from "./delegation";
 import { SEARCH_GROUP_LIMIT, SEARCH_GROUP_LIMIT_MAX, SEARCH_QUERY_MAX, SearchResultsSchema } from "./search";
 import { ImportResultSchema, ImportScanSchema } from "./import";
 import { GuideProgressSchema } from "./documents";
-import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageSummarySchema } from "./usage";
+import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageRecordsSchema, UsageSummarySchema } from "./usage";
 import { PlanLimitsSchema } from "./plan-limits";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
 import { GuestSpecSchema, MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
@@ -1466,6 +1466,26 @@ export const Methods = {
   /** Write the monthly ceiling and its alert thresholds. Answers the STORED budget (thresholds
    *  normalized), so the client renders what was actually saved rather than what it sent. */
   "usage.setBudget": { params: UsageBudgetSchema, result: UsageBudgetSchema },
+  /**
+   * The page about you: lifetime tokens, the peak day, the longest turn, both streaks and the most
+   * used models, efforts, skills and tools — over all of time and every space, in one read.
+   *
+   * No range and no scope, on purpose. A streak or a record is a fact about the person, and the
+   * moment it is narrowed to a window it stops being one: the longest streak "in the last 30 days" is
+   * a different and much less interesting number. "Today" is this machine's, as the calendar's days
+   * are — Realm runs on the Mac whose calendar it is.
+   */
+  "usage.records": { params: z.object({}), result: UsageRecordsSchema },
+  /**
+   * The picture the page about you shows, as a path under the Realm home, or null for none.
+   *
+   * `avatar.set` COPIES the file it is given into the home and answers with the copy; the path it
+   * was handed is never stored, so the picture survives the original being moved, edited or deleted,
+   * and nothing outside the home is read again. `avatar.clear` deletes the copy.
+   */
+  "avatar.get": { params: z.object({}), result: z.object({ path: z.string().nullable() }) },
+  "avatar.set": { params: z.object({ path: z.string().min(1) }), result: z.object({ path: z.string() }) },
+  "avatar.clear": { params: z.object({}), result: z.object({ path: z.null() }) },
   /** Availability of the local Graphify extractor. `force` bypasses the shared probe cache. */
   "graphify.probe": {
     params: z.object({ force: z.boolean().default(false) }),
@@ -1707,6 +1727,9 @@ export const Events = {
   "themes.changed":   z.object({}),
   /** A font family was installed or removed. */
   "fonts.changed":    z.object({}),
+  /** The picture on the page about you changed — chosen, replaced or removed. Carries the new path
+   *  (or null) so every window shows the same face without a re-read. */
+  "avatar.changed":   z.object({ path: z.string().nullable() }),
   /** An MCP server was added, edited, removed, or toggled for a space. Carries no payload because the
    *  server list is global: add/edit/remove change what EVERY space lists, and a per-space event would
    *  leave the other spaces' open settings panes stale. Clients holding a list re-fetch. */

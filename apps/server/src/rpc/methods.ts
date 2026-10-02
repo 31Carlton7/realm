@@ -10,6 +10,7 @@ const STARTED_AT = Date.now();
 import type { ProfilesStore } from "../store/profiles";
 import type { SpacesStore } from "../store/spaces";
 import type { IconAssetsStore } from "../store/icon-assets";
+import type { AvatarStore } from "../store/avatar";
 import type { IconGenerationService } from "../icons/service";
 import type { PlanLimitsService } from "../limits/service";
 import type { ProjectsStore } from "../store/projects";
@@ -83,7 +84,7 @@ export type Deps = {
    *  the watcher owns the clock and the close, this owns the refusals. */
   onDrain?: () => void;
   profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService;
-  iconAssets: IconAssetsStore; iconGeneration: IconGenerationService;
+  iconAssets: IconAssetsStore; iconGeneration: IconGenerationService; avatar: AvatarStore;
   planLimits: PlanLimitsService;
   delegation: DelegationEngine;
   laya: LayaService;
@@ -890,6 +891,12 @@ export function registerMethods(d: Deps): void {
   });
   reg("usage.activeDays", (p) => d.usage.activeDays(p));
   reg("usage.setBudget", (p) => d.usage.setBudget(p));
+  reg("usage.records", () => d.usage.records());
+  // The picture on the page about you. Broadcast on every change, so a second window — and the
+  // profile chip's menu, which wears the same face — never shows the one that was replaced.
+  reg("avatar.get", () => ({ path: d.avatar.get() }));
+  reg("avatar.set", (p) => { const path = d.avatar.set(p.path); rpc.broadcast("avatar.changed", { path }); return { path }; });
+  reg("avatar.clear", () => { d.avatar.clear(); rpc.broadcast("avatar.changed", { path: null }); return { path: null }; });
   reg("graphify.probe", (p) => d.graphify.probe({ force: p.force }));
   reg("graphify.update", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);

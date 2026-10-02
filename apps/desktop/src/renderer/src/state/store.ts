@@ -11,7 +11,7 @@ import {
   AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_FAST_SUPPORT_KEY, readFastSupport, EDITOR_CURSOR_BLINK_DEFAULT, EDITOR_CURSOR_BLINK_KEY, isTerminalCursorStyle, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, type TerminalCursorStyle, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
-  type AgentKind, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageSummary,
+  type AgentKind, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -411,6 +411,13 @@ export type Api = {
   /** `usage.setBudget`. Answers the STORED budget (thresholds normalized), which is what the panel
    *  then renders — so a threshold the server dropped never lingers on screen as if it had stuck. */
   setUsageBudget(budget: UsageBudget): Promise<UsageBudget>;
+  /** `usage.records` — the page about you: lifetime figures, streaks and the most-used lists. */
+  usageRecords(): Promise<UsageRecords>;
+  /** `avatar.get` / `avatar.set` / `avatar.clear`. The path is always the server's COPY under the
+   *  Realm home — `setAvatar` answers with it, and never with the path it was handed. */
+  getAvatar(): Promise<string | null>;
+  setAvatar(path: string): Promise<string>;
+  clearAvatar(): Promise<void>;
   /** `import.scan` — everything the agent CLIs have on disk, matched to spaces. A pure read: it
    *  creates nothing, so it is safe to call on mount and on every "Re-scan" click. */
   importScan(): Promise<ImportScan>;
@@ -603,6 +610,7 @@ export const DESTINATION_PAGE_TITLES: Record<DestinationPageKind, string> = {
   "profile-page": "Profile",
   "schedules-page": "Scheduled tasks",
   "agents-page": "Agents",
+  "you-page": "You",
 };
 
 /**
@@ -1316,6 +1324,9 @@ export type AppState = {
    *  host reports no real name (or before boot's fetch answers), which the greeting reads as "greet
    *  the space, not the person" rather than as a blank to print. */
   userName: string;
+  /** The picture on the page about you and on its entry in the profile chip's menu: the server's
+   *  copy under the Realm home, or null until one is chosen (the face is then an initial). */
+  avatarPath: string | null;
   /**
    * When Realm's last window went away, or null while one is open.
    *
@@ -1784,6 +1795,16 @@ export type AppState = {
   /** Days Realm was used, for the activity calendar. Unscoped by design — see `usage.activeDays`. */
   usageActiveDays(p: { from: number; to: number }): Promise<UsageDay[]>;
   setUsageBudget(budget: UsageBudget): Promise<UsageBudget>;
+  /** The page about you's one read. Returns rather than stores, like `usageSummary`: one page looks
+   *  at it, and only while it is open. */
+  usageRecords(): Promise<UsageRecords>;
+  /** Pick a picture in the native dialog and make a copy of it yours. A cancelled dialog changes
+   *  nothing. */
+  chooseAvatar(): Promise<void>;
+  /** Go back to the initial. Deletes the copy; the original was never Realm's to touch. */
+  removeAvatar(): Promise<void>;
+  /** `avatar.changed`: another window chose or removed a picture, or this one's own change echoed. */
+  applyAvatarChanged(path: string | null): void;
   /** Scan the agent CLIs' stores. Returns the answer rather than storing it: a scan is hundreds of
    *  candidates the Import panel holds while the user edits targets, and parking that in the global
    *  store would keep it alive for every pane that never opens the panel. */
@@ -3071,7 +3092,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null,
-      machineName: "", userName: "", detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {},
+      machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
@@ -3083,7 +3104,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, swipeInvert, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, panels, quick, filesView, system] = await Promise.all([
+        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, swipeInvert, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, panels, quick, filesView, system, avatarPath] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME),
           api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
@@ -3093,6 +3114,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           // Labels, not dependencies: a failure here must not take boot down with it — the strip
           // simply shows no machine name, and the greeting no name.
           api.systemInfo().catch(() => ({ machineName: "", userName: "", detachedSince: null })),
+          // Same posture: a face that fails to load is an initial, never a failed boot.
+          api.getAvatar().catch(() => null),
         ]);
         const agent = AgentKindSchema.safeParse(lastAgent);
         set({ profiles, themePref: isThemePref(theme) ? theme : "system", themeNames: { light: storedPalette(light, legacyName, "light"), dark: storedPalette(dark, legacyName, "dark") },
@@ -3111,7 +3134,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           confirmDelete: askDelete !== false,
           lastAgentKind: agent.success ? agent.data : null,
           easterEggs: eggs === true, konamiUnlocked: konami === true,
-          terminalPanel: parseTerminalPanels(panels), machineName: system.machineName, userName: system.userName, detachedSince: system.detachedSince });
+          terminalPanel: parseTerminalPanels(panels), machineName: system.machineName, userName: system.userName, avatarPath, detachedSince: system.detachedSince });
         // AppShell is already mounted during boot: keep spaces unpublished until each saved custom
         // icon can resolve, rather than visibly rendering its folder fallback first.
         /* Before the spaces are published, and so before the first painted frame: `applyTheme`
@@ -4791,6 +4814,21 @@ await get().refreshCustomThemes().catch(() => {});
       usageSummary(p) { return api.usageSummary(p); },
       usageActiveDays(p) { return api.usageActiveDays(p); },
       setUsageBudget(budget) { return api.setUsageBudget(budget); },
+      usageRecords() { return api.usageRecords(); },
+      async chooseAvatar() {
+        const picked = await api.pickIconImage();
+        if (!picked) return;
+        // Downscaled before it is copied, as an icon upload is: a phone photo is megabytes of pixels
+        // for a face drawn at 56 points. Best-effort — on a failure the original is copied instead,
+        // and the server accepts or refuses it on its own terms.
+        const small = await api.compressIconImage(picked.path).catch(() => null);
+        set({ avatarPath: await api.setAvatar(small?.path ?? picked.path) });
+      },
+      async removeAvatar() {
+        await api.clearAvatar();
+        set({ avatarPath: null });
+      },
+      applyAvatarChanged(path) { set({ avatarPath: path }); },
       importScan() { return api.importScan(); },
       async importApply(selection) {
         const result = await api.importApply(selection);

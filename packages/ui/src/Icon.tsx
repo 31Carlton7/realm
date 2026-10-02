@@ -34,6 +34,8 @@ import {
   GridViewIcon,
   // A peek: a session looked at, not opened (the side pane's transient tab, the Agents page's rows).
   ViewIcon,
+  // The page about you (YouPage.tsx).
+  UserCircleIcon,
 } from "@hugeicons-pro/core-stroke-standard";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
 
@@ -117,6 +119,9 @@ export const icons = {
      name it does not hold, silently, so the page wore a folder in the sidebar and in its own pane
      bar. `icon-kinds.test.ts` is what stops the next one lasting that long. */
   "agents-page": BotIcon,
+  /* A face in a circle, set apart from `profile-page`'s bare figure: the profile is a scope (its
+     skills, connections and memory), and this page is the person. */
+  "you-page": UserCircleIcon,
   /* A monitor on a stand, and deliberately not `laptop`, which is taken and means THIS Mac — the one
      Realm is running on, in the computer-use surfaces. A machine is a screen somewhere else. */
   machine: ComputerIcon,

@@ -579,3 +579,33 @@ describe("the computer-use allowed-apps list over rpc", () => {
     c.close();
   });
 });
+
+describe("the page about you over rpc", () => {
+  it("usage.records is registered and answers a fresh home with its zeros, not an error", async () => {
+    // The mutant this kills is dropping the `reg("usage.records", …)` line: the service tests keep
+    // passing, and the page's one read comes back as an unregistered method.
+    const { c } = await boot();
+    const r = await c.call("usage.records", {});
+    expect(r.ok).toBe(true);
+    expect(r.result).toMatchObject({
+      tokens: { input: 0, output: 0 }, peakDay: null, longestTurn: null,
+      streak: { current: { days: 0 }, longest: { days: 0 } },
+    });
+    c.close();
+  });
+
+  it("avatar.set copies the picture into the home, tells every window, and avatar.clear takes it back", async () => {
+    const { home, c } = await boot();
+    const picked = join(tempDir("realm-avatar-pick-"), "me.png");
+    writeFileSync(picked, "png");
+    expect((await c.call("avatar.get", {})).result).toEqual({ path: null });
+    const set = (await c.call("avatar.set", { path: picked })).result;
+    expect(set.path.startsWith(join(home, "avatar"))).toBe(true);
+    expect((await c.call("avatar.get", {})).result).toEqual({ path: set.path });
+    await waitFor(() => c.events.some((x) => x.event === "avatar.changed" && x.payload?.path === set.path));
+    expect((await c.call("avatar.clear", {})).result).toEqual({ path: null });
+    expect(existsSync(set.path)).toBe(false);
+    await waitFor(() => c.events.some((x) => x.event === "avatar.changed" && x.payload?.path === null));
+    c.close();
+  });
+});

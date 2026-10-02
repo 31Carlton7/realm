@@ -6,6 +6,7 @@ import { dbPath } from "./paths";
 import { ProfilesStore } from "./store/profiles";
 import { SpacesStore } from "./store/spaces";
 import { IconAssetsStore } from "./store/icon-assets";
+import { AvatarStore } from "./store/avatar";
 import { IconGenerationService } from "./icons/service";
 import { ProjectsStore } from "./store/projects";
 import { ItemsStore } from "./store/items";
@@ -960,7 +961,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
     profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch: new ProjectSearchService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
-    iconAssets, iconGeneration, planLimits, userCommands, scripts, keybindings, sandbox, laya,
+    iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya,
     /* A drain was accepted: watch for quiescence and close once it holds. The watcher owns the clock
        and the close; `methods.ts` owns the refusals that make quiescence reachable at all. Unref'd —
        a daemon with nothing to do must not be held open by its own timer. */

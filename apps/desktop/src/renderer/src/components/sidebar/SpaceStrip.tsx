@@ -2,6 +2,7 @@ import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState, type DragEvent, type RefObject } from "react";
 import { spaceActivity, spaceBadge, useApp, useProfileSpaces } from "../../state/store";
 import { createSpring } from "../../state/spring";
+import { Avatar } from "../Avatar";
 import { Menu } from "../Menu";
 import { SpaceIcon } from "../SpaceIcon";
 
@@ -173,6 +174,7 @@ function ProfileChip() {
   const setSpacesOpen = useApp((s) => s.setSpacesOpen);
   const openDestinationPage = useApp((s) => s.openDestinationPage);
   const openProfilePage = useApp((s) => s.openProfilePage);
+  const userName = useApp((s) => s.userName);
   const run = useApp((s) => s.run);
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -204,6 +206,10 @@ function ProfileChip() {
           // left it empty read as a missing image rather than as restraint.
           { label: "All spaces…", icon: <Icon name="layout" size={16} />, kbd: "⌘⇧Space", onSelect: () => setSpacesOpen(true) },
           { kind: "separator" as const },
+          /* The page about the person, under the person's own name and face — first in its group,
+             because it is the one page here whose subject is you rather than something you set up.
+             "You" until the Mac reports a real name, never the login name. */
+          { label: userName.trim() || "You", icon: <Avatar size={16} />, onSelect: () => openDestinationPage("you-page") },
           /* The two app-level pages you reach FROM here rather than from the space you are in: what
              this Mac is connected to, and how Realm itself is set up. Neither belongs to a space, so
              this chip — the one control in the column whose subject is the account rather than the
