@@ -2794,6 +2794,12 @@ a.msg-chip:hover { text-decoration: underline; text-underline-offset: 2px; }
 /* A sent attachment is the same tile, larger — and now the same corner too, in proportion. It had
    its own flat `--r-row` radius, which is what made a file visibly change shape on send. */
 .msg-user-files .attach-tile { --attach-tile: 56px; }
+/* The tip hangs leftward here, from the tile's right edge. Centred, as it is over the prompter's
+   tiles, it overhung a row that hugs the transcript's right edge by up to a hundred pixels — unseen
+   at rest, but still overflow of the scroller, which gave every transcript with a screenshot in it
+   a horizontal scrollbar and a white square where the two bars met. */
+.msg-user-files .attach-tip { left: auto; right: 0; transform: translateY(2px); }
+.msg-user-files .attach-tile:hover .attach-tip, .msg-user-files .attach-tile:focus-within .attach-tip { transform: translateY(0); }
 /* Ara refresh §4: assistant prose is plain — 15px/1.6, no card. */
 /* The message and everything the message owns — its media strip, its action bar — in one column, at
    the gap `.transcript-col` used to give them as siblings, so growing the wrapper moved nothing. */
@@ -4667,6 +4673,10 @@ select { appearance: none; padding-right: 22px;
   background: var(--rl-line); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
 [data-dissolve]:hover::-webkit-scrollbar-thumb, [data-dissolve-x]:hover::-webkit-scrollbar-thumb {
   background: var(--rl-line-strong); background-clip: content-box; }
+/* Where a vertical and a horizontal bar meet. The pseudo-elements own the whole scrollbar once they
+   are in use, corner included, and an unstated corner paints opaque white — the square at the foot
+   of a transcript that scrolled both ways. */
+[data-dissolve]::-webkit-scrollbar-corner, [data-dissolve-x]::-webkit-scrollbar-corner { background: transparent; }
 
 /* The sidebar's column keeps its own, narrower bar: 11px of standard scrollbar reads as heavy in a
    280px column. Everything else about it is the rule above. */
@@ -4679,6 +4689,7 @@ select { appearance: none; padding-right: 22px;
      transparent padding instead of a second colour. */
   border: 2px solid transparent; background-clip: content-box; }
 .space-body:hover::-webkit-scrollbar-thumb { background: var(--rl-line-strong); background-clip: content-box; }
+.space-body::-webkit-scrollbar-corner { background: transparent; }
 
 /* ── Scrollbars: on scroll, in the prompter ────────────────────────────────
    Everywhere above keeps the persistent hairline: a transcript, a diff, a settings page is long
