@@ -2,6 +2,7 @@ import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiv
 import { destinationTarget, pageItemId } from "./page-item";
 import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sources";
 import { createStore, useStore, type StoreApi } from "zustand";
+import { EMPTY_TRAIL, pushStop, settleStop, stepTarget, type WindowStop, type WindowTrail } from "./window-trail";
 import {
   allItems, closeItem as layoutClose, closeLeaf as layoutCloseLeaf, emptyLayout, moveTab as layoutMoveTab, openInSidePane as layoutOpenInSidePane, equalizeSplit as layoutEqualize, findLeaf, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, modeWireValue, sessionModeOf,
   lectureWrapUpPrompt, localDateStamp, sessionEvent,
@@ -723,6 +724,8 @@ const SETTING_SIDEBAR_WIDTH = "ui.sidebarWidth";
 /** Whether the space strip sorts by activity instead of the user's own drag order. See
  *  `sidebarActivityOrder`. */
 const SETTING_SIDEBAR_ACTIVITY_ORDER = "ui.sidebarActivityOrder";
+/** Which other spaces show their live sessions under their sidebar row — see `sidebarOpenSpaces`. */
+const SETTING_SIDEBAR_OPEN_SPACES = "ui.sidebarOpenSpaces";
 /** Whether a delete asks first. On unless the user has said otherwise — see `confirmDelete`. */
 const SETTING_CONFIRM_DELETE = "ui.confirmDelete";
 /** How a session's file browser lays a folder out — see `filesView`. */
@@ -917,6 +920,14 @@ export type AppState = {
    */
   sidebarActivityOrder: boolean;
   /**
+   * The other spaces whose live sessions are unfolded under their row in the sidebar, by space id.
+   *
+   * Remembered per space and across launches (`SETTING_SIDEBAR_OPEN_SPACES`): a room you opened to
+   * keep an eye on is one you want to find open again. A space with nothing live draws no disclosure
+   * at all, but keeps its entry, so it unfolds again the next time it has something to show.
+   */
+  sidebarOpenSpaces: string[];
+  /**
    * Whether deleting something asks first.
    *
    * On by default, because a delete here is not a close: the object goes, and nothing in the app
@@ -973,6 +984,24 @@ export type AppState = {
    *  `writeGroups`, which reconciles it against the layout on every structural write — plus the two
    *  explicit actions (`navigateInPane`, `stepPaneNav`) and the item prune in `refreshItems`. */
   paneHistory: PaneHistory;
+  /**
+   * Where the window has been, rooms included — what Go back and Go forward step through (see
+   * `WindowTrail`). Recorded from one place, a subscription to every write, so no path that moves the
+   * keyboard has to remember to: a compound move (a room switch, opening a session in another room)
+   * holds the recording until it lands and is one stop, not its halfway points. NOT persisted, for the
+   * reason the pane trails are not: it is the trail you walked in this sitting.
+   */
+  windowTrail: WindowTrail;
+  /**
+   * The session that should have the keyboard once its pane is up, as a pulse (`n` grows) — set when
+   * a session is opened from a list of sessions rather than from its own pane, so the hand that
+   * clicked can type at once. The pane takes it (SessionPane); a card already holding the keyboard
+   * there — a permission waiting for an answer — keeps it.
+   */
+  keyboardFor: { sessionId: string; n: number } | null;
+  /** The pane took (or declined) the keyboard it was handed: the request is spent, so a later remount
+   *  of the same pane can never pull the caret back out of wherever the person has put it since. */
+  keyboardTaken(n: number): void;
   /** The notifications page's selected row, or null for the bare list. USER-level, not per space and
    *  not per item: the feed is one global thing, so the page's vantage into it is too — opening
    *  Notifications from any space lands on the row you were reading. Panes record moves into their own
@@ -1069,6 +1098,16 @@ export type AppState = {
    * profile. Seeded from `listAllSessions` at boot and kept current by the status broadcasts.
    */
   sessionUpdatedAt: Record<string, number>;
+  /**
+   * Every session in the home, as a row — what the sidebar draws a session in ANOTHER room from.
+   *
+   * `sessions` holds only the active space's rows, and the maps above hold one fact apiece; a row
+   * for a session in another room needs its title and its read mark as well. Seeded by the same
+   * `listAllSessions` that seeds those maps, and kept current by what this window already hears for
+   * every space: a persisted `session.event` moves `lastEventSeq` on (`applySessionEvent`), and every
+   * row the server answers a write with lands here too (`mergeSession`).
+   */
+  allSessions: Record<string, Session>;
   /** Transcripts by session id, kept across space switches (cheap, and a session pane may be revisited). */
   transcripts: Record<string, TranscriptEntry>;
   /** The fetched slice of the GLOBAL notifications feed (W5), newest first — what the page renders.
@@ -1476,6 +1515,8 @@ export type AppState = {
   setSidebarActivityOrder(v: boolean): Promise<void>;
   setLowPower(v: boolean): Promise<void>;
   setSidebarActivityOrder(v: boolean): Promise<void>;
+  /** Unfold or fold another space's live sessions under its sidebar row, and remember it. */
+  setSpaceRowOpen(spaceId: string, open: boolean): Promise<void>;
   setConfirmDelete(v: boolean): Promise<void>;
   /** The window gained or lost focus. Called by App's own listeners; nothing else writes it. */
   setWindowActive(v: boolean): void;
@@ -1605,6 +1646,11 @@ export type AppState = {
   /** Step one pane `delta` stops along its own trail (`-1` back, `+1` forward) and put it back exactly
    *  as it stood — item AND in-pane view. No-op at either end. */
   stepPaneNav(leafId: string, delta: number): Promise<void>;
+  /** Step the window `delta` stops along `windowTrail` (`-1` back, `+1` forward): into the room, onto
+   *  the pane that had the keyboard there. No-op at either end. */
+  stepWindow(delta: number): Promise<void>;
+  /** Is there somewhere to go `delta` steps along the window's trail? */
+  canStepWindow(delta: number): boolean;
   /** Is there a stop `delta` steps from where `leafId` stands? What greys the arrows out. */
   canPaneNav(leafId: string | null, delta: number): boolean;
   /** Move pane focus to the structural neighbor in that direction (see neighborLeafId); no-op without one. */
@@ -2596,7 +2642,7 @@ const scheduleFrame = (fn: () => void): number =>
   typeof requestAnimationFrame === "function" ? requestAnimationFrame(fn) : (setTimeout(fn, 16) as unknown as number);
 
 export function createAppStore(api: Api): StoreApi<AppState> {
-  return createStore<AppState>((set, get) => {
+  return createStore<AppState>((set, get, storeApi) => {
     let persistTimer: ReturnType<typeof setTimeout> | null = null;
     /** Monotonic id for fetches of the active space's items. Reconcile is destructive (it prunes open
      *  items missing from the list), so only the newest-started fetch may apply: the Api makes no
@@ -2759,7 +2805,24 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  quietly stale, which is the one failure a feed cannot have. A third surface adds a term. */
     const watchingCalls = () => get().sheet?.kind === "activity" || get().sidebarView === "activity";
     const mergeSpace = (s: Space) => set({ spaces: get().spaces.map((x) => (x.id === s.id ? s : x)) });
-    const mergeSession = (s: Session) => set({ sessions: { ...get().sessions, [s.id]: s }, sessionStatus: { ...get().sessionStatus, [s.id]: s.status } });
+    const mergeSession = (s: Session) => set({ sessions: { ...get().sessions, [s.id]: s }, sessionStatus: { ...get().sessionStatus, [s.id]: s.status },
+      allSessions: { ...get().allSessions, [s.id]: s } });
+    /**
+     * The write a persisted event owes the rows that describe its session: their `lastEventSeq`, which
+     * is how far the log has been WRITTEN and so half of what the unread ring reads. Undefined when
+     * neither row is behind — a repeat or an out-of-order event is not news, and no write is made.
+     *
+     * Returned as a patch rather than set on the spot so it can ride the write the event was already
+     * going to make (`applySessionEvent`); a `set` of its own would be a second store notification per
+     * event, the cost that function exists to keep down.
+     */
+    const logGrew = (id: string, seq: number): Partial<AppState> | undefined => {
+      const all = get().allSessions[id], own = get().sessions[id];
+      const patch: Partial<AppState> = {};
+      if (all && all.lastEventSeq < seq) patch.allSessions = { ...get().allSessions, [id]: { ...all, lastEventSeq: seq } };
+      if (own && own.lastEventSeq < seq) patch.sessions = { ...get().sessions, [id]: { ...own, lastEventSeq: seq } };
+      return patch.allSessions || patch.sessions ? patch : undefined;
+    };
     /** Re-read one run's attempt log. Every run write opens or closes an attempt, so a panel left
      *  holding the old log would misreport the history it exists to show. */
     const loadRunAttempts = async (runId: string) => {
@@ -3144,6 +3207,32 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       await get().openItem(itemId, targetLeafId);
     };
 
+    /* ── The window's trail ──────────────────────────────────────────────────────────────────────
+       Recorded from ONE place: a subscription to every write. Every way the keyboard moves — a row
+       clicked, a pane clicked, a group switched, a room switched, a pane closed under you — ends in a
+       write, so offering each one to `pushStop` catches them all, and `pushStop` itself ignores the
+       writes that land where the window already stands. A compound move holds the recording
+       (`holdTrail`) and is recorded once when it lands: a room switch passes through an empty room and
+       a restored pane on its way to the one you asked for, and neither of those is somewhere you were. */
+    let trailHeld = 0;
+    /** Where the window stands now — null while a room is still loading, which is nowhere yet. */
+    const here = (): WindowStop | null => {
+      const s = get();
+      if (!s.activeSpaceId || !layoutHydrated) return null;
+      return { spaceId: s.activeSpaceId, itemId: itemIdOfLeaf(s.layout, s.focusedLeafId) };
+    };
+    const noteStop = () => {
+      const stop = here(); if (!stop) return;
+      const t = get().windowTrail;
+      const next = pushStop(t, stop);
+      if (next !== t) set({ windowTrail: next });
+    };
+    storeApi.subscribe(() => { if (trailHeld === 0) noteStop(); });
+    const holdTrail = async <T,>(fn: () => Promise<T>): Promise<T> => {
+      trailHeld++;
+      try { return await fn(); } finally { if (--trailHeld === 0) noteStop(); }
+    };
+
     let groundAlphaTimer: ReturnType<typeof setTimeout> | null = null;
     let paneAlphaTimer: ReturnType<typeof setTimeout> | null = null;
     let sidebarWidthTimer: ReturnType<typeof setTimeout> | null = null;
@@ -3151,14 +3240,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", sidebarActivityOrder: false, confirmDelete: true, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
+      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
       allItems: [], archivedSessions: null, lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", paletteReplaces: null, peek: null, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
       laya: null,
       spacePageTab: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null, agentsView: "list", officeWorld: null,
-      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, modelInfo: {}, spaceSkillSources: {},
+      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -3167,7 +3256,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
-      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, openFilesIn: null, editors: [], editorCursorBlink: EDITOR_CURSOR_BLINK_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, notificationsSelectedId: null, paneHistory: {},
+      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, openFilesIn: null, editors: [], editorCursorBlink: EDITOR_CURSOR_BLINK_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, notificationsSelectedId: null, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null,
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       activeProfileId() { return get().activeSpace()?.profileId ?? null; },
@@ -3175,9 +3264,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, swipeInvert, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, panels, quick, filesView, system, avatarPath] = await Promise.all([
+        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, swipeInvert, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, openSpaces, askDelete, lastAgent, eggs, konami, panels, quick, filesView, system, avatarPath] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME),
-          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_PANE_ALPHA), api.getSetting(REDUCED_MOTION_KEY), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
+          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_PANE_ALPHA), api.getSetting(REDUCED_MOTION_KEY), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_SIDEBAR_OPEN_SPACES), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
           api.getSetting(SETTING_TERMINAL_PANEL),
           api.getSetting(SETTING_QUICK_CHAT),
@@ -3211,6 +3300,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           // Defaulted OFF: the strip's resting order is the one the user dragged it into, and a
           // preference nobody could read must not rearrange their spaces on them at launch.
           sidebarActivityOrder: activityOrder === true,
+          // Ids, and nothing else: a value an older or newer build wrote in another shape is read as
+          // "nothing unfolded", which is the resting state rather than a guess at what was meant.
+          sidebarOpenSpaces: Array.isArray(openSpaces) ? openSpaces.filter((id): id is string => typeof id === "string") : [],
           // Only an explicit false turns it off: an unset key and a missing row both mean "nobody
           // has said", and the answer to that for a destructive step is to keep asking.
           confirmDelete: askDelete !== false,
@@ -3284,7 +3376,7 @@ await get().refreshCustomThemes().catch(() => {});
         // asking a registry on every launch. It only ever LOOKS; applying an update stays a click.
         void get().refreshCliStatus().catch(() => {});
       },
-      async selectSpace(id, opts) {
+      selectSpace(id, opts) { return holdTrail(async () => {
         await flushPersist();
         itemsFetchSeq++; // in-flight item fetches from the previous activation are now stale
         layoutHydrated = false;
@@ -3308,7 +3400,7 @@ await get().refreshCustomThemes().catch(() => {});
         // Space activation refreshes git context for the focused pane's session, if any.
         const focusedItem = get().items.find((i) => i.id === itemIdOfLeaf(get().layout, get().focusedLeafId));
         if (focusedItem?.kind === "session") refreshGitFor(focusedItem.refId);
-      },
+      }); },
       async nextSpace() {
         const list = get().profileSpaces(); const i = list.findIndex((s) => s.id === get().activeSpaceId);
         const n = list[i + 1]; if (i >= 0 && n) await get().selectSpace(n.id);
@@ -3575,6 +3667,14 @@ await get().refreshCustomThemes().catch(() => {});
       async setSidebarActivityOrder(v) {
         set({ sidebarActivityOrder: v });
         await api.setSetting(SETTING_SIDEBAR_ACTIVITY_ORDER, v);
+      },
+      async setSpaceRowOpen(spaceId, open) {
+        const known = new Set(get().spaces.map((s) => s.id));
+        // A deleted space's id is dropped on the way past, so the key never outgrows the home.
+        const kept = get().sidebarOpenSpaces.filter((id) => id !== spaceId && known.has(id));
+        const next = open ? [...kept, spaceId] : kept;
+        set({ sidebarOpenSpaces: next });
+        await api.setSetting(SETTING_SIDEBAR_OPEN_SPACES, next);
       },
       async setConfirmDelete(v) {
         set({ confirmDelete: v });
@@ -4030,6 +4130,7 @@ await get().refreshCustomThemes().catch(() => {});
           const { [it.refId]: _st, ...sessionStatus } = get().sessionStatus; const { [it.refId]: _se, ...sessions } = get().sessions;
           const { [it.refId]: _dr, ...drafts } = get().drafts; const { [it.refId]: _sp, ...sessionSpace } = get().sessionSpace;
           const { [it.refId]: _ua, ...sessionUpdatedAt } = get().sessionUpdatedAt;
+          const { [it.refId]: _as, ...allSessions } = get().allSessions;
           const { [it.refId]: _tp, ...terminalPanel } = get().terminalPanel; const { [it.refId]: _tid, ...sessionTerminals } = get().sessionTerminals;
           const { [it.refId]: _dk, ...sessionDock } = get().sessionDock;
           const { [it.refId]: _pr, ...planReturn } = get().planReturn;
@@ -4039,7 +4140,7 @@ await get().refreshCustomThemes().catch(() => {});
           const { [it.refId]: _dsr, ...draftSessionRefs } = get().draftSessionRefs; // likewise
           const { [it.refId]: _dl, ...draftLinks } = get().draftLinks;
           const { [it.refId]: _ac, ...sessionActivity } = get().sessionActivity;
-          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, planReturn, sessionSpace, sessionUpdatedAt, terminalPanel, sessionTerminals, sessionDock, sessionActivity });
+          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, planReturn, sessionSpace, sessionUpdatedAt, allSessions, terminalPanel, sessionTerminals, sessionDock, sessionActivity });
           if (termId || _tp) get().run(persistPanels); // the panel map just lost an entry
         }
       },
@@ -4083,6 +4184,35 @@ await get().refreshCustomThemes().catch(() => {});
         set(writeLayout(layout, { focusedLeafId: leafId }));
         applyNavView(entry);
         await persist();
+      },
+      keyboardTaken(n) { if (get().keyboardFor?.n === n) set({ keyboardFor: null }); },
+      canStepWindow(delta) {
+        const known = new Set(get().spaces.map((s) => s.id));
+        return stepTarget(get().windowTrail, delta, (stop) => known.has(stop.spaceId)) !== null;
+      },
+      async stepWindow(delta) {
+        const t = get().windowTrail;
+        const known = new Set(get().spaces.map((s) => s.id));
+        const i = stepTarget(t, delta, (stop) => known.has(stop.spaceId));
+        if (i === null) return;
+        const stop = t.stops[i]!;
+        trailHeld++;
+        try {
+          set({ windowTrail: { stops: t.stops, index: i } });
+          if (stop.spaceId !== get().activeSpaceId) await get().selectSpace(stop.spaceId, { land: false });
+          // "Go there": the item's pane gets the keyboard, in whichever group holds it. An item since
+          // deleted or put away leaves the room as it stands.
+          const item = stop.itemId ? get().items.find((it) => it.id === stop.itemId && !it.archived) : undefined;
+          if (item) await get().openItem(item.id);
+          // …and the keyboard with it, as an open from a list hands it over: coming back to a session
+          // is coming back to typing in it.
+          if (item?.kind === "session") set({ keyboardFor: { sessionId: item.refId, n: (get().keyboardFor?.n ?? 0) + 1 } });
+        } finally {
+          trailHeld--;
+          // Where the step landed IS that stop now (`settleStop`): an item gone since must not fork the trail.
+          const landed = here();
+          if (landed) { const cur = get().windowTrail; const next = settleStop(cur, landed); if (next !== cur) set({ windowTrail: next }); }
+        }
       },
       focusNeighbor(dir) {
         const { layout, focusedLeafId } = get();
@@ -4351,7 +4481,7 @@ await get().refreshCustomThemes().catch(() => {});
         for (const [id, st] of Object.entries(get().sessionStatus)) if (!(id in get().sessions)) sessionStatus[id] = st;
         const sessionUpdatedAt = { ...get().sessionUpdatedAt };
         for (const s of list) { sessions[s.id] = s; sessionStatus[s.id] = s.status; sessionSpace[s.id] = s.spaceId; sessionUpdatedAt[s.id] = s.updatedAt; }
-        set({ sessions: keepHeldSessions(sessions), sessionStatus, sessionSpace, sessionUpdatedAt });
+        set({ sessions: keepHeldSessions(sessions), sessionStatus, sessionSpace, sessionUpdatedAt, allSessions: { ...get().allSessions, ...sessions } });
       },
       listAllSessions(profileId = null) { return api.listAllSessions(profileId); },
       async refreshAllSessions() {
@@ -4359,9 +4489,9 @@ await get().refreshCustomThemes().catch(() => {});
         // The list is the truth for existence and mapping; server-persisted statuses are fresh (they
         // are written before each session.status broadcast), so they simply overwrite.
         const sessionSpace: Record<string, string> = {}; const sessionStatus: Record<string, SessionStatus> = {};
-        const sessionUpdatedAt: Record<string, number> = {};
-        for (const s of all) { sessionSpace[s.id] = s.spaceId; sessionStatus[s.id] = s.status; sessionUpdatedAt[s.id] = s.updatedAt; }
-        set({ sessionSpace, sessionStatus, sessionUpdatedAt });
+        const sessionUpdatedAt: Record<string, number> = {}; const allSessions: Record<string, Session> = {};
+        for (const s of all) { sessionSpace[s.id] = s.spaceId; sessionStatus[s.id] = s.status; sessionUpdatedAt[s.id] = s.updatedAt; allSessions[s.id] = s; }
+        set({ sessionSpace, sessionStatus, sessionUpdatedAt, allSessions });
       },
       async jumpToPermission(sessionId = null) {
         const spaceOf = (id: string) => get().sessionSpace[id] ?? get().sessions[id]?.spaceId ?? null;
@@ -4443,6 +4573,10 @@ await get().refreshCustomThemes().catch(() => {});
            so the streaming path stays exactly as cheap as it was. */
         const doing = activityOf(ev.event);
         const activity = doing ? { sessionActivity: { ...get().sessionActivity, [ev.sessionId]: doing } } : undefined;
+        /* …and the log's new length, for the rows that describe this session — in another room as
+           much as in this one (`logGrew`). Carried the same way, for the same reason. */
+        const grew = !ev.ephemeral && ev.seq > 0 ? logGrew(ev.sessionId, ev.seq) : undefined;
+        const also = activity || grew ? { ...grew, ...activity } : undefined;
         /* An auth failure the server has already re-probed and given up on. Re-read the agents here
            too, and before the transcript returns below, because the answer is about the CLI rather
            than about this session: a signed-out `claude` is signed out for every pane, including the
@@ -4461,8 +4595,8 @@ await get().refreshCustomThemes().catch(() => {});
         if (ev.event.type === "init" && ev.event.payload.supportsFastMode !== undefined) {
           void get().run(() => get().refreshFastSupport());
         }
-        /** This event makes no other write: the line is the whole of it. */
-        const lineOnly = () => { if (activity) set(activity); };
+        /** This event makes no other write: the line, and the log's length, are the whole of it. */
+        const lineOnly = () => { if (also) set(also); };
         const buf = loading.get(ev.sessionId);
         if (buf) { lineOnly(); if (!ev.ephemeral) buf.push(ev); return; } // deltas are dropped while loading; the final text is persisted anyway
         const cur = get().transcripts[ev.sessionId];
@@ -4472,7 +4606,7 @@ await get().refreshCustomThemes().catch(() => {});
         if (ev.seq <= cur.lastSeq) { lineOnly(); return; }
         // A persisted event is ordered AFTER the deltas still waiting, so it folds them into its own
         // write rather than racing the frame that would have applied them.
-        setTranscript(ev.sessionId, { lastSeq: ev.seq, t: reduceTranscript(drainInto(ev.sessionId, cur.t), ev.event) }, activity);
+        setTranscript(ev.sessionId, { lastSeq: ev.seq, t: reduceTranscript(drainInto(ev.sessionId, cur.t), ev.event) }, also);
         // Watching a transcript move IS reading it. Same predicate the notifications auto-read uses —
         // this session is the focused pane — because "which pane has the keyboard" is the only thing
         // the renderer actually knows about attention. A pane in the background, or restored behind
@@ -5826,8 +5960,12 @@ await get().refreshCustomThemes().catch(() => {});
         const row = get().sessions[sessionId];
         if (!t || !row || t.lastSeq <= row.seenSeq) return;
         // Optimistic, because the dot is on screen and waiting a round trip to clear it is a flicker
-        // the user reads as the app not noticing them.
-        mergeSession({ ...row, seenSeq: t.lastSeq });
+        // the user reads as the app not noticing them. Only the read mark moves: writing the whole row
+        // back would write its status over the live one too, and the row is only as fresh as the last
+        // list — the focused pane reads on arrival now, which may be long after that.
+        const all = get().allSessions[sessionId];
+        set({ sessions: { ...get().sessions, [sessionId]: { ...row, seenSeq: t.lastSeq } },
+          ...(all ? { allSessions: { ...get().allSessions, [sessionId]: { ...all, seenSeq: t.lastSeq } } } : {}) });
         await api.markSessionSeen(sessionId, t.lastSeq);
       },
       async markNotificationsRead(ids) {
@@ -5880,7 +6018,7 @@ await get().refreshCustomThemes().catch(() => {});
           void get().run(() => get().refreshNotifications());
         }
       },
-      async revealSession(sessionId, spaceId) {
+      revealSession(sessionId, spaceId) { return holdTrail(async () => {
         // `sessionSpace` is the authority when it has an answer: a session that was MOVED between
         // spaces leaves the caller's remembered id stale, and switching to the old space would open
         // nothing and look like a dead button.
@@ -5892,8 +6030,10 @@ await get().refreshCustomThemes().catch(() => {});
         // than leave the user somewhere new with nothing opened.
         if (!item) return false;
         await get().openItem(item.id);
+        // Opened from a list of sessions, so the keyboard follows: the hand that clicked can type.
+        set({ keyboardFor: { sessionId, n: (get().keyboardFor?.n ?? 0) + 1 } });
         return true;
-      },
+      }); },
       async openNotificationTarget(n) {
         // Read first, before anything moves: the row is read because the user clicked it, not because
         // a landing turned out to be reachable. selectNotification below then finds it already read

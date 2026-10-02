@@ -283,6 +283,20 @@ describe("the shipped table", () => {
     expect(chordOf("pane.toggleFocus")).toBe("mod+shift+f");
   });
 
+  it("ships Go back and Go forward on ⌃- / ⌃⇧-, and leaves ⌘[ / ⌘] to the pane's own trail", () => {
+    /* THE MUTANT is the convention this deliberately does not take: ⌘[ for the window. The table's own
+       one-default-per-chord rule would then drop one of the two, and either the pane's arrows or the
+       window's would go dead. */
+    expect(chordsForCommand(DEFAULT_KEYBINDINGS, "window.back")).toEqual(["ctrl+-"]);
+    expect(chordsForCommand(DEFAULT_KEYBINDINGS, "window.forward")).toEqual(["ctrl+shift+-"]);
+    expect(chordsForCommand(DEFAULT_KEYBINDINGS, "pane.navBack")).toEqual(["mod+["]);
+    expect(chordsForCommand(DEFAULT_KEYBINDINGS, "pane.navForward")).toEqual(["mod+]"]);
+    // From the prompter — where the hand is when it wants to go back — but not from a terminal.
+    expect(commandForChord(DEFAULT_KEYBINDINGS, "ctrl+-", { inputFocus: true, sessionFocus: true })).toBe("window.back");
+    expect(commandForChord(DEFAULT_KEYBINDINGS, "ctrl+-", { terminalFocus: true })).toBeNull();
+    expect(commandForChord(DEFAULT_KEYBINDINGS, "ctrl+-", { overlayOpen: true })).toBeNull();
+  });
+
   it("swallows ⌘W in a spelling the resolver agrees with", () => {
     for (const chord of ALWAYS_SWALLOWED_CHORDS) expect(normalizeKeyChord(chord)).toBe(chord);
     expect(ALWAYS_SWALLOWED_CHORDS).toContain("mod+w");

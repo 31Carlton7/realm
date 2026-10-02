@@ -508,6 +508,81 @@ describe("SessionPane", () => {
   });
 });
 
+describe("reading a session by opening it", () => {
+  /* The unread ring — and the session's row in every list of what needs you — stays until the session
+     is read. Watching events arrive in the focused pane stamps them; this is the other half: what was
+     already there when the pane got the keyboard. THE MUTANT is the old rule alone, where a session
+     opened to read its news kept the ring until it said something new. */
+  const mountAt = async (focused: boolean) => {
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle", seenSeq: 2, lastEventSeq: 4 })] });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessions: { se1: { ...store.getState().sessions["se1"]!, seenSeq: 2, lastEventSeq: 4 } },
+      sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 4, t: seeded() } } });
+    const pane = (f: boolean) => <StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible focused={f} /></StoreContext.Provider>;
+    const r = render(pane(focused));
+    return { api, store, rerender: (f: boolean) => r.rerender(pane(f)) };
+  };
+
+  it("the focused pane reads what it holds", async () => {
+    const { api, store } = await mountAt(true);
+    await waitFor(() => expect(api.calls).toContain("markSessionSeen:se1@4"));
+    expect(store.getState().sessions["se1"]!.seenSeq).toBe(4);
+  });
+
+  it("a pane without the keyboard reads nothing — until it gets it", async () => {
+    const { api, store, rerender } = await mountAt(false);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(api.calls.some((c) => c.startsWith("markSessionSeen"))).toBe(false);
+    expect(store.getState().sessions["se1"]!.seenSeq).toBe(2);
+    rerender(true);
+    await waitFor(() => expect(api.calls).toContain("markSessionSeen:se1@4"));
+  });
+});
+
+describe("opened from a list, the session takes the keyboard", () => {
+  /* A session opened from the Active rows, another room's list, the Agents page or a notification
+     lands with the keyboard in it, so the hand that clicked can type. THE MUTANTS: never take it (the
+     caret stays on a sidebar row, or on nothing once that row is gone), or take it over a permission
+     card that has already claimed it for the answer it needs. */
+  const mountWith = async (status: "idle" | "waiting_permission", focused = true) => {
+    const api = fakeApi({ sessions: [session("se1", "s1", { status })] });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { se1: status }, transcripts: { se1: { lastSeq: 4, t: seeded() } } });
+    render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible focused={focused} /></StoreContext.Provider>);
+    return { store, ask: () => act(() => store.setState({ keyboardFor: { sessionId: "se1", n: (store.getState().keyboardFor?.n ?? 0) + 1 } })) };
+  };
+
+  it("lands in the prompter", async () => {
+    const { ask } = await mountWith("idle");
+    expect(document.activeElement).toBe(document.body);
+    ask();
+    await waitFor(() => expect(document.activeElement).toHaveClass("composer-input"));
+  });
+
+  it("a permission card waiting for an answer keeps it", async () => {
+    const { ask } = await mountWith("waiting_permission");
+    await waitFor(() => expect(document.activeElement?.closest(".permission-card")).not.toBeNull());
+    ask();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(document.activeElement?.closest(".permission-card")).not.toBeNull();
+  });
+
+  it("takes the keyboard once: the request is spent, so a remount never pulls the caret back", async () => {
+    const { store, ask } = await mountWith("idle");
+    ask();
+    await waitFor(() => expect(document.activeElement).toHaveClass("composer-input"));
+    expect(store.getState().keyboardFor).toBeNull();
+  });
+
+  it("a pane without the keyboard takes nothing, and a request for another session is not this one's", async () => {
+    const { store, ask } = await mountWith("idle", false);
+    ask();
+    act(() => store.setState({ keyboardFor: { sessionId: "other", n: 9 } }));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(document.activeElement).toBe(document.body);
+  });
+});
+
 describe("permission keyboard (U-H4)", () => {
   async function mountFocused(focused: boolean) {
     const api = fakeApi({ sessions: [session("se1", "s1", { status: "waiting_permission" })] });

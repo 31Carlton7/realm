@@ -1,5 +1,6 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState, type DragEvent, type RefObject } from "react";
+import type { Space } from "@realm/contracts";
 import { spaceActivity, spaceBadge, useApp, useProfileSpaces } from "../../state/store";
 import { createSpring } from "../../state/spring";
 import { Avatar } from "../Avatar";
@@ -31,10 +32,10 @@ const BADGE_LABEL = { running: "agent running", waiting_permission: "agent needs
 export function SpaceStrip() {
   const spaces = useApp((s) => s.spaces);
   const stripSpaces = useProfileSpaces();
+  const ordered = useStripOrder();
   const activeSpaceId = useApp((s) => s.activeSpaceId);
   const sessionStatus = useApp((s) => s.sessionStatus);
   const sessionSpace = useApp((s) => s.sessionSpace);
-  const sessionUpdatedAt = useApp((s) => s.sessionUpdatedAt);
   const activityOrder = useApp((s) => s.sidebarActivityOrder);
   const selectSpace = useApp((s) => s.selectSpace);
   const reorderSpaces = useApp((s) => s.reorderSpaces);
@@ -42,14 +43,6 @@ export function SpaceStrip() {
   const run = useApp((s) => s.run);
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
-  /* A SORTED COPY, never a rewrite of `spaces`/`sort_order`: the setting is a lens on the strip, the
-     same way `sidebarView` is a lens on the column above it, and turning it back off has to land on
-     the order you dragged, undisturbed, not on whatever activity had put it there last. */
-  const ordered = useMemo(() => {
-    if (!activityOrder) return stripSpaces;
-    return [...stripSpaces].sort((a, b) =>
-      spaceActivity(sessionStatus, sessionSpace, sessionUpdatedAt, b.id) - spaceActivity(sessionStatus, sessionSpace, sessionUpdatedAt, a.id));
-  }, [stripSpaces, activityOrder, sessionStatus, sessionSpace, sessionUpdatedAt]);
   // Even scoped to one profile a strip can overflow; keep the active space reachable/visible on every
   // activation (safe-centered flex can clip either end, and the scrollbar is hidden).
   const activeRef = useRef<HTMLButtonElement | null>(null);
@@ -103,6 +96,27 @@ export function SpaceStrip() {
   );
 }
 
+/**
+ * The active profile's spaces in the order the strip shows them — the user's dragged order, or
+ * `spaceActivity`'s when "Sort spaces by activity" is on. Shared with the sidebar's own list of the
+ * other spaces, so the column never names its rooms in one order above and another below.
+ *
+ * A SORTED COPY, never a rewrite of `spaces`/`sort_order`: the setting is a lens on the strip, the
+ * same way `sidebarView` is a lens on the column above it, and turning it back off has to land on the
+ * order you dragged, undisturbed, not on whatever activity had put it there last.
+ */
+export function useStripOrder(): Space[] {
+  const stripSpaces = useProfileSpaces();
+  const sessionStatus = useApp((s) => s.sessionStatus);
+  const sessionSpace = useApp((s) => s.sessionSpace);
+  const sessionUpdatedAt = useApp((s) => s.sessionUpdatedAt);
+  const activityOrder = useApp((s) => s.sidebarActivityOrder);
+  return useMemo(() => {
+    if (!activityOrder) return stripSpaces;
+    return [...stripSpaces].sort((a, b) =>
+      spaceActivity(sessionStatus, sessionSpace, sessionUpdatedAt, b.id) - spaceActivity(sessionStatus, sessionSpace, sessionUpdatedAt, a.id));
+  }, [stripSpaces, activityOrder, sessionStatus, sessionSpace, sessionUpdatedAt]);
+}
 
 /**
  * Bring the active space into view, on the same spring everything else in the sidebar moves on.
