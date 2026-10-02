@@ -238,10 +238,12 @@ built app, and merged together on `integration/plan-26`, which passes the same g
 - **Not built:** W2 (the rail), and with it W5's one top strip across the window. The need-you count
   (W11c) sits in the sidebar's head band until there is a strip; the Agents page (W11a) is still an
   overlay until the rail can make it Home.
-- **Left over:** the new-tab page's *Recently visited* (W6) is not drawn yet, though W7c's history now
-  exists beside it; per-pin notes (W7d) were left out, since a note typed into the page's DOM is the
-  page's to rewrite; "Full view by default" (W9c); a peek from a notification row (W11b); Go menu rows
-  for Go back / Go forward once the Mac menu bar's Go menu reaches this line.
+- **Finished after the merge** (`feat/plan-26-leftovers`): the new-tab page's *Recently visited* (W6),
+  read from W7c's history, newest first; and a peek from a notification row (W11b), on the guard the
+  Agents page uses, now shared (`components/PeekButton.tsx`).
+- **Left over:** per-pin notes (W7d), left out because a note typed into the page's DOM is the page's
+  to rewrite; "Full view by default" (W9c); Go menu rows for Go back / Go forward once the Mac menu
+  bar's Go menu reaches this line.
 - **Open for a decision:** with the sidebar open, "needs you" now shows three times — the head band's
   count, the Agents row's pill and Active's first rows; and whether Active retires the activity lens
   (the builder's view: it does not — the lens is the only list of every chat by day).
