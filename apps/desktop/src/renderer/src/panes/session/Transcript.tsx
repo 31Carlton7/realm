@@ -9,9 +9,8 @@ import { MessageActions } from "./MessageActions";
 import { SelectionBar } from "./SelectionBar";
 import { MessageSources } from "./MessageSources";
 import { sourcesFor, type Source } from "./message-sources";
-import { PermissionCard } from "./PermissionCard";
-import { PlanCard, PlanDecision, isPlanDecision } from "./PlanCard";
-import { QuestionCard, questionCardFor } from "./QuestionCard";
+import { PendingRequest } from "./PendingRequest";
+import { PlanCard } from "./PlanCard";
 import { ToolCard, ToolGroup } from "./ToolCard";
 import { finishedAt, finishedOn, formatDuration, groupTranscript, withEnter } from "./tool-group";
 import { blockKey, lastUserMessage, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
@@ -463,20 +462,12 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             </div>;
           }
         })}
-        {permissions.map((p, i) => {
-          // Only what really is a permission keeps the Allow / Allow always / Deny gate.
-          const questions = questionCardFor(p);
-          if (questions) return <QuestionCard key={p.requestId} questions={questions} autoFocus={focused && i === 0}
-            enter={isEntering(permKey(p.requestId))}
-            onAnswer={(answers) => onDecide(p.requestId, "allow", answers)} onSkip={() => onDecide(p.requestId, "deny")} />;
-          // A plan is not a permission. The plan itself is already a block above (mapped off the same
-          // tool call), so this is only the answer to it — repeating the markdown here would print the
-          // plan twice.
-          if (isPlanDecision(p)) return <PlanDecision key={p.requestId} autoFocus={focused && i === 0}
-            enter={isEntering(permKey(p.requestId))} onDecide={(d) => onDecide(p.requestId, d)} />;
-          return <PermissionCard key={p.requestId} permission={p} autoFocus={focused && i === 0}
-            enter={isEntering(permKey(p.requestId))} onDecide={(d) => onDecide(p.requestId, d)} />;
-        })}
+        {/* Only what really is a permission keeps the Allow / Allow always / Deny gate — a question
+            and a plan get cards of their own (`PendingRequest`). */}
+        {permissions.map((p, i) => (
+          <PendingRequest key={p.requestId} permission={p} autoFocus={focused && i === 0}
+            enter={isEntering(permKey(p.requestId))} onDecide={(...decision) => onDecide(p.requestId, ...decision)} />
+        ))}
         {/* Plan 9 W2: BUI LoadingState's shimmer label — shown by the session's real status, never a clock.
             The word is this run's (run-label.ts), and `run.startedAt` holds it still: seeding it on
             anything that moves would re-roll the verb on every streaming delta. */}
