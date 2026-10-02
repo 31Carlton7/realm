@@ -37,6 +37,7 @@ describe("the Laya section", () => {
     const store = createAppStore(api);
     await store.getState().boot();
     render(<StoreContext.Provider value={store}><SettingsPage item={item("set", "s1", { kind: "settings-page", refId: PAGE_REF_IDS["settings-page"] })} visible /></StoreContext.Provider>);
+    fireEvent.click(screen.getByRole("radio", { name: "Engines" }));
     expect(await screen.findByRole("heading", { name: "Laya (local decisions)" })).toBeInTheDocument();
     await waitFor(() => expect(api.calls).toContain("layaStatus"));
   });

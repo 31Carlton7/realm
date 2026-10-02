@@ -278,7 +278,7 @@ async function main() {
   })()`);
   await sleep(900);
   await evalIn(c, `(() => {
-    const tab = Array.from(document.querySelectorAll('label')).find((l) => l.textContent.trim() === 'App');
+    const tab = Array.from(document.querySelectorAll('label')).find((l) => l.textContent.trim() === 'General');
     const input = tab && tab.querySelector('input');
     if (input) { input.click(); return true; }
     return false;

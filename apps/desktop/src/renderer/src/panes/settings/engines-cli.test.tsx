@@ -28,6 +28,7 @@ async function mount(overrides: FakeData = {}) {
   const store = createAppStore(api);
   await store.getState().boot();
   const r = render(<StoreContext.Provider value={store}><SettingsPage item={pageItem} visible /></StoreContext.Provider>);
+  fireEvent.click(screen.getByRole("radio", { name: "Engines" }));
   return { store, api, ...r };
 }
 

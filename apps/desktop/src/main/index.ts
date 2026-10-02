@@ -833,7 +833,7 @@ updater = new RealmUpdater({
       type: "info",
       title: "Realm update ready",
       message: `Realm v${version} is ready to install.`,
-      detail: "Restart now to finish the update, or keep working and install it later from Settings → App.",
+      detail: "Restart now to finish the update, or keep working and install it later from Settings → General.",
       buttons: ["Restart and update", "Later"],
       defaultId: 0,
       cancelId: 1,

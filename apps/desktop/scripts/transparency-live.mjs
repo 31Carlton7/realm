@@ -203,7 +203,7 @@ async function main() {
 
   await evalIn(c, `__live.openSettings()`);
   await until(() => evalIn(c, `!!document.querySelector('label input[type="radio"]')`), 10000, "settings page");
-  await evalIn(c, `__live.tab("App")`);
+  await evalIn(c, `__live.tab("Appearance")`);
   await until(() => evalIn(c, `!!__live.slider()`), 10000, "the slider");
 
   // 1. The slider reaches the sidebar, at both ends of its range and in the middle.

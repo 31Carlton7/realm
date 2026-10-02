@@ -91,7 +91,7 @@ export class TerminalHub {
   private catchingUp = new Map<string, { runId: string; seq: number; data: string }[]>();
   /** Terminals whose pane is currently showing a replayed screen and nothing since. */
   private replayed = new Set<string>();
-  /** Whether a terminal's cursor blinks (Settings ▸ App). Held here rather than read at construction
+  /** Whether a terminal's cursor blinks (Settings ▸ General). Held here rather than read at construction
    *  because it has to reach the terminals that are ALREADY open — see `setCursorBlink`. */
   private cursorBlink = TERMINALS_CURSOR_BLINK_DEFAULT;
   private cursorStyle: TerminalCursorStyle = TERMINALS_CURSOR_STYLE_DEFAULT;

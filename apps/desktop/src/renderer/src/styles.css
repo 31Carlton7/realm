@@ -1280,7 +1280,7 @@ kbd { font: 11px var(--font-mono); }
 .mp-use:disabled { opacity: .45; cursor: default; }
 
 /* ── Easter eggs: the heavy efforts ──
-   Every rule here hangs off [data-eggs] or [data-sweep], so the switch in Settings ▸ App takes the
+   Every rule here hangs off [data-eggs] or [data-sweep], so the switch in Settings ▸ General takes the
    whole treatment away by taking one attribute away. Nothing below is ever the only thing saying
    which level is selected — that is [aria-pressed], which is drawn the same with the eggs off.
 
@@ -5536,6 +5536,37 @@ select { appearance: none; padding-right: 22px;
 .page-rail-head { padding: 0 10px 2px; font-size: 11.5px; font-weight: var(--fw-medium); color: var(--rl-text-faint); }
 .page-rail-space { display: flex; align-items: center; gap: 7px; }
 .page-rail-space-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Settings' rail: the search, then the pages under their headings. The headed lists are wrapped in
+   one box of their own so that narrow, where the rail lies down, the field keeps a full line and only
+   the pages become the scrolling strip — a search box that scrolled away with the tabs would be gone
+   exactly when the strip is too long to scan. */
+.settings-rail-lists { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.settings-search { flex: none; }
+@container (max-width: 640px) {
+  .page-rail.settings-rail { flex-direction: column; gap: 8px; overflow: visible; }
+  .settings-rail-lists { flex-direction: row; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+}
+/* A search result is a row of the same list the pages draw, holding one button the width of the row:
+   the label takes the slack, and where it lives is a fixed column at the end. */
+.settings-result { padding: 0; }
+.settings-result-hit {
+  flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 12px; padding: 12px 14px;
+  border: none; border-radius: inherit; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+  transition: background-color var(--dur-hover) ease;
+}
+.settings-result-hit > .settings-row-name { flex: 1; min-width: 0; }
+.settings-result-hit:hover { background: var(--rl-hover); }
+.settings-result-hit:focus-visible { outline: 1.5px solid var(--rl-accent); outline-offset: -1.5px; }
+.settings-result-place { flex: none; font-size: 12.5px; color: var(--rl-text-dim); }
+/* The row a search landed on, for a moment: an accent edge down its inside, the shape the engine
+   cards already use to make one row of a meshed list stand out. Not a ring — a ring on a meshed row
+   redraws the box the mesh removed and crosses the dividers either side of it. The transition is on
+   the resting row so the edge fades as it goes; under reduced motion it simply comes and goes. */
+.settings-page-pane .settings-row, .settings-page-pane .engine-card { transition: box-shadow var(--dur-slow) var(--ease-fade); }
+.settings-page-pane .settings-row[data-found], .settings-page-pane .engine-card[data-found] { box-shadow: inset 3px 0 0 var(--rl-accent); }
+/* A section a search landed on takes focus so the keyboard carries on from it, and shows none: the
+   heading is not a control, and a ring around it would say it was. */
+.settings-page-pane [data-setting][tabindex="-1"]:focus { outline: none; }
 /* `min-height: 0` matters once the narrow block below turns `.page-body` into a column: without it
    the content column's auto minimum keeps it at full content height, and it overflows the pane
    instead of scrolling inside it. */
@@ -6745,7 +6776,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .gen-label { flex: none; }
 .gen-detail { color: var(--rl-text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ——— Settings → App: the background transparency slider ——————————————————————
+/* ——— Settings → Appearance: the background transparency slider ——————————————————————
    A native range on the app's accent, with the value beside it in tabular figures so the number does
    not jitter as the thumb moves. Disabled off macOS, where the window has no material behind it. */
 .font-row { display: flex; align-items: center; gap: 8px; }
@@ -6786,7 +6817,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 /* Tabular so the readout does not shuffle the thumb sideways while it is being dragged. */
 .slider-value { font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
 
-/* ——— Settings → App: the previews ————————————————————————————————————————————
+/* ——— Settings → Appearance: the previews ————————————————————————————————————————————
    Every preview below paints from CUSTOM PROPERTIES set inline on its own element, not from :root.
    That is what lets one page show a light window and a dark one at once: the token blocks in
    tokens.css hang off `data-mode` at the root and cannot be flipped per subtree, so a preview built
@@ -6850,7 +6881,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .cp-line[data-diff="add"] { background: var(--green-tint); box-shadow: inset 2px 0 0 var(--green); }
 .cp-line[data-diff="del"] { background: var(--red-tint); box-shadow: inset 2px 0 0 var(--red); }
 
-/* ——— Settings → App: the palette picker ——————————————————————————————————————
+/* ——— Settings → Appearance: the palette picker ——————————————————————————————————————
    Each card is painted in the theme it names, so the row is a set of previews rather than a list of
    words. auto-fill rather than a fixed column count: this field sits in a settings pane whose width
    is whatever the user left the split at. */

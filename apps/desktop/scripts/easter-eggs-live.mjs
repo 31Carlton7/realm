@@ -80,16 +80,22 @@ window.__live = window.__live ?? {
     const set = Object.getOwnPropertyDescriptor(proto, "value").set;
     set.call(el, value); el.dispatchEvent(new Event("input", { bubbles: true }));
   },
-  /** Settings → App, the tab the switch and the credit live on. */
+  /** Settings → General, the page the switch and the credit live on. */
   async openAppSettings() {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
     for (let i = 0; i < 40 && !document.querySelector(".palette-list"); i++) await new Promise((r) => setTimeout(r, 25));
     [...document.querySelectorAll(".palette-list [role=option], .palette-list button")]
       .find((b) => /settings/i.test(b.textContent))?.click();
     for (let i = 0; i < 80 && !document.querySelector(".settings-page-pane"); i++) await new Promise((r) => setTimeout(r, 25));
-    [...document.querySelectorAll(".page-rail input")].find((r) => r.value === "app")?.click();
-    for (let i = 0; i < 80 && !document.querySelector(".theme-grid"); i++) await new Promise((r) => setTimeout(r, 25));
-    return !!document.querySelector(".theme-grid");
+    return this.settingsPage("general");
+  },
+  /** One Settings page by its rail value: the switch and the credit are on General, the palettes on
+   *  Appearance. Resolves once the page's own landmark is drawn. */
+  async settingsPage(value) {
+    const ready = value === "appearance" ? ".theme-grid" : ".settings-attribution";
+    [...document.querySelectorAll(".page-rail input")].find((r) => r.value === value)?.click();
+    for (let i = 0; i < 80 && !document.querySelector(ready); i++) await new Promise((r) => setTimeout(r, 25));
+    return !!document.querySelector(ready);
   },
   eggSwitch() {
     return [...document.querySelectorAll('input[role="switch"]')].find((s) => s.getAttribute("aria-label") === "Let Realm mess around") ?? null;
@@ -234,14 +240,16 @@ async function main() {
       hasSwitch: !!sw,
       href: link?.getAttribute('href') ?? null,
       credit: document.querySelector('.settings-attribution-line')?.textContent ?? null,
-      dark: __live.palettes("Dark theme"),
     };
   })()`);
-  check("the App tab carries the switch, and it is off", arrival.hasSwitch && arrival.switchOn === false, { on: arrival.switchOn });
+  await evalIn(c, `__live.settingsPage("appearance")`);
+  arrival.dark = await evalIn(c, `__live.palettes("Dark theme")`);
+  check("General carries the switch, and it is off", arrival.hasSwitch && arrival.switchOn === false, { on: arrival.switchOn });
   check("the credit is on screen with the eggs off", /Carlton Aikins/.test(arrival.credit ?? "") && arrival.href === "https://x.com/31Carlton7", arrival.credit);
   check("the konami palette is not in the grid yet", arrival.dark && !arrival.dark.includes("Phosphor"), arrival.dark);
 
   // ── 2. The signature is ink ─────────────────────────────────────────────
+  await evalIn(c, `__live.settingsPage("general")`);
   await until(() => evalIn(c, `!!document.querySelector('.settings-attribution')`), 10000, "attribution");
   // The tab is taller than the window, and a clip that runs off the bottom of the viewport samples
   // black — which reads exactly like an <svg> that drew nothing. Scroll until the box is on screen.
@@ -357,6 +365,7 @@ async function main() {
 
   // ── 5. The sequence, on a real window ───────────────────────────────────
   await until(() => evalIn(c, `__live.openAppSettings()`), 20000, "app settings again");
+  await evalIn(c, `__live.settingsPage("appearance")`);
   const before = await evalIn(c, `__live.palettes("Dark theme")`);
   check("the palette is still withheld before the sequence", before && !before.includes("Phosphor"), before);
   for (const [key, code] of KONAMI) {
@@ -373,8 +382,10 @@ async function main() {
   check("the sequence pays out the hidden palette", !!after, after);
 
   // ── 6. Turning the switch back off ──────────────────────────────────────
+  await evalIn(c, `__live.settingsPage("general")`);
   await evalIn(c, `(() => { __live.eggSwitch().click(); return true; })()`);
   await until(async () => (await evalIn(c, `__live.eggSwitch().checked`)) === false, 5000, "switch off");
+  await evalIn(c, `__live.settingsPage("appearance")`);
   const kept = await evalIn(c, `__live.palettes("Dark theme")`);
   check("what was earned survives the switch going off", kept && kept.includes("Phosphor"), kept);
   save("settings", (await c.send("Page.captureScreenshot", { format: "png" })).data);

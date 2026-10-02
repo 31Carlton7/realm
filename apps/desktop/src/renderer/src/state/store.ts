@@ -2120,9 +2120,9 @@ export type AppState = {
   setDesktopNotifications(enabled: boolean): Promise<void>;
   /** Whether Realm keeps terminal scrollback on disk. Off by default — see the contract. */
   terminalHistory: boolean;
-  /** Whether a terminal's cursor blinks (Settings ▸ App). Reaches live terminals through the hub. */
+  /** Whether a terminal's cursor blinks (Settings ▸ General). Reaches live terminals through the hub. */
   terminalCursorBlink: boolean;
-  /** What shape a terminal's cursor is (Settings ▸ App). Reaches live terminals through the hub. */
+  /** What shape a terminal's cursor is (Settings ▸ General). Reaches live terminals through the hub. */
   terminalCursorStyle: TerminalCursorStyle;
   /** Whether the CODE editor's caret blinks — not the prompter's, which is the platform's. */
   editorCursorBlink: boolean;

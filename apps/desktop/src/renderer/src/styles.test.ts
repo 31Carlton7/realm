@@ -3318,3 +3318,29 @@ describe("the agent-controlled frame", () => {
     expect(bodiesFor(":root[data-quiet] .drive-frame-glow").join(" ")).toContain("animation-play-state: paused");
   });
 });
+
+/** Settings' rail (Plan 26 W9a): a search above headed lists of pages, and a mark on the row a search
+ *  lands on. jsdom lays nothing out, so `settings-groups-live.mjs` measures both in the real window;
+ *  these pin the rules those measurements depend on. */
+describe("Settings' search and grouped rail", () => {
+  it("narrow, the search keeps a line of its own and only the pages lie down into the strip", () => {
+    /* The generic narrow rail is one horizontal scroller. THE mutant: let the search ride in it, and
+       the field scrolls out of sight exactly when the strip is too long to scan — which is when
+       someone reaches for it. */
+    const narrow = blockAfter("@container (max-width: 640px)");
+    expect(narrow).toMatch(/\.page-rail\.settings-rail \{[^}]*flex-direction: column/);
+    expect(narrow).toMatch(/\.page-rail\.settings-rail \{[^}]*overflow: visible/);
+    expect(narrow).toMatch(/\.settings-rail-lists \{[^}]*flex-direction: row[^}]*overflow-x: auto/);
+  });
+
+  it("marks a landed row with an edge down its inside, never a ring", () => {
+    /* A ring on a meshed row redraws the box the mesh removed and crosses the dividers either side
+       of it — the reason the engine cards' warning is an inside edge. THE mutant: `inset 0 0 0 1.5px`. */
+    for (const sel of [".settings-page-pane .settings-row[data-found]", ".settings-page-pane .engine-card[data-found]"]) {
+      expect(bodiesFor(sel).join(" "), sel).toMatch(/box-shadow: inset 3px 0 0 var\(--rl-accent\)/);
+    }
+    // It fades because the RESTING row carries the transition; reduced motion's global kill is what
+    // turns that into a plain on and off.
+    expect(bodiesFor(".settings-page-pane .settings-row").join(" ")).toMatch(/transition: box-shadow var\(--dur-slow\)/);
+  });
+});

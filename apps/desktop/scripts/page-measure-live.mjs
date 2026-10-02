@@ -472,13 +472,13 @@ async function main() {
     narrow.length > 0 && narrow.every((r) => r.gaps.left <= 16),
     narrow.map((r) => ({ pane: r.page.w, l: r.gaps.left })));
 
-  /* The bands, against the rail they must never be drawn over. The App tab, because it is the
-     longest — a tab that does not overflow has no bands to judge. */
+  /* The bands, against the rail they must never be drawn over. General, because it is the
+     longest — a page that does not overflow has no bands to judge. */
   const fades = [];
   for (const width of WIDTHS) {
     await c.send("Emulation.setDeviceMetricsOverride", { width, height: 700, deviceScaleFactor: 1, mobile: false });
     await sleep(250);
-    await evalIn(c, `__live.settingsTab("App")`);
+    await evalIn(c, `__live.settingsTab("General")`);
     await sleep(200);
     fades.push({ width, ...(await evalIn(c, `__live.railUnderFade()`)) });
   }
@@ -548,12 +548,12 @@ async function main() {
 
   await evalIn(c, `__live.destination('Settings')`);
   await sleep(500);
-  /* ── Settings → App: the Appearance controls, against the other tabs ─────────────────────────
+  /* ── Settings → Appearance, against the other pages ─────────────────────────────────────────
      "Fix the padding here" reads most naturally as Appearance disagreeing with the tabs above it,
      so the gutters are measured on every tab rather than on the one that was complained about — a
      number from Appearance alone cannot tell an inconsistency from a taste. The App tab is also the
      only one whose content is a GRID of cards, which is the thing that escapes a measure first. */
-  const SETTINGS_TABS = ["Engines", "Usage", "App", "Sign-ins", "Import", "Permissions"];
+  const SETTINGS_TABS = ["General", "Appearance", "Keys", "Notifications", "Engines", "Usage", "Sign-ins", "Permissions", "Import"];
   const perTab = [];
   for (const width of WIDTHS) {
     await c.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
@@ -585,11 +585,11 @@ async function main() {
   for (const width of WIDTHS) {
     await c.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
     await sleep(250);
-    await evalIn(c, `__live.settingsTab("App")`);
+    await evalIn(c, `__live.settingsTab("Appearance")`);
     await sleep(200);
     appearance.push({ width, ...(await evalIn(c, `__live.appearance()`)) });
   }
-  console.log("\n── Settings → App: the theme grids ──────────────────────────────");
+  console.log("\n── Settings → Appearance: the theme grids ───────────────────────");
   for (const a of appearance) {
     console.log(`  window ${String(a.width).padStart(4)}  column w${a.content.w}@${a.content.l}  ` +
       a.grids.map((g) => `${g.sel} ${g.cards.n}×${g.cards.min}–${g.cards.max}@[${g.cards.l},${g.cards.r}]`).join("  "));
