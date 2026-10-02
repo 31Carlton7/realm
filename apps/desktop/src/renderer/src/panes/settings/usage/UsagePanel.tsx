@@ -290,7 +290,7 @@ function BudgetCard({ data, onSave }: { data: UsageSummary; onSave: (b: UsageBud
   const save = () => { if (valid) onSave(parseUsageBudget({ monthlyUsd: parsed, thresholds, includeEstimated: stored.includeEstimated })); };
 
   return (
-    <section className="usage-card budget-card">
+    <section className="usage-card budget-card" data-setting="usage-budget">
       <header className="usage-card-head">
         <h3>Monthly budget</h3>
         <span className="usage-card-sub">

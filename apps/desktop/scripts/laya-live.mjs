@@ -109,6 +109,9 @@ globalThis.__live = {
     for (let i = 0; i < 40 && !document.querySelector(".palette-list"); i++) await new Promise((r) => setTimeout(r, 25));
     [...document.querySelectorAll(".palette-list [role=option], .palette-list button")].find((b) => /settings/i.test(b.textContent))?.click();
     for (let i = 0; i < 80 && !document.querySelector(".settings-page-pane"); i++) await new Promise((r) => setTimeout(r, 25));
+    // Settings opens on General; Laya is under Engines.
+    document.querySelector('.page-rail input[value="engines"]')?.click();
+    for (let i = 0; i < 80 && !document.querySelector(".laya-section, .engines-list"); i++) await new Promise((r) => setTimeout(r, 25));
     return !!document.querySelector(".settings-page-pane");
   },
 };
@@ -328,10 +331,10 @@ async function main() {
   check("Settings says it is running, on which device, and the p50", /^Running/.test(section.rows[0]) && /p50 \d+ ms/.test(section.rows[0]), section.rows[0]);
   check("…and counts the steps logged", new RegExp(`${steps.length} steps logged`).test(section.rows[2]), section.rows[2]);
   // The light face is its own set of token values, not the dark one inverted (design.md): switched
-  // under Settings ▸ App the way a person would, then back to Engines.
+  // under Settings ▸ Appearance the way a person would, then back to Engines.
   await evalIn(c, `(async () => {
     const wait = async (sel) => { for (let i = 0; i < 80 && !document.querySelector(sel); i++) await new Promise((r) => setTimeout(r, 25)); return document.querySelector(sel); };
-    document.querySelector('.page-rail input[value="app"]').click();
+    document.querySelector('.page-rail input[value="appearance"]').click();
     (await wait('input[name="settings-theme"][value="light"]')).click();
     await new Promise((r) => setTimeout(r, 400));
     document.querySelector('.page-rail input[value="engines"]').click();

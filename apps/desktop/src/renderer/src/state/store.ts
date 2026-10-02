@@ -8,7 +8,7 @@ import {
   activeGroup, activeLayout, addGroup as groupsAdd, mapGroup, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveGroup as groupsMove, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, annotationChipLabel, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_FAST_SUPPORT_KEY, readFastSupport, EDITOR_CURSOR_BLINK_DEFAULT, EDITOR_CURSOR_BLINK_KEY, isTerminalCursorStyle, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, type TerminalCursorStyle, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo,
+  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_FAST_SUPPORT_KEY, readFastSupport, EDITOR_CURSOR_BLINK_DEFAULT, EDITOR_CURSOR_BLINK_KEY, isTerminalCursorStyle, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, type TerminalCursorStyle, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
   type AgentKind, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
@@ -17,7 +17,7 @@ import { createContext, useCallback, useContext, useMemo, useSyncExternalStore }
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
 import { getMachineHub } from "../panes/machine/machine-hub";
 import { CUE_BY_CATEGORY, cueVolume, type CueName } from "./cues";
-import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_SELECTION, clampContrast, clampGroundAlpha,
+import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_PANE_ALPHA, DEFAULT_SELECTION, clampContrast, clampGroundAlpha, clampPaneAlpha, paneAlphaFromGround,
   isOverridden, parseFontPref, type FontPref,
   isThemeName, overrideKey, parseThemeOverrides, themeModes,
   type Mode, type ThemeName, type ThemeOverride, type ThemeOverrides, type ThemeSelection, setCustomThemes, type ThemeDef }  from "@realm/ui";
@@ -27,6 +27,7 @@ import { activityOf, type SessionActivity } from "./session-activity";
 import { exportFileName, exportSessionMarkdown } from "../panes/session/export-session";
 import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browser/browser-client";
 import { SIDEBAR_WIDTH, clampSidebarWidth } from "../components/sidebar/sidebar-width";
+import type { SettingsTab } from "../panes/settings/settings-index";
 
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
 export type UpdateSpaceInput = { id: string; name?: string; icon?: string; color?: string; profileId?: string };
@@ -486,6 +487,15 @@ export type Api = {
   resyncTerminals(): void;
   /** Push the dock badge. Every unread change goes through here; 0 clears it. */
   setBadgeCount(count: number): Promise<void>;
+  /** Tell main which answer this window should give for `prefers-reduced-motion`. */
+  setReducedMotion(pref: ReducedMotionPref): Promise<void>;
+  /** Tell main the keep-awake switch moved; main holds the blocker while a session works. */
+  setPreventSleep(on: boolean): Promise<void>;
+  /** The code editors installed on this Mac. */
+  listEditors(): Promise<InstalledEditor[]>;
+  /** Open an existing path in one of them; false when main refused (not installed, no such path). */
+  /** `base` is the directory a relative path is relative to — a session's working directory. */
+  openInEditor(id: EditorId, path: string, base?: string): Promise<boolean>;
   /** `workspace.gitInfo`: null when cwd is not a git repo (server caches ~3s). */
   gitInfo(cwd: string): Promise<GitInfo | null>;
   /** `workspace.diff` — the changed-file list. Null when cwd is not a repo. */
@@ -687,6 +697,9 @@ const SETTING_CONTRAST = "ui.contrast";
 const SETTING_FONTS = "ui.fonts";
 /** How opaque the sidebar's ground is over the macOS window material, in percent. */
 const SETTING_GROUND_ALPHA = "ui.groundAlpha";
+/** How opaque the panes' ground is, in percent, over their own range (`PANE_ALPHA_RANGE`). Absent in
+ *  a home saved while one control moved both; boot carries that home's value over once. */
+export const SETTING_PANE_ALPHA = "ui.paneAlpha";
 /** Agent of the most recent session the user created or switched to — what "+"/⌘N reach for next. */
 export const SETTING_LAST_AGENT = "ui.lastAgentKind";
 const SETTING_SWIPE_INVERT = "ui.swipeInvert";
@@ -761,7 +774,8 @@ export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "sc
 export type ProfilePageTab = "skills" | "connections" | "memory";
 /** The Settings page's tabs, in rail order — the store holds which one is showing so an opener can land
  *  on one (the browser pane's "Browser settings" opens Sign-ins). */
-export type SettingsPageTab = "engines" | "usage" | "app" | "keys" | "signins" | "import" | "permissions";
+/** The Settings rail's pages (`settings-index.ts` owns their order and headings). */
+export type SettingsPageTab = SettingsTab;
 
 /** Sessions are never created through a sheet (W3): "+"/⌘N/palette create one instantly and every
  *  choice lives on the prompter's chips. What remains here is genuinely form-shaped. */
@@ -836,6 +850,12 @@ export type AppState = {
    *  set on a Mac should survive opening the same home somewhere without a material, and come back
    *  unchanged. */
   groundAlpha: number;
+  /** The panes' opacity over the same material, 86–100 (`PANE_ALPHA_RANGE`, whose floor is where body
+   *  text would fall under WCAG AA over the worst desktop). Its own control since Plan 26. */
+  paneAlpha: number;
+  /** Settings ▸ Appearance ▸ Reduce motion. "system" follows the Mac; "on" and "off" override it by
+   *  changing what the window reports for `prefers-reduced-motion` (see `@realm/contracts` motion). */
+  reduceMotion: ReducedMotionPref;
   /** Invert the two-finger swipe direction (default: fingers-left → next space, like Arc/Spaces). */
   swipeInvert: boolean;
   /**
@@ -1450,6 +1470,8 @@ export type AppState = {
   setContrast(level: number): Promise<void>;
   setFonts(patch: Partial<FontPref>): Promise<void>;
   setGroundAlpha(pct: number): Promise<void>;
+  setPaneAlpha(pct: number): Promise<void>;
+  setReduceMotion(pref: ReducedMotionPref): Promise<void>;
   setSwipeInvert(v: boolean): Promise<void>;
   setSidebarActivityOrder(v: boolean): Promise<void>;
   setLowPower(v: boolean): Promise<void>;
@@ -1519,6 +1541,14 @@ export type AppState = {
    *  screen is the one state the sidebar could not explain — so this is `updateItem` plus that close,
    *  in that order; unarchiving only clears the flag and leaves the item unopened in the SPACE group. */
   archiveItem(itemId: string, archived: boolean): Promise<void>;
+  /** Settings ▸ Archived: every space's archived sessions, the most recently active first. Null
+   *  until the page has read them. */
+  archivedSessions: Item[] | null;
+  refreshArchivedSessions(): Promise<void>;
+  /** Back into its space's list, unopened — `archiveItem(id, false)`, from wherever the space is. */
+  restoreArchivedSession(itemId: string): Promise<void>;
+  /** The session itself, and its transcript, as the sidebar's own Delete does. */
+  deleteArchivedSession(itemId: string): Promise<void>;
   /** Open an item into `leafId` ?? the focused leaf ?? the first leaf, replacing what it held (the
    *  replaced item returns to the SPACE group); focuses that leaf. With no explicit `leafId`, an
    *  already-open item is only focused (click = go there) — layout untouched, nothing persisted. */
@@ -1767,6 +1797,14 @@ export type AppState = {
   setBrowserAllowlist(spaceId: string, allowlist: string[] | null): Promise<void>;
   /** Fetch a space's computer-use allowed-apps list (Connections tab mount). */
   refreshComputerAllowedApps(spaceId: string): Promise<void>;
+  /** Settings ▸ Computer use: each space's `realm-computer` provider as the gateway reports it FOR
+   *  THAT SPACE — null when it reports none. Kept apart from `mcpProviders`, which is the one space a
+   *  Connections panel has open; a page that lists every space cannot share a list keyed to one. */
+  computerControl: Record<string, McpProvider | null>;
+  refreshComputerControl(spaceId: string): Promise<void>;
+  /** The space's own switch, from the page that gathers them. The switch stays the space's: this is
+   *  the same provider write the Connections tab makes, and that tab hears of it on its next read. */
+  setComputerControl(spaceId: string, enabled: boolean): Promise<void>;
   /** Persist a space's computer-use allowed-apps list. The server stores what it will really honour
    *  — a forbidden bundle id is dropped rather than accepted — so the list it returns is what lands
    *  in the store, never the one that was sent. */
@@ -2195,9 +2233,9 @@ export type AppState = {
   setDesktopNotifications(enabled: boolean): Promise<void>;
   /** Whether Realm keeps terminal scrollback on disk. Off by default — see the contract. */
   terminalHistory: boolean;
-  /** Whether a terminal's cursor blinks (Settings ▸ App). Reaches live terminals through the hub. */
+  /** Whether a terminal's cursor blinks (Settings ▸ General). Reaches live terminals through the hub. */
   terminalCursorBlink: boolean;
-  /** What shape a terminal's cursor is (Settings ▸ App). Reaches live terminals through the hub. */
+  /** What shape a terminal's cursor is (Settings ▸ General). Reaches live terminals through the hub. */
   terminalCursorStyle: TerminalCursorStyle;
   /** Whether the CODE editor's caret blinks — not the prompter's, which is the platform's. */
   editorCursorBlink: boolean;
@@ -2205,6 +2243,20 @@ export type AppState = {
   setTerminalCursorBlink(on: boolean): Promise<void>;
   setTerminalCursorStyle(style: TerminalCursorStyle): Promise<void>;
   setEditorCursorBlink(on: boolean): Promise<void>;
+  /** Which edge of a session pane its terminal (⌘J) docks to (Settings ▸ General ▸ Terminals). */
+  terminalDock: TerminalDockEdge;
+  setTerminalDock(edge: TerminalDockEdge): Promise<void>;
+  /** Keep the Mac awake while a session works (Settings ▸ General ▸ Power). Off by default. */
+  preventSleep: boolean;
+  setPreventSleep(on: boolean): Promise<void>;
+  /** Which editor the transcript's path menu offers — an id, "realm" for none, null for the first
+   *  installed one (see `resolveEditor`). */
+  openFilesIn: OpenFilesIn | null;
+  setOpenFilesIn(pref: OpenFilesIn): Promise<void>;
+  /** The editors this Mac has, read at boot and again when Settings shows the choice. */
+  editors: InstalledEditor[];
+  refreshEditors(): Promise<void>;
+  openPathInEditor(id: EditorId, path: string, base?: string): Promise<void>;
   /** The Settings→App sound switch and its level (0…1). Each writes its key and holds the answer, so
    *  the next broadcast sounds under the new one without waiting for a settings refresh. */
   setSoundCues(enabled: boolean): Promise<void>;
@@ -3093,28 +3145,29 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     };
 
     let groundAlphaTimer: ReturnType<typeof setTimeout> | null = null;
+    let paneAlphaTimer: ReturnType<typeof setTimeout> | null = null;
     let sidebarWidthTimer: ReturnType<typeof setTimeout> | null = null;
     let contrastTimer: ReturnType<typeof setTimeout> | null = null;
 
     return {
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", sidebarActivityOrder: false, confirmDelete: true, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
-      allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
+      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", sidebarActivityOrder: false, confirmDelete: true, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
+      allItems: [], archivedSessions: null, lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", paletteReplaces: null, peek: null, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
       laya: null,
-      spacePageTab: {}, profilePageTab: {}, settingsPageTab: "engines", librarySkill: {}, mcpPanelSpaceId: null, agentsView: "list", officeWorld: null,
+      spacePageTab: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null, agentsView: "list", officeWorld: null,
       sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
       terminalPanel: {}, sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null,
-      machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {},
+      machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
-      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, editorCursorBlink: EDITOR_CURSOR_BLINK_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, notificationsSelectedId: null, paneHistory: {},
+      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, openFilesIn: null, editors: [], editorCursorBlink: EDITOR_CURSOR_BLINK_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, notificationsSelectedId: null, paneHistory: {},
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       activeProfileId() { return get().activeSpace()?.profileId ?? null; },
@@ -3122,9 +3175,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, swipeInvert, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, panels, quick, filesView, system, avatarPath] = await Promise.all([
+        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, swipeInvert, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, panels, quick, filesView, system, avatarPath] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME),
-          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
+          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_PANE_ALPHA), api.getSetting(REDUCED_MOTION_KEY), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
           api.getSetting(SETTING_TERMINAL_PANEL),
           api.getSetting(SETTING_QUICK_CHAT),
@@ -3136,9 +3189,20 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           api.getAvatar().catch(() => null),
         ]);
         const agent = AgentKindSchema.safeParse(lastAgent);
+        /* The panes' own value, or — in a home saved while one control moved both — the value that
+           control had them at, written back once so the two are independent from here on. Writing
+           it is what makes the carry-over happen once: read-only, the panes would follow the
+           sidebar again on every launch until someone happened to touch their slider. */
+        const carriedPane = typeof paneAlpha === "number" ? clampPaneAlpha(paneAlpha)
+          : typeof groundAlpha === "number" ? paneAlphaFromGround(groundAlpha) : DEFAULT_PANE_ALPHA;
+        if (typeof paneAlpha !== "number" && typeof groundAlpha === "number") void api.setSetting(SETTING_PANE_ALPHA, carriedPane).catch(() => {});
+        // Every boot, "system" included: the window may still hold the answer an earlier preference
+        // gave it, and asking is how it is put back.
+        void api.setReducedMotion(isReducedMotionPref(motion) ? motion : REDUCED_MOTION_DEFAULT).catch(() => {});
         set({ profiles, themePref: isThemePref(theme) ? theme : "system", themeNames: { light: storedPalette(light, legacyName, "light"), dark: storedPalette(dark, legacyName, "dark") },
           themeOverrides: parseThemeOverrides(overrides), contrast: typeof contrast === "number" ? clampContrast(contrast) : CONTRAST_RANGE.default, fonts: parseFontPref(fonts),
           groundAlpha: typeof groundAlpha === "number" ? clampGroundAlpha(groundAlpha) : DEFAULT_GROUND_ALPHA, swipeInvert: swipeInvert === true, lowPower: lowPower === true,
+          paneAlpha: carriedPane, reduceMotion: isReducedMotionPref(motion) ? motion : REDUCED_MOTION_DEFAULT,
           submitKey: isSubmitKey(submitKey) ? submitKey : "enter", sidebarCollapsed: sidebarCollapsed === true,
           sidebarWidth: typeof sidebarWidth === "number" ? clampSidebarWidth(sidebarWidth) : SIDEBAR_WIDTH.default,
           // Rows unless the row says cards: an unset key, and a word a newer build wrote that this
@@ -3195,6 +3259,15 @@ await get().refreshCustomThemes().catch(() => {});
         set({ editorCursorBlink: editorBlink !== false });
         const cursorStyle = await api.getSetting(TERMINALS_CURSOR_STYLE_KEY).catch(() => null);
         set({ terminalCursorStyle: isTerminalCursorStyle(cursorStyle) ? cursorStyle : TERMINALS_CURSOR_STYLE_DEFAULT });
+        const dockEdge = await api.getSetting(TERMINALS_DOCK_KEY).catch(() => null);
+        set({ terminalDock: isTerminalDockEdge(dockEdge) ? dockEdge : TERMINALS_DOCK_DEFAULT });
+        // Only an explicit `true` keeps a Mac awake: an unset key and a failed read both mean nobody
+        // asked, and the battery is not ours to spend on a guess.
+        const awake = await api.getSetting(POWER_PREVENT_SLEEP_KEY).catch(() => null);
+        set({ preventSleep: awake === true });
+        void api.setPreventSleep(awake === true).catch(() => {});
+        const openIn = await api.getSetting(FILES_OPEN_IN_KEY).catch(() => null);
+        set({ openFilesIn: isOpenFilesIn(openIn) ? openIn : null, editors: await api.listEditors().catch(() => []) });
         const str = (v: unknown) => (typeof v === "string" ? v : "");
         set({ desktopNotifications: desktop !== false, soundCues: sound !== false, soundVolume: cueVolume(volume),
           notificationRelay: { imessage: str(imessage), slackWebhook: str(slackWebhook) }, midTurnMode: resolveMidTurnMode(midTurn) });
@@ -3483,6 +3556,18 @@ await get().refreshCustomThemes().catch(() => {});
         // settled, so a failed write has nowhere else to surface and would otherwise be swallowed.
         groundAlphaTimer = setTimeout(() => { groundAlphaTimer = null; get().run(() => api.setSetting(SETTING_GROUND_ALPHA, next)); }, PERSIST_DEBOUNCE_MS);
       },
+      async setPaneAlpha(pct) {
+        // Exactly setGroundAlpha's shape: clamped before it is stored, painted on every step of the
+        // drag, written once it settles.
+        const next = clampPaneAlpha(pct);
+        set({ paneAlpha: next });
+        if (paneAlphaTimer) clearTimeout(paneAlphaTimer);
+        paneAlphaTimer = setTimeout(() => { paneAlphaTimer = null; get().run(() => api.setSetting(SETTING_PANE_ALPHA, next)); }, PERSIST_DEBOUNCE_MS);
+      },
+      async setReduceMotion(pref) {
+        set({ reduceMotion: pref });
+        await Promise.all([api.setSetting(REDUCED_MOTION_KEY, pref), api.setReducedMotion(pref)]);
+      },
       async setSwipeInvert(v) {
         set({ swipeInvert: v });
         await api.setSetting(SETTING_SWIPE_INVERT, v);
@@ -3650,6 +3735,21 @@ await get().refreshCustomThemes().catch(() => {});
           const live = new Set(get().items.filter((i) => !i.archived).map((i) => i.id));
           set({ paneHistory: forgetNavItems(get().paneHistory, live) });
         }
+      },
+      async refreshArchivedSessions() {
+        // Each space's own list, not `items.listAll`: that one leaves archived rows out on purpose,
+        // because the palette offers what is live.
+        const lists = await Promise.all(get().spaces.map((sp) => api.listItems(sp.id).catch(() => [] as Item[])));
+        const at = (i: Item) => get().sessionUpdatedAt[i.refId] ?? i.updatedAt;
+        set({ archivedSessions: lists.flat().filter((i) => i.kind === "session" && i.archived).sort((a, b) => at(b) - at(a)) });
+      },
+      async restoreArchivedSession(itemId) {
+        await get().archiveItem(itemId, false);
+        set({ archivedSessions: (get().archivedSessions ?? []).filter((i) => i.id !== itemId) });
+      },
+      async deleteArchivedSession(itemId) {
+        await get().deleteItem(itemId);
+        set({ archivedSessions: (get().archivedSessions ?? []).filter((i) => i.id !== itemId) });
       },
       /** Agent-opened panes arrive BESIDE the user's focused pane, never replacing it. Replacing was a
        *  live-found deadlock: the browser evicted the very session whose permission card the user had to
@@ -4822,6 +4922,20 @@ await get().refreshCustomThemes().catch(() => {});
         const apps = await api.listComputerAllowedApps(spaceId);
         set({ computerAllowedApps: { ...get().computerAllowedApps, [spaceId]: apps } });
       },
+      async refreshComputerControl(spaceId) {
+        const providers = await api.listMcpProviders(spaceId);
+        set({ computerControl: { ...get().computerControl, [spaceId]: providers.find((p) => p.name === COMPUTER_PROVIDER_NAME) ?? null } });
+      },
+      async setComputerControl(spaceId, enabled) {
+        await api.setMcpProviderEnabled(spaceId, COMPUTER_PROVIDER_NAME, enabled);
+        const was = get().computerControl[spaceId];
+        set({ computerControl: { ...get().computerControl, [spaceId]: was ? { ...was, enabled } : null } });
+        // The open Connections panel, if it is THIS space's, says the same thing — and only then: its
+        // list is keyed to one space, and patching it for another would flip the wrong row.
+        if (get().mcpPanelSpaceId === spaceId) {
+          set({ mcpProviders: get().mcpProviders.map((p) => (p.name === COMPUTER_PROVIDER_NAME ? { ...p, enabled } : p)) });
+        }
+      },
       async setComputerAllowedApps(spaceId, apps) {
         // The server's answer, not the argument: removing an entry also revokes it in every live
         // session, and it refuses to store an app that can never be driven — so what comes back is
@@ -5827,6 +5941,29 @@ await get().refreshCustomThemes().catch(() => {});
       async setTerminalCursorStyle(style) {
         set({ terminalCursorStyle: style });
         await api.setSetting(TERMINALS_CURSOR_STYLE_KEY, style);
+      },
+      async setTerminalDock(edge) {
+        set({ terminalDock: edge });
+        await api.setSetting(TERMINALS_DOCK_KEY, edge);
+      },
+      async setPreventSleep(on) {
+        set({ preventSleep: on });
+        // Both: the stored value is what main reads when it next connects with no window, and the
+        // push is what reaches a turn already running.
+        await Promise.all([api.setSetting(POWER_PREVENT_SLEEP_KEY, on), api.setPreventSleep(on)]);
+      },
+      async setOpenFilesIn(pref) {
+        set({ openFilesIn: pref });
+        await api.setSetting(FILES_OPEN_IN_KEY, pref);
+      },
+      async refreshEditors() {
+        set({ editors: await api.listEditors() });
+      },
+      async openPathInEditor(id, path, base) {
+        const opened = await api.openInEditor(id, path, base);
+        // Main refuses a path that no longer exists or an editor since removed; say which, because
+        // a menu item that silently does nothing reads as a click that did not land.
+        if (!opened) throw new Error(`${path} could not be opened in that editor — it may have moved, or the editor is no longer installed.`);
       },
       async setEditorCursorBlink(on) {
         set({ editorCursorBlink: on });

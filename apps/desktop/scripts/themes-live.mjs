@@ -171,7 +171,7 @@ window.__live = window.__live ?? {
       paneRect: (document.querySelector(".panel") ?? document.querySelector(".main")).getBoundingClientRect().toJSON(),
     };
   },
-  /** Settings → App, which is where every control the space menu cannot reach lives. */
+  /** Settings → Appearance, which is where every control the space menu cannot reach lives. */
   async openAppSettings() {
     document.querySelector('[aria-label="Space menu"]')?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
@@ -180,7 +180,7 @@ window.__live = window.__live ?? {
       .find((b) => /settings/i.test(b.textContent));
     open?.click();
     for (let i = 0; i < 80 && !document.querySelector(".settings-page-pane"); i++) await new Promise((r) => setTimeout(r, 25));
-    [...document.querySelectorAll(".page-rail input")].find((r) => r.value === "app")?.click();
+    [...document.querySelectorAll(".page-rail input")].find((r) => r.value === "appearance")?.click();
     for (let i = 0; i < 80 && !document.querySelector(".mode-grid"); i++) await new Promise((r) => setTimeout(r, 25));
     document.querySelector(".mode-grid")?.scrollIntoView();
     return !!document.querySelector(".mode-grid");

@@ -406,5 +406,25 @@ describe("the code face reaches a terminal that is already open", () => {
     document.documentElement.style.removeProperty("--font-mono");
     container.remove();
   });
+
+  it("pushes a changed code size into every live terminal too, and re-fits the opened ones", () => {
+    // "Code font size" is the size of everything in the code face, terminals included. THE
+    // face-only mutant: refresh the family and leave the size, and the largest code surface in the
+    // app is the one the setting does not reach.
+    const { hub, terms, fits } = setup();
+    const container = document.createElement("div"); document.body.appendChild(container);
+    hub.acquire("open").attach(container);
+    hub.acquire("detached");
+    hub.refreshFont();
+    fits.length = 0;
+
+    document.documentElement.style.setProperty("--code-text-scale", "1.25");
+    hub.refreshFont();
+    expect(terms.map((t) => t.options!.fontSize)).toEqual([16.25, 16.25]);
+    // A cell's size is the font's size: the opened terminal re-measures, the detached one waits.
+    expect(fits).toEqual([0]);
+    document.documentElement.style.removeProperty("--code-text-scale");
+    container.remove();
+  });
 });
 

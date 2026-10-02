@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { deriveVars, REALM_SEED, seedFor, THEMES, themeModes, type Mode, type ThemeName } from "@realm/ui";
+import { deriveVars, PANE_ALPHA_RANGE, REALM_SEED, seedFor, THEMES, themeModes, type Mode, type ThemeName } from "@realm/ui";
 import { CONTRAST_FLOOR } from "@realm/ui/src/themes";
 import { parseOklch, srgb, srgbLuminance, type Oklch } from "@realm/contracts";
 
@@ -27,14 +27,10 @@ function repoFile(rel: string): string {
 }
 const tokensCss = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
 
-/** The thin end of `--pane-alpha`, as a fraction — what a pane's ground comes to with the
- *  translucency slider pushed all the way down. Read from the file rather than restated: the point
- *  of this suite is to fail when that number moves. */
-const PANE_ALPHA = (() => {
-  const m = /--pane-alpha:\s*calc\((\d+(?:\.\d+)?)% \+ \(var\(--ground-alpha\) - (\d+)%\)/.exec(tokensCss);
-  if (!m) throw new Error("tokens.css no longer maps --pane-alpha off --ground-alpha");
-  return Number(m[1]) / 100;
-})();
+/** The thin end of `--pane-alpha`, as a fraction — what a pane's ground comes to with its
+ *  translucency slider pushed all the way down. Read from the range the control is clamped to rather
+ *  than restated: the point of this suite is to fail when that number moves. */
+const PANE_ALPHA = PANE_ALPHA_RANGE.min / 100;
 
 /** What the eye actually receives: the ground painted at `alpha` over a desktop of `behind`.
  *  Composited on the ENCODED channels, because that is where a compositor does it — mixing linear
@@ -100,6 +96,13 @@ describe("the pane ground, with the desktop showing through it", () => {
     const light = deriveVars(seedFor("rosepine", "light", {}) ?? REALM_SEED.light, "light") as Record<string, string>;
     const onBlack = over(parseOklch(light["--canvas"]!), 0, 0.55);
     expect(ratio(parseOklch(light["--ink"]!), onBlack)).toBeLessThan(CONTRAST_FLOOR.ink);
+  });
+
+  it("is the pane's own number now, written by applyTheme, with an opaque fallback", () => {
+    /* THE derived-again mutant: map the pane off --ground-alpha in the stylesheet, and the sidebar's
+       control moves the reading again whatever the pane's own control says. */
+    expect(tokensCss).toMatch(/--pane-alpha:\s*100%;/);
+    expect(tokensCss).not.toMatch(/--pane-alpha:[^;]*--ground-alpha/);
   });
 
   it("goes fully opaque under the system's reduced-transparency preference", () => {

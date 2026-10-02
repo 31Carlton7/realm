@@ -80,6 +80,29 @@ export const DEFAULT_GROUND_ALPHA = GROUND_ALPHA_RANGE.min;
 export const clampGroundAlpha = (pct: number): number =>
   Math.round(Math.min(GROUND_ALPHA_RANGE.max, Math.max(GROUND_ALPHA_RANGE.min, pct)));
 
+/**
+ * The panes' share of the same material, over their OWN range — and since Plan 26, their own control.
+ *
+ * The sidebar holds short labels and the panes hold the reading, and a pane's ground is whatever the
+ * desktop behind the window happens to be. 86 is measured, not chosen (`pane-ground.test.ts` walks
+ * it): composite each face's `--canvas` over a white desktop and over a black one and 86% opacity is
+ * the thinnest at which `--ink` still clears WCAG AA on every face. Below it, body text on a light
+ * face over a dark desktop goes under 4.5:1, and body text is the one thing here that may never be
+ * a judgement call — which is why the pane's control stops there however far the sidebar's goes.
+ */
+export const PANE_ALPHA_RANGE = { min: 86, max: 100 } as const;
+export const DEFAULT_PANE_ALPHA = PANE_ALPHA_RANGE.min;
+
+export const clampPaneAlpha = (pct: number): number =>
+  Math.round(Math.min(PANE_ALPHA_RANGE.max, Math.max(PANE_ALPHA_RANGE.min, pct)));
+
+/** What the panes were at when one control moved both: the sidebar's value mapped onto the pane's
+ *  range, 55 → 86 at the thin end and 100 → 100 at the other. Kept only to carry a home saved before
+ *  the split forward to the pane it was already looking at. */
+export const paneAlphaFromGround = (ground: number): number =>
+  clampPaneAlpha(PANE_ALPHA_RANGE.min + (clampGroundAlpha(ground) - GROUND_ALPHA_RANGE.min)
+    * (PANE_ALPHA_RANGE.max - PANE_ALPHA_RANGE.min) / (GROUND_ALPHA_RANGE.max - GROUND_ALPHA_RANGE.min));
+
 /** Writes the runtime tokens and stamps the mode and theme on the root. `data-mode` is what flips the
  *  CSS token blocks (and Tailwind's `dark:` variant, remapped onto it) between the dark and light BUI
  *  ramps; `data-theme` is a label for the stylesheet and the live checks to read, never a selector
@@ -100,9 +123,9 @@ export const clampGroundAlpha = (pct: number): number =>
  *  bands. */
 export function applyTheme(
   { space, mode, theme = "realm", override = {}, contrast = CONTRAST_RANGE.default,
-    fonts = DEFAULT_FONTS, groundAlpha = DEFAULT_GROUND_ALPHA }:
+    fonts = DEFAULT_FONTS, groundAlpha = DEFAULT_GROUND_ALPHA, paneAlpha = DEFAULT_PANE_ALPHA }:
     { space: string; mode: Mode; theme?: ThemeName; override?: ThemeOverride; contrast?: number;
-      fonts?: FontPref; groundAlpha?: number },
+      fonts?: FontPref; groundAlpha?: number; paneAlpha?: number },
   root: HTMLElement = document.documentElement,
 ): void {
   root.style.setProperty("--rl-space", spaceColor(space, mode));
@@ -111,6 +134,7 @@ export function applyTheme(
      there is no static-CSS behaviour that staying silent would preserve. */
   for (const [name, value] of Object.entries(fontVars(fonts))) root.style.setProperty(name, value);
   root.style.setProperty("--ground-alpha", `${clampGroundAlpha(groundAlpha)}%`);
+  root.style.setProperty("--pane-alpha", `${clampPaneAlpha(paneAlpha)}%`);
   root.dataset.mode = mode;
   root.dataset.theme = theme;
   const vars = themeVars(theme, mode, { override, contrast });

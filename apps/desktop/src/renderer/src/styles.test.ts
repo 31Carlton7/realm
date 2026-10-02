@@ -3400,3 +3400,66 @@ describe("the agent-controlled frame", () => {
     expect(bodiesFor(":root[data-quiet] .drive-frame-glow").join(" ")).toContain("animation-play-state: paused");
   });
 });
+
+/** Settings' rail (Plan 26 W9a): a search above headed lists of pages, and a mark on the row a search
+ *  lands on. jsdom lays nothing out, so `settings-groups-live.mjs` measures both in the real window;
+ *  these pin the rules those measurements depend on. */
+describe("Settings' search and grouped rail", () => {
+  it("narrow, the search keeps a line of its own and only the pages lie down into the strip", () => {
+    /* The generic narrow rail is one horizontal scroller. THE mutant: let the search ride in it, and
+       the field scrolls out of sight exactly when the strip is too long to scan — which is when
+       someone reaches for it. */
+    const narrow = blockAfter("@container (max-width: 640px)");
+    expect(narrow).toMatch(/\.page-rail\.settings-rail \{[^}]*flex-direction: column/);
+    expect(narrow).toMatch(/\.page-rail\.settings-rail \{[^}]*overflow: visible/);
+    expect(narrow).toMatch(/\.settings-rail-lists \{[^}]*flex-direction: row[^}]*overflow-x: auto/);
+  });
+
+  it("narrow, each headed list keeps its own width in the strip", () => {
+    /* `.page-rail-list` is `min-width: 0`, so in a row it shrinks to share the strip. THE mutant:
+       drop this, and the five lists squeeze to the strip's width with their tabs drawn over each
+       other — measured live as "AppearanceEnginesKeysSign-ins" in one smear. */
+    expect(blockAfter("@container (max-width: 640px)")).toMatch(/\.settings-rail-lists > \.page-rail-list \{[^}]*flex: none/);
+  });
+
+  it("wide, the lists scroll under the search when the page is shorter than the rail", () => {
+    /* 530px of rail against 479px of page at the 600px minimum window. THE mutant: let the rail
+       size to its content, and Import sits below the page with nothing to scroll it into view. */
+    expect(bodiesFor(".page-rail.settings-rail").join(" ")).toMatch(/max-height: 100%/);
+    const lists = bodiesFor(".settings-rail-lists").join(" ");
+    expect(lists).toContain("min-height: 0");
+    expect(lists).toContain("overflow-y: auto");
+  });
+
+  it("on the light face a search field on this page takes the raised fill, through the painter when there is one", () => {
+    /* `--field` and `--canvas` are the same lightness on the light face, so a field laid on the
+       page's ground has no edge. THE painter mutant: write `background` where the worklet paints —
+       it replaces `paint(rl-squircle)` and, at `border-radius: 0`, squares the field off. */
+    expect(bodiesFor(':root[data-mode="light"] .settings-page-pane .search-field').join(" ")).toBe("--sq-fill: var(--surface);");
+    expect(bodiesFor(':root[data-mode="light"]:not([data-squircle]) .settings-page-pane .search-field').join(" ")).toContain("background: var(--surface)");
+  });
+
+  it("marks a landed row with an edge down its inside, never a ring", () => {
+    /* A ring on a meshed row redraws the box the mesh removed and crosses the dividers either side
+       of it — the reason the engine cards' warning is an inside edge. THE mutant: `inset 0 0 0 1.5px`. */
+    for (const sel of [".settings-page-pane .settings-row[data-found]", ".settings-page-pane .engine-card[data-found]"]) {
+      expect(bodiesFor(sel).join(" "), sel).toMatch(/box-shadow: inset 3px 0 0 var\(--rl-accent\)/);
+    }
+    // It fades because the RESTING row carries the transition; reduced motion's global kill is what
+    // turns that into a plain on and off.
+    expect(bodiesFor(".settings-page-pane .settings-row").join(" ")).toMatch(/transition: box-shadow var\(--dur-slow\)/);
+  });
+});
+
+/** The content face (Plan 26 W9b). jsdom computes no cascade, so `settings-groups-live.mjs` reads the
+ *  computed family off probes in the real window; this pins the declarations that reading depends on. */
+describe("prose reads in the content face", () => {
+  it("every surface prose is read on names --font-content, and the root starts it as the UI face", () => {
+    /* THE missed-surface mutant: leave one off, and choosing a serif changes the transcript but not
+       the documents editor — two faces for the same kind of reading in one window. */
+    for (const sel of [".msg-assistant", ".msg-user", ".md", ".documents-rich-surface"]) {
+      expect(bodiesFor(sel).join(" "), sel).toContain("font-family: var(--font-content)");
+    }
+    expect(bodiesFor(":root").join(" ")).toContain("--font-content: var(--font-ui)");
+  });
+});

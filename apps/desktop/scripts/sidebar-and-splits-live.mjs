@@ -278,7 +278,7 @@ async function main() {
   })()`);
   await sleep(900);
   await evalIn(c, `(() => {
-    const tab = Array.from(document.querySelectorAll('label')).find((l) => l.textContent.trim() === 'App');
+    const tab = Array.from(document.querySelectorAll('label')).find((l) => l.textContent.trim() === 'General');
     const input = tab && tab.querySelector('input');
     if (input) { input.click(); return true; }
     return false;
@@ -314,6 +314,14 @@ async function main() {
              shift: getComputedStyle(document.documentElement).getPropertyValue("--lh-shift").trim() };
   })()`);
 
+  // Line height is an Appearance row now (Settings is grouped, and General holds the switch above).
+  await evalIn(c, `(() => {
+    const tab = Array.from(document.querySelectorAll('label')).find((l) => l.textContent.trim() === 'Appearance');
+    const input = tab && tab.querySelector('input');
+    if (input) { input.click(); return true; }
+    return false;
+  })()`);
+  await sleep(700);
   const lhSlider = await evalIn(c, `!!Array.from(document.querySelectorAll('input[type=range]')).find(i => i.getAttribute('aria-label') === 'Line height')`);
   check("Settings carries the Line height slider", lhSlider === true);
 

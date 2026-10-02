@@ -24,6 +24,16 @@ interface Window {
     /** A native menu at a window-relative point; resolves the chosen row's id, or null. The one
      *  surface that can open over a browser pane's page. Optional: jsdom has no bridge. */
     popupMenu?(items: NativeMenuItem[], at: { x: number; y: number }): Promise<string | null>;
+    /** Settings ▸ Appearance ▸ Reduce motion: main changes what this window reports for
+     *  `prefers-reduced-motion`. Optional like the other late bridges — jsdom has none. */
+    motion?: { set(pref: import("@realm/contracts").ReducedMotionPref): Promise<void> };
+    /** Settings ▸ General ▸ Power: tells main the keep-awake switch moved. */
+    power?: { preventSleep(on: boolean): Promise<void> };
+    /** The code editors installed on this Mac, and opening a path in one. */
+    editors?: {
+      list(): Promise<import("@realm/contracts").InstalledEditor[]>;
+      open(id: import("@realm/contracts").EditorId, path: string, base?: string): Promise<boolean>;
+    };
     pickFolder(): Promise<string | null>;
     /** Native multi-select file picker; [] when cancelled. */
     pickFiles(): Promise<PickedFile[]>;

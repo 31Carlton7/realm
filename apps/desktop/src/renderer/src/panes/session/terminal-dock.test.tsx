@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { TerminalHub, setTerminalHubForTests, type HubTransport, type TerminalLike } from "../terminal-hub";
-import { DOCK_W_TERMINAL, dockPinMinPane } from "./pane-dock";
+import { DOCK_H_TERMINAL, DOCK_W_TERMINAL, dockPinMinPane, dockPinMinPaneHeight } from "./pane-dock";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
 import { SessionPane, SessionPanelActions } from "./SessionPane";
@@ -175,6 +175,66 @@ describe("the terminal dock", () => {
       await waitFor(() => expect(dock()).toHaveAttribute("data-pinned"));
       fireEvent.keyDown(window, { key: "Escape" });
       await waitFor(() => expect(dock()).toBeNull());
+    });
+  });
+});
+
+/** A pane of a given height and a width too narrow for the right-hand strip, so a pin can only be
+ *  the bottom edge's doing. */
+function withPane(height: number, run: () => Promise<void>) {
+  const real = HTMLElement.prototype.getBoundingClientRect;
+  HTMLElement.prototype.getBoundingClientRect = function () {
+    return this.classList.contains("session-pane")
+      ? ({ x: 40, y: 0, top: 0, left: 40, right: 640, bottom: height, width: 600, height, toJSON: () => ({}) } as DOMRect)
+      : real.call(this);
+  };
+  return run().finally(() => { HTMLElement.prototype.getBoundingClientRect = real; });
+}
+
+describe("the terminal docked to the bottom (Settings ▸ General ▸ Terminals)", () => {
+  const bottom = async () => { const m = await mount(); m.store.setState({ terminalDock: "bottom" }); return m; };
+
+  it("sits along the pane's foot and, in a tall pane, takes the pane's height rather than its width", async () => {
+    await withPane(dockPinMinPaneHeight(DOCK_H_TERMINAL) + 40, async () => {
+      await bottom();
+      fireEvent.click(toggle());
+      await waitFor(() => expect(dock()).not.toBeNull());
+      expect(dock()).toHaveAttribute("data-edge", "bottom");
+      expect(dock()).toHaveAttribute("data-pinned");
+      // Anchored to the pane's left edge and foot, not to its right side.
+      expect(dock()!.style.left).toBe("40px");
+      expect(dock()!.style.top).toBe("");
+      const pane = document.querySelector<HTMLElement>(".session-pane")!;
+      // THE right-strip mutant: reserve the strip anyway, and the transcript loses a column to a
+      // dock that is not in it.
+      expect(pane).toHaveAttribute("data-dock-bottom");
+      expect(pane).not.toHaveAttribute("data-dock-pinned");
+      expect(pane.style.getPropertyValue("--dock-h")).toBe("var(--terminal-dock-h)");
+    });
+  });
+
+  it("floats over the foot of a short pane, which keeps its height", async () => {
+    await withPane(dockPinMinPaneHeight(DOCK_H_TERMINAL) - 40, async () => {
+      await bottom();
+      fireEvent.click(toggle());
+      await waitFor(() => expect(dock()).not.toBeNull());
+      expect(dock()).not.toHaveAttribute("data-pinned");
+      expect(document.querySelector(".session-pane")).not.toHaveAttribute("data-dock-bottom");
+    });
+  });
+
+  it("gives the height back when it closes, and the shell stays", async () => {
+    await withPane(dockPinMinPaneHeight(DOCK_H_TERMINAL) + 40, async () => {
+      const { store } = await bottom();
+      fireEvent.click(toggle());
+      await waitFor(() => expect(document.querySelector(".session-pane")).toHaveAttribute("data-dock-bottom"));
+      const shell = store.getState().sessionTerminals.se1;
+      fireEvent.click(toggle());
+      await waitFor(() => expect(dock()).toBeNull());
+      const pane = document.querySelector<HTMLElement>(".session-pane")!;
+      expect(pane).not.toHaveAttribute("data-dock-bottom");
+      expect(pane.style.getPropertyValue("--dock-h")).toBe("");
+      expect(store.getState().sessionTerminals.se1).toBe(shell);
     });
   });
 });

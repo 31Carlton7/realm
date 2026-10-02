@@ -42,7 +42,7 @@
 .theme-import textarea, .tool-body pre, .tool-stat, .tool-summary, .tool-well, .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .composer-queue-item .queue-position, .composer-queue-item .queue-attach, .terminal-dock-title,
-.sim-detail, .sb-chat-mono, .upl-path, .laya-facts code, .laya-reason {
+.sim-detail, .sb-chat-mono, .upl-path, .laya-facts code, .laya-reason, .computer-app-id {
   letter-spacing: normal;
 }
 
@@ -77,6 +77,12 @@
      survives in terminals, diffs, code and kbd. */
   --font-ui: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  /* Prose — messages, markdown, the documents editor — reads in the UI face until Settings ▸
+     Appearance names another. The two scales multiply every text size (`theme/text-scale.ts`); both
+     are written by applyTheme, and 1 is the stylesheet exactly as drawn. */
+  --font-content: var(--font-ui);
+  --ui-text-scale: 1;
+  --code-text-scale: 1;
   /* surface ladder: frame → panel → raised keeps its meaning, stepped on BUI's ramp */
   --rl-frame: var(--page);                       /* BUI --page: window ground + sunken wells */
   --rl-panel: var(--canvas);                     /* BUI --canvas: the working ground */
@@ -183,6 +189,11 @@
      `80vw` so a narrow window still gives the shell most of what it has — at that width the dock is
      floating over the transcript anyway, so there is nothing beside it to leave room for. */
   --terminal-dock-w: min(560px, 92vw);
+  /* …and its height when it docks to the pane's BOTTOM instead (Settings ▸ General ▸ Terminals): a
+     dozen-odd lines of shell and its bar, and never more than half a short window. `DOCK_H_TERMINAL`
+     in pane-dock.ts is this number for the pin arithmetic. */
+  --terminal-dock-h: min(320px, 45vh);
+  --dock-h: var(--terminal-dock-h);
   /* Which of those two the pane currently has to make room for. Declared here so the stylesheet
      defines everything it reads, and REWRITTEN on the pane node by `useDockPinned` — the pane is the
      panel's sibling, so the panel cannot hand it a width any other way. The summary's is the default
@@ -827,6 +838,9 @@ kbd { font: 11px var(--font-mono); }
    the panels are no longer one width and the pane cannot read a property set on its own sibling. The
    fallback keeps the rule honest if the attribute is ever set without the width. */
 .session-pane[data-dock-pinned] { padding-right: calc(var(--dock-w) + var(--sidebar-inset) * 2); }
+/* The same, along the foot: the pane gives up the dock's height, so the transcript ends and the
+   prompter sits above the shell rather than under its card. */
+.session-pane[data-dock-bottom] { padding-bottom: calc(var(--dock-h) + var(--sidebar-inset) * 2); }
 /* A floating panel is over the pane, so it wants the overlay's lift; a pinned one sits beside it in
    space the pane gave up, and a drop shadow there would draw a seam between two things that are not
    overlapping. */
@@ -848,10 +862,14 @@ kbd { font: 11px var(--font-mono); }
 /* The terminal fills what the bar leaves. `min-height: 0` because xterm measures its own viewport
    and a flex child that refuses to shrink would report a height the dock does not have. */
 .terminal-dock .terminal-pane { flex: 1; min-height: 0; }
+/* Docked to the bottom: the pane's width (the fixed box runs from its left edge to its right, inset
+   by the card's margin) and the shell's own height, arriving from the edge it docks to. */
+.terminal-dock[data-edge="bottom"] { width: auto; height: var(--terminal-dock-h); animation-name: rl-dock-up; }
 /* From the edge it docks to, so it reads as arriving from beside the pane rather than fading in
    over it. Enter only: the panel is removed on toggle, and an exit that had to be awaited would
    make the button feel unresponsive on the way out. */
 @keyframes rl-summary-in { from { translate: 12px 0; opacity: 0; } to { translate: 0 0; opacity: 1; } }
+@keyframes rl-dock-up { from { translate: 0 12px; opacity: 0; } to { translate: 0 0; opacity: 1; } }
 .summary-panel-head {
   flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 8px 8px 14px;
 }
@@ -1310,7 +1328,7 @@ kbd { font: 11px var(--font-mono); }
 .mp-use:disabled { opacity: .45; cursor: default; }
 
 /* ── Easter eggs: the heavy efforts ──
-   Every rule here hangs off [data-eggs] or [data-sweep], so the switch in Settings ▸ App takes the
+   Every rule here hangs off [data-eggs] or [data-sweep], so the switch in Settings ▸ General takes the
    whole treatment away by taking one attribute away. Nothing below is ever the only thing saying
    which level is selected — that is [aria-pressed], which is drawn the same with the eggs off.
 
@@ -2870,7 +2888,7 @@ a.msg-chip:hover { text-decoration: underline; text-underline-offset: 2px; }
    (see the squircle block below). */
 .msg-user { max-width: 85%; padding: 14px 16px; border-radius: var(--r-squircle-msg); corner-shape: squircle;
   background: var(--rl-raised); text-align: left;
-  font-size: 15px; line-height: calc(1.6 + var(--lh-shift)); white-space: pre-wrap; overflow-wrap: anywhere; }
+  font-family: var(--font-content); font-size: 15px; line-height: calc(1.6 + var(--lh-shift)); white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Plan 20: a message another SESSION delivered. An attribution line plus a muted accent ring, so it
    reads as "an agent asked this" rather than as something the user typed. */
 .msg-user-row[data-from] { gap: 3px; }
@@ -2903,7 +2921,7 @@ a.msg-chip:hover { text-decoration: underline; text-underline-offset: 2px; }
 /* The message and everything the message owns — its media strip, its action bar — in one column, at
    the gap `.transcript-col` used to give them as siblings, so growing the wrapper moved nothing. */
 .msg-assistant-row { display: flex; flex-direction: column; gap: 8px; }
-.msg-assistant { max-width: 72ch; font-size: 15px; line-height: calc(1.6 + var(--lh-shift)); }
+.msg-assistant { max-width: 72ch; font-family: var(--font-content); font-size: 15px; line-height: calc(1.6 + var(--lh-shift)); }
 /* The bar under a finished message. The negative inset is optical, not spacing: the first glyph is
    14px inside a 26px box, so without it the row of buttons would hang 6px right of the prose it
    belongs to and read as indented. */
@@ -2967,7 +2985,7 @@ a.msg-chip:hover { text-decoration: underline; text-underline-offset: 2px; }
    above, so [2] in a sentence and 2 in the disclosure are one page. */
 .md-cite { margin-left: 1px; padding: 0 3px; border-radius: var(--r-chip); vertical-align: super;
   font-size: 9px; font-variant-numeric: tabular-nums; color: var(--rl-text-dim); background: var(--rl-raised); }
-.md { line-height: calc(1.55 + var(--lh-shift)); overflow-wrap: anywhere; }
+.md { font-family: var(--font-content); line-height: calc(1.55 + var(--lh-shift)); overflow-wrap: anywhere; }
 .msg-assistant.md { line-height: calc(1.6 + var(--lh-shift)); }
 .md > div > :first-child { margin-top: 0; } .md > div > :last-child { margin-bottom: 0; }
 .md p { margin: 0 0 8px; text-wrap: pretty; } .md ul, .md ol { margin: 0 0 8px; padding-left: 20px; }
@@ -4735,7 +4753,7 @@ select { appearance: none; padding-right: 22px;
 :where(
   /* chrome and navigation. `.space-body` is NOT here — see the carve-out below. */
   .menu, .mention-picker, .skill-picker-list, .mp-list, .mp-detail-body, .ip-grid,
-  .palette-list, .spaces-list, .sheet, .onboarding-stage, .onboarding-body, .page-content, .summary-scroll, .ql-view,
+  .palette-list, .spaces-list, .sheet, .onboarding-stage, .onboarding-body, .page-content, .settings-rail-lists, .summary-scroll, .ql-view,
   /* the transcript and everything it draws inside itself */
   .transcript, .md pre, .msg-error pre, .tool-well, .tool-body pre, .permission-details pre,
   .code-block, .code-body, .fd-file, .fd-body, .term-out, .md-scroll, .math-display,
@@ -5662,6 +5680,52 @@ select { appearance: none; padding-right: 22px;
 .page-rail-head { padding: 0 10px 2px; font-size: 11.5px; font-weight: var(--fw-medium); color: var(--rl-text-faint); }
 .page-rail-space { display: flex; align-items: center; gap: 7px; }
 .page-rail-space-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Settings' rail: the search, then the pages under their headings. The headed lists are wrapped in
+   one box of their own so that narrow, where the rail lies down, the field keeps a full line and only
+   the pages become the scrolling strip — a search box that scrolled away with the tabs would be gone
+   exactly when the strip is too long to scan. */
+/* Nine pages under five headings are taller than the page at the smallest window the app allows
+   (530px against 479 at 600), so the lists scroll under a search that stays put rather than the
+   last pages falling off the bottom with nothing to scroll them back. */
+.page-rail.settings-rail { min-height: 0; max-height: 100%; }
+.settings-rail-lists { display: flex; flex-direction: column; gap: 16px; min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; }
+.settings-search { flex: none; }
+/* `--field` is the canvas itself on the light face (both 0.961), so a field laid on this page's
+   ground had no edge at all there. The raised surface is the step the light cards already take off
+   the same ground, and a little more: measured, the field reads 1.12:1 against it where the rows
+   read 1.07. Dark keeps `--field`, a step up off its darker canvas. Under the painter `background`
+   is spent on `paint()`, so the fill goes through `--sq-fill` there and through `background` only
+   where nothing is painting it. */
+:root[data-mode="light"] .settings-page-pane .search-field { --sq-fill: var(--surface); }
+:root[data-mode="light"]:not([data-squircle]) .settings-page-pane .search-field { background: var(--surface); }
+@container (max-width: 640px) {
+  .page-rail.settings-rail { flex-direction: column; gap: 8px; overflow: visible; max-height: none; }
+  .settings-rail-lists { flex-direction: row; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
+  /* Each headed list keeps its own width in the strip. Left to shrink (`.page-rail-list` is
+     `min-width: 0`), the lists squeezed to the strip's width and their tabs ran over each other. */
+  .settings-rail-lists > .page-rail-list { flex: none; }
+}
+/* A search result is a row of the same list the pages draw, holding one button the width of the row:
+   the label takes the slack, and where it lives is a fixed column at the end. */
+.settings-result { padding: 0; }
+.settings-result-hit {
+  flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 12px; padding: 12px 14px;
+  border: none; border-radius: inherit; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+  transition: background-color var(--dur-hover) ease;
+}
+.settings-result-hit > .settings-row-name { flex: 1; min-width: 0; }
+.settings-result-hit:hover { background: var(--rl-hover); }
+.settings-result-hit:focus-visible { outline: 1.5px solid var(--rl-accent); outline-offset: -1.5px; }
+.settings-result-place { flex: none; font-size: 12.5px; color: var(--rl-text-dim); }
+/* The row a search landed on, for a moment: an accent edge down its inside, the shape the engine
+   cards already use to make one row of a meshed list stand out. Not a ring — a ring on a meshed row
+   redraws the box the mesh removed and crosses the dividers either side of it. The transition is on
+   the resting row so the edge fades as it goes; under reduced motion it simply comes and goes. */
+.settings-page-pane .settings-row, .settings-page-pane .engine-card { transition: box-shadow var(--dur-slow) var(--ease-fade); }
+.settings-page-pane .settings-row[data-found], .settings-page-pane .engine-card[data-found] { box-shadow: inset 3px 0 0 var(--rl-accent); }
+/* A section a search landed on takes focus so the keyboard carries on from it, and shows none: the
+   heading is not a control, and a ring around it would say it was. */
+.settings-page-pane [data-setting][tabindex="-1"]:focus { outline: none; }
 /* `min-height: 0` matters once the narrow block below turns `.page-body` into a column: without it
    the content column's auto minimum keeps it at full content height, and it overflows the pane
    instead of scrolling inside it. */
@@ -6395,6 +6459,16 @@ select { appearance: none; padding-right: 22px;
 .mac-row-actions .btn-quiet { white-space: nowrap; }
 /* The command Realm is about to run, shown before it runs. */
 .mac-grant-cmd code { font: 11px var(--font-mono); color: var(--rl-text-bright); }
+/* Settings ▸ Computer use: one card per space — its mark, its name and its switch — and under it the
+   apps it lets agents drive. Those are bundle ids, which are identifiers and read as code. */
+.computer-space { align-items: center; }
+.computer-space-mark { flex: none; display: inline-flex; color: var(--rl-text-dim); }
+.computer-app-id { font: 12px var(--font-mono); color: var(--rl-text-dim); overflow-wrap: anywhere; }
+.computer-app { align-items: center; }
+/* Settings ▸ Archived: a session's title takes the slack, and its two actions keep their width at the
+   end of the row rather than squeezing the name to make room. */
+.archived-row { align-items: center; }
+.archived-actions { flex: none; display: flex; gap: 4px; }
 .settings-page-pane .settings-tabs { max-width: 340px; }
 /* Every Settings tab is a stack of titled groups now, and `.form`'s 12px gap already separates
    them — so the heads drop the top margin they carry where they punctuate free-standing controls. */
@@ -6586,7 +6660,7 @@ select { appearance: none; padding-right: 22px;
 .documents-surface > * { min-height: 0; }
 .documents-rich .tiptap, .documents-rich-surface { outline: none; padding: 18px 22px; }
 /* Soft line breaks are preserved as real newlines in the model, so they must render as breaks. */
-.documents-rich-surface { white-space: pre-wrap; line-height: calc(1.65 + var(--lh-shift)); font-size: 14px; }
+.documents-rich-surface { white-space: pre-wrap; font-family: var(--font-content); line-height: calc(1.65 + var(--lh-shift)); font-size: 14px; }
 .documents-rich-surface > * + * { margin-top: 0.7em; }
 .documents-rich-surface h1 { font-size: 1.55em; font-weight: var(--fw-title); letter-spacing: -1.5%; }
 .documents-rich-surface h2 { font-size: 1.3em; font-weight: var(--fw-title); letter-spacing: -1.5%; }
@@ -6901,7 +6975,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .gen-label { flex: none; }
 .gen-detail { color: var(--rl-text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ——— Settings → App: the background transparency slider ——————————————————————
+/* ——— Settings → Appearance: the background transparency slider ——————————————————————
    A native range on the app's accent, with the value beside it in tabular figures so the number does
    not jitter as the thumb moves. Disabled off macOS, where the window has no material behind it. */
 .font-row { display: flex; align-items: center; gap: 8px; }
@@ -6942,7 +7016,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 /* Tabular so the readout does not shuffle the thumb sideways while it is being dragged. */
 .slider-value { font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
 
-/* ——— Settings → App: the previews ————————————————————————————————————————————
+/* ——— Settings → Appearance: the previews ————————————————————————————————————————————
    Every preview below paints from CUSTOM PROPERTIES set inline on its own element, not from :root.
    That is what lets one page show a light window and a dark one at once: the token blocks in
    tokens.css hang off `data-mode` at the root and cannot be flipped per subtree, so a preview built
@@ -7006,7 +7080,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .cp-line[data-diff="add"] { background: var(--green-tint); box-shadow: inset 2px 0 0 var(--green); }
 .cp-line[data-diff="del"] { background: var(--red-tint); box-shadow: inset 2px 0 0 var(--red); }
 
-/* ——— Settings → App: the palette picker ——————————————————————————————————————
+/* ——— Settings → Appearance: the palette picker ——————————————————————————————————————
    Each card is painted in the theme it names, so the row is a set of previews rather than a list of
    words. auto-fill rather than a fixed column count: this field sits in a settings pane whose width
    is whatever the user left the split at. */

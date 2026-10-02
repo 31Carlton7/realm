@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { activeLayout, setActiveLayout, COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_KEYBINDINGS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack } from "@realm/contracts";
-import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult } from "@realm/contracts";
+import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { basenameOf, expandCommand, mimeForPath, nextFireOf } from "@realm/contracts";
 import type { CliStatus, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
@@ -243,6 +243,9 @@ export type FakeData = {
   /** Laya's status. Defaults to what a fresh install on a Mac with Homebrew's 3.13 says: not
    *  installed, and off. */
   laya?: LayaStatus;
+  /** The code editors `editors.list` reports as installed. None by default — a test that wants the
+   *  path menu's editor item says which. */
+  editors?: InstalledEditor[];
   /** What `cli.status` answers. Empty by default: a test that is not about the CLI manager should
    *  see no install or update offers at all. */
   cliStatus?: CliStatus[];
@@ -294,6 +297,9 @@ export type FakeData = {
   /** Realm-native providers `mcp.providers.list` answers with (W4). Flat like `mcpServers`: these
    *  fakes exercise one space at a time. */
   mcpProviders?: { name: string; enabled: boolean; offered: boolean | null; needs: string | null }[];
+  /** The same, per space, for a test where spaces must differ (Settings ▸ Computer use). A space
+   *  missing here answers with `mcpProviders`. */
+  mcpProvidersBySpace?: Record<string, { name: string; enabled: boolean; offered: boolean | null; needs: string | null }[]>;
   /** Profile memory docs by profile id (W4's Library page). */
   profileMemoryDocs?: Record<string, string>;
   /** Per-space disable override for the inherited profile doc — mirrors the server's polarity
@@ -434,6 +440,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     pixelWorldJson: overrides.pixelWorldJson ?? "{}",
     pixelSpriteJson: overrides.pixelSpriteJson ?? "{}",
     failover: overrides.failover ?? DEFAULT_FAILOVER_POLICY,
+    editors: overrides.editors ?? [],
     laya: overrides.laya ?? { mode: "off", installed: false, runtime: { state: "not-installed", python: { path: "/opt/homebrew/bin/python3.13", version: "3.13.12" } }, stepsLogged: 0, dir: "/Users/u/Realm/laya", assist: { available: false, reason: "No checkpoint has been evaluated yet. Train Laya on this Mac first; Assist unlocks when one scores 95% on held-out steps.", threshold: null, accuracy: null } },
     cliStatus: overrides.cliStatus ?? [],
     // The model catalog the picker's detail pane reads. Empty by default because that is the state
@@ -488,6 +495,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     mcpToolsError: overrides.mcpToolsError ?? {},
     mcpCalls: overrides.mcpCalls ?? [],
     mcpProviders: overrides.mcpProviders ?? [{ name: "realm-browser", enabled: true, offered: true, needs: null }],
+    mcpProvidersBySpace: overrides.mcpProvidersBySpace ?? {},
     profileMemoryDocs: overrides.profileMemoryDocs ?? {},
     profileDocDisabled: overrides.profileDocDisabled ?? {},
     documentWorkspaces: overrides.documentWorkspaces ?? {},
@@ -1260,6 +1268,10 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     playCue: (cue, volume) => { calls.push(`playCue:${cue}@${volume}`); },
     resyncTerminals: () => { calls.push("resyncTerminals"); },
     setBadgeCount: async (count) => { calls.push(`setBadgeCount:${count}`); data.badgeCount = count; },
+    setReducedMotion: async (pref) => { calls.push(`setReducedMotion:${pref}`); },
+    setPreventSleep: async (on) => { calls.push(`setPreventSleep:${on}`); },
+    listEditors: async () => { calls.push("listEditors"); return [...data.editors]; },
+    openInEditor: async (id, path, base) => { calls.push(`openInEditor:${id}:${path}${base ? `@${base}` : ""}`); return data.editors.some((e) => e.id === id); },
     probeAgents: async (force) => {
       calls.push(`probeAgents:${force}`);
       await wait("probeAgents");
@@ -1523,11 +1535,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
       data.mcpServers[i] = { ...data.mcpServers[i]!, scope: { kind: "space", spaceId } };
     },
-    listMcpProviders: async (spaceId) => { calls.push(`listMcpProviders:${spaceId}`); return data.mcpProviders.map((p) => ({ ...p })); },
+    listMcpProviders: async (spaceId) => { calls.push(`listMcpProviders:${spaceId}`); return (data.mcpProvidersBySpace[spaceId] ?? data.mcpProviders).map((p) => ({ ...p })); },
     setMcpProviderEnabled: async (spaceId, name, enabled) => {
       calls.push(`setMcpProviderEnabled:${spaceId}:${name}=${enabled}`);
-      const i = data.mcpProviders.findIndex((p) => p.name === name); if (i < 0) throw new Error(`no provider ${name}`);
-      data.mcpProviders[i] = { ...data.mcpProviders[i]!, enabled };
+      const list = data.mcpProvidersBySpace[spaceId] ?? data.mcpProviders;
+      const i = list.findIndex((p) => p.name === name); if (i < 0) throw new Error(`no provider ${name}`);
+      list[i] = { ...list[i]!, enabled };
     },
     mcpToolsList: async (id) => {
       calls.push(`mcpToolsList:${id}`);

@@ -1,13 +1,15 @@
 import { PageScroll } from "../../components/ScrollFades";
 import { EDITOR_CURSOR_BLINK_COPY, TERMINAL_CURSOR_STYLES, TERMINALS_CURSOR_STYLE_COPY, type TerminalCursorStyle, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
-  PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, type NotificationCategory, } from "@realm/contracts";
+  PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, type ReducedMotionPref,
+  EDITOR_NAMES, resolveEditor, type OpenFilesIn, type TerminalDockEdge, } from "@realm/contracts";
 import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED,
   THEMES, contrastMisses, deriveVars, exportTheme, importTheme, isHexColour, isOverridden, overrideKey,
   allThemes, paletteFor, seedFor, themeModes, themeSwatches,
-  type FontId, type FontRole, type FontWeight, type Mode, type ThemeName, type ThemeOverride, LEADING_RANGE } from "@realm/ui";
+  type FontId, type FontRole, type FontWeight, type Mode, type ThemeName, type ThemeOverride, LEADING_RANGE,
+  CODE_SIZE_RANGE, DEFAULT_PANE_ALPHA, PANE_ALPHA_RANGE, UI_SIZE_RANGE } from "@realm/ui";
 import type { ThemeSeed } from "@realm/contracts";
-import { useEffect, useReducer, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useId, useReducer, useRef, useState, type CSSProperties, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { Sheet } from "../../components/Sheet";
 import { relativeTime } from "../../components/CheckpointsSheet";
 import { Spinner } from "../../components/Spinner";
@@ -22,19 +24,14 @@ import { FailoverPanel } from "./FailoverPanel";
 import { LayaSection } from "./LayaSection";
 import { Signature } from "./Signature";
 import { KeybindingsPanel } from "../../components/settings/KeybindingsPanel";
-
-const TABS: { id: SettingsPageTab; label: string }[] = [
-  { id: "engines", label: "Engines" }, { id: "usage", label: "Usage" }, { id: "app", label: "App" }, { id: "keys", label: "Keys" },
-  { id: "signins", label: "Sign-ins" }, { id: "import", label: "Import" }, { id: "permissions", label: "Permissions" },
-];
+import { SpaceIcon } from "../../components/SpaceIcon";
+import { CATEGORY_COPY, SETTINGS_GROUPS, searchSettings, settingPlace, type SettingEntry, type SettingsTab } from "./settings-index";
 
 /**
  * The Settings page (Plan 12 W6, Universe screenshot 5) — a `settings-page` destination on W4's
- * sentinel convention, reached from the bottom-left gear and the palette. Tabs down the
- * `.page-rail`: Engines (the agent probe, rendered), Usage (spend, tokens and activity over a range,
- * plus the monthly budget), App (theme, notification switches, the default permission mode for new
- * sessions), Import (transcripts, memory and skills out of the agent CLIs' own stores), Permissions
- * (macOS TCC, honest states only).
+ * sentinel convention, reached from the bottom-left gear and the palette. Pages down the
+ * `.page-rail`, under a heading per kind of question (`SETTINGS_GROUPS`), with a search over every
+ * row above them.
  *
  * The pane's `item` goes unused like the Notifications page's: nothing here has a per-space vantage —
  * engines, app preferences and TCC grants are facts about the machine and the app, not a space.
@@ -46,41 +43,160 @@ export function engineVersionLabel(version: string): string {
   return /^\d/.test(version) ? `v${version}` : version;
 }
 
+/** How long a row a search landed on keeps its mark: long enough to find on a page that scrolled to
+ *  it, short enough that it is gone before anyone reads it as a state. */
+const FOUND_MS = 1600;
+
 export function SettingsPage(_props: PaneProps) {
   // In the store so an opener can land on a tab — the browser pane's "Browser settings" opens Sign-ins.
   const tab = useApp((s) => s.settingsPageTab);
   const setTab = useApp((s) => s.setSettingsPageTab);
+  const [query, setQuery] = useState("");
+  /** The row a search result asked for, held until its page has rendered it. */
+  const [landing, setLanding] = useState<string | null>(null);
+  const page = useRef<HTMLDivElement>(null);
+  const ids = useId();
+  const results = query.trim() === "" ? null : searchSettings(query);
+
+  const open = (next: SettingsTab) => { setQuery(""); setTab(next); };
+  const jump = (entry: SettingEntry) => {
+    open(entry.tab);
+    setLanding(entry.page ? null : entry.id);
+  };
+  useLanding(page, landing, setLanding);
+
   return (
-    <div className="page settings-page-pane">
+    <div className="page settings-page-pane" ref={page}>
       <header className="page-head">
         <div className="page-title"><h1>Settings</h1></div>
       </header>
       <div className="page-body">
-        <fieldset className="page-rail">
-          <legend className="visually-hidden">Settings section</legend>
-          {TABS.map((t) => (
-            <label key={t.id} className="settings-tab page-rail-tab" data-selected={tab === t.id || undefined}>
-              <input type="radio" name="settings-page-tab" value={t.id} checked={tab === t.id} onChange={() => setTab(t.id)} />
-              {t.label}
-            </label>
-          ))}
-        </fieldset>
+        <div className="page-rail settings-rail">
+          {/* Above the pages it searches, because it answers the question the rail cannot: which page
+              is that switch on. Enter takes the first result; Escape gives the page back. */}
+          <input className="search-field settings-search" type="search" aria-label="Search settings" placeholder="Search"
+            value={query} spellCheck={false}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && results?.[0]) { e.preventDefault(); jump(results[0]); }
+              if (e.key === "Escape" && query !== "") { e.preventDefault(); e.stopPropagation(); setQuery(""); }
+            }} />
+          <div className="settings-rail-lists">
+            {/* One fieldset per heading, all one radio group: the name is what makes them one
+                choice, so the arrow keys still walk the whole rail. While a search is showing,
+                nothing is checked — the column is not any of these pages, and a lit tab over a list
+                of results would say it was. */}
+            {SETTINGS_GROUPS.map((g) => (
+              <fieldset key={g.label} className="page-rail-list" aria-labelledby={`${ids}-${g.label}`}>
+                <span className="page-rail-head" id={`${ids}-${g.label}`}>{g.label}</span>
+                {g.tabs.map((t) => {
+                  const on = results === null && tab === t.id;
+                  return (
+                    <label key={t.id} className="settings-tab page-rail-tab" data-selected={on || undefined}>
+                      <input type="radio" name="settings-page-tab" value={t.id} checked={on} onChange={() => open(t.id)} />
+                      {t.label}
+                    </label>
+                  );
+                })}
+              </fieldset>
+            ))}
+          </div>
+        </div>
         {/* Both ends dissolve, but only when there is something under them — and only over the
             column. The rail is a sibling of the wrapper rather than a thing under a band: a blurred
             tab row reads as a rendering fault, and it is the one row that has to stay legible while
-            the content beneath it scrolls. */}
-        <PageScroll>
-          {tab === "engines" && <EnginesTab />}
-          {tab === "usage" && <UsagePanel />}
-          {tab === "app" && <AppTab />}
-          {tab === "keys" && <KeybindingsPanel />}
-          {tab === "signins" && <SignInsTab />}
-          {tab === "import" && <ImportPanel />}
-          {tab === "permissions" && <PermissionsTab />}
+            the content beneath it scrolls. Keyed by what it shows, because a scroll position belongs
+            to a page: one scroller for all of them opened General as far down as Appearance had been
+            left, which a jump to a row near the bottom of a page made the usual case. */}
+        <PageScroll key={results === null ? tab : "results"}>
+          {results !== null ? <SearchResults query={query.trim()} results={results} onPick={jump} /> : (
+            <>
+              {tab === "general" && <GeneralTab />}
+              {tab === "appearance" && <AppearanceTab />}
+              {tab === "keys" && <KeybindingsPanel />}
+              {tab === "notifications" && <NotificationsTab />}
+              {tab === "engines" && <EnginesTab />}
+              {tab === "usage" && <UsagePanel />}
+              {tab === "signins" && <SignInsTab />}
+              {tab === "permissions" && <PermissionsTab />}
+              {tab === "computer-use" && <ComputerUseTab />}
+              {tab === "import" && <ImportPanel />}
+              {tab === "archived" && <ArchivedTab />}
+            </>
+          )}
         </PageScroll>
       </div>
     </div>
   );
+}
+
+/**
+ * What a search found: each row's label and where it lives, in place of the page.
+ *
+ * A list of places rather than the controls themselves. Drawing a row's real control here would mean
+ * running its page — the Usage page reads a time range on mount, the Engines page probes every CLI —
+ * for the sake of a row someone may only have been looking for. A result is one click from the real
+ * thing, which then shows itself where it always is.
+ */
+function SearchResults({ query, results, onPick }: { query: string; results: SettingEntry[]; onPick: (entry: SettingEntry) => void }) {
+  if (results.length === 0) return <p className="env-empty">No setting matches “{query}”.</p>;
+  return (
+    <ul className="settings-list settings-results" aria-label="Matching settings">
+      {results.map((r) => (
+        <li key={r.id} className="settings-row settings-result">
+          <button type="button" className="settings-result-hit" aria-label={`${r.label}, in ${settingPlace(r)}`} onClick={() => onPick(r)}>
+            <span className="settings-row-name">{r.label}</span>
+            <span className="settings-result-place">{settingPlace(r)}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+const FOCUSABLE = "input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), summary";
+
+/**
+ * Landing on a row a search result named, once its page has drawn it.
+ *
+ * Some rows arrive a beat after their page does — the budget waits on the Usage page's read, the
+ * shortcuts on the keymap file — so a row that is not there yet is watched for rather than given up
+ * on, for as long as a slow read could reasonably take. On arrival: a row folded behind a disclosure
+ * is opened (a jump that ends on a closed summary has not found anything), the row is brought into
+ * the column, its control takes focus so the keyboard carries on from there, and it wears an accent
+ * edge for a moment so the eye does too.
+ */
+function useLanding(page: RefObject<HTMLDivElement | null>, landing: string | null, setLanding: Dispatch<SetStateAction<string | null>>) {
+  const found = useRef<{ el: HTMLElement; timer: ReturnType<typeof setTimeout> } | null>(null);
+  useEffect(() => () => { if (found.current) clearTimeout(found.current.timer); }, []);
+  useEffect(() => {
+    const root = page.current?.querySelector<HTMLElement>(".page-content");
+    if (!landing || !root) return;
+    const landed = () => setLanding(null);
+    const land = (): boolean => {
+      const el = root.querySelector<HTMLElement>(`[data-setting="${landing}"]`);
+      if (!el) return false;
+      const fold = el instanceof HTMLDetailsElement ? el : el.querySelector<HTMLDetailsElement>(":scope > details");
+      if (fold && !fold.open) fold.open = true;
+      const row = el.closest<HTMLElement>(".settings-row, .engine-card");
+      el.scrollIntoView?.({ block: row ? "center" : "start" });
+      const control = el.querySelector<HTMLElement>(FOCUSABLE);
+      if (control) control.focus({ preventScroll: true });
+      else { el.tabIndex = -1; el.focus({ preventScroll: true }); }
+      if (row) {
+        if (found.current) { clearTimeout(found.current.timer); delete found.current.el.dataset.found; }
+        row.dataset.found = "";
+        found.current = { el: row, timer: setTimeout(() => { delete row.dataset.found; found.current = null; }, FOUND_MS) };
+      }
+      landed();
+      return true;
+    };
+    if (land()) return;
+    const watch = new MutationObserver(() => { if (land()) watch.disconnect(); });
+    watch.observe(root, { childList: true, subtree: true });
+    const giveUp = setTimeout(() => { watch.disconnect(); landed(); }, 4000);
+    return () => { watch.disconnect(); clearTimeout(giveUp); };
+  }, [page, landing, setLanding]);
 }
 
 /** A command offered for copying — the install card's affordance, re-rendered. The command travels
@@ -139,7 +255,7 @@ function EnginesTab() {
       {/* No lede. "The agent CLIs Realm can run" is what the tab is called and what the cards below
           plainly are; a sentence restating a page's own name is the chrome this pass removed
           everywhere else. */}
-      <div className="engines-head">
+      <div className="engines-head" data-setting="engine-checks">
         {/* The named mutant: a cached answer shown as fresh. Both are forced, so what renders after
             a click is what a child process and a registry just reported — never the caches the mount
             ride uses. The probe is forced alongside the status because the two answer different
@@ -179,11 +295,11 @@ function EnginesTab() {
         : <ul className="engines-list">{kinds.map((k) => <EngineCard key={k} kind={k} />)}</ul>}
       {/* Directly under the engine list, because it is a statement ABOUT that list: which of these
           may take over when the one a session is on cannot finish. */}
-      <h3 className="settings-head">Failover</h3>
+      <h3 className="settings-head" data-setting="failover">Failover</h3>
       <FailoverPanel />
       {/* A model Realm runs itself, beside the ones it runs agents on: installed, started and watched
           from here, and — unlike every engine above — never handed a turn. */}
-      <h3 className="settings-head">Laya (local decisions)</h3>
+      <h3 className="settings-head" data-setting="laya">Laya (local decisions)</h3>
       <LayaSection />
     </div>
   );
@@ -265,7 +381,8 @@ function EngineCard({ kind }: { kind: AgentKind }) {
   const wantsYou = Boolean(job) || blocked;
 
   return (
-    <li className="engine-card" aria-label={`${meta.label}: ${STATE_LABEL[state]}`} data-state={state}>
+    <li className="engine-card" aria-label={`${meta.label}: ${STATE_LABEL[state]}`} data-state={state}
+      data-setting={offered ? `engine:${kind}` : undefined}>
       <div className="engine-head">
         <span className="engine-mark"><Icon name={meta.icon} size={20} colored /></span>
         <span className="engine-name">{meta.label}</span>
@@ -334,12 +451,99 @@ const THEME_CHOICES: { pref: ThemePref; label: string }[] = [
   { pref: "system", label: "System" }, { pref: "light", label: "Light" }, { pref: "dark", label: "Dark" },
 ];
 
-/** Opacity ⇄ transparency across the allowed range. Its own involution, so one function serves the
- *  read and the write and the two can never disagree about which end is which. */
-const flip = (pct: number): number => GROUND_ALPHA_RANGE.min + GROUND_ALPHA_RANGE.max - pct;
+/** Opacity ⇄ transparency across a surface's allowed range. Its own involution, so one function
+ *  serves the read and the write and the two can never disagree about which end is which. */
+const flip = (range: { min: number; max: number }, pct: number): number => range.min + range.max - pct;
 
-/** Only for the sentence explaining why the transparency control is inert; nothing branches on it. */
+/** Only for the sentence explaining why the transparency controls are inert; nothing branches on it. */
 const PLATFORM_NAMES: Record<string, string> = { win32: "Windows", linux: "Linux" };
+
+/**
+ * One surface's translucency: a switch and an amount over ONE stored number, not two controls that
+ * can disagree. Fully opaque IS off, because covering the material completely is the same as not
+ * having asked for it — so the switch reads `alpha < max` and writes either the maximum or the
+ * surface's default, and the slider is inert while it is off.
+ *
+ * The slider runs the way its label reads — right is MORE transparent — while the stored value is the
+ * ground's OPACITY, because that is what the stylesheet composes; `flip` is the one place the two
+ * meet. Step 1, not a coarser grid: a range may span an odd number of points, and any step above 1
+ * leaves one of its two ends unreachable.
+ *
+ * Two of these since Plan 26 rather than one control moving both: the sidebar holds labels and goes
+ * to 55%, a pane holds the reading and stops at 86, and someone who wants one see-through and the
+ * other solid could not say so.
+ */
+function TranslucencyRow({ id, label, amount, alpha, range, fallback, material, title, why, onChange }: {
+  id: string; label: string; amount: string; alpha: number; range: { min: number; max: number }; fallback: number;
+  material: boolean; title: string; why?: string; onChange: (alpha: number) => void;
+}) {
+  const on = alpha < range.max;
+  return (
+    <div className="settings-row" data-setting={id}>
+      <div className="settings-row-main">
+        <span className="settings-row-name">{label}</span>
+        {why && <span className="settings-row-desc">{why}</span>}
+      </div>
+      <div className="slider-row" title={material ? title : undefined}>
+        <input type="checkbox" role="switch" className="switch" aria-label={label}
+          disabled={!material} checked={on}
+          onChange={(e) => onChange(e.target.checked ? fallback : range.max)} />
+        <Slider aria-label={amount} disabled={!material || !on}
+          min={range.min} max={range.max} step={1}
+          value={flip(range, alpha)} onChange={(e) => onChange(flip(range, Number(e.target.value)))} />
+        <span className="slider-value">{100 - alpha}%</span>
+      </div>
+    </div>
+  );
+}
+
+/** System is the Mac's own Reduce Motion; On and Off are Realm's answer whatever the Mac says. */
+const MOTION_CHOICES: { pref: ReducedMotionPref; label: string }[] = [
+  { pref: "system", label: "System" }, { pref: "on", label: "On" }, { pref: "off", label: "Off" },
+];
+
+const TERMINAL_DOCK_CHOICES: { edge: TerminalDockEdge; label: string }[] = [
+  { edge: "right", label: "Right" }, { edge: "bottom", label: "Bottom" },
+];
+
+/**
+ * The editor the transcript's path menu offers, from the ones this Mac has.
+ *
+ * Only installed editors are listed: one that is not here could only be a choice that does nothing.
+ * A preference naming an editor since removed keeps its own option, marked, the way a missing font
+ * family does — a blank select would say the setting was empty when it is not. And on a Mac with
+ * none of them the control is absent and the row says why, which is the one sentence it owes.
+ */
+function OpenFilesInRow() {
+  const editors = useApp((s) => s.editors);
+  const pref = useApp((s) => s.openFilesIn);
+  const setOpenFilesIn = useApp((s) => s.setOpenFilesIn);
+  const refreshEditors = useApp((s) => s.refreshEditors);
+  const run = useApp((s) => s.run);
+  // Read again here, not only at boot: this is where someone looks after installing one.
+  useEffect(() => { void run(() => refreshEditors()); }, [run, refreshEditors]);
+  const chosen = resolveEditor(pref, editors);
+  const missing = pref !== null && pref !== "realm" && chosen === null ? pref : null;
+  return (
+    <div className="settings-row" data-setting="open-files-in"
+      title="A click on a file or folder a session names offers to open it in this editor. Realm's own documents pane is offered beside it.">
+      <div className="settings-row-main">
+        <span className="settings-row-name">Open files in</span>
+        {editors.length === 0 && !missing && (
+          <span className="settings-row-desc">This Mac has none of Cursor, VS Code, Zed or Xcode, so files open in Realm.</span>
+        )}
+      </div>
+      {(editors.length > 0 || missing) && (
+        <select aria-label="Open files in" value={missing ?? chosen?.id ?? "realm"}
+          onChange={(e) => run(() => setOpenFilesIn(e.target.value as OpenFilesIn))}>
+          {editors.map((ed) => <option key={ed.id} value={ed.id}>{ed.name}</option>)}
+          {missing && <option value={missing}>{EDITOR_NAMES[missing]} — not installed</option>}
+          <option value="realm">Realm</option>
+        </select>
+      )}
+    </div>
+  );
+}
 
 const SUBMIT_KEY_CHOICES: { pref: SubmitKey; label: string }[] = [
   { pref: "enter", label: "Enter" }, { pref: "cmdEnter", label: "⌘/Ctrl+Enter" },
@@ -350,20 +554,6 @@ const SUBMIT_KEY_CHOICES: { pref: SubmitKey; label: string }[] = [
 const MID_TURN_CHOICES: { mode: MidTurnMode; label: string }[] = [
   { mode: "queue", label: "Waits its turn" }, { mode: "steer", label: "Sends now" },
 ];
-
-/** Human words for W5's notification categories, default-on. The sentence is the row's `title` now:
- *  nine of them stacked under nine labels they mostly restated was the bulk of this tab's reading. */
-const CATEGORY_COPY: Record<NotificationCategory, { label: string; desc: string }> = {
-  permission: { label: "Permission requests", desc: "An agent is waiting on your yes or no." },
-  session_done: { label: "Sessions finishing", desc: "A session settled while you were looking elsewhere." },
-  mcp_health: { label: "Connection trouble", desc: "An MCP server failed or tripped its circuit breaker." },
-  agent_probe: { label: "Engine regressions", desc: "A CLI that used to work stops probing available." },
-  worktree_hazard: { label: "Worktree hazards", desc: "A removal or restore was refused because the tree changed underneath it." },
-  review_done: { label: "Reviews finishing", desc: "A requested review landed its verdict on the diff pane." },
-  run_blocked: { label: "Runs needing you", desc: "An unattended run stopped and asked for a person." },
-  run_done: { label: "Runs finishing", desc: "A durable run reached a final state." },
-  budget: { label: "Spend thresholds", desc: "This month's agent spend passed one of your budget thresholds." },
-};
 
 /** The seed a face is really wearing. `seedFor` answers null for an untouched Realm, whose whole
  *  point is to write nothing — but a field showing the current colour and a preview painting it both
@@ -427,7 +617,7 @@ function CodePreview({ vars }: { vars: Record<string, string> }) {
  * an import owes you — where it came from, and how much of it Realm had to work out. A theme whose
  * file stated three of the thirteen colours looks like a theme until you notice it is mostly Realm.
  */
-function ImportedThemes({ face }: { face: Mode }) {
+function ImportedThemes({ face, live }: { face: Mode; live?: boolean }) {
   const themes = useApp((s) => s.customThemes);
   const importThemeFile = useApp((s) => s.importThemeFile);
   const removeCustomTheme = useApp((s) => s.removeCustomTheme);
@@ -437,7 +627,7 @@ function ImportedThemes({ face }: { face: Mode }) {
   // under a grid that cannot select it would be a row that does nothing.
   const mine = themes.filter((t) => t.mode === face);
   return (
-    <div className="theme-vsc-list">
+    <div className="theme-vsc-list" data-setting={live ? "vscode-theme" : undefined}>
       {mine.map((t) => (
         <div key={t.id} className="theme-vsc">
           <span className="theme-vsc-name">{t.label}</span>
@@ -477,6 +667,8 @@ function ImportedThemes({ face }: { face: Mode }) {
  * regardless — the OS list carries no category, and refusing to show someone a font they have
  * installed because Realm cannot tell what kind it is would be guessing at their expense.
  */
+const FONT_ROLE_LABEL: Record<FontRole, string> = { ui: "UI font", code: "Code font", content: "Content font" };
+
 function FontSelect({ role, value, onPick }: { role: FontRole; value: FontId; onPick: (id: FontId) => void }) {
   const installed = useApp((s) => s.installedFonts);
   const local = useApp((s) => s.localFonts);
@@ -489,10 +681,10 @@ function FontSelect({ role, value, onPick }: { role: FontRole; value: FontId; on
      file edited by hand. Without a matching option the select renders BLANK, which tells the reader
      their font setting is empty when it is not: the stack still names that family and still falls
      through to the fallback behind it. So it gets an option of its own that says what happened. */
-  const known = value === "bundled" || value === "system"
+  const known = FONT_FACES[role].some((f) => f.id === value)
     || installed.some((f) => f.family === value) || local.includes(value);
   return (
-    <select aria-label={role === "ui" ? "UI font" : "Code font"} value={value}
+    <select aria-label={FONT_ROLE_LABEL[role]} value={value}
       onChange={(e) => onPick(e.target.value)}>
       {FONT_FACES[role].map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
       {!known && <option value={value}>{value} — not installed</option>}
@@ -541,7 +733,7 @@ function FontLibrary() {
   const shown = (catalog ?? []).filter((f) => !have.has(f.family) && (!q || f.family.toLowerCase().includes(q))).slice(0, 20);
 
   return (
-    <div className="font-library">
+    <div className="font-library" data-setting="font-library">
       {installed.length > 0 && (
         <ul className="font-installed">
           {installed.map((f) => (
@@ -592,8 +784,10 @@ function FontLibrary() {
 /** The palette the konami sequence pays out, and the only one the grid ever withholds. */
 const LOCKED_PALETTE: ThemeName = "phosphor";
 
-function PaletteChoices({ face, selected, onSelect }:
-  { face: Mode; selected: ThemeName; onSelect: (name: ThemeName) => void }) {
+/** `live` marks the face the window is wearing: its colours and its import are the ones a search
+ *  lands on, since the other face's sit inside a disclosure of their own. */
+function PaletteChoices({ face, selected, onSelect, live }:
+  { face: Mode; selected: ThemeName; onSelect: (name: ThemeName) => void; live?: boolean }) {
   const konamiUnlocked = useApp((s) => s.konamiUnlocked);
   // Hidden rather than disabled: a locked card in the grid would advertise that something is missing
   // and turn the whole thing into a puzzle with a visible answer slot.
@@ -626,13 +820,13 @@ function PaletteChoices({ face, selected, onSelect }:
           );
         })}
       </fieldset>
-      <ImportedThemes face={face} />
+      <ImportedThemes face={face} live={live} />
       {/* The blurb, the code preview and the three seed fields are all answers to "what does this
           palette actually look like in use" — a question you ask once, while choosing, and never
           again. Open, they were two screens of chrome per face, on a tab whose other six settings
           are one row each. Behind one disclosure they are still a click away and no longer the
           shape of the page. */}
-      <details className="theme-detail">
+      <details className="theme-detail" data-setting={live ? "theme-colours" : undefined}>
         <summary>{palette.label}: preview and colours</summary>
         <p className="settings-hint">{palette.blurb}{palette.credit ? ` ${palette.credit}.` : ""}</p>
         <CodePreview vars={facePalette(palette.name, face, override, contrast)} />
@@ -738,7 +932,19 @@ function ThemeOverrideEditor({ name, face }: { name: ThemeName; face: Mode }) {
   );
 }
 
-function AppTab() {
+/**
+ * Appearance: what the window looks like, and the faces it is set in.
+ *
+ * Grouped lists, not a form of stacked fields with a paragraph under each. A settings page is
+ * scanned for the control you came for; every sentence between two rows is a sentence between every
+ * visit and that control. What survives on screen is a label, its control, and the few lines that
+ * say something the control cannot — an unavailable option's reason, a consequence that outlives the
+ * click. The rest rides the control's own `title`.
+ *
+ * The first group has no heading: it is what the page is called, and a heading restating the page's
+ * own name is the chrome every other page here dropped.
+ */
+function AppearanceTab() {
   const themePref = useApp((s) => s.themePref);
   const setThemePref = useApp((s) => s.setThemePref);
   const themeNames = useApp((s) => s.themeNames);
@@ -750,72 +956,24 @@ function AppTab() {
   const setFonts = useApp((s) => s.setFonts);
   const groundAlpha = useApp((s) => s.groundAlpha);
   const setGroundAlpha = useApp((s) => s.setGroundAlpha);
-  const submitKey = useApp((s) => s.submitKey);
-  const setSubmitKey = useApp((s) => s.setSubmitKey);
-  const prefs = useApp((s) => s.settingsPrefs);
-  const refreshSettingsPrefs = useApp((s) => s.refreshSettingsPrefs);
-  const setNotificationCategoryEnabled = useApp((s) => s.setNotificationCategoryEnabled);
-  // Not part of `settingsPrefs`: this one is loaded at boot (the first toast can beat a visit here),
-  // so it is never null and the row never renders a loading state the others need.
-  const desktopNotifications = useApp((s) => s.desktopNotifications);
-  const terminalHistory = useApp((s) => s.terminalHistory);
-  const setTerminalHistory = useApp((s) => s.setTerminalHistory);
-  const terminalCursorBlink = useApp((s) => s.terminalCursorBlink);
-  const terminalCursorStyle = useApp((s) => s.terminalCursorStyle);
-  const setTerminalCursorStyle = useApp((s) => s.setTerminalCursorStyle);
+  const paneAlpha = useApp((s) => s.paneAlpha);
+  const setPaneAlpha = useApp((s) => s.setPaneAlpha);
+  const reduceMotion = useApp((s) => s.reduceMotion);
+  const setReduceMotion = useApp((s) => s.setReduceMotion);
   const editorCursorBlink = useApp((s) => s.editorCursorBlink);
   const setEditorCursorBlink = useApp((s) => s.setEditorCursorBlink);
-  const setTerminalCursorBlink = useApp((s) => s.setTerminalCursorBlink);
-  const setDesktopNotifications = useApp((s) => s.setDesktopNotifications);
-  const soundCues = useApp((s) => s.soundCues);
-  const soundVolume = useApp((s) => s.soundVolume);
-  const setSoundCues = useApp((s) => s.setSoundCues);
-  const setSoundVolume = useApp((s) => s.setSoundVolume);
-  const relay = useApp((s) => s.notificationRelay);
-  const setNotificationRelay = useApp((s) => s.setNotificationRelay);
-  const setDefaultPermissionMode = useApp((s) => s.setDefaultPermissionMode);
-  const setMidTurnMode = useApp((s) => s.setMidTurnMode);
-  const midTurnMode = useApp((s) => s.midTurnMode);
-  const easterEggs = useApp((s) => s.easterEggs);
-  const lowPower = useApp((s) => s.lowPower);
-  const setLowPower = useApp((s) => s.setLowPower);
-  const sidebarActivityOrder = useApp((s) => s.sidebarActivityOrder);
-  const confirmDelete = useApp((s) => s.confirmDelete);
-  const setConfirmDelete = useApp((s) => s.setConfirmDelete);
-  const setSidebarActivityOrder = useApp((s) => s.setSidebarActivityOrder);
-  const setEasterEggs = useApp((s) => s.setEasterEggs);
   const run = useApp((s) => s.run);
-  useEffect(() => { void run(() => refreshSettingsPrefs()); }, [run, refreshSettingsPrefs]);
-  // bypassPermissions must never be a one-click slip, HERE least of all — this is every future
-  // session at once. Same two-step as the composer chip (U-M7): arm for 5s, apply only on the
-  // explicit confirm; the control meanwhile stays on the current mode.
-  const [confirmBypass, setConfirmBypass] = useState(false);
-  useEffect(() => {
-    if (!confirmBypass) return;
-    const t = setTimeout(() => setConfirmBypass(false), 5000);
-    return () => clearTimeout(t);
-  }, [confirmBypass]);
 
   // The face on screen. Both slots are always editable — the point of two is that you set the one
   // you are not looking at — so this only decides which row is marked as the live one.
   const mode = useResolvedMode(themePref);
+  const other: Mode = mode === "light" ? "dark" : "light";
   const material = hasWindowMaterial();
-  const translucent = groundAlpha < GROUND_ALPHA_RANGE.max;
-
-  const supported = SELECTABLE_AGENT_KINDS.filter((k) => AGENT_SUPPORTS_PERMISSION_MODES[k]);
-  const unsupported = SELECTABLE_AGENT_KINDS.filter((k) => !AGENT_SUPPORTS_PERMISSION_MODES[k]);
-  const labels = (ks: readonly AgentKind[]) => ks.map((k) => AGENT_META[k].label).join(", ");
 
   return (
-    /* Grouped lists, not a form of stacked fields with a paragraph under each. A settings tab is
-       scanned for the control you came for; every sentence between two rows is a sentence between
-       every visit and that control. What survives on screen is a label, its control, and the few
-       lines that say something the control cannot — an unavailable option's reason, a consequence
-       that outlives the click. The rest rides the control's own `title`. */
-    <div className="form settings-app">
-      <h3 className="settings-head">Appearance</h3>
+    <div className="form">
       <div className="settings-group">
-        <div className="settings-row" data-stack>
+        <div className="settings-row" data-stack data-setting="theme">
           <div className="settings-row-main"><span className="settings-row-name">Theme</span></div>
           {/* A card per choice, each showing the window it produces. "System" shows both faces because
               that is what choosing it means — the card cannot promise which one you will get. */}
@@ -837,25 +995,26 @@ function AppTab() {
 
         {/* The face you are LOOKING at, in full. `data-live` marks it so the window and the page agree
             about which row explains what is in front of you. */}
-        <div className="settings-row" data-stack data-live>
+        <div className="settings-row" data-stack data-live data-setting={`palette-${mode}`}>
           <div className="settings-row-main">
             <span className="settings-row-name">{mode === "light" ? "Light theme" : "Dark theme"}</span>
           </div>
-          <PaletteChoices face={mode} selected={themeNames[mode]}
+          <PaletteChoices face={mode} selected={themeNames[mode]} live
             onSelect={(name) => run(() => setThemeName(mode, name))} />
         </div>
         {/* And the other one, folded away. Setting the face you are not in is the whole reason there
             are two rows — but it is a thing you do occasionally, and open it doubled the length of the
-            tab with a grid nobody looking at this window can see the effect of. */}
-        <div className="settings-row" data-stack>
+            page with a grid nobody looking at this window can see the effect of. Named as the live row
+            is, so a search for "Light theme" lands on a row that says so. */}
+        <div className="settings-row" data-stack data-setting={`palette-${other}`}>
           <details className="theme-other">
-            <summary>{mode === "light" ? "Dark" : "Light"} palette</summary>
-            <PaletteChoices face={mode === "light" ? "dark" : "light"} selected={themeNames[mode === "light" ? "dark" : "light"]}
-              onSelect={(name) => run(() => setThemeName(mode === "light" ? "dark" : "light", name))} />
+            <summary>{other === "light" ? "Light theme" : "Dark theme"}</summary>
+            <PaletteChoices face={other} selected={themeNames[other]}
+              onSelect={(name) => run(() => setThemeName(other, name))} />
           </details>
         </div>
 
-        <div className="settings-row">
+        <div className="settings-row" data-setting="contrast">
           <div className="settings-row-main"><span className="settings-row-name">Contrast</span></div>
           {/* The ink ramp's SPREAD — how far the secondary and hint tiers fall below primary text. It
               is the only thing in the palette that is a matter of eyes rather than of design: the hues
@@ -871,49 +1030,40 @@ function AppTab() {
           </div>
         </div>
 
-        <div className="settings-row">
-          <div className="settings-row-main">
-            <span className="settings-row-name">Window translucency</span>
-            {/* Off macOS the control is inert, and a disabled control with no reason beside it is the
-                one case where the sentence has to stay on the page: there is nothing else to explain
-                why this row does nothing. On a Mac the same explanation is a title, because the
-                control works and reads correctly without it. */}
-            {!material && (
-              <span className="settings-row-desc">
-                {`${PLATFORM_NAMES[window.realm?.platform ?? ""] ?? "This platform"} has no window material — there is nothing behind the window to reveal. The setting is kept and applies on a Mac.`}
-              </span>
-            )}
-          </div>
-          {/* A switch and an amount over ONE stored number, not two controls that can disagree: fully
-              opaque IS off, because covering the material completely is the same as not having asked
-              for it. So the switch reads `groundAlpha < max` and writes either the maximum or the
-              default, and the slider is inert while it is off — nothing here can put the app in a
-              state where the switch says one thing and the amount another.
-              The slider runs the way its label reads — right is MORE transparent — while the stored
-              value is the ground's OPACITY, because that is what the stylesheet composes. `flip` is the
-              one place the two meet. step 1, not a coarser grid: the range spans an odd number of
-              points, so any step above 1 leaves one of its two ends unreachable. */}
-          <div className="slider-row" title={material
-            ? "The sidebar and the panes both show the desktop behind the window, each as thinly as its own text allows: the sidebar holds labels and goes furthest, a pane holds the reading and stops where body text would fall below the contrast every theme here is held to. Realm also follows the system's Reduce Transparency setting — with it on both surfaces are opaque whatever this says, and your value comes back when you turn it off."
-            : undefined}>
-            <input type="checkbox" role="switch" className="switch" aria-label="Window translucency"
-              disabled={!material} checked={translucent}
-              onChange={(e) => run(() => setGroundAlpha(e.target.checked ? DEFAULT_GROUND_ALPHA : GROUND_ALPHA_RANGE.max))} />
-            <Slider aria-label="Background transparency" disabled={!material || !translucent}
-              min={GROUND_ALPHA_RANGE.min} max={GROUND_ALPHA_RANGE.max} step={1}
-              value={flip(groundAlpha)} onChange={(e) => run(() => setGroundAlpha(flip(Number(e.target.value))))} />
-            <span className="slider-value">{100 - groundAlpha}%</span>
-          </div>
+        <TranslucencyRow id="sidebar-translucency" label="Sidebar translucency" amount="Sidebar transparency"
+          alpha={groundAlpha} range={GROUND_ALPHA_RANGE} fallback={DEFAULT_GROUND_ALPHA} material={material}
+          onChange={(v) => run(() => setGroundAlpha(v))}
+          title="The sidebar shows the desktop behind the window as thinly as its labels allow. Realm also follows the system's Reduce Transparency setting — with it on the sidebar is opaque whatever this says, and your value comes back when you turn it off."
+          /* Off macOS both controls are inert, and a disabled control with no reason beside it is
+             the one case where the sentence has to stay on the page. Once, on the first of the two:
+             the second is disabled for the same reason, directly under it. */
+          why={material ? undefined : `${PLATFORM_NAMES[window.realm?.platform ?? ""] ?? "This platform"} has no window material — there is nothing behind the window to reveal. Both settings are kept and apply on a Mac.`} />
+        <TranslucencyRow id="pane-translucency" label="Pane translucency" amount="Pane transparency"
+          alpha={paneAlpha} range={PANE_ALPHA_RANGE} fallback={DEFAULT_PANE_ALPHA} material={material}
+          onChange={(v) => run(() => setPaneAlpha(v))}
+          title="A pane holds the reading, so it goes only as thin as body text can stay above the contrast every theme here is held to over the worst desktop — 14% at most. Reduce Transparency makes it opaque as well." />
+
+        {/* The app's one motion mechanism is the system's `prefers-reduced-motion`, and this is an
+            answer to that same question rather than a second one: main has the window report the
+            chosen value, so every rule and listener that already honours the Mac honours this. */}
+        <div className="settings-row" data-setting="reduce-motion">
+          <div className="settings-row-main"><span className="settings-row-name">Reduce motion</span></div>
+          <fieldset className="settings-tabs" aria-label="Reduce motion"
+            title="System follows the Mac's own Reduce Motion setting. On and Off decide it for Realm whatever the Mac says.">
+            {MOTION_CHOICES.map((m) => (
+              <label key={m.pref} className="settings-tab" data-selected={reduceMotion === m.pref || undefined}>
+                <input type="radio" name="settings-reduce-motion" value={m.pref} checked={reduceMotion === m.pref}
+                  onChange={() => run(() => setReduceMotion(m.pref))} />
+                {m.label}
+              </label>
+            ))}
+          </fieldset>
         </div>
       </div>
-      {/* One line, not a switch (Plan 14 W5): the OS setting is the control, and styles.css's global
-          prefers-reduced-motion kill is what makes this sentence true. It stays visible because it is
-          the only place the app answers "where is the motion setting" — but it is a clause now. */}
-      <p className="settings-hint">Animations follow the system's Reduce Motion setting.</p>
 
       <h3 className="settings-head">Text</h3>
       <div className="settings-group">
-        <div className="settings-row">
+        <div className="settings-row" data-setting="ui-font">
           <div className="settings-row-main"><span className="settings-row-name">UI font</span></div>
           <div className="font-row">
             <FontSelect role="ui" value={fonts.ui} onPick={(id) => run(() => setFonts({ ui: id }))} />
@@ -923,7 +1073,24 @@ function AppTab() {
             </select>
           </div>
         </div>
-        <div className="settings-row">
+        <div className="settings-row" data-setting="ui-font-size">
+          <div className="settings-row-main"><span className="settings-row-name">UI font size</span></div>
+          {/* The size the body text is set at, every other size in proportion to it — what ⌘+ and ⌘−
+              do to the text without what they do to the layout. They stay page zoom. */}
+          <div className="slider-row" title="Every label, row and message, in proportion — the smallest labels stop at 11px. ⌘+ and ⌘− still zoom the whole window, layout and all.">
+            <Slider aria-label="UI font size"
+              min={UI_SIZE_RANGE.min} max={UI_SIZE_RANGE.max} step={1}
+              value={fonts.uiSize} onChange={(e) => run(() => setFonts({ uiSize: Number(e.target.value) }))} />
+            <span className="slider-value">{fonts.uiSize}px</span>
+          </div>
+        </div>
+        <div className="settings-row" data-setting="content-font">
+          <div className="settings-row-main"><span className="settings-row-name">Content font</span></div>
+          <div className="font-row" title="Messages, rendered markdown and documents. Everything else stays in the UI font.">
+            <FontSelect role="content" value={fonts.content} onPick={(id) => run(() => setFonts({ content: id }))} />
+          </div>
+        </div>
+        <div className="settings-row" data-setting="line-height">
           <div className="settings-row-main"><span className="settings-row-name">Line height</span></div>
           {/* An OFFSET, not a value. Prose is 1.6, markdown 1.55 and a code block 1.65, and those
               three are a judgement about each surface — a control that set one number would flatten
@@ -937,7 +1104,22 @@ function AppTab() {
             <span className="slider-value">{(1.6 + fonts.leading / 100).toFixed(2)}</span>
           </div>
         </div>
-        <div className="settings-row">
+        <div className="settings-row" data-setting="code-font">
+          <div className="settings-row-main"><span className="settings-row-name">Code font</span></div>
+          <div className="font-row" title="Code, diffs, terminals and keyboard hints. Open terminals change face with this setting.">
+            <FontSelect role="code" value={fonts.code} onPick={(id) => run(() => setFonts({ code: id }))} />
+          </div>
+        </div>
+        <div className="settings-row" data-setting="code-font-size">
+          <div className="settings-row-main"><span className="settings-row-name">Code font size</span></div>
+          <div className="slider-row" title="Everything set in the code font: code blocks, diffs, the editor, terminals and keyboard hints.">
+            <Slider aria-label="Code font size"
+              min={CODE_SIZE_RANGE.min} max={CODE_SIZE_RANGE.max} step={1}
+              value={fonts.codeSize} onChange={(e) => run(() => setFonts({ codeSize: Number(e.target.value) }))} />
+            <span className="slider-value">{fonts.codeSize}px</span>
+          </div>
+        </div>
+        <div className="settings-row" data-setting="editor-caret-blink">
           <div className="settings-row-main">
             <span className="settings-row-name">{EDITOR_CURSOR_BLINK_COPY.label}</span>
             {/* The exclusion is a fact about Chromium, not a choice, and it belongs where someone
@@ -948,46 +1130,69 @@ function AppTab() {
             checked={editorCursorBlink}
             onChange={(e) => run(() => setEditorCursorBlink(e.target.checked))} />
         </div>
-        <div className="settings-row">
-          <div className="settings-row-main"><span className="settings-row-name">Code font</span></div>
-          <div className="font-row" title="Code, diffs, terminals and keyboard hints. Open terminals change face with this setting; their font size does not follow it.">
-            <FontSelect role="code" value={fonts.code} onPick={(id) => run(() => setFonts({ code: id }))} />
-          </div>
-        </div>
       </div>
-      {/* Kept on the page, where the rest of this tab's prose went to a title: it explains a control
+      {/* Kept on the page, where the rest of this page's prose went to a title: it explains a control
           that ISN'T there. The asymmetry is a fact about the stylesheet, not a judgement — every mono
           surface sets its font with the `font:` shorthand, which resets weight by definition, so a
           code weight would mean editing fifty-odd rules or hiding a weight inside a family name. */}
       <p className="settings-hint">Weight follows the app's own scale here.</p>
       <FontLibrary />
+    </div>
+  );
+}
 
-      {/* The section `SpaceStrip` names when it explains where its order comes from. One row for now:
-          the sidebar's other preference — invert swipe — lives in the strip's own header menu, where
-          it sits on the gesture it changes, and moving it here to make a fuller section would take a
-          control away from the thing it acts on. */}
-      <h3 className="settings-head">Sidebar</h3>
-      <ul className="settings-list">
-        <li className="settings-row" title="The strip keeps the order you dragged it into. This orders it by what is happening instead — a space with a question waiting first, then whichever moved most recently — and leaves the dragged order untouched underneath, so turning this off puts it back exactly as you left it.">
-          <div className="settings-row-main">
-            <span className="settings-row-name">Sort spaces by activity</span>
-            <span className="settings-row-detail">A waiting question first, then whatever moved last</span>
-          </div>
-          <input type="checkbox" role="switch" className="switch" aria-label="Sort spaces by activity"
-            checked={sidebarActivityOrder}
-            onChange={(e) => run(() => setSidebarActivityOrder(e.target.checked))} />
-        </li>
-      </ul>
-      {/* Says what it COSTS, because the strip stops answering the drag while it is on and a switch
-          that quietly disabled a gesture would read as the gesture breaking. */}
-      <p className="settings-hint">
-        While this is on the strip reorders itself, so spaces cannot be dragged — a drop into a spot
-        the next status change would move away from is a drop that did nothing.
-      </p>
+/**
+ * General: how sessions start and send, how the sidebar orders itself, what asks before it deletes,
+ * the terminals, updates, power, and the eggs. The credit closes it, because this is the page about
+ * the app itself.
+ */
+function GeneralTab() {
+  const submitKey = useApp((s) => s.submitKey);
+  const setSubmitKey = useApp((s) => s.setSubmitKey);
+  const prefs = useApp((s) => s.settingsPrefs);
+  const refreshSettingsPrefs = useApp((s) => s.refreshSettingsPrefs);
+  const setDefaultPermissionMode = useApp((s) => s.setDefaultPermissionMode);
+  const setMidTurnMode = useApp((s) => s.setMidTurnMode);
+  const midTurnMode = useApp((s) => s.midTurnMode);
+  const sidebarActivityOrder = useApp((s) => s.sidebarActivityOrder);
+  const setSidebarActivityOrder = useApp((s) => s.setSidebarActivityOrder);
+  const confirmDelete = useApp((s) => s.confirmDelete);
+  const setConfirmDelete = useApp((s) => s.setConfirmDelete);
+  const terminalHistory = useApp((s) => s.terminalHistory);
+  const setTerminalHistory = useApp((s) => s.setTerminalHistory);
+  const terminalCursorBlink = useApp((s) => s.terminalCursorBlink);
+  const setTerminalCursorBlink = useApp((s) => s.setTerminalCursorBlink);
+  const terminalCursorStyle = useApp((s) => s.terminalCursorStyle);
+  const setTerminalCursorStyle = useApp((s) => s.setTerminalCursorStyle);
+  const lowPower = useApp((s) => s.lowPower);
+  const setLowPower = useApp((s) => s.setLowPower);
+  const preventSleep = useApp((s) => s.preventSleep);
+  const setPreventSleep = useApp((s) => s.setPreventSleep);
+  const terminalDock = useApp((s) => s.terminalDock);
+  const setTerminalDock = useApp((s) => s.setTerminalDock);
+  const easterEggs = useApp((s) => s.easterEggs);
+  const setEasterEggs = useApp((s) => s.setEasterEggs);
+  const run = useApp((s) => s.run);
+  useEffect(() => { void run(() => refreshSettingsPrefs()); }, [run, refreshSettingsPrefs]);
+  // bypassPermissions must never be a one-click slip, HERE least of all — this is every future
+  // session at once. Same two-step as the composer chip (U-M7): arm for 5s, apply only on the
+  // explicit confirm; the control meanwhile stays on the current mode.
+  const [confirmBypass, setConfirmBypass] = useState(false);
+  useEffect(() => {
+    if (!confirmBypass) return;
+    const t = setTimeout(() => setConfirmBypass(false), 5000);
+    return () => clearTimeout(t);
+  }, [confirmBypass]);
 
+  const supported = SELECTABLE_AGENT_KINDS.filter((k) => AGENT_SUPPORTS_PERMISSION_MODES[k]);
+  const unsupported = SELECTABLE_AGENT_KINDS.filter((k) => !AGENT_SUPPORTS_PERMISSION_MODES[k]);
+  const labels = (ks: readonly AgentKind[]) => ks.map((k) => AGENT_META[k].label).join(", ");
+
+  return (
+    <div className="form">
       <h3 className="settings-head">Sessions</h3>
       <div className="settings-group">
-        <div className="settings-row">
+        <div className="settings-row" data-setting="submit-key">
           <div className="settings-row-main"><span className="settings-row-name">Send message with</span></div>
           <fieldset className="settings-tabs" aria-label="Send message with"
             title={submitKey === "enter" ? "Enter sends; Shift+Enter inserts a newline." : "⌘/Ctrl+Enter sends; Enter inserts a newline."}>
@@ -1000,7 +1205,7 @@ function AppTab() {
             ))}
           </fieldset>
         </div>
-        <div className="settings-row" data-stack>
+        <div className="settings-row" data-stack data-setting="mid-turn">
           <div className="settings-row-main"><span className="settings-row-name">A message typed while a turn is running</span></div>
           <>
               <fieldset className="settings-tabs" aria-label="Mid-turn prompts">
@@ -1020,7 +1225,7 @@ function AppTab() {
               </p>
           </>
         </div>
-        <div className="settings-row" data-stack>
+        <div className="settings-row" data-stack data-setting="default-permission">
           <div className="settings-row-main"><span className="settings-row-name">New sessions start in</span></div>
           {prefs === null ? <p className="env-empty">Loading preferences…</p> : (
             <>
@@ -1055,22 +1260,36 @@ function AppTab() {
         </div>
       </div>
 
+      {/* The section `SpaceStrip` names when it explains where its order comes from. One row: the
+          sidebar's other preference — invert swipe — lives in the strip's own header menu, where it
+          sits on the gesture it changes, and moving it here to make a fuller section would take a
+          control away from the thing it acts on. It used to appear twice, a second "Sort by
+          activity" further down the page writing the same key; one switch is one setting. */}
+      <h3 className="settings-head">Files</h3>
+      <OpenFilesInRow />
+
       <h3 className="settings-head">Sidebar</h3>
       <ul className="settings-list">
-        <li className="settings-row" title="Replaces the strip's own drag order with one computed from what is actually happening. Turning it off restores the order you left it in — dragging was never touched, only not read from.">
+        <li className="settings-row" data-setting="sidebar-activity-order" title="The strip keeps the order you dragged it into. This orders it by what is happening instead — a space with a question waiting first, then whichever moved most recently — and leaves the dragged order untouched underneath, so turning this off puts it back exactly as you left it.">
           <div className="settings-row-main">
-            <span className="settings-row-name">Sort by activity</span>
-            <span className="settings-row-detail">Needs-you spaces first, then whichever you touched most recently</span>
+            <span className="settings-row-name">Sort spaces by activity</span>
+            <span className="settings-row-detail">A waiting question first, then whatever moved last</span>
           </div>
-          <input type="checkbox" role="switch" className="switch" aria-label="Sort by activity"
+          <input type="checkbox" role="switch" className="switch" aria-label="Sort spaces by activity"
             checked={sidebarActivityOrder}
             onChange={(e) => run(() => setSidebarActivityOrder(e.target.checked))} />
         </li>
       </ul>
+      {/* Says what it COSTS, because the strip stops answering the drag while it is on and a switch
+          that quietly disabled a gesture would read as the gesture breaking. */}
+      <p className="settings-hint">
+        While this is on the strip reorders itself, so spaces cannot be dragged — a drop into a spot
+        the next status change would move away from is a drop that did nothing.
+      </p>
 
       <h3 className="settings-head">Deleting</h3>
       <ul className="settings-list">
-        <li className="settings-row" title="Applies to deleting an item or a schedule. Removing a split and discarding a quick chat still ask, because neither is a delete — the panes come back and the draft was never saved.">
+        <li className="settings-row" data-setting="confirm-delete" title="Applies to deleting an item or a schedule. Removing a split and discarding a quick chat still ask, because neither is a delete — the panes come back and the draft was never saved.">
           <div className="settings-row-main">
             <span className="settings-row-name">Ask before deleting</span>
             <span className="settings-row-detail">A delete takes the object with it, and nothing here brings one back</span>
@@ -1083,7 +1302,7 @@ function AppTab() {
 
       <h3 className="settings-head">Terminals</h3>
       <ul className="settings-list">
-        <li className="settings-row">
+        <li className="settings-row" data-setting="terminal-history">
           <div className="settings-row-main">
             <span className="settings-row-name">{TERMINALS_HISTORY_COPY.label}</span>
             {/* The detail names what is actually being kept, because "terminal output" is whatever a
@@ -1094,7 +1313,7 @@ function AppTab() {
             checked={terminalHistory}
             onChange={(e) => run(() => setTerminalHistory(e.target.checked))} />
         </li>
-        <li className="settings-row">
+        <li className="settings-row" data-setting="terminal-cursor-blink">
           <div className="settings-row-main">
             <span className="settings-row-name">{TERMINALS_CURSOR_BLINK_COPY.label}</span>
             <span className="settings-row-desc">{TERMINALS_CURSOR_BLINK_COPY.detail}</span>
@@ -1103,7 +1322,7 @@ function AppTab() {
             checked={terminalCursorBlink}
             onChange={(e) => run(() => setTerminalCursorBlink(e.target.checked))} />
         </li>
-        <li className="settings-row" title="A block is what a full-screen program is drawn against; a bar is what an editor trains you to look for; an underline never covers the character it is standing on.">
+        <li className="settings-row" data-setting="terminal-cursor-style" title="A block is what a full-screen program is drawn against; a bar is what an editor trains you to look for; an underline never covers the character it is standing on.">
           <div className="settings-row-main">
             <span className="settings-row-name">{TERMINALS_CURSOR_STYLE_COPY.label}</span>
           </div>
@@ -1117,92 +1336,37 @@ function AppTab() {
             ))}
           </select>
         </li>
-      </ul>
-
-      <h3 className="settings-head">Notifications</h3>
-      <ul className="settings-list">
-        <li className="settings-row">
-          <div className="settings-row-main">
-            <span className="settings-row-name">Notify me outside Realm</span>
-            {/* The two things one switch does. Kept visible: a switch that also counts badges is
-                doing something its label does not say. */}
-            <span className="settings-row-desc">Post a system notification, and count unread ones on the dock icon.</span>
-          </div>
-          <input type="checkbox" role="switch" className="switch" aria-label="Notify me outside Realm"
-            checked={desktopNotifications}
-            onChange={(e) => run(() => setDesktopNotifications(e.target.checked))} />
-        </li>
-        {/* Nested under the switch above, and inert while it is off, because the sound is part of a
-            notification rather than a second way of being told: it plays only alongside one that
-            was actually posted. */}
-        <li className="settings-row" title="One cue when a turn finishes, another when an agent is waiting on you. The sound follows the system volume, so muting the machine mutes it.">
-          <div className="settings-row-main"><span className="settings-row-name">Play a sound with it</span></div>
-          <input type="checkbox" role="switch" className="switch" aria-label="Play a sound with it"
-            disabled={!desktopNotifications} checked={soundCues}
-            onChange={(e) => run(() => setSoundCues(e.target.checked))} />
-        </li>
-        {/* The volume is a row of its own with its own label, rather than a bare slider under the
-            switch: the readout used to have to name its own quantity ("Volume 50%") because nothing
-            beside it did. In a labelled row the number is just the number. */}
-        <li className="settings-row">
-          <div className="settings-row-main"><span className="settings-row-name">Volume</span></div>
-          <div className="slider-row">
-            <Slider aria-label="Sound volume" disabled={!desktopNotifications || !soundCues}
-              min={0} max={100} step={5}
-              value={Math.round(soundVolume * 100)}
-              onChange={(e) => run(() => setSoundVolume(Number(e.target.value) / 100))} />
-            <span className="slider-value">{Math.round(soundVolume * 100)}%</span>
-          </div>
-        </li>
-        {/* Beyond the machine. Independent of the desktop switch: the point is the moments you are
-            NOT at this Mac. Only a permission waiting, a finished session or a blocked run leave —
-            never MCP or probe chatter — and a repeat of one open condition is sent once. */}
-        <li className="settings-row" title="Sent through Messages on this Mac (the `mac` CLI). A phone number or Apple ID email, exactly as Messages knows it.">
-          <div className="settings-row-main">
-            <span className="settings-row-name">Text me when an agent needs me</span>
-            <span className="settings-row-desc">An iMessage when a session is waiting on a permission, finishes, or fails.</span>
-          </div>
-          <input className="settings-text" type="text" aria-label="iMessage handle" placeholder="+1 555 123 4567 or you@icloud.com"
-            value={relay.imessage} spellCheck={false}
-            onChange={(e) => run(() => setNotificationRelay({ imessage: e.target.value }))} />
-        </li>
-        <li className="settings-row" title="A Slack incoming-webhook URL. The same three moments, posted as one line.">
-          <div className="settings-row-main"><span className="settings-row-name">Post to Slack</span></div>
-          <input className="settings-text" type="url" aria-label="Slack webhook URL" placeholder="https://hooks.slack.com/services/…"
-            value={relay.slackWebhook} spellCheck={false}
-            onChange={(e) => run(() => setNotificationRelay({ slackWebhook: e.target.value }))} />
+        <li className="settings-row" data-setting="terminal-dock" title="Where ⌘J opens a session's terminal: beside the transcript, or under it. Either way it pins when the pane has the room and floats when it does not, and closing it keeps the shell.">
+          <div className="settings-row-main"><span className="settings-row-name">Session terminal</span></div>
+          <fieldset className="settings-tabs" aria-label="Session terminal">
+            {TERMINAL_DOCK_CHOICES.map((c) => (
+              <label key={c.edge} className="settings-tab" data-selected={terminalDock === c.edge || undefined}>
+                <input type="radio" name="settings-terminal-dock" value={c.edge} checked={terminalDock === c.edge}
+                  onChange={() => run(() => setTerminalDock(c.edge))} />
+                {c.label}
+              </label>
+            ))}
+          </fieldset>
         </li>
       </ul>
-      {/* The one thing the three rows above do not say: none of it happens while you are looking at
-          Realm. */}
-      <p className="settings-hint" title="Clicking one opens the session it came from. The categories below decide what counts; this decides whether it leaves the app.">Only when Realm is not the app you are in.</p>
-
-      <h3 className="settings-head">Notify me about</h3>
-      {prefs === null ? <p className="env-empty">Loading preferences…</p> : (
-        <ul className="settings-list">
-          {/* Nine rows, nine labels. The sentence each used to carry restated its own label for the
-              length of a paragraph — "Permission requests: an agent is waiting on your yes or no" —
-              and nine of them were most of the reading on this tab. They ride the row now. */}
-          {NOTIFICATION_CATEGORIES.map((c) => (
-            <li key={c} className="settings-row" title={CATEGORY_COPY[c].desc}>
-              <div className="settings-row-main">
-                <span className="settings-row-name">{CATEGORY_COPY[c].label}</span>
-              </div>
-              <input type="checkbox" role="switch" className="switch" aria-label={CATEGORY_COPY[c].label}
-                checked={!prefs.disabledCategories.includes(c)}
-                onChange={(e) => run(() => setNotificationCategoryEnabled(c, e.target.checked))} />
-            </li>
-          ))}
-        </ul>
-      )}
-      <p className="settings-hint">Switching one off stops new rows from being written; the feed keeps what is already in it.</p>
 
       <h3 className="settings-head">Updates</h3>
       <UpdatesField />
 
       <h3 className="settings-head">Power</h3>
       <ul className="settings-list">
-        <li className="settings-row" title="Realm already stops its animations while its window is in the background. This keeps them off while you are looking at it too, and stops the transcript's dissolve from blurring what passes under it. Nothing about what an agent does changes.">
+        {/* Says what it leaves alone, because "keep the Mac awake" sounds like a lit screen all night:
+            it holds only while a session is working, and the display may sleep throughout. */}
+        <li className="settings-row" data-setting="prevent-sleep" title="Realm holds macOS's app-suspension assertion only while a session is running and lets go when the last turn ends. A session waiting on your answer is not working, and does not keep the Mac up.">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Keep the Mac awake while agents work</span>
+            <span className="settings-row-detail">The display still sleeps</span>
+          </div>
+          <input type="checkbox" role="switch" className="switch" aria-label="Keep the Mac awake while agents work"
+            checked={preventSleep}
+            onChange={(e) => run(() => setPreventSleep(e.target.checked))} />
+        </li>
+        <li className="settings-row" data-setting="low-power" title="Realm already stops its animations while its window is in the background. This keeps them off while you are looking at it too, and stops the transcript's dissolve from blurring what passes under it. Nothing about what an agent does changes.">
           <div className="settings-row-main">
             <span className="settings-row-name">Low power</span>
             <span className="settings-row-detail">Keep the motion off, and the dissolve unblurred</span>
@@ -1222,7 +1386,7 @@ function AppTab() {
 
       <h3 className="settings-head">Easter eggs</h3>
       <ul className="settings-list">
-        <li className="settings-row" title="Run labels that name the people Carlton works with, a gradient on the heavier models, and one thing you have to find.">
+        <li className="settings-row" data-setting="easter-eggs" title="Run labels that name the people Carlton works with, a gradient on the heavier models, and one thing you have to find.">
           <div className="settings-row-main">
             <span className="settings-row-name">Let Realm mess around</span>
           </div>
@@ -1236,6 +1400,108 @@ function AppTab() {
       <FriendPacks />
 
       <Attribution />
+    </div>
+  );
+}
+
+/**
+ * Notifications: whether a notification leaves the app and how, then which kinds count. The first
+ * group goes unheaded for the reason Appearance's does.
+ */
+function NotificationsTab() {
+  const prefs = useApp((s) => s.settingsPrefs);
+  const refreshSettingsPrefs = useApp((s) => s.refreshSettingsPrefs);
+  const setNotificationCategoryEnabled = useApp((s) => s.setNotificationCategoryEnabled);
+  // Not part of `settingsPrefs`: this one is loaded at boot (the first toast can beat a visit here),
+  // so it is never null and the row never renders a loading state the others need.
+  const desktopNotifications = useApp((s) => s.desktopNotifications);
+  const setDesktopNotifications = useApp((s) => s.setDesktopNotifications);
+  const soundCues = useApp((s) => s.soundCues);
+  const soundVolume = useApp((s) => s.soundVolume);
+  const setSoundCues = useApp((s) => s.setSoundCues);
+  const setSoundVolume = useApp((s) => s.setSoundVolume);
+  const relay = useApp((s) => s.notificationRelay);
+  const setNotificationRelay = useApp((s) => s.setNotificationRelay);
+  const run = useApp((s) => s.run);
+  useEffect(() => { void run(() => refreshSettingsPrefs()); }, [run, refreshSettingsPrefs]);
+
+  return (
+    <div className="form">
+      <ul className="settings-list">
+        <li className="settings-row" data-setting="desktop-notifications">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Notify me outside Realm</span>
+            {/* The two things one switch does. Kept visible: a switch that also counts badges is
+                doing something its label does not say. */}
+            <span className="settings-row-desc">Post a system notification, and count unread ones on the dock icon.</span>
+          </div>
+          <input type="checkbox" role="switch" className="switch" aria-label="Notify me outside Realm"
+            checked={desktopNotifications}
+            onChange={(e) => run(() => setDesktopNotifications(e.target.checked))} />
+        </li>
+        {/* Nested under the switch above, and inert while it is off, because the sound is part of a
+            notification rather than a second way of being told: it plays only alongside one that
+            was actually posted. */}
+        <li className="settings-row" data-setting="sound-cues" title="One cue when a turn finishes, another when an agent is waiting on you. The sound follows the system volume, so muting the machine mutes it.">
+          <div className="settings-row-main"><span className="settings-row-name">Play a sound with it</span></div>
+          <input type="checkbox" role="switch" className="switch" aria-label="Play a sound with it"
+            disabled={!desktopNotifications} checked={soundCues}
+            onChange={(e) => run(() => setSoundCues(e.target.checked))} />
+        </li>
+        {/* The volume is a row of its own with its own label, rather than a bare slider under the
+            switch: the readout used to have to name its own quantity ("Volume 50%") because nothing
+            beside it did. In a labelled row the number is just the number. */}
+        <li className="settings-row" data-setting="sound-volume">
+          <div className="settings-row-main"><span className="settings-row-name">Volume</span></div>
+          <div className="slider-row">
+            <Slider aria-label="Sound volume" disabled={!desktopNotifications || !soundCues}
+              min={0} max={100} step={5}
+              value={Math.round(soundVolume * 100)}
+              onChange={(e) => run(() => setSoundVolume(Number(e.target.value) / 100))} />
+            <span className="slider-value">{Math.round(soundVolume * 100)}%</span>
+          </div>
+        </li>
+        {/* Beyond the machine. Independent of the desktop switch: the point is the moments you are
+            NOT at this Mac. Only a permission waiting, a finished session or a blocked run leave —
+            never MCP or probe chatter — and a repeat of one open condition is sent once. */}
+        <li className="settings-row" data-setting="relay-imessage" title="Sent through Messages on this Mac (the `mac` CLI). A phone number or Apple ID email, exactly as Messages knows it.">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Text me when an agent needs me</span>
+            <span className="settings-row-desc">An iMessage when a session is waiting on a permission, finishes, or fails.</span>
+          </div>
+          <input className="settings-text" type="text" aria-label="iMessage handle" placeholder="+1 555 123 4567 or you@icloud.com"
+            value={relay.imessage} spellCheck={false}
+            onChange={(e) => run(() => setNotificationRelay({ imessage: e.target.value }))} />
+        </li>
+        <li className="settings-row" data-setting="relay-slack" title="A Slack incoming-webhook URL. The same three moments, posted as one line.">
+          <div className="settings-row-main"><span className="settings-row-name">Post to Slack</span></div>
+          <input className="settings-text" type="url" aria-label="Slack webhook URL" placeholder="https://hooks.slack.com/services/…"
+            value={relay.slackWebhook} spellCheck={false}
+            onChange={(e) => run(() => setNotificationRelay({ slackWebhook: e.target.value }))} />
+        </li>
+      </ul>
+      {/* The one thing the rows above do not say: none of it happens while you are looking at Realm. */}
+      <p className="settings-hint" title="Clicking one opens the session it came from. The categories below decide what counts; this decides whether it leaves the app.">Only when Realm is not the app you are in.</p>
+
+      <h3 className="settings-head">Notify me about</h3>
+      {prefs === null ? <p className="env-empty">Loading preferences…</p> : (
+        <ul className="settings-list">
+          {/* Nine rows, nine labels. The sentence each used to carry restated its own label for the
+              length of a paragraph — "Permission requests: an agent is waiting on your yes or no" —
+              and nine of them were most of the reading on this page. They ride the row now. */}
+          {NOTIFICATION_CATEGORIES.map((c) => (
+            <li key={c} className="settings-row" data-setting={`notify:${c}`} title={CATEGORY_COPY[c].desc}>
+              <div className="settings-row-main">
+                <span className="settings-row-name">{CATEGORY_COPY[c].label}</span>
+              </div>
+              <input type="checkbox" role="switch" className="switch" aria-label={CATEGORY_COPY[c].label}
+                checked={!prefs.disabledCategories.includes(c)}
+                onChange={(e) => run(() => setNotificationCategoryEnabled(c, e.target.checked))} />
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="settings-hint">Switching one off stops new rows from being written; the feed keeps what is already in it.</p>
     </div>
   );
 }
@@ -1334,6 +1600,78 @@ function Attribution() {
 }
 
 
+/**
+ * Archived: the sessions shelved out of every space's list, in one place, newest first.
+ *
+ * The sidebar's shelf is per space and collapsed by design, which is right for the space you are in
+ * and no help finding the session you put away in another one last week. A row names its space and
+ * when it last moved, which is enough to pick it out without opening it.
+ *
+ * Restore and Delete are the shelf's own two actions, through the same calls. Delete is the session
+ * itself and its transcript, so it asks twice whenever the confirm preference does — the same
+ * preference the sidebar's Delete reads — and says what it takes on its title.
+ */
+function ArchivedTab() {
+  const archived = useApp((s) => s.archivedSessions);
+  const spaces = useApp((s) => s.spaces);
+  const updatedAt = useApp((s) => s.sessionUpdatedAt);
+  const refreshArchivedSessions = useApp((s) => s.refreshArchivedSessions);
+  const run = useApp((s) => s.run);
+  useEffect(() => { void run(() => refreshArchivedSessions()); }, [run, refreshArchivedSessions]);
+  const spaceName = (id: string) => spaces.find((sp) => sp.id === id)?.name ?? null;
+  return (
+    <div className="form">
+      {archived === null ? <p className="env-empty">Loading…</p> : archived.length === 0 ? (
+        <p className="env-empty">No archived sessions. Archiving one from its row in the sidebar keeps it here, out of its space's list.</p>
+      ) : (
+        <ul className="settings-list" aria-label="Archived sessions">
+          {archived.map((it) => (
+            <ArchivedRow key={it.id} itemId={it.id} title={it.title} spaceName={spaceName(it.spaceId)}
+              at={updatedAt[it.refId] ?? it.updatedAt} />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** How long an armed Delete waits for its second click — the bypass confirm's five seconds. */
+const DELETE_ARMED_MS = 5000;
+
+function ArchivedRow({ itemId, title, spaceName, at }: { itemId: string; title: string; spaceName: string | null; at: number }) {
+  const confirmDelete = useApp((s) => s.confirmDelete);
+  const restoreArchivedSession = useApp((s) => s.restoreArchivedSession);
+  const deleteArchivedSession = useApp((s) => s.deleteArchivedSession);
+  const run = useApp((s) => s.run);
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), DELETE_ARMED_MS);
+    return () => clearTimeout(t);
+  }, [armed]);
+  return (
+    <li className="settings-row archived-row">
+      <div className="settings-row-main">
+        <span className="settings-row-name">{title}</span>
+        <span className="settings-row-detail">{[spaceName, at ? relativeTime(at, Date.now()) : null].filter(Boolean).join(" · ")}</span>
+      </div>
+      <div className="archived-actions">
+        <button type="button" className="btn-quiet" aria-label={`Restore ${title}`} title="Back into its space's list, unopened"
+          onClick={() => run(() => restoreArchivedSession(itemId))}>Restore</button>
+        <button type="button" className="btn-quiet danger" aria-label={armed ? `Really delete ${title}` : `Delete ${title}`}
+          title="Deletes the session and its transcript. Nothing in Realm brings it back."
+          onClick={() => {
+            if (confirmDelete && !armed) { setArmed(true); return; }
+            setArmed(false);
+            void run(() => deleteArchivedSession(itemId));
+          }}>
+          {armed ? "Really delete?" : "Delete"}
+        </button>
+      </div>
+    </li>
+  );
+}
+
 /** How long one Touch ID check licenses further fills. "Every time" is the default and the honest
  *  one; the windows exist because an SSO sign-in is often two fills a few seconds apart. */
 const PRESENCE_TTL_LABELS: Record<number, string> = { 0: "Every time", 60_000: "For 1 minute", 300_000: "For 5 minutes" };
@@ -1410,7 +1748,7 @@ function SignInsTab() {
         </p>
       )}
 
-      <div className="field">
+      <div className="field" data-setting="saved-signins">
         <div className="mcp-section-head">
           <span>Saved sign-ins</span>
           {/* A saved sign-in is a secret. Composing one is a sequence — an address, a username, a
@@ -1450,7 +1788,7 @@ function SignInsTab() {
       {/* Passkeys have no Add button, and the absence is the feature: one exists because a site asked
           for it in a pane and the user answered Touch ID. There is nothing to type and no IPC an
           agent could call to mint one. */}
-      <div className="field">
+      <div className="field" data-setting="passkeys">
         <div className="mcp-section-head"><span>Passkeys</span></div>
         {passkeys === null ? <p className="env-empty">Loading…</p> : passkeys.length === 0 ? (
           <div className="creds-empty">
@@ -1526,7 +1864,7 @@ function SignInsTab() {
       </Sheet>
       )}
 
-      <div className="field"><span>Touch ID</span>
+      <div className="field" data-setting="touch-id"><span>Touch ID</span>
         <fieldset className="settings-tabs" aria-label="Ask for Touch ID">
           {CREDENTIAL_PRESENCE_TTLS.map((ms) => (
             <label key={ms} className="settings-tab" data-selected={status?.presenceTtlMs === ms || undefined}>
@@ -1581,7 +1919,7 @@ function UpdatesField() {
   /* The one row on this tab whose description is the whole point of it: what the updater is doing,
      or why it cannot. The section head above says "Updates", so the row says the version instead. */
   return (
-    <div className="settings-row update-row">
+    <div className="settings-row update-row" data-setting="updates">
       <div className="settings-row-main">
         <span className="settings-row-name">Realm v{status.version}</span>
         <span className="settings-row-desc">{desc}</span>
@@ -1637,10 +1975,90 @@ const TCC_STATE_LABEL = { granted: "Granted", denied: "Not granted", unknown: "C
 function PermissionsTab() {
   return (
     <div className="form">
-      <ComputerAccessSection />
       <MacAccessSection />
       <RealmAccessSection />
     </div>
+  );
+}
+
+/**
+ * Computer use: the two macOS grants the `realm-computer` tools need, and then every space's own
+ * switch for them with the apps its agents may drive without asking.
+ *
+ * It gathers and does not decide. Whether a space's agents may control this Mac stays that space's
+ * — the same provider switch its Connections tab draws, written through the same call — and an app
+ * still only arrives in a list from its own permission card. What this page adds is the answer to
+ * "where is this on", which otherwise meant opening every space in turn.
+ */
+function ComputerUseTab() {
+  const spaces = useApp((s) => s.spaces);
+  const profiles = useApp((s) => s.profiles);
+  const refreshComputerControl = useApp((s) => s.refreshComputerControl);
+  const refreshComputerAllowedApps = useApp((s) => s.refreshComputerAllowedApps);
+  const run = useApp((s) => s.run);
+  const ids = spaces.map((sp) => sp.id).join(",");
+  useEffect(() => {
+    for (const id of ids.split(",").filter(Boolean)) {
+      void run(() => refreshComputerControl(id));
+      void run(() => refreshComputerAllowedApps(id));
+    }
+  }, [ids, refreshComputerControl, refreshComputerAllowedApps, run]);
+  const profileName = (id: string) => profiles.find((p) => p.id === id)?.name ?? null;
+  return (
+    <div className="form">
+      <ComputerAccessSection />
+      <h3 className="settings-head" data-setting="computer-spaces">Spaces</h3>
+      {/* The two things the switches below do not say on their face: they start off, and turning one
+          on still asks before each app. */}
+      <p className="settings-hint" title="An app is listed under a space when you answer Always allow on its permission card there, and removing it takes effect at once, in sessions already running too. Realm, System Settings, password prompts and terminals can never be driven.">
+        Off until a space turns it on. Agents still ask before each app that is not listed under it.
+      </p>
+      {spaces.length === 0 ? <p className="env-empty">No spaces yet.</p> : spaces.map((sp) => (
+        <ComputerSpaceRows key={sp.id} spaceId={sp.id} name={sp.name} icon={sp.icon}
+          profile={profiles.length > 1 ? profileName(sp.profileId) : null} />
+      ))}
+    </div>
+  );
+}
+
+/** One space: its switch, then the apps it lets agents drive, as one card. The switch reads what the
+ *  space asked for; where this Mac cannot honour it, the state takes the switch's place, exactly as
+ *  the space's own Connections row does. */
+function ComputerSpaceRows({ spaceId, name, icon, profile }: { spaceId: string; name: string; icon: string; profile: string | null }) {
+  const provider = useApp((s) => s.computerControl[spaceId]);
+  const apps = useApp((s) => s.computerAllowedApps[spaceId]);
+  const setComputerControl = useApp((s) => s.setComputerControl);
+  const setComputerAllowedApps = useApp((s) => s.setComputerAllowedApps);
+  const run = useApp((s) => s.run);
+  const listed = apps ?? [];
+  return (
+    <ul className="settings-list" aria-label={`Computer control in ${name}`}>
+      <li className="settings-row computer-space">
+        <span className="computer-space-mark" aria-hidden="true"><SpaceIcon icon={icon} size={16} /></span>
+        <div className="settings-row-main">
+          <span className="settings-row-name">{name}</span>
+          {profile && <span className="settings-row-detail">{profile}</span>}
+        </div>
+        {provider === undefined || provider?.offered === null ? <span className="mcp-provider-state" data-state="checking">Checking…</span>
+          : provider === null ? <span className="mcp-provider-state" data-state="missing">Not available</span>
+          : provider.offered ? (
+            <input type="checkbox" role="switch" className="switch" aria-label={`Let agents in ${name} control this Mac`}
+              checked={provider.enabled} onChange={(e) => run(() => setComputerControl(spaceId, e.target.checked))} />
+          ) : (
+            <span className="mcp-provider-state" data-state="missing"
+              title={`${name}'s switch is kept, and comes back as it was once ${provider.needs ?? "what it needs"} is on this Mac.`}>
+              {provider.needs ? `Needs ${provider.needs}` : "Not available on this Mac"}
+            </span>
+          )}
+      </li>
+      {listed.map((bundleId) => (
+        <li key={bundleId} className="settings-row computer-app">
+          <div className="settings-row-main"><code className="computer-app-id">{bundleId}</code></div>
+          <button type="button" className="btn-quiet" aria-label={`Remove ${bundleId} from ${name}`}
+            onClick={() => run(() => setComputerAllowedApps(spaceId, listed.filter((a) => a !== bundleId)))}>Remove</button>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -1664,7 +2082,7 @@ function ComputerAccessSection() {
   useEffect(() => { void run(() => refreshComputerAccess()); }, [run, refreshComputerAccess]);
 
   return (
-    <div className="computer-access-field">
+    <div className="computer-access-field" data-setting="computer-control">
       <h3 className="settings-head">Computer control</h3>
       {/* One line on the page; the qualifications live in its title. A settings tab is scanned for
           the control you came for, and three sentences before the first switch is three sentences
@@ -1759,11 +2177,11 @@ function MacAccessSection() {
   const run = useApp((s) => s.run);
   useEffect(() => { void run(() => refreshMacAccess()); }, [run, refreshMacAccess]);
 
-  if (status === null) return <div className="mac-access-field"><h3 className="settings-head">Apps on this Mac</h3><p className="env-empty">Checking…</p></div>;
+  if (status === null) return <div className="mac-access-field" data-setting="mac-apps"><h3 className="settings-head">Apps on this Mac</h3><p className="env-empty">Checking…</p></div>;
 
   if (!status.cli.present) {
     return (
-      <div className="mac-access-field"><h3 className="settings-head">Apps on this Mac</h3>
+      <div className="mac-access-field" data-setting="mac-apps"><h3 className="settings-head">Apps on this Mac</h3>
         <p className="settings-hint">
           Realm drives Calendar, Mail, Messages, Notes and the rest through the <code>mac</code> CLI, which isn't on this
           machine — so there are no permissions to grant yet. Realm looked on your login shell's PATH and in {status.cli.searched.join(" and ")}.
@@ -1780,7 +2198,7 @@ function MacAccessSection() {
   const position = queue.length > 0 && granting ? queue.indexOf(granting) + 1 : 0;
 
   return (
-    <div className="mac-access-field">
+    <div className="mac-access-field" data-setting="mac-apps">
       <h3 className="settings-head">Apps on this Mac</h3>
       <p className="settings-hint" title={`macOS grants these to ${status.host.name}, once, for every session: granting here is what stops an agent from stalling mid-task to ask you for them.`}>
         What agents can reach through the <code>mac</code> command — Calendar, Mail, Messages, Notes and the rest.
@@ -1890,7 +2308,7 @@ function RealmAccessSection() {
   const run = useApp((s) => s.run);
   useEffect(() => { void run(() => refreshTcc()); }, [run, refreshTcc]);
   return (
-    <div className="realm-access-field">
+    <div className="realm-access-field" data-setting="realm-access">
       <h3 className="settings-head">Realm's own access</h3>
       <p className="settings-hint" title="Realm only claims a state it has a real, prompt-free way to check; the rest say so.">What macOS lets the app itself touch.</p>
       {rows === null ? <p className="env-empty">Checking…</p> : (

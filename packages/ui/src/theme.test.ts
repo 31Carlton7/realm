@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyTheme, hexToHsl, hslToHex, spaceColor } from "./theme";
+import { applyTheme, hexToHsl, hslToHex, spaceColor, clampPaneAlpha, DEFAULT_PANE_ALPHA, PANE_ALPHA_RANGE, paneAlphaFromGround } from "./theme";
 import { THEME_VARS } from "./themes";
 import { DEFAULT_FONTS, FONT_VARS, fontVars } from "./fonts";
 import { DEFAULT_GROUND_ALPHA, GROUND_ALPHA_RANGE, clampGroundAlpha } from "./theme";
@@ -46,7 +46,7 @@ describe("spaceColor (the one identity pixel, clamp rules unchanged from spec 20
  *  hand-tuned static CSS, so the default has to write none of it; the font tokens' static values ARE
  *  the bundled stacks, so writing them back is a no-op and there is nothing to preserve by staying
  *  silent. */
-const BASE_PROPS = ["--ground-alpha", "--rl-space", ...FONT_VARS].sort();
+const BASE_PROPS = ["--ground-alpha", "--pane-alpha", "--rl-space", ...FONT_VARS].sort();
 
 describe("applyTheme (runtime writes: --rl-space, the fonts, the two attributes, and a custom theme's palette)", () => {
   const fakeRoot = () => {
@@ -99,7 +99,7 @@ describe("applyTheme (runtime writes: --rl-space, the fonts, the two attributes,
     const { root, props } = fakeRoot();
     applyTheme({ space: "#7c6cff", mode: "dark" }, root);
     for (const [name, value] of Object.entries(fontVars(DEFAULT_FONTS))) expect(props[name], name).toBe(value);
-    applyTheme({ space: "#7c6cff", mode: "dark", fonts: { ui: "system", uiWeight: "medium", code: "system", leading: 0 } }, root);
+    applyTheme({ space: "#7c6cff", mode: "dark", fonts: { ...DEFAULT_FONTS, ui: "system", uiWeight: "medium", code: "system" } }, root);
     expect(props["--font-ui"]).not.toContain("Inter");
     expect(props["--fw-shift"]).not.toBe("0");
   });
@@ -139,5 +139,39 @@ describe("the adjustable ground", () => {
     const root = { style: { setProperty: (k: string, v: string) => { props[k] = v; }, removeProperty: () => {} }, dataset: {} } as unknown as HTMLElement;
     applyTheme({ space: "#7c6cff", mode: "dark", groundAlpha: 60 }, root);
     expect(props["--sidebar-ground"]).toBeUndefined();
+    expect(props["--pane-ground"]).toBeUndefined();
+  });
+});
+
+describe("the panes' own ground", () => {
+  const write = (args: { groundAlpha?: number; paneAlpha?: number }) => {
+    const props: Record<string, string> = {};
+    const root = { style: { setProperty: (k: string, v: string) => { props[k] = v; }, removeProperty: () => {} }, dataset: {} } as unknown as HTMLElement;
+    applyTheme({ space: "#7c6cff", mode: "dark", ...args }, root);
+    return props;
+  };
+
+  it("is written beside the sidebar's, and moves without it", () => {
+    // THE one-control mutant: derive the pane from the sidebar again, and a translucent sidebar
+    // forces translucent panes on someone who asked for one and not the other.
+    expect(write({})["--pane-alpha"]).toBe(`${DEFAULT_PANE_ALPHA}%`);
+    const props = write({ groundAlpha: 100, paneAlpha: 90 });
+    expect(props["--ground-alpha"]).toBe("100%");
+    expect(props["--pane-alpha"]).toBe("90%");
+  });
+
+  it("never goes thinner than the reading allows, whatever is stored", () => {
+    expect(PANE_ALPHA_RANGE).toEqual({ min: 86, max: 100 });
+    expect(clampPaneAlpha(0)).toBe(86);
+    expect(clampPaneAlpha(55)).toBe(86);
+    expect(clampPaneAlpha(400)).toBe(100);
+    expect(write({ paneAlpha: 40 })["--pane-alpha"]).toBe("86%");
+  });
+
+  it("carries a home saved under one control to the pane it was already looking at", () => {
+    // The old mapping, 55 → 86 and 100 → 100, rounded to the slider's step.
+    expect(paneAlphaFromGround(55)).toBe(86);
+    expect(paneAlphaFromGround(100)).toBe(100);
+    expect(paneAlphaFromGround(70)).toBe(Math.round(86 + (70 - 55) * 0.3111));
   });
 });

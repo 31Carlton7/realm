@@ -3216,7 +3216,7 @@ describe("openSettingsPage (Plan 26 W7b)", () => {
        tab, and the row opens Settings on whatever it last showed — Engines, the first time. */
     const store = createAppStore(fakeApi());
     await store.getState().boot();
-    expect(store.getState().settingsPageTab).toBe("engines");
+    expect(store.getState().settingsPageTab).toBe("general");
     store.getState().openSettingsPage("signins");
     expect(store.getState().pageOverlay?.kind).toBe("settings-page");
     expect(store.getState().settingsPageTab).toBe("signins");

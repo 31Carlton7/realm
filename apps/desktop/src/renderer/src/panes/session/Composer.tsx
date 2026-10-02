@@ -389,7 +389,7 @@ function PlusMenu({ onAttachPick, onAddFolder, onSkills, canSkills, onGoal, conn
  *  around the card so the hero→docked move is one element transitioning transform, §6: 320ms).
  *  Docked pins it to the pane bottom on the transcript's 680px rails.
  *
- *  Enter sends by default (Shift+Enter inserts a newline); Settings ▸ App can switch that to
+ *  Enter sends by default (Shift+Enter inserts a newline); Settings ▸ General can switch that to
  *  ⌘/Ctrl+Enter-to-send, Enter-inserts-a-newline instead — ⌘/Ctrl+Enter always sends either way.
  *  The draft text is owned by the store (keyed by
  *  session id, A-M9) so a suggestion chip can fill it without sending — and layout reshapes never
@@ -519,7 +519,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   onAddFolder?: () => void;
   /** The "+" menu's Manage connections — the space settings' Connections tab. */
   onManageConnections?: () => void;
-  /** Which key sends the draft (Settings ▸ App). Default "enter": plain Enter sends. "cmdEnter":
+  /** Which key sends the draft (Settings ▸ General). Default "enter": plain Enter sends. "cmdEnter":
    *  only ⌘/Ctrl+Enter sends, plain Enter inserts a newline. */
   submitKey?: SubmitKey;
   /** Whether the easter eggs are on. Passed straight to the model picker. */
@@ -1015,7 +1015,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
       const edit = el.selectionStart === el.selectionEnd ? continueList(draft, el.selectionStart) : null;
       if (edit) { e.preventDefault(); applyEdit(edit); return; }
     }
-    // Plain Enter (Settings ▸ App, default "enter"): the picker above already claimed Enter when
+    // Plain Enter (Settings ▸ General, default "enter"): the picker above already claimed Enter when
     // open, so this never fights mention-picking. Shift+Enter stays a newline in both modes.
     if (submitKey === "enter" && e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); send(); }
   };

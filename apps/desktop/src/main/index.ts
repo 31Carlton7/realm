@@ -1,4 +1,4 @@
-import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, shell, systemPreferences, Tray, type MenuItemConstructorOptions } from "electron";
+import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, powerSaveBlocker, safeStorage, shell, systemPreferences, Tray, type MenuItemConstructorOptions } from "electron";
 import { BrowserCredentialInputSchema, newId, type BrowserAction, type BrowserAnnotateResult, type BrowserCredential, type BrowserMenuState, type BrowserScreenshotSaved, type MediaFile, type Passkey } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { copyFile, readFile, writeFile } from "node:fs/promises";
@@ -15,7 +15,7 @@ import { closeDaemonLog, daemonLogPath, openDaemonLog } from "./daemon-log";
 import { DaemonSupervisor, type DaemonUiState } from "./daemon-supervisor";
 import { SessionTray, type TraySession } from "./session-tray";
 import { confirmQuitCopy, decideQuit } from "./quit-policy";
-import { NOTIFICATIONS_DESKTOP_KEY } from "@realm/contracts";
+import { NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY } from "@realm/contracts";
 import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
@@ -41,6 +41,9 @@ import { RealmUpdater, UPDATE_FEED_LIVE, updaterDecision } from "./updater";
 import { SecretStore, SecretStoreError } from "./secret-store";
 import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
+import { applyReducedMotion } from "./reduced-motion";
+import { SleepGuard } from "./sleep-guard";
+import { installedEditors, openInEditor } from "./editors";
 import { browseFolder, type BrowseResult } from "./browse";
 import { handleMediaProtocol, mediaPoster, registerMediaScheme, servablePath, statMedia } from "./media";
 
@@ -141,6 +144,27 @@ async function refreshTray() {
   if (!counts) return;
   const sessions = await trayCandidates();
   sessionTray.update(counts, sessions);
+}
+
+/** Settings ▸ General ▸ Power's "keep the Mac awake" — held here, in main, because agents keep
+ *  working with no window open, and only main is there for all of it. */
+const sleepGuard = new SleepGuard(powerSaveBlocker);
+
+/** Re-read whether anything is running, on the same event the tray's counts change on. A bridge
+ *  that cannot answer reads as nothing running: with no daemon to ask there are no turns to keep a
+ *  Mac awake for, and holding on to a blocker for an answer we cannot get is how one leaks. */
+async function refreshSleepGuard() {
+  const counts = await daemonCounts();
+  sleepGuard.setWorking(counts?.working ?? 0);
+}
+
+/** The preference, read from the server when main (re)connects: the renderer pushes changes as they
+ *  happen, but a launch with no window, or a daemon restarted under it, has to find out for itself. */
+async function readSleepPreference() {
+  try {
+    const stored = await bridgeClient?.call("settings.get", { key: POWER_PREVENT_SLEEP_KEY });
+    sleepGuard.setPreference((stored as { value?: unknown } | null)?.value === true);
+  } catch { /* the bridge dropped mid-ask; the next connect asks again */ }
 }
 
 /** The sessions worth naming in the menu: the ones waiting on an answer first, then the ones working.
@@ -946,7 +970,7 @@ updater = new RealmUpdater({
       type: "info",
       title: "Realm update ready",
       message: `Realm v${version} is ready to install.`,
-      detail: "Restart now to finish the update, or keep working and install it later from Settings → App.",
+      detail: "Restart now to finish the update, or keep working and install it later from Settings → General.",
       buttons: ["Restart and update", "Later"],
       defaultId: 0,
       cancelId: 1,
@@ -1000,6 +1024,21 @@ const desktopNotifier = new DesktopNotifier({
 ipcMain.handle("daemon:quit-and-stop", () => quitAndStopAll());
 ipcMain.handle("notify:show", (_e, input: DesktopNotificationInput) => desktopNotifier.show(input));
 ipcMain.handle("notify:badge", (_e, count: number) => { desktopNotifier.badge(Number(count)); });
+/** Settings ▸ Appearance ▸ Reduce motion, answered on the window that asked — the quick chat is a
+ *  window of its own and keeps its own answer in step by asking at its own boot. */
+ipcMain.handle("motion:set", (e, pref: unknown) => applyReducedMotion(e.sender, pref));
+/** The renderer's half of the sleep preference: the switch's new value, so a change takes effect on
+ *  a turn already running rather than at the next status change. */
+ipcMain.handle("power:prevent-sleep", (_e, on: unknown) => { sleepGuard.setPreference(on === true); });
+/** Settings ▸ General ▸ Open files in, and the transcript's path menu: the editors this Mac has, and
+ *  opening a path that exists in one of them. `existingPath` is the gate Reveal in Finder uses, and it
+ *  is the right one here for the same reason it is loose there: an editor is handed the path as a
+ *  document to show — a folder becomes a workspace — and runs nothing it opens, which is what keeps
+ *  this out of `openablePath`'s mime table. The click is the user's, on a path they can read. */
+ipcMain.handle("editors:list", () => installedEditors());
+// The path as the transcript shows it, resolved the way Reveal resolves it: `~/…` is this account's
+// home and a relative path is the session's working directory's (`base`).
+ipcMain.handle("editors:open", async (_e, id: unknown, path: unknown, base?: unknown): Promise<boolean> => openInEditor(id, await existingPath(path, base)));
 
 /** Attachment thumbnails. An attached file can only ever be NAMED in the renderer unless the pixels
  *  get there somehow: the renderer has no filesystem access (contextIsolation), and the page's CSP is
@@ -1295,13 +1334,13 @@ app.whenReady().then(async () => {
     agentBridge = startBrowserAgentBridge({
       port: info.port, token: info.token,
       hasWindow: () => mainWindow !== null && !mainWindow.isDestroyed(),
-      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); },
+      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); },
       // Both on the same event: the bridge redials every two seconds, which is exactly the cadence a
       // supervisor watching for a dead pid wants, so it needs no clock of its own.
-      onDisconnected: () => { bridgeClient = null; daemonSupervisor?.onDisconnected(); daemonSupervisor?.tick(); },
+      onDisconnected: () => { bridgeClient = null; sleepGuard.setWorking(0); daemonSupervisor?.onDisconnected(); daemonSupervisor?.tick(); },
       onEvent: (event, payload) => {
         // The counts the tray shows change on exactly one event.
-        if (event === "session.status") { void refreshTray(); return; }
+        if (event === "session.status") { void refreshTray(); void refreshSleepGuard(); return; }
         // And the resident's own toasts, for the case the renderer used to own alone: with no window
         // there is nobody to ask for one, and a toast is the whole of how anything reaches you.
         if (event === "notifications.changed") void residentToast(payload);

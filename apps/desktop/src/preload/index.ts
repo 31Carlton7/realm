@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
-import type { BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, MediaFile, Passkey, PasskeyNotice } from "@realm/contracts";
+import type { BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, MediaFile, Passkey, PasskeyNotice, ReducedMotionPref, EditorId, InstalledEditor } from "@realm/contracts";
 import type { NativeMenuItem } from "../main/native-menu";
 import type { TccRow } from "../main/tcc";
 import type { MacAccessStatus } from "../main/mac-access";
@@ -29,6 +29,20 @@ contextBridge.exposeInMainWorld("realm", {
   /** A native menu at a window-relative point, its rows described here and drawn by the OS — the one
    *  surface that can open over a browser pane's page. Resolves the chosen row's id, or null. */
   popupMenu: (items: NativeMenuItem[], at: { x: number; y: number }): Promise<string | null> => ipcRenderer.invoke("menu:popup", items, at),
+  /** Settings ▸ Appearance ▸ Reduce motion. Main answers it by changing what this window reports
+   *  for `prefers-reduced-motion`, so the stylesheet's own media queries are what carry it out. */
+  motion: {
+    set: (pref: ReducedMotionPref): Promise<void> => ipcRenderer.invoke("motion:set", pref),
+  },
+  /** Settings ▸ General ▸ Power. Main holds the blocker; this only tells it the switch moved. */
+  power: {
+    preventSleep: (on: boolean): Promise<void> => ipcRenderer.invoke("power:prevent-sleep", on),
+  },
+  /** The code editors installed on this Mac, and opening a path in one (the transcript's path menu). */
+  editors: {
+    list: (): Promise<InstalledEditor[]> => ipcRenderer.invoke("editors:list"),
+    open: (id: EditorId, path: string, base?: string): Promise<boolean> => ipcRenderer.invoke("editors:open", id, path, base),
+  },
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke("pick-folder"),
   /** Native multi-select file picker; [] when cancelled. */
   pickFiles: (): Promise<PickedFile[]> => ipcRenderer.invoke("pick-files"),

@@ -51,7 +51,7 @@ describe("SessionPane", () => {
     expect(decided).toEqual(["r1:allow"]);
     const box = screen.getByRole("textbox", { name: /message/i });
     fireEvent.change(box, { target: { value: "next" } });
-    fireEvent.keyDown(box, { key: "Enter" }); // plain Enter sends by default (Settings ▸ App: "Enter")
+    fireEvent.keyDown(box, { key: "Enter" }); // plain Enter sends by default (Settings ▸ General: "Enter")
     await waitFor(() => expect(sent).toEqual(["next"]));
     expect((box as HTMLTextAreaElement).value).toBe("");
     // A non-empty transcript is the DOCKED prompter: no greeting, no suggestion grid.
@@ -83,7 +83,7 @@ describe("SessionPane", () => {
     expect(sent).toEqual([]);
   });
 
-  it("Settings ▸ App can switch back to ⌘/Ctrl+Enter-to-send, where plain Enter is a newline again", async () => {
+  it("Settings ▸ General can switch back to ⌘/Ctrl+Enter-to-send, where plain Enter is a newline again", async () => {
     const { api, store } = await mount();
     const sent: string[] = []; api.sendMessage = async (_id, text) => { sent.push(text); };
     store.setState({ submitKey: "cmdEnter" });

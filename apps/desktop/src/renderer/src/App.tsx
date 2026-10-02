@@ -123,13 +123,14 @@ function ThemeBridge() {
   const contrast = useApp((s) => s.contrast);
   const fonts = useApp((s) => s.fonts);
   const groundAlpha = useApp((s) => s.groundAlpha);
+  const paneAlpha = useApp((s) => s.paneAlpha);
   const cursorBlink = useApp((s) => s.terminalCursorBlink);
   const cursorStyle = useApp((s) => s.terminalCursorStyle);
   /* The page zoom, onto `:root` as a number the stylesheet multiplies by. Chromium already scales
      every px when you press ⌘−; what this buys is the surfaces that should give up MORE than their
      share when you do — the prompter's column, today. */
   useZoom();
-  useApplyTheme({ color, pref, themes, overrides, contrast, fonts, groundAlpha });
+  useApplyTheme({ color, pref, themes, overrides, contrast, fonts, groundAlpha, paneAlpha });
   // xterm reads its font once, at construction, so a terminal already on screen would keep the old
   // face. A plain effect, not a layout one: it has to run AFTER useApplyTheme has written
   // --font-mono, because the hub reads the computed value off :root.
@@ -149,7 +150,7 @@ function ThemeBridge() {
     // Empty under jsdom, which loads no stylesheet — so a test renders this component and pushes
     // nothing, rather than pushing a colour that is not one.
     if (accent) getBrowserBridges().host.setAccent(accent);
-  }, [color, pref, themes, overrides, contrast, fonts, groundAlpha]);
+  }, [color, pref, themes, overrides, contrast, fonts, groundAlpha, paneAlpha]);
   return null;
 }
 

@@ -65,3 +65,21 @@ export const TERMINALS_CURSOR_STYLE_COPY = {
   label: "Terminal cursor",
   options: { block: "Block", bar: "Bar", underline: "Underline" },
 } as const;
+
+/**
+ * Which edge of a session pane its terminal (⌘J) opens on.
+ *
+ * Right is the strip the summary and the sub-agent view share, and stays the default: it is where the
+ * terminal has always been. Bottom is the layout people bring from an editor — a shell under the work
+ * rather than beside it — and suits a tall pane, where a 560px column is width the transcript needed.
+ * Either way it is the same dock by the same rules: pinned when the pane can spare the room, floating
+ * when it cannot, and closing it keeps the shell.
+ */
+export const TERMINAL_DOCK_EDGES = ["right", "bottom"] as const;
+export type TerminalDockEdge = (typeof TERMINAL_DOCK_EDGES)[number];
+
+export const TERMINALS_DOCK_KEY = "terminals.dock";
+export const TERMINALS_DOCK_DEFAULT: TerminalDockEdge = "right";
+
+export const isTerminalDockEdge = (x: unknown): x is TerminalDockEdge =>
+  typeof x === "string" && (TERMINAL_DOCK_EDGES as readonly string[]).includes(x);
