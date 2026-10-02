@@ -276,8 +276,9 @@ function useFindInPage(browserId: string, url: string) {
 /**
  * The browser pane (Plan 11 W1): DOM chrome ABOVE a native `WebContentsView` that Electron main owns.
  * The view composites over everything in its rectangle (wontfix), so every control here is an INLINE
- * toolbar button — no dropdowns, no menus, nothing that would ever need to open "over" the view.
- * That is W2's no-overlay invariant starting at home.
+ * toolbar button — no DOM dropdown, nothing of this window's that would ever need to open "over" the
+ * view. That is W2's no-overlay invariant starting at home. The one menu, ⋯, is the OS's: main draws
+ * it, above the app, where the page cannot cover it. Anything a row opens is a strip ABOVE the view.
  *
  * The div below the chrome is only a placeholder: its rect is synced to main (ResizeObserver + rAF
  * throttle), and during pane drags the view hides outright rather than visibly trailing the
