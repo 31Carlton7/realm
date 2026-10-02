@@ -1,5 +1,5 @@
 /**
- * Live check: Settings' grouped rail and its search (Plan 26 W9)
+ * Live check: Settings' grouped rail and its search, and the Appearance controls (Plan 26 W9)
  * (run with: pnpm build && node apps/desktop/scripts/settings-groups-live.mjs)
  *
  * Boots the BUILT app on a scratch REALM_HOME and measures, in the real window:
@@ -12,6 +12,9 @@
  *   3. A result for the folded face opens its disclosure.
  *   4. Narrow: the search keeps a line of its own and the pages lie down into a strip under it.
  *   5. Both faces, captured and read back.
+ *   6. Appearance (W9b): Reduce motion answers through prefers-reduced-motion itself; the sidebar
+ *      and panes take their own alphas; UI and code sizes scale their own text and hold the 11px
+ *      floor without touching page zoom; prose takes the content face and the chrome does not.
  *
  * Ports: LIVE_SERVER_PORT (8962), LIVE_CDP_PORT (9362). Touches only a scratch dir. Nothing is billed:
  * no message is sent to any session.
@@ -377,6 +380,116 @@ async function main() {
   check("light: a result lands on Notifications with the edge showing", JSON.stringify(light.lit) === '["Notifications"]' && light.found && lEdge.some((v, i) => Math.abs(v - lFill[i]) > 30), { lit: light.lit, lEdge, lFill });
   await shoot(c, "landed-light", { x: light.row.l - 12, y: light.row.t - 12, width: light.row.w + 24, height: light.row.h + 24 });
   await shoot(c, "page-light");
+
+  await appearanceChecks(c, size);
+}
+
+/* ══ W9b: Appearance ═══════════════════════════════════════════════════════════════════════════
+   Measured through the real cascade: what the window reports for prefers-reduced-motion, the two
+   grounds' alphas, text sizes as computed, and the face prose is set in. Probes wear the real
+   classes, so what is read is what the stylesheet does to an element of that kind. */
+async function appearanceChecks(c, size) {
+  const rowOf = (id) => `document.querySelector('.settings-page-pane [data-setting="${id}"]')`;
+  const radio = (name, value) => `(() => { document.querySelector('input[name="${name}"][value="${value}"]').click(); return true; })()`;
+  await evalIn(c, `__live.page("appearance")`);
+  await evalIn(c, radio("settings-theme", "dark"));
+  await sleep(500);
+
+  /* ── Reduce motion: the system's own media query, answered by Realm ─────────────────────── */
+  const motionNow = () => evalIn(c, `({ reduce: matchMedia('(prefers-reduced-motion: reduce)').matches,
+    duration: getComputedStyle(${rowOf("contrast")}).transitionDuration })`);
+  const system = await motionNow();
+  note("reduced motion as the Mac reports it", system);
+  await evalIn(c, radio("settings-reduce-motion", "on"));
+  const on = await until(async () => { const m = await motionNow(); return m.reduce ? m : null; }, 5000, "motion on").catch(() => null);
+  check("On: the window reports prefers-reduced-motion: reduce, and the stylesheet's own kill takes the transitions", !!on && on.duration === "0s", on);
+  await evalIn(c, radio("settings-reduce-motion", "off"));
+  const off = await until(async () => { const m = await motionNow(); return !m.reduce ? m : null; }, 5000, "motion off").catch(() => null);
+  check("Off: the window reports no preference, and the transitions are back", !!off && off.duration !== "0s", off);
+  await evalIn(c, radio("settings-reduce-motion", "system"));
+  await sleep(600);
+  const back = await motionNow();
+  check("System: the Mac's own answer again", back.reduce === system.reduce && back.duration === system.duration, { system, back });
+
+  /* ── Sidebar and pane translucency, one each ─────────────────────────────────────────────── */
+  const grounds = () => evalIn(c, `(() => {
+    const alpha = (el) => { const bg = getComputedStyle(el).backgroundColor; const slash = bg.lastIndexOf('/');
+      if (slash >= 0) return Number.parseFloat(bg.slice(slash + 1)); const parts = bg.split(','); return parts.length === 4 ? Number.parseFloat(parts[3]) : 1; };
+    const root = getComputedStyle(document.documentElement);
+    return { ground: root.getPropertyValue('--ground-alpha').trim(), pane: root.getPropertyValue('--pane-alpha').trim(),
+      sidebar: alpha(document.querySelector('.sidebar')), main: alpha(document.querySelector('.main')) };
+  })()`);
+  const setRange = (label, value) => evalIn(c, `(() => {
+    const el = document.querySelector('input[aria-label="${label}"]');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, "${value}");
+    el.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
+  await setRange("Pane transparency", 90); // 96% opaque
+  await sleep(400);
+  let g = await grounds();
+  check("the pane slider moves the panes and leaves the sidebar where it was", g.pane === "96%" && g.ground === "55%" && Math.abs(g.main - 0.96) < 0.02 && Math.abs(g.sidebar - 0.55) < 0.02, g);
+  await evalIn(c, `(() => { document.querySelector('input[aria-label="Sidebar translucency"]').click(); return true; })()`);
+  await sleep(400);
+  g = await grounds();
+  check("the sidebar's switch makes the sidebar opaque and leaves the panes translucent", g.ground === "100%" && g.pane === "96%" && g.sidebar === 1 && g.main < 1, g);
+  await evalIn(c, `(() => { document.querySelector('input[aria-label="Sidebar translucency"]').click(); return true; })()`);
+  await setRange("Pane transparency", 100); // back to the pane's default, 86%
+  await sleep(400);
+
+  /* ── Text sizes ─────────────────────────────────────────────────────────────────────────── */
+  const sizes = () => evalIn(c, `(() => {
+    const px = (el) => Number.parseFloat(getComputedStyle(el).fontSize);
+    return { body: px(document.body), row: px(document.querySelector('.settings-page-pane .settings-row-name')),
+      head: px(document.querySelector('.settings-page-pane .page-rail-head')),
+      code: px(document.querySelector('.settings-page-pane .code-preview')),
+      zoom: window.realm?.zoomFactor?.() ?? null };
+  })()`);
+  const textClip = async () => evalIn(c, `(() => { const g = ${rowOf("ui-font")}.closest('.settings-group'); g.scrollIntoView({ block: 'start', behavior: 'instant' });
+    const r = g.getBoundingClientRect(); return { x: r.left - 8, y: Math.max(0, r.top - 8), width: r.width + 16, height: Math.min(r.height, 560) + 16 }; })()`);
+  const base = await sizes();
+  note("text sizes at the defaults", base);
+  await shoot(c, "text-ui-14-dark", await textClip());
+  check("at the defaults every size is the stylesheet's own", base.body === 14 && base.row === 13.5 && base.head === 11.5, base);
+  await setRange("UI font size", 18);
+  await sleep(400);
+  const big = await sizes();
+  check("UI font size 18: the UI text scales by 18/14 and the code does not", Math.abs(big.body - 18) < 0.01 && Math.abs(big.row - 13.5 * 18 / 14) < 0.02 && big.code === base.code, big);
+  check("…and it is not page zoom: the window's zoom factor is untouched", big.zoom === base.zoom, { zoom: big.zoom });
+  await shoot(c, "text-ui-18-dark", await textClip());
+  await setRange("UI font size", 12);
+  await sleep(400);
+  const small = await sizes();
+  check("UI font size 12: text shrinks, and an 11.5px label stops at the 11px floor", Math.abs(small.body - 12) < 0.01 && small.head === 11, small);
+  await setRange("UI font size", 14);
+  await setRange("Code font size", 15);
+  await sleep(400);
+  const code = await sizes();
+  check("Code font size 15: the code scales by 15/12 and the UI does not", Math.abs(code.code - base.code * 1.25) < 0.02 && code.body === 14, code);
+  await setRange("Code font size", 12);
+  await sleep(300);
+
+  /* ── The content face ───────────────────────────────────────────────────────────────────── */
+  const faces = () => evalIn(c, `(() => {
+    const probe = (cls) => { const el = document.createElement('div'); el.className = cls; el.textContent = 'probe'; document.body.appendChild(el);
+      const f = getComputedStyle(el).fontFamily; el.remove(); return f; };
+    return { md: probe('md'), assistant: probe('msg-assistant'), user: probe('msg-user'), doc: probe('documents-rich-surface'),
+      title: getComputedStyle(document.querySelector('.page-title h1')).fontFamily };
+  })()`);
+  const before = await faces();
+  check("prose reads in the UI face until a content face is chosen", [before.md, before.assistant, before.user, before.doc].every((f) => f === before.title), before);
+  await evalIn(c, `(() => { const s = document.querySelector('select[aria-label="Content font"]');
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(s, "serif");
+    s.dispatchEvent(new Event("change", { bubbles: true })); return true; })()`);
+  await sleep(400);
+  const serif = await faces();
+  check("System serif: messages, markdown and documents take it, and the chrome does not", [serif.md, serif.assistant, serif.user, serif.doc].every((f) => /ui-serif/.test(f)) && serif.title === before.title, serif);
+  const group = await evalIn(c, `(() => { const r = document.querySelector('.settings-page-pane .settings-group').getBoundingClientRect(); return { x: r.left - 8, y: r.top - 8, width: r.width + 16, height: Math.min(r.height, 640) + 16 }; })()`);
+  await shoot(c, "appearance-dark", group);
+  await evalIn(c, radio("settings-theme", "light"));
+  await sleep(500);
+  await shoot(c, "appearance-light", group);
+  await evalIn(c, `(() => { const s = document.querySelector('select[aria-label="Content font"]');
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(s, "bundled");
+    s.dispatchEvent(new Event("change", { bubbles: true })); return true; })()`);
 }
 
 async function teardown() {
