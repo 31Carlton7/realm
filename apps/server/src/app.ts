@@ -332,6 +332,13 @@ export function defaultAdapters(): AdapterRegistry {
     on: "stream slowly", emit: [{ kind: "text", paceMs: 45, text: "The mapper reads each **SDK message** once and hands back Realm's own events, so nothing downstream ever sees the wire.\n\n"
       + "Three things change in this pass:\n\n1. Plans travel as their own event.\n2. A revision replaces the card in place.\n3. `apps/server/src/sessions/service.ts` persists both.\n\n"
       + "Nothing else moves, and the transcript you already have reads exactly as it did." }],
+  }, {
+    // A turn held mid-flight for well over a minute, a word every two seconds. Everything above
+    // settles in a burst or a few seconds, and the surfaces that show a session WORKING — its row's
+    // mark, here or in another room — have nothing else to pose for long enough to be measured.
+    on: "keep working", emit: [{ kind: "text", paceMs: 2000, text: "Reading the mapper first, then the reducer that folds its events, then every place the "
+      + "sidebar draws a session, so the marks agree wherever a session is shown. After that the tests for each, one "
+      + "at a time, and the live check last, because it is the only one that can see the paint." }],
   }] });
   return reg;
 }
