@@ -651,6 +651,16 @@ kbd { font: 11px var(--font-mono); }
 /* A room's live sessions sit under its name: indented by the room's icon and the gap after it, so
    each session's own glyph lines up with the name it belongs to. */
 .space-live .item-row { padding-left: 34px; }
+/* What needs you, docked at the top of the body on the page's own 16px inset. No scroller of its own:
+   it is bounded, so it never needs one, and nothing scrolls under its edge to earn a rule. */
+.sb-active { flex: none; display: flex; flex-direction: column; padding: 0 16px; }
+.sb-active > .group-label { padding-top: 8px; }
+.sb-active-all { margin: 2px 0 0 2px; }
+/* The room a session in a cross-room list belongs to, after its title and quieter than it. The title
+   is the unbounded half and gives way first; this keeps its own width up to a cap, so a four-letter
+   room is never cut to "L." to make room for a long title. */
+.item-where { flex: none; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; color: var(--rl-text-faint); }
 /* Danger only on the way in and while armed — a row of red trash cans at rest would read as a list
    of problems rather than a list of things. Armed is filled, because the second click is the one
    that spends, and an armed control that looked like the resting one would be a trap. */

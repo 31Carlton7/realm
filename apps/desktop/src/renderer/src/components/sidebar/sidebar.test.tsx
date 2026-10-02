@@ -1097,3 +1097,79 @@ describe("the other spaces, below the room", () => {
     expect(named(container, "Homework").querySelector(".item-trail .status-dot")).toHaveAttribute("data-status", "unseen");
   });
 });
+
+describe("Active — what needs you, from every room", () => {
+  const rooms = (extra: Parameters<typeof fakeApi>[0] = {}) => fakeApi({
+    spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework"), space("s4", "p2", "Lectures")],
+    ...extra,
+  });
+  const active = (c: HTMLElement) => c.querySelector<HTMLElement>(".sb-active");
+  const listed = (c: HTMLElement) => [...(active(c)?.querySelectorAll<HTMLElement>(".item-row") ?? [])];
+  const titles = (c: HTMLElement) => listed(c).map((r) => r.querySelector(".item-title")!.textContent);
+
+  it("is not drawn at all while nothing needs you", async () => {
+    const { container } = await mount(rooms({ sessions: [session("q", "s2", { status: "idle", seenSeq: 3, lastEventSeq: 3 })] }));
+    expect(active(container)).toBeNull();
+  });
+
+  it("lists waiting, then working, then unread, from every room of the profile, each naming its room — above the room", async () => {
+    /* THE MUTANTS: cross the profile (School's Lectures in a Work column), or rank by time alone (a
+       question that has waited sinks under work that moved a second ago). */
+    const { container } = await mount(rooms({ sessions: [
+      session("unread", "s2", { title: "Has news", status: "idle", seenSeq: 2, lastEventSeq: 5, updatedAt: 90 }),
+      session("works", "s1", { title: "Working away", status: "running", updatedAt: 80 }),
+      session("asks", "s2", { title: "Wants a yes", status: "waiting_permission", updatedAt: 10 }),
+      session("read", "s2", { title: "Read already", status: "idle", seenSeq: 5, lastEventSeq: 5 }),
+      session("school", "s4", { title: "Elsewhere entirely", status: "running" }),
+    ] }));
+    expect(titles(container)).toEqual(["Wants a yes", "Working away", "Has news"]);
+    expect(listed(container).map((r) => r.querySelector(".item-where")!.textContent)).toEqual(["Homework", "Versed", "Homework"]);
+    expect(listed(container).map((r) => r.querySelector(".status-dot")!.getAttribute("data-status"))).toEqual(["waiting_permission", "running", "unseen"]);
+    expect(listed(container)[0]).toHaveAccessibleName("Wants a yes in Homework — needs permission");
+    // Docked above the room, not inside its swiping pages: the same list whichever room is underneath.
+    const swiper = container.querySelector(".swiper")!;
+    expect(swiper.contains(active(container))).toBe(false);
+    expect(active(container)!.compareDocumentPosition(swiper) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows a handful, then Show all opens the Agents page", async () => {
+    const { container, store } = await mount(rooms({ sessions: [1, 2, 3, 4, 5, 6].map((n) => session(`w${n}`, "s2", { title: `Working ${n}`, status: "running", updatedAt: n })) }));
+    expect(listed(container)).toHaveLength(4);
+    const all = within(active(container)!).getByRole("button", { name: "Show all 6" });
+    fireEvent.click(all);
+    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("agents-page"));
+  });
+
+  it("leaves out the session you are working in, so your own turns do not push the room around", async () => {
+    const { container, store } = await mount(rooms({
+      spaces: [space("s1", "p1", "Versed", { layout: { type: "leaf", id: "L1", itemId: "i1" } }), space("s2", "p1", "Homework")],
+      items: { s1: [item("i1", "s1", { kind: "session", refId: "mine", title: "Mine" })] },
+      sessions: [session("mine", "s1", { title: "Mine", status: "idle" }), session("asks", "s2", { title: "Wants a yes", status: "waiting_permission" })],
+    }));
+    expect(store.getState().focusedLeafId).toBe("L1");
+    act(() => store.getState().applySessionStatus("mine", "running"));
+    expect(titles(container)).toEqual(["Wants a yes"]);
+  });
+
+  it("a row you open stays put while you read it — and goes when you move on", async () => {
+    /* Opening an unread session reads it, which takes it out of what needs you. Dropped then, the row
+       you just clicked would vanish from under the pointer and the room below would jump up a row. */
+    const { container, store } = await mount(rooms({
+      items: { s1: [item("i1", "s1", { title: "Terminal" })],
+        s2: [item("i2", "s2", { kind: "session", refId: "news", title: "Has news" }), item("i3", "s2", { title: "Shell" })] },
+      sessions: [session("news", "s2", { title: "Has news", status: "idle", seenSeq: 2, lastEventSeq: 5 }),
+        session("asks", "s2", { title: "Wants a yes", status: "waiting_permission" })],
+    }));
+    expect(titles(container)).toEqual(["Wants a yes", "Has news"]);
+    fireEvent.click(listed(container)[1]!);
+    await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
+    await waitFor(() => expect(listed(container)[1]?.closest(".item")).toHaveAttribute("data-active"));
+    // Read: the pane has the keyboard, and the mark catches up with the log.
+    act(() => { const row = store.getState().sessions["news"]!; store.setState({ sessions: { ...store.getState().sessions, news: { ...row, seenSeq: 5 } } }); });
+    expect(titles(container)).toEqual(["Wants a yes", "Has news"]);
+    expect(listed(container)[1]!.querySelector(".status-dot")).toBeNull();
+    // Moving on lets it go.
+    await act(async () => { await store.getState().openItem("i3"); });
+    expect(titles(container)).toEqual(["Wants a yes"]);
+  });
+});

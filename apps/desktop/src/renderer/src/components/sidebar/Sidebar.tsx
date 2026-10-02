@@ -1,3 +1,4 @@
+import { ActiveSessions } from "./ActiveSessions";
 import { ChatFeed } from "./ChatFeed";
 import { Destinations } from "./Destinations";
 import { SidebarActivity } from "./SidebarActivity";
@@ -43,7 +44,9 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
           they answer the same shape of question, and the column has room for one answer. Everything
           above stays — the title, the search, the destinations are how you get anywhere, and a lens
           that took those away would be a mode rather than a view. */}
-      {activity ? <ChatFeed /> : <SpaceSwiper />}
+      {/* In the space lens, what needs you from every room heads the body, above the room itself —
+          outside the swiper, because it is the same list whichever room is underneath. */}
+      {activity ? <ChatFeed /> : <><ActiveSessions /><SpaceSwiper /></>}
       <SpaceStrip />
       {/* Inside the column rather than between it and the panes, so that `inert` above reaches it:
           a collapsed sidebar is off-screen, and a handle for a column nobody can see would still

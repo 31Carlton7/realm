@@ -2553,6 +2553,21 @@ describe("row and control layout", () => {
     expect(bodiesFor('.item-disclose[aria-expanded="true"] svg').join(" ")).toContain("rotate(90deg)");
   });
 
+  it("a cross-room row's room name keeps its width, and the title is what gives way", () => {
+    /* design.md's yielding order: the title is unbounded and takes the slack; the room's name is
+       reserved up to a cap. THE MUTANT is letting the name shrink as well — two shrinking items share
+       the shortfall, and a four-letter room comes out as "L." beside a title with room to spare. */
+    const where = bodiesFor(".item-where").join(" ");
+    expect(where).toContain("flex: none");
+    expect(where).toMatch(/max-width: \d+px/);
+    expect(where).toContain("text-overflow: ellipsis");
+    expect(bodiesFor(".item-title").join(" ")).toContain("flex: 1");
+    // Docked, not scrolled: the Active list is not a scroller, so it can never need a fade or a rule.
+    const docked = bodiesFor(".sb-active").join(" ");
+    expect(docked).toContain("flex: none");
+    expect(docked).not.toMatch(/overflow(-y)?: (auto|scroll)/);
+  });
+
   it("a page pane can shrink to its slot — otherwise it is painted over by the pane beside it", () => {
     // A pane is a flex ITEM, and a flex item's default `min-width: auto` floors it at its content's
     // min-content width. Without this, a page whose content did not fit grew PAST its slot and the
