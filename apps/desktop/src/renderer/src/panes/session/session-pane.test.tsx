@@ -567,6 +567,13 @@ describe("opened from a list, the session takes the keyboard", () => {
     expect(document.activeElement?.closest(".permission-card")).not.toBeNull();
   });
 
+  it("takes the keyboard once: the request is spent, so a remount never pulls the caret back", async () => {
+    const { store, ask } = await mountWith("idle");
+    ask();
+    await waitFor(() => expect(document.activeElement).toHaveClass("composer-input"));
+    expect(store.getState().keyboardFor).toBeNull();
+  });
+
   it("a pane without the keyboard takes nothing, and a request for another session is not this one's", async () => {
     const { store, ask } = await mountWith("idle", false);
     ask();

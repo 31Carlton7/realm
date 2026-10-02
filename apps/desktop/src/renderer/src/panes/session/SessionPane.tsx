@@ -361,16 +361,16 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   /* Opened from a list of sessions — the Active rows, another room's list, the Agents page, a
      notification — so the keyboard lands here, in the prompter, and the hand that clicked can type.
      Unless something in the pane already has it: a permission card takes the keyboard for itself the
-     moment it is on screen (U-H4), and the answer it is asking for comes first. A pulse, taken once,
-     so a later re-render of a pane that still has focus never pulls the caret back. */
+     moment it is on screen (U-H4), and the answer it is asking for comes first. Either way the request
+     is spent (`keyboardTaken`), so a later remount of this pane never pulls the caret back out of
+     wherever the person has put it since. */
   const keyboardFor = useApp((s) => (s.keyboardFor?.sessionId === id ? s.keyboardFor.n : 0));
-  const tookKeyboard = useRef(0);
+  const keyboardTaken = useApp((s) => s.keyboardTaken);
   useEffect(() => {
-    if (!focused || !paneEl || keyboardFor === 0 || keyboardFor === tookKeyboard.current) return;
-    tookKeyboard.current = keyboardFor;
-    if (paneEl.contains(document.activeElement)) return;
-    paneEl.querySelector<HTMLElement>(".composer-input")?.focus();
-  }, [focused, paneEl, keyboardFor]);
+    if (!focused || !paneEl || keyboardFor === 0) return;
+    if (!paneEl.contains(document.activeElement)) paneEl.querySelector<HTMLElement>(".composer-input")?.focus();
+    keyboardTaken(keyboardFor);
+  }, [focused, paneEl, keyboardFor, keyboardTaken]);
   const agentProbe = useApp((s) => s.agentProbe);
   const probeAgents = useApp((s) => s.probeAgents);
   const modelFavorites = useApp((s) => s.modelFavorites);

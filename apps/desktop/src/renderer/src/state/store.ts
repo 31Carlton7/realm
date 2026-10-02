@@ -980,6 +980,9 @@ export type AppState = {
    * there — a permission waiting for an answer — keeps it.
    */
   keyboardFor: { sessionId: string; n: number } | null;
+  /** The pane took (or declined) the keyboard it was handed: the request is spent, so a later remount
+   *  of the same pane can never pull the caret back out of wherever the person has put it since. */
+  keyboardTaken(n: number): void;
   /** The notifications page's selected row, or null for the bare list. USER-level, not per space and
    *  not per item: the feed is one global thing, so the page's vantage into it is too — opening
    *  Notifications from any space lands on the row you were reading. Panes record moves into their own
@@ -3852,6 +3855,7 @@ await get().refreshCustomThemes().catch(() => {});
         applyNavView(entry);
         await persist();
       },
+      keyboardTaken(n) { if (get().keyboardFor?.n === n) set({ keyboardFor: null }); },
       canStepWindow(delta) {
         const known = new Set(get().spaces.map((s) => s.id));
         return stepTarget(get().windowTrail, delta, (stop) => known.has(stop.spaceId)) !== null;
