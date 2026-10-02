@@ -13,6 +13,9 @@
  *   4. A turn that finishes in another room arrives in that room's list wearing the unread ring, with
  *      no reload — the window heard the events, nobody re-listed anything.
  *   5. A click on a room's name goes there; a click on one of its sessions opens that session there.
+ *   6. The Active list heads the body above the room: what needs you from every room, in order, four
+ *      rows then "Show all"; each row's room name stays whole while a long title gives way; and a row
+ *      clicked to read it stays exactly where it was while the room changes underneath.
  *
  * Each layout measurement is paired with a mutant that reproduces the failure it pins, so a check that
  * has quietly stopped measuring anything fails instead of passing. Screenshots of both faces are
@@ -147,6 +150,22 @@ globalThis.__live = {
     }));
   },
   labels() { return [...__live.page().querySelectorAll('.space-body > .group-label, .space-body > .group-head')].map((l) => l.textContent.trim()); },
+  /** The Active list: every row's parts and boxes, and the "Show all" line. */
+  active() {
+    const el = document.querySelector('.sb-active');
+    if (!el) return null;
+    const rows = [...el.querySelectorAll('.item')].map((item) => {
+      const title = item.querySelector('.item-title'), where = item.querySelector('.item-where');
+      return { title: title.textContent, where: where?.textContent ?? null,
+        label: item.querySelector('.item-row').getAttribute('aria-label'),
+        mark: item.querySelector('.status-dot')?.getAttribute('data-status') ?? null,
+        active: item.hasAttribute('data-active'),
+        titleCut: title.scrollWidth > title.clientWidth + 0.5, whereCut: where ? where.scrollWidth > where.clientWidth + 0.5 : null,
+        row: __live.box(item), titleBox: __live.box(title), whereBox: __live.box(where), dot: __live.box(item.querySelector('.status-dot')) };
+    });
+    return { box: __live.box(el), rows, all: el.querySelector('.sb-active-all')?.textContent ?? null,
+      inScroller: !!el.closest('.space-body'), inSwiper: !!el.closest('.swiper'), swiperTop: __live.box(document.querySelector('.swiper')).t };
+  },
   header() { return document.querySelector('.space-header .space-name')?.textContent ?? null; },
   addStyle(id, text) { const st = document.createElement('style'); st.id = id; st.textContent = text; document.head.appendChild(st); return true; },
   dropStyle(id) { document.getElementById(id)?.remove(); return true; },
@@ -180,7 +199,7 @@ async function shot(c, tag, clip) {
   fs.writeFileSync(out, Buffer.from(r.data, "base64"));
   console.log(`SCREENSHOT ${tag} ${out}`);
 }
-const SIDEBAR = { x: 0, y: 0, width: 300, height: 820 };
+const SIDEBAR = { x: 0, y: 0, width: 300, height: 980 };
 
 async function main() {
   for (const p of [CDP_PORT, SERVER_PORT]) {
@@ -227,7 +246,7 @@ async function main() {
     input.closest('form').requestSubmit();
     return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('.composer')`), 20000, "composer");
-  await c.send("Emulation.setDeviceMetricsOverride", { width: 1200, height: 820, deviceScaleFactor: 2, mobile: false });
+  await c.send("Emulation.setDeviceMetricsOverride", { width: 1200, height: 980, deviceScaleFactor: 2, mobile: false });
 
   /* ── Seed: four rooms in one profile, sessions held in every state ─────────────────────────────
      Through the real create/send seam, on the fake agent. `ask me` parks a session on a permission the
@@ -259,6 +278,9 @@ async function main() {
   void api.call("sessions.send", { id: works.id, text: "keep working" }).catch(() => {});
   const news = await settle(await make(homework, "Has news"), "hello");
   await api.call("sessions.markSeen", { id: news.id, seq: 1 });
+  // A title long enough to have to give way, beside a room name that must not.
+  const wordy = await settle(await make(homework, "Rework the transcript reducer so plans and to-do lists fold into one card"), "hello");
+  await api.call("sessions.markSeen", { id: wordy.id, seq: 1 });
   const read = await settle(await make(homework, "Read already"), "hello");
   await api.call("sessions.markSeen", { id: read.id, seq: read.lastEventSeq });
   const long = await make(thesis, "Long haul");
@@ -278,6 +300,35 @@ async function main() {
   await until(() => evalIn(c, `!!__live.page()?.querySelector('.space-row')`), 30000, "the rooms after reload");
   await sleep(600);
 
+  /* ── 6. The Active list heads the body: what needs you, from every room, in order ─────────────── */
+  const act0 = await evalIn(c, `__live.active()`);
+  check("Active lists waiting, then working, then unread, from every room, each naming its room",
+    act0 !== null && act0.rows.map((r) => r.mark).join() === "waiting_permission,running,running,unseen"
+      && act0.rows[0].title === "Wants a yes" && act0.rows[0].where === "Homework" && act0.rows.some((r) => r.where === "Thesis"),
+    act0?.rows.map((r) => [r.title.slice(0, 24), r.where, r.mark]));
+  check("…four rows, then Show all with the whole count", act0.rows.length === 4 && act0.all === "Show all 5", { rows: act0.rows.length, all: act0.all });
+  check("…docked above the room, outside its scroller and its swiping pages",
+    !act0.inScroller && !act0.inSwiper && act0.box.b <= act0.swiperTop + 0.5, { box: act0.box, swiperTop: act0.swiperTop });
+  const roomRowLeft = await evalIn(c, `__live.box(__live.page().querySelector('.item')).l`);
+  check("…on the same inset as the room's own rows", act0.rows.every((r) => Math.abs(r.row.l - roomRowLeft) < 0.5), { active: act0.rows[0].row.l, room: roomRowLeft });
+  const longRow = act0.rows.find((r) => r.title === wordy.title);
+  check("a long title gives way while the room's name beside it stays whole",
+    longRow && longRow.titleCut && longRow.whereCut === false && longRow.whereBox.r <= longRow.dot.l, longRow && { titleCut: longRow.titleCut, whereCut: longRow.whereCut, where: longRow.whereBox, title: longRow.titleBox });
+  // The mutant: let both shrink, the way two flex items with no stated order do.
+  await evalIn(c, `__live.addStyle('mutant-yield', '.item-where { flex: 0 1 auto !important; min-width: 0 !important; } .sb-active .item-title { flex: 0 1 auto !important; }')`);
+  await sleep(120);
+  const yielded = (await evalIn(c, `__live.active()`)).rows.find((r) => r.title === wordy.title);
+  check("the mutant reproduces the failure (no stated order ⇒ the room's name is cut too)", yielded.whereCut === true, { whereCut: yielded.whereCut, where: yielded.whereBox });
+  await evalIn(c, `__live.dropStyle('mutant-yield')`);
+  await clickAt(c, centre((await evalIn(c, `__live.box(document.querySelector('.sb-active-all'))`))));
+  await until(() => evalIn(c, `!!document.querySelector('.agents-page')`), 8000, "the Agents page");
+  check("Show all opens the Agents page", true);
+  await evalIn(c, `(() => { [...document.querySelectorAll('.sb-destinations .dest-row')].find((b) => b.textContent.trim().startsWith('Agents')).click(); return true; })()`);
+  await until(() => evalIn(c, `!document.querySelector('.agents-page')`), 8000, "the Agents page put away");
+  await park(c);
+  await sleep(200);
+  await shot(c, "active-dark", SIDEBAR);
+
   /* ── 1. Every other room is a row after the room's own contents, in the strip's order ───────── */
   const labels = await evalIn(c, `__live.labels()`);
   const rooms = await evalIn(c, `__live.rooms()`);
@@ -288,7 +339,7 @@ async function main() {
   check("…in the strip's own order", JSON.stringify(strip.filter((n) => n !== "Live")) === JSON.stringify(rooms.map((r) => r.name)), { strip });
   const hw = rooms.find((r) => r.name === "Homework");
   check("Homework wears the strip's waiting mark with its count, and says the rest in words",
-    hw.mark === "waiting_permission" && hw.count === "1" && hw.label === "Homework — 1 waiting on you, 1 running, 1 unread", hw);
+    hw.mark === "waiting_permission" && hw.count === "1" && hw.label === "Homework — 1 waiting on you, 1 running, 2 unread", hw);
   check("Thesis wears the running mark; Lectures, with nothing going on, wears nothing",
     rooms.find((r) => r.name === "Thesis").mark === "running" && rooms.find((r) => r.name === "Lectures").mark === null,
     rooms.map((r) => [r.name, r.mark, r.count]));
@@ -322,7 +373,7 @@ async function main() {
   await sleep(200);
   const listed = await evalIn(c, `__live.unfolded("Homework")`);
   check("it unfolds onto the live sessions only — waiting, then working, then unread — each wearing its own mark",
-    listed.map((l) => l.title).join("|") === "Wants a yes|Working away|Has news" && listed.map((l) => l.mark).join() === "waiting_permission,running,unseen",
+    listed.map((l) => l.title).join("|") === `Wants a yes|Working away|${wordy.title}|Has news` && listed.map((l) => l.mark).join() === "waiting_permission,running,unseen,unseen",
     listed.map((l) => [l.title, l.mark]));
   const hwNow = await evalIn(c, `__live.room("Homework")`);
   check("each session's glyph lines up under the room's name",
@@ -373,13 +424,14 @@ async function main() {
   const thesisList = await until(() => evalIn(c, `__live.unfolded("Thesis")`), 5000, "Thesis unfolded");
   check("…and its own list shows it wearing the unread ring, after the one still working",
     thesisList.map((l) => `${l.title}:${l.mark}`).join() === "Long haul:running,Comes back later:unseen", thesisList.map((l) => [l.title, l.mark]));
+  check("…and Active counts it too", (await evalIn(c, `__live.active()?.all`)) === "Show all 6", await evalIn(c, `__live.active()?.all`));
 
   /* ── 3b. A reload finds both rooms unfolded ─────────────────────────────────────────────────── */
   await c.send("Page.reload", {});
   await until(() => evalIn(c, `!!__live.page()?.querySelector('.space-row')`), 30000, "rooms after the second reload");
   await sleep(600);
   const kept = await evalIn(c, `({ hw: __live.unfolded("Homework")?.length ?? 0, th: __live.unfolded("Thesis")?.length ?? 0 })`);
-  check("a reload finds both rooms still unfolded", kept.hw === 3 && kept.th === 2, kept);
+  check("a reload finds both rooms still unfolded", kept.hw === 4 && kept.th === 2, kept);
 
   /* ── 5. A room's name goes to the room; one of its sessions opens that session there ────────── */
   await clickAt(c, centre((await evalIn(c, `__live.room("Thesis")`)).title));
@@ -408,10 +460,32 @@ async function main() {
   const ringAfter = await until(async () => { const r = await ringOn(); return r === null ? "cleared" : null; }, 8000, "the ring cleared").catch(() => "still there");
   check("opening an unread session clears its ring at once", ringBefore === "unseen" && ringAfter === "cleared", { ringBefore, ringAfter });
 
+  /* ── 6b. A row clicked in Active stays where it was while the room changes underneath ─────────── */
+  await clickAt(c, centre((await evalIn(c, `__live.room("Live")`)).title));
+  await until(async () => (await evalIn(c, `__live.header()`)) === "Live", 10000, "back in Live");
+  await park(c);
+  await sleep(400);
+  const beforeHold = await evalIn(c, `__live.active()`);
+  const heldTarget = beforeHold.rows.find((r) => r.title === "Comes back later");
+  await clickAt(c, centre(heldTarget.titleBox));
+  await until(async () => (await evalIn(c, `__live.header()`)) === "Thesis", 10000, "Thesis, from Active");
+  const afterHold = await until(async () => {
+    const a = await evalIn(c, `__live.active()`);
+    const row = a?.rows.find((r) => r.title === "Comes back later");
+    return row && row.active && row.mark === null ? a : null;
+  }, 8000, "the clicked row, held and read");
+  check("the clicked row stays in Active, lit, while you read it — read, so it wears no mark",
+    afterHold.rows.map((r) => r.title).join("|") === beforeHold.rows.map((r) => r.title).join("|"),
+    { before: beforeHold.rows.map((r) => [r.title.slice(0, 20), r.mark]), after: afterHold.rows.map((r) => [r.title.slice(0, 20), r.mark, r.active]) });
+  check("…and nothing in it moved: every row is where it was before the room changed",
+    afterHold.rows.every((r, i) => Math.abs(r.row.t - beforeHold.rows[i].row.t) < 0.5) && Math.abs(afterHold.box.t - beforeHold.box.t) < 0.5,
+    { before: beforeHold.rows.map((r) => r.row.t), after: afterHold.rows.map((r) => r.row.t) });
+
   /* ── The light face ─────────────────────────────────────────────────────────────────────────── */
   await api.call("settings.set", { key: "ui.theme", value: "light" });
   await c.send("Page.reload", {});
   await until(() => evalIn(c, `!!__live.page()?.querySelector('.space-row') && document.documentElement.dataset.mode === 'light'`), 30000, "the light face");
+  await park(c); // the pointer is still where the last click left it, and a hover fill is not the resting face
   await sleep(800);
   await shot(c, "light", SIDEBAR);
   await api.call("settings.set", { key: "ui.theme", value: "dark" });
