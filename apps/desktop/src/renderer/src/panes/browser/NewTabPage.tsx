@@ -3,7 +3,7 @@ import { DEFAULT_KEYBINDINGS, chordsForCommand, displayKeyChord } from "@realm/c
 import { useCallback, useSyncExternalStore } from "react";
 import { useAppStoreMaybe, type NewTabTool } from "../../state/store";
 
-/** A page the tab has been to — what the history store will hand this page to draw. */
+/** A page this space's profile went to — a row of the history (`browsers.recent`), as this page draws it. */
 export type RecentVisit = { url: string; title: string };
 
 const TOOLS: { tool: NewTabTool; label: string; icon: IconName; hint: string; command?: string }[] = [
@@ -23,9 +23,9 @@ const TOOLS: { tool: NewTabTool; label: string; icon: IconName; hint: string; co
  * A tool opens where the tab stood, and the blank tab goes (`openFromNewTab`): "+ › New tab ›
  * Terminal" is a terminal in the side pane, not a terminal and an empty browser.
  *
- * Pages visited before go under the tools, once there is a history to read them from. Until then the
- * section is not drawn — an empty "Recently visited" would be a claim about a list Realm does not
- * keep yet.
+ * The pages this space's profile went to last go under the tools, newest first, and choosing one
+ * takes this tab there. With none the section is not drawn — an empty "Recently visited" is a heading
+ * over nothing.
  */
 export function NewTabPage({ itemId, recent = [], onVisit }: {
   itemId: string;

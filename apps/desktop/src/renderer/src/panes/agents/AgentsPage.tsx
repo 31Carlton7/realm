@@ -1,9 +1,10 @@
-import { AGENT_META, DEFAULT_MODEL_LABEL, groupOfItem, type Session, type SessionStatus } from "@realm/contracts";
+import { AGENT_META, DEFAULT_MODEL_LABEL, type Session, type SessionStatus } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useState } from "react";
 import { AgentAsk, AgentStop } from "./AgentAnswer";
 import { AgentOffice } from "./AgentOffice";
 import { AgentWall } from "./AgentWall";
+import { PeekButton, usePeekable } from "../../components/PeekButton";
 import { useApp, type AgentsView } from "../../state/store";
 import type { PaneProps } from "../registry";
 
@@ -83,31 +84,16 @@ export function AgentsPage({ item, visible }: PaneProps) {
   const setView = useApp((s) => s.setAgentsView);
   const openSheet = useApp((s) => s.openSheet);
   const canFanOut = useApp((s) => s.activeSpaceId !== null);
-  const peekOwner = useApp((s) => s.peekOwner());
-  const peekSession = useApp((s) => s.peekSession);
-  const activeSpaceId = useApp((s) => s.activeSpaceId);
-  const spaceItems = useApp((s) => s.items);
-  const everyItem = useApp((s) => s.allItems);
-  const refreshAllItems = useApp((s) => s.refreshAllItems);
-  const groupsHeld = useApp((s) => s.groups);
+  const canPeek = usePeekable();
   const run = useApp((s) => s.run);
   const [rows, setRows] = useState<Session[] | null>(null);
   /** Groups the user has opened past their fold. */
   const [opened, setOpened] = useState<Set<SessionStatus>>(() => new Set());
   // The status map is a new object on every change, so it is the dependency that re-reads the list.
   useEffect(() => { let live = true; run(async () => { const all = await listAll(); if (live) setRows(all); }); return () => { live = false; }; }, [listAll, run, status]);
-  // Every space's rows, for the peek: a session with no row anywhere — a quick chat — has no tab to be.
-  useEffect(() => { run(() => refreshAllItems()); }, [refreshAllItems, run, status]);
   const groups = useMemo(() => groupAgents(rows ?? [], status), [rows, status]);
   const spaceName = (id: string) => spaces.find((sp) => sp.id === id)?.name ?? "";
   const needsYou = groups.find((g) => g.state.status === "waiting_permission")?.rows.length ?? 0;
-  /** Whether a row may be peeked at: somewhere to be beside, and not already on screen here. */
-  const canPeek = (s: Session) => {
-    if (!peekOwner) return false;
-    if (s.spaceId !== activeSpaceId) return everyItem.some((i) => i.kind === "session" && i.refId === s.id && !i.archived);
-    const it = spaceItems.find((i) => i.kind === "session" && i.refId === s.id);
-    return !!it && !it.archived && !(groupsHeld && groupOfItem(groupsHeld, it.id));
-  };
   void item;
 
   return (
@@ -183,15 +169,9 @@ export function AgentsPage({ item, visible }: PaneProps) {
                         </span>
                         <span className="agents-row-when">{ago(s.updatedAt)}</span>
                       </button>
-                      {(canPeek(s) || g.state.status === "running") && (
+                      {(canPeek(s.id, s.spaceId) || g.state.status === "running") && (
                         <span className="agents-line-end">
-                          {canPeek(s) && (
-                            <button type="button" className="icon-btn agents-peek" aria-label={`Peek at ${s.title}`}
-                              title="Peek — look at it beside your session, without leaving this space"
-                              onClick={() => run(async () => { await peekSession(s.id, s.spaceId); })}>
-                              <Icon name="peek" size={14} />
-                            </button>
-                          )}
+                          {canPeek(s.id, s.spaceId) && <PeekButton sessionId={s.id} spaceId={s.spaceId} name={s.title} />}
                           {g.state.status === "running" && <AgentStop session={s} />}
                         </span>
                       )}

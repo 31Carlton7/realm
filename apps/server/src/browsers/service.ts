@@ -65,6 +65,12 @@ export class BrowserService {
     return space ? this.d.history.search(space.profileId, query, limit) : [];
   }
 
+  /** A blank tab's Recently visited, read from the same profile's history the suggestions come from. */
+  recent(spaceId: string, limit: number): BrowserHistoryPage[] {
+    const space = this.d.spaces.get(spaceId);
+    return space ? this.d.history.recent(space.profileId, limit) : [];
+  }
+
   /** Every profile's history goes, as the partition's cookies and cache did a moment before. */
   clearHistory(): void {
     this.d.history.clearAll();

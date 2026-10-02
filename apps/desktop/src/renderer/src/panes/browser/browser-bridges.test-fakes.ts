@@ -56,6 +56,7 @@ export function fakeBrowserBridges(over: {
     downloadDir: async () => null,
     screenshotDir: async () => null,
     suggest: async () => [],
+    recent: async () => [],
     clearHistory: async () => {},
     ...over.server,
   };

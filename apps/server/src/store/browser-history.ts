@@ -61,6 +61,17 @@ export class BrowserHistoryStore {
       ORDER BY visit_count DESC, last_visit_at DESC LIMIT ?`).all(profileId, pattern, pattern, limit) as Row[]).map(toPage);
   }
 
+  /**
+   * The pages a profile went to last, for a blank tab's Recently visited (Plan 26 W6): most recent
+   * first. Recency leads because the list is named for it — the page opened forty times last month is
+   * the address field's to offer, not this list's. Two visits in the same millisecond go to the page
+   * gone back to more often, the one other thing a row knows.
+   */
+  recent(profileId: string, limit: number): BrowserHistoryPage[] {
+    return (this.db.prepare(`SELECT url, title, visit_count, last_visit_at FROM browser_history
+      WHERE profile_id = ? ORDER BY last_visit_at DESC, visit_count DESC LIMIT ?`).all(profileId, limit) as Row[]).map(toPage);
+  }
+
   /** Every profile's history — the browser's partition is shared by every profile, and so is a clear. */
   clearAll(): void {
     this.db.prepare("DELETE FROM browser_history").run();

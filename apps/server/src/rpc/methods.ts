@@ -651,6 +651,7 @@ export function registerMethods(d: Deps): void {
   reg("browsers.downloadDir", (p) => ({ dir: spaceDownloadDir(d.projects, p.spaceId) }));
   reg("browsers.screenshotDir", (p) => ({ dir: spaceScreenshotDir(d.spaces, p.spaceId) }));
   reg("browsers.suggest", (p) => ({ pages: d.browsers.suggest(p.spaceId, p.query, p.limit) }));
+  reg("browsers.recent", (p) => ({ pages: d.browsers.recent(p.spaceId, p.limit) }));
   reg("browsers.clearHistory", () => { d.browsers.clearHistory(); return { ok: true as const }; });
 
   /* Machines (Plan 25 W3). `create` and `update` are the only two that take a password, and neither
