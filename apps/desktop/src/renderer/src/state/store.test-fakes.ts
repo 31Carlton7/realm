@@ -568,6 +568,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     openDocumentPath: async (spaceId, path, environmentId) => {
       calls.push(`openDocumentPath:${spaceId}:${path}`);
       const { documentsId, itemId } = await api.createDocuments(spaceId, environmentId);
+      await wait(`openDocumentPath:${spaceId}`);
       const ws = data.documentWorkspaces[documentsId]!;
       const openPaths = ws.openPaths.includes(path) ? ws.openPaths : [...ws.openPaths, path];
       data.documentWorkspaces[documentsId] = { ...ws, openPaths, activePath: path };

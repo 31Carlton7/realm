@@ -167,14 +167,20 @@ describe("a tool picked on a new tab", () => {
   });
 
   it("places the picked file even when the server's broadcast of the open beats the call's answer", async () => {
-    // It does, on the wire: the server broadcasts `documents.openRequested` while answering. THE
-    // MUTANT: let that broadcast open the pane quietly beside the focused one, and the pick finds the
-    // file already on screen — gone to in a split of its own, and never in the tab's place.
+    // It does, on the wire: the server broadcasts `documents.openRequested` while answering, and the
+    // palette has closed by then — it closes as the row is picked. THE MUTANT: let that broadcast
+    // open the pane quietly beside the focused one, and the pick finds the file already on screen —
+    // gone to in a split of its own, and never in the tab's place.
     const { api, store, blank } = await withNewTab();
     await store.getState().openFromNewTab(blank, "files");
-    const { documentsId, itemId } = await api.createDocuments("s1");
-    await store.getState().applyDocumentOpenRequested({ spaceId: "s1", environmentId: "env-s1", documentsId, itemId, path: "README.md" });
-    await store.getState().openDocumentPath("README.md");
+    api.delays["openDocumentPath:s1"] = 20;
+    const picking = store.getState().openDocumentPath("README.md");
+    store.getState().setPaletteOpen(false);
+    await new Promise((r) => setTimeout(r, 5));
+    const docs = api.data.items.s1!.find((i) => i.kind === "documents")!;
+    await store.getState().applyDocumentOpenRequested({ spaceId: "s1", environmentId: "env-s1", documentsId: docs.refId, itemId: docs.id, path: "README.md" });
+    await picking;
+    const itemId = docs.id;
     expect(side(store).tabs).toEqual(["i-br", itemId]);
     const root = store.getState().layout!;
     expect(root.type === "split" ? root.children : [root]).toHaveLength(2);

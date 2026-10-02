@@ -2913,6 +2913,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * Something already open somewhere (one documents pane per checkout) is gone TO instead: the
      * user's own arrangement is not rearranged to fill a new tab.
      */
+    /** File picks for a new tab still waiting on the server — see `applyDocumentOpenRequested`. */
+    let newTabPicks = 0;
     const replaceNewTab = async (sid: string, blankId: string, itemId: string) => {
       const seq = ++itemsFetchSeq;
       const items = await api.listItems(sid);
@@ -5168,23 +5170,28 @@ await get().refreshCustomThemes().catch(() => {});
       },
       async openDocumentPath(path, environmentId = null) {
         const sid = get().activeSpaceId; if (!sid) return;
-        // Read before the round trip: the palette closes once this resolves, and its close clears it.
+        // Read before the round trip: the palette closes as the pick is made, and its close clears it.
         // Only while it is open — a sheet or the spaces overview can take the palette down without
         // clearing it, and a file opened from anywhere else then is not the new tab's pick.
         const replacing = get().paletteOpen ? get().paletteReplaces : null;
-        const { itemId } = await api.openDocumentPath(sid, path, environmentId ?? undefined);
-        // Picked from a new-tab page's Files: the documents pane takes the blank tab's place.
-        if (replacing && findLeafOfItem(get().layout ?? emptyLayout(), replacing)) { await replaceNewTab(sid, replacing, itemId); return; }
-        const layout = get().layout;
-        if (layout && findLeafOfItem(layout, itemId)) { await get().openItem(itemId); return; }
-        await adoptItem(sid, itemId, null);
+        if (replacing) newTabPicks++;
+        try {
+          const { itemId } = await api.openDocumentPath(sid, path, environmentId ?? undefined);
+          // Picked from a new-tab page's Files: the documents pane takes the blank tab's place.
+          if (replacing && findLeafOfItem(get().layout ?? emptyLayout(), replacing)) { await replaceNewTab(sid, replacing, itemId); return; }
+          const layout = get().layout;
+          if (layout && findLeafOfItem(layout, itemId)) { await get().openItem(itemId); return; }
+          await adoptItem(sid, itemId, null);
+        } finally {
+          if (replacing) newTabPicks--;
+        }
       },
       async applyDocumentOpenRequested({ spaceId, itemId, openedBy }) {
         if (spaceId !== get().activeSpaceId) return;
-        // This window's own palette, picking for a new tab: `openDocumentPath` puts the file in the
-        // tab's place once its call returns, and the broadcast arrives first. Opened quietly beside
-        // the focused pane here, it would already be somewhere, and be gone to rather than placed.
-        if (!openedBy && get().paletteOpen && get().paletteReplaces) return;
+        // This window's own pick for a new tab, still on its way back: `openDocumentPath` puts the
+        // file in the tab's place once its call returns, and this broadcast arrives first. Opened
+        // quietly beside the focused pane here, it would already be somewhere, and be gone to.
+        if (!openedBy && newTabPicks > 0) return;
         const leaf = findLeafOfItem(get().layout ?? emptyLayout(), itemId);
         // On screen in a pane of its own: the pane opens the tab itself.
         if (leaf && !leaf.tabs) return;
