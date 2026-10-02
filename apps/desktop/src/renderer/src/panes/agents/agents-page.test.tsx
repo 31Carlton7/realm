@@ -166,6 +166,20 @@ describe("the Agents page answers in place", () => {
     stayed();
   });
 
+  it("leaves Escape in an answer being typed to the field, which steps out and keeps the page", async () => {
+    // THE MUTANT: catch Escape in the field too. The page would close over a half-typed answer.
+    const { answered, store } = await mount();
+    store.setState({ pageOverlay: { kind: "agents-page", refId: PAGE_REF_IDS["agents-page"], spaceId: "s1" } });
+    const card = await within(await itemOf(/^Session se3/)).findByRole("group", { name: "Base" });
+    fireEvent.click(within(card).getByRole("button", { name: "Something else" }));
+    const field = within(card).getByRole("textbox", { name: "Your answer" });
+    fireEvent.change(field, { target: { value: "a new br" } });
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(store.getState().pageOverlay).not.toBeNull();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(answered).toEqual([]);
+  });
+
   it("offers the card's own Allow always, and Deny", async () => {
     const { answered, stayed } = await mount();
     const card = await within(await itemOf(/^Session se1/)).findByRole("group", { name: "Permission request" });
