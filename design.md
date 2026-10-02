@@ -434,6 +434,17 @@ string staying that way.
 Use native menus, fields, and disclosure behavior where they fit. Do not make a custom control for a
 styling opportunity.
 
+The menu bar is a Mac app's: Settings… under the app's name on ⌘,, then File, Edit, View, Go, Window
+(which macOS completes with the window list) and Help (which macOS gives a search field). Every app
+row is a keybinding-catalog command showing the person's OWN shortcut, so a rebinding in Settings ▸
+Keys rebinds the menu bar too. The keystroke goes to the page, never through the menu — a menu
+accelerator fires first and would skip the `when` clauses that keep ⌘B bold in a rich field — and the
+system's chords (copy, paste, undo, quit, hide) stay the menu's. Reload and Developer Tools are for
+development builds only: ⌘R must never reload the app out from under someone's work.
+
+The window comes back where it was left — size, place, maximised or full screen — unless the display
+it was on is gone, in which case its size comes back centred on the main display.
+
 ## Motion
 
 Motion preserves continuity and confirms state. It does not decorate idle work.

@@ -16,7 +16,7 @@ import { QuickChat } from "./components/QuickChat";
 import { PageOverlay } from "./components/PageOverlay";
 import { SpaceOverview } from "./components/sidebar/SpaceOverview";
 import { useKonami } from "./use-konami";
-import { useKeybindings } from "./keys";
+import { useKeybindings, useMenuBar } from "./keys";
 import { PaneHost } from "./components/PaneHost";
 import { getTerminalHub } from "./panes/terminal-hub";
 import { getBrowserBridges } from "./panes/browser/browser-client";
@@ -358,6 +358,7 @@ export function App() {
      which is what every keystroke before the first round trip had to do anyway. */
   const keys = useStore(store, (s) => s.keybindings);
   useKeybindings(store, keys);
+  useMenuBar(store, keys);
   useKonami(store);
   useEffect(() => {
     const load = () => {

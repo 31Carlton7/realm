@@ -25,6 +25,8 @@ interface Window {
     /** Whether the window is key (AppKit's sense: it has the keyboard), as main sees it. */
     onWindowKey(cb: (key: boolean) => void): () => void;
     isWindowKey(): Promise<boolean>;
+    setMenuKeybindings?(rules: unknown[]): void;
+    onAppCommand?(cb: (command: string) => void): () => void;
     /** OS menus (main/native-menu.ts). Optional: absent in jsdom and under REALM_HTML_MENUS=1, where
      *  `Menu` draws its own. */
     popupMenu?(items: NativeMenuItem[], at: { x: number; y: number }): Promise<number | null>;

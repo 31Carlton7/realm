@@ -1,4 +1,4 @@
-import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, shell, systemPreferences, Tray, type MenuItemConstructorOptions } from "electron";
+import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, screen, shell, systemPreferences, Tray, type MenuItemConstructorOptions } from "electron";
 import { BrowserCredentialInputSchema, newId, type BrowserCredential, type MediaFile, type Passkey } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { copyFile, readFile, writeFile } from "node:fs/promises";
@@ -41,6 +41,9 @@ import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
 import { registerKeyWindowQuery, wireKeyWindow } from "./key-window";
 import { registerNativeMenus } from "./native-menu";
 import { attachTextContextMenu } from "./text-context-menu";
+import { appMenuTemplate, pageChords, shouldPageOwn } from "./app-menu";
+import { readWindowState, restoredBounds, trackWindowState } from "./window-state";
+import { DEFAULT_KEYBINDINGS, KeybindingSchema, type Keybinding } from "@realm/contracts";
 import { browseFolder, type BrowseResult } from "./browse";
 import { handleMediaProtocol, mediaPoster, registerMediaScheme, servablePath, statMedia } from "./media";
 
@@ -216,22 +219,23 @@ const downloadGovernor = new DownloadGovernor({
 /** Plan 23 W4: what the pane's blocked-download bar reads. App-scoped alongside the governor. */
 const blockedDownloads = new BlockedDownloads(() => Date.now());
 
-/** With no explicit application menu, Electron installs its default one, whose File → Close Window
- *  binds ⌘W — and menu accelerators fire in the main process before the renderer ever sees the
- *  keydown, so the renderer's close-pane binding (hotkeys.ts) could never win. Install a menu with
- *  no ⌘W item: app/edit/view roles stay (⌘Q, copy/paste, devtools), the Window menu is rebuilt
- *  without the `close` role. */
+/** The person's keybindings as the renderer last reported them, and the chords they claim. The
+ *  shipped table until the renderer has loaded the file — the menu bar exists before any window. */
+let menuRules: readonly Keybinding[] = DEFAULT_KEYBINDINGS;
+let ownedChords = pageChords(menuRules);
+
+/** The menu bar (app-menu.ts). Its rows are keybinding-catalog commands showing the person's own
+ *  shortcuts; a click runs the command in the focused window's renderer. Rebuilt whenever the
+ *  keybindings change, so the menu never advertises a chord that no longer does what it says. */
 function installMenu() {
-  const darwin = process.platform === "darwin";
-  const template: MenuItemConstructorOptions[] = [
-    ...(darwin ? [{ role: "appMenu" } satisfies MenuItemConstructorOptions] : []),
-    { role: "editMenu" },
-    { role: "viewMenu" },
-    { label: "Window", submenu: [
-      { role: "minimize" }, { role: "zoom" },
-      ...(darwin ? [{ type: "separator" }, { role: "front" }] satisfies MenuItemConstructorOptions[] : []),
-    ] },
-  ];
+  const template = appMenuTemplate({
+    appName: "Realm",
+    rules: menuRules,
+    send: (command) => (BrowserWindow.getFocusedWindow() ?? mainWindow)?.webContents.send("app:command", command),
+    openExternal: (url) => void shell.openExternal(url),
+    developer: !app.isPackaged,
+    darwin: process.platform === "darwin",
+  });
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
@@ -248,8 +252,18 @@ if (process.env.REALM_DEVTOOLS_PORT) app.commandLine.appendSwitch("remote-debugg
 app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 
 async function createWindow(info: { port: number; home: string; token: string }) {
+  // Where it was left (window-state.ts). The primary display first: a place that can no longer be
+  // reached is replaced by the saved size, centred there.
+  const windowStateFile = join(app.getPath("userData"), "window-state.json");
+  const savedWindow = readWindowState(windowStateFile);
+  const primary = screen.getPrimaryDisplay();
+  const place = restoredBounds(savedWindow,
+    [primary.workArea, ...screen.getAllDisplays().filter((d) => d.id !== primary.id).map((d) => d.workArea)],
+    { width: 1400, height: 900, minWidth: 900, minHeight: 600 });
   const win = new BrowserWindow({
-    width: 1400, height: 900, minWidth: 900, minHeight: 600,
+    ...(place.center ? { width: place.width, height: place.height, center: true }
+      : { x: place.x, y: place.y, width: place.width, height: place.height }),
+    minWidth: 900, minHeight: 600,
     // y:14 centres the ~14px lights in a 40px strip, and the renderer keeps every strip they can land
     // in at 40px for exactly that reason: .sb-head with the sidebar open, and with it collapsed the
     // first pane's .panel-bar (or the group bar, which is raised to 40px in that one state). One
@@ -282,6 +296,9 @@ async function createWindow(info: { port: number; home: string; token: string })
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else await win.loadFile(join(__dirname, "../renderer/index.html"));
   mainWindow = win;
+  if (savedWindow?.fullScreen) win.setFullScreen(true);
+  else if (savedWindow?.maximized) win.maximize();
+  trackWindowState(win, windowStateFile);
   wireKeyWindow(win);
   attachTextContextMenu(win.webContents);
   // Replay whatever the server's health last was. A window created after the event — reopened from
@@ -392,6 +409,23 @@ const HISTORY_MENU_MAX = 12;
  */
 registerKeyWindowQuery();
 registerNativeMenus();
+/* Every chord the person's keybindings claim belongs to the page, in every webContents — the
+   window's renderer, where the keybinding layer's `when` clauses decide, and a browser pane's page,
+   which keeps ⌘B for its own bold. Decided per keystroke, so copy, paste, undo, quit and the rest
+   still go through the menu as AppKit expects. (app-menu.ts says why `registerAccelerator: false`
+   cannot do this on macOS.) */
+app.on("web-contents-created", (_e, wc) => {
+  wc.on("before-input-event", (_ev, input) => wc.setIgnoreMenuShortcuts(shouldPageOwn(input, ownedChords)));
+});
+/** The renderer's keybindings, whenever they load or change: the menu shows them and the page owns
+ *  their chords. Validated, because a malformed list would otherwise decide which keys reach the app. */
+ipcMain.on("menu:keybindings", (_e, rules: unknown) => {
+  const parsed = KeybindingSchema.array().safeParse(rules);
+  if (!parsed.success) return;
+  menuRules = parsed.data;
+  ownedChords = pageChords(menuRules);
+  if (app.isReady()) installMenu();
+});
 ipcMain.handle("browser:history-menu", (e, id: string, dir: "back" | "forward", at: { x: number; y: number }) => {
   const trail = browserHost?.historyTrail(id, dir) ?? [];
   if (trail.length === 0) return;

@@ -476,6 +476,7 @@ export const KEY_COMMANDS: readonly KeyCommand[] = [
   { id: "palette.grep", label: "Find in files", group: "App" },
   { id: "sidebar.toggle", label: "Show/hide the sidebar", group: "App" },
   { id: "activity.open", label: "MCP Activity", group: "App" },
+  { id: "settings.open", label: "Settings", group: "App" },
 ];
 
 /**
@@ -517,6 +518,9 @@ export const DEFAULT_KEYBINDINGS: readonly Keybinding[] = [
   { key: "mod+shift+p", command: "palette.grep", when: "!sheetOpen" },
   { key: "mod+shift+space", command: "spaces.toggle", when: "!sheetOpen" },
   { key: "mod+b", command: "sidebar.toggle", when: WHEN_IDLE },
+  /* ⌘, is Settings in every Mac app, and works from anywhere — a text field included, since it types
+     nothing there — so the guard is the palette's: only a modal sheet holds it back. */
+  { key: "mod+,", command: "settings.open", when: "!sheetOpen" },
 
   { key: "mod+\\", command: "pane.splitRight", when: WHEN_IDLE },
   { key: "mod+shift+\\", command: "pane.splitDown", when: WHEN_IDLE },
@@ -549,8 +553,9 @@ export const DEFAULT_KEYBINDINGS: readonly Keybinding[] = [
  * Chords Realm swallows whether or not a rule fires.
  *
  * ⌘W alone, and for a reason no `when` clause can express: with no application menu of Realm's own,
- * Electron installs its default one, whose File → Close Window carries this accelerator. Realm ships
- * a menu without that item (`apps/desktop/src/main/index.ts`), so this is belt and braces — but the
+ * Electron installs its default one, whose File → Close Window carries this accelerator. Realm's menu
+ * bar shows ⌘W on Close Pane and hands the keystroke itself to the page (`apps/desktop/src/main/
+ * app-menu.ts`), and nothing in it closes the window, so this is belt and braces — but the
  * asymmetry of the two failures decides it. A swallowed keystroke is a dead key, noticed and
  * recovered from in a second; a ⌘W that reaches Electron closes the window out from under a running
  * agent. When the guard refuses the action, the key is still eaten.

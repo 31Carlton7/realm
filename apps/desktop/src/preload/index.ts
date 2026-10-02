@@ -175,6 +175,15 @@ contextBridge.exposeInMainWorld("realm", {
   },
   /** The same state, asked for — what a window that opened behind another app learns on mount. */
   isWindowKey: (): Promise<boolean> => ipcRenderer.invoke("window:is-key"),
+  /** The person's keybindings, for the menu bar to show and for main to hand their chords to the
+   *  page rather than to the menu (main/app-menu.ts). */
+  setMenuKeybindings: (rules: unknown[]): void => ipcRenderer.send("menu:keybindings", rules),
+  /** A keybinding-catalog command picked from the menu bar. */
+  onAppCommand: (cb: (command: string) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, command: string) => cb(command);
+    ipcRenderer.on("app:command", handler);
+    return () => ipcRenderer.removeListener("app:command", handler);
+  },
   /** Show a menu as an OS menu and resolve with the index picked, or null (main/native-menu.ts).
    *  Absent under REALM_HTML_MENUS=1, which a live script sets when it needs to drive menus over CDP —
    *  an OS menu is not in the page, so nothing in DevTools can click it. */

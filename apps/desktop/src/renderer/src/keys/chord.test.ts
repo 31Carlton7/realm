@@ -79,6 +79,7 @@ describe("chordFromEvent", () => {
       chordFromEvent(press({ code: "KeyP", key: "P", metaKey: true, shiftKey: true })),
       chordFromEvent(press({ code: "Space", key: " ", metaKey: true, shiftKey: true })),
       chordFromEvent(press({ code: "KeyB", key: "b", metaKey: true })),
+      chordFromEvent(press({ code: "Comma", key: ",", metaKey: true })),
       chordFromEvent(press({ code: "Backslash", key: "\\", metaKey: true })),
       chordFromEvent(press({ code: "Backslash", key: "|", metaKey: true, shiftKey: true })),
       chordFromEvent(press({ code: "KeyW", key: "w", metaKey: true })),

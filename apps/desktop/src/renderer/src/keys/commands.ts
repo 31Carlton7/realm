@@ -127,6 +127,7 @@ export function appCommands(store: StoreApi<AppState>): Readonly<Record<string, 
     "palette.grep": () => get().setPaletteOpen(true, "grep"),
     "sidebar.toggle": () => { const s = get(); s.run(() => s.toggleSidebar()); },
     "activity.open": () => { const s = get(); s.run(() => s.openActivity()); },
+    "settings.open": () => get().openDestinationPage("settings-page"),
   };
 }
 

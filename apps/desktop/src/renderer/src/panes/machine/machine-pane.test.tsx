@@ -132,12 +132,13 @@ describe("the keyboard", () => {
   });
 
   /* ⌘Q can never reach a guest and the pane must not pretend otherwise. A menu accelerator fires in
-     MAIN before the renderer sees a keydown — `hotkeys.ts` writes that down for ⌘W — so this is a
-     structural guarantee rather than a handler, and the mutant is deleting `{ role: "appMenu" }`
-     from `installMenu`, which would hand ⌘Q to the page instead of quitting. */
+     MAIN before the renderer sees a keydown, so this is a structural guarantee rather than a handler:
+     the menu bar's Quit row (main/app-menu.ts) owns ⌘Q, and only the chords the person's keybindings
+     bind are handed to the page instead — ⌘Q is not one of them. The mutant is deleting the `quit`
+     role, which would hand ⌘Q to the page instead of quitting. */
   it("cannot capture what the platform ate first, and the app menu is what guarantees it", () => {
-    const main = strip(Object.values(import.meta.glob("../../../../main/index.ts", { query: "?raw", import: "default", eager: true }) as Record<string, string>)[0]!);
-    expect(main).toContain('{ role: "appMenu" }');
+    const menu = strip(Object.values(import.meta.glob("../../../../main/app-menu.ts", { query: "?raw", import: "default", eager: true }) as Record<string, string>)[0]!);
+    expect(menu).toContain('{ role: "quit" }');
   });
 });
 
