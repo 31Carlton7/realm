@@ -33,7 +33,9 @@ async function setup() {
       s1: [item("i-lead", "s1", { kind: "session", refId: "lead", title: "Lead" }), item("i-idle", "s1", { kind: "session", refId: "idle", title: "Idle" })],
       s2: [item("i-other", "s2", { kind: "session", refId: "other", title: "Other" })],
     },
-    sessions: [session("lead", "s1", { title: "Lead" }), session("idle", "s1", { title: "Idle" }), session("other", "s2", { title: "Other", status: "waiting_permission" })],
+    sessions: [session("lead", "s1", { title: "Lead" }), session("idle", "s1", { title: "Idle" }), session("other", "s2", { title: "Other", status: "waiting_permission" }),
+      // A quick chat: a session with no row in any space's list.
+      session("chat", "s2", { title: "Quick question" })],
     sessionEvents: {
       other: [
         { seq: 1, sessionId: "other", event: sessionEvent("user_message", { text: "Tidy the build", attachments: [] }) },
@@ -139,6 +141,16 @@ describe("the ways in", () => {
     fireEvent.click(peekOther);
     await waitFor(() => expect(store.getState().peek?.item.id).toBe("i-other"));
     expect(store.getState().activeSpaceId).toBe("s1");
+  });
+
+  it("offers no peek for a session with no row in any space, as a quick chat has none", async () => {
+    // THE MUTANT: offer it for every session of another space. A quick chat has no row to make a tab
+    // of, so its eye would be a button whose only outcome is nothing.
+    const { store } = await setup();
+    render(<StoreContext.Provider value={store}><AgentsPage item={item("p", "s1", { kind: "agents-page" })} visible /></StoreContext.Provider>);
+    await screen.findByRole("button", { name: "Peek at Other" });
+    expect(screen.getByText("Quick question")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Peek at Quick question" })).toBeNull();
   });
 
   it("offers no peek anywhere when there is no session on screen to be beside", async () => {
