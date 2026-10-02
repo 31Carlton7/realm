@@ -2,17 +2,11 @@ import { Icon } from "@realm/ui";
 import { useMemo, useState } from "react";
 import { emptyLayout, itemIdOfLeaf, type Item, type Layout } from "@realm/contracts";
 import { useApp, type AppState } from "../../state/store";
+import { MARKED_STATUS, STATUS_LABEL, isUnread } from "../../state/attention";
 import { RenameInput } from "../RenameInput";
 import { useItemContextMenu } from "./ItemContextMenu";
 import { dotFor } from "../../panes/machine/MachineBar";
 import { MACHINE_WORDS } from "../../panes/machine/MachinePane";
-
-const STATUS_LABEL = { idle: "idle", running: "running", waiting_permission: "needs permission", error: "error", ended: "ended" } as const;
-
-/** The statuses worth a mark on a row: doing something, waiting on someone, or broken. Idle and ended
- *  are where most of the sidebar rests, and a grey dot on every one of them said nothing — it also hid
- *  the unread ring, which a row only wears when it has no other mark, so the ring could never draw. */
-const MARKED_STATUS: ReadonlySet<string> = new Set(["running", "waiting_permission", "error"]);
 
 /**
  * The layout, as rectangles.
@@ -116,7 +110,7 @@ export function ItemGlyph({ layout, itemId }: { layout: Layout; itemId: string }
  */
 const unseenSessions = (sessions: AppState["sessions"]): Set<string> => {
   const out = new Set<string>();
-  for (const row of Object.values(sessions)) if (row.seenSeq > 0 && row.lastEventSeq > row.seenSeq) out.add(row.id);
+  for (const row of Object.values(sessions)) if (isUnread(row)) out.add(row.id);
   return out;
 };
 

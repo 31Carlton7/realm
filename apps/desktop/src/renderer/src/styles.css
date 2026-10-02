@@ -507,8 +507,8 @@ kbd { font: 11px var(--font-mono); }
 /* Hit-target extension (V-F8): the visual button stays small; the click target grows 6px each way.
    .tool-copy joins the list — its 20px box sits alone at its row's right edge, so the overhang
    never crosses another interactive element. */
-.icon-btn, .item-close, .item-shelf, .tool-copy { position: relative; }
-.icon-btn::after, .item-close::after, .item-shelf::after, .tool-copy::after { content: ""; position: absolute; inset: -6px; }
+.icon-btn, .item-close, .item-shelf, .item-disclose, .tool-copy { position: relative; }
+.icon-btn::after, .item-close::after, .item-shelf::after, .item-disclose::after, .tool-copy::after { content: ""; position: absolute; inset: -6px; }
 
 /* Plan 9 W3 — SidebarNav's section label: sentence case, 12.5/500, ink-3. */
 .group-label { font-size: 12.5px; font-weight: var(--fw-medium); color: var(--rl-text-faint); padding: 12px 8px 4px; }
@@ -632,8 +632,25 @@ kbd { font: 11px var(--font-mono); }
 .item:hover .item-row, .item:has(:focus-visible) .item-row, .item:has([data-confirming]) .item-row { padding-right: 34px; }
 .item[data-actions="2"]:hover .item-row, .item[data-actions="2"]:has(:focus-visible) .item-row,
 .item[data-actions="2"]:has([data-confirming]) .item-row { padding-right: 58px; }
-.item-close, .item-shelf, .item-delete { display: grid; place-items: center; width: 22px; height: 22px; border-radius: var(--r-chip); color: var(--rl-text-dim); }
-.item-close:hover, .item-shelf:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+/* A row with nothing to offer under the pointer keeps its state there: the slot has one occupant,
+   so nothing steps aside and the title gives nothing up. The cross-room rows are these — a session
+   drawn outside its room, and a room with nothing live to unfold (OtherSpaces, LiveSessionRow). */
+.item[data-actions="0"]:hover .item-trail:not(:empty), .item[data-actions="0"]:has(:focus-visible) .item-trail:not(:empty) { display: flex; }
+.item[data-actions="0"]:hover .item-row, .item[data-actions="0"]:has(:focus-visible) .item-row { padding-right: 8px; }
+.item-close, .item-shelf, .item-delete, .item-disclose { display: grid; place-items: center; width: 22px; height: 22px; border-radius: var(--r-chip); color: var(--rl-text-dim); }
+.item-close:hover, .item-shelf:hover, .item-disclose:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+/* The disclosure turns to say which way it is facing, on the shelf caret's timing. */
+.item-disclose svg { transition: transform var(--dur-pop) var(--ease-out-strong); }
+.item-disclose[aria-expanded="true"] svg { transform: rotate(90deg); }
+/* Another room's row: its icon holds its width whatever kind it is (a glyph, an emoji, a picture),
+   and its state is the strip's dot with the count it stands for beside it — the dot keeps the far
+   end, so a column of rooms lines its marks up with the session rows around it. */
+.space-row-icon { flex: none; }
+.item-tally { display: flex; align-items: center; gap: 6px; }
+.item-count { font-size: 12px; line-height: 1; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+/* A room's live sessions sit under its name: indented by the room's icon and the gap after it, so
+   each session's own glyph lines up with the name it belongs to. */
+.space-live .item-row { padding-left: 34px; }
 /* Danger only on the way in and while armed — a row of red trash cans at rest would read as a list
    of problems rather than a list of things. Armed is filled, because the second click is the one
    that spends, and an armed control that looked like the resting one would be a trap. */
@@ -3055,9 +3072,9 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    against a height the list does not have.
    The tool card's half addresses DIRECT children: a card now contains its sub-agent's cards, and a
    descendant selector would have opening the parent unfold every body beneath it. */
-.tool-body-wrap, .archived-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-base) var(--ease-in-out-strong); }
-.tool-card[data-open] > .tool-body-wrap, .archived-wrap[data-open] { grid-template-rows: 1fr; }
-.tool-body-clip, .archived-clip { overflow: hidden; min-height: 0; }
+.tool-body-wrap, .archived-wrap, .space-live-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-base) var(--ease-in-out-strong); }
+.tool-card[data-open] > .tool-body-wrap, .archived-wrap[data-open], .space-live-wrap[data-open] { grid-template-rows: 1fr; }
+.tool-body-clip, .archived-clip, .space-live-clip { overflow: hidden; min-height: 0; }
 .tool-card[data-open] > .tool-body-wrap .tool-body { opacity: 1; }
 
 /* Grouped runs (§2.8/§5) wear BUI ThinkingState's header + trace (Plan 9 W2): the collapsed row is
@@ -4852,7 +4869,7 @@ select { appearance: none; padding-right: 22px;
    token streams do not interpolate. It rides these two rules rather than a third of its own so a
    control's fill has ONE timing however the fill is drawn; on the rows that never paint it names a
    property that never changes, which costs nothing. */
-.item-row, .item-close, .item-shelf, .icon-btn, .btn, .ghost-chip, .tool-row, .tool-group-row, .tool-copy, .msg-action,
+.item-row, .item-close, .item-shelf, .item-disclose, .icon-btn, .btn, .ghost-chip, .tool-row, .tool-group-row, .tool-copy, .msg-action,
 .delegation-row, .delegation-item,
 .strip-space, .strip-profile, .space-card, .palette-opt, .permission-option, .menu [role^="menuitem"],
 .question-option, .question-skip {

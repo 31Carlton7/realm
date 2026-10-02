@@ -710,6 +710,8 @@ const SETTING_SIDEBAR_WIDTH = "ui.sidebarWidth";
 /** Whether the space strip sorts by activity instead of the user's own drag order. See
  *  `sidebarActivityOrder`. */
 const SETTING_SIDEBAR_ACTIVITY_ORDER = "ui.sidebarActivityOrder";
+/** Which other spaces show their live sessions under their sidebar row — see `sidebarOpenSpaces`. */
+const SETTING_SIDEBAR_OPEN_SPACES = "ui.sidebarOpenSpaces";
 /** Whether a delete asks first. On unless the user has said otherwise — see `confirmDelete`. */
 const SETTING_CONFIRM_DELETE = "ui.confirmDelete";
 /** How a session's file browser lays a folder out — see `filesView`. */
@@ -898,6 +900,14 @@ export type AppState = {
    */
   sidebarActivityOrder: boolean;
   /**
+   * The other spaces whose live sessions are unfolded under their row in the sidebar, by space id.
+   *
+   * Remembered per space and across launches (`SETTING_SIDEBAR_OPEN_SPACES`): a room you opened to
+   * keep an eye on is one you want to find open again. A space with nothing live draws no disclosure
+   * at all, but keeps its entry, so it unfolds again the next time it has something to show.
+   */
+  sidebarOpenSpaces: string[];
+  /**
    * Whether deleting something asks first.
    *
    * On by default, because a delete here is not a close: the object goes, and nothing in the app
@@ -1050,6 +1060,16 @@ export type AppState = {
    * profile. Seeded from `listAllSessions` at boot and kept current by the status broadcasts.
    */
   sessionUpdatedAt: Record<string, number>;
+  /**
+   * Every session in the home, as a row — what the sidebar draws a session in ANOTHER room from.
+   *
+   * `sessions` holds only the active space's rows, and the maps above hold one fact apiece; a row
+   * for a session in another room needs its title and its read mark as well. Seeded by the same
+   * `listAllSessions` that seeds those maps, and kept current by what this window already hears for
+   * every space: a persisted `session.event` moves `lastEventSeq` on (`applySessionEvent`), and every
+   * row the server answers a write with lands here too (`mergeSession`).
+   */
+  allSessions: Record<string, Session>;
   /** Transcripts by session id, kept across space switches (cheap, and a session pane may be revisited). */
   transcripts: Record<string, TranscriptEntry>;
   /** The fetched slice of the GLOBAL notifications feed (W5), newest first — what the page renders.
@@ -1429,6 +1449,8 @@ export type AppState = {
   setSidebarActivityOrder(v: boolean): Promise<void>;
   setLowPower(v: boolean): Promise<void>;
   setSidebarActivityOrder(v: boolean): Promise<void>;
+  /** Unfold or fold another space's live sessions under its sidebar row, and remember it. */
+  setSpaceRowOpen(spaceId: string, open: boolean): Promise<void>;
   setConfirmDelete(v: boolean): Promise<void>;
   /** The window gained or lost focus. Called by App's own listeners; nothing else writes it. */
   setWindowActive(v: boolean): void;
@@ -2615,7 +2637,24 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  quietly stale, which is the one failure a feed cannot have. A third surface adds a term. */
     const watchingCalls = () => get().sheet?.kind === "activity" || get().sidebarView === "activity";
     const mergeSpace = (s: Space) => set({ spaces: get().spaces.map((x) => (x.id === s.id ? s : x)) });
-    const mergeSession = (s: Session) => set({ sessions: { ...get().sessions, [s.id]: s }, sessionStatus: { ...get().sessionStatus, [s.id]: s.status } });
+    const mergeSession = (s: Session) => set({ sessions: { ...get().sessions, [s.id]: s }, sessionStatus: { ...get().sessionStatus, [s.id]: s.status },
+      allSessions: { ...get().allSessions, [s.id]: s } });
+    /**
+     * The write a persisted event owes the rows that describe its session: their `lastEventSeq`, which
+     * is how far the log has been WRITTEN and so half of what the unread ring reads. Undefined when
+     * neither row is behind — a repeat or an out-of-order event is not news, and no write is made.
+     *
+     * Returned as a patch rather than set on the spot so it can ride the write the event was already
+     * going to make (`applySessionEvent`); a `set` of its own would be a second store notification per
+     * event, the cost that function exists to keep down.
+     */
+    const logGrew = (id: string, seq: number): Partial<AppState> | undefined => {
+      const all = get().allSessions[id], own = get().sessions[id];
+      const patch: Partial<AppState> = {};
+      if (all && all.lastEventSeq < seq) patch.allSessions = { ...get().allSessions, [id]: { ...all, lastEventSeq: seq } };
+      if (own && own.lastEventSeq < seq) patch.sessions = { ...get().sessions, [id]: { ...own, lastEventSeq: seq } };
+      return patch.allSessions || patch.sessions ? patch : undefined;
+    };
     /** Re-read one run's attempt log. Every run write opens or closes an attempt, so a panel left
      *  holding the old log would misreport the history it exists to show. */
     const loadRunAttempts = async (runId: string) => {
@@ -2988,14 +3027,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", sidebarActivityOrder: false, confirmDelete: true, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
+      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
       allItems: [], lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
       connectionState: "connected",
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
       laya: null,
       spacePageTab: {}, profilePageTab: {}, librarySkill: {}, mcpPanelSpaceId: null, agentsView: "list", officeWorld: null,
-      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, modelInfo: {}, spaceSkillSources: {},
+      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -3012,9 +3051,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, swipeInvert, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, panels, quick, filesView, system] = await Promise.all([
+        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, swipeInvert, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, openSpaces, askDelete, lastAgent, eggs, konami, panels, quick, filesView, system] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME),
-          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
+          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_SIDEBAR_OPEN_SPACES), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
           api.getSetting(SETTING_TERMINAL_PANEL),
           api.getSetting(SETTING_QUICK_CHAT),
@@ -3035,6 +3074,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           // Defaulted OFF: the strip's resting order is the one the user dragged it into, and a
           // preference nobody could read must not rearrange their spaces on them at launch.
           sidebarActivityOrder: activityOrder === true,
+          // Ids, and nothing else: a value an older or newer build wrote in another shape is read as
+          // "nothing unfolded", which is the resting state rather than a guess at what was meant.
+          sidebarOpenSpaces: Array.isArray(openSpaces) ? openSpaces.filter((id): id is string => typeof id === "string") : [],
           // Only an explicit false turns it off: an unset key and a missing row both mean "nobody
           // has said", and the answer to that for a destructive step is to keep asking.
           confirmDelete: askDelete !== false,
@@ -3379,6 +3421,14 @@ await get().refreshCustomThemes().catch(() => {});
         set({ sidebarActivityOrder: v });
         await api.setSetting(SETTING_SIDEBAR_ACTIVITY_ORDER, v);
       },
+      async setSpaceRowOpen(spaceId, open) {
+        const known = new Set(get().spaces.map((s) => s.id));
+        // A deleted space's id is dropped on the way past, so the key never outgrows the home.
+        const kept = get().sidebarOpenSpaces.filter((id) => id !== spaceId && known.has(id));
+        const next = open ? [...kept, spaceId] : kept;
+        set({ sidebarOpenSpaces: next });
+        await api.setSetting(SETTING_SIDEBAR_OPEN_SPACES, next);
+      },
       async setConfirmDelete(v) {
         set({ confirmDelete: v });
         await api.setSetting(SETTING_CONFIRM_DELETE, v);
@@ -3700,6 +3750,7 @@ await get().refreshCustomThemes().catch(() => {});
           const { [it.refId]: _st, ...sessionStatus } = get().sessionStatus; const { [it.refId]: _se, ...sessions } = get().sessions;
           const { [it.refId]: _dr, ...drafts } = get().drafts; const { [it.refId]: _sp, ...sessionSpace } = get().sessionSpace;
           const { [it.refId]: _ua, ...sessionUpdatedAt } = get().sessionUpdatedAt;
+          const { [it.refId]: _as, ...allSessions } = get().allSessions;
           const { [it.refId]: _tp, ...terminalPanel } = get().terminalPanel; const { [it.refId]: _tid, ...sessionTerminals } = get().sessionTerminals;
           const { [it.refId]: _dk, ...sessionDock } = get().sessionDock;
           const { [it.refId]: _pr, ...planReturn } = get().planReturn;
@@ -3709,7 +3760,7 @@ await get().refreshCustomThemes().catch(() => {});
           const { [it.refId]: _dsr, ...draftSessionRefs } = get().draftSessionRefs; // likewise
           const { [it.refId]: _dl, ...draftLinks } = get().draftLinks;
           const { [it.refId]: _ac, ...sessionActivity } = get().sessionActivity;
-          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, planReturn, sessionSpace, sessionUpdatedAt, terminalPanel, sessionTerminals, sessionDock, sessionActivity });
+          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, planReturn, sessionSpace, sessionUpdatedAt, allSessions, terminalPanel, sessionTerminals, sessionDock, sessionActivity });
           if (termId || _tp) get().run(persistPanels); // the panel map just lost an entry
         }
       },
@@ -3998,7 +4049,7 @@ await get().refreshCustomThemes().catch(() => {});
         for (const [id, st] of Object.entries(get().sessionStatus)) if (!(id in get().sessions)) sessionStatus[id] = st;
         const sessionUpdatedAt = { ...get().sessionUpdatedAt };
         for (const s of list) { sessions[s.id] = s; sessionStatus[s.id] = s.status; sessionSpace[s.id] = s.spaceId; sessionUpdatedAt[s.id] = s.updatedAt; }
-        set({ sessions: keepQuickChatSession(sessions), sessionStatus, sessionSpace, sessionUpdatedAt });
+        set({ sessions: keepQuickChatSession(sessions), sessionStatus, sessionSpace, sessionUpdatedAt, allSessions: { ...get().allSessions, ...sessions } });
       },
       listAllSessions(profileId = null) { return api.listAllSessions(profileId); },
       async refreshAllSessions() {
@@ -4006,9 +4057,9 @@ await get().refreshCustomThemes().catch(() => {});
         // The list is the truth for existence and mapping; server-persisted statuses are fresh (they
         // are written before each session.status broadcast), so they simply overwrite.
         const sessionSpace: Record<string, string> = {}; const sessionStatus: Record<string, SessionStatus> = {};
-        const sessionUpdatedAt: Record<string, number> = {};
-        for (const s of all) { sessionSpace[s.id] = s.spaceId; sessionStatus[s.id] = s.status; sessionUpdatedAt[s.id] = s.updatedAt; }
-        set({ sessionSpace, sessionStatus, sessionUpdatedAt });
+        const sessionUpdatedAt: Record<string, number> = {}; const allSessions: Record<string, Session> = {};
+        for (const s of all) { sessionSpace[s.id] = s.spaceId; sessionStatus[s.id] = s.status; sessionUpdatedAt[s.id] = s.updatedAt; allSessions[s.id] = s; }
+        set({ sessionSpace, sessionStatus, sessionUpdatedAt, allSessions });
       },
       async jumpToPermission(sessionId = null) {
         const spaceOf = (id: string) => get().sessionSpace[id] ?? get().sessions[id]?.spaceId ?? null;
@@ -4090,6 +4141,10 @@ await get().refreshCustomThemes().catch(() => {});
            so the streaming path stays exactly as cheap as it was. */
         const doing = activityOf(ev.event);
         const activity = doing ? { sessionActivity: { ...get().sessionActivity, [ev.sessionId]: doing } } : undefined;
+        /* …and the log's new length, for the rows that describe this session — in another room as
+           much as in this one (`logGrew`). Carried the same way, for the same reason. */
+        const grew = !ev.ephemeral && ev.seq > 0 ? logGrew(ev.sessionId, ev.seq) : undefined;
+        const also = activity || grew ? { ...grew, ...activity } : undefined;
         /* An auth failure the server has already re-probed and given up on. Re-read the agents here
            too, and before the transcript returns below, because the answer is about the CLI rather
            than about this session: a signed-out `claude` is signed out for every pane, including the
@@ -4108,8 +4163,8 @@ await get().refreshCustomThemes().catch(() => {});
         if (ev.event.type === "init" && ev.event.payload.supportsFastMode !== undefined) {
           void get().run(() => get().refreshFastSupport());
         }
-        /** This event makes no other write: the line is the whole of it. */
-        const lineOnly = () => { if (activity) set(activity); };
+        /** This event makes no other write: the line, and the log's length, are the whole of it. */
+        const lineOnly = () => { if (also) set(also); };
         const buf = loading.get(ev.sessionId);
         if (buf) { lineOnly(); if (!ev.ephemeral) buf.push(ev); return; } // deltas are dropped while loading; the final text is persisted anyway
         const cur = get().transcripts[ev.sessionId];
@@ -4119,7 +4174,7 @@ await get().refreshCustomThemes().catch(() => {});
         if (ev.seq <= cur.lastSeq) { lineOnly(); return; }
         // A persisted event is ordered AFTER the deltas still waiting, so it folds them into its own
         // write rather than racing the frame that would have applied them.
-        setTranscript(ev.sessionId, { lastSeq: ev.seq, t: reduceTranscript(drainInto(ev.sessionId, cur.t), ev.event) }, activity);
+        setTranscript(ev.sessionId, { lastSeq: ev.seq, t: reduceTranscript(drainInto(ev.sessionId, cur.t), ev.event) }, also);
         // Watching a transcript move IS reading it. Same predicate the notifications auto-read uses —
         // this session is the focused pane — because "which pane has the keyboard" is the only thing
         // the renderer actually knows about attention. A pane in the background, or restored behind

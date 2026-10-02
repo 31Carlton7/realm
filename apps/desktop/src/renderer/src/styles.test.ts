@@ -2537,6 +2537,22 @@ describe("row and control layout", () => {
     expect(bodiesFor(".item-close, .item-shelf, .item-delete".split(", ")[0]!).join(" ")).not.toContain("opacity: 0");
   });
 
+  it("a row with no actions keeps its state under the pointer, and gives its title nothing", () => {
+    /* The cross-room rows — a session drawn outside its room, a room with nothing to unfold — have no
+       action to show, and W1's rule would still hide their state and pad their title for one. THE
+       MUTANT is dropping this pair: the dot vanishes under the pointer for a slot with nothing in it. */
+    for (const when of [":hover", ":has(:focus-visible)"]) {
+      expect(bodiesFor(`.item[data-actions="0"]${when} .item-trail:not(:empty)`).join(" "), when).toContain("display: flex");
+      expect(bodiesFor(`.item[data-actions="0"]${when} .item-row`).join(" "), when).toContain("padding-right: 8px");
+    }
+    // The resting inset is the same 8px, so a row with nothing to offer does not move at all.
+    expect(bodiesFor(".item-row").join(" ")).toContain("padding: 5px 8px");
+    // The disclosure is one of the row's own controls: the same box, the same hit area, the same hover.
+    expect(bodiesFor(".item-disclose").join(" ")).toContain("width: 22px");
+    expect(bodiesFor(".item-disclose::after").join(" ")).toContain("inset: -6px");
+    expect(bodiesFor('.item-disclose[aria-expanded="true"] svg').join(" ")).toContain("rotate(90deg)");
+  });
+
   it("a page pane can shrink to its slot — otherwise it is painted over by the pane beside it", () => {
     // A pane is a flex ITEM, and a flex item's default `min-width: auto` floors it at its content's
     // min-content width. Without this, a page whose content did not fit grew PAST its slot and the

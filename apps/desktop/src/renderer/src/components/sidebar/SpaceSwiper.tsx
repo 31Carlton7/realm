@@ -6,6 +6,7 @@ import { createDragSwipe, type SwipePhase, type SwipeUpdate } from "../../state/
 import { createSpring } from "../../state/spring";
 import { PinnedGrid } from "./PinnedGrid";
 import { ItemList } from "./ItemList";
+import { OtherSpaces } from "./OtherSpaces";
 
 const IDLE_MS = 320;
 const DEBUG = () => { try { return localStorage.getItem("realm.debugSwipe") === "1"; } catch { return false; } };
@@ -242,7 +243,7 @@ export function SpaceSwiper() {
             page was one "Space menu" button per space, all with the same accessible name. */}
         {spaces.map((sp) => (
           <div key={sp.id} className="space-page" data-space-page={sp.id} aria-hidden={sp.id !== activeSpaceId || undefined} inert={sp.id !== activeSpaceId || undefined}>
-            {sp.id === activeSpaceId ? <ActiveSpaceBody /> : leaving?.id === sp.id ? <SpaceBody items={leaving.items} groups={leaving.groups} /> : null}
+            {sp.id === activeSpaceId ? <ActiveSpaceBody spaceId={sp.id} /> : leaving?.id === sp.id ? <SpaceBody spaceId={sp.id} items={leaving.items} groups={leaving.groups} /> : null}
           </div>
         ))}
       </div>
@@ -260,15 +261,16 @@ const REALM_ITEM_TYPE = "application/x-realm-item";
  * now also WHERE — and clicking a row in a group that is not on screen switches to it (openItem's
  * "go there"), which is the cheap arrangement-switching the whole feature exists for.
  */
-const ActiveSpaceBody = memo(function ActiveSpaceBody() {
+const ActiveSpaceBody = memo(function ActiveSpaceBody({ spaceId }: { spaceId: string }) {
   const items = useApp((s) => s.items);
   const groups = useApp((s) => s.groups);
-  return <SpaceBody items={items} groups={groups} />;
+  return <SpaceBody spaceId={spaceId} items={items} groups={groups} />;
 });
 
 /** The rows themselves, from whatever items/groups they are handed — the live set for the active
- *  page, a commit-time snapshot for the page sliding away. */
-const SpaceBody = memo(function SpaceBody({ items, groups }: { items: Item[]; groups: SpaceGroups | null }) {
+ *  page, a commit-time snapshot for the page sliding away — and, after them, the profile's other
+ *  rooms, seen from this one. */
+const SpaceBody = memo(function SpaceBody({ spaceId, items, groups }: { spaceId: string; items: Item[]; groups: SpaceGroups | null }) {
   const newPaneGroup = useApp((s) => s.newPaneGroup);
   const run = useApp((s) => s.run);
   // Archived rows are split off FIRST, ahead of open/pinned/unopened, and `byId` is built from the
@@ -304,6 +306,7 @@ const SpaceBody = memo(function SpaceBody({ items, groups }: { items: Item[]; gr
         {pinned.length > 0 && <PinnedGrid items={pinned} />}
         <ItemList items={rest} variant="space" />
         {archived.length > 0 && <ArchivedSection items={archived} />}
+        <OtherSpaces currentId={spaceId} />
       </div>
       {/* No fade element: the list dissolves at its bottom by a mask on .space-body itself, and its
           bottom padding is what keeps the last row clear of the ramp — see --fade-h in styles.css. */}
@@ -312,7 +315,7 @@ const SpaceBody = memo(function SpaceBody({ items, groups }: { items: Item[]; gr
 });
 
 /**
- * The shelf: archived rows, last in the sidebar and collapsed until asked for. Collapsed is the whole
+ * The shelf: archived rows, last in the room's own list and collapsed until asked for. Collapsed is the whole
  * point — a section that unfolded itself on every render would undo the putting-away — and it is
  * absent entirely when nothing is archived, the same dead-chrome rule the destinations nav keeps.
  *

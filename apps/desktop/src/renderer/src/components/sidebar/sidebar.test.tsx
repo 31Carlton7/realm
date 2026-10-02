@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
-import { allItems, findLeafOfItem, type Layout, type McpCall } from "@realm/contracts";
+import { render, screen, fireEvent, waitFor, act, within, cleanup } from "@testing-library/react";
+import { allItems, findLeafOfItem, sessionEvent, type Layout, type McpCall } from "@realm/contracts";
 import { Sidebar } from "./Sidebar";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, iconAsset, item, session, space } from "../../state/store.test-fakes";
@@ -977,5 +977,123 @@ describe("the space switcher", () => {
     await act(async () => { fireEvent.click(within(menu).getByRole("menuitemcheckbox", { name: /Versed/ })); });
     expect(store.getState().activeSpaceId).toBe("s1");
     expect(api.calls.length).toBe(before);
+  });
+});
+
+describe("the other spaces, below the room", () => {
+  /* Four rooms over two profiles: you are in Versed, two more share its profile, and Lectures is
+     School's. The strip at the foot already says which rooms exist; these rows add their names, what
+     the dot stands for, and the sessions themselves. */
+  const rooms = (extra: Parameters<typeof fakeApi>[0] = {}) => fakeApi({
+    spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework"), space("s3", "p1", "Thesis"), space("s4", "p2", "Lectures")],
+    ...extra,
+  });
+  const rows = (c: HTMLElement) => [...c.querySelectorAll<HTMLElement>('[data-space-page="s1"] .space-row')];
+  const named = (c: HTMLElement, name: string) => rows(c).find((r) => r.querySelector(".item-title")!.textContent === name)!;
+
+  it("lists every OTHER space of the profile, after the room's own contents, in the strip's order", async () => {
+    /* THE MUTANTS: list the room you are standing in (it is already the whole column above), or
+       every space in the home (School's Lectures has no business in a Work column). */
+    const { container } = await mount(rooms());
+    expect(rows(container).map((r) => r.querySelector(".item-title")!.textContent)).toEqual(["Homework", "Thesis"]);
+    const page = container.querySelector('[data-space-page="s1"] .space-body')!;
+    const labels = [...page.querySelectorAll(".group-label")].map((l) => l.textContent);
+    expect(labels.indexOf("Other spaces")).toBeGreaterThan(labels.indexOf("Sessions"));
+    // Inside the room's own scroller, never docked over it — a long list lengthens the scroll and
+    // takes no height from the room you are in.
+    expect(rows(container).every((r) => page.contains(r))).toBe(true);
+  });
+
+  it("follows the room you are in: switching puts the one you left in the list", async () => {
+    const { container } = await mount(rooms());
+    fireEvent.click(named(container, "Homework").querySelector(".item-row")!);
+    await waitFor(() => expect(container.querySelector('[data-space-page="s2"] .space-row')).not.toBeNull());
+    const after = [...container.querySelectorAll('[data-space-page="s2"] .space-row .item-title')].map((t) => t.textContent);
+    expect(after).toEqual(["Versed", "Thesis"]);
+  });
+
+  it("wears the strip's signal at the far end, with how many sessions it stands for, and reads it out", async () => {
+    const { container } = await mount(rooms({ sessions: [
+      session("a", "s2", { status: "waiting_permission" }), session("b", "s2", { status: "waiting_permission" }),
+      session("c", "s2", { status: "running" }), session("d", "s3", { status: "running" }),
+    ] }));
+    const homework = named(container, "Homework");
+    expect(homework.querySelector(".item-trail .status-dot")).toHaveAttribute("data-status", "waiting_permission");
+    expect(homework.querySelector(".item-trail .item-count")!.textContent).toBe("2");
+    expect(homework.querySelector(".item-row")).toHaveAccessibleName("Homework — 2 waiting on you, 1 running");
+    expect(named(container, "Thesis").querySelector(".item-trail .status-dot")).toHaveAttribute("data-status", "running");
+  });
+
+  it("a room with nothing live draws no disclosure and keeps its state under the pointer", async () => {
+    /* An error the user has already read still badges the strip, so the row says so too — but there
+       is nothing live to unfold, and a disclosure onto an empty list is a control that does nothing. */
+    const { container } = await mount(rooms({ sessions: [session("e", "s3", { status: "error", seenSeq: 4, lastEventSeq: 4 })] }));
+    for (const name of ["Homework", "Thesis"]) {
+      expect(named(container, name).querySelector(".item-disclose")).toBeNull();
+      expect(named(container, name)).toHaveAttribute("data-actions", "0");
+    }
+    expect(named(container, "Thesis").querySelector(".status-dot")).toHaveAttribute("data-status", "error");
+    expect(named(container, "Homework").querySelector(".status-dot")).toBeNull();
+  });
+
+  it("unfolds a room's live sessions — waiting, then working, then unread — and remembers it", async () => {
+    const api = rooms({ sessions: [
+      session("read", "s2", { title: "Read already", status: "idle", seenSeq: 3, lastEventSeq: 3, updatedAt: 50 }),
+      session("unread", "s2", { title: "Has news", status: "idle", seenSeq: 3, lastEventSeq: 7, updatedAt: 40 }),
+      session("works", "s2", { title: "Working away", status: "running", updatedAt: 30 }),
+      session("asks", "s2", { title: "Wants a yes", status: "waiting_permission", updatedAt: 20 }),
+    ] });
+    const { container } = await mount(api);
+    const toggle = within(named(container, "Homework")).getByRole("button", { name: "Live sessions in Homework" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(container.querySelector(".space-live")).toBeNull(); // nothing built until it is asked for
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-expanded", "true"));
+    const listed = () => [...container.querySelectorAll(".space-live .item-row")];
+    expect(listed().map((r) => r.querySelector(".item-title")!.textContent)).toEqual(["Wants a yes", "Working away", "Has news"]);
+    expect(listed().map((r) => r.querySelector(".status-dot")!.getAttribute("data-status"))).toEqual(["waiting_permission", "running", "unseen"]);
+    expect(listed()[2]).toHaveAccessibleName("Has news — new since you were here");
+    expect(api.calls).toContain("setSetting:ui.sidebarOpenSpaces=s2");
+
+    // A relaunch finds it unfolded.
+    cleanup();
+    const again = await mount(api);
+    expect(within(named(again.container, "Homework")).getByRole("button", { name: "Live sessions in Homework" })).toHaveAttribute("aria-expanded", "true");
+    expect(again.container.querySelectorAll(".space-live .item-row")).toHaveLength(3);
+  });
+
+  it("a click on a room's name goes to the room; a click on one of its sessions opens that session there", async () => {
+    const api = rooms({
+      items: { s1: [item("i1", "s1", { title: "Terminal" })], s2: [item("i2", "s2", { kind: "session", refId: "se2", title: "Wants a yes" })] },
+      sessions: [session("se2", "s2", { title: "Wants a yes", status: "waiting_permission" })],
+      settings: { "ui.sidebarOpenSpaces": ["s2"] },
+    });
+    const { container, store } = await mount(api);
+    fireEvent.click(container.querySelector('.space-live .item-row')!);
+    await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
+    await waitFor(() => expect(allItems(store.getState().layout!)).toContain("i2"));
+    const leaf = findLeafOfItem(store.getState().layout!, "i2")!;
+    expect(store.getState().focusedLeafId).toBe(leaf.id);
+
+    cleanup();
+    const second = await mount(rooms());
+    fireEvent.click(named(second.container, "Thesis").querySelector(".item-row")!);
+    await waitFor(() => expect(second.store.getState().activeSpaceId).toBe("s3"));
+  });
+
+  it("a turn that finishes in another room stays in its list, now wearing the unread ring", async () => {
+    /* Live, not on the next re-list: the room is not the one you are in, so nothing re-lists it. */
+    const { container, store } = await mount(rooms({
+      sessions: [session("w", "s2", { title: "Working away", status: "running", seenSeq: 2, lastEventSeq: 2 })],
+      settings: { "ui.sidebarOpenSpaces": ["s2"] },
+    }));
+    const dot = () => container.querySelector(".space-live .status-dot");
+    expect(dot()).toHaveAttribute("data-status", "running");
+    act(() => {
+      store.getState().applySessionEvent({ seq: 3, sessionId: "w", ephemeral: false, event: sessionEvent("assistant_text", { messageId: "m", text: "Done." }) });
+      store.getState().applySessionStatus("w", "idle");
+    });
+    expect(dot()).toHaveAttribute("data-status", "unseen");
+    expect(named(container, "Homework").querySelector(".item-trail .status-dot")).toHaveAttribute("data-status", "unseen");
   });
 });
