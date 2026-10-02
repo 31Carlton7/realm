@@ -143,9 +143,13 @@ takes all the width; its state (status dot, driving dot, machine state) and the 
 at the far right; on hover or keyboard focus they give way to the row's actions (archive or delete, and
 close) in the same slot. Nothing is reserved for buttons that are not showing. Keyboard: focus on the row
 reveals the actions, as hover does. *Check:* in the built app, measure a row's title width at rest
-against today's, and that the state and the buttons occupy the same box. Also settles the unseen ring,
-which cannot draw: `ItemList.tsx` shows it only for a session with no status, and `refreshSessions` gives
-every listed session one — `idle` included, which is the grey dot on every resting row.
+against today's, and that the state and the buttons occupy the same box.
+*Built (2026-10-01, `feat/sidebar-row-trailing-state`):* the title gains 46px at rest (167 against 121 on
+a 248px row), and `sidebar-marks-live.mjs` measures the shared slot under a real hover.
+*Found, left for a decision:* the unseen ring cannot draw. `ItemList.tsx` shows it only for a session
+with no status, and `refreshSessions` gives every listed session one — `idle` included, which is the grey
+dot on every resting row. The code's own comment meant idle to wear nothing and unread to wear the ring,
+as Codex's blue dot does; restoring that changes what every resting row looks like, so it is the user's.
 
 **W2 — The rail.** A 48px column left of the sidebar: destinations as icons with their badges (Home's
 "N waiting"), the avatar and update at the foot, the sidebar toggle above. Collapsing the sidebar leaves
