@@ -59,6 +59,37 @@ export type DownloadItemLike = {
   once(event: "done", cb: (state: string) => void): void;
 };
 
+/** Electron's `DownloadItem`, as far as `asDownloadItem` reads it — its listeners take the EVENT first. */
+export type ElectronDownloadItem = {
+  getFilename(): string;
+  getURL(): string;
+  getReceivedBytes(): number;
+  setSavePath(path: string): void;
+  cancel(): void;
+  on(event: "updated", cb: (event: unknown, state: string) => void): unknown;
+  once(event: "done", cb: (event: unknown, state: string) => void): unknown;
+};
+
+/**
+ * Electron's item, narrowed to what the governor reads.
+ *
+ * Built field by field rather than cast, and the cast is what this replaced: Electron calls a `done`
+ * listener with the event FIRST and the state second, so the governor's `(state) => …` was handed the
+ * event, `state === "completed"` was never true, and every download that landed on disk was reported
+ * as interrupted — the user's Save and the agent's `browser_download` alike.
+ */
+export function asDownloadItem(item: ElectronDownloadItem): DownloadItemLike {
+  return {
+    getFilename: () => item.getFilename(),
+    getURL: () => item.getURL(),
+    getReceivedBytes: () => item.getReceivedBytes(),
+    setSavePath: (path) => item.setSavePath(path),
+    cancel: () => item.cancel(),
+    on: (_event, cb) => { item.on("updated", () => cb()); },
+    once: (_event, cb) => { item.once("done", (_e, state) => cb(state)); },
+  };
+}
+
 export type DownloadGovernorDeps = {
   mkdirp(dir: string): void;
   exists(path: string): boolean;

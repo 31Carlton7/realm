@@ -1,7 +1,7 @@
 import { WebContentsView, screen, session, type BrowserWindow, type WebContents } from "electron";
 import { BrowserPaneHost, browserUserAgent, isFindShortcut, type ViewFactory } from "./browser-host";
 import type { CdpBinding } from "./browser-agent-host";
-import type { DownloadDecision, DownloadItemLike } from "./downloads";
+import { asDownloadItem, type DownloadDecision, type DownloadItemLike } from "./downloads";
 import type { PasskeyCdp } from "./passkeys";
 
 /** The browser views' session partition. Persistent and Realm's own: never the user's daily Chrome
@@ -288,7 +288,7 @@ export function governBrowserDownloads(d: {
   downloadsGoverned = true;
   session.fromPartition(BROWSER_PARTITION).on("will-download", (event, item, wc) => {
     const wcId = wc?.id ?? -1;
-    const decision = d.decide(d.browserIdFor(wcId), item as unknown as DownloadItemLike);
+    const decision = d.decide(d.browserIdFor(wcId), asDownloadItem(item));
     if (decision.allow) return; // the governor already called setSavePath and wired the item
     event.preventDefault();
     // The filename travels too, so W4's bar can name what was blocked. Page/server-authored, and

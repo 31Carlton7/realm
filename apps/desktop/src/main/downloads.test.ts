@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { DOWNLOAD_MAX_BYTES } from "@realm/contracts";
-import { BlockedDownloads, DownloadGovernor, SavedDownloads, decideDownload, retryBlockedDownload, type DownloadGrant, type DownloadItemLike } from "./downloads";
+import { BlockedDownloads, DownloadGovernor, SavedDownloads, asDownloadItem, decideDownload, retryBlockedDownload, type DownloadGrant, type DownloadItemLike, type ElectronDownloadItem } from "./downloads";
 
 /**
  * Plan 23's named mutants. Each is a one-line change to `downloads.ts` that one of these must catch:
@@ -428,5 +428,50 @@ describe("SavedDownloads", () => {
     expect(s.find("b2", list[0]!.id)).toBeNull();
     s.release("b1");
     expect(s.list("b1")).toEqual([]);
+  });
+});
+
+/**
+ * The adapter between Electron's item and the governor. Electron calls `done` with the EVENT first and
+ * the state second; the governor's interface takes the state alone. A cast between the two compiled,
+ * and read every finished download as interrupted. THE mutant: pass the listener straight through.
+ */
+describe("asDownloadItem — Electron's item, as the governor reads it", () => {
+  function electronItem() {
+    const done: ((event: unknown, state: string) => void)[] = [];
+    const updated: ((event: unknown, state: string) => void)[] = [];
+    let savePath = "";
+    const item: ElectronDownloadItem = {
+      getFilename: () => "week-3.pdf",
+      getURL: () => "https://example.com/week-3.pdf",
+      getReceivedBytes: () => 1024,
+      setSavePath: (p) => { savePath = p; },
+      cancel: () => {},
+      on: (_e, cb) => { updated.push(cb); },
+      once: (_e, cb) => { done.push(cb); },
+    };
+    return { item, savePath: () => savePath, finish: (state: string) => done.forEach((cb) => cb({ preventDefault() {} }, state)), progress: () => updated.forEach((cb) => cb({}, "progressing")) };
+  }
+
+  it("a download Electron reports completed is a saved file, listed for the pane", async () => {
+    const saved: string[] = [];
+    const governor = new DownloadGovernor({ mkdirp: () => {}, exists: () => false, now: () => NOW, onSaved: (_b, s) => saved.push(s.path) });
+    const e = electronItem();
+    const result = await governor.run("b1", grant(), async () => {
+      expect(governor.handle("b1", asDownloadItem(e.item)).allow).toBe(true);
+      e.progress();
+      e.finish("completed");
+      return { ok: true };
+    });
+    expect(result).toEqual({ ok: true, name: "week-3.pdf", bytes: 1024, relPath: "downloads/week-3.pdf" });
+    expect(e.savePath()).toBe("/tmp/proj/downloads/week-3.pdf");
+    expect(saved).toEqual(["/tmp/proj/downloads/week-3.pdf"]);
+  });
+
+  it("and one Electron reports cancelled is still a failure that says so", async () => {
+    const governor = new DownloadGovernor({ mkdirp: () => {}, exists: () => false, now: () => NOW });
+    const e = electronItem();
+    const result = await governor.run("b1", grant(), async () => { governor.handle("b1", asDownloadItem(e.item)); e.finish("cancelled"); return { ok: true }; });
+    expect(result).toEqual({ ok: false, error: "the download did not finish (cancelled)" });
   });
 });
