@@ -30,6 +30,9 @@
  *      page's own toolbar counts them; Send captures the page WITH the pins and without the toolbar,
  *      lands one "3 annotations" chip and the capture in the session's prompter, and — sent — the
  *      agent is told each pin by its number. Escape ends it with nothing; a navigation says so.
+ *  13. Device size (Plan 26 W7e): a phone narrows the view to a centred 390-wide box and the page lays
+ *      out at 390; a desktop fills the pane and the page lays out at 1440, scaled to fit, and a
+ *      screenshot is the 1440-wide page; Fit the pane puts both back.
  *
  * Ports: LIVE_SERVER_PORT (8961), LIVE_CDP_PORT (9361), LIVE_MAIN_INSPECT_PORT (9461), LIVE_SITE_PORT
  * (8971). Touches only a scratch dir; kills only what listens on its own ports. Browses nothing but its
@@ -157,6 +160,11 @@ const ROUTES = {
   "/docs": () => page("Docs — Fixture", "<h1>Docs</h1><p>Every setting lives in one file.</p>"),
   "/files": () => page("Files — Fixture", '<h1>Files</h1><p><a id="dl" href="/files/notes.txt">notes.txt</a></p>'),
   "/cookie": () => page("Cookie — Fixture", "<h1>Cookie</h1><p>This page set a cookie.</p>"),
+  // A page that lays out by its width, the way a responsive site does — the viewport meta is what makes
+  // a phone's width the page's width rather than the 980 a page without one is given.
+  "/responsive": () => page("Responsive — Fixture", `<meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>.narrow { display: none } @media (max-width: 600px) { .narrow { display: block } .wide { display: none } }</style>
+    <h1>Responsive</h1><p class="narrow">Narrow layout</p><p class="wide">Wide layout</p>`),
   // Big targets with a link in each, so pinning one proves a click on a link changes nothing.
   "/list": () => page("List — Fixture", `<h1>List</h1><style>li { list-style: none; width: 340px; margin: 10px 0; padding: 14px 18px;
     border: 1px solid #ddd; border-radius: 8px; font-size: 18px; } li a { color: #222; }</style><ul style="padding:0">${
@@ -359,7 +367,7 @@ async function main() {
   check("…and nothing opens in the window's DOM, which the page would paint over", !button.domMenu);
   check("the button is lit while its menu is up", button.lit);
   check("the rows are the browser's: find, print, zoom, screenshot, downloads, history, clear, settings",
-    JSON.stringify(labels) === JSON.stringify(["Find in page…", "Print…", "—", "Zoom out", "Actual size (100%)", "Zoom in", "—", "Take a screenshot", "—", "Downloads", "History", "—", "Clear browsing data…", "Browser settings"]), labels);
+    JSON.stringify(labels) === JSON.stringify(["Find in page…", "Print…", "—", "Zoom out", "Actual size (100%)", "Zoom in", "Device size", "—", "Take a screenshot", "—", "Downloads", "History", "—", "Clear browsing data…", "Browser settings"]), labels);
   check("Find shows its shortcut", menu.rows[0].accelerator === "CmdOrCtrl+F", menu.rows[0]);
   check("no cookie or password import is offered (Plan 26 D3)", !JSON.stringify(menu.rows).match(/import|password/i));
   await dismissMenu();
@@ -734,6 +742,39 @@ async function main() {
   await go("/");
   const leftToast = await until(() => evalIn(c, `document.querySelector('.browser-toast')?.textContent ?? null`), 5_000, "left toast").catch(() => null);
   check("a navigation ends it and says the pins went with the page", leftToast === "The page changed, so its pins were cleared." && (await annotateLit()) === "false", leftToast);
+
+  // ── 13. Device size ───────────────────────────────────────────────────────────────────────────
+  await go("/responsive");
+  await sleep(400);
+  const hostRect = () => evalIn(c, `(() => { const r = document.querySelector('.browser-view-host').getBoundingClientRect(); return { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height), device: document.querySelector('.browser-view-host').getAttribute('data-device') }; })()`);
+  const pageWidth = () => inView(`({ width: innerWidth, narrow: matchMedia("(max-width: 600px)").matches })`);
+  await choose(["Device size", "iPhone · 390px"]);
+  await sleep(500);
+  const phone = { view: (await view()).bounds, host: await hostRect(), page: await pageWidth() };
+  note("iPhone", phone);
+  check("iPhone narrows the view to a 390-wide box, centred in the pane, as tall as it",
+    phone.view.width === 390 && Math.abs(phone.view.x - (phone.host.x + (phone.host.width - 390) / 2)) <= 1 && phone.view.height === phone.host.height, phone);
+  check("…the page lays out at a phone's width, its own media query says so", phone.page.width === 390 && phone.page.narrow === true, phone.page);
+  check("…and the pane's own ground frames the box", phone.host.device === "phone", phone.host.device);
+  await shot(c, "device-phone-chrome");
+  await shotView(mainEval, "device-phone-page");
+  const ticked = (await openMenu()).rows.find((r) => r.label === "Device size")?.sub?.find((r) => r.checked)?.label;
+  check("the menu ticks the size the page is at", ticked === "iPhone · 390px", ticked);
+  await clickRow(["Device size", "Desktop · 1440px"]);
+  await sleep(500);
+  const desktop = { view: (await view()).bounds, host: await hostRect(), page: await pageWidth() };
+  note("Desktop", desktop);
+  check("Desktop fills the pane — a 1440-wide page, scaled down to fit it", desktop.view.width === desktop.host.width && desktop.page.width === 1440 && desktop.page.narrow === false, desktop);
+  const shotsDesktop = new Set(fs.readdirSync(shotsDir));
+  await choose(["Take a screenshot"]);
+  const wideShot = await until(() => fs.readdirSync(shotsDir).find((f) => !shotsDesktop.has(f) && f.endsWith(".png")) ?? null, 10_000, "desktop screenshot").catch(() => null);
+  const widePng = wideShot ? fs.readFileSync(path.join(shotsDir, wideShot)) : null;
+  check("…and a screenshot is the page at that width, not the scaled box", !!widePng && widePng.readUInt32BE(16) / 1440 === Math.round(widePng.readUInt32BE(16) / 1440) && widePng.readUInt32BE(16) >= 1440, widePng && { w: widePng.readUInt32BE(16), h: widePng.readUInt32BE(20) });
+  if (wideShot) { fs.copyFileSync(path.join(shotsDir, wideShot), OUT("device-desktop-screenshot")); console.log(`SCREENSHOT device-desktop-screenshot ${OUT("device-desktop-screenshot")}`); }
+  await choose(["Device size", "Fit the pane"]);
+  await sleep(500);
+  const fitted = { view: (await view()).bounds, host: await hostRect(), page: await pageWidth() };
+  check("Fit the pane puts the view back over the whole pane, at the pane's width", fitted.view.width === fitted.host.width && fitted.view.x === fitted.host.x && fitted.page.width === fitted.host.width && fitted.host.device === null, fitted);
 
   // ── 10. Browser settings ──────────────────────────────────────────────────────────────────────
   await choose(["Browser settings"]);
