@@ -3728,7 +3728,7 @@ await get().refreshCustomThemes().catch(() => {});
           await persist();
           return;
         }
-        await get().closeFromLayout(peek.item.id);
+        // Another space's: there, the way its row opens it. The switch is what takes the peek away.
         await get().revealSession(peek.item.refId, peek.item.spaceId);
       },
       async applyAgentPaneOpened({ spaceId, itemId, openedBy }) {
