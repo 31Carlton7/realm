@@ -166,7 +166,7 @@ describe("a tool picked on a new tab", () => {
     expect(store.getState().paletteReplaces).toBeNull();
   });
 
-  it("forgets the blank tab when the palette is opened again some other way", async () => {
+  it("forgets the blank tab when the palette is dismissed and opened again", async () => {
     // THE MUTANT: clear the mark only on a pick. Dismiss the palette, press ⌘P later, and the file
     // picked then deletes a tab nobody asked to replace.
     const { api, store, blank } = await withNewTab();
@@ -176,5 +176,35 @@ describe("a tool picked on a new tab", () => {
     expect(store.getState().paletteReplaces).toBeNull();
     await store.getState().openDocumentPath("README.md");
     expect(api.calls).not.toContain(`deleteItem:${blank}`);
+  });
+
+  it("forgets it too when something else took the palette down, as a sheet does", async () => {
+    // A sheet closes the palette without going through its own close. THE MUTANT: keep the mark on a
+    // fresh open, and the next ⌘P's pick takes the old blank tab's place.
+    const { store, blank } = await withNewTab();
+    await store.getState().openFromNewTab(blank, "files");
+    store.getState().openSheet({ kind: "activity" });
+    store.getState().closeSheet();
+    store.getState().setPaletteOpen(true, "files");
+    expect(store.getState().paletteReplaces).toBeNull();
+  });
+
+  it("never lets a file opened from elsewhere while the palette is shut take the tab's place", async () => {
+    // THE MUTANT: honour the mark whatever is open. The palette went down under a sheet, and a file
+    // opened from the session's Files panel deletes the new tab.
+    const { api, store, blank } = await withNewTab();
+    await store.getState().openFromNewTab(blank, "files");
+    store.getState().openSheet({ kind: "activity" });
+    await store.getState().openDocumentPath("notes.md");
+    expect(api.calls).not.toContain(`deleteItem:${blank}`);
+  });
+
+  it("keeps the mark across ⌘⇧P, which is the same palette asked a different question", async () => {
+    // THE MUTANT: clear it on every open. Switching from Files to Find in files mid-search, and then
+    // picking a line, would leave the blank tab behind the file it opened.
+    const { store, blank } = await withNewTab();
+    await store.getState().openFromNewTab(blank, "files");
+    store.getState().setPaletteOpen(true, "grep");
+    expect(store.getState().paletteReplaces).toBe(blank);
   });
 });

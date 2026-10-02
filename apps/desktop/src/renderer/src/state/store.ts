@@ -1815,8 +1815,8 @@ export type AppState = {
   /** Which question the palette is asking. ⌘K is "all"; ⌘P and ⌘⇧F open the same surface narrowed. */
   paletteMode: PaletteMode;
   setPaletteOpen(open: boolean, mode?: PaletteMode): void;
-  /** The blank tab a file picked in the palette takes the place of — set while the palette is open
-   *  from a new-tab page's Files, and cleared whenever the palette opens or closes any other way. */
+  /** The blank tab a file picked in the palette takes the place of — set when a new-tab page's Files
+   *  opens the palette, honoured only while that palette is up, and gone with it. */
   paletteReplaces: string | null;
   /**
    * A tool picked on a blank browser tab's new-tab page. It opens where the tab stood — a tab of the
@@ -3950,7 +3950,12 @@ await get().refreshCustomThemes().catch(() => {});
       async saveScript(spaceId, script) { await api.saveScript(spaceId, script); await get().refreshScripts(spaceId); },
       async removeScript(spaceId, id) { await api.removeScript(spaceId, id); await get().refreshScripts(spaceId); },
       async reorderScripts(spaceId, ids) { await api.reorderScripts(spaceId, ids); await get().refreshScripts(spaceId); },
-      setPaletteOpen(open, mode = "all") { set(open ? { paletteOpen: true, paletteMode: mode, paletteReplaces: null, spacesOpen: false, sheet: null, ...restoreSnap() } : { paletteOpen: false, paletteMode: "all", paletteReplaces: null }); },
+      setPaletteOpen(open, mode = "all") {
+        // A new tab's mark lasts the one palette it was set on: across a ⌘⇧P from Files, which is the
+        // same palette asked a different question, and not into the next one opened.
+        const replaces = open && get().paletteOpen ? get().paletteReplaces : null;
+        set(open ? { paletteOpen: true, paletteMode: mode, paletteReplaces: replaces, spacesOpen: false, sheet: null, ...restoreSnap() } : { paletteOpen: false, paletteMode: "all", paletteReplaces: null });
+      },
       async openFromNewTab(itemId, tool) {
         const sid = get().activeSpaceId; if (!sid) return;
         if (tool === "files") {
@@ -5164,7 +5169,9 @@ await get().refreshCustomThemes().catch(() => {});
       async openDocumentPath(path, environmentId = null) {
         const sid = get().activeSpaceId; if (!sid) return;
         // Read before the round trip: the palette closes once this resolves, and its close clears it.
-        const replacing = get().paletteReplaces;
+        // Only while it is open — a sheet or the spaces overview can take the palette down without
+        // clearing it, and a file opened from anywhere else then is not the new tab's pick.
+        const replacing = get().paletteOpen ? get().paletteReplaces : null;
         const { itemId } = await api.openDocumentPath(sid, path, environmentId ?? undefined);
         // Picked from a new-tab page's Files: the documents pane takes the blank tab's place.
         if (replacing && findLeafOfItem(get().layout ?? emptyLayout(), replacing)) { await replaceNewTab(sid, replacing, itemId); return; }
