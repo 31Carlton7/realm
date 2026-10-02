@@ -155,6 +155,19 @@ export function ActivityCalendar() {
     const el = scroller.current;
     if (el && days !== null) el.scrollLeft = el.scrollWidth;
   }, [days, weeks]);
+  /* …and kept there when the window narrows under it. Opening at the present end was only true of
+     the width it opened at: a year that fitted, narrowed, kept scrollLeft 0 and showed last autumn.
+     Held only while the reader is AT the end — one who scrolled back to March is reading March. */
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    let atEnd = true;
+    const onScroll = () => { atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 1; };
+    const ro = new ResizeObserver(() => { if (atEnd) el.scrollLeft = el.scrollWidth; });
+    el.addEventListener("scroll", onScroll, { passive: true });
+    ro.observe(el);
+    return () => { ro.disconnect(); el.removeEventListener("scroll", onScroll); };
+  }, []);
   const months = useMemo(() => monthLabels(weeks), [weeks]);
   const activeDays = (days ?? []).filter((d) => d.messages > 0).length;
   const messages = (days ?? []).reduce((n, d) => n + d.messages, 0);

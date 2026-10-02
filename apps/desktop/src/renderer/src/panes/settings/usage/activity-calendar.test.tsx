@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { activityLevel, dayKey, USAGE_CALENDAR_DAYS } from "@realm/contracts";
 import { createAppStore, StoreContext } from "../../../state/store";
 import { fakeApi } from "../../../state/store.test-fakes";
@@ -171,6 +171,31 @@ describe("the calendar card", () => {
     expect(cellFor(at(1)).title).toMatch(/: 6 messages since /);
     expect(cellFor(at(2)).title).toMatch(/: 2 messages since /);
     expect(screen.getByRole("radio", { name: "Cumulative" })).toBeChecked();
+  });
+
+  it("keeps the present end in view when the window narrows under it — until the reader scrolls back", async () => {
+    // jsdom lays nothing out, so the geometry is staged by hand and the observer is one we can fire.
+    const observers: (() => void)[] = [];
+    const Real = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class { constructor(cb: () => void) { observers.push(cb); } observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
+    try {
+      await mount([{ day: at(1), messages: 4, sessions: 1 }]);
+      const el = document.querySelector<HTMLElement>(".cal-scroll")!;
+      const stage = (p: Record<string, number>) => { for (const [k, v] of Object.entries(p)) Object.defineProperty(el, k, { value: v, configurable: true, writable: true }); };
+      // It opened wide enough to fit: nothing to scroll. Then the window narrows to half that.
+      stage({ scrollWidth: 760, clientWidth: 760, scrollLeft: 0 });
+      stage({ clientWidth: 380 });
+      act(() => observers.forEach((fire) => fire()));
+      expect(el.scrollLeft).toBe(760);
+      // The reader scrolls back to look at the spring: the next resize leaves them there.
+      stage({ scrollLeft: 120 });
+      fireEvent.scroll(el);
+      stage({ clientWidth: 360 });
+      act(() => observers.forEach((fire) => fire()));
+      expect(el.scrollLeft).toBe(120);
+    } finally {
+      globalThis.ResizeObserver = Real;
+    }
   });
 
   it("gives every cell its count as text, so the colour is never the only telling", async () => {
