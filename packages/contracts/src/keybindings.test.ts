@@ -274,6 +274,15 @@ describe("the shipped table", () => {
     expect(chordOf("session.interrupt")).toBe("escape");
   });
 
+  it("binds a side pane's new tab to ⌘⇧B, and its full-view twin to ⌥⌘B rather than pane focus's ⌘⇧F", () => {
+    // THE MUTANT: ship Codex's ⇧⌘F for the full-view tab. The later rule wins, so pane focus — a
+    // chord people already use — would quietly start opening tabs instead.
+    const chordOf = (command: string) => chordsForCommand(DEFAULT_KEYBINDINGS, command)[0];
+    expect(chordOf("pane.newTab")).toBe("mod+shift+b");
+    expect(chordOf("pane.newTabFullView")).toBe("mod+alt+b");
+    expect(chordOf("pane.toggleFocus")).toBe("mod+shift+f");
+  });
+
   it("swallows ⌘W in a spelling the resolver agrees with", () => {
     for (const chord of ALWAYS_SWALLOWED_CHORDS) expect(normalizeKeyChord(chord)).toBe(chord);
     expect(ALWAYS_SWALLOWED_CHORDS).toContain("mod+w");

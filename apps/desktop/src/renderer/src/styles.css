@@ -1784,9 +1784,14 @@ button.panel-title { text-align: left; padding: 2px 6px; margin-left: -6px; bord
 button.panel-title:hover { background: var(--rl-hover); }
 .panel-rename { display: flex; min-width: 120px; max-width: 280px; }
 /* A side pane's tab strip, in the title's place (PaneTabs). The strip takes the bar's slack and
-   scrolls sideways past it; each tab gives up width before it gives up its name's first letters. */
-.pane-tabs { display: flex; align-items: center; gap: 2px; flex: 1 1 auto; min-width: 0; margin-left: -6px;
+   scrolls sideways past it; each tab gives up width before it gives up its name's first letters.
+   The "+" rides at the end of the tabs, not at the bar's far edge, and stays put while they scroll:
+   it sits outside the scroller, which is the only way a control beside scrolled content stays whole. */
+.pane-strip { display: flex; align-items: center; gap: 2px; flex: 1 1 auto; min-width: 0; margin-left: -6px; }
+.pane-tabs { display: flex; align-items: center; gap: 2px; flex: 0 1 auto; min-width: 0;
   overflow-x: auto; scrollbar-width: none; }
+.pane-tabs-add { flex: none; color: var(--rl-text-faint); }
+.pane-tabs-add[aria-expanded="true"] { background: var(--rl-hover); color: var(--rl-text-bright); }
 .pane-tab { display: flex; align-items: center; flex: 0 1 180px; min-width: 88px; height: 28px; border-radius: var(--r-chip);
   transition: background-color var(--dur-hover) var(--ease-out-strong); }
 .pane-tab:hover { background: var(--rl-hover); }

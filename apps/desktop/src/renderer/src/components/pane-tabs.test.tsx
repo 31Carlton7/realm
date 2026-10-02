@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { findSidePane, type Layout } from "@realm/contracts";
+import { activeGroup, findLeafOfItem, findSidePane, type Layout } from "@realm/contracts";
 import { PaneHost } from "./PaneHost";
 import { StoreContext, createAppStore } from "../state/store";
 import { fakeApi, item, session } from "../state/store.test-fakes";
@@ -100,6 +100,47 @@ describe("a side pane's tab strip", () => {
     await store.getState().openItem("i-kid");
     expect(side(store).itemId).toBe("i-kid");
     expect(store.getState().focusedLeafId).toBe(side(store).id);
+  });
+});
+
+describe("the strip's +", () => {
+  it("offers a new tab and a new tab in full view, each with the chord the keymap gives it", async () => {
+    // THE MUTANT: print the chord from a literal, or from the wrong command — a rebound user would
+    // be shown a shortcut that no longer does this.
+    const { store } = await mount();
+    // The user moved New tab off ⌘⇧B: an unbind claims the old key, a later rule the new one.
+    store.setState({ keybindings: [...store.getState().keybindings, { key: "mod+shift+b", command: "" }, { key: "mod+alt+n", command: "pane.newTab" }] });
+    fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+    const menu = within(await screen.findByRole("menu", { name: "New tab" }));
+    const rows = menu.getAllByRole("menuitem");
+    expect(rows.map((r) => r.querySelector(".menu-label")!.textContent)).toEqual(["New tab", "New tab in full view"]);
+    expect(rows.map((r) => r.querySelector(".menu-kbd")?.textContent)).toEqual(["⌘⌥N", "⌘⌥B"]);
+  });
+
+  it("adds a blank tab to this strip on New tab", async () => {
+    // THE MUTANT: a + that calls newTab with no leaf. The keyboard is in ANOTHER session here, so the
+    // tab would land in that session's side pane instead of the strip whose + was clicked.
+    const { api, store, rerender } = await mount();
+    api.data.items.s1!.push(item("i-other", "s1", { kind: "session", refId: "other", title: "Other" }));
+    api.data.sessions.push(session("other", "s1"));
+    await store.getState().refreshItems();
+    await store.getState().openItemAt("i-other", findLeafOfItem(store.getState().layout!, "i-lead")!.id, "left");
+    rerender();
+    expect(store.getState().focusedLeafId).toBe(findLeafOfItem(store.getState().layout!, "i-other")!.id);
+    fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+    fireEvent.click(within(await screen.findByRole("menu", { name: "New tab" })).getAllByRole("menuitem")[0]!);
+    await waitFor(() => expect(side(store).tabs).toHaveLength(3));
+    // After the tab showing, and on screen itself — the order a browser gives a tab you asked for.
+    const fresh = side(store).itemId!;
+    expect(side(store).tabs).toEqual(["i-br", fresh, "i-kid"]);
+    expect(store.getState().items.find((i) => i.id === fresh)?.kind).toBe("browser");
+  });
+
+  it("fills the host with this pane on New tab in full view", async () => {
+    const { store } = await mount();
+    fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+    fireEvent.click(within(await screen.findByRole("menu", { name: "New tab" })).getAllByRole("menuitem")[1]!);
+    await waitFor(() => expect(activeGroup(store.getState().groups!).zoomedLeafId).toBe(side(store).id));
   });
 });
 

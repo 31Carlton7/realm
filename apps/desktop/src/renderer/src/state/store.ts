@@ -3,7 +3,7 @@ import { destinationTarget, pageItemId } from "./page-item";
 import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sources";
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
-  allItems, closeItem as layoutClose, closeLeaf as layoutCloseLeaf, emptyLayout, moveTab as layoutMoveTab, openInSidePane as layoutOpenInSidePane, equalizeSplit as layoutEqualize, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, modeWireValue, sessionModeOf,
+  allItems, closeItem as layoutClose, closeLeaf as layoutCloseLeaf, emptyLayout, moveTab as layoutMoveTab, openInSidePane as layoutOpenInSidePane, equalizeSplit as layoutEqualize, findLeaf, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, modeWireValue, sessionModeOf,
   lectureWrapUpPrompt, localDateStamp, sessionEvent,
   activeGroup, activeLayout, addGroup as groupsAdd, mapGroup, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveGroup as groupsMove, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
@@ -1501,6 +1501,13 @@ export type AppState = {
   openInSidePane(sessionId: string, itemId: string, opts?: { focus?: boolean }): Promise<boolean>;
   /** A tab moved within its strip (drag to reorder). */
   moveTab(leafId: string, itemId: string, index: number): Promise<void>;
+  /**
+   * A new, blank browser tab in a side pane, with the keyboard: `leafId`'s strip when it names one,
+   * else the strip the focused pane is in or serves — made beside the focused session when it has
+   * none yet. `full` then fills the host with that pane, which is pane focus under the name a tab
+   * strip gives it ("full view").
+   */
+  newTab(leafId?: string | null, opts?: { full?: boolean }): Promise<void>;
   /** `browser.agentOpened` / `simulator.agentOpened`: into the side pane of the session that opened it,
    *  or beside the focused pane when none of its chain is on screen. */
   applyAgentPaneOpened(p: { spaceId: string; itemId: string; openedBy: string }): Promise<void>;
@@ -3558,6 +3565,29 @@ await get().refreshCustomThemes().catch(() => {});
         const next = layoutMoveTab(layout, leafId, itemId, index);
         set(writeLayout(next));
         await persist();
+      },
+      async newTab(leafId = null, opts = {}) {
+        const sid = get().activeSpaceId; if (!sid) return;
+        const layout = get().layout ?? emptyLayout();
+        // Which strip: the one named, else the one the focused pane is in — read before the awaits,
+        // since the click or the key was about the panes as they stood when it landed.
+        const named = leafId ? findLeaf(layout, leafId) : null;
+        const focused = get().focusedLeafId ? findLeaf(layout, get().focusedLeafId!) : null;
+        const strip = named?.tabs ? named : focused?.tabs ? focused : null;
+        const focusedItem = focused?.itemId ? get().items.find((i) => i.id === focused.itemId) : undefined;
+        const { itemId } = await api.createBrowser(sid);
+        const seq = ++itemsFetchSeq;
+        const items = await api.listItems(sid);
+        if (!isSpace(sid)) return;
+        if (seq === itemsFetchSeq) set({ items });
+        if (strip) await get().openItem(itemId, strip.id);
+        // No strip on screen: the focused session's side pane, made beside it if it has none — and with
+        // no session to be beside, an ordinary browser beside the focused pane, as the bar's own
+        // Browser button opens one.
+        else if (!(focusedItem?.kind === "session" && await get().openInSidePane(focusedItem.refId, itemId, { focus: true }))) {
+          await get().openItemBeside(itemId);
+        }
+        if (opts.full) await zoomItemPane(itemId);
       },
       async applyAgentPaneOpened({ spaceId, itemId, openedBy }) {
         if (spaceId !== get().activeSpaceId) return;
