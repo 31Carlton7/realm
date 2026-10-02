@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { CliJobStart, CliStatus } from "./cli";
-import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, IconAssetSchema, DocumentWorkspaceSchema, DocumentEntrySchema, DocumentKindSchema, QueuedPromptSchema } from "./entities";
+import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, BrowserHistoryPageSchema, IconAssetSchema, DocumentWorkspaceSchema, DocumentEntrySchema, DocumentKindSchema, QueuedPromptSchema } from "./entities";
 
 import { ElementChipSchema, MAX_ELEMENT_CHIPS } from "./chips";
 import { LayoutSchema } from "./layout";
@@ -763,6 +763,17 @@ export const Methods = {
    * same folder for the same reason. Resolved here for `downloadDir`'s reason: one rule, in one place.
    */
   "browsers.screenshotDir": { params: z.object({ spaceId: IdSchema }), result: z.object({ dir: z.string().nullable() }) },
+  /**
+   * The address field's suggestions (Plan 26 W7c): pages this space's PROFILE has visited whose address
+   * or title contains `query`, most visited first and then most recent. Nothing for an empty query —
+   * the list is for text someone is typing, not a history browser.
+   */
+  "browsers.suggest": {
+    params: z.object({ spaceId: IdSchema, query: z.string().max(2_048), limit: z.number().int().min(1).max(20).default(6) }),
+    result: z.object({ pages: z.array(BrowserHistoryPageSchema) }),
+  },
+  /** Forget every visited page — Clear browsing data's other half, after main has cleared the partition. */
+  "browsers.clearHistory": { params: z.object({}), result: z.object({ ok: z.literal(true) }) },
 
   /**
    * The document workspace (Plan 17 W1). Unlike the browser trio, the SERVER owns the content here —

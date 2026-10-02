@@ -649,6 +649,8 @@ export function registerMethods(d: Deps): void {
   reg("browsers.close", (p) => { d.browsers.close(p.browserId); return { ok: true as const }; });
   reg("browsers.downloadDir", (p) => ({ dir: spaceDownloadDir(d.projects, p.spaceId) }));
   reg("browsers.screenshotDir", (p) => ({ dir: spaceScreenshotDir(d.spaces, p.spaceId) }));
+  reg("browsers.suggest", (p) => ({ pages: d.browsers.suggest(p.spaceId, p.query, p.limit) }));
+  reg("browsers.clearHistory", () => { d.browsers.clearHistory(); return { ok: true as const }; });
 
   /* Machines (Plan 25 W3). `create` and `update` are the only two that take a password, and neither
      hands one back: `passwordStored` is a boolean about what happened, because with no encryption
