@@ -2905,6 +2905,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const leaf = findLeafOfItem(layout, itemId);
       if (leaf) await get().focusPaneFull(leaf.id);
     };
+    /** File picks for a new tab still waiting on the server — see `applyDocumentOpenRequested`. */
+    let newTabPicks = 0;
     /**
      * What a new-tab page opened takes the blank tab's place: into the leaf holding it — a tab of the
      * same strip, where the new tab stood, or the pane itself — and the blank tab goes, since a
@@ -2913,8 +2915,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * Something already open somewhere (one documents pane per checkout) is gone TO instead: the
      * user's own arrangement is not rearranged to fill a new tab.
      */
-    /** File picks for a new tab still waiting on the server — see `applyDocumentOpenRequested`. */
-    let newTabPicks = 0;
     const replaceNewTab = async (sid: string, blankId: string, itemId: string) => {
       const seq = ++itemsFetchSeq;
       const items = await api.listItems(sid);
