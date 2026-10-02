@@ -1,6 +1,6 @@
 import type { BlockedDownload, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, PasskeyNotice } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import type { StoreApi } from "zustand";
 import type { PaneProps } from "../registry";
@@ -365,6 +365,17 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
   const find = useFindInPage(browserId, url);
   const suggest = useSuggestions(item.spaceId, draft, addressFocused);
   const suggestId = `browser-suggest-${browserId}`;
+  /* The list belongs to the field, so its rows hang from the field's own edges rather than the pane's.
+     Measured, not written down: the controls left of the field are the chrome's business, and a
+     number here would drift the day one of them changes. */
+  const [suggestEdges, setSuggestEdges] = useState<{ left: number; right: number } | null>(null);
+  const listOpen = suggest.rows.length > 0;
+  useLayoutEffect(() => {
+    if (!listOpen) return;
+    const field = inputRef.current?.getBoundingClientRect();
+    const pane = paneRef.current?.getBoundingClientRect();
+    if (field && pane) setSuggestEdges({ left: Math.max(0, field.left - pane.left), right: Math.max(0, pane.right - field.right) });
+  }, [listOpen]);
   const [menuOpen, setMenuOpen] = useState(false);
   const lastAction = actions.length > 0 ? actions[actions.length - 1]! : null;
 
@@ -695,7 +706,8 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
           never a dropdown over the page, which the view would paint over (W2.3). Rows keep the
           field's focus on press, so a click picks the row instead of blurring the list away. */}
       {suggest.rows.length > 0 && (
-        <div className="browser-suggest" role="listbox" id={suggestId} aria-label="Suggestions">
+        <div className="browser-suggest" role="listbox" id={suggestId} aria-label="Suggestions"
+          style={suggestEdges ? { paddingLeft: suggestEdges.left, paddingRight: suggestEdges.right } : undefined}>
           {suggest.rows.map((row, i) => (
             <div key={row.kind === "page" ? row.page.url : "search"} id={`${suggestId}-${i}`} role="option"
               aria-selected={i === suggest.highlight} className="browser-suggest-row"
