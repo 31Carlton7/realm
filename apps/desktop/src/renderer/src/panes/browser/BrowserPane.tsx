@@ -463,10 +463,10 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
    */
   const findRef = useRef(find);
   findRef.current = find;
-  const pageRef = useRef(hasUrl);
-  pageRef.current = hasUrl;
+  const hasPageRef = useRef(hasUrl);
+  hasPageRef.current = hasUrl;
   useEffect(() => getBrowserBridges().host.onFindRequest((m) => {
-    if (m.browserId === browserId && pageRef.current) findRef.current.show();
+    if (m.browserId === browserId && hasPageRef.current) findRef.current.show();
   }), [browserId]);
   useEffect(() => {
     if (!focused) return;
@@ -474,7 +474,7 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
       if (e.defaultPrevented || e.key.toLowerCase() !== "f" || !e.metaKey || e.shiftKey || e.altKey || e.ctrlKey) return;
       const t = e.target;
       const inside = t === document.body || (t instanceof Node && !!paneRef.current?.contains(t));
-      if (!inside || !pageRef.current) return;
+      if (!inside || !hasPageRef.current) return;
       e.preventDefault();
       findRef.current.show();
     };
@@ -507,9 +507,9 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
   const takeScreenshot = async () => {
     const { host, server } = getBrowserBridges();
     const dir = await server.screenshotDir(item.spaceId).catch(() => null);
-    if (!dir) { toast.say("This space has no folder to save a screenshot in."); return; }
+    if (!dir) { toast.say("This space has no folder to save a screenshot in.", "image"); return; }
     const shot = await host.screenshot(browserId, dir);
-    if (!shot.ok) { toast.say(shot.error); return; }
+    if (!shot.ok) { toast.say(shot.error, "image"); return; }
     const st = store?.getState();
     const target = st ? sessionForPick(st.items, st.layout, st.focusedLeafId) : null;
     if (!st || !target) {
