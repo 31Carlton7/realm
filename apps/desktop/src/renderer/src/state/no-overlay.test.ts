@@ -106,6 +106,19 @@ describe("placeAnchored", () => {
     expect(p.left).toBe(334);
   });
 
+  it("MUTANT: a flip with no room is never clamped over its own anchor — it slides instead", () => {
+    // A side pane's "+": the strip is the window's top 40px, the browser view starts under the page's
+    // own chrome. Below is covered and above has no room; clamped into the window, the "flip" sat on
+    // top of the + and the tabs beside it (measured live: y=8 over an anchor at y=6).
+    const anchor = r(1047, 6, 28, 28);
+    const view = r(891, 80, 609, 820);
+    const p = placeAnchored(base({ anchor, size: { width: 214, height: 66 }, avoid: [view] }));
+    const placed = r(p.left, p.top, 214, 66);
+    expect(intersects(placed, view)).toBe(false);
+    expect(intersects(placed, anchor)).toBe(false);
+    expect(p).toMatchObject({ top: 38, above: false, fallback: false, left: 671 }); // 891 - 214 - 6
+  });
+
   it("slides right when that side is nearer", () => {
     const avoid = [r(500, 200, 500, 640)];
     const p = placeAnchored(base({ anchor: r(950, 850, 50, 20), avoid }));
