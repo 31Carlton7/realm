@@ -102,6 +102,9 @@ describe("chordFromEvent", () => {
       chordFromEvent(press({ code: "KeyJ", key: "j", metaKey: true })),
       chordFromEvent(press({ code: "Enter", key: "Enter", metaKey: true, shiftKey: true })),
       chordFromEvent(press({ code: "Escape", key: "Escape" })),
+      // Go back / Go forward. Shifted, a US layout reports `_`, which is why the key is read off `code`.
+      chordFromEvent(press({ code: "Minus", key: "-", ctrlKey: true })),
+      chordFromEvent(press({ code: "Minus", key: "_", ctrlKey: true, shiftKey: true })),
     ]);
     for (const rule of DEFAULT_KEYBINDINGS) expect(produced, rule.command).toContain(normalizeKeyChord(rule.key));
   });
