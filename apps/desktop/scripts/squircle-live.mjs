@@ -32,7 +32,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
+import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9338), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8904);
@@ -580,7 +580,13 @@ async function main() {
 
 main()
   .catch((e) => { console.error("ERROR", e.message); process.exitCode = 1; })
-  .finally(() => {
+  .finally(async () => {
     electron?.kill("SIGTERM");
-    setTimeout(() => { electron?.kill("SIGKILL"); fs.rmSync(scratch, { recursive: true, force: true }); process.exit(process.exitCode ?? 0); }, 1200);
+    await sleep(1200);
+    electron?.kill("SIGKILL");
+    // The server is a second Electron that outlives the app it was spawned for, reparented to init and
+    // still holding SERVER_PORT — so the next run refused to start. Stopped by the home it served.
+    await stopDaemons(path.join(scratch, "home"));
+    fs.rmSync(scratch, { recursive: true, force: true });
+    process.exit(process.exitCode ?? 0);
   });

@@ -4341,12 +4341,14 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
  * clear of the ring: its fill covered all but the outer 2px, and its shadow fell into those 2px, a
  * second and darker edge inside the hairline that widened at the corners, where a smaller box on the
  * same radius drifts from the card's curve. The face is a child too now (::after, below), so the
- * order is the one intended — lift at -2, face at -1, then the card's content — and the lift traces
- * the card's own curve at inset 0, since nothing of it shows but the shadow beyond the face. */
+ * order is the one intended — lift at -2, face at -1, then the card's content. The lift keeps its
+ * 2px inset: under the face its fill never shows either way, and the shadow beside the card was tuned
+ * with it — at inset 0 that shadow reaches two pixels further onto the strip tucked under the card,
+ * measured darkening the strip's corner (squircle-live.mjs). */
 :root[data-squircle] .composer::before,
 :root[data-squircle] .install-card::before,
 :root[data-squircle] .commit-card::before {
-  content: ""; position: absolute; inset: 0; z-index: -2; pointer-events: none;
+  content: ""; position: absolute; inset: 2px; z-index: -2; pointer-events: none;
   --sq-fill: var(--surface); --sq-radius-top: var(--r-squircle); --sq-radius-bottom: var(--r-squircle);
   background: paint(rl-squircle);
   filter: var(--shadow-card-lift-filter);

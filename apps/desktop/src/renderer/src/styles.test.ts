@@ -2190,7 +2190,9 @@ describe("squircle surfaces", () => {
       const face = bodiesFor(`:root[data-squircle] ${sel}::after`).join(" ");
       expect(lift, sel).toContain("z-index: -2");
       expect(face, sel).toContain("z-index: -1");
-      for (const body of [lift, face]) expect(body, sel).toContain("inset: 0");
+      // The face covers the whole card, ring included; the lift may sit inside it, since only its
+      // shadow beyond the face is ever seen.
+      expect(face, sel).toContain("inset: 0");
       // The face is driven by the card's own state rules, so it takes every input the painter reads.
       for (const input of ["--sq-fill", "--sq-ring", "--sq-ring-w", "--sq-radius-top", "--sq-radius-bottom", "--sq-n"]) {
         expect(face, `${sel} ${input}`).toContain(`${input}: inherit`);
