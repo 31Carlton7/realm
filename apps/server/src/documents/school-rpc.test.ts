@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { progressSidecarPath } from "@realm/contracts";
 import { createApp, type App } from "../app";
@@ -84,6 +84,21 @@ describe("documents.openPath", () => {
     const ws = (await c.call("documents.get", { documentsId })).result;
     expect(ws.openPaths).toEqual(["deep.md"]);
     expect(ws.activePath).toBe("deep.md");
+    c.close();
+  });
+
+  it("takes a ~/ path the same way — the form agents write most often", async () => {
+    // THE MUTANT: hand `~/…` on as relative. It lands under the root as a folder named `~` and the
+    // transcript's Open answers "no such file" for a file that is right there.
+    const { c, space, documentsId, root } = await setup();
+    await writeFile(join(root, "tilde.md"), "# t");
+    const was = process.env.HOME;
+    process.env.HOME = dirname(root); // `os.homedir()` reads it on every call
+    try {
+      const r = await c.call("documents.openPath", { spaceId: space.id, path: `~/${basename(root)}/tilde.md` });
+      expect(r.error).toBeUndefined();
+    } finally { process.env.HOME = was; }
+    expect((await c.call("documents.get", { documentsId })).result.activePath).toBe("tilde.md");
     c.close();
   });
 
