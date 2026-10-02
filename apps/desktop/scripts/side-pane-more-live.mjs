@@ -11,6 +11,9 @@
  *      focused and the page behind it off screen.
  *   3. New tab in full view does the same and fills the host with the side pane.
  *   4. ⌘⇧B and ⌥⌘B do both from the keyboard.
+ *   5. A blank tab shows the session's tools, and each one picked takes the tab's place: Terminal
+ *      and Machine as tabs where it stood, Files through the ⌘P palette, and Documents — already
+ *      open by then — by going to the tab that has it.
  *
  * Ports: LIVE_SERVER_PORT (8964), LIVE_CDP_PORT (9364), LIVE_MAIN_INSPECT_PORT (9464), LIVE_SITE_PORT
  * (8974). Touches only a scratch dir; kills only what is listening on its own ports. Browses nothing
@@ -239,7 +242,7 @@ async function main() {
 
   const panes = () => evalIn(c, `[...document.querySelectorAll('.panehost .panel')].map((p) => ({
     leaf: p.dataset.leafId,
-    tabs: [...p.querySelectorAll('[role=tab]')].map((t) => ({ name: t.textContent, selected: t.getAttribute('aria-selected') === 'true' })),
+    tabs: [...p.querySelectorAll('.pane-tabs [role=tab]')].map((t) => ({ name: t.textContent, selected: t.getAttribute('aria-selected') === 'true' })),
     title: p.querySelector('.panel-title')?.textContent ?? null, focused: p.hasAttribute('data-focused'),
     width: Math.round(p.getBoundingClientRect().width) }))`);
   const sidePane = async () => (await panes()).find((p) => p.tabs.length > 0) ?? null;
@@ -302,6 +305,9 @@ async function main() {
   check("each tab keeps its whole name with room to spare in the strip", titles.every((t) => !t.clipped && t.tab >= 170), titles);
   const focus = await until(() => evalIn(c, `document.activeElement?.getAttribute('aria-label') === 'Address' ? 'Address' : null`), 5_000, "the address field focused").catch(() => evalIn(c, `document.activeElement?.outerHTML.slice(0, 120) ?? null`));
   check("…and the address field focused, as a fresh tab's is", focus === "Address", focus);
+  const tools = await until(() => evalIn(c, `(() => { const page = [...document.querySelectorAll('.new-tab')].find((p) => p.offsetParent !== null);
+    return page ? [...page.querySelectorAll('.new-tab-row')].map((b) => b.textContent) : null; })()`), 5_000, "the new-tab page").catch(() => null);
+  check("the blank tab shows the session's tools in place of an empty page, Files with ⌘P", tools?.join("|") === "Files⌘P|Terminal|Documents|Simulator|Machine", tools);
   await sleep(600);
   const v2 = await views();
   check("Job 1's view is off screen behind the new tab, and still live", onScreen(v2).length === 0 && "/job-1" in v2, v2);
@@ -341,7 +347,69 @@ async function main() {
   check("⌥⌘B opens a fifth tab with the side pane filling the host", Array.isArray(five), five);
   await evalIn(c, `(() => { document.activeElement?.blur(); return true; })()`);
   await press(c, { key: "F", code: "KeyF", keyCode: 70, meta: true, shift: true });
-  await sleep(300);
+  await until(async () => (await panes()).length === 2, 5_000, "unfocused again").catch(() => {});
+
+  // ── 5. The tools on a blank tab, each taking the tab's place ───────────────────────────────
+  /** What the space holds, from the server: which blank tabs are gone, and what replaced them. */
+  const listItems = () => api.call("items.list", { spaceId: space.id });
+  const count = (list, kind) => list.filter((i) => i.kind === kind).length;
+  const tabNames = async () => (await sidePane())?.tabs.map((t) => t.name) ?? [];
+  /** Bring the i-th tab forward and pick one of its new-tab page's tools. */
+  const pickTool = async (index, label) => {
+    await evalIn(c, `(() => { [...document.querySelectorAll('.pane-tabs [role=tab]')][${index}].click(); return true; })()`);
+    await until(() => evalIn(c, `[...document.querySelectorAll('.new-tab')].some((p) => p.offsetParent !== null)`), 5_000, `tab ${index}'s new-tab page`);
+    await evalIn(c, `(() => { const page = [...document.querySelectorAll('.new-tab')].find((p) => p.offsetParent !== null);
+      [...page.querySelectorAll('.new-tab-row')].find((b) => b.querySelector('.new-tab-row-label').textContent === ${JSON.stringify(label)}).click(); return true; })()`);
+  };
+  const columns = async () => (await panes()).length;
+  const before = await listItems();
+  note("tabs before the tools", await tabNames());
+
+  await pickTool(4, "Terminal");
+  const terminal = await until(async () => (await listItems()).find((i) => i.kind === "terminal"), 10_000, "the terminal item");
+  const afterTerminal = await until(async () => { const t = await tabNames(); return t[4] === terminal.title ? t : null; }, 10_000, "the terminal tab").catch(() => tabNames());
+  const k1 = await listItems();
+  check("Terminal takes the fifth tab's place, and the blank browser is gone from the space",
+    afterTerminal[4] === terminal.title && afterTerminal.length === 5 && count(k1, "browser") === count(before, "browser") - 1 && (await columns()) === 2,
+    { tabs: afterTerminal, terminal: terminal.title, browsers: [count(before, "browser"), count(k1, "browser")] });
+  await shot(c, "terminal-tab");
+
+  // Files: the ⌘P palette, on a file in the lead's checkout, picked from the fourth tab.
+  fs.writeFileSync(path.join(journal.newParams.cwd, "notes.md"), "# Notes\n\nWritten by the live check.\n");
+  await pickTool(3, "Files");
+  await until(() => evalIn(c, `document.querySelector('.palette input')?.placeholder === 'Open a file…'`), 5_000, "the file palette");
+  await evalIn(c, `(() => { document.querySelector('.palette input').focus(); return true; })()`);
+  await c.send("Input.insertText", { text: "notes" });
+  await until(() => evalIn(c, `[...document.querySelectorAll('.palette-opt')].some((o) => o.textContent.includes('notes.md'))`), 10_000, "notes.md in the palette");
+  await shot(c, "files-palette");
+  await evalIn(c, `(() => { [...document.querySelectorAll('.palette-opt')].find((o) => o.textContent.includes('notes.md')).click(); return true; })()`);
+  const docs = await until(async () => (await listItems()).find((i) => i.kind === "documents"), 10_000, "the documents item");
+  const afterFiles = await until(async () => {
+    const t = await tabNames();
+    const shut = await evalIn(c, `!document.querySelector('.palette')`);
+    return shut && t[3] === docs.title ? t : null;
+  }, 10_000, "the documents tab").catch(() => tabNames());
+  const k2 = await listItems();
+  check("the file picked takes the fourth tab's place as the documents pane, in the side pane, not a split",
+    afterFiles[3] === docs.title && afterFiles.length === 5 && count(k2, "browser") === count(k1, "browser") - 1 && (await columns()) === 2,
+    { tabs: afterFiles, documents: docs.title, columns: await columns() });
+  await sleep(800);
+  await shot(c, "documents-tab");
+
+  // Documents from the third tab: the pane is one per checkout and already a tab, so it is gone to.
+  await pickTool(2, "Documents");
+  const afterDocs = await until(async () => { const t = await tabNames(); return t.length === 4 ? t : null; }, 10_000, "the third tab gone").catch(() => tabNames());
+  const sel = (await sidePane())?.tabs.find((t) => t.selected)?.name;
+  const k3 = await listItems();
+  check("Documents, already open, is gone to — and the blank tab still goes", afterDocs.length === 4 && sel === docs.title
+    && count(k3, "documents") === 1 && count(k3, "browser") === count(k2, "browser") - 1, { tabs: afterDocs, selected: sel });
+
+  await pickTool(1, "Machine");
+  const afterMachine = await until(async () => { const t = await tabNames(); return t[1] === "New machine" ? t : null; }, 10_000, "the machine tab").catch(() => tabNames());
+  const k4 = await listItems();
+  check("Machine takes the second tab's place, and the last blank browser is gone", afterMachine[1] === "New machine" && afterMachine.length === 4
+    && count(k4, "browser") === 1, { tabs: afterMachine, browsers: count(k4, "browser") });
+  await shot(c, "machine-tab");
 }
 
 /** The window as the renderer draws it. Native browser views are not in a DOM capture, so a tab's
