@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DOCUMENT_MAX_BYTES, documentExtension, documentKindFor, documentStem, documentTemplate, freeFileName, refineDocumentKind, shouldSurfaceWrite, writtenPathOf } from "./documents";
+import { DOCUMENT_MAX_BYTES, documentExtension, documentKindFor, documentStem, documentTemplate, freeFileName, isPictureFile, refineDocumentKind, shouldSurfaceWrite, writtenPathOf } from "./documents";
 
 describe("documentKindFor", () => {
   it("routes each extension to its editor", () => {
@@ -61,6 +61,17 @@ describe("documentKindFor", () => {
     // would not draw, under "Nothing open yet" — and an agent's docs_open reported it opened.
     for (const name of ["after-on-hover.png", "Screenshot 2026-10-01.PNG", "photo.jpeg", "shot.jpg", "anim.gif", "img.webp", "IMG_0001.HEIC"]) {
       expect(documentKindFor(name), name).toBe("preview");
+    }
+  });
+
+  it("tells a picture from a document drawn as one", () => {
+    // The pane's note about unselectable text and first pages is for documents; a picture has
+    // neither. Case-blind, by the last extension only, and a bare word is no picture.
+    for (const name of ["shots/after-on-hover.png", "Screenshot 2026-10-01.PNG", "photo.jpeg", "IMG_0001.HEIC"]) {
+      expect(isPictureFile(name), name).toBe(true);
+    }
+    for (const name of ["report.docx", "deck.key", "png", "notes.png.md", "archive/png"]) {
+      expect(isPictureFile(name), name).toBe(false);
     }
   });
 
