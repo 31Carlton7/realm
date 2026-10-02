@@ -16,6 +16,7 @@ export type BrowserMenuChoice =
   | { kind: "find" }
   | { kind: "print" }
   | { kind: "zoom"; step: "in" | "out" | "reset" }
+  | { kind: "device"; preset: DeviceSize | null }
   | { kind: "screenshot" }
   | { kind: "save-download"; id: string }
   | { kind: "show-download"; id: string }
@@ -23,9 +24,22 @@ export type BrowserMenuChoice =
   | { kind: "clear-data" }
   | { kind: "settings" };
 
+export type DeviceSize = "phone" | "tablet" | "desktop";
+
+/** Device size's rows, in the order a layout is usually checked at. The widths are main's
+ *  (`DEVICE_PRESETS`); they are printed here because a row that says "iPhone" and not how wide is a
+ *  row that has to be tried to be understood. */
+export const DEVICE_ROWS: readonly { id: DeviceSize; label: string }[] = [
+  { id: "phone", label: "iPhone · 390px" },
+  { id: "tablet", label: "iPad · 820px" },
+  { id: "desktop", label: "Desktop · 1440px" },
+];
+
 export type BrowserMenuInput = BrowserMenuState & {
   /** The pane has a page. With none, everything that acts on a page is drawn and disabled. */
   hasPage: boolean;
+  /** The preset the page is shown at, or null when it fits the pane. */
+  device: DeviceSize | null;
   /** The page it is on, as the History submenu names it: its title, or its address without one. */
   current: string;
 };
@@ -45,6 +59,13 @@ export function browserMenuItems(s: BrowserMenuInput): NativeMenuItem[] {
     // the row would undo, and at 100% there is nothing to undo.
     { id: "zoom:reset", label: `Actual size (${percent(s.zoom)})`, enabled: page && !atActualSize },
     { id: "zoom:in", label: "Zoom in", enabled: page && s.canZoomIn },
+    // Beside zoom, because both are how the page is shown rather than what it is. Ticked like a choice
+    // of one: the pane, or one of three widths.
+    { label: "Device size", enabled: page, submenu: [
+      { id: "device:none", label: "Fit the pane", checked: s.device === null },
+      { type: "separator" },
+      ...DEVICE_ROWS.map((d) => ({ id: `device:${d.id}`, label: d.label, checked: s.device === d.id })),
+    ] },
     { type: "separator" },
     { id: "screenshot", label: "Take a screenshot", enabled: page },
     { type: "separator" },
@@ -86,6 +107,9 @@ export function parseBrowserMenuChoice(id: string | null): BrowserMenuChoice | n
   if (id === null) return null;
   if (id === "find" || id === "print" || id === "screenshot" || id === "clear-data" || id === "settings") return { kind: id };
   if (id === "zoom:in" || id === "zoom:out" || id === "zoom:reset") return { kind: "zoom", step: id.slice(5) as "in" | "out" | "reset" };
+  if (id === "device:none") return { kind: "device", preset: null };
+  const device = DEVICE_ROWS.find((d) => id === `device:${d.id}`);
+  if (device) return { kind: "device", preset: device.id };
   const save = /^download:save:(.+)$/.exec(id);
   if (save) return { kind: "save-download", id: save[1]! };
   const show = /^download:show:(.+)$/.exec(id);

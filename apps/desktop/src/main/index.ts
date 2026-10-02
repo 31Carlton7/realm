@@ -464,6 +464,10 @@ ipcMain.handle("browser:stop-find", (_e, id: string) => { browserHost?.stopFind(
 ipcMain.handle("browser:zoom", (_e, id: string, step: unknown): number =>
   browserHost?.zoom(String(id), step === "in" || step === "out" || step === "reset" ? step : null) ?? 1);
 ipcMain.handle("browser:print", (_e, id: string) => { browserHost?.print(String(id)); });
+/** Device size (Plan 26 W7e): a preset id, or null to fit the pane. Anything else reads as null. */
+ipcMain.handle("browser:set-device", (_e, id: string, preset: unknown) => {
+  browserHost?.setDevice(String(id), preset === "phone" || preset === "tablet" || preset === "desktop" ? preset : null);
+});
 /**
  * Take a screenshot: the VIEW's own capture, written into the space's `screenshots/` folder. `dir` is
  * the server's answer (`browsers.screenshotDir`), passed through like the download bar's — the

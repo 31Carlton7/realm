@@ -176,6 +176,7 @@ interface Window {
       onFindRequest(cb: (m: { browserId: string }) => void): () => void;
       zoom(id: string, step: "in" | "out" | "reset" | null): Promise<number>;
       print(id: string): Promise<void>;
+      setDevice(id: string, preset: "phone" | "tablet" | "desktop" | null): Promise<void>;
       screenshot(id: string, dir: string): Promise<import("@realm/contracts").BrowserScreenshotSaved>;
       clearData(): Promise<{ cleared: boolean }>;
     };
@@ -250,7 +251,9 @@ interface ComputerAccessStatus {
   helperAvailable: boolean;
 }
 /** Mirrors BrowserViewState in the preload — the main→renderer browser state channel's payload. */
-interface BrowserViewState { id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean }
+interface BrowserViewState { id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean;
+  /** The device preset the page is shown at (Plan 26 W7e), or null when it fits the pane. */
+  device: "phone" | "tablet" | "desktop" | null }
 
 /**
  * noVNC ships no types (Plan 25 W3). Declared here rather than pulled from DefinitelyTyped, which

@@ -94,6 +94,8 @@ export type BrowserHostBridge = {
   /** Step the zoom (null reads it); resolves the level the page is at afterwards. */
   zoom(id: string, step: "in" | "out" | "reset" | null): Promise<number>;
   print(id: string): Promise<void>;
+  /** Plan 26 W7e: the page at a device preset's width, or (null) fitting the pane again. */
+  setDevice(id: string, preset: "phone" | "tablet" | "desktop" | null): Promise<void>;
   screenshot(id: string, dir: string): Promise<BrowserScreenshotSaved>;
   /** Confirms in main first; resolves whether the partition was cleared. */
   clearData(): Promise<{ cleared: boolean }>;

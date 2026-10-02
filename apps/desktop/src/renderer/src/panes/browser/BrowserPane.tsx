@@ -635,6 +635,7 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
       case "find": find.show(); return;
       case "print": await host.print(browserId); return;
       case "zoom": await host.zoom(browserId, choice.step); return;
+      case "device": await host.setDevice(browserId, choice.preset); return;
       case "screenshot": await takeScreenshot(); return;
       case "save-download": {
         const entry = menu.blocked.find((b) => b.id === choice.id);
@@ -671,7 +672,7 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
     setMenuOpen(true);
     try {
       const menu = await host.menuState(browserId);
-      const items = browserMenuItems({ ...menu, hasPage: hasUrl, current: state?.title?.trim() || url });
+      const items = browserMenuItems({ ...menu, hasPage: hasUrl, current: state?.title?.trim() || url, device: state?.device ?? null });
       const choice = parseBrowserMenuChoice(await host.popupMenu(items, { x: r.left * zoom, y: r.bottom * zoom }));
       setMenuOpen(false);
       if (choice) await runMenuChoice(choice, menu);
@@ -854,7 +855,9 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
           <span className="browser-toast-text">{toast.note.text}</span>
         </div>
       )}
-      <div className="browser-view-host" ref={hostRef}>
+      {/* At a device size main narrows the view to the device's box, centred here; the ground beside it
+          is the pane's, so the box reads as a device rather than as a page with white margins. */}
+      <div className="browser-view-host" ref={hostRef} data-device={state?.device ?? undefined}>
         {!hasUrl && initialUrl !== null && (
           <div className="browser-hint muted">
             <div className="browser-hint-title">Where to?</div>

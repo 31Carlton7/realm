@@ -10,7 +10,50 @@ export type ViewRect = { x: number; y: number; width: number; height: number };
  *  change. Favicon deliberately skipped for W1. */
 export type BrowserViewState = {
   id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean;
+  /** The device preset the view is showing the page at (Plan 26 W7e), or null when it fits the pane.
+   *  On the state channel because the view outlives its pane: a pane that remounts learns it here. */
+  device: DevicePresetId | null;
 };
+
+/**
+ * The widths the ⋯ menu's Device size offers (Plan 26 W7e) — one phone, one tablet, one desktop, the
+ * three a layout is usually checked at. A width only: the height is the pane's, because a preview that
+ * scrolled inside a box shorter than the pane would be a frame around a frame.
+ *
+ * What emulating them does NOT do, said here so nobody expects it: the user agent stays Realm's own
+ * (browserUserAgent never claims to be a browser it is not), and touch input is not emulated — a site
+ * that sniffs the UA for a phone, rather than reading its width, still sees a Mac.
+ */
+export type DevicePresetId = "phone" | "tablet" | "desktop";
+export type DevicePreset = { id: DevicePresetId; label: string; width: number; mobile: boolean };
+export const DEVICE_PRESETS: readonly DevicePreset[] = [
+  { id: "phone", label: "iPhone", width: 390, mobile: true },
+  { id: "tablet", label: "iPad", width: 820, mobile: true },
+  { id: "desktop", label: "Desktop", width: 1440, mobile: false },
+];
+export const devicePreset = (id: unknown): DevicePreset | null => DEVICE_PRESETS.find((d) => d.id === id) ?? null;
+
+/** `Emulation.setDeviceMetricsOverride`'s parameters. `deviceScaleFactor: 0` keeps the display's own. */
+export type DeviceMetrics = { width: number; height: number; deviceScaleFactor: 0; mobile: boolean; scale: number };
+
+/**
+ * Where a preset's view sits in the pane, and what it is told to emulate.
+ *
+ * The VIEW is narrowed to the device's box rather than left at the pane's width, because measured on
+ * Electron 37 an emulated viewport smaller than its view is drawn into the view's top-left corner with
+ * nothing defined beside it, and one larger is cropped. Narrowed, centred and — for a device wider than
+ * the pane — scaled down to fit, the view shows exactly the emulated page, and the pane's own ground
+ * frames it. The emulated height is the pane's, divided by that scale, so the box is always full.
+ */
+export function deviceFit(host: ViewRect, preset: DevicePreset): { view: ViewRect; metrics: DeviceMetrics } | null {
+  if (host.width <= 0 || host.height <= 0) return null;
+  const scale = Math.min(1, host.width / preset.width);
+  const width = Math.min(host.width, Math.round(preset.width * scale));
+  return {
+    view: { x: host.x + Math.floor((host.width - width) / 2), y: host.y, width, height: host.height },
+    metrics: { width: preset.width, height: Math.round(host.height / scale), deviceScaleFactor: 0, mobile: preset.mobile, scale },
+  };
+}
 
 /** A search query → the search URL it runs. Google, because that is what the address bar promises
  *  when the input is plainly not a host. */
@@ -247,7 +290,13 @@ export const RETAINED_VIEW_LIMIT = 3;
  * explicit close or delete `destroy`s it. What bounds the cost is `RETAINED_VIEW_LIMIT`, below.
  */
 export class BrowserPaneHost {
-  private views = new Map<string, { handle: ViewHandle; allowlist: string[] | null }>();
+  private views = new Map<string, {
+    handle: ViewHandle; allowlist: string[] | null;
+    /** Plan 26 W7e: the preset the page is shown at, and the rect the pane last gave the view. */
+    device: DevicePreset | null; host: ViewRect | null;
+    /** The metrics last sent, so a resize that changes nothing sends nothing. */
+    emulated: string | null;
+  }>();
   /** Retained ids in least-recently-used order — `Set` iterates by insertion, so re-adding after a
    *  delete moves an id to the back. Views with a mounted pane are absent, never evictable. */
   private retained = new Set<string>();
@@ -261,6 +310,9 @@ export class BrowserPaneHost {
     sendFound?: (m: FindResult & { id: string }) => void;
     /** ⌘F was pressed in this view's page. */
     requestFind?: (id: string) => void;
+    /** Emulate a device on this view's page, or (null) stop. Over CDP, so best-effort: a view with
+     *  DevTools already attached simply shows the page at the narrowed width instead. */
+    emulate?: (id: string, metrics: DeviceMetrics | null) => void;
   }) {}
 
   has(id: string): boolean { return this.views.has(id); }
@@ -278,7 +330,7 @@ export class BrowserPaneHost {
       found: (result) => this.opts.sendFound?.({ id, ...result }),
       findShortcut: () => this.opts.requestFind?.(id),
     });
-    this.views.set(id, { handle, allowlist });
+    this.views.set(id, { handle, allowlist, device: null, host: null, emulated: null });
     const normalized = normalizeAddress(url);
     if (normalized && originAllowed(normalized, allowlist)) handle.loadURL(normalized);
     this.emitState(id);
@@ -367,8 +419,33 @@ export class BrowserPaneHost {
    *  research's bounds-lag mitigation lives on the renderer side, where the drag is known). */
   setBounds(id: string, rect: ViewRect, dpr: number, visible: boolean): void {
     const v = this.views.get(id); if (!v) return;
-    v.handle.setBounds(toViewBounds(rect, dpr, this.opts.scaleFactor()));
+    v.host = toViewBounds(rect, dpr, this.opts.scaleFactor());
+    this.place(id);
     v.handle.setVisible(visible);
+  }
+
+  /** Show the page at a device preset's width, or (null) fit the pane again. In memory, per view. */
+  setDevice(id: string, preset: DevicePresetId | null): void {
+    const v = this.views.get(id); if (!v) return;
+    v.device = devicePreset(preset);
+    this.place(id);
+    this.emitState(id);
+  }
+
+  deviceOf(id: string): DevicePresetId | null {
+    return this.views.get(id)?.device?.id ?? null;
+  }
+
+  /** The view's bounds from the pane's rect: the rect itself, or a preset's box inside it — and the
+   *  emulation that goes with it, sent only when it changed. */
+  private place(id: string): void {
+    const v = this.views.get(id); if (!v || !v.host) return;
+    const fit = v.device ? deviceFit(v.host, v.device) : null;
+    v.handle.setBounds(fit?.view ?? v.host);
+    const key = fit ? JSON.stringify(fit.metrics) : null;
+    if (key === v.emulated) return;
+    v.emulated = key;
+    this.opts.emulate?.(id, fit?.metrics ?? null);
   }
 
   setAllowlist(id: string, allowlist: string[] | null): void {
@@ -426,7 +503,7 @@ export class BrowserPaneHost {
     const v = this.views.get(id); if (!v) return;
     this.opts.sendState({
       id, url: v.handle.getURL(), title: v.handle.getTitle(), loading: v.handle.isLoading(),
-      canGoBack: v.handle.canGoBack(), canGoForward: v.handle.canGoForward(),
+      canGoBack: v.handle.canGoBack(), canGoForward: v.handle.canGoForward(), device: v.device?.id ?? null,
     });
   }
 }

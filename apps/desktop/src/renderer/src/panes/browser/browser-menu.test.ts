@@ -3,7 +3,7 @@ import { browserMenuItems, parseBrowserMenuChoice, type BrowserMenuInput } from 
 
 const input = (over: Partial<BrowserMenuInput> = {}): BrowserMenuInput => ({
   zoom: 1, canZoomIn: true, canZoomOut: true, back: [], forward: [], blocked: [], saved: [],
-  hasPage: true, current: "Sign in", ...over,
+  hasPage: true, current: "Sign in", device: null, ...over,
 });
 
 type Row = { id?: string; label?: string; enabled?: boolean; checked?: boolean; submenu?: Row[]; type?: string };
@@ -15,7 +15,7 @@ describe("browserMenuItems", () => {
   it("lists the browser's controls in the order a browser's menu does — and no cookie import", () => {
     const labels = rows(browserMenuItems(input())).map((r) => r.label ?? "—");
     expect(labels).toEqual([
-      "Find in page…", "Print…", "—", "Zoom out", "Actual size (100%)", "Zoom in", "—",
+      "Find in page…", "Print…", "—", "Zoom out", "Actual size (100%)", "Zoom in", "Device size", "—",
       "Take a screenshot", "—", "Downloads", "History", "—", "Clear browsing data…", "Browser settings",
     ]);
     // Plan 26 D3: importing another browser's cookies or passwords would hand every agent the user's
@@ -33,13 +33,13 @@ describe("browserMenuItems", () => {
     expect(all.length).toBeGreaterThan(10);
     for (const id of all) expect(parseBrowserMenuChoice(id), id).not.toBeNull();
     expect(all.map((id) => parseBrowserMenuChoice(id)!.kind)).toEqual(expect.arrayContaining([
-      "find", "print", "zoom", "screenshot", "save-download", "show-download", "history", "clear-data", "settings",
+      "find", "print", "zoom", "device", "screenshot", "save-download", "show-download", "history", "clear-data", "settings",
     ]));
   });
 
   it("with no page, only what is not about a page stays live", () => {
     const items = browserMenuItems(input({ hasPage: false }));
-    for (const label of ["Find in page…", "Print…", "Zoom out", "Zoom in", "Take a screenshot", "History"]) {
+    for (const label of ["Find in page…", "Print…", "Zoom out", "Zoom in", "Device size", "Take a screenshot", "History"]) {
       expect(byLabel(items, label).enabled, label).toBe(false);
     }
     expect(byLabel(items, "Clear browsing data…").enabled).not.toBe(false);
@@ -91,5 +91,21 @@ describe("parseBrowserMenuChoice", () => {
     expect(parseBrowserMenuChoice("history:-1")).toBeNull();
     expect(parseBrowserMenuChoice("zoom:sideways")).toBeNull();
     expect(parseBrowserMenuChoice("import-cookies")).toBeNull();
+  });
+});
+
+describe("Device size (Plan 26 W7e)", () => {
+  it("offers the pane, then a phone, a tablet and a desktop, each saying how wide it is — one ticked", () => {
+    const rows = (device: BrowserMenuInput["device"]) => byLabel(browserMenuItems(input({ device })), "Device size").submenu!
+      .map((r) => r.label ? `${r.checked ? "✓ " : ""}${r.label}` : "—");
+    expect(rows(null)).toEqual(["✓ Fit the pane", "—", "iPhone · 390px", "iPad · 820px", "Desktop · 1440px"]);
+    expect(rows("tablet")).toEqual(["Fit the pane", "—", "iPhone · 390px", "✓ iPad · 820px", "Desktop · 1440px"]);
+  });
+
+  it("each row answers with the preset it names, and Fit the pane with none", () => {
+    expect(parseBrowserMenuChoice("device:phone")).toEqual({ kind: "device", preset: "phone" });
+    expect(parseBrowserMenuChoice("device:desktop")).toEqual({ kind: "device", preset: "desktop" });
+    expect(parseBrowserMenuChoice("device:none")).toEqual({ kind: "device", preset: null });
+    expect(parseBrowserMenuChoice("device:watch")).toBeNull();
   });
 });

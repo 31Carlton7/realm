@@ -68,6 +68,7 @@ function fakeBridges(row: Partial<Browser> = {}) {
     onFindRequest: (cb) => { findRequestCbs.add(cb); return () => findRequestCbs.delete(cb); },
     zoom: async (id, step) => { calls.push(`zoom:${id}:${step}`); return 1; },
     print: async (id) => { calls.push(`print:${id}`); },
+    setDevice: async (id, preset) => { calls.push(`set-device:${id}:${preset}`); },
     screenshot: async (id, dir) => { calls.push(`screenshot:${id}:${dir}`); return screenshotResult; },
     clearData: async () => { calls.push("clear-data"); return { cleared }; },
     reveal: async (path) => { calls.push(`reveal:${path}`); },
@@ -117,7 +118,7 @@ function fakeBridges(row: Partial<Browser> = {}) {
       for (const cb of passkeyCbs) cb(full);
     },
     emit: (s: Partial<StateMsg>) => {
-      const full: StateMsg = { id: "b1", url: "", title: "", loading: false, canGoBack: false, canGoForward: false, ...s };
+      const full: StateMsg = { id: "b1", url: "", title: "", loading: false, canGoBack: false, canGoForward: false, device: null, ...s };
       for (const cb of cbs) cb(full);
     },
   };
@@ -949,6 +950,22 @@ describe("BrowserPane — the ⋯ menu (Plan 26 W7)", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Every browser pane is signed out");
     // …and the pages it showed go too, or the address field would go on suggesting them.
     expect(f.calls).toContain("clear-history");
+  });
+
+  it("Device size reaches the view, and the pane's ground frames the device's box", async () => {
+    const { f, container } = await mount();
+    await choose(f, "device:phone");
+    expect(f.calls).toContain("set-device:b1:phone");
+    // Main answers on the state channel — which is also how a pane that remounts learns it.
+    act(() => f.emit(state({ url: "https://example.com/login", title: "Sign in", device: "phone" })));
+    expect(container.querySelector(".browser-view-host")).toHaveAttribute("data-device", "phone");
+    await choose(f, null);
+    const sizes = rowsOf(f.menus.at(-1)!.items).find((r) => r.label === "Device size")!.submenu!;
+    expect(sizes.find((r) => r.checked)?.label).toBe("iPhone · 390px");
+    await choose(f, "device:none");
+    expect(f.calls).toContain("set-device:b1:null");
+    act(() => f.emit(state({ url: "https://example.com/login", title: "Sign in", device: null })));
+    expect(container.querySelector(".browser-view-host")).not.toHaveAttribute("data-device");
   });
 
   it("Browser settings opens Settings on Sign-ins", async () => {

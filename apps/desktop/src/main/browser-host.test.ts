@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  BrowserPaneHost, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, isFindShortcut, nextZoomFactor, normalizeAddress, originAllowed, toViewBounds, zoomPercent,
+  BrowserPaneHost, DEVICE_PRESETS, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, deviceFit, isFindShortcut, nextZoomFactor, normalizeAddress, originAllowed, toViewBounds, zoomPercent,
+  type DeviceMetrics,
   type BrowserViewState, type FindResult, type ViewHandle, type ViewHooks,
 } from "./browser-host";
 
@@ -122,14 +123,16 @@ function makeHost(scaleFactor = 2) {
   const states: BrowserViewState[] = [];
   const found: (FindResult & { id: string })[] = [];
   const findRequests: string[] = [];
+  const emulations: { id: string; metrics: DeviceMetrics | null }[] = [];
   const factory = vi.fn((id: string, hooks: ViewHooks) => {
     const v = fakeView(); v.setHooks(hooks); views.set(id, v); return v.handle;
   });
   const host = new BrowserPaneHost({
     createView: factory, sendState: (s) => states.push(s), scaleFactor: () => scaleFactor,
     sendFound: (m) => found.push(m), requestFind: (id) => findRequests.push(id),
+    emulate: (id, metrics) => emulations.push({ id, metrics }),
   });
-  return { host, views, states, factory, found, findRequests };
+  return { host, views, states, factory, found, findRequests, emulations };
 }
 
 const alive = (v: ReturnType<typeof fakeView>) => !v.calls.includes("destroy");
@@ -585,5 +588,79 @@ describe("print", () => {
     expect(views.get("b2")!.calls).toContain("print");
     expect(views.get("b1")!.calls).not.toContain("print");
     expect(() => host.print("nope")).not.toThrow();
+  });
+});
+
+/* ------------------------------ Device size (Plan 26 W7e) ------------------------------ */
+
+const preset = (id: string) => DEVICE_PRESETS.find((d) => d.id === id)!;
+
+describe("deviceFit", () => {
+  it("a phone in a wider pane is its own width, centred, at full scale, as tall as the pane", () => {
+    expect(deviceFit({ x: 900, y: 80, width: 600, height: 840 }, preset("phone"))).toEqual({
+      view: { x: 1005, y: 80, width: 390, height: 840 },
+      metrics: { width: 390, height: 840, deviceScaleFactor: 0, mobile: true, scale: 1 },
+    });
+  });
+
+  it("a desktop in a narrow pane is scaled down to the pane's width, and told the height that fills it", () => {
+    /* THE mutant: no scale. A 1440-wide page in a 600-wide view is cropped to its left two-fifths, and
+       the box is not a preview of anything. */
+    const fit = deviceFit({ x: 900, y: 80, width: 600, height: 840 }, preset("desktop"))!;
+    expect(fit.view).toEqual({ x: 900, y: 80, width: 600, height: 840 });
+    expect(fit.metrics).toMatchObject({ width: 1440, mobile: false });
+    expect(fit.metrics.scale).toBeCloseTo(600 / 1440, 6);
+    expect(fit.metrics.height).toBe(Math.round(840 / (600 / 1440)));
+  });
+
+  it("never draws outside the pane it was given, and has nothing to fit in an empty one", () => {
+    for (const p of DEVICE_PRESETS) for (const width of [200, 389, 390, 391, 820, 1439, 1441, 2000]) {
+      const fit = deviceFit({ x: 10, y: 20, width, height: 500 }, p)!;
+      expect(fit.view.x).toBeGreaterThanOrEqual(10);
+      expect(fit.view.x + fit.view.width).toBeLessThanOrEqual(10 + width);
+    }
+    expect(deviceFit({ x: 0, y: 0, width: 0, height: 500 }, preset("phone"))).toBeNull();
+  });
+});
+
+describe("BrowserPaneHost — device size", () => {
+  const setup = () => {
+    const h = makeHost(1);
+    h.host.create("b1", "https://example.com", null);
+    h.host.setBounds("b1", { x: 900, y: 80, width: 600, height: 840 }, 1, true);
+    return h;
+  };
+  const lastBounds = (calls: string[]) => calls.filter((c) => c.startsWith("bounds:")).at(-1);
+
+  it("a preset narrows the view to the device's box and emulates it; Fit the pane undoes both", () => {
+    const { host, views, emulations, states } = setup();
+    host.setDevice("b1", "phone");
+    expect(lastBounds(views.get("b1")!.calls)).toBe("bounds:1005,80,390,840");
+    expect(emulations.at(-1)).toEqual({ id: "b1", metrics: { width: 390, height: 840, deviceScaleFactor: 0, mobile: true, scale: 1 } });
+    expect(states.at(-1)!.device).toBe("phone");
+    host.setDevice("b1", null);
+    expect(lastBounds(views.get("b1")!.calls)).toBe("bounds:900,80,600,840");
+    expect(emulations.at(-1)).toEqual({ id: "b1", metrics: null });
+    expect(states.at(-1)!.device).toBeNull();
+  });
+
+  it("the box follows the pane as it resizes, and a resize that changes nothing sends nothing", () => {
+    const { host, views, emulations } = setup();
+    host.setDevice("b1", "phone");
+    const sent = emulations.length;
+    host.setBounds("b1", { x: 900, y: 80, width: 600, height: 840 }, 1, true);
+    expect(emulations).toHaveLength(sent);
+    host.setBounds("b1", { x: 700, y: 80, width: 800, height: 700 }, 1, true);
+    expect(lastBounds(views.get("b1")!.calls)).toBe("bounds:905,80,390,700");
+    expect(emulations.at(-1)!.metrics).toMatchObject({ width: 390, height: 700 });
+  });
+
+  it("a view never given a device never emulates, and an unknown preset is the pane", () => {
+    const { host, emulations } = setup();
+    host.setBounds("b1", { x: 900, y: 80, width: 500, height: 840 }, 1, true);
+    expect(emulations).toEqual([]);
+    host.setDevice("b1", "watch" as never);
+    expect(host.deviceOf("b1")).toBeNull();
+    expect(emulations).toEqual([]);
   });
 });

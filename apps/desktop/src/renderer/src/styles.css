@@ -2307,6 +2307,9 @@ button.panel-title:hover { background: var(--rl-hover); }
    debounce the sync; match the colours instead). Pages are their own light world — like the
    terminal's always-dark interior, but inverted. */
 .browser-view-host { position: relative; flex: 1; min-width: 0; min-height: 0; background: #fff; }
+/* At a device size (Plan 26 W7e) the view is narrower than its host, and white beside a white page
+   would hide the device's edge. The pane's own ground frames it instead. */
+.browser-view-host[data-device] { background: var(--rl-panel); }
 /* Before the first navigation there is no view to match — the empty state sits on the panel tone. */
 .browser-pane:has(.browser-hint) .browser-view-host { background: var(--rl-panel); }
 .browser-hint { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 4px;

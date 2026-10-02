@@ -230,6 +230,14 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
       win.webContents.focus();
       send("realm:browser-find-request", { browserId: id });
     },
+    emulate: (id, metrics) => {
+      const wc = views.get(id);
+      if (!wc || wc.isDestroyed()) return;
+      try { if (!wc.debugger.isAttached()) wc.debugger.attach("1.3"); } catch { return; } // DevTools has it
+      void (metrics
+        ? wc.debugger.sendCommand("Emulation.setDeviceMetricsOverride", metrics)
+        : wc.debugger.sendCommand("Emulation.clearDeviceMetricsOverride")).catch(() => {});
+    },
   });
   applyBrowserUserAgent();
   // The views composite into this window; they must never outlive it.
@@ -253,6 +261,13 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
     capture: async (id) => {
       const wc = views.get(id);
       if (!wc || wc.isDestroyed()) return null;
+      // At a device preset the view's own capture is the emulated SURFACE — for a desktop width scaled
+      // into a narrow pane, a page shrunk into one corner of a mostly blank picture (measured). CDP's
+      // capture is the emulated viewport at full size, which is the screenshot a person asked for.
+      if (host.deviceOf(id) && wc.debugger.isAttached()) {
+        const shot = await wc.debugger.sendCommand("Page.captureScreenshot", { format: "png" }).catch(() => null) as { data?: string } | null;
+        if (shot?.data) return new Uint8Array(Buffer.from(shot.data, "base64"));
+      }
       const image = await wc.capturePage();
       return image.isEmpty() ? null : new Uint8Array(image.toPNG());
     },

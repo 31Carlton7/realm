@@ -43,6 +43,7 @@ export function fakeBrowserBridges(over: {
     onFindRequest: () => () => {},
     zoom: async () => 1,
     print: async () => {},
+    setDevice: async () => {},
     screenshot: async () => ({ ok: false, error: "no screenshot bridge in this test" }),
     clearData: async () => ({ cleared: false }),
     reveal: async () => {},

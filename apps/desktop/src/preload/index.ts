@@ -9,7 +9,7 @@ const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`
 const port = arg("realm-port");
 export type PickedFile = { path: string; mime: string; name: string; size: number };
 export type ScrollPhaseMessage = { phase: string; momentum: string; dx: number; dy: number; ts: number };
-export type BrowserViewState = { id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean };
+export type BrowserViewState = { id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; device: "phone" | "tablet" | "desktop" | null };
 contextBridge.exposeInMainWorld("realm", {
   port: port === undefined ? NaN : Number(port), home: arg("realm-home") ?? "",
   /** The RPC token, offered as the `realm.<token>` subprotocol on every dial. Realm's socket binds
@@ -293,6 +293,8 @@ contextBridge.exposeInMainWorld("realm", {
     /** Step the page's zoom (or with null, read it); resolves the level it is at afterwards. */
     zoom: (id: string, step: "in" | "out" | "reset" | null): Promise<number> => ipcRenderer.invoke("browser:zoom", id, step),
     print: (id: string): Promise<void> => ipcRenderer.invoke("browser:print", id),
+    /** Plan 26 W7e: show the page at a device preset's width, or (null) fit the pane. */
+    setDevice: (id: string, preset: "phone" | "tablet" | "desktop" | null): Promise<void> => ipcRenderer.invoke("browser:set-device", id, preset),
     /** Capture the view into `dir` — the server's `browsers.screenshotDir`, never a path made here. */
     screenshot: (id: string, dir: string): Promise<BrowserScreenshotSaved> => ipcRenderer.invoke("browser:screenshot", id, dir),
     /** Asks first, in main, with the OS's own dialog; resolves whether anything was cleared. */
