@@ -25,7 +25,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { stopDaemons } from "./lib/daemon-token.mjs";
+import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9338), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8904);
@@ -105,6 +105,28 @@ const INK = (b64) => `(async () => {
   for (let i = 0; i < px.length; i += 4) if (Math.abs(lum(i) - ground) > 6) ink++;
   return ink;
 })()`;
+
+/** The server's own RPC, dialled with the daemon's token — how this check drives a session without
+ *  typing into a composer (see step 2). */
+function rpc(port, token) {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}`, tokenProtocols(token));
+  let id = 0;
+  const pending = new Map();
+  const ready = new Promise((res) => ws.addEventListener("open", res));
+  ws.addEventListener("message", (m) => {
+    const msg = JSON.parse(m.data);
+    if (msg.id !== undefined) pending.get(msg.id)?.(msg);
+  });
+  return {
+    ready,
+    call: (method, params) => new Promise((res, rej) => {
+      const i = String(++id);
+      pending.set(i, (msg) => (msg.ok ? res(msg.result) : rej(new Error(`${method}: ${msg.error?.message}`))));
+      ws.send(JSON.stringify({ id: i, method, params }));
+    }),
+    close: () => ws.close(),
+  };
+}
 
 async function main() {
   for (const p of [CDP_PORT, SERVER_PORT]) {
@@ -215,12 +237,20 @@ async function main() {
   check("every bar is at least 5px across", widths.length > 0 && thinnest >= 5, { thinnest, box: glyphs[0]?.w });
 
   /* ── 2. The trailing marks do not collide ────────────────────────────────────────────────── */
-  // A status has to exist for a dot to render, so drive one real turn through the scripted adapter.
-  await evalIn(c, `(() => {
-    const el = document.querySelector('.composer-input');
-    const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
-    set.call(el, 'hello'); el.dispatchEvent(new Event('input', { bubbles: true }));
-    document.querySelector('.composer-send').click(); return true; })()`);
+  /* A status has to exist for a dot to render, so one session has to be doing something. NOT by
+     typing into its composer: onboarding's session runs the first engine this Mac is signed in to, a
+     real and billed one, REALM_ENABLE_FAKE_AGENT notwithstanding — every run of this check used to
+     send it a message. The session is switched to the scripted agent over RPC first, and the turn is
+     one the script holds still: "ask me" parks it on a permission, a status that stays put for as long
+     as the measuring takes. Not awaited — the send answers only once the permission is decided. */
+  const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
+  await api.ready;
+  const sessions = await until(async () => {
+    const all = await api.call("sessions.listAll", {});
+    return all.length ? all : null;
+  }, 15000, "a session to drive");
+  await api.call("sessions.setAgent", { id: sessions[0].id, agentKind: "fake" });
+  void api.call("sessions.send", { id: sessions[0].id, text: "ask me", attachments: [], mentions: [] }).catch(() => {});
   const dotSel = `.item[data-active] .item-status, .item-status`;
   await until(() => evalIn(c, `!!document.querySelector(${JSON.stringify(dotSel)})`), 20000, "a status dot");
 
