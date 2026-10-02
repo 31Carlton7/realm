@@ -222,7 +222,14 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
     sendState: (s) => send("realm:browser-state", s),
     scaleFactor: () => screen.getDisplayMatching(win.getBounds()).scaleFactor,
     sendFound: ({ id, ...result }) => send("realm:browser-found", { browserId: id, ...result }),
-    requestFind: (id) => send("realm:browser-find-request", { browserId: id }),
+    // The keyboard is in the VIEW when this fires, and focusing an input inside the window's own page
+    // does not move it — typing would go on landing in the site. Handing focus to the window's
+    // webContents first is what lets the find field the pane focuses actually receive the keys.
+    requestFind: (id) => {
+      if (win.isDestroyed()) return;
+      win.webContents.focus();
+      send("realm:browser-find-request", { browserId: id });
+    },
   });
   applyBrowserUserAgent();
   // The views composite into this window; they must never outlive it.
