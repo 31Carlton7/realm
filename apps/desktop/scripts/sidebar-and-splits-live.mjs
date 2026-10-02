@@ -237,9 +237,16 @@ async function main() {
   check("a non-session row carries a trash", trashRow.index >= 0, trashRow);
   check("and it is not also wearing the session shelf", trashRow.shelved === false, trashRow);
 
+  /* The opacity the trash is DRAWN at: its own times every ancestor's. The row's actions share one
+     slot with its state, and it is the slot that is hidden at rest (`.item-actions`), so the button's
+     own opacity is 1 either way — reading it alone passed a trash nobody could see and one everybody
+     could alike. */
   const opacityOf = () => evalIn(c, `(() => {
     const e = document.querySelector('.item .item-delete');
-    return e ? getComputedStyle(e).opacity : null;
+    if (!e) return null;
+    let o = 1;
+    for (let n = e; n && n !== document.body; n = n.parentElement) o *= parseFloat(getComputedStyle(n).opacity);
+    return String(o);
   })()`);
   const atRest = await opacityOf();
   check("the trash is invisible at rest", atRest === "0", { atRest });
