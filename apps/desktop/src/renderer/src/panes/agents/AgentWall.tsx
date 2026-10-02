@@ -1,6 +1,7 @@
 import { AGENT_META, DEFAULT_MODEL_LABEL, type Session, type SessionStatus } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useApp } from "../../state/store";
+import { AgentAsk, AgentStop } from "./AgentAnswer";
 import { basenameOf, ago, type groupAgents } from "./AgentsPage";
 
 /**
@@ -75,7 +76,14 @@ export function AgentWall({ groups, spaceName, onOpen, visible }: {
           </h2>
           <div className="agent-wall">
             {g.rows.map((s) => (
-              <AgentTile key={s.id} session={s} spaceName={spaceName(s.spaceId)} onOpen={() => onOpen(s)} />
+              /* A tile waiting on you takes the row: it is the one on the wall that is decisive, and the
+                 card it carries needs a card's width, not a tile's. Running tiles keep their column and
+                 carry Stop. Both are siblings of the tile, never inside it — see `AgentAsk`. */
+              <div key={s.id} className="agent-tile-item" data-status={g.state.status}>
+                <AgentTile session={s} spaceName={spaceName(s.spaceId)} onOpen={() => onOpen(s)} />
+                {g.state.status === "running" && <AgentStop session={s} />}
+                {g.state.status === "waiting_permission" && <AgentAsk session={s} />}
+              </div>
             ))}
           </div>
         </section>

@@ -328,6 +328,13 @@ export function defaultAdapters(): AdapterRegistry {
     // permission card, the sidebar's blocked mark, the Agents wall — have nothing else to pose for.
     on: "ask me", emit: [{ kind: "tool", name: "Bash", input: { command: "rm -rf build" }, needsPermission: true, result: "removed" }],
   }, {
+    // A question on the permission channel, held open the same way. Claude asks through
+    // `AskUserQuestion`, which Realm draws as the question it is — options and a field for an answer
+    // of your own — rather than as Allow / Deny, and nothing else this agent says can pose one.
+    on: "ask a question", emit: [{ kind: "tool", name: "AskUserQuestion", needsPermission: true, result: "answered", input: { questions: [{
+      question: "Which branch should this go on?", header: "Base", multiSelect: false,
+      options: [{ label: "main", description: "What ships next" }, { label: "integration/v0.6", description: "The release line" }] }] } }],
+  }, {
     // An answer that streams at a real agent's pace, a word at a time. Everything above lands in one
     // burst, and the prose's arrival fade has nothing to show on a message that arrives all at once.
     on: "stream slowly", emit: [{ kind: "text", paceMs: 45, text: "The mapper reads each **SDK message** once and hands back Realm's own events, so nothing downstream ever sees the wire.\n\n"

@@ -5782,8 +5782,7 @@ select { appearance: none; padding-right: 22px;
 /* The row's eye (W11b) takes the time's slot under the pointer or the keyboard, rather than a slot
    of its own the time would have to give up at rest: one at the far right, whichever is showing. */
 .agents-list > li { position: relative; }
-.agents-peek { position: absolute; right: 8px; top: 50%; translate: 0 -50%; opacity: 0;
-  transition: opacity var(--dur-hover) var(--ease-out-strong); }
+.agents-peek { opacity: 0; transition: opacity var(--dur-hover) var(--ease-out-strong); }
 .agents-list > li:hover .agents-peek, .agents-list > li:focus-within .agents-peek { opacity: 1; }
 .agents-list > li:has(.agents-peek):hover .agents-row-when,
 .agents-list > li:has(.agents-peek):focus-within .agents-row-when { visibility: hidden; }
@@ -5792,6 +5791,22 @@ select { appearance: none; padding-right: 22px;
 .agents-more:hover { color: var(--rl-text-bright); background: var(--rl-hover); }
 .agents-more svg { transition: rotate var(--dur-hover) ease; }
 .agents-more[aria-expanded="true"] svg { rotate: 180deg; }
+/* Answering in place. A row is a button that opens its session, so whatever answers the session —
+   its request, or Stop — is the row's SIBLING in an item that stacks them, never a control inside it:
+   a click inside the button would answer and navigate at once. The row keeps its own card look. */
+.agents-item, .agent-tile-item { position: relative; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.agents-ask { display: flex; flex-direction: column; gap: 6px; }
+/* What rides on a row — the eye, and Stop — sits over the row's right end in one group, placed
+   absolutely because it cannot be inside the row, and centred on the row's own LINE: the item also
+   holds the request card hung under a waiting row, and centring on the item put the eye on the card.
+   One group, so the eye stands beside Stop rather than on it; the row gives back the width Stop
+   covers so the title and the clock never run under it. The quiet button is 22px; the hit area is
+   not — the pseudo-element takes it to the 40px a desktop target is owed. */
+.agents-line { position: relative; }
+.agents-line-end { position: absolute; right: 8px; top: 50%; translate: 0 -50%; display: flex; align-items: center; gap: 4px; }
+.agents-stop { position: relative; display: inline-flex; align-items: center; gap: 4px; }
+.agents-stop::before { content: ""; position: absolute; inset: -9px -4px; }
+.agents-line:has(.agents-stop) > .agents-row { padding-right: 84px; }
 
 /* The page head's right-hand cluster: which reading is on screen, and the one action that makes
    more agents. Baseline-aligned with the title like everything else in the head. */
@@ -5832,6 +5847,13 @@ select { appearance: none; padding-right: 22px;
    fan-out's agents share a space and are told apart by the worktree they run in. */
 .agent-tile-sub > span:first-child { flex: 1 3 auto; }
 .agent-tile-mono { flex: 0 1 auto; font-family: var(--font-mono); }
+/* A tile waiting on you takes the whole row. It is the decisive one on the wall, and the card it
+   carries is a card — numbered options, a footer of keys, a field for an answer — that a 240px column
+   would fold into a smear. On a running tile Stop sits at the foot, beside the line that yields
+   first, which gives back its width. */
+.agent-tile-item[data-status="waiting_permission"] { grid-column: 1 / -1; }
+.agent-tile-item > .agents-stop { position: absolute; bottom: 6px; right: 8px; }
+.agent-tile-item:has(> .agents-stop) .agent-tile-sub { padding-right: 68px; }
 
 /* The farm (easter eggs only — AgentWall mounts it or does not). A band under the last row of
    tiles, with a hairline for the ground the figures stand on. No surface and no fill: it is the

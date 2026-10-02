@@ -1,6 +1,7 @@
 import { AGENT_META, DEFAULT_MODEL_LABEL, groupOfItem, type Session, type SessionStatus } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useState } from "react";
+import { AgentAsk, AgentStop } from "./AgentAnswer";
 import { AgentOffice } from "./AgentOffice";
 import { AgentWall } from "./AgentWall";
 import { useApp, type AgentsView } from "../../state/store";
@@ -160,30 +161,42 @@ export function AgentsPage({ item, visible }: PaneProps) {
               </h2>
               <ul className="agents-list">
                 {shown.map((s) => (
-                  <li key={s.id}>
-                    <button type="button" className="agents-row" data-status={g.state.status}
-                      title={`${s.title} — ${spaceName(s.spaceId)} · ${s.cwd}`}
-                      onClick={() => run(() => reveal(s.id, s.spaceId))}>
-                      <Icon name={AGENT_META[s.agentKind].icon} size={16} colored className="agents-row-mark" />
-                      <span className="agents-row-text">
-                        <span className="agents-row-title">{s.title}</span>
-                        {/* Where it runs and on what: the facts that pick between two rows with the
-                            same title. Mono for the folder and model, which are machine names. */}
-                        <span className="agents-row-sub">
-                          <span>{spaceName(s.spaceId)}</span>
-                          <span className="agents-row-mono">{basenameOf(s.cwd)}</span>
-                          <span className="agents-row-mono">{s.model ?? DEFAULT_MODEL_LABEL[s.agentKind]}</span>
+                  /* The row opens the session; what it is waiting on, and Stop, are its siblings —
+                     an answer given here must never also be a click that goes somewhere. The row's
+                     own line holds what rides on it (the peek, Stop), so they centre on the row and
+                     not on the row plus the card hung under it. */
+                  <li key={s.id} className="agents-item" data-status={g.state.status}>
+                    <div className="agents-line">
+                      <button type="button" className="agents-row" data-status={g.state.status}
+                        title={`${s.title} — ${spaceName(s.spaceId)} · ${s.cwd}`}
+                        onClick={() => run(() => reveal(s.id, s.spaceId))}>
+                        <Icon name={AGENT_META[s.agentKind].icon} size={16} colored className="agents-row-mark" />
+                        <span className="agents-row-text">
+                          <span className="agents-row-title">{s.title}</span>
+                          {/* Where it runs and on what: the facts that pick between two rows with the
+                              same title. Mono for the folder and model, which are machine names. */}
+                          <span className="agents-row-sub">
+                            <span>{spaceName(s.spaceId)}</span>
+                            <span className="agents-row-mono">{basenameOf(s.cwd)}</span>
+                            <span className="agents-row-mono">{s.model ?? DEFAULT_MODEL_LABEL[s.agentKind]}</span>
+                          </span>
                         </span>
-                      </span>
-                      <span className="agents-row-when">{ago(s.updatedAt)}</span>
-                    </button>
-                    {canPeek(s) && (
-                      <button type="button" className="icon-btn agents-peek" aria-label={`Peek at ${s.title}`}
-                        title="Peek — look at it beside your session, without leaving this space"
-                        onClick={() => run(async () => { await peekSession(s.id, s.spaceId); })}>
-                        <Icon name="peek" size={14} />
+                        <span className="agents-row-when">{ago(s.updatedAt)}</span>
                       </button>
-                    )}
+                      {(canPeek(s) || g.state.status === "running") && (
+                        <span className="agents-line-end">
+                          {canPeek(s) && (
+                            <button type="button" className="icon-btn agents-peek" aria-label={`Peek at ${s.title}`}
+                              title="Peek — look at it beside your session, without leaving this space"
+                              onClick={() => run(async () => { await peekSession(s.id, s.spaceId); })}>
+                              <Icon name="peek" size={14} />
+                            </button>
+                          )}
+                          {g.state.status === "running" && <AgentStop session={s} />}
+                        </span>
+                      )}
+                    </div>
+                    {g.state.status === "waiting_permission" && <AgentAsk session={s} />}
                   </li>
                 ))}
               </ul>

@@ -1,17 +1,18 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { PAGE_REF_IDS, sessionEvent, type Session } from "@realm/contracts";
+import { PAGE_REF_IDS, sessionEvent, type Session, type StoredSessionEvent } from "@realm/contracts";
 import { AgentsPage } from "./AgentsPage";
 import { createAppStore, StoreContext } from "../../state/store";
 import { fakeApi, item, session, space } from "../../state/store.test-fakes";
 
 afterEach(() => cleanup());
 
+/** Rows are found by an ANCHORED name: a running tile's Stop is named for its session too. */
 const row = (id: string, spaceId: string, over: Partial<Session> = {}) =>
   session(id, spaceId, { title: `Session ${id}`, ...over });
 
-async function onTheWall(sessions: Session[]) {
-  const api = fakeApi({ spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Plynn")], sessions });
+async function onTheWall(sessions: Session[], sessionEvents: Record<string, StoredSessionEvent[]> = {}) {
+  const api = fakeApi({ spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Plynn")], sessions, sessionEvents });
   const store = createAppStore(api); await store.getState().boot();
   const { container } = render(<StoreContext.Provider value={store}>
     <AgentsPage item={item("pg", "s1", { kind: "agents-page", refId: PAGE_REF_IDS["agents-page"], title: "Agents" })} visible />
@@ -31,8 +32,8 @@ describe("the Agents wall", () => {
       row("se3", "s1", { status: "idle", cwd: "/Users/me/versed", updatedAt: 1 }),
       row("se4", "s1", { status: "ended", cwd: "/Users/me/versed", updatedAt: 1 }),
     ]);
-    expect(within(screen.getByRole("region", { name: "Needs you" })).getByRole("button", { name: /Session se1/ })).toBeInTheDocument();
-    expect(within(screen.getByRole("region", { name: "Working" })).getByRole("button", { name: /Session se2/ })).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Needs you" })).getByRole("button", { name: /^Session se1/ })).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Working" })).getByRole("button", { name: /^Session se2/ })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Ready" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Ended" })).toBeNull();
   });
@@ -50,9 +51,9 @@ describe("the Agents wall", () => {
       event: sessionEvent("tool_call", { toolUseId: "t", name: "Bash", input: { command: "pnpm vitest run" }, parentToolUseId: null }, 1),
     });
     const working = screen.getByRole("region", { name: "Working" });
-    await waitFor(() => expect(within(working).getByRole("button", { name: /Session se1/ })).toHaveTextContent("pnpm vitest run"));
-    expect(within(working).getByRole("button", { name: /Session se2/ })).not.toHaveTextContent("pnpm vitest run");
-    expect(within(working).getByRole("button", { name: /Session se2/ })).not.toHaveTextContent(/Working|Idle|Thinking/);
+    await waitFor(() => expect(within(working).getByRole("button", { name: /^Session se1/ })).toHaveTextContent("pnpm vitest run"));
+    expect(within(working).getByRole("button", { name: /^Session se2/ })).not.toHaveTextContent("pnpm vitest run");
+    expect(within(working).getByRole("button", { name: /^Session se2/ })).not.toHaveTextContent(/Working|Idle|Thinking/);
   });
 
   it("keeps the folder on the tile, which is what tells a fan-out's agents apart", async () => {
@@ -63,8 +64,8 @@ describe("the Agents wall", () => {
       row("se2", "s1", { status: "running", cwd: "/Users/me/realm-fix-flake-2", updatedAt: 8 }),
     ]);
     const working = screen.getByRole("region", { name: "Working" });
-    expect(within(working).getByRole("button", { name: /Session se1/ })).toHaveTextContent("realm-fix-flake-1");
-    expect(within(working).getByRole("button", { name: /Session se2/ })).toHaveTextContent("realm-fix-flake-2");
+    expect(within(working).getByRole("button", { name: /^Session se1/ })).toHaveTextContent("realm-fix-flake-1");
+    expect(within(working).getByRole("button", { name: /^Session se2/ })).toHaveTextContent("realm-fix-flake-2");
   });
 
   it("says so when the wall is empty rather than drawing an empty field", async () => {
@@ -74,8 +75,41 @@ describe("the Agents wall", () => {
 
   it("a tile goes to its session, like the row it replaces", async () => {
     const { store } = await onTheWall([row("se2", "s2", { status: "running", cwd: "/Users/me/plynn", updatedAt: 5 })]);
-    fireEvent.click(screen.getByRole("button", { name: /Session se2/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Session se2/ }));
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
+  });
+
+  it("answers a waiting agent from its tile, which takes the row for its card, without leaving the wall", async () => {
+    const { api, store, container } = await onTheWall(
+      [row("se1", "s2", { status: "waiting_permission", updatedAt: 9 }), row("se2", "s2", { status: "running", updatedAt: 5 })],
+      { se1: [{ seq: 1, sessionId: "se1", event: sessionEvent("permission_request", { requestId: "r1", toolName: "Bash", input: { command: "rm -rf build" }, title: "Allow Bash?", suggestions: [] }, 1) }] },
+    );
+    const needs = screen.getByRole("region", { name: "Needs you" });
+    const card = await within(needs).findByRole("group", { name: "Permission request" });
+    expect(card).toHaveTextContent("rm -rf build");
+    // The waiting tile is the decisive one on the wall: the card is under the tile, in an item that
+    // spans the row (the stylesheet's `grid-column: 1 / -1` keys off this status).
+    expect(card.closest(".agent-tile-item")!.getAttribute("data-status")).toBe("waiting_permission");
+    expect(container.querySelector(".agent-tile-item[data-status=waiting_permission] > .agent-tile")).not.toBeNull();
+    const layout = store.getState().layout;
+    fireEvent.click(within(card).getByRole("button", { name: "Deny" }));
+    await waitFor(() => expect(api.calls).toContain("respondPermission:se1:r1:deny"));
+    expect(store.getState().activeSpaceId).toBe("s1");
+    expect(store.getState().layout).toBe(layout);
+    expect(screen.getByRole("button", { name: "Wall" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("stops a running agent from its tile, and only a running one carries Stop", async () => {
+    const { api, store } = await onTheWall([
+      row("se1", "s2", { status: "waiting_permission", updatedAt: 9 }),
+      row("se2", "s2", { status: "running", updatedAt: 5 }),
+      row("se3", "s2", { status: "error", updatedAt: 4 }),
+    ]);
+    expect(within(screen.getByRole("region", { name: "Needs you" })).queryByRole("button", { name: /^Stop/ })).toBeNull();
+    expect(within(screen.getByRole("region", { name: "Failed" })).queryByRole("button", { name: /^Stop/ })).toBeNull();
+    fireEvent.click(within(screen.getByRole("region", { name: "Working" })).getByRole("button", { name: "Stop Session se2" }));
+    await waitFor(() => expect(api.calls).toContain("interrupt:se2"));
+    expect(store.getState().activeSpaceId).toBe("s1");
   });
 
   it("the view buttons name the view and carry which one is on, never both in the label", async () => {
