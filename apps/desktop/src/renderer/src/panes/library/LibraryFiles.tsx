@@ -4,6 +4,7 @@ import { ARTIFACT_KINDS, artifactTypeOf, LIBRARY_PAGE_SIZE, type ArtifactKind, t
 import { useApp } from "../../state/store";
 import { FilePreview } from "../../components/FilePreview";
 import { useThumbnail } from "../../components/use-thumbnail";
+import { fileDragProps, quickLookOnSpace } from "../../components/file-actions";
 import { SCOPE_LABEL } from "../../components/scoped/ScopeGroups";
 
 /** Files first, then a scope, then a kind — the three narrowings, coarsest first. */
@@ -211,7 +212,9 @@ function FileCard({ entry, onOpen }: { entry: LibraryEntry; onOpen: () => void }
   const thumb = useThumbnail(THUMBNAIL_TYPES.has(type) ? entry.path : null, "card");
   const fromLabel = `${entry.kind === "upload" ? "Uploaded to " : "Made in "}${entry.sessionTitle}`;
   return (
-    <button type="button" className="library-tile" title={entry.path} onClick={onOpen}>
+    // A card is a file the way a Finder icon is: Space shows it in Quick Look, and it drags out.
+    <button type="button" className="library-tile" title={entry.path} onClick={onOpen}
+      onKeyDown={quickLookOnSpace(entry.path)} {...fileDragProps(entry.path)}>
       {/* The card is a PICTURE over a caption, the way a drive lays out files: the preview field
           takes the top of the card, and the name and provenance sit under it. A picture fills the
           field edge to edge; a glyph sits in a tinted well at its centre, because a glyph needs the

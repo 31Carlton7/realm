@@ -1,6 +1,7 @@
 import { basenameOf, documentKindFor } from "@realm/contracts";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { useApp } from "../../state/store";
+import { canQuickLook, canShare, quickLook, shareFile } from "../../components/file-actions";
 
 /**
  * What clicking a file path in a transcript offers.
@@ -43,6 +44,8 @@ export function PathMenu({ path, anchorRef, environmentId, onClose }: {
       onSelect: () => run(() => openDocumentPath(path, environmentId)),
     }] : []),
     { label: "Reveal in Finder", onSelect: () => { void window.realm?.files?.reveal?.(path); } },
+    ...(canQuickLook() ? [{ label: "Quick Look", kbd: "Space", onSelect: () => quickLook(path) } as MenuItem] : []),
+    ...(canShare() ? [{ label: "Share…", onSelect: () => shareFile(path, anchorRef.current) } as MenuItem] : []),
     { kind: "separator" } as MenuItem,
     { label: "Copy path", onSelect: () => { void navigator.clipboard.writeText(path); } },
   ];

@@ -563,6 +563,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   keeps the SAME card: its glyph sits small in a well at the field's centre, so the grid's shape
   does not change from file to file. A field that wide needs a picture minted for it — the 96px
   mark the composer's chips use is a smear there — so the size is named, not assumed.
+- A file the app shows behaves like one in the Finder: Space opens it in Quick Look (Return still
+  acts), it drags out to the Finder or into another app, and its menu offers Quick Look and the
+  system Share menu. Each is offered only where the desktop bridge has it — a Space that swallows the
+  key, or a drag into nothing, is a promise the app would be breaking — and every path is re-gated in
+  main, because it comes from the renderer.
 - A picture of a file earns its place where the picture IS the file. A screenshot, a mockup and a
   frame of video say more than any glyph; a page of source rendered into a 44px square says less
   than the four letters of its extension. The line is also a cost line, and that is not a detail to

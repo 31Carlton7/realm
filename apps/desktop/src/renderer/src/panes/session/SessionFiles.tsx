@@ -2,6 +2,7 @@ import { Icon, type IconName } from "@realm/ui";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { artifactTypeOf, documentKindFor, type ArtifactType, type Item } from "@realm/contracts";
+import { fileDragProps, quickLookOnSpace } from "../../components/file-actions";
 import { useApp } from "../../state/store";
 import { ScrollFades } from "../../components/ScrollFades";
 import { groupByDay } from "../library/LibraryFiles";
@@ -206,7 +207,8 @@ function FilesPanel({ item, anchorRef, barRef, onClose, onLightbox }: {
                 <h4 className="summary-head"><span>{day.label}</span><span className="summary-count">{day.entries.length}</span></h4>
                 <div className="summary-rows">
                   {day.entries.map((row) => (
-                    <button key={row.path} className="summary-row" title={row.path} onClick={() => openRow(row)}>
+                    <button key={row.path} className="summary-row" title={row.path} onClick={() => openRow(row)}
+                      onKeyDown={quickLookOnSpace(row.path)} {...fileDragProps(row.path)}>
                       <Icon name={row.isDir ? "folder" : TYPE_ICON[artifactTypeOf(row.name)]} size={12} className="summary-row-glyph" />
                       <span className="summary-row-name">{row.name}</span>
                       <span className="summary-row-meta">{row.isDir ? "Folder" : fileSize(row.size)}</span>

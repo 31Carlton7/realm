@@ -88,6 +88,12 @@ contextBridge.exposeInMainWorld("realm", {
     finderIcon: (): Promise<string | null> => ipcRenderer.invoke("files:finder-icon"),
     /** Copy it where the user points; the saved path, or null when they cancelled. */
     saveCopy: (path: string): Promise<string | null> => ipcRenderer.invoke("files:save-copy", path),
+    /** macOS's Quick Look panel for the file — what Space does in the Finder (main/file-actions.ts). */
+    quickLook: (path: string): Promise<void> => ipcRenderer.invoke("files:quick-look", path),
+    /** The system Share menu for the file, at a point in the window. */
+    share: (path: string, at: { x: number; y: number }): Promise<void> => ipcRenderer.invoke("files:share", path, at),
+    /** Start an OS drag carrying the file. Call from a `dragstart` the renderer has cancelled. */
+    startDrag: (path: string): void => ipcRenderer.send("files:drag-start", path),
   },
   /** Describe paths dropped from Finder. The renderer knows a dropped item's NAME and can guess a
    *  mime from it, but it cannot `stat` — so it cannot tell a folder from an extensionless file, and

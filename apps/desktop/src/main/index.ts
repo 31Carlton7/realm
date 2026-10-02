@@ -43,6 +43,7 @@ import { registerNativeMenus } from "./native-menu";
 import { attachTextContextMenu } from "./text-context-menu";
 import { appMenuTemplate, pageChords, shouldPageOwn } from "./app-menu";
 import { readWindowState, restoredBounds, trackWindowState } from "./window-state";
+import { registerFileActions } from "./file-actions";
 import { DEFAULT_KEYBINDINGS, KeybindingSchema, type Keybinding } from "@realm/contracts";
 import { browseFolder, type BrowseResult } from "./browse";
 import { handleMediaProtocol, mediaPoster, registerMediaScheme, servablePath, statMedia } from "./media";
@@ -1003,6 +1004,8 @@ ipcMain.handle("files:reveal", async (_e, path: unknown): Promise<void> => {
   const found = await existingPath(path);
   if (found) shell.showItemInFolder(found);
 });
+/** Quick Look, Share and drag-out (file-actions.ts), behind the same existence gate as Reveal. */
+registerFileActions({ gate: existingPath });
 /**
  * Save a copy of a file somewhere the user names.
  *
