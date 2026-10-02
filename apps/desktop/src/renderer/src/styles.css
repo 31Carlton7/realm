@@ -4616,7 +4616,7 @@ select { appearance: none; padding-right: 22px;
 :where(
   /* chrome and navigation. `.space-body` is NOT here — see the carve-out below. */
   .menu, .mention-picker, .skill-picker-list, .mp-list, .mp-detail-body, .ip-grid,
-  .palette-list, .spaces-list, .sheet, .onboarding-stage, .onboarding-body, .page-content, .summary-scroll, .ql-view,
+  .palette-list, .spaces-list, .sheet, .onboarding-stage, .onboarding-body, .page-content, .settings-rail-lists, .summary-scroll, .ql-view,
   /* the transcript and everything it draws inside itself */
   .transcript, .md pre, .msg-error pre, .tool-well, .tool-body pre, .permission-details pre,
   .code-block, .code-body, .fd-file, .fd-body, .term-out, .md-scroll, .math-display,
