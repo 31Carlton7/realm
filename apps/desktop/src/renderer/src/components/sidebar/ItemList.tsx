@@ -9,6 +9,11 @@ import { MACHINE_WORDS } from "../../panes/machine/MachinePane";
 
 const STATUS_LABEL = { idle: "idle", running: "running", waiting_permission: "needs permission", error: "error", ended: "ended" } as const;
 
+/** The statuses worth a mark on a row: doing something, waiting on someone, or broken. Idle and ended
+ *  are where most of the sidebar rests, and a grey dot on every one of them said nothing — it also hid
+ *  the unread ring, which a row only wears when it has no other mark, so the ring could never draw. */
+const MARKED_STATUS: ReadonlySet<string> = new Set(["running", "waiting_permission", "error"]);
+
 /**
  * The layout, as rectangles.
  *
@@ -154,8 +159,12 @@ export function ItemList({ items, variant, layout: groupLayout }: {
     : run(() => openItem(it.id)));
   return (
     <div className="item-list">
-      {items.map((it) => (
+      {items.map((it) => {
+        const status = it.kind === "session" ? sessionStatus[it.refId] : undefined;
+        const marked = status !== undefined && MARKED_STATUS.has(status);
+        return (
         <div key={it.id} className="item" data-active={(variant === "open" && it.id === focusedItemId) || undefined}
+          data-actions={variant === "open" ? 2 : 1}
           data-dragging={draggingId === it.id || undefined}
           draggable
           onDragStart={(e) => { e.dataTransfer.setData("application/x-realm-item", it.id); e.dataTransfer.effectAllowed = "move"; setDraggingId(it.id); }}
@@ -165,15 +174,18 @@ export function ItemList({ items, variant, layout: groupLayout }: {
             <>
               {/* The status is part of the accessible name (A-L4): the dot alone is invisible to a reader. */}
               <button className="item-row"
-                aria-label={it.kind === "session" && sessionStatus[it.refId] ? `${it.title} — ${STATUS_LABEL[sessionStatus[it.refId]!]}`
+                aria-label={marked ? `${it.title} — ${STATUS_LABEL[status!]}`
                   : it.kind === "session" && unseen.has(it.refId) ? `${it.title} — new since you were here`
                   : it.kind === "browser" && browserDriving[it.refId] ? `${it.title} — agent is driving`
                   : it.kind === "terminal" && terminalDriving[it.refId] ? `${it.title} — agent is driving`
                   : it.kind === "machine" ? `${it.title} — ${MACHINE_WORDS[machineState[it.refId]?.status ?? "off"]}` : it.title}
                 onClick={() => activate(it)}>
                 <Icon name={it.kind} size={16} /><span className="item-title">{it.title}</span>
-                {it.kind === "session" && sessionStatus[it.refId] && (
-                  <span className="status-dot item-status" data-status={sessionStatus[it.refId]} title={STATUS_LABEL[sessionStatus[it.refId]!]} />
+                {/* The row's state, at its far end — the same slot its actions take under the
+                    pointer, so a row at rest gives its title every pixel the state does not need. */}
+                <span className="item-trail">
+                {marked && (
+                  <span className="status-dot item-status" data-status={status} title={STATUS_LABEL[status!]} />
                 )}
                 {/* Something happened here that you have not seen. Drawn only when the session is
                     NOT already wearing a status dot, because two marks on one row would be asking a
@@ -181,7 +193,7 @@ export function ItemList({ items, variant, layout: groupLayout }: {
                     — and a session that is running is one whose news you are about to get anyway.
                     A session with no live handle gets no chrome of its own: Realm starts adapters
                     lazily, so "not live" is the resting state of most of the sidebar. */}
-                {it.kind === "session" && !sessionStatus[it.refId] && unseen.has(it.refId) && (
+                {it.kind === "session" && !marked && unseen.has(it.refId) && (
                   <span className="status-dot item-status" data-status="unseen" title="New since you were here" />
                 )}
                 {/* W4: a browser row wears the driving dot only WHILE an agent act is in flight —
@@ -204,7 +216,9 @@ export function ItemList({ items, variant, layout: groupLayout }: {
                     title={MACHINE_WORDS[machineState[it.refId]?.status ?? "off"]} />
                 )}
                 {variant === "open" && <ItemGlyph layout={layout} itemId={it.id} />}
+                </span>
               </button>
+              <span className="item-actions">
               {/* Sessions alone get the shelf. The gesture is a session's — put a conversation away
                   when it is done with — and the other kinds have no answer for what archiving means:
                   a destination page is one per space, a diff is a view of a checkout. The `archived`
@@ -234,10 +248,12 @@ export function ItemList({ items, variant, layout: groupLayout }: {
               {variant === "open" && (
                 <button className="item-close" aria-label={`Close ${it.title}`} onClick={() => run(() => closeFromLayout(it.id))}><Icon name="close" size={12} /></button>
               )}
+              </span>
             </>
           )}
         </div>
-      ))}
+        );
+      })}
       {element}
     </div>
   );

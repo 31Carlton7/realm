@@ -145,10 +145,26 @@ describe("Arc sidebar", () => {
     act(() => store.getState().applySessionStatus("se1", "waiting_permission"));
     expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "waiting_permission");
     expect(row()).toHaveAccessibleName("Fix the build — needs permission");
+    // Idle is where most rows rest, so it wears nothing and is not read out.
     act(() => store.getState().applySessionStatus("se1", "idle"));
-    expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "idle");
-    expect(row()).toHaveAccessibleName("Fix the build — idle");
+    expect(row().querySelector(".status-dot")).toBeNull();
+    expect(row()).toHaveAccessibleName("Fix the build");
     expect(screen.getByRole("button", { name: "Terminal" }).querySelector(".status-dot")).toBeNull();
+  });
+
+  it("an idle session with something new wears the unread ring; a running one keeps its dot instead", async () => {
+    /* THE MUTANT this kills is the one that was shipped: a dot for every status, idle included. The
+       ring is only drawn on a row with no other mark, so it could never appear. */
+    const { store } = await mount(fakeApi({
+      items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Fix the build" })] },
+      sessions: [session("se1", "s1", { status: "idle", seenSeq: 3, lastEventSeq: 5 })],
+    }));
+    const row = () => screen.getByRole("button", { name: /^Fix the build/ });
+    await waitFor(() => expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "unseen"));
+    expect(row()).toHaveAccessibleName("Fix the build — new since you were here");
+    act(() => store.getState().applySessionStatus("se1", "running"));
+    expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "running");
+    expect(row().querySelectorAll(".status-dot")).toHaveLength(1);
   });
 
   it("an empty space shows one faint hint line pointing at New session (A-L6)", async () => {
@@ -588,6 +604,34 @@ describe("Arc sidebar", () => {
     await waitFor(() => { const l = store.getState().layout!; expect(l.type === "leaf" && l.itemId).not.toBe("i1"); });
     expect(api.calls).not.toContain("deleteItem:i1");
     expect(store.getState().items.map((i) => i.id)).toContain("i1"); // still exists, just unopened
+  });
+
+  it("a row's state sits in one trailing group, and its actions in an overlay sized by how many there are", async () => {
+    /* The state and the buttons share the row's far end (styles.css says how). THE MUTANTS: leave a
+       mark outside the trailing group — it would stay on screen under the buttons — or count the
+       actions wrong, so the title gives way by the wrong amount on hover. */
+    const layout: Layout = { type: "split", id: "S", dir: "row", sizes: [50, 50], children: [
+      { type: "leaf", id: "L1", itemId: "i1" }, { type: "leaf", id: "L2", itemId: "i3" },
+    ] };
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout })],
+      items: { s1: [item("i1", "s1", { kind: "session", refId: "se1", title: "Alpha" }), item("i2", "s1", { title: "Beta" }),
+        item("i3", "s1", { kind: "browser", refId: "b1", title: "Gamma" })] },
+      sessions: [session("se1", "s1", { status: "running" })],
+    });
+    await mount(api);
+    const row = (name: RegExp) => screen.getByRole("button", { name }).closest(".item")!;
+    const alpha = row(/^Alpha/);
+    // Every mark the open session row wears is inside the trailing group: its dot and its pane glyph.
+    expect(alpha.querySelector(".item-row > .status-dot, .item-row > .item-glyph")).toBeNull();
+    expect(alpha.querySelectorAll(".item-trail .status-dot, .item-trail .item-glyph")).toHaveLength(2);
+    // The actions are one overlay, after the row button, never inside it.
+    expect([...alpha.querySelectorAll(".item-actions > button")].map((b) => b.getAttribute("aria-label"))).toEqual(["Archive Alpha", "Close Alpha"]);
+    expect(alpha.querySelector(".item-row .item-actions")).toBeNull();
+    expect(alpha.getAttribute("data-actions")).toBe("2");
+    // A row in the Sessions list has one action, and says so.
+    expect(row(/^Beta/).getAttribute("data-actions")).toBe("1");
+    expect(row(/^Beta/).querySelectorAll(".item-actions > button")).toHaveLength(1);
   });
 
   it("context menu: Close only for open items (closes from layout); Delete always (destructive)", async () => {
