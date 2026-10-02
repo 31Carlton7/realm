@@ -140,6 +140,11 @@ async function main() {
   const c = cdp(rendererTarget.webSocketDebuggerUrl);
   await c.ready;
   await c.send("Runtime.enable");
+  /* The window this opens is rarely the focused one — it comes up behind whatever is in front, and
+     nobody is at the keyboard for a long run. Unfocused, Realm goes quiet (`data-quiet`): the running
+     ring is taken away and the frame dims, which is right for the product and fatal for a check that
+     measures them. Focus is emulated so the page is measured as it is drawn in use. */
+  await c.send("Emulation.setFocusEmulationEnabled", { enabled: true });
   await c.send("Page.enable");
 
   await until(() => evalIn(c, `!!document.querySelector('.onboarding input:not([type=radio])')`), 20000, "onboarding");
