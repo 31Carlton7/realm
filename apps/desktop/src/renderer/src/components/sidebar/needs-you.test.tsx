@@ -128,6 +128,8 @@ describe("its list", () => {
     const { api } = await mount();
     fireEvent.click(chip());
     const card = await (await list()).findByRole("group", { name: "Permission request" });
+    // Nor does the card offer Escape as Deny: in this list the key closes it.
+    expect(within(card).queryByText("esc")).toBeNull();
     fireEvent.keyDown(within(card).getByRole("button", { name: "Allow" }), { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Waiting on you" })).toBeNull());
     expect(api.calls.some((c) => c.startsWith("respondPermission"))).toBe(false);

@@ -104,7 +104,7 @@ function WaitingSession({ session, spaceName, onGo }: { session: Session; spaceN
         </button>
       </div>
       {pending.map((p) => (
-        <PendingRequest key={p.requestId} permission={p}
+        <PendingRequest key={p.requestId} permission={p} ownsEscape={false}
           onDecide={(...decision) => run(() => respondPermission(session.id, p.requestId, ...decision))} />
       ))}
     </li>

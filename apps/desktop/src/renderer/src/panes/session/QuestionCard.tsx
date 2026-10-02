@@ -37,13 +37,16 @@ export function parseQuestions(toolName: string, input: Record<string, unknown>)
  *  Keyboard: 1–9 pick an option outright, ↑/↓ move, Enter takes the highlighted row, Esc skips the whole
  *  request (a deny — the agent asked and got no answer, which is different from any answer it offered).
  *  Multi-select rows toggle instead of advancing, so the footer carries an explicit Continue. */
-export function QuestionCard({ questions, onAnswer, onSkip, autoFocus = false, enter = false }: {
+export function QuestionCard({ questions, onAnswer, onSkip, autoFocus = false, enter = false, ownsEscape = true }: {
   questions: Question[];
   /** question text -> chosen label; multi-select comma-joined, matching the tool's own answer contract. */
   onAnswer: (answers: Record<string, string>) => void;
   onSkip: () => void;
   autoFocus?: boolean;
   enter?: boolean;
+  /** False where the surface around the card owns Escape (the Agents page, the need-you list), so
+   *  Escape leaves it instead: the card then neither answers on Escape nor offers it as a key. */
+  ownsEscape?: boolean;
 }) {
   const [page, setPage] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -99,7 +102,7 @@ export function QuestionCard({ questions, onAnswer, onSkip, autoFocus = false, e
       else if (e.key === "Enter" && otherText.trim()) { e.preventDefault(); commit(otherText.trim()); }
       return;
     }
-    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onSkip(); }
+    if (e.key === "Escape") { if (ownsEscape) { e.preventDefault(); e.stopPropagation(); onSkip(); } }
     else if (e.key === "Enter") {
       const control = e.target instanceof HTMLElement ? e.target.closest("button") : null;
       if (control instanceof HTMLButtonElement) { e.preventDefault(); control.click(); return; }
@@ -163,7 +166,7 @@ export function QuestionCard({ questions, onAnswer, onSkip, autoFocus = false, e
 
       <div className="question-footer">
         <div className="question-hints">
-          <span><kbd>↑↓</kbd> Navigate</span><span><kbd>↵</kbd> Select</span><span><kbd>esc</kbd> Skip</span>
+          <span><kbd>↑↓</kbd> Navigate</span><span><kbd>↵</kbd> Select</span>{ownsEscape && <span><kbd>esc</kbd> Skip</span>}
         </div>
         {q.multiSelect && (
           <button className="btn primary question-continue" disabled={!picked.length} onClick={() => commit(picked.join(", "))}>

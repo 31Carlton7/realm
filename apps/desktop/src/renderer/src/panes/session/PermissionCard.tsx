@@ -39,8 +39,11 @@ const optionsFor = (toolName: string): typeof OPTIONS => {
  *  Enter = the selected option, ⇧Enter = Allow always, ⌘⌫ = Deny, 1/2/3 pick an option outright,
  *  ↑/↓ move the selection, Esc denies. Buttons keep exact accessible names ("Allow", not "Allow 1")
  *  via aria-label; the number chips and footer hints are visual only. */
-export function PermissionCard({ permission, onDecide, autoFocus = false, enter = false }: {
+export function PermissionCard({ permission, onDecide, autoFocus = false, enter = false, ownsEscape = true }: {
   permission: PendingPermission; onDecide: (d: PermissionDecision) => void; autoFocus?: boolean; enter?: boolean;
+  /** False where the surface around the card owns Escape (the Agents page, the need-you list), so
+   *  Escape leaves it instead: the card then neither answers on Escape nor offers it as a key. */
+  ownsEscape?: boolean;
 }) {
   const summary = clip(toolSummary(permission.toolName, permission.input), 200);
   /* Plan 24 W1: the thing being approved, drawn. An Edit's diff, the command about to run, the host
@@ -71,7 +74,7 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
       if (control) return;
       e.preventDefault(); onDecide(e.shiftKey ? "allow_always" : OPTIONS[selected]!.decision);
     } else if (e.key === "Backspace" && e.metaKey) { e.preventDefault(); onDecide("deny"); }
-    else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onDecide("deny"); }
+    else if (e.key === "Escape" && ownsEscape) { e.preventDefault(); e.stopPropagation(); onDecide("deny"); }
     else if (e.key === "ArrowDown") { e.preventDefault(); select(selected + 1); }
     else if (e.key === "ArrowUp") { e.preventDefault(); select(selected - 1); }
     // Bare digits only: ⌘1–9 is the app's switch-space binding, and a permission decision is the
@@ -110,7 +113,7 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
       </div>
       <div className="permission-footer">
         <div className="permission-hints">
-          <span><kbd>↑↓</kbd> Navigate</span><span><kbd>↵</kbd> Select</span><span><kbd>esc</kbd> Deny</span>
+          <span><kbd>↑↓</kbd> Navigate</span><span><kbd>↵</kbd> Select</span>{ownsEscape && <span><kbd>esc</kbd> Deny</span>}
         </div>
         <button className="btn primary permission-submit" aria-label="Submit" onClick={() => onDecide(OPTIONS[selected]!.decision)}>
           Submit <kbd>↩</kbd>

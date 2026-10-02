@@ -157,6 +157,8 @@ describe("the Agents page answers in place", () => {
     const { answered, store, stayed } = await mount();
     store.setState({ pageOverlay: { kind: "agents-page", refId: PAGE_REF_IDS["agents-page"], spaceId: "s1" } });
     const card = await within(await itemOf(/^Session se1/)).findByRole("group", { name: "Permission request" });
+    // And it does not offer the key as Deny: the footer would be describing a key the page owns.
+    expect(within(card).queryByText("esc")).toBeNull();
     fireEvent.keyDown(within(card).getByRole("button", { name: "Allow" }), { key: "Escape" });
     expect(store.getState().pageOverlay).toBeNull();
     const question = await within(await itemOf(/^Session se3/)).findByRole("group", { name: "Base" });

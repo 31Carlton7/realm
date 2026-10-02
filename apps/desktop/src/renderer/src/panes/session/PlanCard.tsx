@@ -110,12 +110,15 @@ const firstLine = (md: string): string =>
  */
 export const isPlanDecision = (p: PendingPermission): boolean => p.toolName === "ExitPlanMode";
 
-export function PlanDecision({ onDecide, autoFocus = false, enter = false }: {
+export function PlanDecision({ onDecide, autoFocus = false, enter = false, ownsEscape = true }: {
   onDecide: (d: PermissionDecision) => void; autoFocus?: boolean; enter?: boolean;
+  /** False where the surface around the card owns Escape (the Agents page, the need-you list), so
+   *  Escape leaves it instead: the card then neither answers on Escape nor offers it as a key. */
+  ownsEscape?: boolean;
 }) {
   return (
     <div className="plan-decision" role="group" aria-label="Plan approval" data-enter={enter || undefined}
-      onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onDecide("deny"); } }}>
+      onKeyDown={(e) => { if (e.key === "Escape" && ownsEscape) { e.preventDefault(); e.stopPropagation(); onDecide("deny"); } }}>
       <span className="plan-decision-ask">Ready to build this?</span>
       <div className="plan-decision-actions">
         <button type="button" className="plan-approve" autoFocus={autoFocus} onClick={() => onDecide("allow")}>Implement this plan</button>

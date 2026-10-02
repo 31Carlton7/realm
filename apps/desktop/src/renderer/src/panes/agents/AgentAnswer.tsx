@@ -21,8 +21,9 @@ const NO_REQUESTS = emptyTranscript().pendingPermissions;
  *
  * Nor does Escape answer. In the transcript the cards take Escape as Deny (or Skip), but on this page
  * Escape is the page's own way out, and a Deny sent by someone leaving would answer a request they
- * only looked at. So it is caught before any card sees it and closes the page. A field you are typing
- * an answer into keeps its own Escape, which steps out of the field and answers nothing.
+ * only looked at. So it is caught before any card sees it and closes the page, and the cards are told
+ * they do not own it (`ownsEscape`), so none offers "esc Deny" as a key. A field you are typing an
+ * answer into keeps its own Escape, which steps out of the field and answers nothing.
  */
 export function AgentAsk({ session }: { session: Session }) {
   const loaded = useApp((s) => s.transcripts[session.id] !== undefined);
@@ -41,7 +42,7 @@ export function AgentAsk({ session }: { session: Session }) {
   return (
     <div className="agents-ask" onKeyDownCapture={onKeyDownCapture}>
       {pending.map((p) => (
-        <PendingRequest key={p.requestId} permission={p}
+        <PendingRequest key={p.requestId} permission={p} ownsEscape={false}
           onDecide={(...decision) => run(() => respondPermission(session.id, p.requestId, ...decision))} />
       ))}
     </div>
