@@ -579,3 +579,18 @@ describe("the computer-use allowed-apps list over rpc", () => {
     c.close();
   });
 });
+
+describe("the page about you over rpc", () => {
+  it("usage.records is registered and answers a fresh home with its zeros, not an error", async () => {
+    // The mutant this kills is dropping the `reg("usage.records", …)` line: the service tests keep
+    // passing, and the page's one read comes back as an unregistered method.
+    const { c } = await boot();
+    const r = await c.call("usage.records", {});
+    expect(r.ok).toBe(true);
+    expect(r.result).toMatchObject({
+      tokens: { input: 0, output: 0 }, peakDay: null, longestTurn: null,
+      streak: { current: { days: 0 }, longest: { days: 0 } },
+    });
+    c.close();
+  });
+});

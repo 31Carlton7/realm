@@ -112,13 +112,20 @@ const agentSort = (k: AgentKind): string => {
   return String(i < 0 ? 99 : i).padStart(2, "0");
 };
 
+/**
+ * What a session's model is called in a breakdown. A null model is the harness's own default, and
+ * "Default" alone would merge Claude's default with Codex's into one meaningless row — so it is keyed
+ * per engine and labelled with the engine's known default.
+ */
+export function modelKey(agentKind: AgentKind, model: string | null): { key: string; label: string; sort: string } {
+  return model
+    ? { key: model, label: model, sort: model.toLowerCase() }
+    : { key: `default:${agentKind}`, label: `${AGENT_META[agentKind].label} default (${DEFAULT_MODEL_LABEL[agentKind]})`, sort: `\uffff${agentSort(agentKind)}` };
+}
+
 const KEY_FNS: Record<UsageDimension, KeyFn> = {
   agent: (s) => ({ key: s.agentKind, label: AGENT_META[s.agentKind].label, sort: agentSort(s.agentKind) }),
-  // A null model is the harness's own default, and "Default" alone would merge Claude's default with
-  // Codex's into one meaningless row. Keyed per engine, labelled with the engine's known default.
-  model: (s) => (s.model
-    ? { key: s.model, label: s.model, sort: s.model.toLowerCase() }
-    : { key: `default:${s.agentKind}`, label: `${AGENT_META[s.agentKind].label} default (${DEFAULT_MODEL_LABEL[s.agentKind]})`, sort: `￿${agentSort(s.agentKind)}` }),
+  model: (s) => modelKey(s.agentKind, s.model),
   space: (s) => ({ key: s.spaceId, label: s.spaceName, sort: String(s.spaceSort).padStart(6, "0") }),
   environment: (s) => ({ key: s.environmentId ?? "none", label: s.environmentLabel, sort: s.environmentLabel.toLowerCase() }),
 };
@@ -188,6 +195,49 @@ export function buildBreakdown(
     });
   }
   return rows;
+}
+
+/** One `status` event as the turn walk reads it. `status` is a string rather than `SessionStatus`
+ *  because it comes straight off `json_extract`, and a value this build has never heard of must
+ *  fall through the walk rather than be cast into one it has. */
+export type StatusSample = { ts: number; status: string };
+
+/**
+ * The working time of every finished turn in one session's status history, in event order.
+ *
+ * A turn opens on `running` and closes on the first `idle`, `error` or `ended` after it. Two things
+ * keep the figure about the AGENT rather than about the clock:
+ *
+ * - Time spent `waiting_permission` is taken out. A turn left on a prompt overnight is a measure of
+ *   the night, and the page's "longest turn" would otherwise belong to whoever went to bed with a
+ *   permission unanswered. `running` after a wait resumes the turn; a close while waiting ends it.
+ * - A turn still open at the end of the history is not counted. It has not finished, so it has no
+ *   length yet. A turn the app crashed out of is closed for us — `markStaleOnBoot` writes a
+ *   synthetic idle dated at the session's last real event — so it ends where the evidence of work
+ *   does, not when the app was next opened.
+ *
+ * A second `running` inside an open turn is the same turn: "send now" and a delivered queue both
+ * restate it without the agent ever stopping.
+ */
+export function turnDurations(statuses: readonly StatusSample[]): { ms: number; endedAt: number }[] {
+  const out: { ms: number; endedAt: number }[] = [];
+  let start: number | null = null;
+  let waitingSince: number | null = null;
+  let waited = 0;
+  for (const { ts, status } of statuses) {
+    if (status === "running") {
+      if (start === null) { start = ts; waited = 0; waitingSince = null; }
+      else if (waitingSince !== null) { waited += ts - waitingSince; waitingSince = null; }
+    } else if (status === "waiting_permission") {
+      if (start !== null && waitingSince === null) waitingSince = ts;
+    } else if (status === "idle" || status === "error" || status === "ended") {
+      if (start === null) continue;
+      const pause = waited + (waitingSince !== null ? ts - waitingSince : 0);
+      out.push({ ms: Math.max(0, ts - start - pause), endedAt: ts });
+      start = null; waitingSince = null; waited = 0;
+    }
+  }
+  return out;
 }
 
 /** How many sessions the leaderboard carries. Enough to see the tail of a heavy week without turning

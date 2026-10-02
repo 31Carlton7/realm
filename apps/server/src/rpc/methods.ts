@@ -890,6 +890,7 @@ export function registerMethods(d: Deps): void {
   });
   reg("usage.activeDays", (p) => d.usage.activeDays(p));
   reg("usage.setBudget", (p) => d.usage.setBudget(p));
+  reg("usage.records", () => d.usage.records());
   reg("graphify.probe", (p) => d.graphify.probe({ force: p.force }));
   reg("graphify.update", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
