@@ -7208,12 +7208,16 @@ img.avatar { outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; 
 /* Centred rather than on the title's baseline: the face is a picture, and a picture sat on a text
    baseline hangs below the line it is beside. */
 .you-page .page-head { align-items: center; }
-.you-actions { flex: none; display: flex; align-items: center; gap: 8px; }
+.you-actions { flex: none; display: flex; align-items: center; gap: 8px; margin-left: auto; }
 /* Five figures, and five across the 720px column — `.usage-tiles`' 160px floor put the fifth on a row
    of its own. Tabular here, unlike the Usage tab's tiles: these are five numbers read side by side
    as one row of records, not one hero figure on its own. */
 .you-figures { grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); }
 .you-figures .stat-value { font-variant-numeric: tabular-nums; }
+/* The four "most used" lists side by side, as tall as their longest list. Its own grid rather than
+   the Activity card's `.usage-activity-lists`, whose `flex: 1 1 300px` is written for a ROW: in this
+   card's column the same basis became a 300px height, and the card grew a void under four short lists. */
+.you-most { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 /* The longest turn's session title: one line, because a title is user data of any length and a
    tile five abreast has room for a dozen characters of it. The whole title is the tooltip. */
 .you-figure-sub { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

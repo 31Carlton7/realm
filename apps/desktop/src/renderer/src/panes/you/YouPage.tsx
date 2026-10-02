@@ -125,7 +125,7 @@ function MostUsed({ records }: { records: UsageRecords }) {
         <h3>Most used</h3>
         <span className="usage-card-sub">Models and efforts by messages sent, skills by loads, tools by calls</span>
       </header>
-      <div className="usage-activity-lists you-most">
+      <div className="you-most">
         <TopList title="Models" empty="No messages sent yet."
           rows={records.models.map((m) => ({ key: m.key, label: m.label, value: count(m.messages), note: null }))} />
         <TopList title="Efforts" empty={records.models.length > 0 ? "Every session ran at its engine's default." : "No messages sent yet."}
