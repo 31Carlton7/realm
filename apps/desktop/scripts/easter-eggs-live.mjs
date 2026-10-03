@@ -227,6 +227,13 @@ async function main() {
     input.closest("form").requestSubmit();
     return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('.composer')`), 20000, "composer");
+  /* The window this opens is rarely the key one — it comes up behind whatever is in front — and an
+     unkeyed Mac window greys its accent (`data-window-inactive`, App.tsx's KeyWindowBridge). What this
+     check measures is drawn in the accent, so the window is treated as key for the run, held so in
+     case focus moves while it measures; and the page is told it has focus, or Realm goes quiet. */
+  await c.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+  await evalIn(c, `(() => { const r = document.documentElement; const hold = () => r.removeAttribute('data-window-inactive');
+    hold(); new MutationObserver(hold).observe(r, { attributes: true, attributeFilter: ['data-window-inactive'] }); return true; })()`);
   await c.send("Emulation.setDeviceMetricsOverride", { ...VIEWPORT, deviceScaleFactor: 1, mobile: false });
   await sleep(400);
 
