@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
-import type { Environment } from "@realm/contracts";
+import { TERMINALS_DOCK_KEY, type Environment } from "@realm/contracts";
 import { PanelBar } from "./PanelBar";
 import { ACTION_W, BAR_CHROME, TITLE_MIN, actionsThatFit } from "./pane-bar-fit";
 import { StoreContext, createAppStore } from "../state/store";
@@ -32,12 +32,13 @@ class FakeResizeObserver {
 }
 afterEach(() => { observed = []; delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver; });
 
-async function mountAt(width: number) {
+async function mountAt(width: number, settings: Record<string, unknown> = {}) {
   observed = [];
   (globalThis as { ResizeObserver?: unknown }).ResizeObserver = FakeResizeObserver;
   const api = fakeApi({
     sessions: [session("se1", "s1", { status: "idle", environmentId: ENV.id, cwd: ENV.path })],
     environments: { s1: [ENV] },
+    settings,
   });
   const store = createAppStore(api);
   await store.getState().boot();
@@ -123,8 +124,10 @@ describe("what a narrowing pane bar gives up", () => {
 
   it("an overflowed toggle still says which way it is pointing", async () => {
     /* THE mutant: drop `checked` from the row. A toggle that has moved into the menu stops saying
-       whether it is on — and unlike a button, a menu row has no fill to say it with. */
-    await mountAt(widthFor(0));
+       whether it is on — and unlike a button, a menu row has no fill to say it with.
+       The terminal is a toggle only where Settings docks it at the pane's foot: elsewhere it opens a
+       tab of the side pane, which has no "on" to show (the next test). */
+    await mountAt(widthFor(0), { [TERMINALS_DOCK_KEY]: "bottom" });
     openMenu();
     // A checkbox ROW, not a plain one — that is what carries the state into the menu at all.
     const row = () => {
@@ -141,5 +144,14 @@ describe("what a narrowing pane bar gives up", () => {
     await exited();
     openMenu();
     expect(row()).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("the terminal, opening a tab, rides into the menu as a plain row", async () => {
+    // THE MUTANT: keep `pressed` on the tab-opening terminal. Its row would claim an on and off that a
+    // button which only opens or focuses a tab does not have.
+    await mountAt(widthFor(0));
+    openMenu();
+    expect(screen.getAllByRole("menuitemcheckbox").map((r) => r.textContent)).toEqual(["Files"]);
+    expect(screen.getByRole("menuitem", { name: /Terminal/ })).not.toHaveAttribute("aria-checked");
   });
 });
