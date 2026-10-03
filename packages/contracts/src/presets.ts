@@ -1,7 +1,7 @@
 export const SPACE_COLORS = ["#7c6cff", "#3ddc97", "#ffb454", "#ff6b8b", "#4cc9f0", "#f4a261", "#a3e635", "#c084fc", "#38bdf8", "#fb7185"] as const;
 /**
  * Every glyph a space's icon picker offers under its "Default" section. Curated one-clean-variant-
- * per-concept from the much larger `@hugeicons-pro/core-stroke-standard` pack already vendored into
+ * per-concept from the much larger `@hugeicons-pro/core-stroke-rounded` pack already vendored into
  * `@realm/ui`'s `Icon` component (`packages/ui/src/Icon.tsx`) — this list and that map's keys must
  * stay in lockstep, since a name here with no matching entry there silently falls back to the folder
  * glyph. The first ten are the original set (unchanged order, so existing spaces keep their glyph).

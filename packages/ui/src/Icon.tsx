@@ -36,7 +36,7 @@ import {
   ViewIcon,
   // The page about you (YouPage.tsx).
   UserCircleIcon,
-} from "@hugeicons-pro/core-stroke-standard";
+} from "@hugeicons-pro/core-stroke-rounded";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
 
 export const icons = {
