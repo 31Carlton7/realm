@@ -126,6 +126,8 @@ async function main() {
     env: {
       ...process.env,
       REALM_HOME: home,
+      // The app draws its menus as native OS menus, which CDP cannot click; this asks for drawn ones.
+      REALM_HTML_MENUS: "1",
       REALM_PORT: String(SERVER_PORT),
       REALM_DEVTOOLS_PORT: String(CDP_PORT),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"),
