@@ -7,7 +7,7 @@ import { bundledLayaDir } from "./benchmark";
 import { DecisionLog } from "./log";
 import { LayaStepError, type LayaRuntime } from "./runtime";
 import { fakeRuntime, type FakeRuntime } from "./test-fakes";
-import { MIN_FREE_DISK, beats, machineState, progressOf, readEval, trainCheckpoint, type MachineState, type TrainProgress } from "./training";
+import { MIN_FREE_DISK, RUN_MIN_FREE_DISK, beats, machineState, progressOf, readEval, trainCheckpoint, type MachineState, type TrainProgress } from "./training";
 
 /**
  * A training run end to end, with the script and laya-serve both stood in for: the rows it writes,
@@ -77,7 +77,9 @@ describe("a training run", () => {
     log.append({ v: 1, intent: "open Wi-Fi", tool: "simulator_tap", candidates: [{ id: "1", role: "Button", label: "Wi-Fi" }, { id: "2", role: "Button", label: "General" }], truth: { target: { id: "1", source: "agent" }, verify: null }, laya: { verify: null } });
     const progress: TrainProgress[] = [];
     // And one screen recorded while its owner used an app: a training screen like any other.
-    const recorded = [{ id: "rec-1-0001", app: "Instagram", from: "recording:rec-1", elements: [{ id: "0.1", role: "Button", label: "Reels" }, { id: "0.2", role: "Button", label: "Search" }, { id: "0.3", role: "Button", label: "Profile" }] }];
+    // …with half an emoji in a label, either half, as an app can give one: it reaches train.py whole or
+    // not at all.
+    const recorded = [{ id: "rec-1-0001", app: "Instagram", from: "recording:rec-1", elements: [{ id: "0.1", role: "Button", label: "Reels" }, { id: "0.2", role: "Button", label: "Search" }, { id: "0.3", role: "Button", label: "Profile \ud83d" }, { id: "0.4", role: "Button", label: "Saved \ude00" }] }];
     const result = await trainCheckpoint({ runtime: rt, resources, logFiles: () => log.files(), recorded: () => recorded }, { name: "2026-09-29T07-12", signal: new AbortController().signal, onProgress: (p) => progress.push(p) });
 
     const work = join(rt.dir, "train", "2026-09-29T07-12");
@@ -86,6 +88,12 @@ describe("a training run", () => {
     expect(calls[0]!.args).toEqual(["--base", join(rt.dir, "hf", "base"), "--train", join(work, "train.jsonl"), "--calib", join(work, "calib.jsonl"), "--valid", join(work, "valid.jsonl"), "--out", join(rt.checkpointsDir, "2026-09-29T07-12"), "--batch", "4", "--accum", "4"]);
     const rows = readFileSync(join(work, "train.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l) as { state: string; source: string });
     expect(rows.filter((r) => r.source === "log")).toHaveLength(1);
+    // THE MUTANT: write rows as they come. One lone surrogate and train.py refuses the whole run.
+    const strings = (x: unknown): string[] => typeof x === "string" ? [x] : Array.isArray(x) ? x.flatMap(strings) : x && typeof x === "object" ? Object.entries(x).flatMap(([k, v]) => [k, ...strings(v)]) : [];
+    expect(rows.flatMap(strings).every((t) => t.match(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/) === null)).toBe(true);
+    expect(rows.some((r) => JSON.stringify(r).includes("Profile \ufffd"))).toBe(true);
+    // THE MUTANT: look for an emoji's first half only. Its second half, alone, is refused the same.
+    expect(rows.some((r) => JSON.stringify(r).includes("Saved \ufffd"))).toBe(true);
     // THE MUTANT: never read the recordings. A person's hour in an app teaches nothing.
     expect(rows.some((r) => JSON.stringify(r).includes("Reels"))).toBe(true);
     // Held-out apps are nowhere in what it learns from.
@@ -106,7 +114,7 @@ describe("a training run", () => {
     await expect(trainCheckpoint({ runtime: rt, resources, logFiles: () => [] }, { name: "n", signal: new AbortController().signal, onProgress: () => {} })).rejects.toThrow("Install Laya again");
   });
 
-  describe("on a Mac short of memory", () => {
+  describe("on a Mac short of memory or disk", () => {
     const GB = 1024 ** 3;
     const go = (rt: FakeRuntime, machine: () => Promise<MachineState>, name = "n") =>
       trainCheckpoint({ runtime: rt, resources, logFiles: () => [], machine, watchMs: 5 }, { name, signal: new AbortController().signal, onProgress: () => {} });
@@ -148,6 +156,37 @@ describe("a training run", () => {
       expect(ran).toEqual(["train"]);
       expect(rt.starts).toHaveLength(0);
     });
+
+    it("stops a run when swap fills the disk under it, and says how little is left", async () => {
+      const ran: string[] = [];
+      const rt = runtimeFor({ script: endless(ran) as never });
+      let reads = 0;
+      // Room as it starts, then swap eats the disk while it runs; memory only warned all along.
+      const machine = async (): Promise<MachineState> => ({ pressure: "warn", freeDiskBytes: reads++ === 0 ? 20 * GB : 3.5 * GB });
+      // THE MUTANT: watch memory alone. MEASURED: swap took this Mac from 6 GB free to 4 GB in two
+      // minutes, and the hang before came at about 3.
+      await expect(go(rt, machine)).rejects.toThrow("Stopped: this Mac's disk was down to 3.5 GB free while training, and macOS swaps onto it, so the run was ended before it could hang. Nothing it made was kept. Free up some space and train again.");
+      expect(ran).toEqual(["train"]);
+      expect(rt.starts).toHaveLength(0);
+    });
+
+    it("goes on with exactly the room it stops under", async () => {
+      const ran: string[] = [];
+      const rt = runtimeFor({ script: async ({ args }) => {
+        ran.push("train");
+        await new Promise((r) => setTimeout(r, 120));
+        const out = args[args.indexOf("--out") + 1]!;
+        mkdirSync(out, { recursive: true });
+        writeFileSync(join(out, "model.safetensors"), "weights");
+      } });
+      let reads = 0;
+      // THE MUTANT: stop AT the floor, or hold a running job to the 8 GB a start needs. Either ends an
+      // hour of work with room still to swap.
+      const result = await go(rt, async () => ({ pressure: "normal", freeDiskBytes: reads++ === 0 ? MIN_FREE_DISK : RUN_MIN_FREE_DISK }), "n3");
+      expect(ran).toEqual(["train"]);
+      expect(result.report.checkpoint).toBe("local:n3");
+      expect(RUN_MIN_FREE_DISK).toBe(4 * GB);
+    }, 60_000);
 
     it("rides out a moment of critical pressure, and a Mac only warned", async () => {
       const ran: string[] = [];

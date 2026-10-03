@@ -48,6 +48,12 @@ export type MachineState = { pressure: "normal" | "warn" | "critical"; freeDiskB
  * kernel's compressor at its segment limit "with LOW swap space", then a watchdog panic and a reboot.
  */
 export const MIN_FREE_DISK = 8 * 1024 ** 3;
+/**
+ * The free space a run is stopped under once it is going: swap grows with the run, onto this disk.
+ * MEASURED on 2026-10-01: a run's swap passed 20 GB and took this Mac's disk from 6 GB free to 4 GB in
+ * two minutes; the hang the run before it came at about 3 GB.
+ */
+export const RUN_MIN_FREE_DISK = 4 * 1024 ** 3;
 /** Critical readings in a row that stop a run: one is a spike, three are the start of a hang. */
 const CRITICAL_READINGS = 3;
 const WATCH_MS = 5_000;
@@ -69,6 +75,19 @@ const gb = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 
 export type TrainResult = { name: string; dir: string; report: LayaEvalReport };
 
+/** `x` with every string's lone surrogates replaced: half an emoji from anywhere — an app's own label,
+ *  a log row — is text train.py's tokenizer refuses, and it refuses the whole run for one. */
+export function wellFormed<T>(x: T): T {
+  if (typeof x === "string") return whole(x) as T;
+  if (Array.isArray(x)) return x.map(wellFormed) as T;
+  if (x && typeof x === "object") return Object.fromEntries(Object.entries(x).map(([k, v]) => [whole(k), wellFormed(v)])) as T;
+  return x;
+}
+
+/** Half an emoji: a high surrogate with no low after it, or a low with no high before it. */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+const whole = (s: string): string => s.replace(LONE_SURROGATE, "�");
+
 /** The label a checkpoint trained here is served and logged under. */
 export const localCheckpointLabel = (name: string): string => `local:${name}`;
 
@@ -89,7 +108,7 @@ export async function trainCheckpoint(d: TrainerDeps, o: { name: string; signal:
   const work = join(rt.dir, "train", o.name);
   mkdirSync(work, { recursive: true, mode: 0o700 });
   const { rows, stats } = trainingSet(bench, lexicon, { heldoutApps: manifest.split.heldoutApps, validationApps: manifest.split.validationApps, log: readLog(d.logFiles()), recorded: d.recorded?.() ?? [] });
-  const jsonl = (xs: unknown[]) => xs.map((x) => JSON.stringify(x)).join("\n") + "\n";
+  const jsonl = (xs: unknown[]) => xs.map((x) => JSON.stringify(wellFormed(x))).join("\n") + "\n";
   writeFileSync(join(work, "train.jsonl"), jsonl(rows));
   writeFileSync(join(work, "calib.jsonl"), jsonl(benchmarkRows(bench, ["train"])));
   writeFileSync(join(work, "valid.jsonl"), jsonl(benchmarkRows(bench, ["validation"])));
@@ -97,15 +116,20 @@ export async function trainCheckpoint(d: TrainerDeps, o: { name: string; signal:
   const dir = join(rt.checkpointsDir, o.name);
   mkdirSync(rt.checkpointsDir, { recursive: true, mode: 0o700 });
   o.onProgress({ step: "training", detail: `Training on ${stats.rows.toLocaleString()} questions${stats.fromLog ? `, ${stats.fromLog.toLocaleString()} of them from your log` : ""}`, fraction: 0 });
-  // Watched while it runs: pressure that stays critical stops the run before the Mac hangs.
+  // Watched while it runs: pressure that stays critical, or a disk swap is filling, stops the run before
+  // the Mac hangs. What stopped it is what the person is told.
   const run = new AbortController();
   const stopWith = () => run.abort();
   o.signal.addEventListener("abort", stopWith);
-  let critical = 0, starved = false;
+  let critical = 0;
+  let starved = null as string | null;
   const watch = d.machine ? setInterval(() => {
     void d.machine!().then((now) => {
+      if (run.signal.aborted) return;
       critical = now.pressure === "critical" ? critical + 1 : 0;
-      if (critical >= CRITICAL_READINGS && !run.signal.aborted) { starved = true; run.abort(); }
+      if (critical >= CRITICAL_READINGS) starved = "Stopped: this Mac ran short of memory while training, so the run was ended before it could hang. Nothing it made was kept. Close what you can and train again.";
+      else if (now.freeDiskBytes < RUN_MIN_FREE_DISK) starved = `Stopped: this Mac's disk was down to ${gb(now.freeDiskBytes)} free while training, and macOS swaps onto it, so the run was ended before it could hang. Nothing it made was kept. Free up some space and train again.`;
+      if (starved) run.abort();
     }, () => {});
   }, d.watchMs ?? WATCH_MS) : null;
   try {
@@ -119,13 +143,13 @@ export async function trainCheckpoint(d: TrainerDeps, o: { name: string; signal:
       },
     });
   } catch (e) {
-    if (starved) throw new Error("Stopped: this Mac ran short of memory while training, so the run was ended before it could hang. Nothing it made was kept. Close what you can and train again.");
+    if (starved) throw new Error(starved);
     throw e;
   } finally {
     if (watch) clearInterval(watch);
     o.signal.removeEventListener("abort", stopWith);
   }
-  if (starved) throw new Error("Stopped: this Mac ran short of memory while training, so the run was ended before it could hang. Nothing it made was kept. Close what you can and train again.");
+  if (starved) throw new Error(starved);
 
   o.onProgress({ step: "evaluating", detail: "Loading the new checkpoint", fraction: null });
   const report = await evaluateCheckpoint(d, { dir, checkpoint: localCheckpointLabel(o.name), signal: o.signal, onProgress: o.onProgress });
