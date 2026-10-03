@@ -464,7 +464,10 @@ export const KEY_COMMANDS: readonly KeyCommand[] = [
   { id: "session.attachFiles", label: "Add files to this session", group: "Sessions" },
   { id: "session.dispatchDraft", label: "Dispatch the draft", group: "Sessions" },
   { id: "session.interrupt", label: "Interrupt the running session", group: "Sessions" },
-  { id: "terminal.toggle", label: "Show/hide this session's terminal", group: "Sessions" },
+  /* Shows the terminal and, in its default place as a tab of the side pane, goes to it rather than
+     putting it away — `diff.open`'s shape, so the label says Show. The id keeps `toggle` because
+     people's own keybindings are stored against it, and the bottom dock does still toggle. */
+  { id: "terminal.toggle", label: "Show this session's terminal", group: "Sessions" },
 
   { id: "terminal.new", label: "New terminal", group: "App" },
   { id: "browser.new", label: "New browser", group: "App" },

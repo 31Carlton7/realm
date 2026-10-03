@@ -111,6 +111,8 @@ function useSessionActions(item: Item): BarAction[] {
   const id = item.refId;
   const dock = useApp((s) => s.sessionDock[id]?.kind);
   const toggleSessionDock = useApp((s) => s.toggleSessionDock);
+  const terminalDock = useApp((s) => s.terminalDock);
+  const showSessionTerminal = useApp((s) => s.showSessionTerminal);
   // Same precondition the documents button always had: gated on the environment being loaded,
   // because an action that could only no-op is dead chrome (Ara refresh §7).
   const environmentId = useApp((s) => {
@@ -139,11 +141,14 @@ function useSessionActions(item: Item): BarAction[] {
       aria: `Files for ${item.title}`, dialog: true, on: dock === "files",
       onSelect: () => toggleSessionDock(id, { kind: "files" }),
     });
+    /* A tab of the side pane, like the buttons after it — unless Settings has put the terminal in the
+       dock at the pane's foot, the one placement that is still a panel this button shows and hides. */
+    const docked = terminalDock === "bottom";
     list.push({
       id: "terminal", label: "Terminal", title: "Terminal (⌘J)", icon: "terminal",
-      aria: `${dock === "terminal" ? "Hide" : "Show"} terminal for ${item.title}`,
-      dialog: true, pressed: dock === "terminal",
-      onSelect: () => toggleSessionDock(id, { kind: "terminal" }),
+      aria: docked ? `${dock === "terminal" ? "Hide" : "Show"} terminal for ${item.title}` : `Open the terminal beside ${item.title}`,
+      ...(docked ? { dialog: true, pressed: dock === "terminal" } : {}),
+      onSelect: () => run(() => showSessionTerminal(id)),
     });
     if (environmentId) list.push({
       id: "documents", label: "Documents", title: "Documents", icon: "documents",
@@ -175,7 +180,7 @@ function useSessionActions(item: Item): BarAction[] {
       onSelect: () => run(() => newSimulator(null, { sessionId: id })),
     });
     return list;
-  }, [id, item.title, dock, environmentId, summaryLive, toggleSessionDock, openDocuments, newBrowser, newMachine, newSimulator, run]);
+  }, [id, item.title, dock, terminalDock, environmentId, summaryLive, toggleSessionDock, showSessionTerminal, openDocuments, newBrowser, newMachine, newSimulator, run]);
 }
 
 /**
@@ -374,6 +379,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // What is docked to this pane's right edge, if anything — one strip, one occupant.
   const dock = useApp((s) => s.sessionDock[id]);
   const closeSessionDock = useApp((s) => s.closeSessionDock);
+  const terminalDocked = useApp((s) => s.terminalDock === "bottom");
   /* A callback ref, and the panel is gated on the STATE it sets — not on the ref alone.
      React attaches refs bottom-up, so a child rendered inside this div runs its own layout effect
      before this div's ref is assigned: the panel measured `null`, fell back to the whole window,
@@ -675,10 +681,12 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
         <SubagentPanel sessionId={id} toolUseId={dock.toolUseId} anchorRef={paneRef}
           onClose={() => closeSessionDock(id)} />
       )}
-      {/* The terminal, on the same strip and by the same rules — see TerminalDock. Rendered from the
-          pane like the sub-agent view rather than wrapping it in a split, which is what stops the
-          pane from looking cut in half for a shell most turns never ask for. */}
-      {dock?.kind === "terminal" && paneEl && (
+      {/* The terminal, when Settings docks it to the pane's foot — see TerminalDock. Its default place
+          is a tab of the side pane, which is not this pane's to draw, so a dock left open when the
+          setting moved back is not drawn either. Rendered from the pane like the sub-agent view
+          rather than wrapping it in a split, which would cut the pane in half for a shell most turns
+          never ask for. */}
+      {dock?.kind === "terminal" && terminalDocked && paneEl && (
         <TerminalDock sessionId={id} title={terminalTitle(session.cwd)} visible={visible}
           anchorRef={paneRef} onClose={() => closeSessionDock(id)} />
       )}

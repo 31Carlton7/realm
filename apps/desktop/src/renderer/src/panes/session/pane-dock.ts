@@ -13,12 +13,9 @@ import { useEffect, useLayoutEffect, useState } from "react";
 const DOCK_MIN_COLUMN = 420;
 const DOCK_GUTTER = 16;
 
-/** The docked panels' widths, in px, matching the `--summary-w` / `--terminal-dock-w` tokens.
- *  Duplicated here because the pin decision is arithmetic and CSS cannot answer it. */
+/** The docked panels' width, in px, matching the `--summary-w` token. Duplicated here because the
+ *  pin decision is arithmetic and CSS cannot answer it. */
 export const DOCK_W_SUMMARY = 320;
-/** The terminal's is far wider on purpose: 320px is about forty columns, which is a shell you cannot
- *  read a stack trace or a `git log` in. */
-export const DOCK_W_TERMINAL = 560;
 
 /**
  * Below this pane width the dock FLOATS over the transcript instead of the transcript making room.
@@ -26,14 +23,11 @@ export const DOCK_W_TERMINAL = 560;
  * A pane wide enough to give the panel up and still leave a readable column keeps it pinned beside
  * the transcript, which is what makes it usable while you scroll. Narrower, pinning would squeeze
  * the transcript into a gutter.
- *
- * Per-panel rather than one constant, because the panels are no longer one size: the same pane that
- * can comfortably pin a 320px summary would be left with a 200px transcript by a 560px terminal.
  */
 export const dockPinMinPane = (dockWidth: number): number => dockWidth + DOCK_MIN_COLUMN + DOCK_GUTTER;
 export const DOCK_PIN_MIN_PANE = dockPinMinPane(DOCK_W_SUMMARY);
 
-/** The terminal docked to the BOTTOM edge instead (Settings ▸ General ▸ Terminals), matching
+/** The terminal, docked to the pane's BOTTOM edge (Settings ▸ General ▸ Terminals), matching
  *  `--terminal-dock-h`: a shell's usual dozen-odd lines and its bar. */
 export const DOCK_H_TERMINAL = 320;
 /** What a bottom dock has to leave above it: enough transcript to read the last answer, and the

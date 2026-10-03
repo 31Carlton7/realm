@@ -2190,8 +2190,9 @@ describe("dividers", () => {
     const dock = bodiesFor(".terminal-dock").join(" ");
     // Without this the pty paints a square straight over the corners the card just rounded.
     expect(dock).toContain("overflow: hidden");
-    // Full height, unlike its content-height neighbours.
-    expect(dock).toContain("height: calc(var(--dock-pane-h) - var(--sidebar-inset) * 2)");
+    // A shell's own height along the pane's foot, not its content's: a dock that grew as output
+    // scrolled would move the window being typed into.
+    expect(dock).toContain("height: var(--terminal-dock-h)");
     /* No seam between the title and the shell it names. The bar is chrome FOR the terminal, not a
        section beside it — the same reason `.md-code-head` left the divider list above. */
     expect(bodiesFor(".terminal-dock-bar").join(" ")).not.toMatch(/border-bottom/);

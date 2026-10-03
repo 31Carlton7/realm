@@ -228,3 +228,154 @@ describe("a tool picked on a new tab", () => {
     expect(store.getState().paletteReplaces).toBe(blank);
   });
 });
+
+/**
+ * The session's terminal, from its pane bar's button, ⌘J or View ▸ Show Terminal — all three run
+ * `showSessionTerminal`. In its default place it is a tab of the session's side pane, started in the
+ * session's checkout the way the new-tab page's Terminal starts one, and a press goes to the one it
+ * has rather than making another. Docked to the pane's foot by Settings, it is the dock it always was.
+ */
+describe("the session's terminal, as a tab of its side pane", () => {
+  const WORKTREE = "/repo/.worktrees/fix-parser";
+  /** The lead working in a worktree, focused, with or without a side pane holding one browser. */
+  async function lead(opts: { sidePane?: boolean } = {}) {
+    const api = fakeApi({
+      items: { s1: [item("i-lead", "s1", { kind: "session", refId: "lead", title: "Lead" }), item("i-br", "s1", { kind: "browser", refId: "br", title: "Job 1" })] },
+      sessions: [session("lead", "s1", { cwd: WORKTREE })],
+    });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openItem("i-lead");
+    if (opts.sidePane !== false) await store.getState().openInSidePane("lead", "i-br");
+    return { api, store };
+  }
+  const terminals = (store: Store) => store.getState().items.filter((i) => i.kind === "terminal");
+  const made = (api: ReturnType<typeof fakeApi>) => api.calls.filter((c) => c.startsWith("createTerminal")).length;
+  const leafOf = (store: Store, itemId: string) => findLeafOfItem(store.getState().layout!, itemId)!.id;
+
+  it("opens a shell in the session's checkout as a tab of its side pane, with the keyboard", async () => {
+    // THE MUTANTS: leave the cwd off, and the shell opens in the space's primary checkout while the
+    // session works in a worktree; drop the focus, and the keyboard stays in the prompter.
+    const { api, store } = await lead({ sidePane: false });
+    await store.getState().showSessionTerminal("lead");
+    expect(api.calls).toContain(`createTerminal:s1:${WORKTREE}`);
+    const term = terminals(store)[0]!.id;
+    expect(side(store)).toMatchObject({ itemId: term, tabs: [term] });
+    expect(store.getState().focusedLeafId).toBe(side(store).id);
+    // Never the dock, and never the session's hidden shell: the tab IS the terminal now.
+    expect(store.getState().sessionDock.lead).toBeUndefined();
+    expect(api.calls.some((c) => c.startsWith("openSessionTerminal"))).toBe(false);
+  });
+
+  it("joins the side pane the session already has, after the tab showing", async () => {
+    // THE MUTANT: open it beside the session like a pane of its own — a second column next to the
+    // side pane, which is the column-per-thing layout the side pane exists to end.
+    const { store } = await lead();
+    await store.getState().showSessionTerminal("lead");
+    expect(side(store).tabs).toEqual(["i-br", terminals(store)[0]!.id]);
+    const root = store.getState().layout!;
+    expect(root.type === "split" ? root.children : [root]).toHaveLength(2);
+  });
+
+  it("goes to the tab it has on a second press, bringing it to the front, rather than starting another shell", async () => {
+    // THE MUTANT: skip the lookup, and every press is a new shell — a strip filling with terminals.
+    const { api, store } = await lead();
+    await store.getState().showSessionTerminal("lead");
+    const term = terminals(store)[0]!.id;
+    await store.getState().openItem("i-br");
+    store.getState().focusLeaf(leafOf(store, "i-lead"));
+    await store.getState().showSessionTerminal("lead");
+    expect(made(api)).toBe(1);
+    expect(side(store).itemId).toBe(term);
+    expect(store.getState().focusedLeafId).toBe(side(store).id);
+  });
+
+  it("brings back the same shell after its tab was put away with ⌘W", async () => {
+    // THE MUTANT: forget which terminal the button made. The press after ⌘W starts a second shell, and
+    // the first one — scrollback and all — is left in the sidebar.
+    const { api, store } = await lead();
+    await store.getState().showSessionTerminal("lead");
+    const term = terminals(store)[0]!.id;
+    await store.getState().closeFromLayout(term);
+    expect(side(store).tabs).toEqual(["i-br"]);
+    await store.getState().showSessionTerminal("lead");
+    expect(made(api)).toBe(1);
+    expect(side(store)).toMatchObject({ itemId: term, tabs: ["i-br", term] });
+  });
+
+  it("goes to a terminal already among the side pane's tabs — one the new-tab page made, or one back after a relaunch", async () => {
+    // THE MUTANT: look only at what this run's button made, and after a relaunch the press starts a
+    // second shell beside the one already in the strip.
+    const { api, store } = await lead();
+    const { itemId } = await api.createTerminal("s1", WORKTREE);
+    await store.getState().refreshItems();
+    await store.getState().openInSidePane("lead", itemId);
+    await store.getState().openItem("i-br");
+    const before = made(api);
+    await store.getState().showSessionTerminal("lead");
+    expect(made(api)).toBe(before);
+    expect(side(store).itemId).toBe(itemId);
+  });
+
+  it("goes to a terminal showing in the strip before bringing back one that was put away", async () => {
+    // The button's own shell was closed with ⌘W and the new-tab page made another. THE MUTANT: ask the
+    // button's memory first, and a press puts a second terminal in the strip beside the one already
+    // there.
+    const { api, store } = await lead();
+    await store.getState().showSessionTerminal("lead");
+    await store.getState().closeFromLayout(terminals(store)[0]!.id);
+    const { itemId: other } = await api.createTerminal("s1", WORKTREE);
+    await store.getState().refreshItems();
+    await store.getState().openInSidePane("lead", other);
+    store.getState().focusLeaf(leafOf(store, "i-lead"));
+    await store.getState().showSessionTerminal("lead");
+    expect(side(store)).toMatchObject({ itemId: other, tabs: ["i-br", other] });
+  });
+
+  it("goes to it where the user put it, without pulling it back into the side pane", async () => {
+    // A tab dragged to an edge is part of the user's own layout. THE MUTANT: always open it in the side
+    // pane, and the press yanks it back into the strip.
+    const { store } = await lead();
+    await store.getState().showSessionTerminal("lead");
+    const term = terminals(store)[0]!.id;
+    await store.getState().openItemAt(term, leafOf(store, "i-lead"), "bottom");
+    const where = leafOf(store, term);
+    store.getState().focusLeaf(leafOf(store, "i-lead"));
+    await store.getState().showSessionTerminal("lead");
+    expect(leafOf(store, term)).toBe(where);
+    expect(store.getState().focusedLeafId).toBe(where);
+    expect(side(store).tabs).toEqual(["i-br"]);
+  });
+
+  it("starts one shell for two presses in flight", async () => {
+    // THE MUTANT: no join, and a double click opens two terminals.
+    const { api, store } = await lead();
+    api.delays["createTerminal"] = 10;
+    await Promise.all([store.getState().showSessionTerminal("lead"), store.getState().showSessionTerminal("lead")]);
+    expect(made(api)).toBe(1);
+    expect(terminals(store)).toHaveLength(1);
+  });
+
+  it("types an offered command into that tab's shell, with no newline", async () => {
+    // The install card's "Open in terminal". THE MUTANT: write it into the session's hidden shell, which
+    // nothing on screen shows any more — the button would appear to do nothing.
+    const { api, store } = await lead();
+    await store.getState().prefillTerminal("lead", "codex login");
+    const term = terminals(store)[0]!;
+    expect(api.calls).toContain(`prefillTerminal:${term.refId}=codex login`);
+    expect(side(store).itemId).toBe(term.id);
+    expect(api.calls.some((c) => c.startsWith("openSessionTerminal"))).toBe(false);
+  });
+
+  it("docked to the pane's foot by Settings, toggles the dock and makes no tab", async () => {
+    // THE MUTANT: ignore the setting, and Bottom opens a tab beside the session as Right does.
+    const { api, store } = await lead({ sidePane: false });
+    store.setState({ terminalDock: "bottom" });
+    await store.getState().showSessionTerminal("lead");
+    expect(store.getState().sessionDock.lead).toEqual({ kind: "terminal" });
+    await store.getState().showSessionTerminal("lead");
+    expect(store.getState().sessionDock.lead).toBeUndefined();
+    expect(made(api)).toBe(0);
+    expect(findSidePane(store.getState().layout!, "i-lead")).toBeNull();
+  });
+});

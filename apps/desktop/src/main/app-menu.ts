@@ -43,7 +43,7 @@ export const MENU_LAYOUT = {
   view: [
     row("sidebar.toggle", "Toggle Sidebar"), row("palette.toggle", "Command Palette…"), row("spaces.toggle", "All Spaces"),
     null,
-    row("pane.toggleFocus", "Focus Pane"), row("terminal.toggle", "Toggle Terminal"), row("diff.open", "Show Changes"),
+    row("pane.toggleFocus", "Focus Pane"), row("terminal.toggle", "Show Terminal"), row("diff.open", "Show Changes"),
     row("documents.open", "Documents"), row("activity.open", "MCP Activity"),
   ],
   go: [
