@@ -10,6 +10,10 @@
  * that exists under a selector nothing MATCHES reads as present; jsdom lays nothing out, so an inset
  * of zero and an inset of six measure the same. Both of those are what this asks a real engine.
  *
+ * The dock is the Bottom placement's (Settings ▸ General ▸ Session terminal) — in its default place the
+ * terminal is a tab of the side pane, which `terminal-tab-live.mjs` checks — so this docks it there
+ * first.
+ *
  * Read-only: it measures, it does not fix. Touches only a scratch dir; kills only what it started.
  */
 import { spawn } from "node:child_process";
@@ -18,6 +22,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { stopDaemons } from "./lib/daemon-token.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9362), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8932);
@@ -148,6 +153,16 @@ async function main() {
   await c.send("Emulation.setDeviceMetricsOverride", { width: 1200, height: 820, deviceScaleFactor: 1, mobile: false });
   await sleep(500);
 
+  /* ── Dock the terminal to the pane's foot, the one placement that is a dock ─────────────────── */
+  for (const type of ["keyDown", "keyUp"]) await c.send("Input.dispatchKeyEvent", { type, modifiers: 4, key: ",", code: "Comma", windowsVirtualKeyCode: 188 });
+  await until(() => evalIn(c, `!!document.querySelector('.settings-page-pane')`), 10000, "settings");
+  await evalIn(c, `(() => { [...document.querySelectorAll('.page-rail input')].find((r) => r.value === 'general').click(); return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector('input[name=settings-terminal-dock][value=bottom]')`), 5000, "the Session terminal choice");
+  await evalIn(c, `(() => { document.querySelector('input[name=settings-terminal-dock][value=bottom]').click(); return true; })()`);
+  await sleep(300);
+  await evalIn(c, `(() => { document.querySelector('.page-overlay button[aria-label^="Close"]').click(); return true; })()`);
+  await until(() => evalIn(c, `!document.querySelector('.settings-page-pane')`), 5000, "back to the workspace");
+
   /* ── Open the terminal dock ───────────────────────────────────────────────────────────────── */
   const toggle = await until(() => evalIn(c, `!!document.querySelector('button[aria-label^="Show terminal"]')`), 15000, "the terminal toggle");
   check("the pane bar offers a terminal toggle", toggle === true);
@@ -174,5 +189,7 @@ main()
   .finally(async () => {
     try { electron?.kill("SIGKILL"); } catch {}
     await sleep(200);
+    // The server is an Electron of its own and outlives the one that spawned it.
+    await stopDaemons(path.join(scratch, "home"));
     fs.rmSync(scratch, { recursive: true, force: true });
   });

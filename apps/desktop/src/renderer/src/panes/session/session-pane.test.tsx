@@ -1876,18 +1876,19 @@ function fakeHub() {
   return new TerminalHub(transport, () => ({ term, fit: { fit() {} } }));
 }
 
-describe("the session's terminal dock (W4)", () => {
+describe("the session's terminal (W4)", () => {
   beforeEach(() => { vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} }); });
   afterEach(() => { setTerminalHubForTests(null); vi.unstubAllGlobals(); });
 
   const sessionItem = item("i9", "s1", { kind: "session", refId: "se1", title: "Fake agent session" });
 
-  /** The pane AND its header, which is where the toggle lives (PanelBar renders per-kind actions). */
-  async function mountPane(open = false) {
+  /** The pane AND its header, which is where the button lives (PanelBar renders per-kind actions).
+   *  The dock is the BOTTOM placement's, so every test of it docks the terminal there. */
+  async function mountPane(open = false, terminalDock: "right" | "bottom" = "bottom") {
     setTerminalHubForTests(fakeHub());
     const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle" })] });
     const store = createAppStore(api); await store.getState().boot();
-    store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } },
+    store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } }, terminalDock,
       ...(open ? { sessionDock: { se1: { kind: "terminal" as const } } } : {}) });
     const r = render(
       <StoreContext.Provider value={store}>
@@ -1912,7 +1913,17 @@ describe("the session's terminal dock (W4)", () => {
     await waitFor(() => expect(api.calls).toContain("createSimulator:s1"));
   });
 
-  it("is absent until the header toggle is pressed — mounting a session never spawns a shell", async () => {
+  it("in its default place, mounting spawns nothing and the button starts a shell in the session's checkout as a tab", async () => {
+    const { api } = await mountPane(false, "right");
+    expect(api.calls.some((c) => c.startsWith("createTerminal"))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Open the terminal beside Fake agent session" }));
+    await waitFor(() => expect(api.calls).toContain("createTerminal:s1:/tmp"));
+    // A tab, not the dock: no dialog over the transcript, and not the session's hidden shell.
+    expect(screen.queryByRole("dialog", { name: /Terminal for/ })).toBeNull();
+    expect(api.calls.some((c) => c.startsWith("openSessionTerminal"))).toBe(false);
+  });
+
+  it("docked to the bottom, is absent until the header toggle is pressed — mounting a session never spawns a shell", async () => {
     const { api, store } = await mountPane();
     expect(document.querySelector(".terminal-pane")).toBeNull();
     expect(toggle()).toHaveAttribute("aria-pressed", "false");
@@ -1923,8 +1934,8 @@ describe("the session's terminal dock (W4)", () => {
     expect(api.calls).toContain("openSessionTerminal:se1");
     expect(toggle()).toHaveAttribute("aria-pressed", "true");
     expect(store.getState().sessionDock["se1"]).toEqual({ kind: "terminal" });
-    // It opens on the pane's dock strip as a dialog — the transcript is beside it, not cut in half
-    // by a divider, which is what the split did and what this replaced.
+    // It opens along the pane's foot as a dialog — the transcript is above it, not cut in half by a
+    // divider, which is what the split did and what this replaced.
     expect(screen.getByRole("dialog", { name: /Terminal for/ })).toBeInTheDocument();
     expect(document.querySelector(".session-split")).toBeNull();
   });
@@ -2048,14 +2059,26 @@ describe("the CLI-missing install card (W4)", () => {
     expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
   });
 
-  it("'Open in terminal' opens the session's panel with the command TYPED, never run", async () => {
-    const { api } = await mountAgent([missing]);
+  it("'Open in terminal' opens the session's terminal with the command TYPED, never run", async () => {
+    const { api, store } = await mountAgent([missing]);
+    await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Open in terminal" }));
+    await waitFor(() => expect(api.calls.some((c) => c.startsWith("prefillTerminal:"))).toBe(true));
+    // Into the terminal the bar's button opens: a tab of the side pane, in the session's checkout.
+    expect(api.calls).toContain("createTerminal:s1:/tmp");
+    const term = store.getState().items.filter((i) => i.kind === "terminal").at(-1)!;
+    expect(api.calls).toContain(`prefillTerminal:${term.refId}=${AGENT_CLI_COMMANDS.claude.install}`);
+    expect(api.calls.find((c) => c.startsWith("prefillTerminal:"))).not.toMatch(/[\r\n]$/);
+  });
+
+  it("'Open in terminal' with the terminal docked to the bottom types into the dock's shell", async () => {
+    const { api, store } = await mountAgent([missing]);
+    store.setState({ terminalDock: "bottom" });
     await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "Open in terminal" }));
     await waitFor(() => expect(api.calls.some((c) => c.startsWith("prefillTerminal:"))).toBe(true));
     expect(api.calls).toContain("openSessionTerminal:se1");
     expect(api.calls).toContain(`prefillTerminal:term-se1=${AGENT_CLI_COMMANDS.claude.install}`);
-    expect(api.calls.find((c) => c.startsWith("prefillTerminal:"))).not.toMatch(/[\r\n]$/);
     await waitFor(() => expect(document.querySelector(".terminal-pane")).not.toBeNull());
   });
 

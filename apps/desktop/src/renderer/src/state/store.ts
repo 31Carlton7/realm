@@ -4,7 +4,7 @@ import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sour
 import { createStore, useStore, type StoreApi } from "zustand";
 import { EMPTY_TRAIL, pushStop, settleStop, stepTarget, type WindowStop, type WindowTrail } from "./window-trail";
 import {
-  allItems, closeItem as layoutClose, closeLeaf as layoutCloseLeaf, emptyLayout, moveTab as layoutMoveTab, openInSidePane as layoutOpenInSidePane, equalizeSplit as layoutEqualize, findLeaf, findLeafOfItem, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, modeWireValue, sessionModeOf,
+  allItems, closeItem as layoutClose, closeLeaf as layoutCloseLeaf, emptyLayout, moveTab as layoutMoveTab, openInSidePane as layoutOpenInSidePane, equalizeSplit as layoutEqualize, findLeaf, findLeafOfItem, findSidePane, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, modeWireValue, sessionModeOf,
   lectureWrapUpPrompt, localDateStamp, sessionEvent,
   activeGroup, activeLayout, addGroup as groupsAdd, mapGroup, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveGroup as groupsMove, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
@@ -1906,8 +1906,9 @@ export type AppState = {
   /** Remember the agent a fresh session should use (onboarding's default-agent pick). Same setting the
    *  prompter's agent chip writes, so the two never disagree. */
   setDefaultAgent(kind: AgentKind): Promise<void>;
-  /** Show the session's terminal panel and TYPE `command` into it, without a trailing newline: Realm
-   *  offers the command, the user presses Return. Nothing here ever runs an installer. */
+  /** Show the session's terminal, wherever `showSessionTerminal` puts it, and TYPE `command` into it
+   *  without a trailing newline: Realm offers the command, the user presses Return. Nothing here ever
+   *  runs an installer. */
   prefillTerminal(sessionId: string, command: string): Promise<void>;
   setDraft(sessionId: string, text: string): void;
   /** Drop an element picked in a browser pane into a session's composer, as a chip. Answers the label
@@ -2044,6 +2045,15 @@ export type AppState = {
   attachPicked(sessionId: string, picked: readonly PickedAttachment[]): void;
   /** Drop one pending attachment (its chip's ×). Keyed by path, which is unique within the row. */
   removeAttachment(sessionId: string, path: string): void;
+  /**
+   * The session's terminal, where Settings ▸ General puts it. The pane bar's button, ⌘J and View ▸
+   * Show Terminal all run this, so the three cannot drift apart.
+   *
+   * Right, the default: a tab of the session's side pane, with the keyboard — the one it already has,
+   * or a new shell started in its checkout. Like the bar's other side-pane buttons, a second press goes
+   * to it rather than putting it away. Bottom: the dock at the pane's foot, which a second press hides.
+   */
+  showSessionTerminal(sessionId: string): Promise<void>;
   /** Show/hide the session's terminal panel (pane-header toggle, ⌘J). Opening it is the one and only
    *  thing that creates the terminal — and only the first time. */
   toggleTerminalPanel(sessionId: string): Promise<void>;
@@ -3205,6 +3215,49 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       if (typeof beside === "object" && targetLeafId === null && await get().openInSidePane(beside.sessionId, itemId, { focus: true })) return;
       if (beside !== false && targetLeafId === null) { await get().openItemBeside(itemId); return; }
       await get().openItem(itemId, targetLeafId);
+    };
+
+    /** The terminal each session's terminal button made, by session id — what a press goes back to
+     *  after its tab was put away with ⌘W, rather than starting a second shell. In memory only: after
+     *  a relaunch the tab in the session's side pane says the same thing, and `terminalTabOf` reads it. */
+    const terminalTabs = new Map<string, string>();
+    /** Presses in flight, joined rather than repeated, so a double click cannot start two shells. */
+    const showingTerminal = new Map<string, Promise<string | null>>();
+    /** The session's terminal, when it has one: a terminal among its side pane's tabs, the one showing
+     *  first — whether its button made it, the new-tab page did, or it came back with the layout after
+     *  a relaunch — else the one its button made, wherever that is now, while the item still exists. */
+    const terminalTabOf = (sessionId: string): Item | null => {
+      const items = get().items;
+      const owner = items.find((i) => i.kind === "session" && i.refId === sessionId);
+      const side = owner ? findSidePane(get().layout ?? emptyLayout(), owner.id) : null;
+      const tabs = side ? [side.itemId, ...side.tabs!] : [];
+      return tabs.map((id) => items.find((i) => i.id === id)).find((i) => i?.kind === "terminal")
+        ?? items.find((i) => i.id === terminalTabs.get(sessionId)) ?? null;
+    };
+    /**
+     * The session's terminal on screen, as a tab of its side pane with the keyboard, answering its
+     * terminal id. One it has is gone to — left where it is if the user made it a pane of their own —
+     * and only a session with none gets a new shell, started in its checkout the way the new-tab
+     * page's Terminal starts one.
+     */
+    const showTerminalTab = (sessionId: string): Promise<string | null> => {
+      const pending = showingTerminal.get(sessionId);
+      if (pending) return pending;
+      const p = (async () => {
+        const sid = get().activeSpaceId; if (!sid) return null;
+        const tab = terminalTabOf(sessionId);
+        if (tab) {
+          if (groupOfItem(get().groups ?? groupsFromLayout(get().layout), tab.id)) await get().openItem(tab.id);
+          else if (!(await get().openInSidePane(sessionId, tab.id, { focus: true }))) await get().openItemBeside(tab.id);
+          return tab.refId;
+        }
+        const { terminalId, itemId } = await api.createTerminal(sid, get().sessions[sessionId]?.cwd);
+        terminalTabs.set(sessionId, itemId);
+        await adoptItem(sid, itemId, null, { sessionId });
+        return terminalId;
+      })().finally(() => { showingTerminal.delete(sessionId); });
+      showingTerminal.set(sessionId, p);
+      return p;
     };
 
     /* ── The window's trail ──────────────────────────────────────────────────────────────────────
@@ -5179,11 +5232,14 @@ await get().refreshCustomThemes().catch(() => {});
       async prefillTerminal(sessionId, command) {
         // Open, never toggle: this is reached from a button that means "show me the terminal with
         // this in it", and routing it through `toggleSessionDock` would CLOSE an already-open one.
-        if (get().sessionDock[sessionId]?.kind !== "terminal") {
-          set({ sessionDock: { ...get().sessionDock, [sessionId]: { kind: "terminal" } } });
-        }
-        await get().ensureSessionTerminal(sessionId);
-        const terminalId = get().sessionTerminals[sessionId];
+        let terminalId: string | null | undefined;
+        if (get().terminalDock === "bottom") {
+          if (get().sessionDock[sessionId]?.kind !== "terminal") {
+            set({ sessionDock: { ...get().sessionDock, [sessionId]: { kind: "terminal" } } });
+          }
+          await get().ensureSessionTerminal(sessionId);
+          terminalId = get().sessionTerminals[sessionId];
+        } else terminalId = await showTerminalTab(sessionId);
         if (!terminalId) return; // the shell never came up; the card still shows the command to copy
         // NO trailing newline, ever: the command is offered, not run. The user presses Return.
         // Goes through prefill (not write) so the server holds it until the shell stops printing its
@@ -5441,6 +5497,10 @@ await get().refreshCustomThemes().catch(() => {});
           .finally(() => { ensuringTerminal.delete(sessionId); });
         ensuringTerminal.set(sessionId, p);
         return p;
+      },
+      async showSessionTerminal(sessionId) {
+        if (get().terminalDock === "bottom") { get().toggleSessionDock(sessionId, { kind: "terminal" }); return; }
+        await showTerminalTab(sessionId);
       },
       async toggleTerminalPanel(sessionId) {
         const next = { ...panelOf(sessionId), open: !panelOf(sessionId).open };

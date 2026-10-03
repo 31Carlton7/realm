@@ -2466,10 +2466,13 @@ describe("agent probe + the install card's terminal prefill (W4)", () => {
     expect(a.calls.filter((c) => c === "probeAgents:false")).toHaveLength(2);
   });
 
-  it("prefillTerminal opens the dock and TYPES the command — with no trailing newline, so nothing runs", async () => {
+  /* The dock is the bottom placement's (Settings ▸ General ▸ Terminals); the default — a tab of the
+     side pane — is store-new-tab.test.ts's. */
+  it("prefillTerminal, docked to the bottom, opens the dock and TYPES the command — with no trailing newline, so nothing runs", async () => {
     const a = withSession();
     const store = createAppStore(a);
     await store.getState().boot();
+    store.setState({ terminalDock: "bottom" });
     await store.getState().prefillTerminal("se1", "npm install -g @anthropic-ai/claude-code");
 
     expect(store.getState().sessionDock["se1"]).toEqual({ kind: "terminal" });
@@ -2481,10 +2484,11 @@ describe("agent probe + the install card's terminal prefill (W4)", () => {
     expect(data).not.toMatch(/[\r\n]/);
   });
 
-  it("prefillTerminal reuses an already-open panel and its terminal", async () => {
+  it("prefillTerminal, docked to the bottom, reuses an already-open panel and its terminal", async () => {
     const a = withSession();
     const store = createAppStore(a);
     await store.getState().boot();
+    store.setState({ terminalDock: "bottom" });
     await store.getState().toggleTerminalPanel("se1");
     a.calls.length = 0;
     await store.getState().prefillTerminal("se1", "codex login");
@@ -2501,6 +2505,7 @@ describe("agent probe + the install card's terminal prefill (W4)", () => {
     a.delays["openSessionTerminal:se1"] = 10;
     const store = createAppStore(a);
     await store.getState().boot();
+    store.setState({ terminalDock: "bottom" });
     const drawerEffect = store.getState().ensureSessionTerminal("se1"); // mounts first, in flight
     await store.getState().prefillTerminal("se1", "codex login");
     await drawerEffect;

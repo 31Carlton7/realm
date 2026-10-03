@@ -1336,7 +1336,7 @@ function GeneralTab() {
             ))}
           </select>
         </li>
-        <li className="settings-row" data-setting="terminal-dock" title="Where ⌘J opens a session's terminal: beside the transcript, or under it. Either way it pins when the pane has the room and floats when it does not, and closing it keeps the shell.">
+        <li className="settings-row" data-setting="terminal-dock" title="Where ⌘J opens a session's terminal: as a tab of the pane beside the transcript, or docked under it. The dock pins when the pane has the room and floats when it does not, and closing it keeps the shell.">
           <div className="settings-row-main"><span className="settings-row-name">Session terminal</span></div>
           <fieldset className="settings-tabs" aria-label="Session terminal">
             {TERMINAL_DOCK_CHOICES.map((c) => (

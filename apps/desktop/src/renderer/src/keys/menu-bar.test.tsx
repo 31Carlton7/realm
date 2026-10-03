@@ -1,8 +1,8 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { DEFAULT_KEYBINDINGS, type Keybinding } from "@realm/contracts";
+import { DEFAULT_KEYBINDINGS, findSidePane, type Keybinding } from "@realm/contracts";
 import { createAppStore } from "../state/store";
-import { fakeApi } from "../state/store.test-fakes";
+import { fakeApi, item, session } from "../state/store.test-fakes";
 import { appCommands } from "./commands";
 import { useMenuBar } from "./menu-bar";
 
@@ -52,4 +52,19 @@ it("runs what the menu sends through the keystroke's own runner, and holds back 
   // An id nothing runs is ignored rather than thrown on.
   store.setState({ sheet: null });
   expect(() => pick("no.such.command")).not.toThrow();
+});
+
+it("View ▸ Show Terminal opens the focused session's terminal as a side-pane tab, as ⌘J and the bar's button do", async () => {
+  // THE MUTANT: the menu's runner still toggling the old dock — the menu bar and the button would
+  // open the same session's terminal in two different places.
+  const { pick } = bridge();
+  const api = fakeApi({ sessions: [session("se1", "s1")], items: { s1: [item("i1", "s1", { kind: "session", refId: "se1", title: "Agent" })] } });
+  const store = createAppStore(api);
+  await store.getState().boot();
+  await act(async () => { await store.getState().openItem("i1"); });
+  renderHook(() => useMenuBar(store));
+  pick("terminal.toggle");
+  await vi.waitFor(() => expect(findSidePane(store.getState().layout!, "i1")?.tabs).toHaveLength(1));
+  expect(api.calls).toContain("createTerminal:s1:/tmp");
+  expect(store.getState().sessionDock.se1).toBeUndefined();
 });

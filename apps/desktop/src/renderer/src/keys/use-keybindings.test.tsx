@@ -94,13 +94,24 @@ describe("useKeybindings", () => {
     /* ⌘J has to work FROM the composer — that is the only place the hand is in a session pane — and
        it types nothing there. In the old layer this was a per-binding `inInputs` flag; here it is
        just a `when` that does not mention inputFocus. */
-    const { store } = await mount(undefined, focusedSession);
+    const { api, store } = await mount(undefined, focusedSession);
     focusSessionPane(store);
     const input = document.createElement("input");
     document.body.appendChild(input);
     key({ key: "j", metaKey: true }, input);
-    await waitFor(() => expect(store.getState().sessionDock.sess1).toEqual({ kind: "terminal" }));
+    await waitFor(() => expect(made(api, "createTerminal")).toBe(true));
     input.remove();
+  });
+
+  it("opens the focused session's terminal on ⌘J as a tab of its side pane — what the pane bar's button does", async () => {
+    // THE MUTANT: the key still toggling the old dock while the button opens a tab — two ways in, and
+    // two different terminals behind them.
+    const { api, store } = await mount(undefined, focusedSession);
+    await act(async () => { await store.getState().openItem("i1"); });
+    key({ key: "j", metaKey: true });
+    await waitFor(() => expect(findSidePane(store.getState().layout!, "i1")?.tabs).toHaveLength(1));
+    expect(api.calls).toContain("createTerminal:s1:/tmp");
+    expect(store.getState().sessionDock.sess1).toBeUndefined();
   });
 
   it("lets an overlay own the keyboard, except for the toggles that open it", async () => {

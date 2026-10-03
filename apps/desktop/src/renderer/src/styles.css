@@ -113,17 +113,15 @@
   --rl-danger: var(--red);                       /* BUI --red */
   --rl-success: var(--green);                    /* BUI --green */
   --rl-warning: var(--orange);                   /* BUI --orange */
-  /* terminals stay dark in both modes, one step below BUI's dark --page (cool-tinted,
-     oklch(.17 .004 264) ≈ #0e0f11). Hex literal: xterm parses it once at hub creation. */
-  /* The SESSION PANE's own ground, not a fixed grey. It was `#1c1d1f`, chosen to match the pane —
-     and it did, for the one theme it was picked against. Under any themed palette (the purple one,
-     say) the pane is tinted and the terminal beside it is neutral, and the drawer reads as a
-     different app. Following the token means it can never drift again. */
+  /* A ground that stays dark in both modes, for what is shown as somebody else's output: a machine's
+     letterboxed screen and a command's output in the transcript. Not a terminal's — a terminal paints
+     no ground of its own and shows the pane's (`.terminal-pane`). The session pane's own colour in
+     dark mode rather than a fixed grey, so it follows a themed palette instead of reading as a
+     different app beside the pane. */
   --rl-terminal-bg: var(--rl-panel);
-  /* ...and the ink drawn ON it, which is white in both app modes for the same reason the ground is
-     dark in both. Named rather than written as a literal because a bare rgba(255,255,255,.55) in a
+  /* ...and the quiet ink drawn ON it, which is white in both app modes for the same reason the ground
+     is dark in both. Named rather than written as a literal because a bare rgba(255,255,255,.32) in a
      stylesheet reads as a light-mode bug to anyone sweeping for them — it has been mistaken for one. */
-  --rl-terminal-ink: oklch(1 0 0 / 0.55);
   --rl-terminal-ink-dim: oklch(1 0 0 / 0.32);
   /* Chrome drawn over an attached PICTURE rather than over the theme: it has to stay legible on
      whatever the user attached, so it does not flip either. */
@@ -187,21 +185,14 @@
   --prompter-w: clamp(480px, calc(720px * var(--zoom, 1)), 720px);
   /* The session summary's strip, read by the panel AND by the pane that makes room for it. */
   --summary-w: min(320px, 80vw);
-  /* The terminal's dock on that same strip. Wider than the summary's because its content is COLUMNS:
-     prose reflows into 320px, a shell's output wraps and stops being readable. `92vw` rather than
-     `80vw` so a narrow window still gives the shell most of what it has — at that width the dock is
-     floating over the transcript anyway, so there is nothing beside it to leave room for. */
-  --terminal-dock-w: min(560px, 92vw);
-  /* …and its height when it docks to the pane's BOTTOM instead (Settings ▸ General ▸ Terminals): a
+  /* The terminal's dock, when Settings ▸ General ▸ Terminals docks it to the pane's BOTTOM: a
      dozen-odd lines of shell and its bar, and never more than half a short window. `DOCK_H_TERMINAL`
      in pane-dock.ts is this number for the pin arithmetic. */
   --terminal-dock-h: min(320px, 45vh);
   --dock-h: var(--terminal-dock-h);
-  /* Which of those two the pane currently has to make room for. Declared here so the stylesheet
-     defines everything it reads, and REWRITTEN on the pane node by `useDockPinned` — the pane is the
-     panel's sibling, so the panel cannot hand it a width any other way. The summary's is the default
-     because it is the narrower of the two: a pane that mistakenly kept this value would leave too
-     little room rather than too much, which shows up as a visible overlap instead of a silent gap. */
+  /* The width the pane currently has to make room for. Declared here so the stylesheet defines
+     everything it reads, and REWRITTEN on the pane node by `useDockPinned` — the pane is the panel's
+     sibling, so the panel cannot hand it a width any other way. */
   --dock-w: var(--summary-w);
   /* The band that dissolves the transcript under the pane bar. Shorter than --fade-h's 68: the
      bottom band has a whole card to hide behind, this one only has to soften a line of text passing
@@ -236,9 +227,8 @@
   --rl-frame-raised: oklch(0.95 0.002 247.85);
   --rl-frame-raised-hover: oklch(0.915 0.003 247.86);
   --rl-shadow: var(--shadow-lg);                 /* shadow-plugin's smooth lg stack (BUI light --shadow-overlay, shadow half) */
-  /* The terminal stays dark on the light face. It follows `--rl-panel` in dark mode so it matches
-     the session pane it sits beside — but xterm draws light-on-dark and Realm sets only its
-     background, so a light ground here would be white text on white. */
+  /* Dark on the light face too: a guest machine's desktop is arbitrary, and a near-white surround
+     would fight it. */
   --rl-terminal-bg: #1c1d1f;
 }
 * { box-sizing: border-box; }
@@ -913,12 +903,11 @@ kbd { font: 11px var(--font-mono); }
    The width is a ROOT token, not a property on the panel: the pane is the panel's sibling, not its
    ancestor, and a custom property set on the panel would never reach it. */
 .session-summary, .subagent-dock { width: var(--summary-w); }
-.terminal-dock { width: var(--terminal-dock-w); }
 /* One attribute for the whole strip, whichever panel is using it — `data-summary-pinned` would have
    been a lie on a pane making room for a sub-agent. */
 /* `--dock-w` is written onto the pane by `useDockPinned` for whichever panel has the strip, because
-   the panels are no longer one width and the pane cannot read a property set on its own sibling. The
-   fallback keeps the rule honest if the attribute is ever set without the width. */
+   the pane cannot read a property set on its own sibling. The fallback keeps the rule honest if the
+   attribute is ever set without the width. */
 .session-pane[data-dock-pinned] { padding-right: calc(var(--dock-w) + var(--sidebar-inset) * 2); }
 /* The same, along the foot: the pane gives up the dock's height, so the transcript ends and the
    prompter sits above the shell rather than under its card. */
@@ -928,15 +917,15 @@ kbd { font: 11px var(--font-mono); }
    overlapping. */
 .pane-dock[data-pinned] { box-shadow: var(--shadow-card); }
 
-/* The terminal on the strip. A full-height card, unlike the summary's content-height one: a shell's
-   height is not a function of what it has printed, and a dock that grew and shrank as output scrolled
-   would move the window the user is typing into. The bar is the panel's own, not the pane bar's —
-   this is a dialog now, and it says which session's shell it is. */
-/* Full height, unlike its two content-height neighbours: a shell's height is not a function of what
-   it has printed, and a dock that grew as output scrolled would move the window being typed into.
-   `overflow: hidden` is what makes the terminal's own background take the card's corners — without
-   it the pty paints a square straight over them. */
-.terminal-dock { height: calc(var(--dock-pane-h) - var(--sidebar-inset) * 2); overflow: hidden; }
+/* The terminal docked to the pane's foot (Settings ▸ General ▸ Terminals). The pane's width — the
+   fixed box runs from its left edge to its right, inset by the card's margin — and the shell's own
+   height, arriving from the edge it docks to. A fixed height rather than its content's: a shell's
+   height is not a function of what it has printed, and a dock that grew as output scrolled would move
+   the window being typed into. The bar is the panel's own, not the pane bar's — this is a dialog,
+   and it says which session's shell it is.
+   `overflow: hidden` is what keeps anything the terminal draws inside the card's corners — without
+   it the pty could paint a square straight over them. */
+.terminal-dock { height: var(--terminal-dock-h); overflow: hidden; animation-name: rl-dock-up; }
 .terminal-dock-bar { flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 10px; }
 .terminal-dock-mark { flex: none; color: var(--rl-text-faint); }
 .terminal-dock-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -944,9 +933,6 @@ kbd { font: 11px var(--font-mono); }
 /* The terminal fills what the bar leaves. `min-height: 0` because xterm measures its own viewport
    and a flex child that refuses to shrink would report a height the dock does not have. */
 .terminal-dock .terminal-pane { flex: 1; min-height: 0; }
-/* Docked to the bottom: the pane's width (the fixed box runs from its left edge to its right, inset
-   by the card's margin) and the shell's own height, arriving from the edge it docks to. */
-.terminal-dock[data-edge="bottom"] { width: auto; height: var(--terminal-dock-h); animation-name: rl-dock-up; }
 /* From the edge it docks to, so it reads as arriving from beside the pane rather than fading in
    over it. Enter only: the panel is removed on toggle, and an exit that had to be awaited would
    make the button feel unresponsive on the way out. */
@@ -1666,11 +1652,11 @@ kbd { font: 11px var(--font-mono); }
 .sim-chassis[data-frame="drawn"] { padding: var(--sim-bezel);
   border-radius: var(--sim-outer-r); corner-shape: squircle;
   /* A LIFT off the pane's own ground rather than a surface off the neutral ladder, because this
-     pane's ground is dark in both faces (`--rl-terminal-bg`, which the terminal keeps dark on the
-     light face so xterm's white text survives). `--rl-raised` there is white, and a white slab of
-     frame around a phone was the loudest thing on the light screen — louder than the device. A
-     translucent white is the same quiet step above the ground in both modes. No border and no
-     shadow: the step IS the edge, and a resting object casts nothing. */
+     pane's ground is dark in both faces (`--rl-terminal-bg`, kept dark on the light face too).
+     `--rl-raised` there is white, and a white slab of frame around a phone was the loudest thing on
+     the light screen — louder than the device. A translucent white is the same quiet step above the
+     ground in both modes. No border and no shadow: the step IS the edge, and a resting object casts
+     nothing. */
   background: var(--overlay-lighten-300); }
 /* The device art, over its own screen. Positioned and turned from the pane, which is the only side
    that knows how the device is being held; `transform-origin` is the corner the rotation is composed
@@ -2271,16 +2257,20 @@ button.panel-title:hover { background: var(--rl-hover); }
 .subagent-steps { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .subagent-empty { margin: 0; font-size: 12px; line-height: 1.5; color: var(--rl-text-faint); }
 
-.terminal-pane { position: relative; flex: 1; min-width: 0; min-height: 0; padding: 12px 14px; background: var(--rl-terminal-bg); display: flex; color-scheme: dark; /* its interior is always dark, in both app modes — keeps xterm's own scrollbar dark too */ }
+/* No ground of its own. The pane's shows through — the one translucent sheet `.main` lays under every
+   pane, the transcript included — so a shell reads as the same surface as the chat beside it, where
+   a fill of the same token painted over that sheet was a darker slab. xterm's own background is
+   transparent too (`terminalColors`), and its colour scheme, scrollbar included, is the app's mode. */
+.terminal-pane { position: relative; flex: 1; min-width: 0; min-height: 0; padding: 12px 14px; display: flex; }
 .terminal-pane .xterm { height: 100%; }
 .terminal-host { flex: 1; min-width: 0; min-height: 0; height: 100%; }
-/* Empty-terminal hint (V-F3): floats centered until the first output, then fades out. Fixed light
-   colours, not text tokens — the terminal interior stays dark in both app modes. */
+/* Empty-terminal hint (V-F3): floats centered until the first output, then fades out. On the pane's
+   inks, because it sits on the pane's ground. */
 .terminal-hint { position: absolute; inset: 0; z-index: 1; display: grid; place-content: center; justify-items: center; gap: 4px;
   text-align: center; pointer-events: none; user-select: none; opacity: 1; transition: opacity var(--dur-slow) var(--ease); }
 .terminal-hint[data-hidden] { opacity: 0; }
-.terminal-hint-path { font: 12px var(--font-mono); color: var(--rl-terminal-ink); }
-.terminal-hint-keys { font-size: 11px; color: var(--rl-terminal-ink-dim); }
+.terminal-hint-path { font: 12px var(--font-mono); color: var(--rl-text-dim); }
+.terminal-hint-keys { font-size: 11px; color: var(--rl-text-faint); }
 /* ── Machine pane (Plan 25 W3) ─────────────────────────────────────────────
    A screen somewhere else, drawn into a DOM canvas rather than a native view. Everything a browser
    pane cannot have — menus, sheets, the palette opening OVER the surface — this one has for free,
@@ -2291,7 +2281,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    edge that is already the strongest tonal step in the window is decoration. */
 .machine-screen { position: relative; flex: 1; min-width: 0; min-height: 0; display: grid; place-items: center;
   /* Not `--canvas`. A guest desktop is arbitrary and must not fight a near-white surround in light
-     mode — the ruling `.terminal-pane` already writes down for its own interior. */
+     mode. */
   background: var(--rl-terminal-bg);
   /* Detached from the pane on all four sides, at the inset the sidebar and the summary card use —
      the app's one measure for "this surface is a card on a page rather than the page". The screen
@@ -2475,8 +2465,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .browser-suggest-url { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); }
 /* The placeholder the native view is bounds-synced onto. Painted the view's own opaque white so the
    sliver the view trails behind during a resize never flashes the panel tone (research: do NOT
-   debounce the sync; match the colours instead). Pages are their own light world — like the
-   terminal's always-dark interior, but inverted. */
+   debounce the sync; match the colours instead). Pages are their own light world. */
 .browser-view-host { position: relative; flex: 1; min-width: 0; min-height: 0; background: #fff; }
 /* At a device size (Plan 26 W7e) the view is narrower than its host, and white beside a white page
    would hide the device's edge. The pane's own ground frames it instead. */
@@ -4968,9 +4957,8 @@ select { appearance: none; padding-right: 22px;
    lines under the caret the instant a long draft needed to scroll (see `.composer-input`, above). */
 
 /* xterm keeps an explicit treatment rather than inheriting the app's. It owns this element: it
-   measures the viewport to decide the terminal's column count, and its interior is a dark world in
-   both app modes (`color-scheme: dark` on .terminal-pane), so the thumb here answers to the terminal
-   rather than to whatever the rule above becomes next. */
+   measures the viewport to decide the terminal's column count, so the thumb here answers to the
+   terminal rather than to whatever the rule above becomes next. */
 :root:not([data-overlay-scrollbars]) .terminal-pane .xterm-viewport { scrollbar-width: thin; scrollbar-color: var(--mark-strong) transparent; }
 
 /* Rubber-banding (rubber-band.ts). The scroller's CHILDREN move, never the scroller: its box, its

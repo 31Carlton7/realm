@@ -109,7 +109,7 @@ export function appCommands(store: StoreApi<AppState>): Readonly<Record<string, 
        because a user may bind the command with no clause at all — and "interrupt" on an idle agent
        would be a gesture that looks like it did something. */
     "session.interrupt": withSession((s, id) => { if (statusOf(s, id) === "running") s.run(() => s.interruptSession(id)); }),
-    "terminal.toggle": withSession((s, id) => s.toggleSessionDock(id, { kind: "terminal" })),
+    "terminal.toggle": withSession((s, id) => s.run(() => s.showSessionTerminal(id))),
 
     "terminal.new": () => { const s = get(); s.run(() => s.newTerminal()); },
     "browser.new": () => { const s = get(); s.run(() => s.newBrowser()); },
