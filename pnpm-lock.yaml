@@ -323,7 +323,7 @@ importers:
 
   packages/ui:
     dependencies:
-      '@hugeicons-pro/core-stroke-standard':
+      '@hugeicons-pro/core-stroke-rounded':
         specifier: ^1.2.1
         version: 1.2.1
       '@hugeicons/react':
@@ -1257,8 +1257,8 @@ packages:
     peerDependencies:
       hono: ^4
 
-  '@hugeicons-pro/core-stroke-standard@1.2.1':
-    resolution: {integrity: sha512-MAaUmeKiiWH22qtn+QUOzMTbpgr51+lfhVA0bkT1Ajg9D02laGHXGDyK11vELfOfY4ZE6HrwivQsZzcNopSNog==}
+  '@hugeicons-pro/core-stroke-rounded@1.2.1':
+    resolution: {integrity: sha512-ZPusdsQ9xrIVzQwl37CiFbutVQ7tLOS9B8i+lFtpKak3S6Jwdit7hmVwqbEuzDN2ly1hYD5WGPii0aJ4n+fZtQ==}
 
   '@hugeicons/react@1.1.9':
     resolution: {integrity: sha512-O+lWSWjbijoAvMCxn4K2bQWCGN5+mP1y5j+X99j23mXMj+s0X25fs71T6t9YJLaBodwmZdaewD27dzS/PiboQw==}
@@ -4932,7 +4932,7 @@ snapshots:
     dependencies:
       hono: 4.13.2
 
-  '@hugeicons-pro/core-stroke-standard@1.2.1': {}
+  '@hugeicons-pro/core-stroke-rounded@1.2.1': {}
 
   '@hugeicons/react@1.1.9(react@19.2.8)':
     dependencies:
