@@ -6,6 +6,7 @@ import { centerOverComplement } from "../state/no-overlay";
 import { useApp, useBrowserRects, type AppState, type PaletteMode } from "../state/store";
 import { useResolvedMode, type ThemePref } from "../theme/useTheme";
 import { ItemGlyph } from "./sidebar/ItemList";
+import { ItemIcon } from "./PageIcon";
 import { SpaceIcon } from "./SpaceIcon";
 
 type Entry = { id: string; label: string; hint?: ReactNode; icon: ReactNode; run: () => void; section: string; disabled?: boolean;
@@ -264,7 +265,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
     const byRecency = (a: Item, b: Item) => b.updatedAt - a.updatedAt;
 
     const itemEntry = (it: Item, section: string, hint: ReactNode): Entry => ({
-      id: `item:${it.id}`, label: it.title, hint, icon: <Icon name={it.kind} size={16} />, section,
+      id: `item:${it.id}`, label: it.title, hint, icon: <ItemIcon item={it} size={16} />, section,
       run: () => run(async () => {
         if (it.spaceId !== activeSpaceId) await selectSpace(it.spaceId);
         await openItem(it.id);

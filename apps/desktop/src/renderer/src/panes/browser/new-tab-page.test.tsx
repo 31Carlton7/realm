@@ -78,7 +78,7 @@ describe("a blank tab's new-tab page", () => {
     // blank tab standing beside it — the thing a tool taking the tab's place exists to prevent.
     const navigated: string[] = [];
     setBrowserBridgesForTests(fakeBrowserBridges({
-      server: { recent: async () => [{ url: "https://jobs.example/delta", title: "Delta careers", visits: 1, lastVisitAt: 1 }] },
+      server: { recent: async () => [{ url: "https://jobs.example/delta", title: "Delta careers", visits: 1, lastVisitAt: 1, favicon: "" }] },
       host: { navigate: async (id, input) => { navigated.push(`${id} ${input}`); return input; } },
     }));
     const { api, store } = await mount();

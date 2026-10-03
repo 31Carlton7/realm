@@ -4,6 +4,7 @@ import { emptyLayout, itemIdOfLeaf, type Item, type Layout } from "@realm/contra
 import { useApp, type AppState } from "../../state/store";
 import { MARKED_STATUS, STATUS_LABEL, isUnread } from "../../state/attention";
 import { RenameInput } from "../RenameInput";
+import { ItemIcon } from "../PageIcon";
 import { useItemContextMenu } from "./ItemContextMenu";
 import { dotFor } from "../../panes/machine/MachineBar";
 import { MACHINE_WORDS } from "../../panes/machine/MachinePane";
@@ -174,7 +175,7 @@ export function ItemList({ items, variant, layout: groupLayout }: {
                   : it.kind === "terminal" && terminalDriving[it.refId] ? `${it.title} — agent is driving`
                   : it.kind === "machine" ? `${it.title} — ${MACHINE_WORDS[machineState[it.refId]?.status ?? "off"]}` : it.title}
                 onClick={() => activate(it)}>
-                <Icon name={it.kind} size={16} /><span className="item-title">{it.title}</span>
+                <ItemIcon item={it} size={16} /><span className="item-title">{it.title}</span>
                 {/* The row's state, at its far end — the same slot its actions take under the
                     pointer, so a row at rest gives its title every pixel the state does not need. */}
                 <span className="item-trail">

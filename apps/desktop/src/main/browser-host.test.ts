@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { FAVICON_MAX_BYTES, isFaviconDataUrl } from "@realm/contracts";
 import {
-  BrowserPaneHost, DEVICE_PRESETS, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, deviceFit, isFindShortcut, nextZoomFactor, normalizeAddress, originAllowed, toViewBounds, zoomPercent,
+  BrowserPaneHost, DEVICE_PRESETS, FAVICON_TRIES, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, createFaviconResolver, dataUrlBytes, deviceFit, faviconDataUrl,
+  isFindShortcut, nextZoomFactor, normalizeAddress, originAllowed, rankFavicons, readCapped, sniffImage, toViewBounds, zoomPercent,
   type DeviceMetrics,
   type BrowserViewState, type FindResult, type ViewHandle, type ViewHooks,
 } from "./browser-host";
@@ -95,7 +97,7 @@ describe("toViewBounds", () => {
 /** A fake ViewHandle that records calls and simulates the webContents state getters. */
 function fakeView() {
   const nav = { url: "", title: "", loading: false, back: false, forward: false,
-    entries: [] as { url: string; title: string }[], activeIndex: 0, zoom: 1 };
+    entries: [] as { url: string; title: string }[], activeIndex: 0, zoom: 1, favicon: null as string | null };
   const calls: string[] = [];
   let hooks: ViewHooks | null = null;
   const handle: ViewHandle = {
@@ -105,7 +107,7 @@ function fakeView() {
     goBack: () => calls.push("back"), goForward: () => calls.push("forward"),
     reload: () => calls.push("reload"), stop: () => calls.push("stop"),
     canGoBack: () => nav.back, canGoForward: () => nav.forward,
-    getURL: () => nav.url, getTitle: () => nav.title, isLoading: () => nav.loading,
+    getURL: () => nav.url, getTitle: () => nav.title, isLoading: () => nav.loading, getFavicon: () => nav.favicon,
     history: () => ({ entries: nav.entries, activeIndex: nav.activeIndex }),
     goToIndex: (i) => calls.push(`goToIndex:${i}`),
     findInPage: (text, o) => calls.push(`find:${text}:${o.forward ? "forward" : "backward"}:${o.findNext ? "new" : "step"}`),
@@ -662,5 +664,148 @@ describe("BrowserPaneHost — device size", () => {
     host.setDevice("b1", "watch" as never);
     expect(host.deviceOf("b1")).toBeNull();
     expect(emulations).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------------------------------------------
+ * A page's icon: which of its offers, what the bytes are, and the one request main makes for it.
+ * ------------------------------------------------------------------------------------------------ */
+
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+const ICO = Buffer.from([0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x10, 0x10]);
+const SVG = Buffer.from(`<?xml version="1.0"?>\n<!-- logo -->\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle r="8"/></svg>`);
+const HTML_404 = Buffer.from("<!doctype html><html><head><title>Not found</title></head><body><svg></svg></body></html>");
+
+describe("the state a pane's chrome is drawn from", () => {
+  it("carries the page's icon, so the tab can draw it", () => {
+    const { host, views, states } = makeHost();
+    host.create("b1", "https://www.google.com/search?q=hi", null);
+    const v = views.get("b1")!;
+    v.nav.favicon = `data:image/x-icon;base64,${ICO.toString("base64")}`;
+    v.getHooks().emitState();
+    expect(states.at(-1)!.favicon).toBe(v.nav.favicon);
+  });
+});
+
+describe("rankFavicons", () => {
+  it("puts an SVG first, then the smallest icon still sharp at 2x, then an unsized one, then a small one", () => {
+    // Electron's own order (it hands over a sorted set): what a RealFaviconGenerator page offers.
+    const offered = ["https://a.example/favicon-16x16.png", "https://a.example/favicon-192x192.png", "https://a.example/favicon-32x32.png", "https://a.example/favicon.ico"];
+    // THE mutant: take the first. That is the 16px one, a blur in a Retina tab.
+    expect(rankFavicons(offered)).toEqual(["https://a.example/favicon-32x32.png", "https://a.example/favicon-192x192.png", "https://a.example/favicon.ico", "https://a.example/favicon-16x16.png"]);
+    expect(rankFavicons(["https://a.example/favicon.ico", "https://a.example/icon.svg?v=2"])[0]).toBe("https://a.example/icon.svg?v=2");
+  });
+
+  it("keeps only addresses an icon can come from — never a script, a file, or a credential", () => {
+    expect(rankFavicons([
+      "javascript:alert(1)", "file:///etc/passwd", "chrome://favicon/x", "https://me:pw@a.example/f.ico",
+      `https://a.example/${"x".repeat(3_000)}.ico`, "data:text/html,<b>hi</b>",
+      "https://a.example/favicon.ico", "data:image/svg+xml,%3Csvg%3E%3C/svg%3E",
+    ])).toEqual(["data:image/svg+xml,%3Csvg%3E%3C/svg%3E", "https://a.example/favicon.ico"]);
+  });
+});
+
+describe("sniffImage", () => {
+  it("knows a picture by its own bytes, whatever the server called it", () => {
+    expect(sniffImage(PNG)).toBe("image/png");
+    expect(sniffImage(ICO)).toBe("image/x-icon");
+    expect(sniffImage(Buffer.from("GIF89a\x01\x00"))).toBe("image/gif");
+    expect(sniffImage(Buffer.from([0xff, 0xd8, 0xff, 0xe0]))).toBe("image/jpeg");
+    expect(sniffImage(Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBPVP8 ")]))).toBe("image/webp");
+    expect(sniffImage(SVG)).toBe("image/svg+xml");
+  });
+
+  it("refuses a page that answered /favicon.ico with its HTML — even one with an <svg> in it", () => {
+    // THE mutant: trust the extension, or look for "<svg" anywhere. A soft 404 says 200 and text/html.
+    expect(sniffImage(HTML_404)).toBeNull();
+    expect(sniffImage(Buffer.from("not found"))).toBeNull();
+    expect(sniffImage(new Uint8Array())).toBeNull();
+  });
+});
+
+describe("faviconDataUrl and dataUrlBytes", () => {
+  it("turns an icon's bytes into the data: URL the row keeps, typed by what they are", () => {
+    const url = faviconDataUrl(ICO)!;
+    expect(url).toBe(`data:image/x-icon;base64,${ICO.toString("base64")}`);
+    expect(isFaviconDataUrl(url)).toBe(true);
+    expect(faviconDataUrl(HTML_404)).toBeNull();
+  });
+
+  it("drops an icon past the bound — the item lists carry it", () => {
+    const big = Buffer.concat([PNG, Buffer.alloc(FAVICON_MAX_BYTES)]);
+    expect(faviconDataUrl(big)).toBeNull();
+    expect(faviconDataUrl(big.subarray(0, FAVICON_MAX_BYTES))).not.toBeNull();
+  });
+
+  it("reads an inlined icon, base64 or percent-encoded, and nothing that does not parse", () => {
+    expect(Buffer.from(dataUrlBytes(`data:image/png;base64,${PNG.toString("base64")}`)!)).toEqual(PNG);
+    expect(Buffer.from(dataUrlBytes("data:image/svg+xml,%3Csvg%20viewBox%3D'0%200%201%201'%3E%3C%2Fsvg%3E")!).toString()).toBe("<svg viewBox='0 0 1 1'></svg>");
+    expect(dataUrlBytes("data:image/svg+xml,%E0%A4%A")).toBeNull();
+    expect(dataUrlBytes("https://a.example/favicon.ico")).toBeNull();
+  });
+});
+
+describe("readCapped", () => {
+  const stream = (chunks: Uint8Array[]) => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(c) { const next = chunks.shift(); if (next) c.enqueue(next); else c.close(); },
+      cancel() { cancelled = true; },
+    });
+    return { body, cancelled: () => cancelled };
+  };
+
+  it("reads a body that fits, and gives up — cancelling the rest — on one that does not", async () => {
+    expect(Buffer.from((await readCapped(stream([PNG.subarray(0, 8), PNG.subarray(8)]).body, 64))!)).toEqual(PNG);
+    const huge = stream([Buffer.alloc(40), Buffer.alloc(40), Buffer.alloc(40)]);
+    expect(await readCapped(huge.body, 64)).toBeNull();
+    expect(huge.cancelled()).toBe(true);
+  });
+});
+
+describe("createFaviconResolver", () => {
+  const PNG_URL = `data:image/png;base64,${PNG.toString("base64")}`;
+  const site = (answers: Record<string, Uint8Array | null | Error>) => {
+    const asked: string[] = [];
+    const fetchBytes = async (url: string) => {
+      asked.push(url);
+      const a = answers[url];
+      if (a instanceof Error) throw a;
+      return a ?? null;
+    };
+    return { asked, resolve: createFaviconResolver(fetchBytes) };
+  };
+
+  it("takes the first icon that loads, past one that answered with a page instead", async () => {
+    // THE mutant: stop at the first. A site whose favicon-32x32.png 404s but whose favicon.ico is real
+    // would draw the glyph.
+    const { resolve } = site({ "https://a.example/favicon-32x32.png": HTML_404, "https://a.example/favicon.ico": ICO });
+    expect(await resolve(["https://a.example/favicon.ico", "https://a.example/favicon-32x32.png"]))
+      .toBe(`data:image/x-icon;base64,${ICO.toString("base64")}`);
+  });
+
+  it("asks a site once for an icon every one of its pages offers", async () => {
+    // THE mutant: no memory. Each search would fetch Google's icon again and the tab would wait on it.
+    const { asked, resolve } = site({ "https://www.google.com/favicon.ico": ICO, "https://none.example/favicon.ico": null });
+    for (let i = 0; i < 3; i++) await resolve(["https://www.google.com/favicon.ico"]);
+    for (let i = 0; i < 2; i++) expect(await resolve(["https://none.example/favicon.ico"])).toBeNull();
+    expect(asked).toEqual(["https://www.google.com/favicon.ico", "https://none.example/favicon.ico"]);
+  });
+
+  it("does not remember a fetch that never answered — the next page asks again", async () => {
+    const answers: Record<string, Uint8Array | null | Error> = { "https://a.example/favicon.ico": new Error("timeout") };
+    const { asked, resolve } = site(answers);
+    expect(await resolve(["https://a.example/favicon.ico"])).toBeNull();
+    answers["https://a.example/favicon.ico"] = ICO;
+    expect(await resolve(["https://a.example/favicon.ico"])).not.toBeNull();
+    expect(asked).toHaveLength(2);
+  });
+
+  it("decodes an inlined icon without a request, and tries no more than a few", async () => {
+    const { asked, resolve } = site({});
+    expect(await resolve([PNG_URL])).toBe(PNG_URL);
+    const many = Array.from({ length: FAVICON_TRIES + 3 }, (_, i) => `https://a.example/icon-${i}.ico`);
+    expect(await resolve(many)).toBeNull();
+    expect(asked).toHaveLength(FAVICON_TRIES);
   });
 });

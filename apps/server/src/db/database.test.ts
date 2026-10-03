@@ -677,12 +677,15 @@ describe("migration v25 — the Library's file index", () => {
  *
  * `spaces`, `environments` and `items` are STUBS, the V8_MCP_SERVERS compromise: v33 reads no column of
  * any of them, but `sessions`' foreign keys have to point at something for a row to be insertable, and
- * their real shapes are exercised by the v4/v5 fixtures above.
+ * their real shapes are exercised by the v4/v5 fixtures above. `browsers` is one too, for the reason
+ * V8's `checkpoints` stub is: v36 ALTERs it, a real v32 home has had it since v10, and the first
+ * migration to touch it after this fixture was written is what found it missing.
  */
 const V32_REWIND_SCHEMA = `
 CREATE TABLE spaces (id TEXT PRIMARY KEY);
 CREATE TABLE environments (id TEXT PRIMARY KEY);
 CREATE TABLE items (id TEXT PRIMARY KEY);
+CREATE TABLE browsers (id TEXT PRIMARY KEY);
 CREATE TABLE simulators (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
   name TEXT NOT NULL, udid TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
   platform TEXT NOT NULL DEFAULT 'ios');
@@ -856,7 +859,8 @@ describe("migration v35 — browser history", () => {
     expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
     expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBeGreaterThan(34);
     const cols = (db.prepare("PRAGMA table_info(browser_history)").all() as { name: string }[]).map((c) => c.name);
-    expect(cols).toEqual(["profile_id", "url", "title", "visit_count", "last_visit_at"]);
+    // The columns v35 created, in its order; later migrations append (v36's favicon_digest).
+    expect(cols.slice(0, 5)).toEqual(["profile_id", "url", "title", "visit_count", "last_visit_at"]);
     db.close();
   });
 
@@ -894,6 +898,102 @@ describe("migration v35 — browser history", () => {
     expect(() => openDatabase(p).close()).not.toThrow();
     const again = openDatabase(p);
     expect(again.prepare("SELECT url, visit_count FROM browser_history").all()).toEqual([{ url: "https://example.com/", visit_count: 3 }]);
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    again.close();
+  });
+});
+
+/**
+ * The v35 shapes of what v36 touches, hand-written for the reason every fixture above is: replaying
+ * `migrations[0..34]` would agree with an in-place edit of a shipped migration — folding v36's columns
+ * into v35's CREATE, say — and a home already stamped 35 would then never get them.
+ *
+ * `profiles` is its real shape, because the favicon table's foreign key points at it and the cascade
+ * is under test. `spaces` is a stub. `browsers` and `browser_history` each carry a row already, which
+ * is what a backfill would be tempted to invent an icon for.
+ */
+const V35_FAVICON_SCHEMA = `
+CREATE TABLE profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT NOT NULL, color TEXT NOT NULL,
+  sort_order INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE spaces (id TEXT PRIMARY KEY, profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE);
+CREATE TABLE browsers (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  url TEXT NOT NULL, title TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE INDEX browsers_space ON browsers(space_id);
+CREATE TABLE browser_history (
+  profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  url TEXT NOT NULL, title TEXT NOT NULL,
+  visit_count INTEGER NOT NULL DEFAULT 1, last_visit_at INTEGER NOT NULL,
+  PRIMARY KEY (profile_id, url));
+CREATE INDEX browser_history_recent ON browser_history(profile_id, last_visit_at DESC);
+`;
+
+/** A v35 home with two profiles, a pane on a page, and that page in the history. */
+function v35Fixture(path: string): void {
+  const db = new DatabaseSync(path);
+  db.exec("PRAGMA foreign_keys = ON;");
+  db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+  db.exec(V35_FAVICON_SCHEMA);
+  for (let v = 1; v <= 35; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  const profile = db.prepare("INSERT INTO profiles VALUES (?, ?, 'user', '#000000', 0, 1, 1)");
+  profile.run("p1", "Work");
+  profile.run("p2", "Home");
+  db.prepare("INSERT INTO spaces (id, profile_id) VALUES ('sp1', 'p1')").run();
+  db.prepare("INSERT INTO browsers VALUES ('b1', 'sp1', 'https://example.com/docs', 'Docs', 1, 2)").run();
+  db.prepare("INSERT INTO browser_history VALUES ('p1', 'https://example.com/docs', 'Docs', 3, 40)").run();
+  db.close();
+}
+
+describe("migration v36 — favicons", () => {
+  const migrated = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    v35Fixture(p);
+    return { p, db: openDatabase(p) };
+  };
+  const PNG = "data:image/png;base64,iVBORw0KGgo=";
+  const keep = (db: DatabaseSync, profile: string, digest: string) =>
+    db.prepare("INSERT INTO browser_favicons (profile_id, digest, data) VALUES (?, ?, ?)").run(profile, digest, PNG);
+
+  it("is appended, not folded into v35: a v35 home reaches the end of the chain and gains every column", () => {
+    const { db } = migrated();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBeGreaterThan(35);
+    const cols = (table: string) => (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+    expect(cols("browsers")).toContain("favicon");
+    expect(cols("browser_history")).toContain("favicon_digest");
+    expect(cols("browser_favicons")).toEqual(["profile_id", "digest", "data"]);
+    db.close();
+  });
+
+  it("backfills NOTHING: a pane and a page nobody fetched an icon for come out with none, and otherwise as they were", () => {
+    const { db } = migrated();
+    expect(db.prepare("SELECT url, title, favicon, updated_at FROM browsers WHERE id = 'b1'").get())
+      .toEqual({ url: "https://example.com/docs", title: "Docs", favicon: "", updated_at: 2 });
+    expect(db.prepare("SELECT title, visit_count, last_visit_at, favicon_digest FROM browser_history").get())
+      .toEqual({ title: "Docs", visit_count: 3, last_visit_at: 40, favicon_digest: "" });
+    expect((db.prepare("SELECT COUNT(*) AS n FROM browser_favicons").get() as { n: number }).n).toBe(0);
+    db.close();
+  });
+
+  it("keeps a picture once per profile, and a profile's pictures go with the profile", () => {
+    const { db } = migrated();
+    keep(db, "p1", "d1");
+    expect(() => keep(db, "p1", "d1")).toThrow(/UNIQUE|PRIMARY/);
+    keep(db, "p2", "d1"); // the same picture in ANOTHER profile is that profile's own row
+    db.prepare("DELETE FROM profiles WHERE id = 'p1'").run();
+    expect(db.prepare("SELECT profile_id FROM browser_favicons").all()).toEqual([{ profile_id: "p2" }]);
+    db.close();
+  });
+
+  it("is idempotent: reopening twice more neither re-runs the ALTERs nor loses an icon kept since", () => {
+    const { p, db } = migrated();
+    db.prepare("UPDATE browsers SET favicon = ? WHERE id = 'b1'").run(PNG);
+    keep(db, "p1", "d1");
+    db.close();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    const again = openDatabase(p);
+    expect(again.prepare("SELECT favicon FROM browsers WHERE id = 'b1'").get()).toEqual({ favicon: PNG });
+    expect(again.prepare("SELECT digest FROM browser_favicons").all()).toEqual([{ digest: "d1" }]);
     expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
     again.close();
   });

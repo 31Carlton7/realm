@@ -1,5 +1,6 @@
 import { WebContentsView, screen, session, type BrowserWindow, type WebContents } from "electron";
-import { BrowserPaneHost, browserUserAgent, isFindShortcut, type ViewFactory } from "./browser-host";
+import { FAVICON_MAX_BYTES } from "@realm/contracts";
+import { BrowserPaneHost, FAVICON_FETCH_MS, browserUserAgent, createFaviconResolver, isFindShortcut, readCapped, type FaviconFetch, type ViewFactory } from "./browser-host";
 import { attachTextContextMenu } from "./text-context-menu";
 import type { CdpBinding } from "./browser-agent-host";
 import { asDownloadItem, type DownloadDecision, type DownloadItemLike } from "./downloads";
@@ -48,6 +49,19 @@ async function installPasskeys(id: string, wc: WebContents, install: PasskeyInst
 }
 
 /**
+ * An icon's bytes, fetched on the panes' own partition — the one session that has ever talked to the
+ * site — with no cookies (`credentials: "omit"`) and no referrer (main's requests carry none), and given
+ * up past `FAVICON_FETCH_MS` or `FAVICON_MAX_BYTES`. A server error is no answer rather than "no icon":
+ * the next page of the site asks again.
+ */
+const fetchFavicon: FaviconFetch = async (url) => {
+  const res = await session.fromPartition(BROWSER_PARTITION).fetch(url, { credentials: "omit", signal: AbortSignal.timeout(FAVICON_FETCH_MS) });
+  if (res.status >= 500) throw new Error(`favicon ${res.status}`);
+  if (!res.ok || !res.body) return null;
+  return readCapped(res.body, FAVICON_MAX_BYTES);
+};
+
+/**
  * The thin Electron half of the browser pane (Plan 11 W1): every decision is in browser-host.ts;
  * this file only touches WebContentsView.
  *
@@ -62,6 +76,7 @@ export function electronViewFactory(
   onView?: (id: string, wc: WebContents | null) => void,
   installPasskeysFor?: PasskeyInstaller,
 ): ViewFactory {
+  const resolveFavicon = createFaviconResolver(fetchFavicon);
   return (id, hooks) => {
     const view = new WebContentsView({
       webPreferences: {
@@ -122,6 +137,23 @@ export function electronViewFactory(
     };
     if (installPasskeysFor) wc.on("did-navigate", dropBootstrapEntry);
 
+    /* The page's icon. A new document drops the last one's — registered ahead of the state events, so
+       the state they send already has none — and the icons it offers (Electron fires this after load,
+       and again when a page swaps its <link rel=icon>) are resolved to the first that loads. `asked`
+       numbers the requests, so an answer that lands after the page has moved on is thrown away rather
+       than painted onto the page that replaced it. */
+    let favicon: string | null = null;
+    let asked = 0;
+    wc.on("did-navigate", () => { asked++; favicon = null; });
+    wc.on("page-favicon-updated", (_e, candidates) => {
+      const n = ++asked;
+      void resolveFavicon(candidates).then((icon) => {
+        if (n !== asked || wc.isDestroyed() || icon === favicon) return;
+        favicon = icon;
+        hooks.emitState();
+      });
+    });
+
     const stateEvents = [
       "did-start-loading", "did-stop-loading", "did-navigate", "did-navigate-in-page",
       "page-title-updated", "did-fail-load",
@@ -166,6 +198,7 @@ export function electronViewFactory(
       },
       getTitle: () => wc.getTitle(),
       isLoading: () => wc.isLoading(),
+      getFavicon: () => favicon,
       findInPage: (text, opts) => { wc.findInPage(text, opts); },
       stopFindInPage: () => wc.stopFindInPage("clearSelection"),
       getZoomFactor: () => wc.getZoomFactor(),

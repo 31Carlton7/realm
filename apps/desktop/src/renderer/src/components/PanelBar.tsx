@@ -8,6 +8,7 @@ import { DELETES_ON_CLOSE, PAGE_KINDS } from "./pane-close";
 import { PaneTabs } from "./PaneTabs";
 import { useActionBudget } from "./pane-bar-fit";
 import { RenameInput } from "./RenameInput";
+import { ItemIcon } from "./PageIcon";
 
 /** Slim per-panel header: item icon + click-to-rename title, per-kind meta (right), ⋯ menu + close.
  *  Split/close/focus stay leaf-scoped callbacks (the host owns focus semantics); rename/delete are
@@ -108,7 +109,7 @@ export function PanelBar({ item, leafId, tabs, onSplit, onClose, zoomed = false,
         <button className="icon-btn" aria-label={`Forward in ${item.title}`} title="Forward (⌘])"
           disabled={!canForward} onClick={() => run(() => stepPaneNav(leafId, 1))}><Icon name="chevronRight" size={14} /></button>
       </span>
-      {!tabs && <span className="panel-icon"><Icon name={item.kind} size={14} /></span>}
+      {!tabs && <span className="panel-icon"><ItemIcon item={item} size={14} /></span>}
       {(renaming || renameArmed)
         ? <span className="panel-rename"><RenameInput item={item} onDone={() => { setRenaming(false); if (renameArmed) requestRename(null); }} /></span>
         : tabs ? <PaneTabs leafId={leafId} tabs={tabs} activeId={item.id} onRename={() => setRenaming(true)} />

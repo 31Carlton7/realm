@@ -1,4 +1,4 @@
-import { newId, type Browser, type BrowserHistoryPage } from "@realm/contracts";
+import { isFaviconDataUrl, newId, type Browser, type BrowserHistoryPage } from "@realm/contracts";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
 import { isHistoryUrl, type BrowserHistoryStore } from "../store/browser-history";
@@ -39,21 +39,30 @@ export class BrowserService {
     return row;
   }
 
-  /** Persist last committed url/title. A title change renames the item too — the sidebar and pane
-   *  header track the page, like a browser tab. (A later manual rename is therefore overwritten by
-   *  the next navigation; a pinned name is not a W1 concern.) */
-  update(browserId: string, patch: { url?: string; title?: string }): void {
+  /** Persist last committed url/title/favicon. A title change renames the item too — the sidebar and
+   *  pane header track the page, like a browser tab. (A later manual rename is therefore overwritten by
+   *  the next navigation; a pinned name is not a W1 concern.) A favicon change is the item's too: every
+   *  read of the item carries the row's icon, so the lists are told to read again.
+   *
+   *  The icon is the page's, so it never outlives the page: a new url with no favicon beside it clears
+   *  the old one rather than lending it to a page that never showed it. And one that is not a favicon
+   *  as Realm keeps them (`isFaviconDataUrl`) is kept as none. */
+  update(browserId: string, patch: { url?: string; title?: string; favicon?: string }): void {
     const before = this.d.browsers.get(browserId);
-    const row = this.d.browsers.update(browserId, patch);
+    const favicon = patch.favicon !== undefined ? (isFaviconDataUrl(patch.favicon) ? patch.favicon : "")
+      : patch.url !== undefined && patch.url !== before?.url ? "" : undefined;
+    const row = this.d.browsers.update(browserId, { url: patch.url, title: patch.title, favicon });
     if (!row) throw new NotFoundError("browser", browserId);
     this.recordHistory(before, row);
-    if (patch.title !== undefined) {
-      const item = this.d.items.findByRefId(browserId);
-      if (item && item.title !== patch.title) {
-        this.d.items.update({ id: item.id, title: patch.title || "Browser" });
-        this.d.rpc.broadcast("items.changed", { spaceId: item.spaceId });
-      }
+    const item = this.d.items.findByRefId(browserId);
+    if (!item) return;
+    let changed = false;
+    if (patch.title !== undefined && item.title !== patch.title) {
+      this.d.items.update({ id: item.id, title: patch.title || "Browser" });
+      changed = true;
     }
+    if (row.favicon !== (before?.favicon ?? "")) changed = true;
+    if (changed) this.d.rpc.broadcast("items.changed", { spaceId: item.spaceId });
   }
 
   /**
@@ -88,6 +97,8 @@ export class BrowserService {
     if (!profileId) return;
     if (before?.url === after.url) this.d.history.retitle(profileId, after.url, after.title);
     else this.d.history.recordVisit(profileId, after.url, after.title, this.d.now?.() ?? Date.now());
+    // The row's icon is this page's by now — `update` cleared the last page's off it.
+    this.d.history.setFavicon(profileId, after.url, after.favicon);
   }
 
   /** Delete row + item. Throws NOT_FOUND when neither exists (double-close is a caller bug). */

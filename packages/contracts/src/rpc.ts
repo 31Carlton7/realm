@@ -744,8 +744,10 @@ export const Methods = {
   "eggs.forget": { params: z.object({ id: z.string().min(1).max(64) }), result: z.object({ ok: z.literal(true) }) },
   "browsers.get":    { params: z.object({ browserId: IdSchema }), result: BrowserSchema },
   /** Last committed navigation state, written back by the renderer (debounced). A `title` also renames
-   *  the browser's item — the pane header and sidebar track the page, as in any browser's tab strip. */
-  "browsers.update": { params: z.object({ browserId: IdSchema, url: z.string().optional(), title: z.string().optional() }), result: z.object({ ok: z.literal(true) }) },
+   *  the browser's item — the pane header and sidebar track the page, as in any browser's tab strip —
+   *  and a `favicon` becomes the item's mark. Any string is accepted and one that is not
+   *  `isFaviconDataUrl` is kept as '', so a bad icon can never cost the url and title beside it. */
+  "browsers.update": { params: z.object({ browserId: IdSchema, url: z.string().optional(), title: z.string().optional(), favicon: z.string().optional() }), result: z.object({ ok: z.literal(true) }) },
   "browsers.close":  { params: z.object({ browserId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /**
    * Where a download from this space's panes lands (Plan 23): `<project root>/downloads`, or null

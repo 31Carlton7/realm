@@ -5,6 +5,7 @@ import { useApp } from "../state/store";
 import { REALM_ITEM_TYPE } from "./drag-types";
 import { Menu } from "./Menu";
 import { DELETES_ON_CLOSE, PAGE_KINDS } from "./pane-close";
+import { ItemIcon } from "./PageIcon";
 
 /**
  * A side pane's tab strip, in its bar where a single pane's title goes.
@@ -25,6 +26,9 @@ import { DELETES_ON_CLOSE, PAGE_KINDS } from "./pane-close";
  * pane filling the host ("full view", which is pane focus). A menu rather than two buttons, because
  * the strip is the bar's data of unbounded length and a second control would come out of its width.
  * The menu is the shared one, so it goes round a browser view rather than under it (no-overlay.ts).
+ *
+ * A browser's tab wears its page's own icon once the page has offered one, as a browser's tabs do, and
+ * the kind's glyph until then.
  *
  * A peek's tab says what it is twice over, in the shape and the words: an eye where the kind's glyph
  * goes and its title in italic, because it is the one tab here that will not be here tomorrow — and
@@ -93,7 +97,7 @@ export function PaneTabs({ leafId, tabs, activeId, onRename }: {
                 draggable={!peek} onDragStart={peek ? undefined : (e) => { e.dataTransfer.setData(REALM_ITEM_TYPE, t.id); e.dataTransfer.effectAllowed = "move"; }}
                 onClick={() => { if (!active) run(() => openItem(t.id, leafId)); }}
                 onDoubleClick={active && !peek ? onRename : undefined}>
-                <Icon name={peek ? "peek" : t.kind} size={14} />
+                {peek ? <Icon name="peek" size={14} /> : <ItemIcon item={t} size={14} />}
                 <span className="pane-tab-title">{t.title}</span>
               </button>
               {arming === t.id ? (

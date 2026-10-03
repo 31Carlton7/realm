@@ -3,16 +3,20 @@
  * import, so the guards and lifecycle are unit-testable. The Electron calls (WebContentsView,
  * webContents events) live behind `ViewFactory`, implemented in browser-pane.ts.
  */
+import { FAVICON_MAX_BYTES } from "@realm/contracts";
 
 export type ViewRect = { x: number; y: number; width: number; height: number };
 
 /** What the renderer's chrome renders from — pushed main→renderer on every navigation/title/loading
- *  change. Favicon deliberately skipped for W1. */
+ *  change. */
 export type BrowserViewState = {
   id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean;
   /** The device preset the view is showing the page at (Plan 26 W7e), or null when it fits the pane.
    *  On the state channel because the view outlives its pane: a pane that remounts learns it here. */
   device: DevicePresetId | null;
+  /** The page's own icon as a `data:` URL (`createFaviconResolver`), or null until the page has offered
+   *  one that loads — and for a page that offers none. */
+  favicon: string | null;
 };
 
 /**
@@ -134,6 +138,129 @@ export function browserUserAgent(defaultUserAgent: string): string {
   return stripped.replace(/(Chrome\/\d+)(?:\.\d+)*/g, "$1.0.0.0");
 }
 
+/** How long a favicon fetch may take before the tab keeps its glyph. */
+export const FAVICON_FETCH_MS = 8_000;
+/** How many of a page's icons are tried before it is taken to have none that loads. */
+export const FAVICON_TRIES = 3;
+/** The longest icon address worth following — a page writes these, and a URL past this is not an icon's. */
+const FAVICON_URL_MAX = 2_048;
+
+/**
+ * A page's icons, best first, for a tab that draws one at 14–16px on a 2x display.
+ *
+ * Electron hands them over as a sorted set — the document's own order is gone (measured: `/gh.svg`,
+ * `/g.ico` and `/gh.png` arrive as g.ico, gh.png, gh.svg) — so the choice is made from the addresses:
+ * an SVG is drawn at whatever size it is asked for; an icon naming a size of at least 32 is sharp at 2x
+ * (the smallest such, since it is closest to what is drawn); one naming no size is usually an ICO
+ * carrying several; and one naming a smaller size is a blur on a Retina tab, kept as a last resort.
+ * Only addresses an icon can honestly come from survive: http(s) without credentials, or an image
+ * inlined as `data:`.
+ */
+export function rankFavicons(candidates: readonly string[]): string[] {
+  const named = (url: string) => Number(/(\d+)x\1(?!\d)/.exec(url)?.[1] ?? Number.NaN);
+  const tier = (url: string) => {
+    if (/^data:image\/svg\+xml[;,]/i.test(url) || /\.svg(?:[?#]|$)/i.test(url)) return 0;
+    const px = named(url);
+    return Number.isNaN(px) ? 2 : px >= 32 ? 1 : 3;
+  };
+  const usable = (url: string) => {
+    if (/^data:image\//i.test(url)) return url.length <= FAVICON_MAX_BYTES * 3; // percent-encoding can triple it
+    if (!/^https?:\/\//i.test(url) || url.length > FAVICON_URL_MAX) return false;
+    try { const u = new URL(url); return u.username === "" && u.password === ""; } catch { return false; }
+  };
+  return candidates.filter(usable)
+    .map((url, i) => ({ url, i, tier: tier(url), px: named(url) }))
+    .sort((a, b) => a.tier - b.tier || (a.tier === 1 ? a.px - b.px : 0) || a.i - b.i)
+    .map((c) => c.url);
+}
+
+/** The bytes of a `data:` URL, base64 or percent-encoded; null when it does not parse. */
+export function dataUrlBytes(url: string): Uint8Array | null {
+  const m = /^data:([^,]*),(.*)$/s.exec(url);
+  if (!m) return null;
+  try {
+    return /;base64$/i.test(m[1]!) ? Buffer.from(m[2]!, "base64") : Buffer.from(decodeURIComponent(m[2]!), "utf8");
+  } catch { return null; }
+}
+
+/**
+ * What picture these bytes are, read from their own signature — never from what the server called
+ * them: a site that answers /favicon.ico with its HTML 404 page says `200` and `text/html`, and one that
+ * serves its ICO as `application/octet-stream` has still served an icon. Null for anything else.
+ */
+export function sniffImage(b: Uint8Array): string | null {
+  const at = (sig: number[], off = 0) => sig.every((v, i) => b[off + i] === v);
+  if (at([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return "image/png";
+  if (at([0x00, 0x00, 0x01, 0x00])) return "image/x-icon";
+  if (at([0x47, 0x49, 0x46, 0x38])) return "image/gif";
+  if (at([0xff, 0xd8, 0xff])) return "image/jpeg";
+  if (at([0x52, 0x49, 0x46, 0x46]) && at([0x57, 0x45, 0x42, 0x50], 8)) return "image/webp";
+  // An SVG is text: an <svg> root, after at most a BOM, an XML declaration, comments and a doctype.
+  const head = new TextDecoder().decode(b.subarray(0, 1024));
+  return /^﻿?\s*(?:<\?xml[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*(?:<!DOCTYPE[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*<svg[\s>]/i.test(head) ? "image/svg+xml" : null;
+}
+
+/** A favicon's bytes as Realm keeps them (`isFaviconDataUrl`), or null when they are no picture or too big. */
+export function faviconDataUrl(bytes: Uint8Array): string | null {
+  if (bytes.byteLength === 0 || bytes.byteLength > FAVICON_MAX_BYTES) return null;
+  const type = sniffImage(bytes);
+  return type ? `data:${type};base64,${Buffer.from(bytes).toString("base64")}` : null;
+}
+
+/** A response body, read only as far as `max` bytes: null past it, so a 50MB "icon" costs one chunk. */
+export async function readCapped(body: ReadableStream<Uint8Array>, max: number): Promise<Uint8Array | null> {
+  const reader = body.getReader();
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return Buffer.concat(parts);
+    size += value.byteLength;
+    if (size > max) { await reader.cancel().catch(() => {}); return null; }
+    parts.push(value);
+  }
+}
+
+/**
+ * Fetch an icon's bytes. Null is an ANSWER — the address gave back something other than a picture
+ * that fits — and is remembered; a throw (a timeout, the network gone) is not, and the next page tries
+ * again.
+ */
+export type FaviconFetch = (url: string) => Promise<Uint8Array | null>;
+
+/**
+ * A page's offered icons → the first that loads, as a `data:` URL the window can draw without making a
+ * request of its own: the window's CSP admits no remote image, and stays that way.
+ *
+ * Remembered by address, a few dozen deep: every page of a site offers the same icon, and the next page
+ * should not wait on a fetch for a picture already in hand — nor the tab show the glyph while it does.
+ * An inlined `data:` icon is decoded each time; there is nothing to fetch.
+ */
+export function createFaviconResolver(fetchBytes: FaviconFetch, remember = 64): (candidates: readonly string[]) => Promise<string | null> {
+  const known = new Map<string, string | null>();
+  return async (candidates) => {
+    for (const url of rankFavicons(candidates).slice(0, FAVICON_TRIES)) {
+      let icon: string | null;
+      if (url.startsWith("data:")) {
+        const bytes = dataUrlBytes(url);
+        icon = bytes ? faviconDataUrl(bytes) : null;
+      } else if (known.has(url)) {
+        icon = known.get(url)!;
+        known.delete(url); // most recently used goes to the back
+        known.set(url, icon);
+      } else {
+        const bytes = await fetchBytes(url).catch(() => undefined);
+        if (bytes === undefined) continue; // no answer: try the next, and this one again next time
+        icon = bytes ? faviconDataUrl(bytes) : null;
+        known.set(url, icon);
+        if (known.size > remember) known.delete(known.keys().next().value!);
+      }
+      if (icon) return icon;
+    }
+    return null;
+  };
+}
+
 /**
  * The per-space origin allowlist check (consulted by `will-navigate`, `will-redirect`, and every
  * host-initiated navigate). `null` = no list configured = allow everything — W1's default posture;
@@ -242,6 +369,8 @@ export type ViewHandle = {
   history(): { entries: { url: string; title: string }[]; activeIndex: number };
   goToIndex(index: number): void;
   getURL(): string; getTitle(): string; isLoading(): boolean;
+  /** The current page's icon, resolved (`createFaviconResolver`) — null until it has one. */
+  getFavicon(): string | null;
   /** `webContents.findInPage` — `findNext` is Electron's "this is a NEW search", not "the next match". */
   findInPage(text: string, opts: { forward: boolean; findNext: boolean }): void;
   stopFindInPage(): void;
@@ -504,6 +633,7 @@ export class BrowserPaneHost {
     this.opts.sendState({
       id, url: v.handle.getURL(), title: v.handle.getTitle(), loading: v.handle.isLoading(),
       canGoBack: v.handle.canGoBack(), canGoForward: v.handle.canGoForward(), device: v.device?.id ?? null,
+      favicon: v.handle.getFavicon(),
     });
   }
 }
