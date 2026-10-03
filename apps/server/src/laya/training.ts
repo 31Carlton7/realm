@@ -69,6 +69,19 @@ const gb = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 
 export type TrainResult = { name: string; dir: string; report: LayaEvalReport };
 
+/** `x` with every string's lone surrogates replaced: half an emoji from anywhere — an app's own label,
+ *  a log row — is text train.py's tokenizer refuses, and it refuses the whole run for one. */
+export function wellFormed<T>(x: T): T {
+  if (typeof x === "string") return whole(x) as T;
+  if (Array.isArray(x)) return x.map(wellFormed) as T;
+  if (x && typeof x === "object") return Object.fromEntries(Object.entries(x).map(([k, v]) => [whole(k), wellFormed(v)])) as T;
+  return x;
+}
+
+/** Half an emoji: a high surrogate with no low after it, or a low with no high before it. */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+const whole = (s: string): string => s.replace(LONE_SURROGATE, "�");
+
 /** The label a checkpoint trained here is served and logged under. */
 export const localCheckpointLabel = (name: string): string => `local:${name}`;
 
@@ -89,7 +102,7 @@ export async function trainCheckpoint(d: TrainerDeps, o: { name: string; signal:
   const work = join(rt.dir, "train", o.name);
   mkdirSync(work, { recursive: true, mode: 0o700 });
   const { rows, stats } = trainingSet(bench, lexicon, { heldoutApps: manifest.split.heldoutApps, validationApps: manifest.split.validationApps, log: readLog(d.logFiles()), recorded: d.recorded?.() ?? [] });
-  const jsonl = (xs: unknown[]) => xs.map((x) => JSON.stringify(x)).join("\n") + "\n";
+  const jsonl = (xs: unknown[]) => xs.map((x) => JSON.stringify(wellFormed(x))).join("\n") + "\n";
   writeFileSync(join(work, "train.jsonl"), jsonl(rows));
   writeFileSync(join(work, "calib.jsonl"), jsonl(benchmarkRows(bench, ["train"])));
   writeFileSync(join(work, "valid.jsonl"), jsonl(benchmarkRows(bench, ["validation"])));
