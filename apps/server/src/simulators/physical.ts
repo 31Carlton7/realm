@@ -3,6 +3,7 @@ import { DeviceBridge, type BridgeOptions } from "./device-bridge";
 import type { DeviceInput } from "./device-input";
 import { devicectl as realDevicectl, type Devicectl } from "./devicectl";
 import { DeviceRunners, RunnerError, type RunnerTarget } from "./device-runner";
+import type { StartVideo, VideoStop } from "./phone-video";
 import { loopbackSocket, RunnerUnreachable, type RunnerClient } from "./runner-client";
 import type { Simctl } from "./simctl";
 import { connectToDevice } from "./usbmux";
@@ -32,6 +33,11 @@ export type PhysicalDeps = {
   rehearsal?: readonly string[];
   /** A runner that stopped by itself, for the pane showing that device to say so. */
   onExit?: (udid: string, error: RunnerError) => void;
+  /** The phone's screen as live video, by the name the phone goes by (`phone-video.ts`). Absent where
+   *  this Mac has no helper to take it: the picture is the runner's screenshots. */
+  video?: (name: string) => StartVideo;
+  /** A phone's picture turned into live video (null), or back into screenshots and why. */
+  onPicture?: (udid: string, stills: VideoStop | null) => void;
   /** How long a read of the tree may take: a step's (`readMs`), and a patient reader's (`patientReadMs`) —
    *  a recording, which would rather wait for a slow app than ask it again. */
   timing?: { readMs?: number; patientReadMs?: number };
@@ -100,7 +106,9 @@ export class PhysicalDevices {
     const client = await this.runners.ensure({ udid, name: device.name, osVersion, simulator });
     const points = await client.screen();
     const existing = this.live.get(udid);
-    const bridge = existing?.bridge ?? await (this.d.bridge ?? DeviceBridge.start)({ runner: client, screen: points });
+    // A rehearsal's "phone" is a simulator, and no cable carries its picture: screenshots, as ever.
+    const video = !simulator && this.d.video ? { video: this.d.video(device.name), onStills: (why: VideoStop | null) => this.d.onPicture?.(udid, why) } : {};
+    const bridge = existing?.bridge ?? await (this.d.bridge ?? DeviceBridge.start)({ runner: client, screen: points, ...video });
     this.live.set(udid, { client, points, bridge });
     return {
       screen: { width: Math.round(points.width * points.scale), height: Math.round(points.height * points.scale), orientation: "portrait" },

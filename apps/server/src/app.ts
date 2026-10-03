@@ -372,8 +372,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** Real iPhones and iPads — devicectl, usbmuxd and Realm's test runner (`simulators/physical.ts`).
    *  Only `main.ts` passes it: every other `createApp` is a test or a script, and nothing but the real
    *  server may list a phone, build for one or run anything on it. `onExit` is how a runner that
-   *  stopped by itself reaches the panes showing it. */
-  physicalDevices?: (onExit: (udid: string, error: import("./simulators/device-runner").RunnerError) => void) => import("./simulators/service").SimulatorServiceDeps["physical"];
+   *  stopped by itself reaches the panes showing it; `onPicture`, how a phone's picture turning into
+   *  live video or back into screenshots does. */
+  physicalDevices?: (
+    onExit: (udid: string, error: import("./simulators/device-runner").RunnerError) => void,
+    onPicture: (udid: string, stills: import("./simulators/phone-video").VideoStop | null) => void,
+  ) => import("./simulators/service").SimulatorServiceDeps["physical"];
   /** Whether this Mac can run a simulator — the answer behind the simulator tools, the preamble's
    *  paragraph about them and their settings row. `main.ts` passes the real probe
    *  (`toolchainAvailable`); left out, nothing is probed and the answer stays "not known", so a suite
@@ -503,7 +507,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      `serve-sim` over loopback and the renderer reads them itself, so there is no proxy, no port and
      no driver — the three things `MachineService` above needs a page of wiring for. */
   let simulatorsLate: SimulatorService | null = null;
-  const physicalDevices = opts.physicalDevices?.((udid, error) => simulatorsLate?.runnerStopped(udid, error)) ?? opts.simulator?.physical;
+  const physicalDevices = opts.physicalDevices?.(
+    (udid, error) => simulatorsLate?.runnerStopped(udid, error),
+    (udid, stills) => simulatorsLate?.pictureChanged(udid, stills),
+  ) ?? opts.simulator?.physical;
   const simulators = new SimulatorService({ rpc, spaces, items, simulators: simulatorsStore, ...opts.simulator, physical: physicalDevices });
   simulatorsLate = simulators;
   // Plan 22: the preview listener guides and PDFs are framed from. Its root lookup is late-bound to

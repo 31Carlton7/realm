@@ -1,4 +1,4 @@
-import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, shell, systemPreferences, Tray, type MenuItemConstructorOptions } from "electron";
+import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, session, shell, systemPreferences, Tray, type MenuItemConstructorOptions } from "electron";
 import { BrowserCredentialInputSchema, newId, type BrowserAction, type BrowserCredential, type MediaFile, type Passkey } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { copyFile, readFile, writeFile } from "node:fs/promises";
@@ -21,6 +21,7 @@ import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
 import { compressIconIfNeeded, describeFiles, existingPath, fileThumbnail, openablePath, saveTempAttachment, statFile, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
 import { createBrowserPane, governBrowserDownloads, type BrowserPane } from "./browser-pane";
+import { refuseCapture } from "./capture-guard";
 import { BlockedDownloads, DownloadGovernor, retryBlockedDownload } from "./downloads";
 import type { BrowserPaneHost, ViewRect } from "./browser-host";
 import { BrowserAgentHost } from "./browser-agent-host";
@@ -617,6 +618,7 @@ ipcMain.handle("compress-icon-image", async (_e, path: unknown): Promise<PickedF
 // may claim, the no-prompt rule — lives in tcc.ts; only the Electron/fs legs are bound here.
 ipcMain.handle("tcc:probe", (): TccRow[] => probeTcc({
   screenStatus: () => systemPreferences.getMediaAccessStatus("screen"),
+  cameraStatus: () => systemPreferences.getMediaAccessStatus("camera"),
   // false = never show the prompt; querying trust only.
   accessibilityTrusted: () => systemPreferences.isTrustedAccessibilityClient(false),
   openForRead: (path) => { closeSync(openSync(path, "r")); },
@@ -626,6 +628,14 @@ ipcMain.handle("tcc:probe", (): TccRow[] => probeTcc({
 ipcMain.handle("tcc:open-settings", (_e, pane: unknown) => {
   if (!isTccPermissionId(pane)) throw new Error(`unknown permissions pane: ${String(pane)}`);
   void shell.openExternal(TCC_SETTINGS_URLS[pane]);
+});
+
+/** A real iPhone's picture, live. macOS reaches a connected iPhone's screen as a camera, so this raises
+ *  the camera prompt — on purpose, and only from a click on the pane's Show live. Answers the status
+ *  after it: the server's bridge notices a grant by itself within two seconds. */
+ipcMain.handle("phone:show-live", async (): Promise<string> => {
+  if (systemPreferences.getMediaAccessStatus("camera") === "not-determined") await systemPreferences.askForMediaAccess("camera");
+  return systemPreferences.getMediaAccessStatus("camera");
 });
 
 // ── Computer control (the `realm-computer` tools' two grants) ───────────────────────────────────
@@ -1139,6 +1149,9 @@ if (!app.requestSingleInstanceLock()) {
 
 app.whenReady().then(async () => {
   try {
+    // Nothing Realm draws asks for the camera or microphone, and nothing it shows may: the camera grant
+    // is the phone's picture's (capture-guard.ts says why), and the browser partition refuses the same.
+    refuseCapture(session.defaultSession);
     installMenu();
     // Launched from Finder, the app inherits launchd's minimal PATH — no Homebrew, no agent CLIs, no
     // mac-cli. Adopt the login shell's PATH BEFORE the first spawn: the server child inherits this

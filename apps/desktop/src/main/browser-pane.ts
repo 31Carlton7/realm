@@ -1,5 +1,6 @@
 import { WebContentsView, screen, session, type BrowserWindow, type WebContents } from "electron";
 import { BrowserPaneHost, browserUserAgent, type ViewFactory } from "./browser-host";
+import { refuseCapture } from "./capture-guard";
 import type { CdpBinding } from "./browser-agent-host";
 import type { DownloadDecision, DownloadItemLike } from "./downloads";
 import type { PasskeyCdp } from "./passkeys";
@@ -238,7 +239,9 @@ export function applyBrowserUserAgent(): void {
   userAgentApplied = true;
   const ses = session.fromPartition(BROWSER_PARTITION);
   ses.setUserAgent(browserUserAgent(ses.getUserAgent()));
+  refuseCapture(ses);
 }
+
 
 /**
  * Downloads on the browser partition (Plan 11 W3, narrowed by Plan 23).

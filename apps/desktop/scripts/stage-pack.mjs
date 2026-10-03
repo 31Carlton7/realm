@@ -62,6 +62,7 @@ cpSync(join(root, "resources", "ios-device-runner"), join(stage, "ios-device-run
 for (const [binary, missing] of [
   ["scrollphase", "the app falls back to timer-based scroll phases"],
   ["axhelper", "the computer-use tools stay unavailable"],
+  ["phonescreen", "a real iPhone's picture is the runner's screenshots, about one a second"],
 ]) {
   const built = join(desktop, "native", "bin", binary);
   if (existsSync(built)) cpSync(built, join(stage, binary));

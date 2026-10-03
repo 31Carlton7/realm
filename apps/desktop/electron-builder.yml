@@ -56,6 +56,9 @@ mac:
     NSContactsUsageDescription: >-
       Realm lets the coding agents you run look up contacts on your behalf — to address an email or
       a message you asked for.
+    NSCameraUsageDescription: >-
+      Realm shows a connected iPhone's screen live. macOS reaches an iPhone's screen over the cable
+      as a camera, so this is the permission it asks for. Realm never turns on this Mac's camera.
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist
 afterSign: scripts/notarize.cjs
