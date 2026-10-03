@@ -202,7 +202,7 @@ function RubberBandBridge() {
   return null;
 }
 
-function ThemeBridge() {
+export function ThemeBridge() {
   const color = useApp((s) => s.activeSpace()?.color ?? null);
   const pref = useApp((s) => s.themePref);
   const themes = useApp((s) => s.themeNames);
@@ -217,11 +217,15 @@ function ThemeBridge() {
      every px when you press ⌘−; what this buys is the surfaces that should give up MORE than their
      share when you do — the prompter's column, today. */
   useZoom();
-  useApplyTheme({ color, pref, themes, overrides, contrast, fonts, groundAlpha, paneAlpha });
+  const mode = useApplyTheme({ color, pref, themes, overrides, contrast, fonts, groundAlpha, paneAlpha });
   // xterm reads its font once, at construction, so a terminal already on screen would keep the old
   // face. A plain effect, not a layout one: it has to run AFTER useApplyTheme has written
   // --font-mono, because the hub reads the computed value off :root.
   useEffect(() => { getTerminalHub().refreshFont(); }, [fonts]);
+  // The same for its colours, which are the face's: a terminal opened in dark mode keeps white ink
+  // that the light face's ground would swallow. `mode` rather than `pref`, because "System" changes
+  // face without the preference changing.
+  useEffect(() => { getTerminalHub().refreshColors(); }, [mode, color, themes, overrides, contrast]);
   // Whether that cursor blinks is the same story: xterm takes it at construction, and a preference
   // that only reached the NEXT terminal is one nobody believes they changed.
   useEffect(() => { getTerminalHub().setCursorBlink(cursorBlink); }, [cursorBlink]);

@@ -1,4 +1,4 @@
-import { Terminal } from "@xterm/xterm";
+import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_STYLE_DEFAULT, type TerminalCursorStyle, type EventName, type EventPayload, type MethodName, type MethodParams, type MethodResult } from "@realm/contracts";
 import { rpc } from "../rpc/client";
@@ -15,9 +15,9 @@ export type TerminalLike = {
   onResize(fn: (size: { cols: number; rows: number }) => void): { dispose(): void };
   readonly cols: number; readonly rows: number;
   /** xterm's live options bag. Optional because the only things the hub writes back into it are the
-   *  code face and whether the cursor blinks, and a fake that cares about neither should not have to
-   *  carry one. */
-  options?: { fontFamily?: string; fontSize?: number; cursorBlink?: boolean; cursorStyle?: TerminalCursorStyle };
+   *  code face, the cursor and the colours, and a fake that cares about none of them should not have
+   *  to carry one. */
+  options?: { fontFamily?: string; fontSize?: number; cursorBlink?: boolean; cursorStyle?: TerminalCursorStyle; theme?: ITheme; minimumContrastRatio?: number };
 };
 export type FitLike = { fit(): void };
 export type TerminalFactory = () => { term: TerminalLike; fit: FitLike };
@@ -43,9 +43,30 @@ export type HubEntry = {
 const rootVar = (name: string, fallback: string, doc: Document): string =>
   doc.defaultView?.getComputedStyle(doc.documentElement).getPropertyValue(name).trim() || fallback;
 
-/** Terminal background from the `--rl-terminal-bg` token. */
-export function terminalBackground(doc: Document = document): string {
-  return rootVar("--rl-terminal-bg", "#17181b", doc);
+/**
+ * What a terminal is drawn in: no ground of its own, and ink for the ground it shows.
+ *
+ * The background is transparent, so a terminal shows the pane's ground — the one translucent sheet
+ * `.main` lays under every pane, the transcript included — and reads as the same surface as the chat
+ * beside it. Any colour named here would be painted OVER that sheet at full strength, a darker slab
+ * of the same token. The colour behind the zero alpha still matters — black under the dark face,
+ * white under the light — because xterm draws inverse video in it and measures contrast against it.
+ *
+ * The light face's ground is near-white and xterm's own palette is light-on-black, so there the ink
+ * is the app's, and anything a program prints in a colour picked for a black ground is darkened until
+ * it reads at AA. The dark face keeps xterm's palette, which was drawn for it.
+ */
+export function terminalColors(doc: Document = document): { theme: ITheme; minimumContrastRatio: number } {
+  if (doc.documentElement.getAttribute("data-mode") !== "light") return { theme: { background: "#00000000" }, minimumContrastRatio: 1 };
+  const ink = rootVar("--rl-text-bright", "#2b2d31", doc);
+  return {
+    theme: {
+      background: "#ffffff00", foreground: ink, cursor: ink, cursorAccent: rootVar("--rl-panel", "#f1f2f4", doc),
+      // xterm lays an opaque selection colour down at 30%, which over a light ground is a tint of it.
+      selectionBackground: rootVar("--rl-accent", "#2f7cf6", doc),
+    },
+    minimumContrastRatio: 4.5,
+  };
 }
 
 /** The code face, from the same `--font-mono` the rest of the app's code surfaces read — so the
@@ -68,7 +89,9 @@ const defaultFactory: TerminalFactory = () => {
   /* `cursorBlink` is the hub's to set — it is a preference, and the hub is what knows the current
      answer for a terminal opened at any moment. Constructed on, then corrected in `acquire`, so a
      terminal opened while the switch is off never blinks even once. */
-  const term = new Terminal({ cursorBlink: true, fontSize: terminalFontSize(), fontFamily: terminalFont(), theme: { background: terminalBackground() }, allowProposedApi: true });
+  /* `allowTransparency`, because its background is see-through — see `terminalColors`, which
+     `acquire` applies before the terminal is opened. */
+  const term = new Terminal({ cursorBlink: true, fontSize: terminalFontSize(), fontFamily: terminalFont(), allowTransparency: true, allowProposedApi: true });
   const fit = new FitAddon(); term.loadAddon(fit);
   return { term, fit };
 };
@@ -250,7 +273,7 @@ export class TerminalHub {
     const existing = this.entries.get(terminalId);
     if (existing) return existing;
     const { term, fit } = this.factory();
-    if (term.options) { term.options.cursorBlink = this.cursorBlink; term.options.cursorStyle = this.cursorStyle; }
+    if (term.options) { term.options.cursorBlink = this.cursorBlink; term.options.cursorStyle = this.cursorStyle; Object.assign(term.options, terminalColors(this.doc)); }
     const host = this.doc.createElement("div");
     host.className = "terminal-host";
     const buf = this.buffer(terminalId);
@@ -334,6 +357,13 @@ export class TerminalHub {
   setCursorStyle(style: TerminalCursorStyle) {
     this.cursorStyle = style;
     for (const e of this.entries.values()) if (e.term.options) e.term.options.cursorStyle = style;
+  }
+
+  /** The colours, re-read off the theme and pushed into every live terminal: a terminal opened in the
+   *  dark face would otherwise keep light-on-black ink on the light face's near-white ground. */
+  refreshColors() {
+    const colors = terminalColors(this.doc);
+    for (const e of this.entries.values()) if (e.term.options) Object.assign(e.term.options, colors);
   }
 
   refreshFont() {

@@ -2078,7 +2078,7 @@ describe("scrollbars", () => {
     // are short tab rows, and a bar under them would be the tallest thing in the row) and say so with
     // `scrollbar-width: none` in their own rule, which is why they are filtered rather than listed.
     // xterm is the one exception that keeps an explicit treatment: it measures this element to decide
-    // the terminal's column count, and its interior is dark in both app modes.
+    // the terminal's column count.
     const exempt = new Set([".xterm-viewport"]);
     const uncovered = RULES
       .filter((r) => /overflow(-[xy])?:\s*(auto|scroll)/.test(r.body) && !/scrollbar-width:\s*none/.test(r.body))
@@ -2425,12 +2425,12 @@ describe("light mode", () => {
   });
 
   it("the colours that answer to something other than the theme are named, and stay put", () => {
-    // Each of these is drawn ON something that is the same in both modes — the terminal's own dark
-    // interior, or a picture the user attached — so a light override would be the bug. They are
-    // tokens rather than literals precisely so that reading is available to the next sweep.
-    for (const token of ["--rl-terminal-ink", "--rl-terminal-ink-dim", "--rl-on-media"])
+    // Each of these is drawn ON something that is the same in both modes — a machine's dark letterbox,
+    // or a picture the user attached — so a light override would be the bug. They are tokens rather
+    // than literals precisely so that reading is available to the next sweep.
+    for (const token of ["--rl-terminal-ink-dim", "--rl-on-media"])
       expect(lightBlocks, token).not.toContain(token);
-    expect(bodiesFor(".terminal-hint-path").join(" ")).toContain("color: var(--rl-terminal-ink)");
+    expect(bodiesFor(".machine-starting").join(" ")).toContain("color: var(--rl-terminal-ink-dim)");
     expect(bodiesFor(".attach-remove").join(" ")).toContain("color: var(--rl-on-media)");
     // Same case, one level up: a filled control's lit top edge. The fill under it is a saturated
     // accent in both modes and the light still comes from above.
@@ -3325,6 +3325,27 @@ describe("the decorative wash", () => {
 
 
 /**
+ * A terminal sits on the pane's ground, as the transcript does. The pane area is ONE translucent sheet
+ * (`.main`), and a terminal that filled itself with the same token painted that colour a second time
+ * at full strength — the darker slab beside the chat it was meant to match.
+ */
+describe("a terminal's surface", () => {
+  it("paints no ground of its own and keeps no colour scheme of its own", () => {
+    // THE MUTANTS: any background on the pane, and the slab is back; `color-scheme: dark`, and on the
+    // light face xterm's scrollbar stays a dark gutter on a light ground.
+    const pane = bodiesFor(".terminal-pane").join(" ");
+    expect(pane).not.toMatch(/background/);
+    expect(pane).not.toMatch(/color-scheme/);
+  });
+
+  it("writes its hint in the pane's own inks, which are the ones that read on the pane's ground", () => {
+    // THE MUTANT: the white-on-dark terminal inks it used to wear, invisible on the light face.
+    expect(bodiesFor(".terminal-hint-path").join(" ")).toContain("color: var(--rl-text-dim)");
+    expect(bodiesFor(".terminal-hint-keys").join(" ")).toContain("color: var(--rl-text-faint)");
+  });
+});
+
+/**
  * The machine pane's surfaces (Plan 25 W3).
  *
  * Every rule here exists because the surface underneath is ARBITRARY — a stranger's desktop, which
@@ -3333,9 +3354,9 @@ describe("the decorative wash", () => {
  */
 describe("the machine pane's screen", () => {
   it("letterboxes on the terminal's ground, not the canvas token", () => {
-    // A guest desktop must not fight a near-white surround in light mode — the ruling
-    // `.terminal-pane` already writes down for its own interior. `--canvas` is the working plane's
-    // colour and would put a pale border around a pale screen in exactly the mode it shows most.
+    // A guest desktop must not fight a near-white surround in light mode. `--canvas` is the working
+    // plane's colour and would put a pale border around a pale screen in exactly the mode it shows
+    // most.
     const body = bodiesFor(".machine-screen").join(" ");
     expect(body).toContain("background: var(--rl-terminal-bg)");
     expect(body).not.toContain("var(--canvas)");

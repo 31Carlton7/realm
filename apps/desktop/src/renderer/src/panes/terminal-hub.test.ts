@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { terminalBackground, terminalFont, TerminalHub, type HubTransport, type TerminalLike } from "./terminal-hub";
+import { afterEach, describe, expect, it } from "vitest";
+import { terminalColors, terminalFont, TerminalHub, type HubTransport, type TerminalLike } from "./terminal-hub";
 
 type Listener = (payload: unknown) => void;
 
@@ -326,12 +326,51 @@ describe("catching up on output that arrived with nobody listening", () => {
   });
 });
 
-describe("terminalBackground", () => {
-  it("reads --rl-terminal-bg from :root, defaulting to #17181b", () => {
-    expect(terminalBackground()).toBe("#17181b");
-    document.documentElement.style.setProperty("--rl-terminal-bg", "#101010");
-    expect(terminalBackground()).toBe("#101010");
-    document.documentElement.style.removeProperty("--rl-terminal-bg");
+describe("a terminal's colours", () => {
+  const root = document.documentElement;
+  const light = () => root.setAttribute("data-mode", "light");
+  const alpha = (hex: string | undefined) => hex?.slice(7);
+  afterEach(() => { root.removeAttribute("data-mode"); root.style.removeProperty("--rl-text-bright"); });
+
+  it("paints no ground of its own in either face, so the pane's shows through as the chat's does", () => {
+    // THE MUTANT: any opaque background — the token the pane is made of, painted again at full strength
+    // over the translucent sheet the transcript sits on, which is the darker slab this replaced.
+    expect(alpha(terminalColors().theme.background)).toBe("00");
+    light();
+    expect(alpha(terminalColors().theme.background)).toBe("00");
+  });
+
+  it("draws the light face in the app's ink, and holds a program's own colours to AA there", () => {
+    // xterm's defaults are light-on-black. THE MUTANTS: leave the ink to xterm, and the light face's
+    // near-white ground carries white text; drop the contrast floor, and a yellow picked for a black
+    // ground is printed on a white one.
+    root.style.setProperty("--rl-text-bright", "#202124");
+    light();
+    const { theme, minimumContrastRatio } = terminalColors();
+    expect(theme.foreground).toBe("#202124");
+    expect(theme.cursor).toBe("#202124");
+    expect(minimumContrastRatio).toBe(4.5);
+  });
+
+  it("leaves the dark face to xterm's own palette, which was drawn for it", () => {
+    const { theme, minimumContrastRatio } = terminalColors();
+    expect(theme).toEqual({ background: "#00000000" });
+    expect(minimumContrastRatio).toBe(1);
+  });
+
+  it("are a terminal's from the moment it is acquired, and follow the face into the ones already open", () => {
+    // THE MUTANT: set them only at construction. A terminal opened before a switch to light keeps
+    // white ink on the light face's ground — the setting changes everything but the shell in front of
+    // you.
+    const { hub, terms } = setup();
+    hub.acquire("a");
+    expect(terms[0]!.options!.theme).toEqual({ background: "#00000000" });
+    light();
+    hub.refreshColors();
+    expect(terms[0]!.options!.theme!.background).toBe("#ffffff00");
+    expect(terms[0]!.options!.minimumContrastRatio).toBe(4.5);
+    hub.acquire("b");
+    expect(terms[1]!.options!.theme!.background).toBe("#ffffff00");
   });
 });
 
