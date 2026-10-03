@@ -583,12 +583,12 @@ async function generalChecks(c, size) {
   const term = await evalIn(c, `(() => {
     const dock = document.querySelector('.terminal-dock'), pane = document.querySelector('.session-pane');
     const composer = pane.querySelector('.composer-dock');
-    return { edge: dock.getAttribute('data-edge'), pinned: dock.hasAttribute('data-pinned'),
+    return { pinned: dock.hasAttribute('data-pinned'),
       dock: __live.box(dock), pane: __live.box(pane), composer: __live.box(composer),
       bottomReserved: pane.hasAttribute('data-dock-bottom'), rightReserved: pane.hasAttribute('data-dock-pinned') };
   })()`);
   check("Bottom: the terminal docks along the pane's foot, the pane's width, at the shell's height",
-    term.edge === "bottom" && Math.abs(term.dock.b - term.pane.b) <= 16 && term.dock.l >= term.pane.l && term.dock.r <= term.pane.r && term.dock.w >= term.pane.w - 32 && Math.abs(term.dock.h - 320) <= 2,
+    Math.abs(term.dock.b - term.pane.b) <= 16 && term.dock.l >= term.pane.l && term.dock.r <= term.pane.r && term.dock.w >= term.pane.w - 32 && Math.abs(term.dock.h - 320) <= 2,
     { dock: term.dock, pane: term.pane });
   check("…pinned in a tall pane, which gives up its foot and keeps its right side", term.pinned && term.bottomReserved && !term.rightReserved, term);
   check("…and the prompter sits above the shell rather than under its card", term.composer.b <= term.dock.t, { composer: term.composer, dock: term.dock });
@@ -608,31 +608,15 @@ async function generalChecks(c, size) {
   const darkPane = await evalIn(c, `__live.box(document.querySelector('.session-pane'))`);
   await shoot(c, "terminal-bottom-dark", { x: darkPane.l, y: darkPane.t, width: darkPane.w, height: darkPane.h });
   /* The grid against the card it is drawn in: xterm sizes its columns off the element it is fitted
-     to, and a grid wider than the card loses its last column under the card's clip. Measured in both
-     placements, so a clipped column can be told apart as this edge's doing or the dock's own. */
-  const grid = () => evalIn(c, `(() => { const d = document.querySelector('.terminal-dock'); const card = d.getBoundingClientRect();
+     to, and a grid wider than the card loses its last column under the card's clip. (Right, the
+     other placement, is a tab of the side pane rather than a card — terminal-tab-live.mjs.) */
+  const bottomGrid = await evalIn(c, `(() => { const d = document.querySelector('.terminal-dock'); const card = d.getBoundingClientRect();
     const scr = d.querySelector('.xterm-screen').getBoundingClientRect(); const host = d.querySelector('.terminal-pane').getBoundingClientRect();
-    return { edge: d.getAttribute('data-edge'), card: { l: Math.round(card.left), r: Math.round(card.right) }, host: { l: Math.round(host.left), r: Math.round(host.right) },
+    return { card: { l: Math.round(card.left), r: Math.round(card.right) }, host: { l: Math.round(host.left), r: Math.round(host.right) },
       screen: { l: Math.round(scr.left), r: Math.round(scr.right) }, overRight: Math.round(scr.right - card.right) }; })()`);
-  const bottomGrid = await grid();
+  check("at the bottom the shell's grid is no wider than its card", bottomGrid.overRight <= 0, bottomGrid);
   await toggleTerminal();
   await until(async () => !(await evalIn(c, `!!document.querySelector('.terminal-dock')`)), 5000, "terminal closed, dark");
-  await until(() => evalIn(c, `__live.openSettings()`), 15_000, "settings for the right edge");
-  await evalIn(c, `__live.page("general")`);
-  await evalIn(c, `(() => { document.querySelector('input[name="settings-terminal-dock"][value="right"]').click(); return true; })()`);
-  await sleep(300);
-  await evalIn(c, `(() => { [...document.querySelectorAll('.item-list .item-row')].find((b) => b.textContent.includes(${JSON.stringify(TITLE)})).click(); return true; })()`);
-  await sleep(600);
-  await toggleTerminal();
-  await until(() => evalIn(c, `!!document.querySelector('.terminal-dock')`), 10_000, "terminal dock, right");
-  await sleep(700);
-  const rightGrid = await grid();
-  note("the shell's grid against its card, bottom then right", { bottomGrid, rightGrid });
-  check("at the bottom the shell's grid is no wider than its card than it is on the right", bottomGrid.overRight <= Math.max(0, rightGrid.overRight), { bottomGrid, rightGrid });
-  const rightPane = await evalIn(c, `__live.box(document.querySelector('.session-pane'))`);
-  await shoot(c, "terminal-right-dark", { x: rightPane.l, y: rightPane.t, width: rightPane.w, height: rightPane.h });
-  await toggleTerminal();
-  await until(async () => !(await evalIn(c, `!!document.querySelector('.terminal-dock')`)), 5000, "terminal closed, right");
 
   /* ── Awake for exactly as long as a turn runs ───────────────────────────────────────────── */
   const held = () => {
