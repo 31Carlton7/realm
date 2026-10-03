@@ -17,7 +17,7 @@ describe("BrowserHistoryStore", () => {
     const { history } = store();
     history.recordVisit("p1", "https://example.com/", "Example", 10);
     history.recordVisit("p1", "https://example.com/", "Example Domain", 20);
-    expect(history.search("p1", "example", 10)).toEqual([{ url: "https://example.com/", title: "Example Domain", visits: 2, lastVisitAt: 20 }]);
+    expect(history.search("p1", "example", 10)).toEqual([{ url: "https://example.com/", title: "Example Domain", visits: 2, lastVisitAt: 20, favicon: "" }]);
   });
 
   it("a visit with no title keeps the title the page had", () => {
@@ -70,7 +70,7 @@ describe("BrowserHistoryStore", () => {
     history.recordVisit("p1", "https://app.example/", "Loading…", 10);
     history.retitle("p1", "https://app.example/", "Inbox (3)");
     history.retitle("p1", "https://app.example/", "");
-    expect(history.search("p1", "app", 10)).toEqual([{ url: "https://app.example/", title: "Inbox (3)", visits: 1, lastVisitAt: 10 }]);
+    expect(history.search("p1", "app", 10)).toEqual([{ url: "https://app.example/", title: "Inbox (3)", visits: 1, lastVisitAt: 10, favicon: "" }]);
   });
 
   it("holds a bounded title and a bounded number of pages, dropping the longest-unvisited first", () => {
@@ -124,6 +124,76 @@ describe("BrowserHistoryStore", () => {
     history.clearAll();
     expect(history.search("p1", "example", 10)).toEqual([]);
     expect(history.search("p2", "example", 10)).toEqual([]);
+  });
+});
+
+describe("BrowserHistoryStore — the icons pages showed (v36)", () => {
+  const G = "data:image/x-icon;base64,AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQ";
+  const H = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9h";
+  const pictures = (db: ReturnType<typeof store>["db"]) =>
+    (db.prepare("SELECT profile_id, data FROM browser_favicons ORDER BY profile_id, data").all() as { profile_id: string; data: string }[]);
+
+  it("a page's icon comes back with it, from the suggestions and from Recently visited", () => {
+    const { history } = store();
+    history.recordVisit("p1", "https://www.google.com/search?q=hi", "hi - Google Search", 10);
+    history.setFavicon("p1", "https://www.google.com/search?q=hi", G);
+    expect(history.search("p1", "google", 10)[0]!.favicon).toBe(G);
+    expect(history.recent("p1", 10)[0]!.favicon).toBe(G);
+  });
+
+  it("keeps one copy of an icon however many pages show it", () => {
+    /* THE mutant: a copy per page. A thousand searches would keep the search engine's icon a thousand
+       times, in a table built to hold five thousand rows. */
+    const { db, history } = store();
+    for (const q of ["a", "b", "c"]) {
+      history.recordVisit("p1", `https://www.google.com/search?q=${q}`, q, 10);
+      history.setFavicon("p1", `https://www.google.com/search?q=${q}`, G);
+    }
+    expect(pictures(db)).toEqual([{ profile_id: "p1", data: G }]);
+    expect(history.search("p1", "google", 10).map((p) => p.favicon)).toEqual([G, G, G]);
+  });
+
+  it("an icon not offered yet takes nothing away — the last one seen still stands", () => {
+    // THE mutant: write '' through. A page reloading, before it has said what its icon is, would lose
+    // the one it showed every time before.
+    const { history } = store();
+    history.recordVisit("p1", "https://docs.example/", "Docs", 10);
+    history.setFavicon("p1", "https://docs.example/", H);
+    history.setFavicon("p1", "https://docs.example/", "");
+    expect(history.search("p1", "docs", 10)[0]!.favicon).toBe(H);
+  });
+
+  it("a page that changed its icon leaves no picture behind that no page names", () => {
+    const { db, history } = store();
+    history.recordVisit("p1", "https://docs.example/", "Docs", 10);
+    history.recordVisit("p1", "https://www.google.com/", "Google", 10);
+    history.setFavicon("p1", "https://docs.example/", H);
+    history.setFavicon("p1", "https://www.google.com/", G);
+    history.setFavicon("p1", "https://docs.example/", G); // the docs site moved to the same icon
+    expect(pictures(db)).toEqual([{ profile_id: "p1", data: G }]);
+    expect(history.search("p1", "docs", 10)[0]!.favicon).toBe(G);
+  });
+
+  it("a page that is not in the history keeps no picture", () => {
+    const { db, history } = store();
+    history.setFavicon("p1", "https://never.example/", G);
+    expect(pictures(db)).toEqual([]);
+  });
+
+  it("the trim and a clear take the pictures their pages went with", () => {
+    const { db, history } = store();
+    const insert = db.prepare("INSERT INTO browser_history (profile_id, url, title, visit_count, last_visit_at) VALUES ('p1', ?, 't', 1, ?)");
+    history.recordVisit("p1", "https://oldest.example/", "Oldest", 1);
+    history.setFavicon("p1", "https://oldest.example/", H);
+    db.exec("BEGIN");
+    for (let i = 0; i < BROWSER_HISTORY_MAX - 1; i++) insert.run(`https://bulk.example/${i}`, 100 + i);
+    db.exec("COMMIT");
+    history.recordVisit("p1", "https://fresh.example/", "Fresh", 1_000_000); // one over: the oldest page goes
+    expect(pictures(db)).toEqual([]);
+    history.recordVisit("p2", "https://home.example/", "Home", 1);
+    history.setFavicon("p2", "https://home.example/", G);
+    history.clearAll();
+    expect(pictures(db)).toEqual([]);
   });
 });
 

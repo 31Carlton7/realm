@@ -2,9 +2,11 @@ import { Icon, type IconName } from "@realm/ui";
 import { DEFAULT_KEYBINDINGS, chordsForCommand, displayKeyChord } from "@realm/contracts";
 import { useCallback, useSyncExternalStore } from "react";
 import { useAppStoreMaybe, type NewTabTool } from "../../state/store";
+import { PageIcon } from "../../components/PageIcon";
 
-/** A page this space's profile went to — a row of the history (`browsers.recent`), as this page draws it. */
-export type RecentVisit = { url: string; title: string };
+/** A page this space's profile went to — a row of the history (`browsers.recent`), as this page draws it:
+ *  with the icon it last showed, when it showed one. */
+export type RecentVisit = { url: string; title: string; favicon?: string };
 
 const TOOLS: { tool: NewTabTool; label: string; icon: IconName; hint: string; command?: string }[] = [
   { tool: "files", label: "Files", icon: "folder", hint: "Find a file in this space's checkout", command: "palette.files" },
@@ -74,7 +76,7 @@ export function NewTabPage({ itemId, recent = [], onVisit }: {
             {recent.map((v) => (
               <li key={v.url}>
                 <button type="button" className="new-tab-row" title={v.url} onClick={() => onVisit?.(v.url)}>
-                  <Icon name="browser" size={16} />
+                  <PageIcon src={v.favicon} fallback="browser" size={16} />
                   <span className="new-tab-row-label">{v.title || v.url}</span>
                 </button>
               </li>

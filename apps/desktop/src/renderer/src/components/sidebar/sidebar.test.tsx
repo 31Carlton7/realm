@@ -167,6 +167,17 @@ describe("Arc sidebar", () => {
     expect(row().querySelectorAll(".status-dot")).toHaveLength(1);
   });
 
+  it("a browser's row wears its page's own icon once the page has offered one, and the glyph before", async () => {
+    // THE mutant: the kind's glyph on every row. The tab strip would say Google and the sidebar a globe.
+    const ICON = "data:image/x-icon;base64,AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQ";
+    await mount(fakeApi({ items: { s1: [
+      item("i1", "s1", { kind: "browser", refId: "b1", title: "hi - Google Search", favicon: ICON }),
+      item("i2", "s1", { kind: "browser", refId: "b2", title: "Browser" }),
+    ] } }));
+    expect(screen.getByRole("button", { name: "hi - Google Search" }).querySelector("img.page-icon")?.getAttribute("src")).toBe(ICON);
+    expect(screen.getByRole("button", { name: "Browser" }).querySelector("img")).toBeNull();
+  });
+
   it("an empty space shows one faint hint line pointing at New session (A-L6)", async () => {
     await mount(fakeApi({ items: { s1: [] } }));
     expect(screen.getByText(/Nothing here yet/)).toBeInTheDocument();
@@ -176,6 +187,12 @@ describe("Arc sidebar", () => {
     await mount(fakeApi({ items: { s1: [item("i1", "s1", { pinned: true, title: "GitHub" }), item("i2", "s1", { title: "Terminal" })] } }));
     expect(screen.getByRole("button", { name: /GitHub/ })).toHaveAttribute("data-tile", "true");
     expect(screen.getByRole("button", { name: "Terminal" })).not.toHaveAttribute("data-tile");
+  });
+
+  it("a pinned browser's tile wears its page's own icon", async () => {
+    const ICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9h";
+    await mount(fakeApi({ items: { s1: [item("i1", "s1", { kind: "browser", refId: "b1", pinned: true, title: "GitHub", favicon: ICON })] } }));
+    expect(screen.getByRole("button", { name: "GitHub" }).querySelector("img.page-icon")?.getAttribute("src")).toBe(ICON);
   });
 
   it("two-finger horizontal wheel on the sidebar switches spaces; vertical wheel does not", async () => {

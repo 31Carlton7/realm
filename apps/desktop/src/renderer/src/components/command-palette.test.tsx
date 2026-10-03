@@ -79,6 +79,13 @@ describe("CommandPalette", () => {
     expect(store.getState().paletteOpen).toBe(false);
   });
 
+  it("a browser's row wears its page's own icon, as its tab does", async () => {
+    // THE mutant: the kind's glyph here while the tab and the sidebar row show the page's mark.
+    const ICON = "data:image/x-icon;base64,AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQ";
+    await mount({ items: { s1: [item("i1", "s1", { kind: "browser", refId: "b1", title: "hi - Google Search", favicon: ICON })] } });
+    expect(screen.getByRole("option", { name: /hi - Google Search/ }).querySelector("img.page-icon")?.getAttribute("src")).toBe(ICON);
+  });
+
   it("archived rows are absent from the jump list, in this space and in every other", async () => {
     // Both halves of the list are covered: the active space's rows come from `items` (which carries
     // archived rows, for the sidebar's shelf) and the rest from `allItems` (which does not).

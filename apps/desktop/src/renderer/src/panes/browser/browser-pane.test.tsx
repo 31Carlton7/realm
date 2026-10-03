@@ -11,7 +11,7 @@ import { gridPreset } from "@realm/contracts";
 type StateMsg = BrowserViewState;
 
 function fakeBridges(row: Partial<Browser> = {}) {
-  const r: Browser = { id: "b1", spaceId: "s1", url: "", title: "Browser", createdAt: 0, updatedAt: 0, ...row };
+  const r: Browser = { id: "b1", spaceId: "s1", url: "", title: "Browser", favicon: "", createdAt: 0, updatedAt: 0, ...row };
   const calls: string[] = [];
   const bounds: { id: string; rect: DOMRectReadOnly | { x: number; y: number; width: number; height: number }; dpr: number; visible: boolean }[] = [];
   const updates: Record<string, unknown>[] = [];
@@ -122,13 +122,15 @@ function fakeBridges(row: Partial<Browser> = {}) {
       for (const cb of passkeyCbs) cb(full);
     },
     emit: (s: Partial<StateMsg>) => {
-      const full: StateMsg = { id: "b1", url: "", title: "", loading: false, canGoBack: false, canGoForward: false, device: null, ...s };
+      const full: StateMsg = { id: "b1", url: "", title: "", loading: false, canGoBack: false, canGoForward: false, device: null, favicon: null, ...s };
       for (const cb of cbs) cb(full);
     },
   };
 }
 
 const state = (s: Partial<StateMsg>) => s;
+/** A favicon as main hands one over: the picture itself, a 16px ICO's first bytes, in a data: URL. */
+const ICON = "data:image/x-icon;base64,AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQ";
 const browserItem = () => item("i1", "s1", { kind: "browser", refId: "b1", title: "Browser" });
 
 /**
@@ -415,7 +417,35 @@ describe("BrowserPane", () => {
     act(() => f.emit(state({ url: "https://example.com", title: "Example Domain", loading: false })));
     act(() => f.emit(state({ url: "https://example.com/2", title: "Example 2", loading: false })));
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-    expect(f.updates).toEqual([{ id: "b1", url: "https://example.com/2", title: "Example 2" }]); // one debounced write
+    expect(f.updates).toEqual([{ id: "b1", url: "https://example.com/2", title: "Example 2", favicon: "" }]); // one debounced write
+  });
+
+  it("persists the page's icon with its address and title, so the tab and its row can draw it", async () => {
+    // THE mutant: persist url and title alone. The icon main resolved would never reach the item.
+    const f = fakeBridges({ url: "" });
+    setBrowserBridgesForTests(f.bridges);
+    render(<BrowserPane item={browserItem()} visible />);
+    await settle();
+    act(() => f.emit(state({ url: "https://www.google.com/search?q=hi", title: "hi - Google Search" })));
+    act(() => f.emit(state({ url: "https://www.google.com/search?q=hi", title: "hi - Google Search", favicon: ICON })));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(f.updates).toEqual([{ id: "b1", url: "https://www.google.com/search?q=hi", title: "hi - Google Search", favicon: ICON }]);
+  });
+
+  it("a restored page that has not offered its icon yet keeps the one it was restored with", async () => {
+    /* THE mutant: persist the live state's null as none. Every relaunch would trade each tab's icon
+       for the glyph while its page loads and the icon is fetched again — undoing the reason it is kept. */
+    const f = fakeBridges({ url: "https://www.google.com/", title: "Google", favicon: ICON });
+    setBrowserBridgesForTests(f.bridges);
+    render(<BrowserPane item={browserItem()} visible />);
+    await settle();
+    act(() => f.emit(state({ url: "https://www.google.com/", title: "Google", favicon: null })));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(f.updates).toEqual([]);
+    // A NEW address with no icon is a page with none: the last page's is not lent to it.
+    act(() => f.emit(state({ url: "https://example.com/", title: "Example", favicon: null })));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(f.updates).toEqual([{ id: "b1", url: "https://example.com/", title: "Example", favicon: "" }]);
   });
 });
 
@@ -1002,9 +1032,9 @@ describe("BrowserPane — address suggestions (Plan 26 W7c)", () => {
   afterEach(() => { cleanup(); });
 
   const PAGES: BrowserHistoryPage[] = [
-    { url: "https://docs.example/start", title: "Getting started", visits: 5, lastVisitAt: 10 },
-    { url: "https://docs.example/config", title: "Configuration", visits: 2, lastVisitAt: 20 },
-    { url: "https://dogs.example/", title: "", visits: 1, lastVisitAt: 30 },
+    { url: "https://docs.example/start", title: "Getting started", visits: 5, lastVisitAt: 10, favicon: "" },
+    { url: "https://docs.example/config", title: "Configuration", visits: 2, lastVisitAt: 20, favicon: "" },
+    { url: "https://dogs.example/", title: "", visits: 1, lastVisitAt: 30, favicon: "" },
   ];
   const mount = async () => {
     const f = fakeBridges({ url: "https://example.com/" });
@@ -1046,6 +1076,20 @@ describe("BrowserPane — address suggestions (Plan 26 W7c)", () => {
     // A combobox the way a screen reader expects one: expanded, pointing at its list.
     expect(field()).toHaveAttribute("aria-expanded", "true");
     expect(field()).toHaveAttribute("aria-controls", screen.getByRole("listbox").id);
+  });
+
+  it("a page row wears the icon the page last showed, and one that showed none keeps the history's clock", async () => {
+    // THE mutant: the clock on every row. The row for a site the person knows by its mark says nothing of it.
+    const f = fakeBridges({ url: "https://example.com/" });
+    f.setHistory([{ ...PAGES[0]!, favicon: ICON }, PAGES[1]!]);
+    setBrowserBridgesForTests(f.bridges);
+    render(<StoreContext.Provider value={createAppStore(fakeApi())}><BrowserPane item={browserItem()} visible /></StoreContext.Provider>);
+    await settle();
+    await type("docs");
+    const rows = screen.getAllByRole("option");
+    expect(rows[0]!.querySelector("img.page-icon")?.getAttribute("src")).toBe(ICON);
+    expect(rows[1]!.querySelector("img")).toBeNull();
+    expect(rows[1]!.querySelector("svg")).not.toBeNull();
   });
 
   it("the list is a strip ABOVE the view — never a dropdown inside it, where the page would cover it", async () => {
@@ -1137,8 +1181,8 @@ describe("BrowserPane — Recently visited on a blank tab (Plan 26 W6)", () => {
   afterEach(() => { cleanup(); });
 
   const RECENT: BrowserHistoryPage[] = [
-    { url: "https://jobs.example/delta", title: "Delta careers", visits: 1, lastVisitAt: 30 },
-    { url: "https://docs.example/start", title: "Getting started", visits: 4, lastVisitAt: 20 },
+    { url: "https://jobs.example/delta", title: "Delta careers", visits: 1, lastVisitAt: 30, favicon: "" },
+    { url: "https://docs.example/start", title: "Getting started", visits: 4, lastVisitAt: 20, favicon: "" },
   ];
   const mount = async (row: Partial<Browser> = {}) => {
     const f = fakeBridges(row);
@@ -1164,6 +1208,16 @@ describe("BrowserPane — Recently visited on a blank tab (Plan 26 W6)", () => {
     expect(listed()).toEqual(["Delta careers", "Getting started"]);
     fireEvent.click(screen.getByRole("button", { name: "Getting started" }));
     expect(f.calls.filter((c) => c.startsWith("navigate:"))).toEqual(["navigate:b1:https://docs.example/start"]);
+  });
+
+  it("each page wears the icon it last showed, and one that showed none the browser's glyph", async () => {
+    const f = fakeBridges();
+    f.setRecent([{ ...RECENT[0]!, favicon: ICON }, RECENT[1]!]);
+    setBrowserBridgesForTests(f.bridges);
+    render(<BrowserPane item={browserItem()} visible />);
+    await settle();
+    expect(screen.getByRole("button", { name: "Delta careers" }).querySelector("img.page-icon")?.getAttribute("src")).toBe(ICON);
+    expect(screen.getByRole("button", { name: "Getting started" }).querySelector("img")).toBeNull();
   });
 
   it("a tab with a page asks for none and draws no new-tab page", async () => {

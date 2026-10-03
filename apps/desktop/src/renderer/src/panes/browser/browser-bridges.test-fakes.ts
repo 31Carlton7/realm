@@ -50,7 +50,7 @@ export function fakeBrowserBridges(over: {
     ...over.host,
   };
   const server: BrowserServerBridge = {
-    get: async (browserId) => ({ id: browserId, spaceId: "s1", url: "", title: "Browser", createdAt: 0, updatedAt: 0 }),
+    get: async (browserId) => ({ id: browserId, spaceId: "s1", url: "", title: "Browser", favicon: "", createdAt: 0, updatedAt: 0 }),
     update: async () => {},
     allowlist: async () => null,
     downloadDir: async () => null,

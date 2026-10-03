@@ -9,7 +9,7 @@ const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`
 const port = arg("realm-port");
 export type PickedFile = { path: string; mime: string; name: string; size: number };
 export type ScrollPhaseMessage = { phase: string; momentum: string; dx: number; dy: number; ts: number };
-export type BrowserViewState = { id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; device: "phone" | "tablet" | "desktop" | null };
+export type BrowserViewState = { id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; device: "phone" | "tablet" | "desktop" | null; favicon: string | null };
 contextBridge.exposeInMainWorld("realm", {
   port: port === undefined ? NaN : Number(port), home: arg("realm-home") ?? "",
   /** The RPC token, offered as the `realm.<token>` subprotocol on every dial. Realm's socket binds

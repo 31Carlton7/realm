@@ -110,28 +110,56 @@ export const ItemSchema = z.object({
    * destination page or a session-owned terminal means nothing), but nothing in the column is
    * session-specific, so widening it is a UI change alone.
    */
-  archived: z.boolean(), refId: IdSchema, ...Timestamps,
+  archived: z.boolean(), refId: IdSchema,
+  /** A browser's page icon (`isFaviconDataUrl`), read from its `browsers` row, so every place that
+   *  draws the item — a tab, a sidebar row, a pane bar — can draw the page's own mark. Absent for
+   *  every other kind, and for a browser whose page has offered none: both draw the kind's glyph. */
+  favicon: z.string().optional(),
+  ...Timestamps,
 });
 export type Item = z.infer<typeof ItemSchema>;
 
 /**
+ * The largest favicon Realm keeps, in bytes. A favicon is a 16 or 32px picture: twenty popular sites
+ * measured from 549 bytes (x.com) to 31KB (Notion's five-size ICO). Bounded at all because it rides on
+ * every item list the sidebar draws, and an "icon" past this is a full-size image no tab has a use for.
+ */
+export const FAVICON_MAX_BYTES = 32 * 1024;
+/** What a favicon may be: the formats main recognises by their own bytes (browser-host.ts). */
+export const FAVICON_TYPES = ["image/png", "image/x-icon", "image/gif", "image/jpeg", "image/webp", "image/svg+xml"] as const;
+
+/**
+ * Is this a favicon as Realm keeps one: the picture itself, base64 in a `data:` URL of one of
+ * `FAVICON_TYPES`, no bigger than `FAVICON_MAX_BYTES`. Never the address it came from — main fetched it
+ * on the pane's own session, so drawing it makes no request from the window (whose CSP admits no
+ * remote image), and a restored tab draws it before its page has loaded again.
+ */
+export function isFaviconDataUrl(s: string): boolean {
+  const m = /^data:([a-z/+.-]+);base64,([A-Za-z0-9+/]*={0,2})$/.exec(s);
+  if (!m || m[2] === "" || !(FAVICON_TYPES as readonly string[]).includes(m[1]!)) return false;
+  return m[2]!.length <= Math.ceil(FAVICON_MAX_BYTES / 3) * 4;
+}
+
+/**
  * A browser pane's persisted half (Plan 11 W1). The row carries only what a restart needs — the last
- * committed `url` and page `title`; the live `WebContentsView` (history, session state beyond the
- * `persist:browser` partition's own disk cache) belongs to Electron main and dies with the pane.
+ * committed `url`, its page `title` and its `favicon` (`isFaviconDataUrl`, '' when none is known); the
+ * live `WebContentsView` (history, session state beyond the `persist:browser` partition's own disk
+ * cache) belongs to Electron main and dies with the pane.
  * `url: ""` = never navigated (the pane opens on its empty state, not about:blank).
  */
 export const BrowserSchema = z.object({
-  id: IdSchema, spaceId: IdSchema, url: z.string(), title: z.string(), ...Timestamps,
+  id: IdSchema, spaceId: IdSchema, url: z.string(), title: z.string(), favicon: z.string(), ...Timestamps,
 });
 export type Browser = z.infer<typeof BrowserSchema>;
 
 /**
  * A page a profile's browser panes have shown (Plan 26 W7c) — what the address field suggests. Per
  * profile and keyed on the address, so `visits` is how often and `lastVisitAt` how recently: the two
- * things a suggestion is ranked by, in that order.
+ * things a suggestion is ranked by, in that order. `favicon` is the icon the page last showed, as the
+ * `browsers` row keeps one ('' when none was seen).
  */
 export const BrowserHistoryPageSchema = z.object({
-  url: z.string(), title: z.string(), visits: z.number().int().positive(), lastVisitAt: z.number().int(),
+  url: z.string(), title: z.string(), visits: z.number().int().positive(), lastVisitAt: z.number().int(), favicon: z.string(),
 });
 export type BrowserHistoryPage = z.infer<typeof BrowserHistoryPageSchema>;
 

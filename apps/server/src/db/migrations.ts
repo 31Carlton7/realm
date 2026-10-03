@@ -718,4 +718,25 @@ export const migrations: string[] = [
     PRIMARY KEY (profile_id, url));
   CREATE INDEX browser_history_recent ON browser_history(profile_id, last_visit_at DESC);
   `,
+  // v36 — favicons: a browser pane's, and those of the pages its profile's history holds.
+  //
+  // `browsers.favicon` is the picture itself, a `data:` URL (`isFaviconDataUrl`), never the address it
+  // was fetched from. That is what lets a tab restored after a relaunch draw its icon before its page
+  // has loaded again, with no request made to the site — and what lets the window draw it at all, since
+  // its CSP admits no remote image. '' is "none known", which is the truth for every row written before
+  // this column existed: defaulted, not backfilled, because nobody fetched those pages' icons.
+  //
+  // History does NOT carry a copy per row. A site's icon is shared by every page of it — a profile that
+  // has run a thousand searches would hold one search engine's icon a thousand times, in a table built to
+  // keep five thousand rows — so the picture is kept once per profile in `browser_favicons`, under a
+  // digest of the picture, and a page names it by that digest ('' for none). The cascade cleans up after
+  // a profile; Clear browsing data and the history's own trim sweep away pictures no page names any more.
+  `
+  ALTER TABLE browsers ADD COLUMN favicon TEXT NOT NULL DEFAULT '';
+  ALTER TABLE browser_history ADD COLUMN favicon_digest TEXT NOT NULL DEFAULT '';
+  CREATE TABLE browser_favicons (
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    digest TEXT NOT NULL, data TEXT NOT NULL,
+    PRIMARY KEY (profile_id, digest));
+  `,
 ];

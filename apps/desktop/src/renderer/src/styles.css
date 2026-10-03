@@ -1059,6 +1059,10 @@ kbd { font: 11px var(--font-mono); }
 /* One slot for the whole menu, sized to the glyph so every label starts on the same left edge. */
 .menu-icon { flex: none; display: grid; place-items: center; width: 16px; height: 16px; }
 .menu-icon-img { width: 16px; height: 16px; object-fit: contain; }
+/* A page's own icon in the slot a kind's glyph takes (PageIcon.tsx): the glyph's square box, the
+   picture fitted inside it, and never a column a row can squeeze. Its colours are the page's — it is
+   not tinted with the row's ink the way a glyph is. */
+.page-icon { flex: none; aspect-ratio: 1; object-fit: contain; }
 .summary-plan-prose { font-size: 13.5px; }
 .summary-plan-steps { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .summary-plan-steps li { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--rl-text-dim); }

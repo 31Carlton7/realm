@@ -7,6 +7,7 @@ import type { PaneProps } from "../registry";
 import { useAppStoreMaybe, type AppState, type BrowserActionTick } from "../../state/store";
 import { announceHistoryCleared, cancelViewRelease, getBrowserBridges, onHistoryCleared, scheduleViewRelease } from "./browser-client";
 import { NewTabPage } from "./NewTabPage";
+import { PageIcon } from "../../components/PageIcon";
 import { browserMenuItems, parseBrowserMenuChoice, type BrowserMenuChoice } from "./browser-menu";
 import { sessionForPick } from "./pick-target";
 import { SETTLE_MS, isRealmItemDrag, shouldShowView } from "./view-sync";
@@ -480,14 +481,18 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
     const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; sync(); }); };
     syncRef.current = schedule;
 
-    // Persist last committed url/title, debounced; the item title tracks the page server-side.
+    // Persist last committed url/title/icon, debounced; the item's title and mark track the page
+    // server-side. A page that has not offered its icon YET keeps the one it had at this address: a
+    // relaunched tab reloading its page must not trade the icon it was restored with for the glyph
+    // while the icon is fetched again. A new address with none is a page with none.
     let persistTimer: ReturnType<typeof setTimeout> | undefined;
-    let persisted = { url: "", title: "" };
+    let persisted = { url: "", title: "", favicon: "" };
     const persist = (s: BrowserViewState) => {
-      if (s.loading || s.url === "" || (s.url === persisted.url && s.title === persisted.title)) return;
+      const favicon = s.favicon ?? (s.url === persisted.url ? persisted.favicon : "");
+      if (s.loading || s.url === "" || (s.url === persisted.url && s.title === persisted.title && favicon === persisted.favicon)) return;
       clearTimeout(persistTimer);
       persistTimer = setTimeout(() => {
-        persisted = { url: s.url, title: s.title };
+        persisted = { url: s.url, title: s.title, favicon };
         void server.update(browserId, persisted).catch(() => { /* row may be mid-delete */ });
       }, PERSIST_MS);
     };
@@ -527,7 +532,7 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
         // `||`: the live state channel may already have spoken (an adopted view emits state during
         // create) and its url is truer than a row whose debounced persist never landed.
         flags.hasUrl = flags.hasUrl || row.url !== "";
-        persisted = { url: row.url, title: row.title };
+        persisted = { url: row.url, title: row.title, favicon: row.favicon };
         schedule();
       } catch (e) {
         // The pane shows its DOM empty state; an unhandled rejection here would kill the whole
@@ -801,7 +806,7 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
               onClick={() => { void openSuggestion(row); }}>
               {row.kind === "page" ? (
                 <>
-                  <Icon name="clock" size={12} />
+                  <PageIcon src={row.page.favicon} fallback="clock" size={12} />
                   <span className="browser-suggest-title">{row.page.title.trim() || shortUrl(row.page.url)}</span>
                   <span className="browser-suggest-url">{shortUrl(row.page.url)}</span>
                 </>

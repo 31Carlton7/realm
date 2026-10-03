@@ -278,7 +278,9 @@ interface ComputerAccessStatus {
 /** Mirrors BrowserViewState in the preload — the main→renderer browser state channel's payload. */
 interface BrowserViewState { id: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean;
   /** The device preset the page is shown at (Plan 26 W7e), or null when it fits the pane. */
-  device: "phone" | "tablet" | "desktop" | null }
+  device: "phone" | "tablet" | "desktop" | null;
+  /** The page's own icon, a `data:` URL main fetched on the pane's session; null until it has one. */
+  favicon: string | null }
 
 /**
  * noVNC ships no types (Plan 25 W3). Declared here rather than pulled from DefinitelyTyped, which

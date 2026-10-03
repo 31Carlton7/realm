@@ -84,6 +84,79 @@ describe("browsers RPC", () => {
     c.close();
   });
 
+  describe("the page's favicon", () => {
+    const G = "data:image/x-icon;base64,AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQ";
+    async function setup() {
+      const home = tempDir("realm-home-");
+      const app = await createApp({ home, port: 0 }); apps.push(app);
+      const c = await client(app.port);
+      const space = await makeSpace(c);
+      const { browserId, itemId } = (await c.call("browsers.create", { spaceId: space.id })).result;
+      const listed = async () => (await c.call("items.list", { spaceId: space.id })).result.find((i: any) => i.id === itemId);
+      const changes = () => c.events.filter((e) => e.event === "items.changed").length;
+      return { home, app, c, space, browserId, itemId, listed, changes };
+    }
+
+    it("is kept on the row and drawn from the item, which the lists are told to read again", async () => {
+      // THE mutant: store it and say nothing. The tab keeps the glyph until something else happens to
+      // rename an item in the space.
+      const { c, browserId, listed, changes } = await setup();
+      expect((await listed()).favicon).toBeUndefined(); // a fresh pane has none, and its item says so
+      // The page as it usually lands: its title first, its icon once main has fetched it.
+      await c.call("browsers.update", { browserId, url: "https://www.google.com/search?q=hi", title: "hi - Google Search", favicon: "" });
+      const before = changes();
+      await c.call("browsers.update", { browserId, url: "https://www.google.com/search?q=hi", title: "hi - Google Search", favicon: G });
+      expect((await c.call("browsers.get", { browserId })).result.favicon).toBe(G);
+      expect((await listed()).favicon).toBe(G);
+      expect(changes()).toBe(before + 1);
+      // …and nothing for a write that changes neither the title nor the icon.
+      await c.call("browsers.update", { browserId, url: "https://www.google.com/search?q=hi", title: "hi - Google Search", favicon: G });
+      expect(changes()).toBe(before + 1);
+      c.close();
+    });
+
+    it("is the page's, so a new address without one clears it rather than lending it on", async () => {
+      // THE mutant: keep the row's icon across navigations. A page that never showed Google's G would
+      // wear it in the tab strip because the page before it did.
+      const { c, browserId, listed } = await setup();
+      await c.call("browsers.update", { browserId, url: "https://www.google.com/", title: "Google", favicon: G });
+      await c.call("browsers.update", { browserId, url: "https://example.com/", title: "Example" });
+      expect((await c.call("browsers.get", { browserId })).result.favicon).toBe("");
+      expect((await listed()).favicon).toBeUndefined();
+      c.close();
+    });
+
+    it("keeps anything that is not a picture as none — and the url and title beside it still land", async () => {
+      // THE mutant: store it as given. A remote address on the row would have the window fetch it.
+      const { c, browserId } = await setup();
+      const r = await c.call("browsers.update", { browserId, url: "https://example.com/", title: "Example", favicon: "https://example.com/favicon.ico" });
+      expect(r.ok).toBe(true);
+      expect((await c.call("browsers.get", { browserId })).result).toMatchObject({ url: "https://example.com/", title: "Example", favicon: "" });
+      c.close();
+    });
+
+    it("survives a restart, so a restored tab draws it before the page has loaded again", async () => {
+      const { home, app, c, space, browserId, itemId } = await setup();
+      await c.call("browsers.update", { browserId, url: "https://www.google.com/", title: "Google", favicon: G });
+      c.close();
+      await app.close();
+      const app2 = await createApp({ home, port: 0 }); apps.push(app2);
+      const c2 = await client(app2.port);
+      expect((await c2.call("items.list", { spaceId: space.id })).result.find((i: any) => i.id === itemId).favicon).toBe(G);
+      c2.close();
+    });
+
+    it("goes into the history with the page, for the suggestions and Recently visited", async () => {
+      const { c, space, browserId } = await setup();
+      await c.call("browsers.update", { browserId, url: "https://www.google.com/search?q=hi", title: "hi - Google Search", favicon: G });
+      await c.call("browsers.update", { browserId, url: "https://example.com/", title: "Example", favicon: "" });
+      const pages = (await c.call("browsers.recent", { spaceId: space.id })).result.pages as { url: string; favicon: string }[];
+      // Keyed rather than ordered: both visits can land in the same millisecond.
+      expect(Object.fromEntries(pages.map((p) => [p.url, p.favicon]))).toEqual({ "https://example.com/": "", "https://www.google.com/search?q=hi": G });
+      c.close();
+    });
+  });
+
   it("close deletes row + item; a second close is NOT_FOUND; items.delete routes through it", async () => {
     const home = tempDir("realm-home-");
     const app = await createApp({ home, port: 0 }); apps.push(app);

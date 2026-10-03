@@ -1,8 +1,8 @@
-import { Icon } from "@realm/ui";
 import { useState } from "react";
 import type { Item } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { RenameInput } from "../RenameInput";
+import { ItemIcon } from "../PageIcon";
 import { useItemContextMenu } from "./ItemContextMenu";
 
 /** Pinned-but-unopened items as a grid of icon tiles (Arc "favorites"). A pinned item that's also open
@@ -20,7 +20,7 @@ export function PinnedGrid({ items }: { items: Item[] }) {
         : (
           <button key={it.id} className="tile" data-tile="true" title={it.title} aria-label={it.title}
             onClick={() => run(() => openItem(it.id))} onContextMenu={onContextMenu(it)}>
-            <Icon name={it.kind} size={18} /><span className="tile-title">{it.title}</span>
+            <ItemIcon item={it} size={18} /><span className="tile-title">{it.title}</span>
           </button>
         ))}
       {element}

@@ -25,8 +25,8 @@ const ITEMS = [
 ];
 
 /** The lead with a side pane holding a browser and a previewed child, the browser showing. */
-async function mount() {
-  const api = fakeApi({ items: { s1: [...ITEMS] }, sessions: [session("lead", "s1"), session("kid", "s1")] });
+async function mount(items = ITEMS) {
+  const api = fakeApi({ items: { s1: [...items] }, sessions: [session("lead", "s1"), session("kid", "s1")] });
   const store = createAppStore(api);
   await store.getState().boot();
   await store.getState().openItem("i-lead");
@@ -100,6 +100,57 @@ describe("a side pane's tab strip", () => {
     await store.getState().openItem("i-kid");
     expect(side(store).itemId).toBe("i-kid");
     expect(store.getState().focusedLeafId).toBe(side(store).id);
+  });
+});
+
+describe("a browser tab's mark", () => {
+  /** A favicon as the item carries one: the picture itself, a 16px ICO's first bytes, in a data: URL. */
+  const ICON = "data:image/x-icon;base64,AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQ";
+  const withIcon = (favicon: string) => ITEMS.map((it) => (it.id === "i-br" ? { ...it, favicon } : it));
+  const mark = (name: string) => strip().getByRole("tab", { name });
+
+  it("is the page's own icon once the page has offered one, as a browser's tabs are", async () => {
+    // THE mutant: the kind's glyph on every tab — the report this answers: a Google search drawn with
+    // the globe instead of Google's G.
+    await mount(withIcon(ICON));
+    expect(mark("Delta careers").querySelector("img.page-icon")?.getAttribute("src")).toBe(ICON);
+    expect(mark("Delta careers").querySelector("svg")).toBeNull();
+    // The session beside it keeps its kind's glyph: only a browser has a page to take a mark from.
+    expect(mark("Agent: apply").querySelector("img")).toBeNull();
+  });
+
+  it("is the browser's glyph until then, and for anything that is not a picture held in hand", async () => {
+    await mount();
+    expect(mark("Delta careers").querySelector("img")).toBeNull();
+    expect(mark("Delta careers").querySelector("svg")).not.toBeNull();
+    cleanup();
+    // THE mutant: draw whatever the row holds. An address would have this window fetch it, past a CSP
+    // that admits no remote image — a broken picture at best.
+    await mount(withIcon("https://www.google.com/favicon.ico"));
+    expect(mark("Delta careers").querySelector("img")).toBeNull();
+  });
+
+  it("goes back to the glyph when the picture will not draw — never a broken image", async () => {
+    await mount(withIcon(ICON));
+    const img = mark("Delta careers").querySelector("img.page-icon")!;
+    fireEvent.error(img);
+    expect(mark("Delta careers").querySelector("img")).toBeNull();
+    expect(mark("Delta careers").querySelector("svg")).not.toBeNull();
+  });
+
+  it("heads a browser's own pane too, where a single pane's glyph goes", async () => {
+    const api = fakeApi({ items: { s1: [item("i-br", "s1", { kind: "browser", refId: "br", title: "hi - Google Search", favicon: ICON })] } });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openItem("i-br");
+    render(
+      <StoreContext.Provider value={store}>
+        <PaneHost layout={store.getState().layout!} items={store.getState().items} focusedLeafId={store.getState().focusedLeafId}
+          onFocus={() => {}} onClose={() => {}} onSplit={() => {}} />
+      </StoreContext.Provider>,
+    );
+    // THE mutant: the bar's own glyph left as the kind's. The tab strip and the bar would disagree.
+    expect(document.querySelector(".panel-icon img.page-icon")?.getAttribute("src")).toBe(ICON);
   });
 });
 

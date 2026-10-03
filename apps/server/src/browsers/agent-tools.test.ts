@@ -38,8 +38,8 @@ function setup(opts: {
   assist?: LayaAssist;
 } = {}) {
   const rows = new Map<string, Browser>();
-  rows.set("b1", { id: "b1", spaceId: "space1", url: "https://example.com/", title: "Example", createdAt: 1, updatedAt: 1 });
-  rows.set("bX", { id: "bX", spaceId: "spaceOTHER", url: "https://other.com/", title: "Other", createdAt: 1, updatedAt: 1 });
+  rows.set("b1", { id: "b1", spaceId: "space1", url: "https://example.com/", title: "Example", favicon: "", createdAt: 1, updatedAt: 1 });
+  rows.set("bX", { id: "bX", spaceId: "spaceOTHER", url: "https://other.com/", title: "Other", favicon: "", createdAt: 1, updatedAt: 1 });
 
   const calls = { gates: [] as { toolKey: string; toolName?: string; title: string; input: Record<string, unknown>; alwaysPrompt: boolean }[], bridge: [] as { op: string; params: Record<string, unknown> }[], broadcasts: [] as { event: string; payload: unknown }[], opened: [] as string[] };
   const bridgeResults: Record<string, unknown> = {
@@ -72,7 +72,7 @@ function setup(opts: {
       open: ({ spaceId, url }) => {
         calls.opened.push(url);
         const id = `b${rows.size + 1}`;
-        rows.set(id, { id, spaceId, url, title: "Browser", createdAt: 2, updatedAt: 2 });
+        rows.set(id, { id, spaceId, url, title: "Browser", favicon: "", createdAt: 2, updatedAt: 2 });
         return { browserId: id, itemId: `item-${id}`, url };
       },
     },
