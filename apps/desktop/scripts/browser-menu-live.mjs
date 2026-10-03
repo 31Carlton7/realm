@@ -755,7 +755,9 @@ async function main() {
   const phone = { view: (await view()).bounds, host: await hostRect(), page: await pageWidth() };
   note("iPhone", phone);
   check("iPhone narrows the view to a 390-wide box, centred in the pane, as tall as it",
-    phone.view.width === 390 && Math.abs(phone.view.x - (phone.host.x + (phone.host.width - 390) / 2)) <= 1 && phone.view.height === phone.host.height, phone);
+    // Height within a pixel, as the left edge is: main rounds the box DOWN on a host that lands on a
+    // half pixel (browser-host.ts — a pixel of ground rather than a pixel of page past the pane).
+    phone.view.width === 390 && Math.abs(phone.view.x - (phone.host.x + (phone.host.width - 390) / 2)) <= 1 && Math.abs(phone.view.height - phone.host.height) <= 1, phone);
   check("…the page lays out at a phone's width, its own media query says so", phone.page.width === 390 && phone.page.narrow === true, phone.page);
   check("…and the pane's own ground frames the box", phone.host.device === "phone", phone.host.device);
   await shot(c, "device-phone-chrome");
