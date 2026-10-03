@@ -77,8 +77,9 @@ describe("a training run", () => {
     log.append({ v: 1, intent: "open Wi-Fi", tool: "simulator_tap", candidates: [{ id: "1", role: "Button", label: "Wi-Fi" }, { id: "2", role: "Button", label: "General" }], truth: { target: { id: "1", source: "agent" }, verify: null }, laya: { verify: null } });
     const progress: TrainProgress[] = [];
     // And one screen recorded while its owner used an app: a training screen like any other.
-    // …with half an emoji in a label, as an app can give one: it reaches train.py whole or not at all.
-    const recorded = [{ id: "rec-1-0001", app: "Instagram", from: "recording:rec-1", elements: [{ id: "0.1", role: "Button", label: "Reels" }, { id: "0.2", role: "Button", label: "Search" }, { id: "0.3", role: "Button", label: "Profile \ud83d" }] }];
+    // …with half an emoji in a label, either half, as an app can give one: it reaches train.py whole or
+    // not at all.
+    const recorded = [{ id: "rec-1-0001", app: "Instagram", from: "recording:rec-1", elements: [{ id: "0.1", role: "Button", label: "Reels" }, { id: "0.2", role: "Button", label: "Search" }, { id: "0.3", role: "Button", label: "Profile \ud83d" }, { id: "0.4", role: "Button", label: "Saved \ude00" }] }];
     const result = await trainCheckpoint({ runtime: rt, resources, logFiles: () => log.files(), recorded: () => recorded }, { name: "2026-09-29T07-12", signal: new AbortController().signal, onProgress: (p) => progress.push(p) });
 
     const work = join(rt.dir, "train", "2026-09-29T07-12");
@@ -91,6 +92,8 @@ describe("a training run", () => {
     const strings = (x: unknown): string[] => typeof x === "string" ? [x] : Array.isArray(x) ? x.flatMap(strings) : x && typeof x === "object" ? Object.entries(x).flatMap(([k, v]) => [k, ...strings(v)]) : [];
     expect(rows.flatMap(strings).every((t) => t.match(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/) === null)).toBe(true);
     expect(rows.some((r) => JSON.stringify(r).includes("Profile \ufffd"))).toBe(true);
+    // THE MUTANT: look for an emoji's first half only. Its second half, alone, is refused the same.
+    expect(rows.some((r) => JSON.stringify(r).includes("Saved \ufffd"))).toBe(true);
     // THE MUTANT: never read the recordings. A person's hour in an app teaches nothing.
     expect(rows.some((r) => JSON.stringify(r).includes("Reels"))).toBe(true);
     // Held-out apps are nowhere in what it learns from.

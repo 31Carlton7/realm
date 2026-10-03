@@ -162,6 +162,18 @@ describe("recording an app while a person uses it", () => {
     expect(screen!.elements[0]).toMatchObject({ id: "0.1", role: "Button", frame: [0, 100, 390, 44] });
   });
 
+  it("cuts a long control name short, and never through an emoji", async () => {
+    // A button named past the 60 characters the recorder keeps, with an emoji where the cut falls.
+    const long = `${"x".repeat(58)}\u{1F600} and the rest of a long name`;
+    const { r, reads } = recorder([tree("Instagram", [el("0.1", "Button", "Home"), el("0.2", "Button", "Reels"), el("0.3", "Button", long)])]);
+    await r.start("sim1", ["Instagram"]);
+    await settle(() => reads() >= 2);
+    r.stop();
+    const kept = r.screens()[0]!.elements.find((e) => e.id === "0.3")!.label;
+    // THE MUTANT: cut by UTF-16 unit. The emoji's first half is kept, and train.py refuses the run.
+    expect(kept).toBe(`${"x".repeat(58)}…`);
+  });
+
   it("keeps a screen scrolled a little once, and a new screen each time", async () => {
     const { r, reads } = recorder([FEED, FEED, FEED_SCROLLED, FEED, REELS]);
     await r.start("sim1", []);
