@@ -149,6 +149,13 @@ Rules:
 
 - Let large work areas rest on `canvas`. Do not wrap every section in a surface.
 - Use surface contrast before adding a border.
+- Edges are quiet. The ordinary line (`--line`, `--line-strong`, `--btn-ring`, `--card-ring`) sits one
+  rung below where tembo puts it — 5.1% and 7.1% of full range on the dark panel, 3.7% and 5.5% on the
+  light one, measured by `border-softness-live.mjs` — because nearly every one of them runs beside a
+  change of surface that already carries the boundary. A window of controls each wearing a bright
+  ring reads as outlined rather than as surfaces. A FILL is not an edge: a switch's track, a progress
+  track, a scrollbar thumb or an idle dot uses `--mark`, which stays at the old weight, so softening
+  the edges can never make a control disappear.
 - A hairline earns its place only where content genuinely passes UNDER a fixed edge. A bar that
   is a flex sibling above a scroller is not that — the scroller clips at its own edge and
   nothing ever crosses the line. The test is mechanical: is the element sticky or absolutely
@@ -335,7 +342,37 @@ string staying that way.
   what the banner is for before building it: if a control could wear the state instead, it should.
 - Prefer a familiar symbol from Realm's icon set over a new illustration.
 - Align asymmetric icons optically. A mathematically centered arrow or play mark can still look wrong.
-- Buttons may scale to `0.96` while pressed. Keep the transition interruptible.
+- A press is a fill, not a size. AppKit buttons darken on the mouse-down frame and never shrink;
+  the shrink is a touch idiom, where a finger hides the control and scale is the only feedback left
+  to see. Pressed is one rung past hover on the ladder, or the accent darkened for a filled control.
+- A press TRACKS the pointer: drag off a held button and it lets go at once, drag back and it lights
+  again, which is how a person sees that releasing out there will not click. Chromium drops `:active`
+  for good when a held pointer leaves, so the press is marked up (`press-tracking.ts`), not inferred.
+- Hover and press ARRIVE instantly and only a hover's release fades. A highlight that eases in is the
+  window making the pointer wait, which no Mac control does; the fade on the way out is what keeps a
+  sweep across a row of buttons from strobing.
+- A row chosen from a list — a menu item, a palette result, a segment — changes instantly in both
+  directions. The highlight is the current choice, and a choice is never half-made.
+- A sidebar row does not light under a passing pointer. Finder's, Mail's and Xcode's do not; the
+  pointer reveals a row's own controls, and a click is what lights it.
+- The arrow cursor over every control the app draws; the hand only over a link, where the click
+  leaves what you are looking at. The hand on every button is the loudest single sign that a window
+  is a web page.
+- Chrome is not text. Buttons, rows, tabs, bars and menus do not select on a drag or a double-click,
+  and their glyphs do not lift off as drag ghosts. Content and fields keep selection.
+- A window that is not key greys its accent — selection, default button, checked boxes, lit
+  switches — and keeps its LUMINANCE, so a label's contrast is unchanged under any theme. Build the
+  grey where luminance is a channel (XYZ's Y), not from OKLCH's L, which is not luminance for a
+  saturated hue. Link ink and code colour stay. The signal is the WINDOW's key state from main, not
+  the page's focus: a click into a browser pane blurs the page while the window keeps the keyboard;
+  and a window that opened behind another app asks for the state rather than waiting to be told.
+- Menus are the system's. `Menu` hands its rows to an OS menu — material, type-to-select, and the
+  only surface that can open over a browser pane's native view — and draws its own only where there
+  is no bridge (tests, and live scripts that set `REALM_HTML_MENUS`). A two-step confirm reopens the
+  menu with its rebuilt rows, because an OS menu cannot change under the pointer.
+- A right-click in text gets what a Cocoa text view gives it: spelling guesses, Look Up, the link or
+  image under the pointer, then the edit commands — and nothing at all where there is nothing to
+  offer. Electron gives a page none of this on its own.
 - Never use `transition: all`; list the properties that change.
 - A control whose fill is DRAWN rather than declared still has to animate that fill. Naming
   `background-color` on a surface whose background is a paint worklet transitions nothing, and the
@@ -409,6 +446,17 @@ string staying that way.
 Use native menus, fields, and disclosure behavior where they fit. Do not make a custom control for a
 styling opportunity.
 
+The menu bar is a Mac app's: Settings… under the app's name on ⌘,, then File, Edit, View, Go, Window
+(which macOS completes with the window list) and Help (which macOS gives a search field). Every app
+row is a keybinding-catalog command showing the person's OWN shortcut, so a rebinding in Settings ▸
+Keys rebinds the menu bar too. The keystroke goes to the page, never through the menu — a menu
+accelerator fires first and would skip the `when` clauses that keep ⌘B bold in a rich field — and the
+system's chords (copy, paste, undo, quit, hide) stay the menu's. Reload and Developer Tools are for
+development builds only: ⌘R must never reload the app out from under someone's work.
+
+The window comes back where it was left — size, place, maximised or full screen — unless the display
+it was on is gone, in which case its size comes back centred on the main display.
+
 ## Motion
 
 Motion preserves continuity and confirms state. It does not decorate idle work.
@@ -419,6 +467,22 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   longer. Use the duration and easing ladder in `tokens.css`.
 - Stagger a composed entrance by semantic parts, not every child.
 - Exits are shorter and quieter than entrances.
+- A menu has no entrance. It opens whole, at once, and leaves on a short fade with no travel —
+  NSMenu's behaviour. A popover is a panel, not a menu, and grows out of its anchor.
+- Surfaces that arrive — popovers, sheets, the focus ring — travel on `--spring-smooth`, a critically
+  damped spring that starts from rest. A cubic ease-out leaves at full speed, and that launch is the
+  web transition's signature; a spring gathering and settling is what reads as an object.
+- Scrollers give at their ends. Chromium rubber-bands only the page body and every Realm surface
+  scrolls inside a pane, so the long reading surfaces stretch with rising resistance while fingers
+  are on the trackpad, spring home on lift, and bounce once when a coast reaches an end
+  (`rubber-band.ts`). The trackpad phase stream is what tells a trackpad from a mouse wheel, which
+  never stretches; editors, terminals and grids keep their own engines' scrolling.
+- Scrollbars follow the system. On a Mac that draws overlay bars, a page's colour repaints the
+  system's thumb in the page's ink, and a `::-webkit-scrollbar` rule turns it into a classic bar with
+  a gutter (8px against 0, measured). So Realm's thin line is for Macs whose system draws classic
+  bars anyway, and stands down on the rest (`data-overlay-scrollbars`, measured, not read from a
+  preference that depends on what is plugged in — this Mac changed mode mid-session as its Bluetooth
+  mouse came and went).
 - Contextual icon swaps use opacity, blur from 4 px to 0, and scale from 0.25 to 1 with no bounce.
 - Do not animate content merely because it scrolled into view.
 - Do not add parallax, auto-scrolling marquees, simulated typing, or decorative pulsing.
@@ -521,6 +585,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   keeps the SAME card: its glyph sits small in a well at the field's centre, so the grid's shape
   does not change from file to file. A field that wide needs a picture minted for it — the 96px
   mark the composer's chips use is a smear there — so the size is named, not assumed.
+- A file the app shows behaves like one in the Finder: Space opens it in Quick Look (Return still
+  acts), it drags out to the Finder or into another app, and its menu offers Quick Look and the
+  system Share menu. Each is offered only where the desktop bridge has it — a Space that swallows the
+  key, or a drag into nothing, is a promise the app would be breaking — and every path is re-gated in
+  main, because it comes from the renderer.
 - A picture of a file earns its place where the picture IS the file. A screenshot, a mockup and a
   frame of video say more than any glyph; a page of source rendered into a 44px square says less
   than the four letters of its extension. The line is also a cost line, and that is not a detail to

@@ -2,6 +2,7 @@ import { Icon, type IconName } from "@realm/ui";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { ArtifactType } from "@realm/contracts";
 import { useThumbnail } from "./use-thumbnail";
+import { fileDragProps, quickLookOnSpace } from "./file-actions";
 
 /**
  * One file, as a card — the Library's grid and a session's file browser both lay files out with
@@ -88,7 +89,9 @@ export function FileCard({ path, name, type, title, onOpen, children }: {
   const seen = useSeen(card, wantsPicture);
   const thumb = useThumbnail(wantsPicture ? path : null, "card", seen);
   return (
-    <button ref={card} type="button" className="library-tile" title={title} onClick={onOpen}>
+    // A card is a file the way a Finder icon is: Space shows it in Quick Look, and it drags out.
+    <button ref={card} type="button" className="library-tile" title={title} onClick={onOpen}
+      onKeyDown={quickLookOnSpace(path)} {...fileDragProps(path)}>
       {/* The card is a PICTURE over a caption, the way a drive lays out files: the preview field
           takes the top of the card, and the name and whatever the list knows sit under it. A picture
           fills the field edge to edge; a glyph sits in a tinted well at its centre, because a glyph

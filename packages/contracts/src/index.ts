@@ -13,6 +13,7 @@ export * from "./skills";
 export * from "./commands";
 export * from "./scripts";
 export * from "./keybindings";
+export * from "./key-event";
 export * from "./project-search";
 export * from "./mentions";
 export * from "./mcp";

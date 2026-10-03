@@ -1,5 +1,29 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { MENU_CLOSE_GRACE_MS, MENU_DEPTH_MAX, MENU_ITEMS_MAX, MENU_LABEL_MAX, menuAnchor, menuTemplate, popupNativeMenu, type MenuTemplateItem } from "./native-menu";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+/* Electron, stood in for: the channels the module registers, the menus it pops, the icons it makes. */
+const handlers = new Map<string, (...args: unknown[]) => unknown>();
+const popups: { template: Record<string, unknown>[]; opts: { x: number; y: number; callback: () => void }; closePopup: ReturnType<typeof vi.fn> }[] = [];
+const images: { scaleFactor: number; template: boolean }[] = [];
+vi.mock("electron", () => ({
+  ipcMain: { handle: (ch: string, fn: (...args: unknown[]) => unknown) => handlers.set(ch, fn) },
+  BrowserWindow: { fromWebContents: () => ({ id: 1 }) },
+  nativeImage: {
+    createFromBuffer: (_b: Buffer, o: { scaleFactor: number }) => {
+      const img = { scaleFactor: o.scaleFactor, template: false };
+      images.push(img);
+      return { setTemplateImage: (t: boolean) => { img.template = t; } };
+    },
+  },
+  Menu: {
+    buildFromTemplate: (template: Record<string, unknown>[]) => {
+      const closePopup = vi.fn();
+      return { template, closePopup, popup: (opts: { x: number; y: number; callback: () => void }) => popups.push({ template, opts, closePopup }) };
+    },
+  },
+}));
+
+const { MENU_CLOSE_GRACE_MS, MENU_DEPTH_MAX, MENU_ITEMS_MAX, MENU_LABEL_MAX, menuAnchor, menuTemplate, popupNativeMenu, registerNativeMenus } = await import("./native-menu");
+type MenuTemplateItem = import("./native-menu").MenuTemplateItem;
 
 /** The template with its click handlers stripped, so a row reads as what the OS will draw. */
 const drawn = (t: MenuTemplateItem[]): unknown[] => t.map(({ click, submenu, ...rest }) => ({
@@ -129,5 +153,63 @@ describe("popupNativeMenu", () => {
     expect(await popupNativeMenu([], { x: 0, y: 0 }, popup)).toBeNull();
     expect(await popupNativeMenu([{ id: "a", label: "A" }], { x: "left" }, popup)).toBeNull();
     expect(popup).not.toHaveBeenCalled();
+  });
+});
+
+/* The app's own menus as the OS's (the Mac idiom): the renderer's Menu sends each row its index as its
+   id, with its shortcut hint, checkmark, title and icon. */
+describe("the app's menus, drawn by the OS", () => {
+  beforeEach(() => { handlers.clear(); popups.length = 0; images.length = 0; vi.useRealTimers(); });
+
+  it("draws each row as the OS item that says the same thing", () => {
+    const picked: string[] = [];
+    const t = menuTemplate([
+      { id: "0", label: "Rename", enabled: true, accelerator: "Command+R" },
+      { separator: true },
+      { id: "2", label: "Pinned", enabled: true, checked: true, toolTip: "Keep it at the top" },
+      { id: "3", label: "Archive", enabled: false, icon: "data:image/png;base64,AAAA" },
+    ], (id) => picked.push(id));
+    expect(t[0]).toMatchObject({ label: "Rename", enabled: true, accelerator: "Command+R", registerAccelerator: false });
+    expect(t[0]).not.toHaveProperty("type");
+    expect(t[1]).toEqual({ type: "separator" });
+    expect(t[2]).toMatchObject({ type: "checkbox", checked: true, toolTip: "Keep it at the top" });
+    expect(t[3]).toMatchObject({ enabled: false });
+    // 2x, and a template — 16pt in the menu's own ink, not a 32pt black glyph.
+    expect(images).toEqual([{ scaleFactor: 2, template: true }]);
+    t[2]!.click!();
+    expect(picked).toEqual(["2"]);
+  });
+
+  it("takes an icon only as a PNG data URL", () => {
+    // THE MUTANT: decode whatever arrives. A renderer could hand main a path or a remote URL to load.
+    const [row] = menuTemplate([{ id: "0", label: "A", icon: "file:///etc/passwd" }], () => {});
+    expect(row).not.toHaveProperty("icon");
+    expect(images).toEqual([]);
+  });
+
+  it("answers with the pick, scales the point by the page zoom, and answers null when closed empty", async () => {
+    registerNativeMenus();
+    const popup = handlers.get("menu:popup")!;
+    const sender = { getZoomFactor: () => 1.25 };
+    const first = popup({ sender }, [{ id: "0", label: "A" }, { id: "1", label: "B" }], { x: 100, y: 40 }) as Promise<string | null>;
+    expect(popups[0]!.opts).toMatchObject({ x: 125, y: 50 });
+    // macOS closes the menu and then delivers the action: the pick must survive arriving second.
+    popups[0]!.opts.callback();
+    (popups[0]!.template[1]!.click as () => void)();
+    expect(await first).toBe("1");
+
+    vi.useFakeTimers();
+    const second = popup({ sender }, [{ id: "0", label: "A" }], { x: 0, y: 0 }) as Promise<string | null>;
+    popups[1]!.opts.callback();
+    vi.advanceTimersByTime(MENU_CLOSE_GRACE_MS);
+    expect(await second).toBeNull();
+  });
+
+  it("takes the open menu down when its owner goes first", async () => {
+    registerNativeMenus();
+    const sender = { getZoomFactor: () => 1 };
+    void handlers.get("menu:popup")!({ sender }, [{ id: "0", label: "A" }], { x: 0, y: 0 });
+    await handlers.get("menu:close")!();
+    expect(popups[0]!.closePopup).toHaveBeenCalledOnce();
   });
 });

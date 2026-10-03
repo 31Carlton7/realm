@@ -26,9 +26,15 @@ contextBridge.exposeInMainWorld("realm", {
    *  platform where the window has a material behind it, so the sidebar's transparency has nothing
    *  to reveal anywhere else (main/index.ts gives Windows and Linux an opaque backgroundColor). */
   platform: process.platform,
-  /** A native menu at a window-relative point, its rows described here and drawn by the OS — the one
-   *  surface that can open over a browser pane's page. Resolves the chosen row's id, or null. */
+  /** A menu the OS draws (main/native-menu.ts): rows described here, answered with the chosen row's
+   *  id, or null. The one surface that can open over a browser pane's page, and how the app's own
+   *  menus are drawn on a Mac. `closeMenu` takes down the one that is up when its owner goes first. */
   popupMenu: (items: NativeMenuItem[], at: { x: number; y: number }): Promise<string | null> => ipcRenderer.invoke("menu:popup", items, at),
+  closeMenu: (): Promise<void> => ipcRenderer.invoke("menu:close"),
+  /** REALM_HTML_MENUS=1, which a live script sets when it needs to drive the app's menus over CDP: an
+   *  OS menu is not in the page, so nothing in DevTools can click it. The app's `Menu` then draws its
+   *  own. A browser pane's ⋯ menu stays the OS's either way — nothing drawn can open over its page. */
+  htmlMenus: process.env.REALM_HTML_MENUS === "1",
   /** Settings ▸ Appearance ▸ Reduce motion. Main answers it by changing what this window reports
    *  for `prefers-reduced-motion`, so the stylesheet's own media queries are what carry it out. */
   motion: {
@@ -108,6 +114,12 @@ contextBridge.exposeInMainWorld("realm", {
     finderIcon: (): Promise<string | null> => ipcRenderer.invoke("files:finder-icon"),
     /** Copy it where the user points; the saved path, or null when they cancelled. */
     saveCopy: (path: string): Promise<string | null> => ipcRenderer.invoke("files:save-copy", path),
+    /** macOS's Quick Look panel for the file — what Space does in the Finder (main/file-actions.ts). */
+    quickLook: (path: string, base?: string): Promise<void> => ipcRenderer.invoke("files:quick-look", path, base),
+    /** The system Share menu for the file, at a point in the window. */
+    share: (path: string, at: { x: number; y: number }, base?: string): Promise<void> => ipcRenderer.invoke("files:share", path, at, base),
+    /** Start an OS drag carrying the file. Call from a `dragstart` the renderer has cancelled. */
+    startDrag: (path: string): void => ipcRenderer.send("files:drag-start", path),
   },
   /** Describe paths dropped from Finder. The renderer knows a dropped item's NAME and can guess a
    *  mime from it, but it cannot `stat` — so it cannot tell a folder from an extensionless file, and
@@ -185,6 +197,24 @@ contextBridge.exposeInMainWorld("realm", {
     const handler = (_e: IpcRendererEvent, state: { kind: string; attempt?: number; logPath?: string; why?: string }) => cb(state);
     ipcRenderer.on("daemon:state", handler);
     return () => ipcRenderer.removeListener("daemon:state", handler);
+  },
+  /** Whether the window is the key window — the one the keyboard is going to. Main reports it rather
+   *  than the page because focus moving into a browser pane blurs the page while the window stays key. */
+  onWindowKey: (cb: (key: boolean) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, key: boolean) => cb(key);
+    ipcRenderer.on("window:key", handler);
+    return () => ipcRenderer.removeListener("window:key", handler);
+  },
+  /** The same state, asked for — what a window that opened behind another app learns on mount. */
+  isWindowKey: (): Promise<boolean> => ipcRenderer.invoke("window:is-key"),
+  /** The person's keybindings, for the menu bar to show and for main to hand their chords to the
+   *  page rather than to the menu (main/app-menu.ts). */
+  setMenuKeybindings: (rules: unknown[]): void => ipcRenderer.send("menu:keybindings", rules),
+  /** A keybinding-catalog command picked from the menu bar. */
+  onAppCommand: (cb: (command: string) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, command: string) => cb(command);
+    ipcRenderer.on("app:command", handler);
+    return () => ipcRenderer.removeListener("app:command", handler);
   },
   /** A session picked from the menu-bar item while the window was closed. The space rides along
    *  because the session is very often not in the space that happens to be open. */

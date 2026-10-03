@@ -3,6 +3,12 @@ interface ScrollPhaseMessage { phase: string; momentum: string; dx: number; dy: 
 /** Mirrors PickedFile in the preload: `size` and `name` are for the prompter's own checks; only
  *  `path` and `mime` ever reach `sessions.send`. */
 interface PickedFile { path: string; mime: string; name: string; size: number }
+/** One row of a menu the OS draws — mirrors `NativeMenuItem` in main/native-menu.ts, the other end of
+ *  the call. A row with an `id` answers it when chosen; a row without one is a line of information. */
+type NativeMenuItem =
+  | { type: "separator" }
+  | { separator: true }
+  | { id?: string; label: string; enabled?: boolean; checked?: boolean; accelerator?: string; toolTip?: string; icon?: string; submenu?: NativeMenuItem[] };
 interface Window {
   realm: {
     port: number; home: string;
@@ -18,12 +24,20 @@ interface Window {
     quitAndStopAgents(): Promise<void>;
     /** The agent server's health, as main sees it. Replayed on every new window. */
     onDaemonState(cb: (state: { kind: string; attempt?: number; logPath?: string; why?: string }) => void): () => void;
+    /** Whether the window is key (AppKit's sense: it has the keyboard), as main sees it. */
+    onWindowKey(cb: (key: boolean) => void): () => void;
+    isWindowKey(): Promise<boolean>;
+    setMenuKeybindings?(rules: unknown[]): void;
+    onAppCommand?(cb: (command: string) => void): () => void;
+    /** OS menus (main/native-menu.ts): the chosen row's id, or null. Optional: absent in jsdom, where
+     *  `Menu` draws its own. */
+    popupMenu?(items: NativeMenuItem[], at: { x: number; y: number }): Promise<string | null>;
+    closeMenu?(): Promise<void>;
+    /** REALM_HTML_MENUS=1: the app's `Menu` draws its own, for a live script to drive over CDP. */
+    htmlMenus?: boolean;
     /** `process.platform` from the preload. Absent in jsdom, which has no bridge — every reader has
      *  to treat "unknown" as "no window material" rather than guessing macOS. */
     platform?: string;
-    /** A native menu at a window-relative point; resolves the chosen row's id, or null. The one
-     *  surface that can open over a browser pane's page. Optional: jsdom has no bridge. */
-    popupMenu?(items: NativeMenuItem[], at: { x: number; y: number }): Promise<string | null>;
     /** Settings ▸ Appearance ▸ Reduce motion: main changes what this window reports for
      *  `prefers-reduced-motion`. Optional like the other late bridges — jsdom has none. */
     motion?: { set(pref: import("@realm/contracts").ReducedMotionPref): Promise<void> };
@@ -87,6 +101,10 @@ interface Window {
       finderIcon(): Promise<string | null>;
       /** Copy it where the user points; the saved path, or null when they cancelled. */
       saveCopy(path: string): Promise<string | null>;
+      /** Quick Look, Share and drag-out (main/file-actions.ts). Optional, like every bridge. */
+      quickLook?(path: string, base?: string): Promise<void>;
+      share?(path: string, at: { x: number; y: number }, base?: string): Promise<void>;
+      startDrag?(path: string): void;
     };
     /** Write a pasted (pathless) file under Realm's home and describe it like a picked one. */
     saveTempAttachment(name: string, mime: string, bytes: Uint8Array): Promise<PickedFile>;
@@ -194,11 +212,6 @@ interface Window {
     };
   };
 }
-/** Mirrors NativeMenuItem in main/native-menu.ts — one row of a menu the OS draws. A row with no `id`
- *  is a line of information, never a choice. */
-type NativeMenuItem =
-  | { type: "separator" }
-  | { id?: string; label: string; enabled?: boolean; checked?: boolean; accelerator?: string; submenu?: NativeMenuItem[] };
 /** Mirrors UpdateState/UpdateStatus in main/updater.ts — the Updates row's payload. Every kind is a
  *  fact main reported; `disabled` carries the reason so the row can say why, honestly. */
 type UpdateState =

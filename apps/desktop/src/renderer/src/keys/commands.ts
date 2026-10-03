@@ -131,6 +131,7 @@ export function appCommands(store: StoreApi<AppState>): Readonly<Record<string, 
     "activity.open": () => { const s = get(); s.run(() => s.openActivity()); },
     "window.back": () => { const s = get(); s.run(() => s.stepWindow(-1)); },
     "window.forward": () => { const s = get(); s.run(() => s.stepWindow(1)); },
+    "settings.open": () => get().openDestinationPage("settings-page"),
   };
 }
 

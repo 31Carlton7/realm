@@ -131,8 +131,14 @@ function useEffortSweep(ref: RefObject<HTMLButtonElement | null>, effort: string
     chip.removeAttribute("data-sweep");
     void chip.offsetWidth;
     chip.setAttribute("data-sweep", effort);
-    const done = () => chip.removeAttribute("data-sweep");
-    chip.addEventListener("animationend", done, { once: true });
+    // Its OWN end, by name: the chip is a focusable control, so the focus ring's halo can be running
+    // on it too and ends first — taking the mark off then would cut the sweep short.
+    const done = (e: AnimationEvent) => {
+      if (e.animationName !== "eggs-chip-sweep") return;
+      chip.removeAttribute("data-sweep");
+      chip.removeEventListener("animationend", done);
+    };
+    chip.addEventListener("animationend", done);
     return () => chip.removeEventListener("animationend", done);
   }, [ref, effort, eggs]);
 }

@@ -16,7 +16,7 @@ import { QuickChat } from "./components/QuickChat";
 import { PageOverlay } from "./components/PageOverlay";
 import { SpaceOverview } from "./components/sidebar/SpaceOverview";
 import { useKonami } from "./use-konami";
-import { useKeybindings } from "./keys";
+import { useKeybindings, useMenuBar } from "./keys";
 import { PaneHost } from "./components/PaneHost";
 import { getTerminalHub } from "./panes/terminal-hub";
 import { getBrowserBridges } from "./panes/browser/browser-client";
@@ -29,6 +29,8 @@ import { rpc } from "./rpc/client";
 import { emptyLayout } from "@realm/contracts";
 import { useApplyTheme } from "./theme/useTheme";
 import { useZoom } from "./theme/zoom";
+import { installRubberBand } from "./rubber-band";
+import { installPressTracking } from "./press-tracking";
 import "./panes";
 
 /**
@@ -112,6 +114,91 @@ function QuietBridge() {
     if (quiet) document.documentElement.setAttribute("data-quiet", lowPower ? "always" : "unfocused");
     else document.documentElement.removeAttribute("data-quiet");
   }, [lowPower, windowActive]);
+  return null;
+}
+
+/**
+ * Whether this is the key window, stamped on `:root` as `data-window-inactive` when it is not.
+ *
+ * A Mac window that loses the keyboard steps its emphasis down: the selection, the default button and
+ * every accent-filled control go grey, and come back the moment the window does. It is how a person
+ * sees at a glance which window their typing will land in, and an app that stays lit in the
+ * background is one that does not know it is a Mac app. The stylesheet does the greying; this only
+ * says when. Separate from `QuietBridge` on purpose: that one answers the PAGE's focus, which a click
+ * into a browser pane takes away while the window stays key.
+ */
+export function KeyWindowBridge() {
+  useEffect(() => {
+    const root = document.documentElement;
+    const apply = (key: boolean) => {
+      if (key) root.removeAttribute("data-window-inactive");
+      else root.setAttribute("data-window-inactive", "");
+    };
+    // Subscribe first, then ask: a change that lands between the two is reported by the push, and
+    // the answer to the ask can only be as old as the subscription. Asking matters for a window that
+    // opened behind another app — it never had a focus change to report.
+    let pushed = false;
+    const off = window.realm?.onWindowKey?.((key) => { pushed = true; apply(key); });
+    void window.realm?.isWindowKey?.().then((key) => { if (!pushed) apply(key); }).catch(() => {});
+    return () => { off?.(); root.removeAttribute("data-window-inactive"); };
+  }, []);
+  return null;
+}
+
+/**
+ * Whether the system draws OVERLAY scrollbars — macOS's "show scroll bars: when scrolling", which is
+ * also what "automatically" resolves to on a Mac with only a trackpad. Stamped on `:root` as
+ * `data-overlay-scrollbars`, and the stylesheet's own scrollbar treatment stands down under it.
+ *
+ * Realm's thin line is a better classic scrollbar than the classic one, and on an overlay Mac it is
+ * worse than the system's. Chromium keeps the overlay bar when a page only colours or thins it, but
+ * paints it in the page's colour instead of the system's; and a `::-webkit-scrollbar` rule — which the
+ * sidebar and every masked scroller need, for their track margins — turns it into a classic bar that
+ * holds a gutter (measured on an overlay Mac: 8px against 0). So the styling is for the Macs whose
+ * system draws classic bars anyway, and the rest get the system's own bar.
+ *
+ * Measured, not read from a preference: "automatically" depends on what is plugged in, and the only
+ * party that knows the answer is the scroller Chromium draws. A probe with every scrollbar property
+ * at its default reserves no width exactly when the system bar is an overlay. Re-measured when the
+ * window comes forward, because plugging a mouse in changes the answer under a running app.
+ */
+export function overlayScrollbars(doc: Document): boolean {
+  const probe = doc.createElement("div");
+  probe.style.cssText = "position:absolute;top:-9999px;width:100px;height:100px;overflow:scroll;visibility:hidden;scrollbar-color:auto;scrollbar-width:auto";
+  doc.body.appendChild(probe);
+  const reserved = probe.offsetWidth - probe.clientWidth;
+  probe.remove();
+  return reserved === 0;
+}
+
+function ScrollbarStyleBridge() {
+  useEffect(() => {
+    // jsdom lays nothing out, so every probe there reads as an overlay; only a real Mac window asks.
+    if (window.realm?.platform !== "darwin") return;
+    const root = document.documentElement;
+    const measure = () => {
+      if (overlayScrollbars(document)) root.setAttribute("data-overlay-scrollbars", "");
+      else root.removeAttribute("data-overlay-scrollbars");
+    };
+    measure();
+    window.addEventListener("focus", measure);
+    return () => { window.removeEventListener("focus", measure); root.removeAttribute("data-overlay-scrollbars"); };
+  }, []);
+  return null;
+}
+
+/** A held button's highlight follows the pointer (press-tracking.ts). */
+function PressTrackingBridge() {
+  useEffect(() => installPressTracking(document), []);
+  return null;
+}
+
+/** The app's scrollers give at their ends (rubber-band.ts). Off under reduced motion, as AppKit's is. */
+function RubberBandBridge() {
+  useEffect(() => installRubberBand(document, {
+    onPhase: window.realm?.onScrollPhase,
+    reducedMotion: () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false,
+  }), []);
   return null;
 }
 
@@ -276,6 +363,7 @@ export function App() {
      which is what every keystroke before the first round trip had to do anyway. */
   const keys = useStore(store, (s) => s.keybindings);
   useKeybindings(store, keys);
+  useMenuBar(store, keys);
   useKonami(store);
   useEffect(() => {
     const load = () => {
@@ -476,6 +564,10 @@ export function App() {
     <StoreContext.Provider value={store}>
       <ThemeBridge />
       <QuietBridge />
+      <KeyWindowBridge />
+      <ScrollbarStyleBridge />
+      <RubberBandBridge />
+      <PressTrackingBridge />
       <AppShell />
       <ConnectionBanner />
       {/* App-level pages, over the workspace and never inside it. Before the sheets so a sheet opened

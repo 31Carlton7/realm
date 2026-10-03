@@ -1,5 +1,6 @@
 import { WebContentsView, screen, session, type BrowserWindow, type WebContents } from "electron";
 import { BrowserPaneHost, browserUserAgent, isFindShortcut, type ViewFactory } from "./browser-host";
+import { attachTextContextMenu } from "./text-context-menu";
 import type { CdpBinding } from "./browser-agent-host";
 import { asDownloadItem, type DownloadDecision, type DownloadItemLike } from "./downloads";
 import type { PasskeyCdp } from "./passkeys";
@@ -86,6 +87,9 @@ export function electronViewFactory(
        has no view (workers, the partition's own fetches) and this covers the view in hand. One
        derivation feeds both, so they cannot drift. */
     wc.setUserAgent(browserUserAgent(wc.getUserAgent()));
+    // A page gets the menu a browser gives it: the text and link commands, and Back/Forward/Reload
+    // on empty page. Electron gives a view none of these on its own.
+    attachTextContextMenu(wc, { page: true });
     onView?.(id, wc);
 
     // The URL the pane was ASKED for, which is what every reader of this view's state wants to hear

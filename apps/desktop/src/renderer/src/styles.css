@@ -72,6 +72,9 @@
      focus rings, active ticks, links, carets all take --accent; white text rides on it. */
   --rl-accent: var(--accent);                    /* BUI --accent */
   --rl-accent-contrast: oklch(1 0 0);            /* white on the accent fill, both modes */
+  /* An accent fill held down. Darker in BOTH modes, as a pressed AppKit default button is: the press
+     pushes the control into the page, and the light that lifts it is the same light either way. */
+  --rl-accent-press: color-mix(in oklch, var(--rl-accent) 84%, black);
   --rl-space: #7c6cff;                           /* runtime: applyTheme() overwrites per space */
   /* type (Ara §1 revised): Inter is the UI face (BUI layout.tsx stacks); JetBrains Mono
      survives in terminals, diffs, code and kbd. */
@@ -248,7 +251,26 @@ html, body, #root { height: 100%; margin: 0; color: var(--rl-text-bright); font:
    ground. On non-mac the BrowserWindow keeps its opaque backgroundColor and this composes to the
    old dark frame. */
 html, body { background: transparent; }
-button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; padding: 0; }
+/* The arrow, not the hand. A Mac app points with the arrow at every control it draws — a button, a
+   row, a tab, a disclosure — and keeps the hand for a LINK, where the click leaves the thing you are
+   looking at. The hand on every button is the single loudest tell that a window is a web page, so the
+   only rules left asking for it are the two that are links (`.md .md-path`, `.page-row-link`). */
+button { font: inherit; color: inherit; background: none; border: none; cursor: default; padding: 0; }
+/* Chrome is not text. A double-click on a button's label, or a drag that starts on a sidebar row,
+   selects the words on it in a browser and does nothing in an AppKit window, and ⌘A sweeping the
+   whole interface blue is the same tell at full size. Content — the transcript, documents, code,
+   fields — keeps selection because nothing here names it. The images and glyphs chrome is drawn
+   with do not lift off as drag ghosts either. */
+:is(button, [role="button"], [role="tab"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"],
+  [role="option"], [role="switch"], label, summary, .sidebar, .panel-bar, .group-bar, .menu, .settings-tabs) {
+  -webkit-user-select: none; user-select: none; }
+/* A field inside one of those (a label wrapping its input, the sidebar's rename) is still a field. */
+:is(input, textarea, [contenteditable="true"]) { -webkit-user-select: text; user-select: text; }
+/* …and so is code. A path, a command or a branch printed in a settings row or the sidebar is the one
+   piece of chrome text a person reaches for to copy, the way a selectable NSTextField in an inspector
+   is. Not inside a control, where a drag is a press. */
+:is(code, pre):not(:is(button, [role="button"], [role^="menuitem"], [role="tab"]) *) { -webkit-user-select: text; user-select: text; }
+:is(button, [role="button"], [role="menuitem"], .sidebar, .panel-bar, .group-bar, .menu) :is(img, svg) { -webkit-user-drag: none; }
 button:disabled { cursor: default; opacity: .45; }
 input, select, textarea { font: inherit; color: inherit; }
 kbd { font: 11px var(--font-mono); }
@@ -261,6 +283,36 @@ kbd { font: 11px var(--font-mono); }
 /* One title ramp — one weight, one tracking, whatever the size (tembo's `text-title-*`). */
 .t-title { font-weight: var(--fw-title); letter-spacing: -1.5%; }
 :focus-visible { outline: 2px solid var(--rl-accent); outline-offset: 1px; }
+/* The ring lands the way AppKit's does: it arrives as a wider, clear halo and draws in onto the
+   control, so the eye goes to where focus went instead of hunting for a ring that was simply there.
+   Only `from` is written, so a control that sets its own offset closes onto its own. Scoped to
+   controls, because `animation` is one property: on a focused sheet or pane it would replace that
+   surface's own entrance. */
+:is(button, a, input, select, textarea, summary, [role="button"], [role="tab"], [role="option"],
+  [role^="menuitem"], [role="switch"]):focus-visible { animation: rl-focus-ring var(--dur-slow) var(--spring-smooth); }
+@keyframes rl-focus-ring { from { outline-color: transparent; outline-offset: 6px; } }
+/* A window that is not key wears its accent grey, as every AppKit window does: the selection, the
+   default button, a checked box and a lit switch all step down, so the window the keyboard will
+   land in is the only one still in colour (App.tsx, KeyWindowBridge, sets the attribute).
+   The hue is drained and the LUMINANCE kept, which is what makes this safe to apply wholesale —
+   contrast is a function of luminance, so a white label on the grey reads exactly as it did on the
+   blue, in both modes and under any theme. Built in XYZ, where Y IS luminance — the D65 white
+   point's x and z scaled by the colour's own Y is the neutral with exactly that luminance. OKLCH's L
+   with the chroma dropped lands within a hair of it for Realm's blue (2.89:1 against 2.88:1, measured),
+   but L is not luminance for a saturated colour in general, and a theme's accent can be any hue. `--accent-ink` is left alone: it is the colour of links
+   and prose marks, and text in a background window does not change colour on a Mac. Neither does
+   code, which is why `--syn-keyword`, resolved on :root, is out of reach of this by construction.
+   Two steps because a custom property cannot be defined in terms of itself on one element: the
+   drained values are computed on :root from the theme's own accent, and handed down from body. */
+:root[data-window-inactive] {
+  --accent-drained: color(from var(--accent) xyz-d65 calc(y * 0.9505) y calc(y * 1.089));
+  --accent-tint-drained: color(from var(--accent-tint) xyz-d65 calc(y * 0.9505) y calc(y * 1.089) / alpha);
+}
+:root[data-window-inactive] body {
+  --accent: var(--accent-drained); --rl-accent: var(--accent-drained); --color-accent: var(--accent-drained);
+  --accent-tint: var(--accent-tint-drained); --color-accent-tint: var(--accent-tint-drained);
+  --rl-accent-press: color-mix(in oklch, var(--accent-drained) 84%, black);
+}
 /* xterm paints selection via its own layer and ignores native ::selection, so terminals are unaffected. */
 .panel ::selection { background: color-mix(in srgb, var(--rl-accent) 18%, transparent); }
 
@@ -607,7 +659,11 @@ kbd { font: 11px var(--font-mono); }
 .sb-activity-empty .btn { margin-top: 10px; }
 .item-list { display: flex; flex-direction: column; gap: 1px; }
 .item { position: relative; display: flex; align-items: center; border-radius: var(--r-ctl); min-height: 32px; font-size: 14px; }
-.item:hover { background: var(--rl-hover); }
+/* No hover fill. A Mac sidebar does not light a row the pointer passes over — Finder's, Mail's and
+   Xcode's are still until you click — and a column that flickers under every sweep toward the
+   panes is the sidebar being louder than the work, which this file's first rule forbids. What the
+   pointer still reveals is the row's own controls (`.item-close`, `.item-shelf`): things to do,
+   not a highlight. */
 /* Active (Plan 9 W3 — BUI SidebarNav): a fill one step past hover and ink text, nothing else —
    the 2px accent tick and the 550 weight bump are gone (BUI actives never outline or embolden).
    The fills stay translucent (--rl-hover/--rl-active), the W1 vibrancy carve-out: BUI's opaque
@@ -615,7 +671,6 @@ kbd { font: 11px var(--font-mono); }
 .item[data-active] { background: var(--rl-active); }
 .item[data-active] .item-row { color: var(--rl-text-bright); }
 .item-row { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; text-align: left; padding: 5px 8px; font-weight: var(--fw-medium); color: var(--rl-text-dim); border-radius: var(--r-ctl); corner-shape: squircle; }
-.item:hover .item-row { color: var(--rl-text-bright); }
 /* One elastic column, and it is the title. The status dot and the glyph both used to carry
    `margin-left: auto`, which splits the free space BETWEEN them: a session that was both running and
    open parked its dot near the row's middle with the glyph jammed against it, and no two rows agreed
@@ -638,7 +693,7 @@ kbd { font: 11px var(--font-mono); }
    whatever fractions the layout's own `sizes` put them at, which is what lets any arrangement be
    drawn exactly rather than sorted into the nearest grid. */
 .item-glyph { width: 12px; height: 12px; flex: none; overflow: visible; }
-.item-glyph rect { fill: var(--rl-line-strong); }
+.item-glyph rect { fill: var(--mark-strong); }
 /* Panes are neutral; the row's own pane lifts to ink (accent = ink now, V-C1 kept). */
 .item-glyph rect[data-on] { fill: var(--rl-text-dim); }
 .item[data-active] .item-glyph rect[data-on] { fill: var(--rl-text-bright); } /* W3: BUI active icons are ink, not accent */
@@ -825,7 +880,7 @@ kbd { font: 11px var(--font-mono); }
    driven from the textarea's own keyboard, so there is no :focus styling to define. */
 .mention-picker { z-index: 100; width: min(380px, 80vw); max-height: min(40vh, 280px); overflow-y: auto; padding: 6px;
   background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
-.mention-row { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; border-radius: var(--r-ctl); corner-shape: squircle; cursor: pointer;
+.mention-row { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; border-radius: var(--r-ctl); corner-shape: squircle; cursor: default;
   transition: background-color var(--dur-hover) ease; }
 .mention-row[data-active] { background: var(--hover); }
 
@@ -1055,7 +1110,7 @@ kbd { font: 11px var(--font-mono); }
 .skill-picker-group + .skill-picker-group { margin-top: 6px; }
 .skill-picker-group-label { padding: 5px 8px 3px; font-size: 11px; font-weight: var(--fw-title); letter-spacing: .04em;
   text-transform: uppercase; color: var(--rl-text-faint); }
-.skill-picker-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: var(--r-ctl); corner-shape: squircle; cursor: pointer;
+.skill-picker-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: var(--r-ctl); corner-shape: squircle; cursor: default;
   transition: background-color var(--dur-hover) ease; }
 .skill-picker-row[data-active] { background: var(--hover); }
 .skill-picker-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
@@ -1082,7 +1137,7 @@ kbd { font: 11px var(--font-mono); }
    second box beside a search box is two search boxes as far as the eye is concerned. */
 .skills-filter-toggle {
   flex: none; display: flex; align-items: center; gap: 8px; padding: 0 4px;
-  font-size: 12.5px; color: var(--rl-text-dim); white-space: nowrap; cursor: pointer;
+  font-size: 12.5px; color: var(--rl-text-dim); white-space: nowrap; cursor: default;
 }
 .skills-filter-toggle:hover { color: var(--rl-text-bright); }
 
@@ -1095,7 +1150,7 @@ kbd { font: 11px var(--font-mono); }
    it in place — nothing is hidden, it is just not shouted. */
 .skill-desc {
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-  padding: 0; border: none; background: none; text-align: left; cursor: pointer;
+  padding: 0; border: none; background: none; text-align: left; cursor: default;
   font: inherit; font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim);
   transition: color var(--dur-hover) ease;
 }
@@ -1106,7 +1161,7 @@ kbd { font: 11px var(--font-mono); }
 .skill-more { opacity: 0; transition: opacity var(--dur-hover) ease; }
 .skill-row:hover .skill-more, .skill-more:focus-visible, .skill-row:focus-within .skill-more { opacity: 1; }
 .skills-details > summary {
-  list-style: none; cursor: pointer; width: fit-content; padding: 2px 0;
+  list-style: none; cursor: default; width: fit-content; padding: 2px 0;
   font-size: 12.5px; color: var(--rl-text-faint);
 }
 .skills-details > summary::-webkit-details-marker { display: none; }
@@ -1130,7 +1185,7 @@ kbd { font: 11px var(--font-mono); }
 
 /* The row's name is the door. Nothing else about the row changes — the name has always been the
    thing a reader would click, and it is now a button that says so under the pointer. */
-.skill-open { padding: 0; border: none; background: none; text-align: left; cursor: pointer;
+.skill-open { padding: 0; border: none; background: none; text-align: left; cursor: default;
   font: inherit; font-size: 13.5px; font-weight: var(--fw-label); color: var(--rl-text-bright);
   transition: color var(--dur-hover) ease; }
 .skill-open:hover { color: var(--rl-accent); }
@@ -1158,7 +1213,7 @@ kbd { font: 11px var(--font-mono); }
 /* The switch NAMES its state here rather than carrying `aria-pressed`, which is the rule a toggle
    follows in this app: one or the other, never both. */
 .skill-head-switch { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px;
-  color: var(--rl-text-dim); white-space: nowrap; cursor: pointer; }
+  color: var(--rl-text-dim); white-space: nowrap; cursor: default; }
 /* Which agents in this space are actually given it — a value in the facts grid, so it wears the
    grid's own metrics and only the marks are its own. */
 .skill-fact-agents { display: flex; flex-wrap: wrap; gap: 2px 12px; }
@@ -1189,7 +1244,7 @@ kbd { font: 11px var(--font-mono); }
 .skill-files-head { margin: 0; font-size: 13px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
 .skill-file-row { flex-direction: column; align-items: stretch; gap: 6px; }
 .skill-file-name { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: none; background: none;
-  font: inherit; text-align: left; cursor: pointer; color: var(--rl-text-bright);
+  font: inherit; text-align: left; cursor: default; color: var(--rl-text-bright);
   transition: color var(--dur-hover) ease; }
 .skill-file-name[data-inert] { cursor: default; color: var(--rl-text-faint); }
 .skill-file-name code { font: 12px var(--font-mono); }
@@ -1228,7 +1283,7 @@ kbd { font: 11px var(--font-mono); }
    to wear the effort segment's raised fill to say "in force"; keeping that would promise a mode the
    button no longer has. */
 .mp-jump { flex: none; display: inline-flex; align-items: center; padding: 3px 9px; border: 0; border-radius: var(--r-chip); corner-shape: squircle;
-  background: transparent; font: inherit; font-size: 11.5px; font-weight: var(--fw-medium); color: var(--rl-text-dim); white-space: nowrap; cursor: pointer; }
+  background: transparent; font: inherit; font-size: 11.5px; font-weight: var(--fw-medium); color: var(--rl-text-dim); white-space: nowrap; cursor: default; }
 .mp-jump:hover { color: var(--rl-text-bright); background: var(--hover); }
 /* The harness's mark leads its name, at the inline rung — the same mark the rows under that heading
    wear at 16, so a jump and the block it lands on are recognisably the same thing. */
@@ -1254,7 +1309,7 @@ kbd { font: 11px var(--font-mono); }
    rows rather than competing with them. */
 .mp-group-label { padding: 5px 8px 3px; font-size: 11px; font-weight: var(--fw-title); letter-spacing: .06em;
   text-transform: uppercase; color: var(--rl-text-faint); }
-.mp-row { display: flex; align-items: center; gap: 9px; padding: 6px 8px; --btn-h: 32px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; cursor: pointer;
+.mp-row { display: flex; align-items: center; gap: 9px; padding: 6px 8px; --btn-h: 32px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; cursor: default;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .mp-row[data-active] { background: var(--hover); }
 /* Unavailable, not hidden: dimmed and non-interactive, but still readable and still explaining
@@ -1317,7 +1372,7 @@ kbd { font: 11px var(--font-mono); }
    a segmented control: the set is 1…3 wide and grows with the harnesses that can run this model. */
 .mp-route { display: flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 999px;
   border: var(--hairline-w) solid var(--rl-line); background: none; color: var(--rl-text-dim); font: inherit; font-size: 11.5px;
-  cursor: pointer; transition: border-color var(--dur-hover) ease, background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+  cursor: default; transition: border-color var(--dur-hover) ease, background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .mp-route:hover:not(:disabled) { color: var(--rl-text-bright); background: var(--hover); }
 .mp-route[aria-pressed="true"] { color: var(--rl-text-bright); border-color: color-mix(in oklab, var(--rl-accent) 60%, transparent);
   background: color-mix(in oklab, var(--rl-accent) 14%, transparent); }
@@ -1347,11 +1402,11 @@ kbd { font: 11px var(--font-mono); }
    the width and a wrap here would be silent — the segment would just get taller and nothing would
    say why. */
 .mp-seg-opt { padding: 3px 4px; border-radius: calc(var(--r-ctl) - 2px); corner-shape: squircle; border: 0; background: none; font: inherit;
-  font-size: 11px; color: var(--rl-text-dim); white-space: nowrap; cursor: pointer; transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+  font-size: 11px; color: var(--rl-text-dim); white-space: nowrap; cursor: default; transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .mp-seg-opt:hover { color: var(--rl-text-bright); }
 .mp-seg-opt[aria-pressed="true"] { background: var(--surface); color: var(--rl-text-bright); box-shadow: var(--rl-edge); }
 .mp-use { align-self: flex-end; margin-top: 3px; padding: 6px 13px; border: 0; --btn-h: 30px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
-  --fill: var(--rl-accent); background: var(--fill); color: var(--rl-accent-contrast); font: inherit; font-size: 12px; font-weight: var(--fw-label); cursor: pointer; }
+  --fill: var(--rl-accent); background: var(--fill); color: var(--rl-accent-contrast); font: inherit; font-size: 12px; font-weight: var(--fw-label); cursor: default; }
 .mp-use:disabled { opacity: .45; cursor: default; }
 
 /* ── Easter eggs: the heavy efforts ──
@@ -1465,6 +1520,13 @@ kbd { font: 11px var(--font-mono); }
   background-size: 240% 100%;
   animation: eggs-chip-sweep var(--dur-move) var(--ease-out-strong); }
 .model-chip[data-sweep="max"] { animation-iteration-count: 2; }
+/* `animation` is one property, so the focus ring's halo and the sweep cannot each claim it: on a chip
+   that has keyboard focus — which is where the picker hands focus back after a keyboard pick — the
+   later rule would silently cancel the other. Named together here instead, and the iteration count
+   given per animation so Max's second pass does not draw the ring in twice. */
+.model-chip[data-sweep]:focus-visible {
+  animation: eggs-chip-sweep var(--dur-move) var(--ease-out-strong), rl-focus-ring var(--dur-slow) var(--spring-smooth); }
+.model-chip[data-sweep="max"]:focus-visible { animation-iteration-count: 2, 1; }
 @keyframes eggs-chip-sweep { from { background-position: 140% center; } to { background-position: -40% center; } }
 /* The global kill stops the animation but not the paint, and with no animation there is no
    `animationend` to take the attribute off again — so the gradient would sit on the chip for the rest
@@ -1718,7 +1780,7 @@ kbd { font: 11px var(--font-mono); }
   background: color-mix(in srgb, var(--surface) 82%, transparent); font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
 .ip-hint { margin: 0; font-size: 11.5px; color: var(--rl-text-faint); }
 .icon-picker { z-index: 100; width: 320px; display: flex; flex-direction: column; overflow: hidden;
-  background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); animation: rl-menu-in var(--dur-pop) var(--ease-out-strong); }
+  background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
 .ip-tabs { display: flex; border-bottom: var(--hairline-w) solid var(--rl-hairline); }
 /* Radius on the top corners only: the tab meets the header's bottom hairline flush, so rounding
    all four would float the selected underline off its own tab. */
@@ -2340,8 +2402,8 @@ button.panel-title:hover { background: var(--rl-hover); }
 .machine-primary { height: 34px; padding: 0 14px; border: none;
   border-radius: calc(34px * var(--sq-ratio-ctl)); corner-shape: squircle;
   background: var(--rl-accent); color: var(--rl-accent-contrast); font-size: 13px; font-weight: var(--fw-label);
-  transition: opacity var(--dur-hover) ease, scale var(--dur-press) var(--ease-out-strong); }
-.machine-primary:active { scale: 0.96; }
+  transition: opacity var(--dur-hover) ease, background-color var(--dur-hover) ease; }
+.machine-primary:is([data-pressed], :active:focus-visible):not(:disabled) { background: var(--rl-accent-press); }
 .machine-primary:disabled { opacity: 0.6; }
 .machine-bar-meta { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--rl-text-dim); }
 /* A terminal pane says "Replayed" or "Not running" and otherwise says nothing — same quiet register
@@ -2569,7 +2631,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .palette-input input { flex: 1; border: none; outline: none; background: transparent; font-size: 15px; color: var(--rl-text-bright); }
 .palette-input kbd { padding: 1px 5px; border: var(--hairline-w) solid var(--rl-line-strong); border-radius: var(--r-chip); } /* kbd chips keep line-strong (§3) */
 .palette-list { max-height: 50vh; overflow-y: auto; padding: 6px; }
-.palette-opt { --fill: transparent; background: var(--fill); display: flex; align-items: center; gap: 10px; padding: 8px 10px; --btn-h: 34px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; cursor: pointer; }
+.palette-opt { --fill: transparent; background: var(--fill); display: flex; align-items: center; gap: 10px; padding: 8px 10px; --btn-h: 34px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; cursor: default; }
 .palette-opt.selected, .palette-opt:hover { --fill: var(--hover); }
 .palette-opt.disabled { opacity: .45; cursor: default; }
 .palette-sec { padding: 8px 10px 3px; font-size: 11px; font-weight: var(--fw-title); letter-spacing: .06em; text-transform: uppercase; color: var(--rl-text-faint); }
@@ -2697,7 +2759,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .status-dot[data-status="running"] { background: var(--rl-success); }
 .status-dot[data-status="waiting_permission"] { background: var(--rl-warning); }
 .status-dot[data-status="error"] { background: var(--rl-danger); }
-.status-dot[data-status="idle"] { background: var(--rl-line-strong); } /* idle is a state, not a verdict (V-C5) */
+.status-dot[data-status="idle"] { background: var(--mark-strong); } /* idle is a state, not a verdict (V-C5) */
 .status-dot[data-status="ended"] { background: var(--rl-text-faint); opacity: .6; }
 /* W4: an agent act is in flight on a browser. Accent, not success — this is "Realm is acting here,
    watch", a pointer to activity, not a session verdict. */
@@ -3295,7 +3357,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .fd-add { color: var(--rl-success); } .fd-del { color: var(--rl-danger); }
 /* Five cells, filled in proportion (statCells). Read before the numbers are. */
 .fd-bar { display: flex; gap: 1.5px; }
-.fd-bar i { width: 5px; height: 5px; border-radius: 1px; background: var(--rl-line-strong); }
+.fd-bar i { width: 5px; height: 5px; border-radius: 1px; background: var(--mark-strong); }
 .fd-bar i[data-fill="add"] { background: var(--green); } .fd-bar i[data-fill="del"] { background: var(--red); }
 .fd-body { overflow-x: auto; padding: 4px 0; }
 /* Grid, not flex: every line's two gutters and sign share one column ruler, so the code edge stays
@@ -3346,7 +3408,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .todo-head { display: flex; align-items: baseline; gap: 8px; font-size: 11.5px; }
 .todo-count { flex: none; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
 .todo-active { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.todo-track { height: 3px; border-radius: 2px; background: var(--rl-line); overflow: hidden; }
+.todo-track { height: 3px; border-radius: 2px; background: var(--mark); overflow: hidden; }
 /* The one bar in the app that fills with the accent: it is progress, not state — §3 reserves colour
    for state, and reserves the accent for "the thing that is happening". */
 .todo-fill { height: 100%; border-radius: 2px; background: var(--rl-accent); transition: width var(--dur-slow) var(--ease-out-strong); }
@@ -3360,7 +3422,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .todo-list li[data-status="completed"] { color: var(--rl-text-faint); }
 /* Struck through, not hidden: the plan's history is the point — what the agent decided to do and in
    what order — and a list that deletes its finished items reads as a list that changed its mind. */
-.todo-list li[data-status="completed"] .todo-text { text-decoration: line-through; text-decoration-color: var(--rl-line-strong); }
+.todo-list li[data-status="completed"] .todo-text { text-decoration: line-through; text-decoration-color: var(--mark-strong); }
 .todo-list li[data-status="completed"] .todo-dot { box-shadow: none; background: var(--rl-success); }
 
 /* ── Search results (Grep / Glob) ─────────────────────────────────────────── */
@@ -3683,11 +3745,11 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   font-family: var(--font-mono); font-size: 11px; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
 .composer-queue-item .queue-send { flex: none; padding: 2px 7px; border: 0; border-radius: var(--r-chip);
   background: transparent; color: var(--rl-text-dim); font-size: 11px; font-weight: var(--fw-label);
-  cursor: pointer; transition: background var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
+  cursor: default; transition: background var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
 .composer-queue-item .queue-send:hover { background: var(--surface); color: var(--rl-text-bright); }
 .composer-queue-item .queue-drop { flex: none; display: flex; align-items: center; justify-content: center;
   width: 18px; height: 18px; padding: 0; border: 0; border-radius: var(--r-chip); background: transparent;
-  color: var(--rl-text-faint); cursor: pointer; transition: background var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
+  color: var(--rl-text-faint); cursor: default; transition: background var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
 .composer-queue-item .queue-drop:hover { background: var(--surface); color: var(--rl-text-bright); }
 
 /* Row 1 — pending attachments (Ara refresh §3: the context chips left this row for the control row;
@@ -3709,7 +3771,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .composer-ref-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-ref-remove { display: grid; place-items: center; flex: none; width: 18px; height: 18px;
   border: none; border-radius: var(--r-chip); corner-shape: squircle; background: none;
-  color: var(--rl-text-faint); cursor: pointer; transition: color var(--dur-hover) ease, background-color var(--dur-hover) ease; }
+  color: var(--rl-text-faint); cursor: default; transition: color var(--dur-hover) ease, background-color var(--dur-hover) ease; }
 .composer-ref-remove:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .composer-attach-item { display: contents; }
 /* Attachment tiles (composer + sent message). An attachment is SHOWN, not named: the tile is a
@@ -3746,7 +3808,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    kind of thing. It fills the tile rather than wrapping it so that `.attach-art`'s `inset: 0` still
    resolves against the 44px square, and so the remove button — a SIBLING, never a child — keeps the
    corner to itself. */
-.attach-open { position: absolute; inset: 0; display: block; padding: 0; border: none; background: none; cursor: pointer; }
+.attach-open { position: absolute; inset: 0; display: block; padding: 0; border: none; background: none; cursor: default; }
 /* A file that opens in the lightbox says so: zoom-in is the cursor for a picture that gets bigger in
    place, and it would be a lie on the PDF that leaves for Preview. The mark lands only once main has
    confirmed the file, which is also when the lightbox becomes the branch that runs. */
@@ -4008,7 +4070,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* One-time bypass confirm (U-M7): warning-toned status pill (§3 formula), clickable, gone in 5s. */
 /* The confirm STEP for the chip above, so it wears the chip's tone: "Allow everything?" leading to a
    red chip through an orange button would read as two different warnings about one decision. */
-.bypass-confirm { color: var(--rl-danger); background: var(--red-tint); cursor: pointer; }
+.bypass-confirm { color: var(--rl-danger); background: var(--red-tint); cursor: default; }
 .bypass-confirm:hover { background: color-mix(in srgb, var(--red) 24%, transparent); }
 /* Narrow panes, in the order the row can afford to lose things. Every threshold is the pane width at
    which the branch would otherwise be squeezed under its floor, read off a measured sweep rather than
@@ -4041,7 +4103,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .composer-send { position: relative; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
   background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: var(--fill-bevel); flex: none; }
 .composer-send:hover:not(:disabled) { background: var(--accent-ink); }
-.composer-send:disabled { background: var(--line-strong); color: var(--ink-2); box-shadow: none; opacity: 1; }
+.composer-send:disabled { background: var(--mark-strong); color: var(--ink-2); box-shadow: none; opacity: 1; }
 
 /* ── To-do strip (§4): the session's plan, attached to the TOP of the card ─────────────
    The under-strip below, mirrored: same frame fill, same 10px inset, same overlap sliding it behind
@@ -4210,12 +4272,12 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .session-usage-btn { position: relative; display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 6px;
   border-radius: var(--r-ctl); corner-shape: squircle; background: transparent; color: var(--rl-text-faint); font-size: 11px;
   font-variant-numeric: tabular-nums;
-  transition: background var(--dur-hover) ease, color var(--dur-hover) ease, scale var(--dur-press) var(--ease-out-strong); }
+  transition: background var(--dur-hover) ease, color var(--dur-hover) ease; }
 /* The control is 22px in a strip that has no room for more, so the TARGET is extended rather than
    the control. Vertical only: the under-strip's neighbours sit to its left and right, and hit areas
    that overlap are worse than small ones. */
 .session-usage-btn::before { content: ""; position: absolute; inset: -9px 0; }
-.session-usage-btn:active { scale: 0.96; }
+.session-usage-btn:is([data-pressed], :active:focus-visible) { background: var(--hover-2); color: var(--rl-text-bright); }
 /* A number that changes every turn, in a strip whose other contents must not shift when it does. */
 .usage-pct { font-variant-numeric: tabular-nums; }
 .session-usage-btn:hover { background: var(--rl-hover); color: var(--rl-text-dim); }
@@ -4448,6 +4510,18 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 :root[data-squircle] .btn.destructive,
 :root[data-squircle] .btn.danger,
 :root[data-squircle] .btn.primary:disabled { box-shadow: none; filter: none; --sq-ring-w: 0; }
+/* Keyboard focus on a PAINTED control goes to the painter, the way the simulator's screen does it
+   above. These controls are `border-radius: 0` — the worklet draws their curve — so the app's
+   outline traced a square around a squircle, which is the one shape a Mac focus ring never takes:
+   AppKit's follows the control. On the curve it is drawn just inside the edge, so it still draws
+   IN, from a wide clear band down to its width, on the same timing as every other ring. A filled
+   control takes the ring in its label's colour, because an accent ring inside an accent fill is no
+   ring at all. */
+:root[data-squircle] :is(.btn, .ghost-chip, .mp-use, .palette-opt):focus-visible {
+  outline: none; --sq-ring: var(--rl-accent); --sq-ring-w: 2px;
+  animation: rl-focus-ring-painted var(--dur-slow) var(--spring-smooth); }
+:root[data-squircle] .btn.primary:focus-visible { --sq-ring: color-mix(in srgb, var(--rl-accent-contrast) 75%, transparent); }
+@keyframes rl-focus-ring-painted { from { --sq-ring: transparent; --sq-ring-w: 6px; } }
 /* The selected row in ⌘K gets no ring either. What marks it is the fill; a border on a painted
    corner would be a second, competing outline of the same shape. */
 
@@ -4734,7 +4808,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .cli-field { border: none; margin: 0; padding: 0; min-width: 0; }
 .cli-field legend { padding: 0; font-size: 12px; color: var(--rl-text-dim); }
 .cli-row { display: flex; align-items: center; gap: 8px; margin-top: 5px; padding: 8px 10px; border-radius: var(--r-ctl); corner-shape: squircle;
-  color: var(--rl-text-dim); background: transparent; cursor: pointer; }
+  color: var(--rl-text-dim); background: transparent; cursor: default; }
 .cli-row:hover { background: var(--rl-hover); }
 /* Selected ≠ outlined (§2.7): translucent pill fill + bright text. */
 .cli-row[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); }
@@ -4784,9 +4858,9 @@ select { appearance: none; padding-right: 22px;
    scroller with only the pseudo-element rules reserves the 24px they ask for, one with both reserves
    the 11px the standard property asks for. The 10px width, the thumb colour and the transparent
    track were all already coming from the line above them. */
-:root { scrollbar-color: var(--rl-line) transparent; }
-:hover { scrollbar-color: var(--rl-line-strong) transparent; }
-:where(
+:root:not([data-overlay-scrollbars]) { scrollbar-color: var(--mark) transparent; }
+:root:not([data-overlay-scrollbars]) :hover { scrollbar-color: var(--mark-strong) transparent; }
+:where(:root:not([data-overlay-scrollbars])) :where(
   /* chrome and navigation. `.space-body` is NOT here — see the carve-out below. */
   .menu, .mention-picker, .skill-picker-list, .mp-list, .mp-detail-body, .ip-grid,
   .palette-list, .spaces-list, .sheet, .onboarding-stage, .onboarding-body, .page-content, .settings-rail-lists, .summary-scroll, .ql-view,
@@ -4834,31 +4908,31 @@ select { appearance: none; padding-right: 22px;
    The bar is redrawn to what the standard properties were already producing: a 10px channel, the
    line colour at rest, a step up under the pointer. `:hover` has to be restated because the root's
    `scrollbar-color` hover step no longer reaches an element that has reclaimed the pseudo-elements. */
-[data-dissolve], [data-dissolve-x] { scrollbar-color: auto; scrollbar-width: auto; }
-[data-dissolve]::-webkit-scrollbar, [data-dissolve-x]::-webkit-scrollbar { width: 10px; height: 10px; }
-[data-dissolve]::-webkit-scrollbar-track { background: transparent; margin-block: var(--fade-top-h, 40px) var(--fade-h, 68px); }
-[data-dissolve-x]::-webkit-scrollbar-track { background: transparent; margin-inline: var(--fade-w, 28px); }
-[data-dissolve]::-webkit-scrollbar-thumb, [data-dissolve-x]::-webkit-scrollbar-thumb {
-  background: var(--rl-line); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
-[data-dissolve]:hover::-webkit-scrollbar-thumb, [data-dissolve-x]:hover::-webkit-scrollbar-thumb {
-  background: var(--rl-line-strong); background-clip: content-box; }
+:root:not([data-overlay-scrollbars]) [data-dissolve], :root:not([data-overlay-scrollbars]) [data-dissolve-x] { scrollbar-color: auto; scrollbar-width: auto; }
+:root:not([data-overlay-scrollbars]) [data-dissolve]::-webkit-scrollbar, :root:not([data-overlay-scrollbars]) [data-dissolve-x]::-webkit-scrollbar { width: 10px; height: 10px; }
+:root:not([data-overlay-scrollbars]) [data-dissolve]::-webkit-scrollbar-track { background: transparent; margin-block: var(--fade-top-h, 40px) var(--fade-h, 68px); }
+:root:not([data-overlay-scrollbars]) [data-dissolve-x]::-webkit-scrollbar-track { background: transparent; margin-inline: var(--fade-w, 28px); }
+:root:not([data-overlay-scrollbars]) [data-dissolve]::-webkit-scrollbar-thumb, :root:not([data-overlay-scrollbars]) [data-dissolve-x]::-webkit-scrollbar-thumb {
+  background: var(--mark); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
+:root:not([data-overlay-scrollbars]) [data-dissolve]:hover::-webkit-scrollbar-thumb, :root:not([data-overlay-scrollbars]) [data-dissolve-x]:hover::-webkit-scrollbar-thumb {
+  background: var(--mark-strong); background-clip: content-box; }
 /* Where a vertical and a horizontal bar meet. The pseudo-elements own the whole scrollbar once they
    are in use, corner included, and an unstated corner paints opaque white — the square at the foot
    of a transcript that scrolled both ways. */
-[data-dissolve]::-webkit-scrollbar-corner, [data-dissolve-x]::-webkit-scrollbar-corner { background: transparent; }
+:root:not([data-overlay-scrollbars]) [data-dissolve]::-webkit-scrollbar-corner, :root:not([data-overlay-scrollbars]) [data-dissolve-x]::-webkit-scrollbar-corner { background: transparent; }
 
 /* The sidebar's column keeps its own, narrower bar: 11px of standard scrollbar reads as heavy in a
    280px column. Everything else about it is the rule above. */
-.space-body { scrollbar-color: auto; scrollbar-width: auto; }
-.space-body::-webkit-scrollbar { width: 8px; }
-.space-body::-webkit-scrollbar-track { background: transparent; margin-block: var(--fade-top-h) var(--fade-h); }
-.space-body::-webkit-scrollbar-thumb { background: var(--rl-line); border-radius: 999px;
+:root:not([data-overlay-scrollbars]) .space-body { scrollbar-color: auto; scrollbar-width: auto; }
+:root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar { width: 8px; }
+:root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar-track { background: transparent; margin-block: var(--fade-top-h) var(--fade-h); }
+:root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar-thumb { background: var(--mark); border-radius: 999px;
   /* Inset from the 8px channel so the thumb reads as a 4px line with air either side rather than a
      bar wedged against the column's edge. `background-clip: content-box` is what makes the border
      transparent padding instead of a second colour. */
   border: 2px solid transparent; background-clip: content-box; }
-.space-body:hover::-webkit-scrollbar-thumb { background: var(--rl-line-strong); background-clip: content-box; }
-.space-body::-webkit-scrollbar-corner { background: transparent; }
+:root:not([data-overlay-scrollbars]) .space-body:hover::-webkit-scrollbar-thumb { background: var(--mark-strong); background-clip: content-box; }
+:root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar-corner { background: transparent; }
 
 /* ── Scrollbars: on scroll, in the prompter ────────────────────────────────
    Everywhere above keeps the persistent hairline: a transcript, a diff, a settings page is long
@@ -4870,24 +4944,24 @@ select { appearance: none; padding-right: 22px;
 
    Deliberately scroll-only, not hover-only: `:hover` still matches while idle (the root rule two
    screens up), so hiding the thumb has to out-rank hover too, not just the resting case. */
-.mention-picker, .skill-picker-list { scrollbar-color: transparent transparent; }
-.mention-picker[data-scrolling], .skill-picker-list[data-scrolling] { scrollbar-color: var(--rl-line) transparent; }
+:root:not([data-overlay-scrollbars]) .mention-picker, :root:not([data-overlay-scrollbars]) .skill-picker-list { scrollbar-color: transparent transparent; }
+:root:not([data-overlay-scrollbars]) .mention-picker[data-scrolling], :root:not([data-overlay-scrollbars]) .skill-picker-list[data-scrolling] { scrollbar-color: var(--mark) transparent; }
 /* `.mp-list`, `.mp-detail-body` and `.mp-jumps` ride the masked scrollbar's fade at their own two
    ends ([data-dissolve]/[data-dissolve-x], above) — that stays; only the thumb's resting paint
    changes. The reclaim is already true by inheritance from the bare attribute rule above, and is
    restated here anyway: the rule below this comment is itself a `::-webkit-scrollbar` owner, and it
    should not ask a reader to go find where its own standard properties were handed back. */
-.mp-list[data-dissolve], .mp-detail-body[data-dissolve], .mp-jumps[data-dissolve-x],
-.mp-list[data-dissolve][data-scrolling], .mp-detail-body[data-dissolve][data-scrolling], .mp-jumps[data-dissolve-x][data-scrolling] {
+:root:not([data-overlay-scrollbars]) .mp-list[data-dissolve], :root:not([data-overlay-scrollbars]) .mp-detail-body[data-dissolve], :root:not([data-overlay-scrollbars]) .mp-jumps[data-dissolve-x],
+:root:not([data-overlay-scrollbars]) .mp-list[data-dissolve][data-scrolling], :root:not([data-overlay-scrollbars]) .mp-detail-body[data-dissolve][data-scrolling], :root:not([data-overlay-scrollbars]) .mp-jumps[data-dissolve-x][data-scrolling] {
   scrollbar-color: auto; scrollbar-width: auto; }
 /* One extra class outweighs the bare attribute selector for the idle case (transparent, which has to
    beat `[data-dissolve]:hover` too — hence AFTER it in the file, not just heavier); adding
    `[data-scrolling]` outweighs everything above unconditionally the moment it is true. Neither
    variant touches `border`/`background-clip`, so both keep the inset the base rule already drew. */
-.mp-list[data-dissolve]::-webkit-scrollbar-thumb, .mp-detail-body[data-dissolve]::-webkit-scrollbar-thumb,
-.mp-jumps[data-dissolve-x]::-webkit-scrollbar-thumb { background: transparent; }
-.mp-list[data-dissolve][data-scrolling]::-webkit-scrollbar-thumb, .mp-detail-body[data-dissolve][data-scrolling]::-webkit-scrollbar-thumb,
-.mp-jumps[data-dissolve-x][data-scrolling]::-webkit-scrollbar-thumb { background: var(--rl-line); }
+:root:not([data-overlay-scrollbars]) .mp-list[data-dissolve]::-webkit-scrollbar-thumb, :root:not([data-overlay-scrollbars]) .mp-detail-body[data-dissolve]::-webkit-scrollbar-thumb,
+:root:not([data-overlay-scrollbars]) .mp-jumps[data-dissolve-x]::-webkit-scrollbar-thumb { background: transparent; }
+:root:not([data-overlay-scrollbars]) .mp-list[data-dissolve][data-scrolling]::-webkit-scrollbar-thumb, :root:not([data-overlay-scrollbars]) .mp-detail-body[data-dissolve][data-scrolling]::-webkit-scrollbar-thumb,
+:root:not([data-overlay-scrollbars]) .mp-jumps[data-dissolve-x][data-scrolling]::-webkit-scrollbar-thumb { background: var(--mark); }
 /* The composer's own textarea is not in this list, and cannot be: `scrollbar-width: none` there is
    permanent, not a resting state, because a classic scrollbar reserves gutter width the moment
    content overflows regardless of thumb colour — which would misalign the highlight mirror's wrapped
@@ -4897,7 +4971,13 @@ select { appearance: none; padding-right: 22px;
    measures the viewport to decide the terminal's column count, and its interior is a dark world in
    both app modes (`color-scheme: dark` on .terminal-pane), so the thumb here answers to the terminal
    rather than to whatever the rule above becomes next. */
-.terminal-pane .xterm-viewport { scrollbar-width: thin; scrollbar-color: var(--rl-line-strong) transparent; }
+:root:not([data-overlay-scrollbars]) .terminal-pane .xterm-viewport { scrollbar-width: thin; scrollbar-color: var(--mark-strong) transparent; }
+
+/* Rubber-banding (rubber-band.ts). The scroller's CHILDREN move, never the scroller: its box, its
+   mask and its scrollbar stay where they are, the way an NSClipView holds still while the document
+   view inside it stretches past the end. `translate`, so it composes with any `transform` a child is
+   already animating (a transcript block's entrance) instead of replacing it. */
+[data-rubber] > * { translate: 0 var(--rubber, 0px); }
 
 /* ── Motion (§6): the whole easing/duration table, applied app-wide ───────── */
 /* A leaf's item changing IS content entering, not the "pane focus switching" §6 keeps instant — the
@@ -4905,24 +4985,31 @@ select { appearance: none; padding-right: 22px;
 .panel-body .pane-slot { animation: rl-settle var(--dur-fast) var(--ease-out-strong); }
 @keyframes rl-settle { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
-/* Menus / popovers (§6): 140ms, opacity + scale .97→1, origin-aware — Menu.tsx sets
-   transform-origin to the corner the menu grew from, so it appears to unfold out of its trigger. */
-.menu, .model-picker { animation: rl-menu-in var(--dur-pop) var(--ease-out-strong); }
+/* Menus open the way a Mac menu does: at once, whole, under the pointer. NSMenu has no entrance —
+   it is a list of choices the person already asked for, and the 140ms scale-in it used to wear was
+   the one place a click waited on a picture of the answer. It leaves on a short fade with no travel,
+   which is what NSMenu does after a pick, so the eye sees where the choice went without the menu
+   shrinking back into its trigger. `use-anchored-popover.ts` holds the surface in the DOM for
+   exactly the press rung and marks it `inert`; `pointer-events: none` is the second lock, for the
+   frame between the paint and the attribute. `forwards` matters: without it a timer that lands a
+   frame late flashes the surface back to full opacity on its way out. */
+.menu[data-closing] { animation: rl-fade-out var(--dur-press) var(--ease-fade) forwards; pointer-events: none; }
+/* Popovers are not menus. The model and icon pickers are panels with their own controls inside, and
+   an NSPopover arrives as an object: it grows out of its anchor on a spring that starts from rest,
+   and returns into it. Origin-aware — the component sets transform-origin to the corner the surface
+   grew from. The exit plays the enter backwards on the press rung, so a popover never takes longer
+   to leave than it took to arrive; enter and exit are one decision, which is why these two lists
+   are the same list. */
+.model-picker, .icon-picker { animation: rl-menu-in var(--dur-pop) var(--spring-smooth); }
 @keyframes rl-menu-in { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: none; } }
-/* …and back into it. The exit reverses the enter on `--dur-press`, the rung for a control resolving
-   inside the gesture that dismissed it — a popover leaving should never take longer than it took to
-   arrive. `use-anchored-popover.ts` holds the surface in the DOM for exactly that rung and marks it
-   `inert`; `pointer-events: none` is the second lock, for the frame between the paint and the
-   attribute. `forwards` matters: without it a timer that lands a frame late flashes the surface back
-   to full opacity on its way out. Enter and exit are one decision, so this selector list and the
-   one above it are the same list — the pickers that appear instantly also vanish instantly. */
-.menu[data-closing], .model-picker[data-closing], .icon-picker[data-closing] {
+.model-picker[data-closing], .icon-picker[data-closing] {
   animation: rl-menu-out var(--dur-press) var(--ease-out-strong) forwards; pointer-events: none; }
 @keyframes rl-menu-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(.97); } }
 
 /* Sheets (§6): enter 240ms, scale .96 + fade, origin center; the scrim fades on its own at 160ms.
-   One rule for every sheet — W4b's `.sheet.onboarding` carve-out is gone. */
-.sheet { animation: rl-sheet-in var(--dur-slow) var(--ease-out-strong); }
+   One rule for every sheet — W4b's `.sheet.onboarding` carve-out is gone. On the spring, for the
+   reason the popovers are: a surface arriving over the window should gather and settle, not launch. */
+.sheet { animation: rl-sheet-in var(--dur-slow) var(--spring-smooth); }
 @keyframes rl-sheet-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
 .sheet-backdrop { animation: rl-fade-in var(--dur-swap) var(--ease-out-strong); }
 @keyframes rl-fade-in { from { opacity: 0; } to { opacity: 1; } }
@@ -5026,14 +5113,42 @@ select { appearance: none; padding-right: 22px;
 .question-option, .question-skip {
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease, --sq-fill var(--dur-hover) ease;
 }
-/* Press (§6): 120ms to scale .97 on every pressable — buttons, chips, send, permission options.
-   Full-width rows (.tool-row, .item-row) are left out: a wide surface shrinking reads as a glitch. */
+/* Press (§6): the fill goes down the instant the button does, and nothing changes size.
+   And it TRACKS the pointer, the way an NSButton does: drag off a held button and it lets go of the
+   highlight, drag back on and it takes it again, which is how a person sees that releasing out there
+   will not click. Chromium cannot say that — it drops `:active` when a held pointer leaves and never
+   gives it back — so press-tracking.ts marks `data-pressed` while the pointer is down and over the
+   control. `:active:focus-visible` is the keyboard's press, Space on a focused button, which has no
+   pointer to track.
+   An AppKit button has no scale on press — that is a touch idiom, where a finger hides the control
+   and the shrink is the only feedback left to see. Under a pointer the control is in full view, so
+   the press is a FILL one rung past hover, painted on the mouse-down frame, with the release fading
+   back on the hover rung. An accent fill darkens instead of stepping the ladder. */
 .btn, .icon-btn, .ghost-chip, .composer-send, .permission-option, .tool-copy, .msg-action {
-  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease, --sq-fill var(--dur-hover) ease, transform var(--dur-press) var(--ease-out-strong);
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease, --sq-fill var(--dur-hover) ease;
 }
-.btn:active:not(:disabled), .icon-btn:active:not(:disabled), .ghost-chip:active:not(:disabled),
-.composer-send:active:not(:disabled),
-.permission-option:active:not(:disabled), .tool-copy:active:not(:disabled), .msg-action:active:not(:disabled) { transform: scale(.96); }
+.btn:is([data-pressed], :active:focus-visible):not(:disabled), .btn.danger:is([data-pressed], :active:focus-visible):not(:disabled), .ghost-chip:is([data-pressed], :active:focus-visible):not([data-static]) { --fill: var(--hover-2); }
+.btn.primary:is([data-pressed], :active:focus-visible):not(:disabled) { --fill: var(--rl-accent-press); }
+.icon-btn:is([data-pressed], :active:focus-visible):not(:disabled), .permission-option:is([data-pressed], :active:focus-visible):not(:disabled), .tool-copy:is([data-pressed], :active:focus-visible):not(:disabled),
+.msg-action:is([data-pressed], :active:focus-visible):not(:disabled) { background: var(--hover-2); color: var(--rl-text-bright); }
+.composer-send:is([data-pressed], :active:focus-visible):not(:disabled) { background: var(--rl-accent-press); }
+/* Arriving is instant; leaving fades — except during a tracked press, where leaving is instant too:
+   a button the pointer was dragged off lets go of its highlight at once, as an NSButton does. A hover or a press that eases IN is the pointer waiting on the
+   window, which is the latency a Mac control never shows — the highlight is on the frame the pointer
+   got there. The fade belongs to the way OUT, where it is what keeps a sweep across a list from
+   strobing. A transition runs on the timing of the state it is ENTERING, so stating the zero on the
+   hovered and pressed states and nowhere else is the whole mechanism; every base rule above keeps
+   its own duration for the release. */
+:is(button, [role="button"], [role="tab"], [role="option"], [role^="menuitem"], [role="switch"], summary,
+  .item-row, .tool-row, .tool-group-row, .delegation-row, .delegation-item, .strip-space, .strip-profile,
+  .space-card, .question-option, .question-skip):is(:hover, :active, [data-press-tracking]) { transition-duration: 0s; }
+/* …and a ROW that is chosen from a list changes instantly both ways. An NSMenu's highlight, a
+   segmented control's selection, Spotlight's result row: none of them fade, in or out, because the
+   highlight IS the current choice and a choice is never half-made. The fade-out above is for a
+   button the pointer happens to pass; here the highlight follows the arrow keys as much as the
+   pointer, and a trail behind it reads as a lag in the selection itself. */
+.palette-opt, .menu [role^="menuitem"], .mp-row, .mp-seg-opt, .seg-opt, .mention-row, .skill-picker-row,
+.strip-space::before, .strip-profile::before { transition-duration: 0s; }
 
 /* The continuous corner, on every control that has one.
    Declarative only: `corner-shape` lands in Chromium 139 and Electron 37.10.3 ships 138, so today
@@ -5299,7 +5414,7 @@ select { appearance: none; padding-right: 22px;
 .sandbox-posture {
   display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: baseline;
   padding: 10px 12px; background: var(--rl-frame); border-radius: var(--r-panel);
-  corner-shape: squircle; cursor: pointer; }
+  corner-shape: squircle; cursor: default; }
 .sandbox-posture[data-selected] { background: var(--rl-raised); }
 .sandbox-posture input { grid-row: 1; }
 .sandbox-posture-name { grid-row: 1; font-size: 12.5px; }
@@ -5356,7 +5471,7 @@ select { appearance: none; padding-right: 22px;
 /* Tabs are native radios in segmented-control clothing (the onboarding idiom: arrows move, one tab
    stop, checked state for free). Selected ≠ outlined — §2.7's translucent fill + bright text. */
 .settings-tabs { display: flex; gap: 2px; margin: 0 0 12px; padding: 2px; border: none; border-radius: var(--r-ctl); corner-shape: squircle; background: var(--rl-hover); }
-.settings-tab { flex: 1; text-align: center; padding: 5px 10px; border-radius: var(--r-chip); corner-shape: squircle; font-size: 12px; color: var(--rl-text-dim); cursor: pointer; }
+.settings-tab { flex: 1; text-align: center; padding: 5px 10px; border-radius: var(--r-chip); corner-shape: squircle; font-size: 12px; color: var(--rl-text-dim); cursor: default; }
 .settings-tab:hover { color: var(--rl-text-bright); }
 .settings-tab[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); font-weight: var(--fw-label); }
 .settings-tab input { position: absolute; opacity: 0; pointer-events: none; }
@@ -5402,7 +5517,7 @@ select { appearance: none; padding-right: 22px;
 /* The count recedes until it matters — it reports a limit almost nobody is near. */
 .memory-meta .settings-hint[data-quiet] { color: color-mix(in srgb, var(--rl-text-faint) 70%, transparent); }
 .memory-details > summary {
-  list-style: none; cursor: pointer; width: fit-content; padding: 2px 0;
+  list-style: none; cursor: default; width: fit-content; padding: 2px 0;
   font-size: 12.5px; color: var(--rl-text-faint);
 }
 .memory-details > summary::-webkit-details-marker { display: none; }
@@ -5543,7 +5658,7 @@ select { appearance: none; padding-right: 22px;
 .laya-reason { font: 11.5px/1.5 var(--font-mono); color: var(--rl-text-bright); overflow-wrap: anywhere; }
 .settings-row-main > .laya-meter { flex-basis: 100%; margin-top: 4px; }
 .settings-row-main > .install-cmd, .settings-row-main > .laya-output { flex-basis: 100%; }
-.laya-output > summary { font-size: 12px; color: var(--rl-text-dim); cursor: pointer; }
+.laya-output > summary { font-size: 12px; color: var(--rl-text-dim); cursor: default; }
 .laya-output > pre { max-height: 180px; margin: 6px 0 0; }
 
 .settings-agent-row { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; }
@@ -5562,14 +5677,14 @@ select { appearance: none; padding-right: 22px;
  */
 .switch {
   appearance: none; flex: none; width: 34px; height: 20px; margin: 0; border-radius: 999px;
-  background: var(--rl-line); box-shadow: inset 0 0 0 var(--hairline-w) var(--rl-line-strong);
-  position: relative; cursor: pointer;
+  background: var(--mark); box-shadow: inset 0 0 0 var(--hairline-w) var(--rl-line-strong);
+  position: relative; cursor: default;
   /* Two rungs, because these are two different events: the TRACK's fill is hover feedback and rides
      the hover rung with every other fill in the app, while the knob below is a state change and
      stays on press. Both were on press, which is what made a hover read as a flick. */
   transition: background var(--dur-hover) var(--ease-out-strong), box-shadow var(--dur-hover) ease;
 }
-.switch:hover:not(:disabled) { background: var(--rl-line-strong); }
+.switch:hover:not(:disabled) { background: var(--mark-strong); }
 /* The knob carries its own small lift, which is what stops it reading as a hole in the track. */
 .switch::after {
   content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
@@ -5601,13 +5716,13 @@ select { appearance: none; padding-right: 22px;
      the corner is a superellipse rather than a rounded square, which is the point. */
   appearance: none; flex: none; width: 16px; height: 16px; margin: 0;
   border: 1.5px solid var(--rl-line-strong); border-radius: var(--r-chip); corner-shape: squircle;
-  background: var(--field); cursor: pointer; position: relative;
+  background: var(--field); cursor: default; position: relative;
   transition: background var(--dur-press) var(--ease-out-strong),
-              border-color var(--dur-press) var(--ease-out-strong),
-              scale var(--dur-press) var(--ease-out-strong);
+              border-color var(--dur-press) var(--ease-out-strong);
 }
 .checkbox:hover:not(:disabled) { border-color: var(--rl-accent); }
-.checkbox:active:not(:disabled) { scale: 0.96; }
+.checkbox:is([data-pressed], :active:focus-visible):not(:disabled) { background: var(--hover-2); }
+.checkbox:checked:is([data-pressed], :active:focus-visible):not(:disabled) { background: var(--rl-accent-press); border-color: var(--rl-accent-press); }
 .checkbox:checked { background: var(--rl-accent); border-color: var(--rl-accent); }
 /* The tick is drawn, not typed: a glyph would inherit the reader's font stack and land at a
    different size and baseline on every machine. Two borders of a rotated box is the same mark
@@ -5637,7 +5752,7 @@ select { appearance: none; padding-right: 22px;
 .memory-doc { min-height: 140px; padding: 8px 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; font: 12px/1.5 var(--font-mono); resize: vertical; }
 .memory-doc:focus { border-color: var(--rl-accent); }
 .memory-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.settings-inline-toggle { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+.settings-inline-toggle { display: flex; align-items: flex-start; gap: 10px; cursor: default; }
 .settings-source-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 6px 0; }
 .settings-source-row[data-missing] .env-path { color: var(--rl-text-faint); }
 
@@ -5746,7 +5861,7 @@ select { appearance: none; padding-right: 22px;
 .settings-result { padding: 0; }
 .settings-result-hit {
   flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 12px; padding: 12px 14px;
-  border: none; border-radius: inherit; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+  border: none; border-radius: inherit; background: none; color: inherit; font: inherit; text-align: left; cursor: default;
   transition: background-color var(--dur-hover) ease;
 }
 .settings-result-hit > .settings-row-name { flex: 1; min-width: 0; }
@@ -5838,7 +5953,7 @@ select { appearance: none; padding-right: 22px;
 .page-empty p { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim); }
 .page-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .page-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; text-align: left;
-  border: none; border-radius: var(--r-ctl); corner-shape: squircle; background: none; color: var(--rl-text-dim); font-size: 13px; cursor: pointer; }
+  border: none; border-radius: var(--r-ctl); corner-shape: squircle; background: none; color: var(--rl-text-dim); font-size: 13px; cursor: default; }
 .page-row:hover { background: var(--rl-hover); }
 /* The TITLE is the row's elastic column — it claims the free space and ellipsises, and everything
    after it packs against the right edge. It used to size to its content while `.page-row-dim` and
@@ -5890,10 +6005,10 @@ select { appearance: none; padding-right: 22px;
 .agents-dot[data-status="idle"] { background: var(--rl-success); }
 .agents-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .agents-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; text-align: left; font: inherit; border: none;
-  border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-frame); color: var(--rl-text-bright); cursor: pointer;
-  transition: background var(--dur-hover) ease, scale var(--dur-press) var(--ease-out-strong); }
+  border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-frame); color: var(--rl-text-bright); cursor: default;
+  transition: background var(--dur-hover) ease; }
 .agents-row:hover { background: var(--rl-hover); }
-.agents-row:active { scale: 0.98; }
+.agents-row:is([data-pressed], :active:focus-visible) { background: var(--hover-2); }
 /* A row waiting on you is the one the page exists to surface; it wears the warning tint. */
 .agents-row[data-status="waiting_permission"] { background: var(--orange-tint); }
 .agents-row-mark { flex: none; }
@@ -5939,7 +6054,7 @@ select { appearance: none; padding-right: 22px;
 .agents-head-actions { flex: none; display: flex; align-items: center; gap: 8px; align-self: center; }
 .agents-views { display: flex; gap: 2px; padding: 2px; border-radius: var(--r-ctl); background: var(--rl-frame); }
 .agents-view { padding: 3px 10px; font-size: 12px; font-weight: var(--fw-medium); border: none; border-radius: var(--r-chip);
-  background: transparent; color: var(--rl-text-dim); cursor: pointer;
+  background: transparent; color: var(--rl-text-dim); cursor: default;
   transition: background var(--dur-hover) ease, color var(--dur-hover) ease; }
 .agents-view:hover { color: var(--rl-text-bright); }
 /* One appearance for "this one is on", carried by the fill alone — the label names the VIEW, and
@@ -5951,10 +6066,10 @@ select { appearance: none; padding-right: 22px;
 .agent-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; }
 .agent-tile { display: flex; flex-direction: column; align-items: stretch; gap: 5px; padding: 10px 12px; text-align: left;
   font: inherit; border: none; border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-frame);
-  color: var(--rl-text-bright); cursor: pointer;
-  transition: background var(--dur-hover) ease, scale var(--dur-press) var(--ease-out-strong); }
+  color: var(--rl-text-bright); cursor: default;
+  transition: background var(--dur-hover) ease; }
 .agent-tile:hover { background: var(--rl-hover); }
-.agent-tile:active { scale: 0.98; }
+.agent-tile:is([data-pressed], :active:focus-visible) { background: var(--hover-2); }
 .agent-tile-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .agent-tile-mark { flex: none; }
 /* The title is the unbounded user data, so it takes the slack and gives it back first; the clock
@@ -6009,7 +6124,7 @@ select { appearance: none; padding-right: 22px;
 .office-ask-input:focus { border-color: var(--rl-accent); }
 .office-themes { display: flex; flex-wrap: wrap; gap: 4px; }
 .office-theme { padding: 3px 9px; font-size: 11.5px; font-weight: var(--fw-medium); border: none;
-  border-radius: var(--r-chip); background: var(--rl-hover); color: var(--rl-text-dim); cursor: pointer;
+  border-radius: var(--r-chip); background: var(--rl-hover); color: var(--rl-text-dim); cursor: default;
   transition: background var(--dur-hover) ease, color var(--dur-hover) ease; }
 .office-theme:hover:not(:disabled) { background: var(--rl-active); color: var(--rl-text-bright); }
 .office-theme:disabled { opacity: 0.45; cursor: default; }
@@ -6045,7 +6160,7 @@ select { appearance: none; padding-right: 22px;
    forgets renders its hint at the weight of typed text, and the user reads a brief nobody wrote. */
 .fan-out-brief::placeholder { color: var(--rl-text-faint); }
 .fan-out-row { display: grid; grid-template-columns: 6rem 1fr; gap: 12px; }
-.fan-out-switch { display: flex; align-items: flex-start; gap: 9px; cursor: pointer; }
+.fan-out-switch { display: flex; align-items: flex-start; gap: 9px; cursor: default; }
 .fan-out-switch > input { flex: none; margin-top: 2px; }
 .fan-out-switch > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .fan-out-switch strong { font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
@@ -6073,15 +6188,15 @@ select { appearance: none; padding-right: 22px;
 .library-tile {
   display: flex; flex-direction: column; align-items: stretch;
   width: 100%; padding: 0; text-align: left; font: inherit; border: none; overflow: hidden;
-  border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-frame); cursor: pointer;
-  transition: background var(--dur-hover) ease, scale var(--dur-press) var(--ease-out-strong);
+  border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-frame); cursor: default;
+  transition: background var(--dur-hover) ease;
 }
 /* Every card opens now, so every card answers the mouse. It used to be only the files the documents
    pane could render, which left most of a grid — archives, images, binaries — as inert grey boxes
    that took a click and did nothing, with no way to find out why. The preview is the answer to "what
    can Realm do with this", and it exists for every file. */
 .library-tile:hover { background: var(--rl-hover); }
-.library-tile:active { scale: 0.98; }
+.library-tile:is([data-pressed], :active:focus-visible) { background: var(--hover-2); }
 /* The preview field. A fixed aspect rather than a fixed height, so the grid's columns can widen
    with the pane and every card in a row still shares one shape. One step below the card, which is
    what separates the field from the caption without a rule. */
@@ -6146,7 +6261,7 @@ select { appearance: none; padding-right: 22px;
   --btn-h: 28px;
   display: inline-flex; align-items: center; gap: 6px; height: var(--btn-h); padding: 0 11px;
   border: none; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
-  background: var(--rl-hover); color: var(--rl-text-dim); font: inherit; font-size: 12.5px; cursor: pointer;
+  background: var(--rl-hover); color: var(--rl-text-dim); font: inherit; font-size: 12.5px; cursor: default;
   transition: background var(--dur-hover) ease, color var(--dur-hover) ease;
 }
 .filter-chip:hover { color: var(--rl-text-bright); }
@@ -6247,7 +6362,7 @@ select { appearance: none; padding-right: 22px;
 
 /* The sidebar header's whole title row is the page's front door. */
 .space-title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 4px; margin: -2px -4px;
-  border: none; border-radius: var(--r-chip); corner-shape: squircle; background: none; color: inherit; font: inherit; cursor: pointer; }
+  border: none; border-radius: var(--r-chip); corner-shape: squircle; background: none; color: inherit; font: inherit; cursor: default; }
 .space-title:hover { background: var(--rl-hover); }
 /* The switcher's caret. Quiet until wanted — it sits next to a 17px title and must not compete with
    it — and it brightens on hover like every other affordance in this column. `flex: none` because
@@ -6255,7 +6370,7 @@ select { appearance: none; padding-right: 22px;
    is the one part of the row that cannot afford to. */
 .space-switch { display: grid; place-items: center; flex: none; width: 20px; height: 20px; margin-left: 1px;
   border: none; border-radius: var(--r-chip); corner-shape: squircle; background: none;
-  color: var(--rl-text-faint); cursor: pointer; transition: color var(--dur-hover) ease, background-color var(--dur-hover) ease; }
+  color: var(--rl-text-faint); cursor: default; transition: color var(--dur-hover) ease, background-color var(--dur-hover) ease; }
 .space-switch:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* Open, it stays lit: the menu it opened is somewhere else on screen (a portal), so this is the only
    thing left saying which control produced it. */
@@ -6336,11 +6451,11 @@ select { appearance: none; padding-right: 22px;
    brightened ink and its dot, which is what it always actually read by. */
 .notif-row {
   display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 11px 12px;
-  text-align: left; color: var(--rl-text-dim); font: inherit; cursor: pointer;
+  text-align: left; color: var(--rl-text-dim); font: inherit; cursor: default;
   background: transparent; border: none; border-radius: var(--r-ctl); corner-shape: squircle;
-  transition: background var(--dur-press) var(--ease-out-strong), scale var(--dur-press) var(--ease-out-strong);
+  transition: background var(--dur-press) var(--ease-out-strong);
 }
-.notif-row:active { scale: 0.96; }
+.notif-row:is([data-pressed], :active:focus-visible) { background: var(--hover-2); }
 .notif-row:hover { background: var(--rl-hover); }
 .notif-row[data-selected] { background: var(--rl-active); }
 /* An unread card is lifted by its SURFACE, not only by a dot — a 6px mark and a colour are the two
@@ -6451,7 +6566,7 @@ select { appearance: none; padding-right: 22px;
 /* The prose, folded. Open by default only when the engine wants something from you — which is the
    whole of how this page stopped being a wall: a ready engine is a title and some chips. */
 .engine-details > summary {
-  list-style: none; cursor: pointer; font-size: 12px; color: var(--rl-text-faint);
+  list-style: none; cursor: default; font-size: 12px; color: var(--rl-text-faint);
   padding: 2px 0; width: fit-content;
 }
 .engine-details > summary::-webkit-details-marker { display: none; }
@@ -6544,7 +6659,7 @@ select { appearance: none; padding-right: 22px;
 
 .import-group { border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-ctl); background: var(--rl-raised); }
 .import-group + .import-group { margin-top: 6px; }
-.import-group > summary { display: flex; align-items: center; gap: 10px; padding: 7px 10px; cursor: pointer; font-size: 12px; }
+.import-group > summary { display: flex; align-items: center; gap: 10px; padding: 7px 10px; cursor: default; font-size: 12px; }
 .import-group > summary::-webkit-details-marker { display: none; }
 .import-group > summary strong { flex: none; font-weight: var(--fw-label); color: var(--rl-text-bright); }
 .import-group > summary .muted { flex: 1; min-width: 0; }
@@ -6675,7 +6790,7 @@ select { appearance: none; padding-right: 22px;
 .documents-picker {
   position: absolute; z-index: 30; top: calc(100% + 4px); left: 12px; right: 12px; max-height: 60vh;
   overflow: auto; padding: 4px; border-radius: var(--r-panel); background: var(--surface);
-  box-shadow: var(--shadow-overlay); animation: rl-menu-in var(--dur-pop) var(--ease-out-strong);
+  box-shadow: var(--shadow-overlay); animation: rl-menu-in var(--dur-pop) var(--spring-smooth);
 }
 .documents-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 4px 6px 6px 10px; font-family: var(--font-mono); }
@@ -6855,7 +6970,7 @@ select { appearance: none; padding-right: 22px;
 /* A tall render must not become a column-height wall; the cap is generous enough that a 9:16 phone
    mockup is still watchable in place and short enough that the prose after it stays reachable. */
 .media-el { display: block; max-width: 100%; max-height: 420px; object-fit: contain; background: var(--rl-frame); }
-.media-video .media-el { width: 100%; cursor: pointer; }
+.media-video .media-el { width: 100%; cursor: default; }
 
 /* The pre-roll button. It is on the frame rather than beside it because the frame is what the eye is
    already on, and it leaves once the video is running — a permanent overlay would sit on top of the
@@ -6863,7 +6978,7 @@ select { appearance: none; padding-right: 22px;
 .media-play {
   position: absolute; inset: 0; margin: auto; width: 52px; height: 52px; display: grid; place-items: center;
   border: none; border-radius: var(--r-pill); color: #fff; background: rgb(0 0 0 / .55);
-  backdrop-filter: blur(8px); cursor: pointer;
+  backdrop-filter: blur(8px); cursor: default;
   transition: transform var(--dur-swap) var(--ease-out-strong), background-color var(--dur-swap) var(--ease-out-strong);
 }
 .media-play:hover { transform: scale(1.06); background: rgb(0 0 0 / .7); }
@@ -6881,7 +6996,7 @@ select { appearance: none; padding-right: 22px;
 .media-video:focus-within .media-controls { opacity: 1; }
 .media-btn {
   display: grid; place-items: center; width: 22px; height: 22px; flex: none;
-  border: none; border-radius: var(--r-chip); corner-shape: squircle; background: none; color: inherit; cursor: pointer;
+  border: none; border-radius: var(--r-chip); corner-shape: squircle; background: none; color: inherit; cursor: default;
   transition: background-color var(--dur-hover) ease;
 }
 .media-btn:hover { background: rgb(255 255 255 / .18); }
@@ -6892,7 +7007,7 @@ select { appearance: none; padding-right: 22px;
    --media-progress rather than by a second element: one box means the knob can never drift out of
    register with the fill. */
 .media-scrub {
-  appearance: none; flex: 1 1 auto; min-width: 0; height: 3px; border-radius: var(--r-pill); cursor: pointer;
+  appearance: none; flex: 1 1 auto; min-width: 0; height: 3px; border-radius: var(--r-pill); cursor: default;
   background: linear-gradient(to right, #fff var(--media-progress, 0%), rgb(255 255 255 / .3) var(--media-progress, 0%));
 }
 .media-scrub::-webkit-slider-thumb {
@@ -6914,7 +7029,7 @@ select { appearance: none; padding-right: 22px;
 .media-action {
   flex: none; display: inline-flex; align-items: center; gap: 4px; margin-left: auto;
   padding: 2px 5px; border: none; border-radius: var(--r-chip); corner-shape: squircle; background: none;
-  color: var(--rl-text-faint); font: inherit; font-size: 11px; cursor: pointer;
+  color: var(--rl-text-faint); font: inherit; font-size: 11px; cursor: default;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease;
 }
 .media-action + .media-action { margin-left: 0; }
@@ -7042,7 +7157,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
  */
 .slider-row input[type="range"] {
   appearance: none; -webkit-appearance: none;
-  flex: 1; min-width: 0; max-width: 260px; height: 20px; margin: 0; background: none; cursor: pointer;
+  flex: 1; min-width: 0; max-width: 260px; height: 20px; margin: 0; background: none; cursor: default;
 }
 .slider-row input[type="range"]::-webkit-slider-runnable-track {
   height: 6px; border-radius: 999px;
@@ -7055,9 +7170,10 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
   appearance: none; -webkit-appearance: none;
   width: 16px; height: 16px; margin-top: -5px; border-radius: 50%;
   background: #fff; box-shadow: 0 1px 2px #0000003d;
-  transition: scale var(--dur-press) var(--ease-out-strong);
+  transition: background-color var(--dur-press) var(--ease-out-strong);
 }
-.slider-row input[type="range"]:active::-webkit-slider-thumb { scale: 1.1; }
+/* Held, the knob dims the way an NSSlider's does rather than growing — the Press rule, for a knob. */
+.slider-row input[type="range"]:active::-webkit-slider-thumb { background: oklch(0.9 0 0); transition-duration: 0s; }
 .slider-row input[type="range"]:focus-visible::-webkit-slider-thumb { outline: 1.5px solid var(--rl-accent); outline-offset: 2px; }
 .slider-row input:disabled { cursor: default; opacity: .45; }
 /* Tabular so the readout does not shuffle the thumb sideways while it is being dragged. */
@@ -7074,7 +7190,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
    about. Their own rule rather than a shared class because the engines' sits inside a card and
    these sit in the page column, so only the words are the same, not the metrics. */
 .theme-detail > summary, .theme-other > summary {
-  list-style: none; cursor: pointer; width: fit-content; padding: 4px 0;
+  list-style: none; cursor: default; width: fit-content; padding: 4px 0;
   font-size: 12px; color: var(--rl-text-faint);
 }
 .theme-detail > summary::-webkit-details-marker, .theme-other > summary::-webkit-details-marker { display: none; }
@@ -7089,7 +7205,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .theme-other { display: flex; flex-direction: column; }
 
 .mode-card {
-  display: flex; flex-direction: column; gap: 7px; padding: 7px; cursor: pointer;
+  display: flex; flex-direction: column; gap: 7px; padding: 7px; cursor: default;
   border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-panel);
   transition: box-shadow var(--dur-hover) ease;
 }
@@ -7133,7 +7249,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
    is whatever the user left the split at. */
 .theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); gap: 8px; margin: 0; padding: 0; border: 0; }
 .theme-card {
-  display: flex; flex-direction: column; gap: 8px; padding: 10px; cursor: pointer;
+  display: flex; flex-direction: column; gap: 8px; padding: 10px; cursor: default;
   border: 1px solid; border-radius: var(--r-panel); corner-shape: squircle; box-shadow: var(--shadow-card-lift);
   transition: box-shadow var(--dur-hover) ease;
 }
@@ -7203,7 +7319,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .theme-override { display: flex; align-items: center; gap: 6px; }
 .theme-override > span { font-size: 12px; color: var(--rl-text-dim); }
 .theme-override input[type="color"] {
-  width: 26px; height: 26px; padding: 2px; flex: none; cursor: pointer;
+  width: 26px; height: 26px; padding: 2px; flex: none; cursor: default;
   border-radius: var(--r-chip); border: var(--hairline-w) solid var(--rl-line); background: var(--rl-panel);
 }
 .theme-override .hex { width: 82px; text-transform: lowercase; }
@@ -7247,7 +7363,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
   border-radius: var(--r-ctl); corner-shape: squircle; background: var(--rl-frame); }
 .seg-opt {
   padding: 3px 9px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim);
-  border-radius: var(--r-chip); corner-shape: squircle; cursor: pointer; white-space: nowrap;
+  border-radius: var(--r-chip); corner-shape: squircle; cursor: default; white-space: nowrap;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease;
 }
 .seg-opt input { position: absolute; opacity: 0; pointer-events: none; }
@@ -7446,7 +7562,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .budget-thresholds { display: flex; align-items: center; gap: 6px; margin: 0; padding: 0; border: none; }
 .budget-thresholds legend { float: left; margin-right: 8px; padding: 0; font-size: 11.5px; color: var(--rl-text-dim); }
 .budget-threshold { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 11.5px;
-  color: var(--rl-text-dim); border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-pill); cursor: pointer;
+  color: var(--rl-text-dim); border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-pill); cursor: default;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .budget-threshold input { position: absolute; opacity: 0; pointer-events: none; }
 .budget-threshold[data-selected] { background: var(--rl-hover); color: var(--rl-text-bright); }

@@ -7,6 +7,7 @@ import { useApp } from "../state/store";
 import { Menu, type MenuItem } from "./Menu";
 import { Sheet } from "./Sheet";
 import { useThumbnail } from "./use-thumbnail";
+import { canQuickLook, canShare, fileDragProps, quickLook, shareFile } from "./file-actions";
 
 /** Where a file came from, when the surface showing it knows. The Library's index carries all four;
  *  a session summary's sheet knows the path and nothing else, and draws no provenance rather than a
@@ -108,6 +109,11 @@ export function FilePreview({ path, from = null, onClose }: {
   };
 
   const items: MenuItem[] = [
+    // The Finder's own two, where the bridge has them: Quick Look on its usual key, and the system
+    // Share menu under the button that asked for it.
+    ...(canQuickLook() ? [{ label: "Quick Look", kbd: "Space", onSelect: () => quickLook(path) } as MenuItem] : []),
+    ...(canShare() ? [{ label: "Share…", onSelect: () => shareFile(path, overflow.current) } as MenuItem] : []),
+    ...(canQuickLook() || canShare() ? [{ kind: "separator" } as MenuItem] : []),
     { label: "Save a copy…", onSelect: () => { void window.realm?.files?.saveCopy?.(path); } },
     { label: "Reveal in Finder",
       icon: finderIcon
@@ -151,7 +157,7 @@ export function FilePreview({ path, from = null, onClose }: {
         {media
           ? <div className="file-preview-art"><MediaFrame file={media} onExpand={() => setLightbox(true)} /></div>
           : still && (
-            <div className="file-preview-art">
+            <div className="file-preview-art" {...fileDragProps(path)}>
               {/* QuickLook answers two different KINDS of picture with the same call: a render of the
                   file's content (a page of source, page one of a PDF — tall), and a generic type
                   icon for anything it cannot draw (square). Filling the column suits the first and

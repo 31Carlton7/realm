@@ -1,6 +1,7 @@
 import { basenameOf, documentKindFor, resolveEditor } from "@realm/contracts";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { useApp } from "../../state/store";
+import { canQuickLook, canShare, quickLook, shareFile } from "../../components/file-actions";
 
 /**
  * What clicking a file path in a transcript offers.
@@ -62,6 +63,8 @@ export function PathMenu({ path, anchorRef, environmentId, cwd, onClose }: {
       const revealed = await window.realm?.files?.reveal?.(path, cwd ?? undefined);
       if (revealed === false) throw new Error(`Nothing is at ${path}. It may have been moved or deleted.`);
     }) },
+    ...(canQuickLook() ? [{ label: "Quick Look", kbd: "Space", onSelect: () => quickLook(path, cwd ?? undefined) } as MenuItem] : []),
+    ...(canShare() ? [{ label: "Share…", onSelect: () => shareFile(path, anchorRef.current, cwd ?? undefined) } as MenuItem] : []),
     { kind: "separator" } as MenuItem,
     { label: "Copy path", onSelect: () => { void navigator.clipboard.writeText(path); } },
   ];

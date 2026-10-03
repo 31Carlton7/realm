@@ -5,7 +5,7 @@
  * wrong about at runtime. jsdom can see that `data-closing` is set and that the node eventually
  * goes; it cannot see any of these:
  *
- *   1. The exit actually RUNS. `rl-menu-out` is a compositor animation on a portalled node — jsdom
+ *   1. The exit actually RUNS. `rl-fade-out` (NSMenu's fade, no travel) is a compositor animation on a portalled node — jsdom
  *      has no animation clock, so only `getAnimations()` on a real document can say the fade is
  *      playing rather than the mark being set over nothing.
  *   2. A closing menu is not in the way. It is still painted, so the question is whether the app
@@ -152,7 +152,7 @@ async function main() {
     env: {
       ...process.env,
       REALM_HOME: path.join(scratch, "home"),
-      REALM_ENABLE_FAKE_AGENT: "1",
+      REALM_ENABLE_FAKE_AGENT: "1", REALM_HTML_MENUS: "1",
       REALM_PORT: String(SERVER_PORT),
       REALM_DEVTOOLS_PORT: String(CDP_PORT),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"),
@@ -192,7 +192,7 @@ async function main() {
   await escape(c);
   const mid = await evalIn(c, SNAPSHOT);
   check("Escape starts the exit rather than unmounting: the menu is still there, marked closing", mid.closing === true, mid);
-  check("and the exit is genuinely playing — rl-menu-out, on the compositor", mid.animations?.includes("rl-menu-out"), mid.animations);
+  check("and the exit is genuinely playing — rl-fade-out, on the compositor", mid.animations?.includes("rl-fade-out"), mid.animations);
   check("a closing menu is inert and pointer-dead", mid.inert === true && mid.pointerEvents === "none", { inert: mid.inert, pointerEvents: mid.pointerEvents });
   // The one that matters: the app behind a fading menu has to be reachable. `pointer-events: none`
   // and `inert` are both claims about hit-testing, and this is the only way to read the answer.

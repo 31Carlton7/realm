@@ -28,8 +28,21 @@ const tokensCss = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tok
 
 /** Flat (non-nested) rules: `selector { body }`. Bodies containing braces — @media, @keyframes —
  *  never match as a whole, so their inner rules are picked up with their own bare selectors instead. */
+/** A selector list split at its OWN commas — not the ones inside `:is(a, b)` or `:not(a, b)`, which
+ *  are part of one selector. */
+const splitSelectors = (list: string): string[] => {
+  const out: string[] = [];
+  let depth = 0, cur = "";
+  for (const ch of list) {
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    if (ch === "," && depth === 0) { out.push(cur); cur = ""; } else cur += ch;
+  }
+  out.push(cur);
+  return out;
+};
 const RULES = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
-  selectors: m[1]!.split(",").map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean),
+  selectors: splitSelectors(m[1]!).map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean),
   body: m[2]!.replace(/\s+/g, " ").trim(),
 }));
 
@@ -127,13 +140,16 @@ describe("§6 motion ladder", () => {
     // grain's drift: an ambient tempo an order of magnitude off the slowest rung, and putting it on
     // the ladder would invite a UI transition to reach for it.
     for (const period of ["0.9s", "1.4s", "3.6s", "24s", "40ms"]) bare.delete(period);
+    // Zero is not a rung either: it is the absence of a duration, written where a hover or a press
+    // has to land on the frame the pointer did (the Press rule).
+    bare.delete("0s");
     expect([...bare].sort()).toEqual([]);
   });
 });
 
 describe("§6 motion table", () => {
-  it("sheets enter at 240ms ease-out-strong with a .96 scale — one rule for every sheet, no per-sheet carve-out", () => {
-    expect(bodiesFor(".sheet").join(" ")).toContain(`animation: rl-sheet-in ${dur("--dur-slow")} var(--ease-out-strong)`);
+  it("sheets enter at 240ms on the spring with a .96 scale — one rule for every sheet, no per-sheet carve-out", () => {
+    expect(bodiesFor(".sheet").join(" ")).toContain(`animation: rl-sheet-in ${dur("--dur-slow")} var(--spring-smooth)`);
     expect(blockAfter("@keyframes rl-sheet-in")).toContain("scale(.96)");
     // W4b scoped 240ms to onboarding alone; W5's whole job was to hoist it. If the override comes
     // back, the shared sheet has silently regressed to something else.
@@ -144,19 +160,26 @@ describe("§6 motion table", () => {
     expect(bodiesFor(".sheet-backdrop").join(" ")).toContain(`animation: rl-fade-in ${dur("--dur-swap")}`);
   });
 
-  it("menus enter at 140ms ease-out-strong, scale .97→1, from an origin the component supplies", () => {
-    expect(bodiesFor(".menu").join(" ")).toContain(`animation: rl-menu-in ${dur("--dur-pop")} var(--ease-out-strong)`);
-    expect(blockAfter("@keyframes rl-menu-in")).toContain("scale(.97)");
+  /* A menu is NSMenu: there at once, gone on a short fade. THE mutants are an entrance creeping back
+     onto `.menu` (a click waiting on a picture of the answer) and the exit growing travel again. */
+  it("menus open instantly and leave on a fade with no travel, on the press rung", () => {
+    for (const body of bodiesFor(".menu")) expect(body).not.toContain("animation");
+    const exit = bodiesFor(".menu[data-closing]").join(" ");
+    expect(exit).toContain(`animation: rl-fade-out ${dur("--dur-press")} var(--ease-fade) forwards`);
+    // A surface that is on its way out must not still be catching clicks. `inert` is the real
+    // guard (Menu.tsx sets it) — this is the half that holds for the frame before the attribute.
+    expect(exit).toContain("pointer-events: none");
+    expect(blockAfter("@keyframes rl-fade-out")).not.toContain("transform");
   });
 
-  it("popovers leave the way they arrived: the exit reverses the enter on the press rung, and holds nothing behind", () => {
-    for (const sel of [".menu[data-closing]", ".model-picker[data-closing]", ".icon-picker[data-closing]"]) {
-      const body = bodiesFor(sel).join(" ");
+  it("popovers grow out of their anchor on the spring and leave the way they arrived, holding nothing behind", () => {
+    for (const sel of [".model-picker", ".icon-picker"]) {
+      expect(bodiesFor(sel).join(" "), sel).toContain(`animation: rl-menu-in ${dur("--dur-pop")} var(--spring-smooth)`);
+      const body = bodiesFor(`${sel}[data-closing]`).join(" ");
       expect(body, sel).toContain(`animation: rl-menu-out ${dur("--dur-press")} var(--ease-out-strong) forwards`);
-      // A surface that is on its way out must not still be catching clicks. `inert` is the real
-      // guard (Menu.tsx sets it) — this is the half that holds for the frame before the attribute.
       expect(body, sel).toContain("pointer-events: none");
     }
+    expect(blockAfter("@keyframes rl-menu-in")).toContain("scale(.97)");
     // The exit is the enter played backwards, not a second idea about what a popover does.
     expect(blockAfter("@keyframes rl-menu-out")).toContain("scale(.97)");
     // No half-pairs. A surface that only animates while you are trying to get rid of it is worse
@@ -165,6 +188,19 @@ describe("§6 motion table", () => {
     const listOf = (decl: string) => RULES.filter((r) => r.body.includes(decl)).flatMap((r) => r.selectors);
     const enters = new Set(listOf("rl-menu-in"));
     for (const sel of listOf("rl-menu-out")) expect(enters, sel).toContain(sel.replace("[data-closing]", ""));
+  });
+
+  /* The curve is a spring because of how it STARTS. THE mutant is a cubic ease-out pasted over it:
+     that leaves at full speed, and the first sample here would be far past 0.01. */
+  it("the spring starts from rest and settles without overshoot", () => {
+    const curve = tokensCss.match(/--spring-smooth:\s*linear\(([^)]*)\)/)?.[1];
+    expect(curve, "--spring-smooth is not a linear() curve in tokens.css").toBeTruthy();
+    const values = curve!.split(",").map((stop) => Number(stop.trim().split(/\s+/)[0]));
+    expect(values[0]).toBe(0);
+    expect(values[1]).toBeLessThan(0.05);
+    expect(values.at(-1)).toBe(1);
+    for (let i = 1; i < values.length; i++) expect(values[i]!).toBeGreaterThanOrEqual(values[i - 1]!);
+    expect(Math.max(...values)).toBe(1);
   });
 
   it("the DOM hold and the CSS exit are the same number", () => {
@@ -178,7 +214,7 @@ describe("§6 motion table", () => {
   it("the model picker is a popover and enters on the same rule as menus, not one of its own", () => {
     // It shares `.menu`'s declaration rather than carrying a copy: §6 gives every popover one timing,
     // and a second animation here is how the prompter's picker drifts away from every other surface.
-    expect(bodiesFor(".model-picker").join(" ")).toContain(`animation: rl-menu-in ${dur("--dur-pop")} var(--ease-out-strong)`);
+    expect(bodiesFor(".model-picker").join(" ")).toContain(`animation: rl-menu-in ${dur("--dur-pop")} var(--spring-smooth)`);
     // Its interactive rows honour the hover rule — background/colour only, never geometry.
     const hover = `transition: background-color ${dur("--dur-hover")} ease, color ${dur("--dur-hover")} ease`;
     for (const sel of [".mp-row", ".mp-seg-opt"]) {
@@ -234,11 +270,44 @@ describe("§6 motion table", () => {
     expect(hover).not.toContain("transform");
   });
 
-  it("pressables scale to .96 over 120ms", () => {
-    const press = bodiesFor(".ghost-chip").join(" ");
-    expect(press).toContain(`transform ${dur("--dur-press")} var(--ease-out-strong)`);
-    for (const sel of [".btn:active:not(:disabled)", ".icon-btn:active:not(:disabled)", ".composer-send:active:not(:disabled)"])
-      expect(bodiesFor(sel).join(" "), sel).toContain("transform: scale(.96)");
+  /* A Mac button does not shrink; it darkens, on the mouse-down frame. THE mutants: a scale coming
+     back onto any press, and the zero leaving the hovered/pressed state (the highlight eases in). */
+  it("a press is a fill one rung past hover, never a change of size", () => {
+    for (const r of RULES.filter((r) => r.selectors.some((s) => s.includes(":active"))))
+      expect(r.body, r.selectors.join(", ")).not.toMatch(/\bscale\b/);
+    for (const sel of [".btn:is([data-pressed], :active:focus-visible):not(:disabled)", ".ghost-chip:is([data-pressed], :active:focus-visible):not([data-static])"])
+      expect(bodiesFor(sel).join(" "), sel).toContain("--fill: var(--hover-2)");
+    expect(bodiesFor(".icon-btn:is([data-pressed], :active:focus-visible):not(:disabled)").join(" ")).toContain("background: var(--hover-2)");
+    expect(bodiesFor(".btn.primary:is([data-pressed], :active:focus-visible):not(:disabled)").join(" ")).toContain("--fill: var(--rl-accent-press)");
+    expect(bodiesFor(".composer-send:is([data-pressed], :active:focus-visible):not(:disabled)").join(" ")).toContain("background: var(--rl-accent-press)");
+    // The fill TRACKS the pointer (press-tracking.ts): drag off a held button and it lets go, drag
+    // back and it lights again. THE mutant is a bare `:active` fill, which Chromium drops for good
+    // the moment a held pointer leaves.
+    for (const r of RULES.filter((r) => /--fill:|background/.test(r.body)))
+      for (const sel of r.selectors.filter((sel) => sel.includes(":active") && !sel.includes("::-webkit-slider-thumb")))
+        expect(sel, sel).toContain(":is([data-pressed], :active:focus-visible)");
+    expect(bodiesFor(".ghost-chip").join(" ")).not.toContain("transform");
+  });
+
+  it("a hover or press arrives on the frame the pointer does, and only the release fades", () => {
+    const instant = RULES.filter((r) => r.body === "transition-duration: 0s;" && r.selectors.some((s) => s.includes(":is(:hover, :active, [data-press-tracking])")));
+    expect(instant).toHaveLength(1);
+    const sel = instant[0]!.selectors.join(", ");
+    // A tracked press is instant BOTH ways: dragged off a held button, the highlight goes at once.
+    expect(sel).toContain(":is(:hover, :active, [data-press-tracking])");
+    for (const control of ["button", '[role="button"]', '[role^="menuitem"]', ".item-row"]) expect(sel).toContain(control);
+  });
+
+  /* A choice is never half-made: the rows a person picks from change instantly in BOTH directions,
+     so the zero sits on their base rule, not only on their hovered state. */
+  it("rows chosen from a list highlight and unhighlight instantly", () => {
+    const rows = RULES.find((r) => r.body === "transition-duration: 0s;" && r.selectors.includes(".palette-opt"));
+    expect(rows, "no instant rule for list rows").toBeTruthy();
+    for (const sel of [".palette-opt", '.menu [role^="menuitem"]', ".mp-row", ".mp-seg-opt", ".seg-opt", ".mention-row"])
+      expect(rows!.selectors, sel).toContain(sel);
+    // …and it comes after the shared hover rule it overrides, or the cascade would hand the fade back.
+    const shared = RULES.findIndex((r) => r.selectors.includes(".palette-opt") && r.body.includes("transition: background-color"));
+    expect(RULES.indexOf(rows!)).toBeGreaterThan(shared);
   });
 
   it("the send↔stop icon swap cross-fades over 160ms with opacity, scale and blur", () => {
@@ -363,8 +432,8 @@ describe("§6 motion table", () => {
     expect(bodiesFor(".msg-action:not([data-copied]) .copied-icon").join(" ")).toContain("blur(4px)");
     const btn = bodiesFor(".msg-action").join(" ");
     expect(btn).toContain(`background-color ${dur("--dur-hover")} ease`);
-    expect(btn).toContain(`transform ${dur("--dur-press")} var(--ease-out-strong)`);
-    expect(bodiesFor(".msg-action:active:not(:disabled)").join(" ")).toContain("transform: scale(.96)");
+    expect(btn).not.toContain("transform");
+    expect(bodiesFor(".msg-action:is([data-pressed], :active:focus-visible):not(:disabled)").join(" ")).toContain("background: var(--hover-2)");
     // A thumb's glyph is the same pressed or not, so the fill is the only thing saying which — one
     // rung past hover, the same reading .icon-btn's toggles get.
     expect(bodiesFor('.msg-action[aria-pressed="true"]').join(" ")).toContain("background: var(--hover-2)");
@@ -883,8 +952,9 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(tokens).toContain("--hairline-w: 0.5px");
     expect(tokens).toMatch(/--shadow-hairline: 0 0 0 var\(--hairline-w\) var\(--line\)/);
     // The border ramp is derived from the overlay ladder, not from a solid grey.
-    expect(tokens).toMatch(/--line: var\(--overlay-lighten-300\)/);
-    expect(tokens).toMatch(/:root\[data-mode="light"\] \{[^}]*--line: var\(--overlay-darken-200\)/);
+    // One rung softer than tembo's in both faces (border-softness-live.mjs measured the old pair).
+    expect(tokens).toMatch(/--line: var\(--overlay-lighten-200\)/);
+    expect(tokens).toMatch(/:root\[data-mode="light"\] \{[^}]*--line: var\(--overlay-darken-100\)/);
   });
 
   it("type carries per-size tracking and explicit line heights, not one em-relative value for the whole document", () => {
@@ -920,6 +990,9 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // The video scrubber's fill (MediaView.tsx): the played fraction, set inline per frame so the
       // track and the knob are one box and cannot drift out of register.
       "--media-progress",
+      // The rubber-band's offset (rubber-band.ts): written on the scroller per wheel event and per
+      // spring frame, and only while the content is past an end.
+      "--rubber",
       // The decorative wash's geometry (theme/grain.ts): drawn once per launch per surface and set
       // inline, because a value that is randomised cannot be written in a stylesheet. Every one is
       // used with a fallback, so a surface that never receives them is still a finished surface.
@@ -1588,7 +1661,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(open).toContain("padding: 0");
     // A drop target's cursor must not promise a zoom the file cannot do: only a tile main has
     // confirmed is media gets zoom-in, and the mark only lands once that answer is back.
-    expect(open).toContain("cursor: pointer");
+    expect(open).toContain("cursor: default");
     expect(bodiesFor(".attach-tile[data-media] .attach-open").join(" ")).toContain("cursor: zoom-in");
   });
 
@@ -1634,11 +1707,12 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(bodiesFor(".msg-user-files").join(" ")).toContain("list-style: none");
   });
 
-  it("the send circle carries BUI Button's accent treatment: inset top highlight, accent-ink hover, PromptBar's line-strong disabled fill", () => {
+  it("the send circle carries BUI Button's accent treatment: inset top highlight, accent-ink hover, PromptBar's disabled fill", () => {
     expect(bodiesFor(".composer-send").join(" ")).toContain("box-shadow: var(--fill-bevel)");
     expect(bodiesFor(".composer-send:hover:not(:disabled)").join(" ")).toContain("background: var(--accent-ink)");
     const off = bodiesFor(".composer-send:disabled").join(" ");
-    expect(off).toContain("background: var(--line-strong)");
+    // A disabled fill is a mark: it keeps the old line-strong weight now that the edges are softer.
+    expect(off).toContain("background: var(--mark-strong)");
     expect(off).toContain("color: var(--ink-2)");
   });
 
@@ -1913,11 +1987,28 @@ const SCROLLERS = (css.match(/:where\(([^)]*)\)\s*\{\s*scrollbar-width: thin/)?.
 const leaf = (sel: string): string => sel.split(" ").pop()!;
 
 describe("scrollbars", () => {
+  const GUARD = ":root:not([data-overlay-scrollbars])";
   it("the track is hidden by INHERITANCE, so a scroller written tomorrow is covered too", () => {
     // The whole point of putting it on :root: `scrollbar-color` inherits, and a list is a thing to
     // keep up with. The transparent second value is the track.
-    expect(bodiesFor(":root").join(" ")).toContain("scrollbar-color: var(--rl-line) transparent");
-    expect(bodiesFor(":hover").join(" ")).toContain("scrollbar-color: var(--rl-line-strong) transparent");
+    // A thumb is a MARK, not an edge: it keeps its weight when the app's borders soften.
+    expect(bodiesFor(GUARD).join(" ")).toContain("scrollbar-color: var(--mark) transparent");
+    expect(bodiesFor(`${GUARD} :hover`).join(" ")).toContain("scrollbar-color: var(--mark-strong) transparent");
+  });
+
+  /* On a Mac whose system draws overlay bars, every rule that styles one stands down (App.tsx,
+     ScrollbarStyleBridge): a colour repaints the system's thumb in the page's ink, and a
+     `::-webkit-scrollbar` rule turns it into a classic bar holding a gutter (8px against 0, measured).
+     THE mutant is a new scrollbar rule written without the guard. `none` is exempt: hiding a bar is
+     not drawing one. */
+  it("stands down wherever the system draws overlay scrollbars", () => {
+    const styling = RULES.filter((r) =>
+      r.selectors.some((sel) => sel.includes("::-webkit-scrollbar"))
+      || /scrollbar-color:\s*(?!auto)/.test(r.body)
+      || /scrollbar-width:\s*thin/.test(r.body));
+    expect(styling.length).toBeGreaterThan(10);
+    for (const r of styling) for (const sel of partsOf(r))
+      expect(sel.startsWith(GUARD) || sel.startsWith(`:where(${GUARD})`), sel).toBe(true);
   });
 
   /** Base selectors that own a `::-webkit-scrollbar*` rule, deduped. */
@@ -1954,8 +2045,11 @@ describe("scrollbars", () => {
       .flatMap((r) => r.selectors).filter((sel) => sel.endsWith("::-webkit-scrollbar-corner"))
       .map((sel) => sel.slice(0, sel.indexOf("::-webkit-scrollbar-corner")));
     expect(corners.length).toBeGreaterThan(0);
+    // Read past the scope every webkit bar rule now sits under (overlay scrollbars stand all of them
+    // down), so a compound owner still finds the corner rule on the selector it compounds.
+    const unscoped = (sel: string) => sel.replace(":root:not([data-overlay-scrollbars]) ", "");
     for (const owner of webkitBarOwners()) {
-      expect(corners.some((base) => owner.includes(base)), `${owner} leaves its scrollbar corner to paint white`).toBe(true);
+      expect(corners.some((base) => unscoped(owner).includes(unscoped(base))), `${owner} leaves its scrollbar corner to paint white`).toBe(true);
     }
   });
 
@@ -1967,7 +2061,7 @@ describe("scrollbars", () => {
        follows it instead of drifting back under it.
        Only the wiring is checkable here. That the thumb is actually crisp at both ends is a
        composited-pixel question, and jsdom has no scrollbars at all. */
-    const track = bodiesFor(".space-body::-webkit-scrollbar-track").join(" ");
+    const track = bodiesFor(`${GUARD} .space-body::-webkit-scrollbar-track`).join(" ");
     expect(track).toContain("margin-block: var(--fade-top-h) var(--fade-h)");
     const masked = bodiesFor(".space-body").join(" ");
     expect(masked).toContain("var(--fade-top-h)");
@@ -2454,8 +2548,8 @@ describe("§6 do-NOT-animate list", () => {
     const tokens = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
     const stepOf = (block: string, name: string) =>
       Number(new RegExp(`--${name}: var\\(--overlay-(?:lighten|darken)-(\\d+)\\)`).exec(block)?.[1] ?? NaN);
-    const dark = tokens.slice(tokens.indexOf("--line: var(--overlay-lighten-300)"));
-    const light = tokens.slice(tokens.indexOf("--line: var(--overlay-darken-200)"));
+    const dark = tokens.slice(tokens.indexOf("--line: var(--overlay-lighten-200)"));
+    const light = tokens.slice(tokens.indexOf("--line: var(--overlay-darken-100)"));
 
     // Dragging is always a step above resting, in both faces.
     expect(stepOf(dark, "divider-hover")).toBeGreaterThan(stepOf(dark, "divider"));
@@ -2916,7 +3010,10 @@ describe("Plan 24 W1: inline UI in the transcript", () => {
   it("the transcript's diff keeps its own selectors — a change to the diff pane cannot restyle it", () => {
     // The pane owns staging and history across a full-height list; this is a read-only card in a
     // 680px column. Sharing `.diff-line` would couple a message from three weeks ago to the pane.
-    const shared = RULES.filter((r) => r.selectors.some((s) => s.includes(".fd-") && s.includes(".diff-")));
+    // The scrollbar list names every scroller in the app in one `:where(...)`; that is a roll call,
+    // not a style the two diffs share.
+    const shared = RULES.filter((r) => r.body !== "scrollbar-width: thin;"
+      && r.selectors.some((s) => s.includes(".fd-") && s.includes(".diff-")));
     expect(shared).toEqual([]);
   });
 
@@ -3492,5 +3589,122 @@ describe("prose reads in the content face", () => {
       expect(bodiesFor(sel).join(" "), sel).toContain("font-family: var(--font-content)");
     }
     expect(bodiesFor(":root").join(" ")).toContain("--font-content: var(--font-ui)");
+  });
+});
+
+describe("the Mac idiom", () => {
+  /* The hand is for links. THE mutant is any control asking for it again — one `cursor: pointer` on a
+     button is enough to make the window read as a page. */
+  it("points with the arrow at every control, and keeps the hand for the two link rules", () => {
+    const hand = RULES.filter((r) => r.body.includes("cursor: pointer")).flatMap(partsOf).sort();
+    // The empty session's place name is a link too (Plan 26 W8): accent, underlined under the pointer,
+    // and it goes somewhere — the space's page.
+    expect(hand).toEqual([".hero-greeting-place", ".md .md-path", ".page-row-link"]);
+    expect(bodiesFor("button").join(" ")).toContain("cursor: default");
+    // tokens.css loads first and used to put the hand back on every button; only links may ask there.
+    const tokenHands = [...tokensCss.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{[^{}]*cursor:\s*pointer/g)]
+      .map((m) => m[1]!.trim());
+    expect(tokenHands).toEqual(["a"]);
+  });
+
+  it("does not let a drag or a double-click select the chrome, and leaves fields selectable inside it", () => {
+    const chrome = RULES.find((r) => r.body.includes("user-select: none") && r.selectors.some((s) => s.includes(".sidebar")));
+    expect(chrome, "no rule takes selection off the chrome").toBeTruthy();
+    for (const part of ["button", '[role="button"]', ".panel-bar", ".menu"]) expect(chrome!.selectors.join(", ")).toContain(part);
+    const fields = RULES.find((r) => r.selectors.some((s) => s.startsWith(":is(input")));
+    expect(fields?.body).toContain("user-select: text");
+  });
+
+  /* The ring closes onto the control. Only `from` is written so each control keeps its own offset;
+     a `to` would flatten every one of them to the same number. */
+  it("draws the focus ring in from a wider halo, on controls only", () => {
+    const ring = blockAfter("@keyframes rl-focus-ring");
+    expect(ring).toContain("from");
+    expect(ring).not.toMatch(/\bto\b/);
+    const rule = RULES.find((r) => r.body.includes("animation: rl-focus-ring"));
+    expect(rule?.body).toContain(`${dur("--dur-slow")} var(--spring-smooth)`);
+    expect(rule!.selectors.join(", ")).toMatch(/^:is\(button/);
+  });
+
+  /* THE mutants: a grey that does not keep the accent's LUMINANCE — contrast is a function of it, and
+     OKLCH's L is not, for a saturated accent a theme may choose — or reaching for `--accent-ink`,
+     which would grey the links in a background window's prose. The contrast itself is measured live
+     (native-feel-live.mjs); this pins the construction. */
+  it("greys the accent in a window that is not key, keeping its luminance and leaving link ink alone", () => {
+    const drained = bodiesFor(":root[data-window-inactive]").join(" ");
+    // Luminance, not OKLCH lightness: the D65 white's x and z scaled by the colour's own Y.
+    expect(drained).toContain("--accent-drained: color(from var(--accent) xyz-d65 calc(y * 0.9505) y calc(y * 1.089))");
+    expect(drained).toContain("--accent-tint-drained: color(from var(--accent-tint) xyz-d65 calc(y * 0.9505) y calc(y * 1.089) / alpha)");
+    const body = bodiesFor(":root[data-window-inactive] body").join(" ");
+    for (const name of ["--accent", "--rl-accent", "--accent-tint", "--rl-accent-press"]) expect(body).toContain(`${name}:`);
+    expect(body).not.toContain("--accent-ink");
+  });
+});
+
+describe("the Mac idiom, continued", () => {
+  it("does not light a sidebar row the pointer passes over, and still shows the row's own controls", () => {
+    // Nothing under the pointer paints the row. The row's actions DO come up on hover — in the slot
+    // its state gives up (Plan 26 W1), which moves the title's padding but lights nothing.
+    const lights = (sel: string) => RULES.filter((r) => r.selectors.includes(sel) && /\b(background|color|box-shadow)\s*:/.test(r.body));
+    expect(lights(".item:hover")).toEqual([]);
+    expect(lights(".item:hover .item-row")).toEqual([]);
+    expect(bodiesFor(".item:hover .item-actions").join(" ")).toContain("opacity: 1");
+    // The selection still reads: clicking is what lights a row.
+    expect(bodiesFor(".item[data-active]").join(" ")).toContain("background: var(--rl-active)");
+  });
+
+  it("keeps code copyable in the chrome, but not inside a control, where a drag is a press", () => {
+    const rule = RULES.find((r) => r.selectors.some((s) => s.startsWith(":is(code")));
+    expect(rule?.body).toContain("user-select: text");
+    expect(rule!.selectors.join(", ")).toContain(":not(:is(button");
+  });
+
+  /* The children move, never the scroller: THE mutant is the offset landing on the scroller, which
+     would drag its mask and scrollbar along and read as the pane itself sliding. */
+  it("rubber-bands a scroller's content, not the scroller", () => {
+    expect(bodiesFor("[data-rubber] > *").join(" ")).toContain("translate: 0 var(--rubber, 0px)");
+    expect(RULES.filter((r) => r.selectors.includes("[data-rubber]"))).toEqual([]);
+  });
+});
+
+describe("softer edges", () => {
+  const tokens = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
+  const stepOf = (block: string, name: string) =>
+    Number(new RegExp(`--${name}: var\\(--overlay-(?:lighten|darken)-(\\d+)\\)`).exec(block)?.[1] ?? NaN);
+  const dark = tokens.slice(tokens.indexOf("--line: var(--overlay-lighten-200)"));
+  const light = tokens.slice(tokens.indexOf(':root[data-mode="light"]'));
+
+  /* The edges went one rung softer; the FILLS that used to borrow their tokens did not. THE mutant is
+     a switch's track left on `--rl-line`: softened with the borders, an off switch on the panel ground
+     reads as a white knob floating on nothing. */
+  it("keeps every mark a rung above the edge it used to share a token with, in both faces", () => {
+    for (const [face, block] of [["dark", dark], ["light", light]] as const) {
+      expect(stepOf(block, "mark"), face).toBeGreaterThan(stepOf(block, "line"));
+      expect(stepOf(block, "mark-strong"), face).toBeGreaterThan(stepOf(block, "line-strong"));
+      // …and a pane divider is still the heaviest line in the app: it is the whole boundary.
+      expect(stepOf(block, "divider"), face).toBeGreaterThan(stepOf(block, "line-strong"));
+    }
+    for (const [sel, decl] of [
+      [".switch", "background: var(--mark)"], [".switch:hover:not(:disabled)", "background: var(--mark-strong)"],
+      [".todo-track", "background: var(--mark)"], ['.status-dot[data-status="idle"]', "background: var(--mark-strong)"],
+      [".item-glyph rect", "fill: var(--mark-strong)"],
+    ] as const) expect(bodiesFor(sel).join(" "), sel).toContain(decl);
+  });
+});
+
+describe("the focus ring on a painted control", () => {
+  /* THE mutant: the outline left on a control the worklet paints. Its border-radius is 0, so the
+     outline is a square around a squircle — measured live (visual-review-live.mjs), a blue rectangle
+     around the composer's model chip. */
+  it("is drawn by the painter on the control's own curve, not as a square outline", () => {
+    const rule = bodiesFor(":root[data-squircle] :is(.btn, .ghost-chip, .mp-use, .palette-opt):focus-visible").join(" ");
+    expect(rule).toContain("outline: none");
+    expect(rule).toContain("--sq-ring: var(--rl-accent)");
+    expect(rule).toContain(`animation: rl-focus-ring-painted ${"var(--dur-slow)"} var(--spring-smooth)`);
+    expect(blockAfter("@keyframes rl-focus-ring-painted")).toContain("--sq-ring: transparent");
+    // Every control the worklet paints is covered — the list must not drift from the paint rule's.
+    const painted = RULES.find((r) => r.body.includes("background: paint(rl-squircle)") && r.selectors.includes(":root[data-squircle] .ghost-chip"))!;
+    for (const sel of painted.selectors) expect(sel.replace(":root[data-squircle] ", ""), sel).toMatch(/^\.(btn|ghost-chip|mp-use|palette-opt)$/);
+    expect(bodiesFor(":root[data-squircle] .btn.primary:focus-visible").join(" ")).toContain("--rl-accent-contrast");
   });
 });
