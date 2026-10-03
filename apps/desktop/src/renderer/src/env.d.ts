@@ -26,6 +26,13 @@ interface Window {
     onWindowKey(cb: (key: boolean) => void): () => void;
     isWindowKey(): Promise<boolean>;
     setMenuKeybindings?(rules: unknown[]): void;
+    /** Realm's windows (main/windows.ts). Optional: a renderer with no bridge is the only window. */
+    windows?: {
+      claimSpace(spaceId: string, intent?: { sessionId?: string; raise?: boolean } | null): Promise<{ ok: boolean }>;
+      assignedSpace(): Promise<string | null>;
+      claimedSpaces(): Promise<string[]>;
+      newWindow(): Promise<void>;
+    };
     onAppCommand?(cb: (command: string) => void): () => void;
     /** OS menus (main/native-menu.ts). Optional: absent in jsdom and under REALM_HTML_MENUS=1, where
      *  `Menu` draws its own. */

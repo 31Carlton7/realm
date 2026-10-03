@@ -42,7 +42,9 @@ import { registerKeyWindowQuery, wireKeyWindow } from "./key-window";
 import { registerNativeMenus } from "./native-menu";
 import { attachTextContextMenu } from "./text-context-menu";
 import { appMenuTemplate, pageChords, shouldPageOwn } from "./app-menu";
-import { readWindowState, restoredBounds, trackWindowState } from "./window-state";
+import { restoredBounds, type SavedWindow } from "./window-state";
+import { WindowRegistry, cascadeFrom, readSavedWindows, writeSavedWindows } from "./windows";
+import type { WebContents } from "electron";
 import { registerFileActions } from "./file-actions";
 import { DEFAULT_KEYBINDINGS, KeybindingSchema, type Keybinding } from "@realm/contracts";
 import { browseFolder, type BrowseResult } from "./browse";
@@ -165,17 +167,29 @@ async function trayCandidates(): Promise<TraySession[]> {
 }
 /** Realm's data directory, as announced by the server on startup. Pasted attachments live under it. */
 let realmHome: string | null = null;
-/** The Realm window, for the things that need it OUTSIDE the renderer's own IPC: whether it is
- *  focused (the desktop-notification gate) and where a toast click sends its row id. Null before
- *  the first window and after the last one closes. */
-let mainWindow: BrowserWindow | null = null;
-/** The window's browser-pane views (Plan 11 W1). Set in createWindow; null before/after. */
-let browserHost: BrowserPaneHost | null = null;
-/** The full pane surface (W3): CDP access + identity for the agent executor. Same lifetime. */
-let browserPane: BrowserPane | null = null;
-/** The agent op executor + its server bridge (W3). The bridge lives as long as the app: it serves
- *  whichever window's views exist, and honestly reports "pane not open" between windows. */
-let agentHost: BrowserAgentHost | null = null;
+/**
+ * Realm's windows (windows.ts): which space each shows — a space is open in at most one — which was
+ * focused last, and each window's own browser pane and the agent's host over it. Everything that
+ * used to mean "the window" asks this for the focused one, or for the one that owns a pane.
+ */
+const windows = new WindowRegistry<BrowserWindow, { pane: BrowserPane; host: BrowserPaneHost; agent: BrowserAgentHost }>();
+const slotOf = (sender: WebContents) => { const w = BrowserWindow.fromWebContents(sender); return w ? windows.get(w.id) : null; };
+/** The browser panes of the window that sent an IPC — a pane's views live in the window that made them. */
+const paneHostOf = (sender: WebContents): BrowserPaneHost | null => slotOf(sender)?.furniture?.host ?? null;
+const agentOf = (sender: WebContents): BrowserAgentHost | null => slotOf(sender)?.furniture?.agent ?? null;
+/** The window whose browser pane holds view `browserId`, for the agent's ops and for downloads. */
+const furnitureForBrowser = (browserId: string) => windows.all().find((s) => s.furniture?.pane.hasView(browserId))?.furniture ?? null;
+/** The window list, written as windows move, open, close and change space. */
+const windowsFile = () => join(app.getPath("userData"), "windows.json");
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+function saveWindowsSoon() {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { saveTimer = null; writeSavedWindows(windowsFile(), windows.snapshot()); }, 400);
+}
+function saveWindowsNow() {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  writeSavedWindows(windowsFile(), windows.snapshot());
+}
 let agentBridge: { stop(): void } | null = null;
 /**
  * Computer use (the `realm-computer` tools): the native accessibility helper and the executor over
@@ -232,7 +246,11 @@ function installMenu() {
   const template = appMenuTemplate({
     appName: "Realm",
     rules: menuRules,
-    send: (command) => (BrowserWindow.getFocusedWindow() ?? mainWindow)?.webContents.send("app:command", command),
+    send: (command) => {
+      // New Window is main's own command: it makes a window rather than acting inside one.
+      if (command === "window.new") { void newWindow(); return; }
+      (BrowserWindow.getFocusedWindow() ?? windows.current()?.win)?.webContents.send("app:command", command);
+    },
     openExternal: (url) => void shell.openExternal(url),
     developer: !app.isPackaged,
     darwin: process.platform === "darwin",
@@ -252,13 +270,18 @@ if (process.env.REALM_DEVTOOLS_PORT) app.commandLine.appendSwitch("remote-debugg
 // stacked over Realm. Cost: some battery while occluded — a workstation-app tradeoff made knowingly.
 app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 
-async function createWindow(info: { port: number; home: string; token: string }) {
+/**
+ * One Realm window. `savedWindow` is a window coming back from the saved list (windows.ts) — its
+ * place, and the space it showed; a NEW window has none and opens cascaded from the one it was asked
+ * from. The space itself is the renderer's to claim (`window:claim-space`); main only says which one
+ * this window had.
+ */
+async function createWindow(info: { port: number; home: string; token: string }, savedWindow: SavedWindow | null = null,
+  cascade: SavedWindow | null = null) {
   // Where it was left (window-state.ts). The primary display first: a place that can no longer be
   // reached is replaced by the saved size, centred there.
-  const windowStateFile = join(app.getPath("userData"), "window-state.json");
-  const savedWindow = readWindowState(windowStateFile);
   const primary = screen.getPrimaryDisplay();
-  const place = restoredBounds(savedWindow,
+  const place = restoredBounds(savedWindow ?? cascade,
     [primary.workArea, ...screen.getAllDisplays().filter((d) => d.id !== primary.id).map((d) => d.workArea)],
     { width: 1400, height: 900, minWidth: 900, minHeight: 600 });
   const win = new BrowserWindow({
@@ -284,6 +307,14 @@ async function createWindow(info: { port: number; home: string; token: string })
     webPreferences: { preload: join(__dirname, "../preload/index.mjs"), contextIsolation: true, sandbox: false,
       additionalArguments: [`--realm-port=${info.port}`, `--realm-home=${info.home}`, `--realm-token=${info.token}`] },
   });
+  /* Registered before the page loads, so the renderer's first ask — which space was mine? — has a
+     window to answer about. The space a restored window showed is held for it to claim back. */
+  const slot = windows.add(win);
+  if (savedWindow?.spaceId) pendingSpace.set(win.id, savedWindow.spaceId);
+  win.on("focus", () => windows.touch(win.id));
+  // One handler for all six; `on`'s overloads take one event name at a time, hence the cast.
+  for (const ev of ["resize", "move", "maximize", "unmaximize", "enter-full-screen", "leave-full-screen"]) win.on(ev as "resize", saveWindowsSoon);
+  win.on("close", () => { windows.remove(win.id); saveWindowsNow(); });
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) void shell.openExternal(url);
     return { action: "deny" };
@@ -296,17 +327,16 @@ async function createWindow(info: { port: number; home: string; token: string })
   });
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else await win.loadFile(join(__dirname, "../renderer/index.html"));
-  mainWindow = win;
   if (savedWindow?.fullScreen) win.setFullScreen(true);
   else if (savedWindow?.maximized) win.maximize();
-  trackWindowState(win, windowStateFile);
   wireKeyWindow(win);
   attachTextContextMenu(win.webContents);
   // Replay whatever the server's health last was. A window created after the event — reopened from
   // the tray, or the first one on a launch that adopted a stale daemon — has heard nothing yet.
   if (lastDaemonState) win.webContents.send("daemon:state", lastDaemonState);
-  // Native trackpad phases for the space swiper (macOS; optional helper).
-  const phases = startScrollPhaseStream(win);
+  // Native trackpad phases for the space swiper and the rubber band (macOS; optional helper). One
+  // helper for the app, broadcasting to every window — each decides whether a gesture is its own.
+  phaseStream ??= startScrollPhaseStream(() => windows.all().map((s) => s.win));
   /**
    * Passkeys (passkeys.ts). Electron gives a pane Chromium's WebAuthn API and no authenticator behind
    * it, which is what a site reports as partial passkey support; the broker puts one there, holds the
@@ -318,7 +348,7 @@ async function createWindow(info: { port: number; home: string; token: string })
    * for passkeys to call in the first place.
    */
   const passkeys = new PasskeyBroker({
-    pageUrl: (paneId) => browserPane?.pageState(paneId)?.url ?? null,
+    pageUrl: (paneId) => slot.furniture?.pane.pageState(paneId)?.url ?? null,
     hasPasskeyFor: (rpId) => secrets()?.hasPasskeyFor(rpId) ?? false,
     withPasskeysFor: async (rpId, kind, use) =>
       secrets()?.withPasskeysFor(rpId, kind, use) ?? { ok: false, refused: "no_passkey" },
@@ -334,8 +364,6 @@ async function createWindow(info: { port: number; home: string; token: string })
     now: () => Date.now(),
   });
   const pane = createBrowserPane(win, (paneId, cdp) => passkeys.install(paneId, cdp)); // destroys its views on win "closed" itself
-  browserPane = pane;
-  browserHost = pane.host;
   // The agent executor (W3): drives the pane's views over in-process CDP for realm-server's
   // realm-browser tools. Buffers and snapshot-diff state die with each view.
   const host = new BrowserAgentHost({
@@ -359,38 +387,96 @@ async function createWindow(info: { port: number; home: string; token: string })
     readFile: async (path) => new Uint8Array(await readFile(path)),
   });
   pane.onViewDestroyed((id) => { host.release(id); passkeys.release(id); });
-  agentHost = host;
+  slot.furniture = { pane, host: pane.host, agent: host };
   // Downloads on the browser partition are DEFAULT-DENY (Plan 11 W3), narrowed by Plan 23 to let
   // through exactly those covered by a live one-shot grant from an approved `browser_download`.
   // Everything else is still cancelled, in every permission mode.
   governBrowserDownloads({
-    browserIdFor: (wcId) => browserPane?.browserIdForWebContents(wcId) ?? null,
+    browserIdFor: (wcId) => browserIdForWebContents(wcId),
     decide: (browserId, item) => downloadGovernor.handle(browserId, item),
     onBlocked: (wcId, url, reason, filename) => {
-      const id = browserPane?.browserIdForWebContents(wcId);
+      const id = browserIdForWebContents(wcId);
       if (id) {
-        agentHost?.noteBlockedDownload(id, url);
+        furnitureForBrowser(id)?.agent.noteBlockedDownload(id, url);
         // W4: remember it so the pane can say so and offer to fetch it. A download the user started
         // and that vanished without a word is the papercut this removes.
         const entry = blockedDownloads.note(id, url, filename);
-        const win = BrowserWindow.getAllWindows()[0];
-        if (entry && win && !win.isDestroyed()) win.webContents.send("realm:browser-download-blocked", { browserId: id, blocked: entry });
+        const owner = windows.all().find((s) => s.furniture?.pane.hasView(id))?.win;
+        if (entry && owner && !owner.isDestroyed()) owner.webContents.send("realm:browser-download-blocked", { browserId: id, blocked: entry });
       }
       console.error(`[browser-agent] download blocked (${reason})${id ? ` (browser ${id})` : ""}: ${url}`);
     },
   });
-  win.on("closed", () => { phases.stop(); mainWindow = null; browserHost = null; browserPane = null; agentHost = null; });
+  win.on("closed", () => {
+    slot.furniture = null;
+    pendingSpace.delete(win.id);
+    // The last window gone (Realm is resident): no gesture has anywhere to go, so the event tap stops.
+    if (windows.size === 0) { phaseStream?.stop(); phaseStream = null; }
+  });
+  saveWindowsSoon();
+  return win;
 }
+
+/** The space a restored window showed, until its renderer claims it back. */
+const pendingSpace = new Map<number, string>();
+let phaseStream: { stop(): void } | null = null;
+
+/** A browser view's pane id, across every window's panes. */
+function browserIdForWebContents(wcId: number): string | null {
+  for (const s of windows.all()) { const id = s.furniture?.pane.browserIdForWebContents(wcId); if (id) return id; }
+  return null;
+}
+
+/** File ▸ New Window: a window cascaded from the current one, which opens on a space no other
+ *  window shows (its renderer picks; `window:claimed-spaces`). */
+async function newWindow() {
+  if (!serverInfo) return;
+  const from = windows.current()?.win;
+  const bounds = from && !from.isDestroyed() ? from.getNormalBounds() : null;
+  await createWindow(serverInfo, null, bounds ? cascadeFrom(bounds, { width: bounds.width, height: bounds.height }) : null);
+}
+
+/** Every window the saved list holds, or one fresh window when it holds none. */
+async function restoreWindows(info: { port: number; home: string; token: string }) {
+  const saved = readSavedWindows(windowsFile(), join(app.getPath("userData"), "window-state.json"));
+  windows.endClosingAll();
+  if (saved.length === 0) { await createWindow(info); return; }
+  // Restored back to front, so the window that was in front last time is in front again.
+  for (const w of [...saved].reverse()) await createWindow(info, w);
+}
+
+/* The renderer's half of one-space-per-window. `claim-space` is asked before EVERY switch: granted,
+   the window shows the space; refused, the window that has it is brought forward instead and handed
+   whatever the switch was for — a session to reveal lands in the window that owns its space. */
+ipcMain.handle("window:claim-space", (e, spaceId: unknown, intent: unknown) => {
+  const slot = slotOf(e.sender);
+  if (!slot || typeof spaceId !== "string") return { ok: true };
+  const claim = windows.claim(slot.win.id, spaceId);
+  if (claim.ok) { pendingSpace.delete(slot.win.id); saveWindowsSoon(); return { ok: true }; }
+  const owner = windows.get(claim.ownerId);
+  const i = intent && typeof intent === "object" ? intent as { sessionId?: unknown; raise?: unknown } : {};
+  // A window merely LOOKING for a free space (its own was deleted) must not yank another forward.
+  if (owner && i.raise !== false) {
+    windows.raise(owner);
+    if (typeof i.sessionId === "string") owner.win.webContents.send("realm:open-session", { sessionId: i.sessionId, spaceId });
+  }
+  return { ok: false };
+});
+/** Which space this window should open on: the one it showed before a relaunch, if any. */
+ipcMain.handle("window:assigned-space", (e) => { const w = BrowserWindow.fromWebContents(e.sender); return w ? pendingSpace.get(w.id) ?? null : null; });
+/** Spaces open in OTHER windows, so a new window starts on one nobody is looking at. */
+ipcMain.handle("window:claimed-spaces", (e) => { const w = BrowserWindow.fromWebContents(e.sender); return w ? windows.claimedBy(w.id) : []; });
+ipcMain.handle("window:new", () => newWindow());
 
 // Browser pane (Plan 11 W1): the renderer drives the native WebContentsViews over this surface.
 // Mutations are invokes; the per-frame bounds sync is a plain send (no reply to wait on).
-ipcMain.handle("browser:create", (_e, id: string, url: string, allowlist: string[] | null) => { browserHost?.create(id, url, allowlist); });
-ipcMain.handle("browser:destroy", (_e, id: string) => { browserHost?.destroy(id); });
+ipcMain.handle("browser:create", (e, id: string, url: string, allowlist: string[] | null) => { paneHostOf(e.sender)?.create(id, url, allowlist); });
+ipcMain.handle("browser:destroy", (e, id: string) => { paneHostOf(e.sender)?.destroy(id); });
 // The pane went away without the browser being closed — a space or pane-group switch. The view
 // keeps running, hidden, until the pane comes back or the off-screen budget evicts it.
-ipcMain.handle("browser:retain", (_e, id: string) => { browserHost?.retain(id); });
-ipcMain.handle("browser:navigate", (_e, id: string, input: string): string | null => browserHost?.navigate(id, input) ?? null);
-ipcMain.handle("browser:nav", (_e, id: string, action: "back" | "forward" | "reload" | "stop") => { browserHost?.navAction(id, action); });
+ipcMain.handle("browser:retain", (e, id: string) => { paneHostOf(e.sender)?.retain(id); });
+ipcMain.handle("browser:navigate", (e, id: string, input: string): string | null => paneHostOf(e.sender)?.navigate(id, input) ?? null);
+ipcMain.handle("browser:nav", (e, id: string, action: "back" | "forward" | "reload" | "stop") => { paneHostOf(e.sender)?.navAction(id, action); });
 /** How many rows a back menu offers. Safari shows a dozen or so and then stops; a trail of 300 is a
  *  scroll, not a menu, and nobody navigates by it. */
 const HISTORY_MENU_MAX = 12;
@@ -428,7 +514,7 @@ ipcMain.on("menu:keybindings", (_e, rules: unknown) => {
   if (app.isReady()) installMenu();
 });
 ipcMain.handle("browser:history-menu", (e, id: string, dir: "back" | "forward", at: { x: number; y: number }) => {
-  const trail = browserHost?.historyTrail(id, dir) ?? [];
+  const trail = paneHostOf(e.sender)?.historyTrail(id, dir) ?? [];
   if (trail.length === 0) return;
   const win = BrowserWindow.fromWebContents(e.sender) ?? undefined;
   const template: MenuItemConstructorOptions[] = trail.slice(0, HISTORY_MENU_MAX).map((row) => ({
@@ -436,12 +522,12 @@ ipcMain.handle("browser:history-menu", (e, id: string, dir: "back" | "forward", 
     // menu is a list of places, so each row is cut to something scannable rather than allowed to set
     // the menu's width from the worst page in the trail.
     label: row.label.length > 64 ? `${row.label.slice(0, 63)}…` : row.label,
-    click: () => browserHost?.goToIndex(id, row.index),
+    click: () => paneHostOf(e.sender)?.goToIndex(id, row.index),
   }));
   Menu.buildFromTemplate(template).popup({ window: win, x: Math.round(at.x), y: Math.round(at.y) });
 });
-ipcMain.handle("browser:set-allowlist", (_e, id: string, allowlist: string[] | null) => { browserHost?.setAllowlist(id, allowlist); });
-ipcMain.on("browser:set-bounds", (_e, id: string, rect: ViewRect, dpr: number, visible: boolean) => { browserHost?.setBounds(id, rect, dpr, visible); });
+ipcMain.handle("browser:set-allowlist", (e, id: string, allowlist: string[] | null) => { paneHostOf(e.sender)?.setAllowlist(id, allowlist); });
+ipcMain.on("browser:set-bounds", (e, id: string, rect: ViewRect, dpr: number, visible: boolean) => { paneHostOf(e.sender)?.setBounds(id, rect, dpr, visible); });
 
 /**
  * The user's element picker. `browser:pick-element` does not resolve until the user clicks something
@@ -449,12 +535,12 @@ ipcMain.on("browser:set-bounds", (_e, id: string, rect: ViewRect, dpr: number, v
  * pending for as long as a person takes to aim. Kept off the agent bridge on purpose — see
  * `BrowserAgentHost.pickElement`.
  */
-ipcMain.handle("browser:pick-element", (_e, id: string, accent?: string) => agentHost?.pickElement(String(id), typeof accent === "string" ? accent : undefined) ?? null);
-ipcMain.handle("browser:cancel-pick", (_e, id: string) => { agentHost?.cancelPick(String(id)); });
+ipcMain.handle("browser:pick-element", (e, id: string, accent?: string) => agentOf(e.sender)?.pickElement(String(id), typeof accent === "string" ? accent : undefined) ?? null);
+ipcMain.handle("browser:cancel-pick", (e, id: string) => { agentOf(e.sender)?.cancelPick(String(id)); });
 
 /** The renderer's theme accent, for the marks main draws INSIDE a driven page (Plan 25 W1). Not per
  *  browser id: it is one value per window, and this process has one agent host per window. */
-ipcMain.on("browser:set-accent", (_e, accent: string) => { if (typeof accent === "string") agentHost?.setAccent(accent); });
+ipcMain.on("browser:set-accent", (e, accent: string) => { if (typeof accent === "string") agentOf(e.sender)?.setAccent(accent); });
 
 /** The system clipboard, READ ONLY (Plan 25 W7). A machine pane sends it to a guest, which is a
  *  deliberate two-step rather than automatic sync: RFB's clipboard is not transparent, and pushing
@@ -519,8 +605,8 @@ function secrets(): SecretStore | null {
  */
 ipcMain.handle("browser:blocked-downloads", (_e, browserId: string) => blockedDownloads.list(String(browserId)));
 ipcMain.handle("browser:dismiss-download", (_e, browserId: string, id: string) => { blockedDownloads.dismiss(String(browserId), String(id)); });
-ipcMain.handle("browser:save-download", async (_e, browserId: string, id: string, dir: string) => {
-  const pane = browserPane;
+ipcMain.handle("browser:save-download", async (e, browserId: string, id: string, dir: string) => {
+  const pane = (furnitureForBrowser(String(browserId)) ?? slotOf(e.sender)?.furniture)?.pane ?? null;
   if (!pane) return { ok: false, error: "the browser pane is not open" };
   // Same absolute-path requirement the agent op has: this writes to disk, and a relative path would
   // resolve against whatever cwd Electron happens to have.
@@ -884,11 +970,11 @@ ipcMain.handle("updates:install", () => { updater.install(); });
  */
 const desktopNotifier = new DesktopNotifier({
   supported: () => Notification.isSupported(),
-  windowFocused: () => mainWindow?.isFocused() ?? false,
-  hasWindow: () => mainWindow !== null && !mainWindow.isDestroyed(),
+  windowFocused: () => windows.all().some((s) => s.win.isFocused()),
+  hasWindow: () => windows.size > 0,
   create: (o) => new Notification(o),
   focusWindow: () => {
-    const win = mainWindow;
+    const win = windows.current()?.win ?? null;
     // No window at all: this is the resident's own toast, and a click on it is a request to come
     // back. `reattach` recreates the window; the row id below lands once it exists.
     if (!win) { void reattach(); return; }
@@ -900,7 +986,9 @@ const desktopNotifier = new DesktopNotifier({
     if (process.platform === "darwin") app.focus({ steal: true });
   },
   activate: (id) => {
-    const win = mainWindow;
+    // The window that was in front; if the row's space is open in another, that window's
+    // `window:claim-space` hand-off brings it forward and lands the row there.
+    const win = windows.current()?.win ?? null;
     // A click that recreated the window has no renderer listening yet — the send would land nowhere.
     // Waiting for the first paint is the honest fix; `did-finish-load` is when a listener exists.
     if (win && !win.webContents.isLoading()) win.webContents.send("realm:notification-activate", id);
@@ -1155,11 +1243,8 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", () => {
-    const win = mainWindow;
-    if (!win) return;
-    if (win.isMinimized()) win.restore();
-    win.show();
-    win.focus();
+    const slot = windows.current();
+    if (slot) windows.raise(slot);
   });
 }
 
@@ -1181,7 +1266,7 @@ app.whenReady().then(async () => {
     // Sweep once at launch; saveTempAttachment sweeps again on every paste, so a session that never
     // restarts the app is bounded too.
     void sweepTempAttachments(tempAttachmentDir(info.home)).catch(() => {});
-    await createWindow(info);
+    await restoreWindows(info);
     // Disabled builds return their existing state without loading electron-updater. Signed packaged
     // builds check the public feed and download in the background; failures remain visible in
     // Settings without blocking startup.
@@ -1205,7 +1290,7 @@ app.whenReady().then(async () => {
     }
     agentBridge = startBrowserAgentBridge({
       port: info.port, token: info.token,
-      hasWindow: () => mainWindow !== null && !mainWindow.isDestroyed(),
+      hasWindow: () => windows.size > 0,
       onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); },
       // Both on the same event: the bridge redials every two seconds, which is exactly the cadence a
       // supervisor watching for a dead pid wants, so it needs no clock of its own.
@@ -1227,7 +1312,9 @@ app.whenReady().then(async () => {
         // Computer-use ops share this socket but not the browser executor: they need no window and
         // no view, so they are answered before the window check below.
         if (op.startsWith("computer")) return computerHost.handleOp(op, params);
-        const host = agentHost;
+        // The window whose pane holds this view; failing that, the one in front, whose executor
+        // then reports honestly that the view is not open.
+        const host = (furnitureForBrowser(String((params as { browserId?: unknown }).browserId ?? "")) ?? windows.current()?.furniture)?.agent ?? null;
         // Level B: Electron is here, the window is not. The refusal names the actual fix, because
         // "Realm is not connected" would be false — it is connected, that is how this message got
         // here — and an agent told the wrong problem retries the wrong thing. Ops are never queued
@@ -1303,17 +1390,14 @@ function goResident() {
 /** Bring the window back, optionally landing on one session. */
 async function reattach(target?: { sessionId: string; spaceId: string | null }) {
   if (process.platform === "darwin") app.dock?.show();
-  const existing = mainWindow;
-  if (existing && !existing.isDestroyed()) {
-    if (existing.isMinimized()) existing.restore();
-    existing.show();
-    existing.focus();
-  } else if (serverInfo) {
-    await createWindow(serverInfo);
-  }
+  const current = windows.current();
+  if (current) windows.raise(current);
+  else if (serverInfo) await restoreWindows(serverInfo);
   sessionTray.hide();
   void bridgeClient?.call("browserHost.register", { hasWindow: true }).catch(() => {});
-  if (target) mainWindow?.webContents.send("realm:open-session", target);
+  // The window that owns the session's space, else the one in front (whose claim then hands off).
+  const to = (target?.spaceId ? windows.ownerOf(target.spaceId) : null) ?? windows.current();
+  if (target) to?.win.webContents.send("realm:open-session", target);
 }
 
 /** True once a gesture that really means "stop everything" has been taken. Read by `before-quit` and
@@ -1334,6 +1418,7 @@ async function quitAndStopAll() {
     if (r.response !== 0) return;
   }
   quittingForReal = true;
+  windows.beginClosingAll();
   app.quit();
 }
 
@@ -1352,10 +1437,12 @@ function shutdownForQuit() {
 app.on("before-quit", (e) => {
   if (decideQuit({ trigger: "quit", working: 0 }).kind === "go-resident" && !quittingForReal) {
     e.preventDefault();
+    windows.beginClosingAll();
     for (const w of BrowserWindow.getAllWindows()) w.close();
     goResident();
     return;
   }
+  windows.beginClosingAll();
   shutdownForQuit();
 });
 // electron-updater's quitAndInstall() (mac: Squirrel, driven through Electron's native autoUpdater)
@@ -1366,4 +1453,4 @@ app.on("before-quit", (e) => {
 // An update restart deliberately does NOT stop the daemon — the opposite of what this hook used to
 // do. Squirrel swaps the bundle and relaunches us, and the launcher's handoff deals with the daemon
 // it finds; killing it here would stop every agent for an update the user may not have noticed.
-electronAutoUpdater.on("before-quit-for-update", () => { quittingForReal = true; detachFromDaemon(); });
+electronAutoUpdater.on("before-quit-for-update", () => { quittingForReal = true; windows.beginClosingAll(); detachFromDaemon(); });

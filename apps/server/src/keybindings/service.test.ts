@@ -171,3 +171,22 @@ describe("write and reset", () => {
     expect(existsSync(keybindingsPath(missing))).toBe(true);
   });
 });
+
+describe("a keymap written before a default moved", () => {
+  /* Every existing file holds Quick Chat on ⌘⇧N, as it was seeded. THE mutant is reading the merge
+     without writing it: the app would run the new chords while the file a person opens to edit
+     still says the old ones, and their next edit would write the old line back. */
+  it("is rewritten once with New Window on ⌘⇧N and Quick Chat on ⌥⌘N", () => {
+    const old = DEFAULT_KEYBINDINGS.flatMap((r): Keybinding[] =>
+      r.command === "window.new" ? [] : r.command === "session.quickChat" ? [{ ...r, key: "mod+shift+n" }] : [r]);
+    put(JSON.stringify(old));
+    const file = new KeybindingsService({ home }).read();
+    expect(commandForChord(file.rules, "mod+shift+n", {})).toBe("window.new");
+    expect(commandForChord(file.rules, "mod+alt+n", {})).toBe("session.quickChat");
+    expect(commandForChord(onDisk() as Keybinding[], "mod+shift+n", {})).toBe("window.new");
+    // …and only once: the next read finds nothing to change and leaves the file's mtime alone.
+    const before = readFileSync(keybindingsPath(home), "utf8");
+    new KeybindingsService({ home }).read();
+    expect(readFileSync(keybindingsPath(home), "utf8")).toBe(before);
+  });
+});

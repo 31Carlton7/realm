@@ -477,6 +477,7 @@ export const KEY_COMMANDS: readonly KeyCommand[] = [
   { id: "sidebar.toggle", label: "Show/hide the sidebar", group: "App" },
   { id: "activity.open", label: "MCP Activity", group: "App" },
   { id: "settings.open", label: "Settings", group: "App" },
+  { id: "window.new", label: "New window", group: "App" },
 ];
 
 /**
@@ -542,7 +543,11 @@ export const DEFAULT_KEYBINDINGS: readonly Keybinding[] = [
 
   { key: "mod+t", command: "terminal.new", when: WHEN_IDLE },
   { key: "mod+n", command: "session.new", when: WHEN_IDLE },
-  { key: "mod+shift+n", command: "session.quickChat", when: WHEN_IDLE },
+  /* ⌘⇧N is New Window, as it is in the Mac apps that pair ⌘N with something else — and from anywhere,
+     a text field included, since it types nothing there. Quick Chat moved to ⌥⌘N to make room;
+     `RETIRED_DEFAULTS` is what carries that move into a keymap file written before it. */
+  { key: "mod+shift+n", command: "window.new", when: "!sheetOpen" },
+  { key: "mod+alt+n", command: "session.quickChat", when: WHEN_IDLE },
   { key: "mod+u", command: "session.attachFiles", when: "!overlayOpen && sessionFocus" },
   { key: "mod+j", command: "terminal.toggle", when: "!overlayOpen && sessionFocus" },
   { key: "mod+shift+enter", command: "session.dispatchDraft", when: "!overlayOpen && sessionFocus" },
@@ -561,6 +566,23 @@ export const DEFAULT_KEYBINDINGS: readonly Keybinding[] = [
  * agent. When the guard refuses the action, the key is still eaten.
  */
 export const ALWAYS_SWALLOWED_CHORDS: readonly string[] = ["mod+w"];
+
+/**
+ * Defaults Realm used to ship and no longer does, exactly as they were written.
+ *
+ * Every keymap file is seeded with the shipped table, so a default that MOVES is still sitting in
+ * every existing file under its old chord — and `mergeDefaults` will not add the new one, because
+ * the old line claims both its key and its command. A line that still matches a retired default to
+ * the letter is one nobody edited: the seed's copy, not a choice. It is dropped so the current
+ * defaults can take its place. A line someone changed — another `when`, another command on that key
+ * — no longer matches, and is theirs.
+ */
+export const RETIRED_DEFAULTS: readonly Keybinding[] = [
+  { key: "mod+shift+n", command: "session.quickChat", when: WHEN_IDLE },
+];
+
+const sameRule = (a: Keybinding, b: Keybinding): boolean =>
+  normalizeKeyChord(a.key) === normalizeKeyChord(b.key) && a.command === b.command && (a.when ?? "").trim() === (b.when ?? "").trim();
 
 /**
  * Whether a shipped default is claimed by something already in the user's file.
@@ -589,8 +611,9 @@ export function defaultIsClaimed(existing: readonly Keybinding[], shipped: Keybi
  * Appending also leaves every existing rule at its index, which keeps the precedence the user has
  * already tuned exactly where they left it.
  */
-export function mergeDefaults(existing: readonly Keybinding[], defaults: readonly Keybinding[] = DEFAULT_KEYBINDINGS): Keybinding[] {
-  const merged = [...existing];
+export function mergeDefaults(existing: readonly Keybinding[], defaults: readonly Keybinding[] = DEFAULT_KEYBINDINGS,
+  retired: readonly Keybinding[] = RETIRED_DEFAULTS): Keybinding[] {
+  const merged = existing.filter((rule) => !retired.some((old) => sameRule(rule, old)));
   for (const shipped of defaults) {
     if (!defaultIsClaimed(merged, shipped)) merged.push(shipped);
   }

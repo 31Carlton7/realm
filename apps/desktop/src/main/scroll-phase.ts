@@ -19,8 +19,12 @@ function helperPath(): string | null {
 
 /** Streams native trackpad scroll phases (began/changed/ended + momentum) to the renderer so the
  *  space swiper can hold/settle/commit exactly on finger lift, like macOS Spaces. Optional: when the
- *  helper is missing (non-mac, or not built) the renderer falls back to timer heuristics. */
-export function startScrollPhaseStream(win: BrowserWindow): { stop(): void } {
+ *  helper is missing (non-mac, or not built) the renderer falls back to timer heuristics.
+ *
+ *  One helper for the app, broadcasting to every window `targets` names: the phases are the
+ *  trackpad's, not a window's, and each renderer decides whether a gesture is its own by where the
+ *  wheel events land. One event tap rather than one per window. */
+export function startScrollPhaseStream(targets: () => BrowserWindow[]): { stop(): void } {
   const bin = helperPath();
   if (!bin) return { stop() {} };
   let child: ChildProcess | null = null;
@@ -40,7 +44,7 @@ export function startScrollPhaseStream(win: BrowserWindow): { stop(): void } {
       try {
         const msg = JSON.parse(line) as ScrollPhaseMessage | { ready: true };
         if ("ready" in msg) { console.log("[scrollphase] native trackpad phases: ON"); continue; }
-        if (!win.isDestroyed()) win.webContents.send(SCROLL_PHASE_CHANNEL, msg);
+        for (const win of targets()) if (!win.isDestroyed()) win.webContents.send(SCROLL_PHASE_CHANNEL, msg);
       } catch { /* ignore malformed line */ }
     }
   });

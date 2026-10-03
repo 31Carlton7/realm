@@ -210,7 +210,8 @@ async function main() {
   if (electron.exitCode === null) electron.kill();
   reapServer();
   await until(async () => (await portFree(CDP_PORT)) && (await portFree(SERVER_PORT)), 15000, "ports released after the first run");
-  const saved = JSON.parse(fs.readFileSync(path.join(scratch, "userData", "window-state.json"), "utf8"));
+  // windows.json since Realm has several windows: one entry per window, this run's one.
+  const saved = JSON.parse(fs.readFileSync(path.join(scratch, "userData", "windows.json"), "utf8")).windows[0];
   check("the place was written down on the way out", saved.width === moved.width && saved.height === moved.height, saved);
 
   // ---- second launch ----------------------------------------------------------------------------

@@ -184,6 +184,18 @@ contextBridge.exposeInMainWorld("realm", {
   /** The person's keybindings, for the menu bar to show and for main to hand their chords to the
    *  page rather than to the menu (main/app-menu.ts). */
   setMenuKeybindings: (rules: unknown[]): void => ipcRenderer.send("menu:keybindings", rules),
+  /** Realm's windows (main/windows.ts): a space is open in at most one. */
+  windows: {
+    /** Ask to show `spaceId` in this window. Refused when another window has it — that window is
+     *  brought forward instead (unless `raise: false`) and handed `sessionId` to reveal there. */
+    claimSpace: (spaceId: string, intent?: { sessionId?: string; raise?: boolean } | null): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke("window:claim-space", spaceId, intent ?? null),
+    /** The space this window showed before a relaunch, or null for a new window. */
+    assignedSpace: (): Promise<string | null> => ipcRenderer.invoke("window:assigned-space"),
+    /** Spaces open in other windows. */
+    claimedSpaces: (): Promise<string[]> => ipcRenderer.invoke("window:claimed-spaces"),
+    newWindow: (): Promise<void> => ipcRenderer.invoke("window:new"),
+  },
   /** A keybinding-catalog command picked from the menu bar. */
   onAppCommand: (cb: (command: string) => void): (() => void) => {
     const handler = (_e: IpcRendererEvent, command: string) => cb(command);
