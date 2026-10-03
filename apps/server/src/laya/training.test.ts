@@ -7,7 +7,7 @@ import { bundledLayaDir } from "./benchmark";
 import { DecisionLog } from "./log";
 import { LayaStepError, type LayaRuntime } from "./runtime";
 import { fakeRuntime, type FakeRuntime } from "./test-fakes";
-import { MIN_FREE_DISK, beats, machineState, progressOf, readEval, trainCheckpoint, type MachineState, type TrainProgress } from "./training";
+import { MIN_FREE_DISK, RUN_MIN_FREE_DISK, beats, machineState, progressOf, readEval, trainCheckpoint, type MachineState, type TrainProgress } from "./training";
 
 /**
  * A training run end to end, with the script and laya-serve both stood in for: the rows it writes,
@@ -114,7 +114,7 @@ describe("a training run", () => {
     await expect(trainCheckpoint({ runtime: rt, resources, logFiles: () => [] }, { name: "n", signal: new AbortController().signal, onProgress: () => {} })).rejects.toThrow("Install Laya again");
   });
 
-  describe("on a Mac short of memory", () => {
+  describe("on a Mac short of memory or disk", () => {
     const GB = 1024 ** 3;
     const go = (rt: FakeRuntime, machine: () => Promise<MachineState>, name = "n") =>
       trainCheckpoint({ runtime: rt, resources, logFiles: () => [], machine, watchMs: 5 }, { name, signal: new AbortController().signal, onProgress: () => {} });
@@ -156,6 +156,37 @@ describe("a training run", () => {
       expect(ran).toEqual(["train"]);
       expect(rt.starts).toHaveLength(0);
     });
+
+    it("stops a run when swap fills the disk under it, and says how little is left", async () => {
+      const ran: string[] = [];
+      const rt = runtimeFor({ script: endless(ran) as never });
+      let reads = 0;
+      // Room as it starts, then swap eats the disk while it runs; memory only warned all along.
+      const machine = async (): Promise<MachineState> => ({ pressure: "warn", freeDiskBytes: reads++ === 0 ? 20 * GB : 3.5 * GB });
+      // THE MUTANT: watch memory alone. MEASURED: swap took this Mac from 6 GB free to 4 GB in two
+      // minutes, and the hang before came at about 3.
+      await expect(go(rt, machine)).rejects.toThrow("Stopped: this Mac's disk was down to 3.5 GB free while training, and macOS swaps onto it, so the run was ended before it could hang. Nothing it made was kept. Free up some space and train again.");
+      expect(ran).toEqual(["train"]);
+      expect(rt.starts).toHaveLength(0);
+    });
+
+    it("goes on with exactly the room it stops under", async () => {
+      const ran: string[] = [];
+      const rt = runtimeFor({ script: async ({ args }) => {
+        ran.push("train");
+        await new Promise((r) => setTimeout(r, 120));
+        const out = args[args.indexOf("--out") + 1]!;
+        mkdirSync(out, { recursive: true });
+        writeFileSync(join(out, "model.safetensors"), "weights");
+      } });
+      let reads = 0;
+      // THE MUTANT: stop AT the floor, or hold a running job to the 8 GB a start needs. Either ends an
+      // hour of work with room still to swap.
+      const result = await go(rt, async () => ({ pressure: "normal", freeDiskBytes: reads++ === 0 ? MIN_FREE_DISK : RUN_MIN_FREE_DISK }), "n3");
+      expect(ran).toEqual(["train"]);
+      expect(result.report.checkpoint).toBe("local:n3");
+      expect(RUN_MIN_FREE_DISK).toBe(4 * GB);
+    }, 60_000);
 
     it("rides out a moment of critical pressure, and a Mac only warned", async () => {
       const ran: string[] = [];
