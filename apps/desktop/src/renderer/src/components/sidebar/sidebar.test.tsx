@@ -6,6 +6,7 @@ import { Sidebar } from "./Sidebar";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, iconAsset, item, profile, session, space, type FakeData } from "../../state/store.test-fakes";
 import { paneMapOf } from "./ItemList";
+import { ALL_ITEMS_SETTLE_MS } from "./use-sidebar-model";
 import { exited } from "../popover-exit.test-fakes";
 
 /**
@@ -249,6 +250,24 @@ describe("a session's row", () => {
     fireEvent.click(within(section("Homework")).getByRole("button", { name: "Archive Wants a yes" }));
     await waitFor(() => expect(rowsIn("Homework")).toEqual(["New session"])); // an empty space's one row
     expect(api.data.items.s2![0]!.archived).toBe(true);
+  });
+
+  it("reads every space's rows again straight after a write to another space's row", async () => {
+    /* The window hears `items.changed` for the room on screen only, so a row put away or pinned in
+       another space is re-read by the sidebar itself, at once — not on the next beat something else
+       happens to move. THE MUTANTS: a shelf or a menu that writes and leaves the list to catch up. */
+    const { api } = await mount(home());
+    await within(section("Homework")).findByRole("button", { name: /^Wants a yes/ });
+    const reads = () => api.calls.filter((c) => c === "listAllItems").length;
+    const soon = { timeout: ALL_ITEMS_SETTLE_MS - 100 };
+    let before = reads();
+    fireEvent.contextMenu(within(section("Homework")).getByRole("button", { name: /^Wants a yes/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Pin" }));
+    await waitFor(() => expect(reads()).toBeGreaterThan(before), soon);
+    await exited();
+    before = reads();
+    fireEvent.click(within(section("Homework")).getByRole("button", { name: "Archive Wants a yes" }));
+    await waitFor(() => expect(reads()).toBeGreaterThan(before), soon);
   });
 
   it("keeps its state and its one action in one slot at the far end", async () => {
