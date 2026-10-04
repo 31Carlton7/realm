@@ -134,9 +134,9 @@ export function looksLikePasswordPrompt(screen: TerminalScreen): string | null {
   return patterns.some((re) => re.test(asked)) ? active : null;
 }
 
-const PASSWORD_REFUSAL = (line: string) =>
+const PASSWORD_REFUSAL = (line: string, where: string) =>
   `refused: this terminal is asking for a secret (${JSON.stringify(line)}). Realm never types into a password prompt, in any permission mode. `
-  + "Tell the user what it is asking for and let them type it in the pane — it is open in front of them.";
+  + `Tell the user what it is asking for and let them type it in the pane — ${where}.`;
 
 /* ---------------------------------- keys ---------------------------------- */
 
@@ -337,7 +337,20 @@ const HANDLERS: Record<string, Handler> = {
     const before = await d.terminals.screen(terminalId);
     if (!before) return err(`terminal ${terminalId} is not readable — it may have just exited.`);
     const asking = looksLikePasswordPrompt(before);
-    if (asking) return err(PASSWORD_REFUSAL(asking));
+    if (asking) {
+      // The refusal sends the agent to the person, so the terminal has to be where the person is
+      // looking — and opening it once is no promise of that: they may have closed its tab, or never
+      // looked. MEASURED in 1.5: a sudo prompt sat for a day and a half in a terminal the owner could
+      // not find, while the agent kept telling them it was "open in front of them". A terminal this
+      // session opened is put back in front of them, so the sentence is true. One the person opened
+      // is theirs: it stays where they put it, and the sentence says so.
+      if (c.ownedBy(ctx.sessionId, terminalId)) {
+        const item = d.items.findByRefId(terminalId);
+        if (item) d.rpc.broadcast("terminal.agentOpened", { spaceId: ctx.spaceId, terminalId, itemId: item.id, openedBy: ctx.sessionId });
+        return err(PASSWORD_REFUSAL(asking, "it is in front of them now, in this session's side pane"));
+      }
+      return err(PASSWORD_REFUSAL(asking, "it is a terminal they opened themselves"));
+    }
 
     const bytes = (text ?? "") + (submit ? TERMINAL_KEYS.enter : "") + (key ? TERMINAL_KEYS[key] : "");
     const title = describeWrite(text, submit, key);

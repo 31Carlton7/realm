@@ -231,6 +231,31 @@ describe("writing", () => {
     expect(calls.writes).toEqual([]);
   });
 
+  it("puts a terminal this session opened back in front of the person, and says so", async () => {
+    const { call, show, calls } = setup();
+    const opened = text(await call("terminal_open", {}));
+    const id = /Opened terminal (\S+)\./.exec(opened)![1]!;
+    show(id, "Password: ");
+    const r = await call("terminal_write", { terminalId: id, text: "x" });
+    expect(r.isError).toBe(true);
+    // Once when it opened, and again now. THE MUTANT: announce it only when it opens — a tab closed
+    // since, or one that opened behind another, is a prompt the person never sees.
+    expect(calls.broadcasts.filter((b) => b.event === "terminal.agentOpened").map((b) => b.payload.terminalId)).toEqual([id, id]);
+    expect(text(r)).toContain("in front of them now, in this session's side pane");
+    expect(calls.gates.filter((g) => g.toolKey.startsWith("terminal_write"))).toEqual([]);
+  });
+
+  it("leaves a terminal the person opened where they put it, and does not claim it is in front of them", async () => {
+    const { call, calls } = setup({ screen: "Password: " });
+    const r = await call("terminal_write", { terminalId: "t1", text: "x" });
+    expect(r.isError).toBe(true);
+    // THE MUTANT: move any terminal at a password prompt. The person's own shell would jump into a
+    // session's side pane because an agent tried to type into it.
+    expect(calls.broadcasts.filter((b) => b.event === "terminal.agentOpened")).toEqual([]);
+    expect(text(r)).toContain("a terminal they opened themselves");
+    expect(text(r)).not.toContain("in front of them");
+  });
+
   it("reads the prompt off the live screen rather than trusting the caller", async () => {
     // THE MUTANT: check a screen captured before the program started. The refusal would be deciding
     // on a terminal that was at a shell prompt a moment ago and is asking for a secret now.
