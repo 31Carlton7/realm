@@ -120,6 +120,24 @@ async function evalIn(c, expr) {
   return r.result.value;
 }
 
+/** Mean relative luminance of device-pixel rectangles of one capture, decoded in the page. */
+async function lums(c, rects) {
+  const { data } = await c.send("Page.captureScreenshot", { format: "png" });
+  return evalIn(c, `(async () => {
+    const img = new Image(); img.src = "data:image/png;base64," + ${JSON.stringify(data)}; await img.decode();
+    const cv = document.createElement('canvas'); cv.width = img.width; cv.height = img.height;
+    const ctx = cv.getContext('2d'); ctx.drawImage(img, 0, 0);
+    const lin = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+    return ${JSON.stringify(rects)}.map(([x, y, w, h]) => {
+      const d = ctx.getImageData(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h))).data;
+      let R = 0, G = 0, B = 0; const n = d.length / 4;
+      for (let i = 0; i < d.length; i += 4) { R += d[i]; G += d[i + 1]; B += d[i + 2]; }
+      R /= n; G /= n; B /= n;
+      return { rgb: [Math.round(R), Math.round(G), Math.round(B)], L: +(0.2126 * lin(R) + 0.7152 * lin(G) + 0.0722 * lin(B)).toFixed(4) };
+    });
+  })()`);
+}
+
 async function shoot(c, tag, clip) {
   const { data } = await c.send("Page.captureScreenshot", { format: "png", ...(clip ? { clip: { ...clip, scale: 2 } } : {}) });
   fs.writeFileSync(OUT(tag), Buffer.from(data, "base64"));
@@ -279,13 +297,43 @@ async function main() {
     await paletteRow(c, "Open settings");
     await until(() => evalIn(c, `!!document.querySelector('.settings-page-pane')`), 15_000, "settings");
     await sleep(600);
-    for (const page of ["general", "appearance", "signins", "permissions"]) {
+    /* Every page but Import, whose panel scans the agent CLIs' own stores in the real home on mount —
+       read-only, but slow, and nothing this check is about. */
+    for (const page of ["general", "appearance", "keys", "notifications", "engines", "usage", "signins", "permissions", "computer-use", "archived"]) {
       await evalIn(c, `__live.page(${JSON.stringify(page)})`);
       await sleep(400);
       await shoot(c, `settings-${page}-${face}`);
+      const head = await evalIn(c, `(() => ({ h1: document.querySelector('.settings-page-pane .page-head h1')?.textContent,
+        picked: document.querySelector('.settings-rail input:checked')?.closest('label')?.textContent?.trim() }))()`);
+      check(`Settings › ${head.picked} (${face}): the head names the page it shows`, head.h1 === head.picked, head);
       if (face === "dark") {
         const small = await evalIn(c, `__live.small(document.querySelector('.settings-page-pane .page-content') ?? document.body, 12.5)`);
-        note(`settings ${page}: text under 12.5px`, small.slice(0, 12));
+        // The credits at the foot of General are the one exception, and they are a signature, not a setting.
+        const unexplained = small.filter((x) => !String(x.cls).includes("settings-attribution") && !(x.tag === "A" && /Aikins|Pixel Agents|MetroCity/.test(x.text)));
+        if (page !== "usage") check(`Settings › ${head.picked}: nothing a person must read is set under 12.5px`, unexplained.length === 0, unexplained.slice(0, 8));
+        else note(`settings ${page}: text under 12.5px`, unexplained.slice(0, 16));
+        const type = await evalIn(c, `(() => { const px = (sel) => { const el = document.querySelector('.settings-page-pane ' + sel); return el ? parseFloat(getComputedStyle(el).fontSize) : null; };
+          return { name: px('.settings-row-name'), desc: px('.settings-row-desc, .settings-row-detail'), head: px('.settings-head'), h1: px('.page-head h1') }; })()`);
+        // A report page (Usage, Archived) may carry no rows at all; what it does carry is held.
+        check(`Settings › ${head.picked}: labels 14, their lines 13, heads 15, the title 24`,
+          (type.name === null || type.name === 14) && (type.desc === null || type.desc === 13) && (type.head === null || type.head === 15) && type.h1 === 24, type);
+      }
+      if (page === "signins") {
+        /* The card: a step above the ground, under a rim lighter than both sides (dark), measured off
+           the pixels — the rim is one device pixel, so it is read as a 1px strip along the card's top. */
+        const card = await evalIn(c, `__live.box(document.querySelector('.settings-page-pane .creds-list .settings-row'))`);
+        const [ground, fill, rim] = await lums(c, [
+          [2 * (card.l - 12), 2 * (card.t + card.h / 2) - 4, 8, 8],
+          [2 * (card.l + card.w - 60), 2 * (card.t + card.h / 2) - 4, 40, 8],
+          [2 * (card.l + 60), 2 * card.t, 120, 1],
+        ]);
+        if (face === "dark") {
+          check("Sign-ins (dark): the card stands a step above the ground, not a well below it", fill.L > ground.L * 1.08, { ground, fill });
+          check("Sign-ins (dark): its rim is the rung lighter than both sides", rim.L > fill.L && rim.L > ground.L, { ground, fill, rim });
+        } else {
+          check("Sign-ins (light): the card is the white over the grey ground", fill.L > ground.L * 1.05, { ground, fill });
+          check("Sign-ins (light): its rim is a line you can see on the white", Math.abs(rim.L - fill.L) > 0.02, { fill, rim });
+        }
       }
     }
     await evalIn(c, `(() => { document.querySelector('.sb-page-back')?.click(); return true; })()`);
@@ -295,17 +343,36 @@ async function main() {
     await until(() => evalIn(c, `!!document.querySelector('.library-page-pane')`), 15_000, "library");
     await sleep(1200);
     await shoot(c, `library-files-${face}`);
-    // A picture tile under the pointer: its name comes up over the scrim.
+    const lib = await evalIn(c, `(() => {
+      const bar = document.querySelector('.library-files .library-toolbar'), col = document.querySelector('.library-files .page-content');
+      const tiles = [...document.querySelectorAll('.library-tile')].map((t) => __live.box(t));
+      return { h1: document.querySelector('.library-page-pane .page-head h1').textContent, outside: !!bar && !col.contains(bar),
+        tiles: tiles.length, square: tiles.every((b) => Math.abs(b.w - b.h) <= 1), widths: [...new Set(tiles.map((b) => b.w))],
+        tabs: [...document.querySelectorAll('.library-types .filter-chip')].map((b) => b.textContent),
+        barLeft: bar ? __live.box(bar).l : null, firstTile: tiles[0]?.l ?? null };
+    })()`);
+    check(`Library (${face}): the head names the section, and the toolbar stands outside the scroller`, lib.h1 === "Files" && lib.outside, lib);
+    check(`Library (${face}): every file is one square, all one width`, lib.tiles >= 8 && lib.square && lib.widths.length === 1, lib);
+    check(`Library (${face}): the kinds are the tabs, and the toolbar starts on the grid's edge`,
+      JSON.stringify(lib.tabs) === '["All","Images","Documents","Code","Data"]' && Math.abs(lib.barLeft - lib.firstTile) <= 1, lib);
+    // A picture tile under the pointer: its name comes up over the scrim, and is not there at rest.
     const tile = await evalIn(c, `(() => { const t = document.querySelector('.library-tile[data-thumb]'); return t ? __live.box(t) : null; })()`);
+    check(`Library (${face}): a picture is a tile of its own picture`, tile !== null, tile);
     if (tile) {
+      const rest = await evalIn(c, `getComputedStyle(document.querySelector('.library-tile[data-thumb] .library-tile-caption')).opacity`);
       await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: tile.l + tile.w / 2, y: tile.t + tile.h / 2 });
       await sleep(300);
+      const over = await evalIn(c, `getComputedStyle(document.querySelector('.library-tile[data-thumb] .library-tile-caption')).opacity`);
+      check(`Library (${face}): the picture's name is clear of it at rest and comes up under the pointer`, rest === "0" && over === "1", { rest, over });
       await shoot(c, `library-files-hover-${face}`, { x: tile.l - 20, y: tile.t - 20, width: tile.w * 3 + 80, height: tile.h + 40 });
       await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 5, y: 450 });
     }
     await evalIn(c, `(() => { document.querySelector('input[name="library-view"][value="list"]')?.click(); return true; })()`);
     await sleep(800);
     await shoot(c, `library-files-list-${face}`);
+    const rows = await evalIn(c, `document.querySelectorAll('.library-row').length`);
+    const stored = await api.call("settings.get", { key: "ui.libraryView" }).catch((e) => `error: ${e.message}`);
+    check(`Library (${face}): Rows lays the same files out a line each, and the choice is a setting`, rows === lib.tiles && JSON.stringify(stored).includes("list"), { rows, stored });
     await evalIn(c, `(() => { document.querySelector('input[name="library-view"][value="grid"]')?.click(); return true; })()`);
     await sleep(400);
     await evalIn(c, `__live.library("memory")`);
@@ -316,12 +383,19 @@ async function main() {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(t, t.value + String.fromCharCode(10) + "- Ask before deleting anything in drafts/.");
       t.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
     await sleep(150);
+    const edited = await evalIn(c, `document.querySelector('.memory-doc-status').textContent`);
     await shoot(c, `library-memory-edited-${face}`, await evalIn(c, `(() => { const b = __live.box(document.querySelector('.memory-doc-card').closest('.settings-row')); return { x: b.l - 16, y: b.t - 16, width: b.w + 32, height: Math.min(b.h + 32, 700) }; })()`));
     await sleep(1500);
+    const saved = await evalIn(c, `document.querySelector('.memory-doc-status').textContent`);
+    const onServer = await api.call("memory.get", { spaceId: session.spaceId });
+    check(`Memory (${face}): typing says Edited, a pause writes it, and the head says Saved`,
+      edited === "Edited" && saved === "Saved" && onServer.doc.includes("Ask before deleting anything in drafts/."), { edited, saved, tail: onServer.doc.slice(-60) });
     await shoot(c, `library-memory-saved-${face}`, await evalIn(c, `(() => { const b = __live.box(document.querySelector('.memory-doc-card').closest('.settings-row')); return { x: b.l - 16, y: b.t - 16, width: b.w + 32, height: 120 }; })()`));
     await evalIn(c, `(() => { document.querySelector('.memory-doc-view input[value="preview"]').click(); return true; })()`);
     await sleep(500);
     await shoot(c, `library-memory-preview-${face}`);
+    const preview = await evalIn(c, `document.querySelector('.memory-preview h1')?.textContent ?? null`);
+    check(`Memory (${face}): Preview renders the markdown the agents are handed`, preview === "How we work in Homework", { preview });
     await evalIn(c, `(() => { document.querySelector('.memory-doc-view input[value="write"]').click(); const s = document.querySelector('.library-page-pane .page-content'); s.scrollTop = s.scrollHeight; return true; })()`);
     await sleep(500);
     await shoot(c, `library-memory-bottom-${face}`);

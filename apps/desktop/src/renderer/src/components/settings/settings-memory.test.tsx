@@ -24,6 +24,8 @@ describe("the memory document", () => {
     fireEvent.change(doc, { target: { value: "new working agreement" } });
     expect(screen.getByRole("status")).toHaveTextContent("Edited");
     fireEvent.blur(doc);
+    // At once, not on the pause's timer — THE mutant is a blur that waits for it.
+    expect(api.calls).toContain(`setMemory:s1:${"new working agreement".length}`);
     await waitFor(() => expect(api.data.memoryDocs.s1).toBe("new working agreement"));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Saved"));
   });
@@ -46,6 +48,9 @@ describe("the memory document", () => {
     const doc = await screen.findByRole("textbox", { name: "Space memory document" });
     fireEvent.change(doc, { target: { value: "typed, then the page closed" } });
     unmount();
+    // At the close, not when the pause's timer would have fired — a window quit inside that pause
+    // would otherwise take the sentence with it.
+    expect(api.calls).toContain(`setMemory:s1:${"typed, then the page closed".length}`);
     await waitFor(() => expect(api.data.memoryDocs.s1).toBe("typed, then the page closed"));
   });
 

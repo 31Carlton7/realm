@@ -6174,7 +6174,9 @@ select { appearance: none; padding-right: 22px;
 /* Lit while it narrows something — the state the toolbar would otherwise hide behind a menu. */
 .library-filter[data-on] { background: var(--rl-active); color: var(--rl-text-bright); }
 .library-view { padding: 2px; }
-.library-view .seg-opt { display: grid; place-items: center; width: 30px; height: 24px; padding: 0; }
+/* Three classes so the page's own segment scale (`.page .seg-opt`, later) cannot pad an icon-only
+   segment out of its 30px. */
+.library-toolbar .library-view .seg-opt { display: grid; place-items: center; width: 30px; height: 24px; padding: 0; }
 /* The search field wears its glyph inside its own curve, as Codex's does. */
 .library-search { position: relative; display: block; width: 240px; }
 .library-search > svg { position: absolute; left: 11px; top: 50%; translate: 0 -50%; color: var(--rl-text-faint); pointer-events: none; }
@@ -6560,7 +6562,7 @@ select { appearance: none; padding-right: 22px;
 /* The prose, folded. Open by default only when the engine wants something from you — which is the
    whole of how this page stopped being a wall: a ready engine is a title and some chips. */
 .engine-details > summary {
-  list-style: none; cursor: default; font-size: 12px; color: var(--rl-text-faint);
+  list-style: none; cursor: default; font-size: 13px; color: var(--rl-text-dim);
   padding: 2px 0; width: fit-content;
 }
 .engine-details > summary::-webkit-details-marker { display: none; }
@@ -7195,7 +7197,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .slider-row input[type="range"]:focus-visible::-webkit-slider-thumb { outline: 1.5px solid var(--rl-accent); outline-offset: 2px; }
 .slider-row input:disabled { cursor: default; opacity: .45; }
 /* Tabular so the readout does not shuffle the thumb sideways while it is being dragged. */
-.slider-value { font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+.slider-value { font-size: 13px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
 
 /* ——— Settings → Appearance: the previews ————————————————————————————————————————————
    Every preview below paints from CUSTOM PROPERTIES set inline on its own element, not from :root.
@@ -7209,7 +7211,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
    these sit in the page column, so only the words are the same, not the metrics. */
 .theme-detail > summary, .theme-other > summary {
   list-style: none; cursor: default; width: fit-content; padding: 4px 0;
-  font-size: 12px; color: var(--rl-text-faint);
+  font-size: 13px; color: var(--rl-text-dim);
 }
 .theme-detail > summary::-webkit-details-marker, .theme-other > summary::-webkit-details-marker { display: none; }
 .theme-detail > summary:hover, .theme-other > summary:hover { color: var(--rl-text-dim); }
@@ -7335,7 +7337,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
    colour. Wraps rather than scrolls — this sits in a pane whose width is wherever the split is. */
 .theme-overrides { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 2px 0 0; padding: 0; border: 0; }
 .theme-override { display: flex; align-items: center; gap: 6px; }
-.theme-override > span { font-size: 12px; color: var(--rl-text-dim); }
+.theme-override > span { font-size: 13px; color: var(--rl-text-dim); }
 .theme-override input[type="color"] {
   width: 26px; height: 26px; padding: 2px; flex: none; cursor: default;
   border-radius: var(--r-chip); border: var(--hairline-w) solid var(--rl-line); background: var(--rl-panel);
@@ -7374,7 +7376,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
    padding — which is how it came to be missing the one declaration that mattered (`appearance:
    none`) and drew a native arrow with a square focus ring inside a rounded toolbar. The padding
    keeps `padding-right` off the shorthand so the shared chevron still has its gutter. */
-.usage-scope select { height: 26px; padding-left: 8px; font-size: 12px; }
+.usage-scope select { height: 28px; padding-left: 8px; font-size: 13px; }
 
 /* A segmented control: one row of radios wearing a shared track. */
 .seg { display: inline-flex; gap: 2px; margin: 0; padding: 2px; border: var(--hairline-w) solid var(--rl-line);
@@ -7389,6 +7391,8 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .seg-opt:hover { color: var(--rl-text-bright); }
 .seg-opt[data-selected] { background: var(--rl-raised); color: var(--rl-text-bright); box-shadow: var(--shadow-btn); }
 .seg-opt:has(input:focus-visible) { outline: 2px solid var(--rl-accent); outline-offset: 1px; }
+/* On a page a segment is read beside 14px labels, so it takes the page's scale. */
+.page .seg-opt { padding: 4px 10px; font-size: 13px; line-height: 18px; }
 
 /* ——— stat tiles ——— */
 .usage-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
@@ -7399,13 +7403,13 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
   display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 12px;
   border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-panel); background: var(--chart-surface);
 }
-.stat-label { font-size: 11.5px; color: var(--rl-text-dim); }
+.stat-label { font-size: 12.5px; color: var(--rl-text-dim); }
 /* Proportional figures, deliberately: `tabular-nums` gives every digit a zero's width, which makes
    a value like 121 look loose at display size. Tabular is for the tables below. */
 .stat-value { font-size: 22px; font-weight: var(--fw-title); letter-spacing: -0.02em; color: var(--rl-text-bright); }
 .stat-value-hero { font-size: 34px; line-height: 1.1; }
 .stat-hero { grid-column: span 2; }
-.stat-delta { font-size: 11.5px; color: var(--rl-text-faint); }
+.stat-delta { font-size: 12.5px; color: var(--rl-text-dim); }
 .sparkline { width: 100%; height: 24px; margin-top: 6px; opacity: .8; }
 
 /* ——— cards ——— */
@@ -7415,7 +7419,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 }
 .usage-card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
 .usage-card-head h3 { margin: 0; font-size: 13px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
-.usage-card-head .usage-card-sub { font-size: 11.5px; color: var(--rl-text-faint); }
+.usage-card-head .usage-card-sub { font-size: 12.5px; color: var(--rl-text-dim); }
 .usage-card-head .seg { margin-left: auto; }
 
 /* ── The activity calendar (ActivityCalendar.tsx) ────────────────────────
@@ -7518,13 +7522,13 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .usage-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .usage-table caption { text-align: left; }
 .usage-table th, .usage-table td { padding: 6px 8px; text-align: left; border-bottom: var(--hairline-w) solid var(--rl-line); }
-.usage-table thead th { font-weight: var(--fw-medium); font-size: 11px; color: var(--rl-text-faint); }
+.usage-table thead th { font-weight: var(--fw-medium); font-size: 12.5px; color: var(--rl-text-dim); }
 .usage-table tbody th { font-weight: var(--fw-medium); color: var(--rl-text-bright); }
 .usage-table td { color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
 .usage-table tbody tr:last-child th, .usage-table tbody tr:last-child td { border-bottom: none; }
 .usage-swatch { display: inline-block; width: 9px; height: 9px; margin-right: 7px; border-radius: 2px; vertical-align: baseline; }
 .usage-session-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 30ch; }
-.usage-session-space, .usage-session-model { display: block; font-size: 11px; color: var(--rl-text-faint); }
+.usage-session-space, .usage-session-model { display: block; font-size: 12px; color: var(--rl-text-dim); }
 
 /* ——— budget ——— */
 .budget-meter { --budget-hue: var(--rl-accent); }
@@ -7540,7 +7544,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
    has already happened. */
 .budget-projection { position: absolute; top: -2px; bottom: -2px; width: 2px; border-radius: 1px;
   background: var(--rl-text-dim); }
-.budget-line { margin: 0; font-size: 11.5px; color: var(--rl-text-dim); }
+.budget-line { margin: 0; font-size: 12.5px; color: var(--rl-text-dim); }
 /* Plan & limits — what the PROVIDER says is left, next to what the user budgeted. Same track idiom as
    the budget meter above so the two read as one family, with one difference that is the whole point:
    the state ramp is driven by the provider's own alert (`data-alert` on the account), never by a
@@ -7574,35 +7578,35 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .plan-note-silent { padding-top: 2px; border-top: var(--hairline-w) solid var(--rl-line); }
 
 .budget-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
-.budget-input { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--rl-text-dim); }
-.budget-input input { width: 130px; height: 26px; padding: 0 8px; font: inherit; font-size: 12px;
+.budget-input { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--rl-text-dim); }
+.budget-input input { width: 130px; height: 28px; padding: 0 8px; font: inherit; font-size: 13px;
   color: var(--rl-text-bright); background: var(--rl-frame); border: var(--hairline-w) solid var(--rl-line);
   border-radius: var(--r-ctl); font-variant-numeric: tabular-nums; }
 .budget-thresholds { display: flex; align-items: center; gap: 6px; margin: 0; padding: 0; border: none; }
-.budget-thresholds legend { float: left; margin-right: 8px; padding: 0; font-size: 11.5px; color: var(--rl-text-dim); }
-.budget-threshold { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 11.5px;
+.budget-thresholds legend { float: left; margin-right: 8px; padding: 0; font-size: 12.5px; color: var(--rl-text-dim); }
+.budget-threshold { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 12.5px;
   color: var(--rl-text-dim); border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-pill); cursor: default;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .budget-threshold input { position: absolute; opacity: 0; pointer-events: none; }
 .budget-threshold[data-selected] { background: var(--rl-hover); color: var(--rl-text-bright); }
 .budget-threshold:has(input:focus-visible) { outline: 2px solid var(--rl-accent); outline-offset: 1px; }
-.budget-note { margin: 0; font-size: 11px; line-height: 1.5; color: var(--rl-text-faint); max-width: 78ch; }
+.budget-note { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim); max-width: 78ch; }
 
 /* ——— activity ——— */
 .usage-activity { display: flex; flex-wrap: wrap; gap: 12px; }
 .usage-activity-stats { flex: 1 1 320px; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
 .usage-activity-lists { flex: 1 1 300px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-.usage-toplist h4 { margin: 0 0 6px; font-size: 11.5px; font-weight: var(--fw-medium); color: var(--rl-text-faint); }
+.usage-toplist h4 { margin: 0 0 6px; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
 .usage-toplist ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
 .usage-toplist li { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
 .usage-toplist-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--rl-text-dim); }
-.usage-toplist-note { flex: none; font-size: 11px; color: var(--rl-danger); }
+.usage-toplist-note { flex: none; font-size: 12px; color: var(--rl-danger); }
 .usage-toplist-value { flex: none; font-variant-numeric: tabular-nums; color: var(--rl-text-bright); }
 
 /* ——— caveats: why a number is missing, named rather than left as a puzzle ——— */
 .usage-caveats { display: flex; flex-direction: column; gap: 6px; }
-.usage-caveats p { margin: 0; font-size: 11.5px; line-height: 1.55; color: var(--rl-text-faint); max-width: 88ch; }
+.usage-caveats p { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--rl-text-dim); max-width: 88ch; }
 .usage-caveats strong { font-weight: var(--fw-medium); color: var(--rl-text-dim); }
 .usage-caveats svg { vertical-align: -2px; }
 

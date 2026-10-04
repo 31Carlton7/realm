@@ -216,6 +216,7 @@ async function main() {
     const back = document.querySelector('.sb-page-back').getBoundingClientRect();
     return { inPage: !!document.querySelector('.page-overlay .page-rail'), listHidden: document.querySelector('.sb-list').hidden,
       tabs: tabs.length, text: tabs.slice(0, 3).map(textLeft), h: Math.round(tabs[0].getBoundingClientRect().height),
+      glyph: tabs.slice(0, 3).map((t) => { const g = t.querySelector('.page-rail-glyph'); return g ? Math.round(g.getBoundingClientRect().left) : null; }),
       // Not inherited: what decides a click is the nearest box that sets a region at all.
       region: (() => { for (let el = tabs[0]; el; el = el.parentElement) { const v = getComputedStyle(el).getPropertyValue('-webkit-app-region');
         if (v && v !== 'none') return v; } return null; })(),
@@ -223,8 +224,12 @@ async function main() {
   })()`);
   check("Settings' sections are in the sidebar, the spaces hidden under them, and none left in the page",
     nav.tabs > 5 && !nav.inPage && nav.listHidden === true, nav);
-  check("…their text on the sidebar's own row edge, at the sidebar's row height",
-    nav.text.every((x) => x !== null && Math.abs(x - rowEdge) <= 1) && nav.h >= 32, { rowEdge, text: nav.text, h: nav.h });
+  /* A section wears its glyph first, as a sidebar row wears its kind's: the GLYPH stands on the row
+     edge and the text follows it, one glyph-and-gap on — the same anatomy as the spaces' own rows. */
+  check("…their glyph on the sidebar's own row edge and their text after it, at the sidebar's row height",
+    nav.glyph.every((x) => x !== null && Math.abs(x - rowEdge) <= 1)
+      && nav.text.every((x, i) => x !== null && x - nav.glyph[i] >= 16 && x - nav.glyph[i] <= 28) && nav.h >= 32,
+    { rowEdge, glyph: nav.glyph, text: nav.text, h: nav.h });
   check("…under a Back in the header band", nav.back.t >= 0 && nav.back.b <= 40, nav.back);
   // THE BUG: the search sat flush on the frame's rim, under Back, with nothing between them.
   const searchTop = await evalIn(c, `Math.round(document.querySelector('.sb-page-nav .settings-search').getBoundingClientRect().top)`);

@@ -317,7 +317,9 @@ async function main() {
   check("its control has focus", landed.focused, null);
   check("it wears the accent edge", landed.found && /inset/.test(landed.edge), landed.edge);
   const edgeAt = await sample(c, landed.row.l + 1, landed.row.t + Math.round(landed.row.h / 2) - 1);
-  const fillAt = await sample(c, landed.row.l + 40, landed.row.t + Math.round(landed.row.h / 2) - 1);
+  // In the row's own left padding — inside the rim, past the 3px mark, short of the label — because
+  // a label centred in its row sits right where a sample further in would land on its glyphs.
+  const fillAt = await sample(c, landed.row.l + 9, landed.row.t + Math.round(landed.row.h / 2) - 1);
   note("edge vs fill while marked", { edgeAt, fillAt });
   check("the edge is a different colour from the row's fill while it is marked", edgeAt.some((v, i) => Math.abs(v - fillAt[i]) > 30), { edgeAt, fillAt });
   await shoot(c, "landed-dark", { x: landed.row.l - 12, y: landed.row.t - 12, width: landed.row.w + 24, height: landed.row.h + 24 });
