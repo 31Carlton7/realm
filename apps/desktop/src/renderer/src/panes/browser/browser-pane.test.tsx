@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, createEvent, fireEvent, render, screen, within } from "@testing-library/react";
-import type { BlockedDownload, Browser, BrowserAnnotateResult, BrowserDownloadResult, BrowserFindResult, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, PasskeyNotice } from "@realm/contracts";
+import type { BlockedDownload, Browser, BrowserAnnotateResult, BrowserDownloadResult, BrowserFindResult, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, PasskeyNotice } from "@realm/contracts";
 import { BrowserPane, PICK_NOTE_MS, SUGGEST_DEBOUNCE_MS } from "./BrowserPane";
 import { setBrowserBridgesForTests, type BrowserBridges, type BrowserHostBridge, type BrowserServerBridge } from "./browser-client";
 import { SETTLE_MS, shouldShowView, isRealmItemDrag } from "./view-sync";
@@ -21,12 +21,14 @@ function fakeBridges(row: Partial<Browser> = {}) {
   const foundCbs = new Set<(m: BrowserFindResult) => void>();
   const findRequestCbs = new Set<(m: { browserId: string }) => void>();
   /** What the next ⋯ menu is built from, and which row the "user" picks when it pops. */
-  let menuState: BrowserMenuState = { zoom: 1, canZoomIn: true, canZoomOut: true, back: [], forward: [], blocked: [], saved: [] };
+  let menuState: BrowserMenuState = { zoom: 1, canZoomIn: true, canZoomOut: true, back: [], forward: [], blocked: [], saved: [], shareTargets: [] };
   let menuChoice: string | null = null;
   const menus: { items: NativeMenuItem[]; at: { x: number; y: number } }[] = [];
   let screenshotDir: string | null = "/tmp/space/screenshots";
   let screenshotResult: BrowserScreenshotSaved = { ok: true, path: "/tmp/space/screenshots/example.com-2026-10-01T19-30-05.png", name: "example.com-2026-10-01T19-30-05.png", size: 2048 };
   let cleared = true;
+  /** What main answers "Share this site's sign-in with" with. */
+  let shareResult: BrowserSignInShare = { ok: true, profileName: "School", host: "example.com", copied: 3 };
   /** History the server answers `suggest` with; `holdSuggest` makes each answer wait to be released. */
   let history: BrowserHistoryPage[] = [];
   /** What `recent` answers: the profile's last pages, newest first, as the server ranks them. */
@@ -72,7 +74,8 @@ function fakeBridges(row: Partial<Browser> = {}) {
     print: async (id) => { calls.push(`print:${id}`); },
     setDevice: async (id, preset) => { calls.push(`set-device:${id}:${preset}`); },
     screenshot: async (id, dir) => { calls.push(`screenshot:${id}:${dir}`); return screenshotResult; },
-    clearData: async () => { calls.push("clear-data"); return { cleared }; },
+    clearData: async (id) => { calls.push(`clear-data:${id}`); return { cleared, profileId: cleared ? "p1" : null }; },
+    shareSignIn: async (id, to) => { calls.push(`share-signin:${id}:${to}`); return shareResult; },
     reveal: async (path) => { calls.push(`reveal:${path}`); return !path.includes("/gone/"); },
   };
   const server: BrowserServerBridge = {
@@ -88,7 +91,6 @@ function fakeBridges(row: Partial<Browser> = {}) {
       return new Promise((resolve) => { heldSuggest.push({ query, release: () => resolve(answer) }); });
     },
     recent: async (spaceId) => { calls.push(`recent:${spaceId}`); return recentPages; },
-    profile: async (browserId) => ({ profileId: "p1", partition: `persist:browser-p1:${browserId}` }),
     clearHistory: async (profileId) => { calls.push(`clear-history:${profileId}`); },
   };
   const bridges: BrowserBridges = { host, server };
@@ -106,6 +108,7 @@ function fakeBridges(row: Partial<Browser> = {}) {
     setScreenshotDir: (d: string | null) => { screenshotDir = d; },
     setScreenshotResult: (r: BrowserScreenshotSaved) => { screenshotResult = r; },
     setCleared: (c: boolean) => { cleared = c; },
+    setShareResult: (r: BrowserSignInShare) => { shareResult = r; },
     found: (m: Partial<BrowserFindResult>) => {
       const full: BrowserFindResult = { browserId: "b1", activeMatchOrdinal: 1, matches: 1, finalUpdate: true, ...m };
       for (const cb of foundCbs) cb(full);
@@ -989,15 +992,40 @@ describe("BrowserPane — the ⋯ menu (Plan 26 W7)", () => {
     const { f } = await mount();
     f.setCleared(false);
     await choose(f, "clear-data");
-    expect(f.calls).toContain("clear-data");
+    // Main is told WHICH pane, because the partition it clears is that pane's profile's.
+    expect(f.calls).toContain("clear-data:b1");
     expect(screen.queryByRole("status")).toBeNull();
     expect(f.calls).not.toContain("clear-history:p1");
     f.setCleared(true);
     await choose(f, "clear-data");
-    expect(screen.getByRole("status")).toHaveTextContent("Every browser pane is signed out");
+    expect(screen.getByRole("status")).toHaveTextContent("This profile's browser panes are signed out");
     // …and the pages it showed go too, or the address field would go on suggesting them — the pane's
     // own profile's pages, which the server names.
     expect(f.calls).toContain("clear-history:p1");
+  });
+
+  it("Share this site's sign-in copies into the profile chosen, and the receipt names the site and the profile", async () => {
+    /* THE mutants: share into the pane's own profile, or say "Shared" when main copied nothing — the
+       person would open the other profile and find themselves signed out. */
+    const { f } = await mount();
+    f.setMenuState({ shareTargets: [{ id: "p2", name: "School" }] });
+    await choose(f, "share-signin:p2");
+    expect(f.calls).toContain("share-signin:b1:p2");
+    expect(screen.getByRole("status")).toHaveTextContent("Shared example.com's sign-in with School.");
+    f.setShareResult({ ok: true, profileName: "School", host: "example.com", copied: 0 });
+    await choose(f, "share-signin:p2");
+    expect(screen.getByRole("status")).toHaveTextContent("This pane has no sign-in for example.com, so nothing was shared with School.");
+    f.setShareResult({ ok: false, error: "That profile no longer exists." });
+    await choose(f, "share-signin:p2");
+    expect(screen.getByRole("status")).toHaveTextContent("That profile no longer exists.");
+  });
+
+  it("the menu offers the profiles main named, under the share row", async () => {
+    const { f } = await mount();
+    f.setMenuState({ shareTargets: [{ id: "p2", name: "School" }] });
+    await choose(f, null);
+    const share = rowsOf(f.menus.at(-1)!.items).find((r) => r.label === "Share this site's sign-in with");
+    expect(share?.submenu?.map((r) => r.label)).toEqual(["School"]);
   });
 
   it("Device size reaches the view, and the pane's ground frames the device's box", async () => {

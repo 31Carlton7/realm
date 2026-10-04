@@ -25,8 +25,7 @@ export type ProfileFacts = { id: string; name: string; browserPartition: string 
 export const isBrowserPartition = (p: unknown): p is string =>
   typeof p === "string" && (p === SHARED_BROWSER_PARTITION || /^persist:browser-[0-9A-Za-z]{1,64}$/.test(p));
 
-function parse(rows: unknown): ProfileFacts[] {
-  if (!Array.isArray(rows)) return [];
+function parse(rows: unknown[]): ProfileFacts[] {
   return rows.flatMap((r) => {
     const p = r as Record<string, unknown> | null;
     return p && typeof p.id === "string" && typeof p.name === "string" && isBrowserPartition(p.browserPartition)
@@ -63,10 +62,15 @@ export class ProfileDirectory {
    *  have. Concurrent askers share one request. A failed ask keeps the last answer. */
   refresh(): Promise<readonly ProfileFacts[]> {
     this.asking ??= this.d.fetch().then((rows) => {
+      // An answer that is not a list is a server fault, not "there are no profiles": keep the last.
+      if (!Array.isArray(rows)) return this.known();
       const next = parse(rows);
       const before = this.profiles;
       this.profiles = next;
-      if (before) for (const gone of before.filter((p) => !next.some((n) => n.id === p.id))) this.d.onRemoved?.(gone);
+      // Gone means absent from the ANSWER, not merely dropped by `parse`: a profile whose partition
+      // this build cannot read is still a profile, and its cookies are not this code's to clear.
+      const present = new Set(rows.map((r) => (r as { id?: unknown } | null)?.id));
+      if (before) for (const gone of before.filter((p) => !present.has(p.id))) this.d.onRemoved?.(gone);
       return next;
     }, () => this.known()).finally(() => { this.asking = null; });
     return this.asking;

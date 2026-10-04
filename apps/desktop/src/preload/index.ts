@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
-import type { BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, MediaFile, Passkey, PasskeyNotice, ReducedMotionPref, EditorId, InstalledEditor } from "@realm/contracts";
+import type { BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, ReducedMotionPref, EditorId, InstalledEditor } from "@realm/contracts";
 import type { NativeMenuItem } from "../main/native-menu";
 import type { TccRow } from "../main/tcc";
 import type { MacAccessStatus } from "../main/mac-access";
@@ -349,7 +349,10 @@ contextBridge.exposeInMainWorld("realm", {
     setDevice: (id: string, preset: "phone" | "tablet" | "desktop" | null): Promise<void> => ipcRenderer.invoke("browser:set-device", id, preset),
     /** Capture the view into `dir` — the server's `browsers.screenshotDir`, never a path made here. */
     screenshot: (id: string, dir: string): Promise<BrowserScreenshotSaved> => ipcRenderer.invoke("browser:screenshot", id, dir),
-    /** Asks first, in main, with the OS's own dialog; resolves whether anything was cleared. */
-    clearData: (): Promise<{ cleared: boolean }> => ipcRenderer.invoke("browser:clear-data"),
+    /** Asks first, in main, with the OS's own dialog; clears the PANE's profile's partition and
+     *  resolves whether anything was cleared, and whose. */
+    clearData: (id: string): Promise<{ cleared: boolean; profileId: string | null }> => ipcRenderer.invoke("browser:clear-data", id),
+    /** Copy the page's site's cookies into another profile's partition — that profile's own copy. */
+    shareSignIn: (id: string, toProfileId: string): Promise<BrowserSignInShare> => ipcRenderer.invoke("browser:share-signin", id, toProfileId),
   },
 });

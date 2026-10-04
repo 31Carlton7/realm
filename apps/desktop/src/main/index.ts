@@ -1,5 +1,5 @@
 import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, powerSaveBlocker, safeStorage, screen, shell, systemPreferences, Tray, type MenuItemConstructorOptions } from "electron";
-import { BrowserCredentialInputSchema, newId, type BrowserAction, type BrowserAnnotateResult, type BrowserCredential, type BrowserMenuState, type BrowserScreenshotSaved, type MediaFile, type Passkey } from "@realm/contracts";
+import { BrowserCredentialInputSchema, newId, type BrowserAction, type BrowserAnnotateResult, type BrowserCredential, type BrowserMenuState, type BrowserScreenshotSaved, type BrowserSignInShare, type MediaFile, type Passkey } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { spawn, execFileSync } from "node:child_process";
@@ -21,7 +21,7 @@ import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
 import { compressIconIfNeeded, describeFiles, existingPath, fileThumbnail, openablePath, saveTempAttachment, statFile, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
-import { clearBrowserPartition, createBrowserPane, governBrowserDownloads, type BrowserPane } from "./browser-pane";
+import { clearBrowserPartition, createBrowserPane, governBrowserDownloads, shareSiteCookies, type BrowserPane, type DownloadPolicy } from "./browser-pane";
 import { BlockedDownloads, DownloadGovernor, SavedDownloads, retryBlockedDownload } from "./downloads";
 import { nextZoomFactor, searchUrl, type BrowserPaneHost, type ViewRect } from "./browser-host";
 import { clearBrowsingData, saveBrowserScreenshot } from "./browser-controls";
@@ -106,6 +106,10 @@ const profileDirectory = new ProfileDirectory({
   onRemoved: (profile) => forgetProfile(profile),
 });
 
+/** A profile id as the renderer names one. Not a lookup — the store answers an unknown profile with
+ *  nothing — only a guard against a value that is not an id at all. */
+const profileArg = (v: unknown): string => (typeof v === "string" && /^[0-9A-Za-z]{1,64}$/.test(v) ? v : "");
+
 /** Which profile each browser pane belongs to — its space's, as realm-server said when the view was
  *  made. Keyed by browser id, which is unique across windows. What the passkey broker and the fill op
  *  read to find a pane's keys and sign-ins: a pane's secrets are its profile's. */
@@ -120,9 +124,12 @@ async function browserOwner(browserId: string): Promise<{ profileId: string; par
   } catch { return null; }
 }
 
-/** A deleted profile: its saved sign-ins and passkeys go with it. Copies it shared stay with the
- *  profiles they were shared into. */
+/** A deleted profile: its panes close, its partition's cookies, site data and cache are cleared — a
+ *  jar nobody can open again must not keep anybody signed in — and its saved sign-ins and passkeys go.
+ *  Copies it shared stay with the profiles they were shared into. */
 function forgetProfile(profile: ProfileFacts): void {
+  browserHost?.destroyPartition(profile.browserPartition);
+  void clearBrowserPartition(profile.browserPartition).catch(() => {});
   secrets()?.forgetProfile(profile.id);
 }
 
@@ -453,35 +460,43 @@ async function createWindow(info: { port: number; home: string; token: string })
   });
   pane.onViewDestroyed((id) => { host.release(id); passkeys.release(id); paneProfiles.delete(id); });
   agentHost = host;
-  // Downloads on the browser partition are DEFAULT-DENY (Plan 11 W3), narrowed by Plan 23 to let
-  // through exactly those covered by a live one-shot grant from an approved `browser_download`.
-  // Everything else is still cancelled, in every permission mode.
-  governBrowserDownloads({
-    browserIdFor: (wcId) => browserPane?.browserIdForWebContents(wcId) ?? null,
-    decide: (browserId, item) => downloadGovernor.handle(browserId, item),
-    onBlocked: (wcId, url, reason, filename) => {
-      const id = browserPane?.browserIdForWebContents(wcId);
-      if (id) {
-        agentHost?.noteBlockedDownload(id, url);
-        // W4: remember it so the pane can say so and offer to fetch it. A download the user started
-        // and that vanished without a word is the papercut this removes.
-        const entry = blockedDownloads.note(id, url, filename);
-        const win = BrowserWindow.getAllWindows()[0];
-        if (entry && win && !win.isDestroyed()) win.webContents.send("realm:browser-download-blocked", { browserId: id, blocked: entry });
-      }
-      console.error(`[browser-agent] download blocked (${reason})${id ? ` (browser ${id})` : ""}: ${url}`);
-    },
-  });
   win.on("closed", () => { phases.stop(); mainWindow = null; browserHost = null; browserPane = null; agentHost = null; appDriveHost.forget(); });
 }
 
+/**
+ * Downloads on every profile's partition are DEFAULT-DENY (Plan 11 W3), narrowed by Plan 23 to let
+ * through exactly those covered by a live one-shot grant from an approved `browser_download`.
+ * Everything else is still cancelled, in every permission mode. One policy, applied to each partition
+ * the first time a view is made in it (`governBrowserDownloads`).
+ */
+const downloadPolicy: DownloadPolicy = {
+  browserIdFor: (wcId) => browserPane?.browserIdForWebContents(wcId) ?? null,
+  decide: (browserId, item) => downloadGovernor.handle(browserId, item),
+  onBlocked: (wcId, url, reason, filename) => {
+    const id = browserPane?.browserIdForWebContents(wcId);
+    if (id) {
+      agentHost?.noteBlockedDownload(id, url);
+      // W4: remember it so the pane can say so and offer to fetch it. A download the user started
+      // and that vanished without a word is the papercut this removes.
+      const entry = blockedDownloads.note(id, url, filename);
+      const win = BrowserWindow.getAllWindows()[0];
+      if (entry && win && !win.isDestroyed()) win.webContents.send("realm:browser-download-blocked", { browserId: id, blocked: entry });
+    }
+    console.error(`[browser-agent] download blocked (${reason})${id ? ` (browser ${id})` : ""}: ${url}`);
+  },
+};
+
 // Browser pane (Plan 11 W1): the renderer drives the native WebContentsViews over this surface.
 // Mutations are invokes; the per-frame bounds sync is a plain send (no reply to wait on).
+/* A view is made in its PROFILE's partition — the space's profile, asked of realm-server each time a
+   pane mounts — so a space moved to another profile brings its panes to that profile's jar, and the
+   renderer has no say in whose cookies a pane gets. */
 ipcMain.handle("browser:create", async (_e, id: string, url: string, allowlist: string[] | null) => {
   const owner = await browserOwner(String(id));
   if (!owner) throw new Error("This browser's space or profile is gone, so it has nowhere to open.");
   paneProfiles.set(String(id), owner.profileId);
-  browserHost?.create(id, url, allowlist);
+  governBrowserDownloads(owner.partition, downloadPolicy);
+  browserHost?.create(id, url, allowlist, owner.partition);
 });
 ipcMain.handle("browser:destroy", (_e, id: string) => { browserHost?.destroy(id); });
 // The pane went away without the browser being closed — a space or pane-group switch. The view
@@ -556,6 +571,7 @@ ipcMain.on("browser:set-bounds", (_e, id: string, rect: ViewRect, dpr: number, v
 ipcMain.handle("browser:menu-state", (_e, id: string): BrowserMenuState => {
   const browserId = String(id);
   const zoom = browserHost?.zoom(browserId, null) ?? 1;
+  const own = paneProfiles.get(browserId);
   return {
     zoom,
     canZoomIn: nextZoomFactor(zoom, "in") > zoom,
@@ -564,6 +580,8 @@ ipcMain.handle("browser:menu-state", (_e, id: string): BrowserMenuState => {
     forward: (browserHost?.historyTrail(browserId, "forward") ?? []).slice(0, HISTORY_MENU_MAX),
     blocked: blockedDownloads.list(browserId),
     saved: savedDownloads.list(browserId),
+    // Every profile but the pane's own; none while main does not know whose pane this is.
+    shareTargets: own ? profileDirectory.known().filter((p) => p.id !== own).map((p) => ({ id: p.id, name: p.name })) : [],
   };
 });
 ipcMain.handle("browser:go-to-index", (_e, id: string, index: unknown) => {
@@ -600,18 +618,45 @@ ipcMain.handle("browser:screenshot", async (_e, id: string, dir: unknown): Promi
   });
 });
 /**
- * Clear browsing data, behind the OS's own confirm — a sheet on the window, its copy in
- * browser-controls.ts. Cancel is the default button: this signs every pane out, and Return should not.
+ * Clear browsing data for the PANE's profile, behind the OS's own confirm — a sheet on the window, its
+ * copy in browser-controls.ts. Cancel is the default button: this signs every one of the profile's
+ * panes out, and Return should not. Answers whose it cleared, so the renderer forgets that profile's
+ * history and no other.
  */
-ipcMain.handle("browser:clear-data", (e) => {
+ipcMain.handle("browser:clear-data", async (e, id: unknown): Promise<{ cleared: boolean; profileId: string | null }> => {
+  const browserId = String(id);
+  const partition = browserHost?.partitionOf(browserId) ?? null;
+  const profileId = paneProfiles.get(browserId) ?? null;
+  if (!partition || !profileId) return { cleared: false, profileId: null };
+  const profile = await profileDirectory.resolve(profileId);
   const win = BrowserWindow.fromWebContents(e.sender);
-  return clearBrowsingData({
+  const { cleared } = await clearBrowsingData({
+    profileName: profile?.name ?? "this profile",
     confirm: async (copy) => {
       const options = { type: "warning" as const, buttons: [copy.clear, copy.cancel], defaultId: 1, cancelId: 1, message: copy.message, detail: copy.detail };
       return (win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options)).response;
     },
-    clear: () => clearBrowserPartition(),
+    clear: () => clearBrowserPartition(partition),
   });
+  return { cleared, profileId };
+});
+
+/**
+ * The ⋯ menu's "Share this site's sign-in with ▸ <profile>": copy the cookies the pane's page signs in
+ * with into that profile's partition (cookie-share.ts). The pane keeps its own. The page is the VIEW's
+ * own url, never anything the renderer says it is on.
+ */
+ipcMain.handle("browser:share-signin", async (_e, id: unknown, toProfileId: unknown): Promise<BrowserSignInShare> => {
+  const browserId = String(id);
+  const from = browserHost?.partitionOf(browserId) ?? null;
+  const pageUrl = browserPane?.pageState(browserId)?.url ?? "";
+  const target = await profileDirectory.resolve(profileArg(toProfileId));
+  if (!from) return { ok: false, error: "This browser pane is not open." };
+  if (!target) return { ok: false, error: "That profile no longer exists." };
+  if (target.browserPartition === from) return { ok: false, error: `This pane is already ${target.name}'s.` };
+  const shared = await shareSiteCookies(from, target.browserPartition, pageUrl).catch(() => null);
+  if (!shared) return { ok: false, error: "This page is not on a site, so it has no sign-in to share." };
+  return { ok: true, profileName: target.name, host: shared.host, copied: shared.copied };
 });
 
 /**
@@ -735,10 +780,6 @@ ipcMain.handle("browser:save-download", async (_e, browserId: string, id: string
     now: () => Date.now(),
   });
 });
-
-/** A profile id as the renderer names one. Not a lookup — the store answers an unknown profile with
- *  nothing — only a guard against a value that is not an id at all. */
-const profileArg = (v: unknown): string => (typeof v === "string" && /^[0-9A-Za-z]{1,64}$/.test(v) ? v : "");
 
 ipcMain.handle("credentials:list", (_e, profileId: unknown): BrowserCredential[] => {
   const pid = profileArg(profileId);

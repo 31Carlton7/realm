@@ -94,6 +94,9 @@ describe("toViewBounds", () => {
   });
 });
 
+/** The cookie jar every test below makes its views in, unless it says otherwise. */
+const P = "persist:browser";
+
 /** A fake ViewHandle that records calls and simulates the webContents state getters. */
 function fakeView() {
   const nav = { url: "", title: "", loading: false, back: false, forward: false,
@@ -126,7 +129,7 @@ function makeHost(scaleFactor = 2) {
   const found: (FindResult & { id: string })[] = [];
   const findRequests: string[] = [];
   const emulations: { id: string; metrics: DeviceMetrics | null }[] = [];
-  const factory = vi.fn((id: string, hooks: ViewHooks) => {
+  const factory = vi.fn((id: string, hooks: ViewHooks, _partition: string) => {
     const v = fakeView(); v.setHooks(hooks); views.set(id, v); return v.handle;
   });
   const host = new BrowserPaneHost({
@@ -141,17 +144,17 @@ const alive = (v: ReturnType<typeof fakeView>) => !v.calls.includes("destroy");
 /** One more browser than the budget can retain, named v0 (oldest) upward. */
 const overBudget = (host: BrowserPaneHost) => {
   const ids = Array.from({ length: RETAINED_VIEW_LIMIT + 1 }, (_, i) => `v${i}`);
-  for (const id of ids) host.create(id, "example.com", null);
+  for (const id of ids) host.create(id, "example.com", null, P);
   return ids;
 };
 
 describe("BrowserPaneHost", () => {
   it("create loads the (normalized) url and emits initial state; create is idempotent", () => {
     const { host, views, states, factory } = makeHost();
-    host.create("b1", "example.com", null);
+    host.create("b1", "example.com", null, P);
     expect(views.get("b1")!.calls).toContain("load:https://example.com");
     expect(states.at(-1)).toMatchObject({ id: "b1", url: "https://example.com", loading: true });
-    host.create("b1", "https://other.example", null); // StrictMode remount: no reload, state re-emitted
+    host.create("b1", "https://other.example", null, P); // StrictMode remount: no reload, state re-emitted
     expect(factory).toHaveBeenCalledTimes(1);
     expect(views.get("b1")!.calls.filter((c) => c.startsWith("load:"))).toHaveLength(1);
     expect(states.at(-1)!.id).toBe("b1");
@@ -161,7 +164,7 @@ describe("BrowserPaneHost", () => {
     /* THE off-by-one mutant: include the active entry in either arm. Back would offer the page you
        are already on as its first row, and Forward would too — one of them a no-op wearing a title. */
     const { host, views } = makeHost();
-    host.create("b1", "https://c.example", null);
+    host.create("b1", "https://c.example", null, P);
     const v = views.get("b1")!;
     v.nav.entries = [
       { url: "https://a.example", title: "A" },
@@ -178,7 +181,7 @@ describe("BrowserPaneHost", () => {
 
   it("falls back to the url for a page that never set a title, and refuses both ends", () => {
     const { host, views } = makeHost();
-    host.create("b1", "https://a.example", null);
+    host.create("b1", "https://a.example", null, P);
     const v = views.get("b1")!;
     v.nav.entries = [{ url: "https://a.example", title: "" }, { url: "https://b.example", title: "   " }];
     v.nav.activeIndex = 1;
@@ -195,7 +198,7 @@ describe("BrowserPaneHost", () => {
 
   it("goToIndex reaches the view, and a missing one is a no-op", () => {
     const { host, views } = makeHost();
-    host.create("b1", "https://a.example", null);
+    host.create("b1", "https://a.example", null, P);
     host.goToIndex("b1", 3);
     expect(views.get("b1")!.calls).toContain("goToIndex:3");
     expect(() => host.goToIndex("nope", 1)).not.toThrow();
@@ -203,13 +206,13 @@ describe("BrowserPaneHost", () => {
 
   it("create with an empty url loads nothing (the pane's empty state, not about:blank)", () => {
     const { host, views } = makeHost();
-    host.create("b1", "", null);
+    host.create("b1", "", null, P);
     expect(views.get("b1")!.calls.filter((c) => c.startsWith("load:"))).toHaveLength(0);
   });
 
   it("navigate normalizes, consults the allowlist, and reports what it did", () => {
     const { host, views } = makeHost();
-    host.create("b1", "", ["https://example.com"]);
+    host.create("b1", "", ["https://example.com"], P);
     expect(host.navigate("b1", "example.com")).toBe("https://example.com");
     expect(views.get("b1")!.calls).toContain("load:https://example.com");
     expect(host.navigate("b1", "evil.com")).toBeNull();
@@ -220,13 +223,13 @@ describe("BrowserPaneHost", () => {
 
   it("create refuses to load a persisted url the allowlist no longer permits", () => {
     const { host, views } = makeHost();
-    host.create("b1", "https://evil.com", ["https://example.com"]);
+    host.create("b1", "https://evil.com", ["https://example.com"], P);
     expect(views.get("b1")!.calls.filter((c) => c.startsWith("load:"))).toHaveLength(0);
   });
 
   it("the will-navigate consult reads the CURRENT allowlist, and setAllowlist swaps it live", () => {
     const { host, views } = makeHost();
-    host.create("b1", "", null);
+    host.create("b1", "", null, P);
     const hooks = views.get("b1")!.getHooks();
     expect(hooks.allowNavigate("https://anywhere.example")).toBe(true); // null = allow-all
     host.setAllowlist("b1", ["https://example.com"]);
@@ -236,7 +239,7 @@ describe("BrowserPaneHost", () => {
 
   it("a window.open funnels into an in-place navigation of the SAME view, allowlist included", () => {
     const { host, views } = makeHost();
-    host.create("b1", "", ["https://example.com"]);
+    host.create("b1", "", ["https://example.com"], P);
     const hooks = views.get("b1")!.getHooks();
     hooks.openInPlace("https://example.com/popup");
     expect(views.get("b1")!.calls).toContain("load:https://example.com/popup");
@@ -246,7 +249,7 @@ describe("BrowserPaneHost", () => {
 
   it("setBounds converts css px → DIP with the renderer's dpr and applies visibility", () => {
     const { host, views } = makeHost(2);
-    host.create("b1", "", null);
+    host.create("b1", "", null, P);
     host.setBounds("b1", { x: 100, y: 50, width: 200, height: 100 }, 2, true); // dpr==scale → passthrough
     expect(views.get("b1")!.calls).toContain("bounds:100,50,200,100");
     expect(views.get("b1")!.calls).toContain("visible:true");
@@ -297,7 +300,7 @@ describe("BrowserPaneHost", () => {
 
   it("navAction routes back/forward/reload/stop; unknown ids are ignored", () => {
     const { host, views } = makeHost();
-    host.create("b1", "", null);
+    host.create("b1", "", null, P);
     for (const a of ["back", "forward", "reload", "stop"] as const) host.navAction("b1", a);
     expect(views.get("b1")!.calls).toEqual(expect.arrayContaining(["back", "forward", "reload", "stop"]));
     expect(() => host.navAction("nope", "back")).not.toThrow();
@@ -305,7 +308,7 @@ describe("BrowserPaneHost", () => {
 
   it("destroy is final: the view is torn down and every later call is a no-op", () => {
     const { host, views } = makeHost();
-    host.create("b1", "", null);
+    host.create("b1", "", null, P);
     host.destroy("b1");
     expect(views.get("b1")!.calls).toContain("destroy");
     expect(host.has("b1")).toBe(false);
@@ -321,8 +324,8 @@ describe("BrowserPaneHost", () => {
     // throws "Object has been destroyed" on a second destroy is exactly what the real adapter guards.
     // The host-level contract: destroyAll never throws and still forgets every row.
     const { host, views } = makeHost();
-    host.create("b1", "https://a.example", null);
-    host.create("b2", "https://b.example", null);
+    host.create("b1", "https://a.example", null, P);
+    host.create("b2", "https://b.example", null, P);
     views.get("b1")!.handle.destroy = () => { throw new TypeError("Object has been destroyed"); };
     expect(() => host.destroyAll()).not.toThrow();
     expect(host.has("b1")).toBe(false);
@@ -331,8 +334,8 @@ describe("BrowserPaneHost", () => {
 
   it("destroyAll tears down every view (window teardown)", () => {
     const { host, views } = makeHost();
-    host.create("b1", "", null);
-    host.create("b2", "", null);
+    host.create("b1", "", null, P);
+    host.create("b2", "", null, P);
     host.destroyAll();
     expect(views.get("b1")!.calls).toContain("destroy");
     expect(views.get("b2")!.calls).toContain("destroy");
@@ -342,8 +345,8 @@ describe("BrowserPaneHost", () => {
 
   it("state events carry the id of THEIR view, not the last-created one", () => {
     const { host, views, states } = makeHost();
-    host.create("b1", "", null);
-    host.create("b2", "", null);
+    host.create("b1", "", null, P);
+    host.create("b2", "", null, P);
     views.get("b1")!.nav.title = "Page one";
     views.get("b1")!.getHooks().emitState();
     const last = states.at(-1)!;
@@ -359,7 +362,7 @@ describe("BrowserPaneHost", () => {
 describe("BrowserPaneHost retention", () => {
   it("retain keeps the view alive and hides it — a space switch must not close the browser", () => {
     const { host, views } = makeHost();
-    host.create("b1", "example.com", null);
+    host.create("b1", "example.com", null, P);
     host.retain("b1");
     expect(views.get("b1")!.calls).not.toContain("destroy");
     expect(host.has("b1")).toBe(true);
@@ -370,9 +373,9 @@ describe("BrowserPaneHost retention", () => {
 
   it("returning to the space re-adopts the SAME view instead of reloading it", () => {
     const { host, views, factory } = makeHost();
-    host.create("b1", "example.com", null);
+    host.create("b1", "example.com", null, P);
     host.retain("b1");
-    host.create("b1", "example.com", null); // the pane remounts in its space
+    host.create("b1", "example.com", null, P); // the pane remounts in its space
     expect(factory).toHaveBeenCalledTimes(1);
     expect(views.get("b1")!.calls.filter((c) => c.startsWith("load:"))).toHaveLength(1);
   });
@@ -381,7 +384,7 @@ describe("BrowserPaneHost retention", () => {
     const { host, views } = makeHost();
     const ids = overBudget(host);
     host.retain(ids[0]!);
-    host.create(ids[0]!, "example.com", null); // the user came back to its space
+    host.create(ids[0]!, "example.com", null, P); // the user came back to its space
     for (const id of ids.slice(1)) host.retain(id); // exactly the budget, so nothing is evicted
     for (const id of ids) expect(alive(views.get(id)!)).toBe(true);
   });
@@ -421,11 +424,64 @@ describe("BrowserPaneHost retention", () => {
 
   it("destroyAll still takes retained views — they must never outlive the window", () => {
     const { host, views } = makeHost();
-    host.create("b1", "", null);
+    host.create("b1", "", null, P);
     host.retain("b1");
     host.destroyAll();
     expect(alive(views.get("b1")!)).toBe(false);
     expect(host.has("b1")).toBe(false);
+  });
+});
+
+/**
+ * Plan 27 Phase 2: a view lives in its profile's cookie jar. What must die here: a view made in the
+ * wrong jar, and a RETAINED view re-adopted into a pane that now wants another jar — its page would
+ * show the second profile the first one's sign-ins.
+ */
+describe("BrowserPaneHost — a partition per profile", () => {
+  const WORK = "persist:browser-pWork";
+
+  it("makes the view in the partition it is asked for, and says which", () => {
+    const { host, factory } = makeHost();
+    host.create("b1", "example.com", null, WORK);
+    expect(factory.mock.calls[0]![2]).toBe(WORK);
+    expect(host.partitionOf("b1")).toBe(WORK);
+    expect(host.partitionOf("nope")).toBeNull();
+  });
+
+  it("a retained view asked back for ANOTHER profile's jar is destroyed and made again there", () => {
+    const { host, views, factory } = makeHost();
+    host.create("b1", "https://mail.example", null, P);
+    const first = views.get("b1")!;
+    host.retain("b1");
+    // The space moved to Work while the pane was off screen; the pane comes back wanting Work's jar.
+    host.create("b1", "https://mail.example", null, WORK);
+    expect(alive(first)).toBe(false);
+    expect(factory).toHaveBeenCalledTimes(2);
+    expect(factory.mock.calls[1]![2]).toBe(WORK);
+    expect(host.partitionOf("b1")).toBe(WORK);
+    expect(views.get("b1")!.calls).toContain("load:https://mail.example");
+  });
+
+  it("the SAME jar still adopts the live view — no reload, which is what retaining is for", () => {
+    const { host, views, factory } = makeHost();
+    host.create("b1", "https://mail.example", null, WORK);
+    host.retain("b1");
+    host.create("b1", "https://mail.example", null, WORK);
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(alive(views.get("b1")!)).toBe(true);
+  });
+
+  it("destroyPartition takes every view in one jar, retained or showing, and leaves the others", () => {
+    const { host, views } = makeHost();
+    host.create("w1", "", null, WORK);
+    host.create("w2", "", null, WORK);
+    host.retain("w2");
+    host.create("p1", "", null, P);
+    host.destroyPartition(WORK);
+    expect(alive(views.get("w1")!)).toBe(false);
+    expect(alive(views.get("w2")!)).toBe(false);
+    expect(alive(views.get("p1")!)).toBe(true);
+    expect(host.has("w2")).toBe(false);
   });
 });
 
@@ -495,7 +551,7 @@ describe("find in page", () => {
     /* THE mutant is Electron's own naming: `findNext: true` means "begin a NEW search". Passed on every
        press, the search restarts at the first match and the Next button never moves. */
     const { host, views } = makeHost();
-    host.create("b1", "https://example.com", null);
+    host.create("b1", "https://example.com", null, P);
     host.find("b1", "agent", "start");
     host.find("b1", "agent", "next");
     host.find("b1", "agent", "previous");
@@ -506,7 +562,7 @@ describe("find in page", () => {
 
   it("an emptied field ends the find instead of searching for nothing", () => {
     const { host, views } = makeHost();
-    host.create("b1", "https://example.com", null);
+    host.create("b1", "https://example.com", null, P);
     host.find("b1", "", "start");
     host.stopFind("b1");
     const calls = views.get("b1")!.calls;
@@ -517,8 +573,8 @@ describe("find in page", () => {
 
   it("a view's result and its ⌘F reach the pane they came from, by id", () => {
     const { host, views, found, findRequests } = makeHost();
-    host.create("b1", "https://a.example", null);
-    host.create("b2", "https://b.example", null);
+    host.create("b1", "https://a.example", null, P);
+    host.create("b2", "https://b.example", null, P);
     views.get("b2")!.getHooks().found({ activeMatchOrdinal: 2, matches: 5, finalUpdate: true });
     views.get("b1")!.getHooks().findShortcut();
     expect(found).toEqual([{ id: "b2", activeMatchOrdinal: 2, matches: 5, finalUpdate: true }]);
@@ -549,7 +605,7 @@ describe("isFindShortcut", () => {
 describe("zoom", () => {
   it("steps along Chrome's ladder and answers the level the view is at afterwards", () => {
     const { host, views } = makeHost();
-    host.create("b1", "https://example.com", null);
+    host.create("b1", "https://example.com", null, P);
     expect(host.zoom("b1", null)).toBe(1); // a read changes nothing
     expect(views.get("b1")!.calls.filter((c) => c.startsWith("zoom:"))).toEqual([]);
     expect(host.zoom("b1", "in")).toBe(1.1);
@@ -561,7 +617,7 @@ describe("zoom", () => {
 
   it("reads back what Chromium actually did rather than what was asked", () => {
     const { host, views } = makeHost();
-    host.create("b1", "https://example.com", null);
+    host.create("b1", "https://example.com", null, P);
     // A view that refuses the level (a crashed page, say) keeps its old one, and the menu must say so.
     views.get("b1")!.handle.setZoomFactor = () => {};
     expect(host.zoom("b1", "in")).toBe(1);
@@ -584,8 +640,8 @@ describe("zoom", () => {
 describe("print", () => {
   it("reaches the view it was asked for, and an unknown one is a no-op", () => {
     const { host, views } = makeHost();
-    host.create("b1", "https://a.example", null);
-    host.create("b2", "https://b.example", null);
+    host.create("b1", "https://a.example", null, P);
+    host.create("b2", "https://b.example", null, P);
     host.print("b2");
     expect(views.get("b2")!.calls).toContain("print");
     expect(views.get("b1")!.calls).not.toContain("print");
@@ -628,7 +684,7 @@ describe("deviceFit", () => {
 describe("BrowserPaneHost — device size", () => {
   const setup = () => {
     const h = makeHost(1);
-    h.host.create("b1", "https://example.com", null);
+    h.host.create("b1", "https://example.com", null, P);
     h.host.setBounds("b1", { x: 900, y: 80, width: 600, height: 840 }, 1, true);
     return h;
   };
@@ -679,7 +735,7 @@ const HTML_404 = Buffer.from("<!doctype html><html><head><title>Not found</title
 describe("the state a pane's chrome is drawn from", () => {
   it("carries the page's icon, so the tab can draw it", () => {
     const { host, views, states } = makeHost();
-    host.create("b1", "https://www.google.com/search?q=hi", null);
+    host.create("b1", "https://www.google.com/search?q=hi", null, P);
     const v = views.get("b1")!;
     v.nav.favicon = `data:image/x-icon;base64,${ICO.toString("base64")}`;
     v.getHooks().emitState();

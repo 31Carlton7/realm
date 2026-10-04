@@ -212,7 +212,10 @@ interface Window {
       print(id: string): Promise<void>;
       setDevice(id: string, preset: "phone" | "tablet" | "desktop" | null): Promise<void>;
       screenshot(id: string, dir: string): Promise<import("@realm/contracts").BrowserScreenshotSaved>;
-      clearData(): Promise<{ cleared: boolean }>;
+      /** Clears the PANE's profile's partition, after main asks; answers whose it was. */
+      clearData(id: string): Promise<{ cleared: boolean; profileId: string | null }>;
+      /** Copy the page's site's cookies into another profile's partition. */
+      shareSignIn(id: string, toProfileId: string): Promise<import("@realm/contracts").BrowserSignInShare>;
     };
   };
 }

@@ -22,6 +22,7 @@ export type BrowserMenuChoice =
   | { kind: "show-download"; id: string }
   | { kind: "history"; index: number }
   | { kind: "clear-data" }
+  | { kind: "share-signin"; profileId: string }
   | { kind: "settings" };
 
 export type DeviceSize = "phone" | "tablet" | "desktop";
@@ -72,6 +73,10 @@ export function browserMenuItems(s: BrowserMenuInput): NativeMenuItem[] {
     { label: "Downloads", submenu: downloadRows(s) },
     { label: "History", enabled: page, submenu: historyRows(s) },
     { type: "separator" },
+    // Each profile has its own cookie jar (Plan 27 Phase 2), and this copies the page's site's sign-in
+    // into another profile's. Offered only where there IS another profile: with one, the row is not
+    // drawn at all rather than drawn disabled, since nothing could ever enable it.
+    ...(s.shareTargets.length > 0 ? [{ label: "Share this site's sign-in with", enabled: page, submenu: s.shareTargets.map((p) => ({ id: `share-signin:${p.id}`, label: p.name })) }] : []),
     // The confirm that follows names the consequence; the ellipsis says there is one to read.
     { id: "clear-data", label: "Clear browsing data…" },
     { id: "settings", label: "Browser settings" },
@@ -116,5 +121,7 @@ export function parseBrowserMenuChoice(id: string | null): BrowserMenuChoice | n
   if (show) return { kind: "show-download", id: show[1]! };
   const history = /^history:(\d+)$/.exec(id);
   if (history) return { kind: "history", index: Number(history[1]) };
+  const share = /^share-signin:(.+)$/.exec(id);
+  if (share) return { kind: "share-signin", profileId: share[1]! };
   return null;
 }

@@ -395,7 +395,9 @@ export type ViewHooks = {
   findShortcut(): void;
 };
 
-export type ViewFactory = (id: string, hooks: ViewHooks) => ViewHandle;
+/** `partition` is the Electron session the view's cookies, site data and cache live in — its
+ *  profile's own (Plan 27 Phase 2). */
+export type ViewFactory = (id: string, hooks: ViewHooks, partition: string) => ViewHandle;
 
 /**
  * How many RETAINED (off-screen) browser views stay alive at once, on top of whatever is on screen.
@@ -421,6 +423,8 @@ export const RETAINED_VIEW_LIMIT = 3;
 export class BrowserPaneHost {
   private views = new Map<string, {
     handle: ViewHandle; allowlist: string[] | null;
+    /** The cookie jar the view was made in, which is its profile's. A view never changes jar. */
+    partition: string;
     /** Plan 26 W7e: the preset the page is shown at, and the rect the pane last gave the view. */
     device: DevicePreset | null; host: ViewRect | null;
     /** The metrics last sent, so a resize that changes nothing sends nothing. */
@@ -446,20 +450,29 @@ export class BrowserPaneHost {
 
   has(id: string): boolean { return this.views.has(id); }
 
-  /** Idempotent: React StrictMode double-mounts, and a remount must not reload the page. It is also
-   *  how a retained view is re-adopted — a pane returning to a space calls this and gets the SAME
-   *  view back, mid-scroll and mid-form, rather than a reload. */
-  create(id: string, url: string, allowlist: string[] | null): void {
+  /**
+   * Idempotent: React StrictMode double-mounts, and a remount must not reload the page. It is also
+   * how a retained view is re-adopted — a pane returning to a space calls this and gets the SAME view
+   * back, mid-scroll and mid-form, rather than a reload.
+   *
+   * …unless it is asked for in a different `partition`. The browser's space has moved to another
+   * profile since the view was made, and a view cannot change cookie jars: re-adopting it would show
+   * the new profile a page signed in as the old one. That view goes, and a fresh one is made in the
+   * jar asked for — the one place a retained view could carry one profile's sign-ins into another.
+   */
+  create(id: string, url: string, allowlist: string[] | null, partition: string): void {
     this.retained.delete(id); // a pane is showing it again: no longer evictable
-    if (this.views.has(id)) { this.emitState(id); return; }
+    const existing = this.views.get(id);
+    if (existing && existing.partition === partition) { this.emitState(id); return; }
+    if (existing) this.destroy(id);
     const handle = this.opts.createView(id, {
       emitState: () => this.emitState(id),
       allowNavigate: (target) => originAllowed(target, this.views.get(id)?.allowlist ?? null),
       openInPlace: (target) => this.navigate(id, target),
       found: (result) => this.opts.sendFound?.({ id, ...result }),
       findShortcut: () => this.opts.requestFind?.(id),
-    });
-    this.views.set(id, { handle, allowlist, device: null, host: null, emulated: null });
+    }, partition);
+    this.views.set(id, { handle, allowlist, partition, device: null, host: null, emulated: null });
     const normalized = normalizeAddress(url);
     if (normalized && originAllowed(normalized, allowlist)) handle.loadURL(normalized);
     this.emitState(id);
@@ -627,6 +640,15 @@ export class BrowserPaneHost {
 
   /** Window teardown: the views must never outlive the window they composite into. */
   destroyAll(): void { for (const id of [...this.views.keys()]) this.destroy(id); }
+
+  /** Which cookie jar this view lives in — its profile's — or null when there is no view. */
+  partitionOf(id: string): string | null { return this.views.get(id)?.partition ?? null; }
+
+  /** Every view in one jar, retained or on screen: a deleted profile's panes, which must not go on
+   *  running signed in to anything. */
+  destroyPartition(partition: string): void {
+    for (const [id, v] of [...this.views]) if (v.partition === partition) this.destroy(id);
+  }
 
   private emitState(id: string): void {
     const v = this.views.get(id); if (!v) return;

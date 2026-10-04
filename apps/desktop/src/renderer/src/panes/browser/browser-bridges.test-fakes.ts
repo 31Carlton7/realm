@@ -35,7 +35,7 @@ export function fakeBrowserBridges(over: {
     onDownloadBlocked: () => () => {},
     onPasskey: () => () => {},
     popupMenu: async () => null,
-    menuState: async () => ({ zoom: 1, canZoomIn: true, canZoomOut: true, back: [], forward: [], blocked: [], saved: [] }),
+    menuState: async () => ({ zoom: 1, canZoomIn: true, canZoomOut: true, back: [], forward: [], blocked: [], saved: [], shareTargets: [] }),
     goToIndex: async () => {},
     find: async () => {},
     stopFind: async () => {},
@@ -45,7 +45,8 @@ export function fakeBrowserBridges(over: {
     print: async () => {},
     setDevice: async () => {},
     screenshot: async () => ({ ok: false, error: "no screenshot bridge in this test" }),
-    clearData: async () => ({ cleared: false }),
+    clearData: async () => ({ cleared: false, profileId: null }),
+    shareSignIn: async () => ({ ok: false, error: "no share bridge in this test" }),
     reveal: async () => true,
     ...over.host,
   };
@@ -57,7 +58,6 @@ export function fakeBrowserBridges(over: {
     screenshotDir: async () => null,
     suggest: async () => [],
     recent: async () => [],
-    profile: async () => ({ profileId: "p1", partition: "persist:browser" }),
     clearHistory: async () => {},
     ...over.server,
   };

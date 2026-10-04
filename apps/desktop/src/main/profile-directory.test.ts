@@ -57,6 +57,20 @@ describe("ProfileDirectory", () => {
     expect(removed).toEqual([]);
   });
 
+  it("a profile whose partition it cannot read is NOT reported removed — its cookies are not this code's to clear", async () => {
+    /* THE mutant: diff against the filtered list. A server that one day names partitions differently
+       would have every profile "deleted", and main would clear every jar. */
+    const { dir, removed } = directory([[personal, work], [personal, { ...work, browserPartition: "temp:new-scheme" }], "not a list"]);
+    await dir.refresh();
+    await dir.refresh();
+    expect(removed).toEqual([]);
+    expect(dir.get("pWork")).toBeNull();
+    // An answer that is not a list at all removes nobody either, and forgets nothing.
+    await dir.refresh();
+    expect(removed).toEqual([]);
+    expect(dir.known().map((p) => p.id)).toEqual(["pPersonal"]);
+  });
+
   it("drops a row whose partition is not one main would hand a pane", async () => {
     const { dir } = directory([[personal, { id: "pOdd", name: "Odd", browserPartition: "" }, { id: "pX", name: "X", browserPartition: "temp:browser" }]]);
     await dir.refresh();

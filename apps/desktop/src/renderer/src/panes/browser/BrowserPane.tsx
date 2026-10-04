@@ -684,15 +684,24 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
       }
       case "history": await host.goToIndex(browserId, choice.index); return;
       case "clear-data": {
-        const { cleared } = await host.clearData();
-        if (!cleared) return;
+        const { cleared, profileId } = await host.clearData(browserId);
+        if (!cleared || !profileId) return;
         // The partition is main's; the pages it showed are the server's. Both, or the field would go on
-        // suggesting the history of a browser that has just been told to forget it. The history is the
-        // pane's PROFILE's, asked of the server rather than read off a store this pane may not have.
-        const { server } = getBrowserBridges();
-        const forgot = await server.profile(browserId).then(({ profileId }) => server.clearHistory(profileId)).then(() => true, () => false);
+        // suggesting the history of a browser that has just been told to forget it — and both the
+        // PANE's profile's, which main names: another profile's browser was not the one cleared.
+        const forgot = await getBrowserBridges().server.clearHistory(profileId).then(() => true, () => false);
         if (forgot) announceHistoryCleared();
-        toast.say("Cleared browsing data. Every browser pane is signed out of its sites.", "check");
+        toast.say("Cleared browsing data. This profile's browser panes are signed out of their sites.", "check");
+        return;
+      }
+      case "share-signin": {
+        // A COPY into the other profile's cookie jar; this pane stays signed in. The receipt says what
+        // happened, including that there was nothing to copy — a share that silently did nothing would
+        // leave someone opening the other profile and finding themselves signed out.
+        const r = await host.shareSignIn(browserId, choice.profileId);
+        if (!r.ok) toast.say(r.error, "alert");
+        else if (r.copied === 0) toast.say(`This pane has no sign-in for ${r.host}, so nothing was shared with ${r.profileName}.`, "alert");
+        else toast.say(`Shared ${r.host}'s sign-in with ${r.profileName}.`, "check");
         return;
       }
       case "settings": store?.getState().openSettingsPage("signins"); return;
