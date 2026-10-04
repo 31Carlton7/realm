@@ -71,6 +71,13 @@ export type BrowserAgentToolsDeps = {
    * should show more, not less.
    */
   documents?: { rootForSpace(spaceId: string): string | null };
+  /**
+   * The profile a space belongs to (Plan 27 Phase 2). Saved sign-ins are kept per profile in main, and
+   * the credential tools name the session's profile on every call, so an agent in a Work space is
+   * offered Work's sign-ins and nothing of Personal's. Absent, or null for a space that is gone: the
+   * tools then name no profile, and main answers as for a profile with nothing saved.
+   */
+  profileOf?: (spaceId: string) => string | null;
   browserService: Pick<BrowserService, "open">;
   mcp: Pick<McpService, "providerEnabled">;
   bridge: Pick<BrowserHostBridge, "call">;
@@ -480,7 +487,7 @@ const HANDLERS: Record<string, Handler> = {
   },
 
   browser_credentials: async (d, ctx) => {
-    const rows = await listCredentials(d);
+    const rows = await listCredentials(d, ctx);
     if (rows.length === 0) {
       return ok("No saved sign-ins. The user adds them in Realm's Settings → Sign-ins; there is no way for you to create one, and no tool that could.");
     }
@@ -498,7 +505,7 @@ const HANDLERS: Record<string, Handler> = {
     // The card is built from the CREDENTIAL's stored metadata (the user's own words, typed in
     // Settings) and the pane's live URL — never the page's text, and never the value. If the id is
     // unknown, say so now: a prompt for a credential that does not exist teaches nothing.
-    const credential = (await listCredentials(d)).find((c) => c.id === args.value.credentialId);
+    const credential = (await listCredentials(d, ctx)).find((c) => c.id === args.value.credentialId);
     if (!credential) {
       return err("refused: no saved sign-in has that id. browser_credentials lists what exists; the user enrolls new ones in Realm's Settings → Sign-ins.");
     }
@@ -517,7 +524,7 @@ const HANDLERS: Record<string, Handler> = {
 
     return runTracked(d, ctx.spaceId, row.value.id, title, async () => {
       const result = (await d.bridge.call("fillCredential", {
-        browserId: row.value.id, ref: args.value.ref, credentialId: credential.id,
+        browserId: row.value.id, ref: args.value.ref, credentialId: credential.id, profileId: profileIdOf(d, ctx),
       })) as BrowserActResult;
       // No screenshot on failure, unlike `runAct`. A shot taken microseconds after a fill can contain
       // the filled field, and some sites render the value in plain text on the way to masking it.
@@ -1127,14 +1134,18 @@ const textOf = (r: CallToolResult): string =>
  *  so there is nothing here to strip. An app that is not running answers with an empty list rather
  *  than a bridge error: "no sign-ins are available" is true either way, and the distinction is not
  *  one the agent could act on. */
-async function listCredentials(d: Deps): Promise<BrowserCredential[]> {
+async function listCredentials(d: Deps, ctx: ProviderCallContext): Promise<BrowserCredential[]> {
   try {
-    const result = (await d.bridge.call("credentials", {})) as { credentials?: BrowserCredential[] };
+    const result = (await d.bridge.call("credentials", { profileId: profileIdOf(d, ctx) })) as { credentials?: BrowserCredential[] };
     return Array.isArray(result?.credentials) ? result.credentials : [];
   } catch {
     return [];
   }
 }
+
+/** The calling session's profile, which is whose saved sign-ins main may offer — "" when it cannot be
+ *  said, which main answers as a profile with nothing saved rather than as anybody's. */
+const profileIdOf = (d: Deps, ctx: ProviderCallContext): string => d.profileOf?.(ctx.spaceId) ?? "";
 
 
 /** The browser must exist AND belong to the calling session's space — a browserId from another space

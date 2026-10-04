@@ -837,6 +837,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // The space folder, for `browser_upload`'s default readable root. Same resolver the documents
     // tools use, so "inside this space" means one thing across the app.
     documents: { rootForSpace: (spaceId) => { try { return documents.rootForSpace(spaceId); } catch { return null; } } },
+    // Saved sign-ins are a profile's own: the credential tools name the session's profile to main.
+    profileOf: (spaceId) => spaces.get(spaceId)?.profileId ?? null,
   }));
   // Plan 20's interjection. `delegated` fans across all THREE registries: a delegated child of any
   // kind is neither a valid asker nor a valid target, because its own parent is already blocked inside

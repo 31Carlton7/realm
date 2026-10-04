@@ -31,7 +31,7 @@ export const emptyUsageRecords = (extra: Partial<UsageRecords> = {}): UsageRecor
 });
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
-  ({ id, name, icon: "user", color: "#000000", sortOrder: 0, createdAt: 0, updatedAt: 0, ...extra });
+  ({ id, name, icon: "user", color: "#000000", sortOrder: 0, browserPartition: `persist:browser-${id}`, createdAt: 0, updatedAt: 0, ...extra });
 export const space = (id: string, profileId: string, name: string, extra: Partial<Space> = {}): Space =>
   ({ id, profileId, name, icon: "folder", color: "#7c6cff", sortOrder: 0, folderPath: "/tmp", groups: null, layout: null, activeItemId: null, createdAt: 0, updatedAt: 0, ...extra });
 export const item = (id: string, spaceId: string, extra: Partial<Item> = {}): Item =>

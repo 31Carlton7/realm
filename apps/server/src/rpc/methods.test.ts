@@ -32,6 +32,32 @@ async function boot() {
 }
 
 describe("rpc methods", () => {
+  it("profiles.delete stops a profile's terminals and sessions the way deleting each space would, and refuses the last profile", async () => {
+    const { c } = await boot();
+    // createApp seeds "Personal" on a fresh home; Work is the one being deleted.
+    const [personal] = (await c.call("profiles.list", {})).result;
+    const work = (await c.call("profiles.create", { name: "Work" })).result;
+    const space = (await c.call("spaces.create", { profileId: work.id, name: "Versed" })).result;
+    const keep = (await c.call("spaces.create", { profileId: personal.id, name: "Notes" })).result;
+    const { terminalId } = (await c.call("terminals.create", { spaceId: space.id })).result;
+    const { session } = (await c.call("sessions.create", { spaceId: space.id, agentKind: "claude" })).result;
+    expect(app.terminals.has(terminalId)).toBe(true);
+    expect((await c.call("profiles.usage", { id: work.id })).result).toEqual({ spaces: 1, sessions: 1 });
+
+    expect((await c.call("profiles.delete", { id: work.id })).result).toEqual({ ok: true });
+    // THE mutant: drop the row and let the cascade take the rest — the pty would outlive its row.
+    expect(app.terminals.has(terminalId)).toBe(false);
+    expect((await c.call("sessions.get", { id: session.id })).error.code).toBe("NOT_FOUND");
+    expect((await c.call("spaces.list", {})).result.map((sp: { id: string }) => sp.id)).toEqual([keep.id]);
+    await waitFor(() => ["profiles.changed", "spaces.changed"].every((e) => c.events.some((x) => x.event === e)));
+
+    // The last profile is refused before anything of it is stopped.
+    const refused = await c.call("profiles.delete", { id: personal.id });
+    expect(refused.error.code).toBe("LAST_PROFILE");
+    expect((await c.call("spaces.list", {})).result).toHaveLength(1);
+    c.close();
+  });
+
   it("spaces.setGroups round-trips the whole set; setLayout still writes just the active group", async () => {
     const { c } = await boot();
     const prof = (await c.call("profiles.create", { name: "Work" })).result;

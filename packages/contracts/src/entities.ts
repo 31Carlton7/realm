@@ -12,7 +12,14 @@ export const HexColorSchema = z.string().regex(/^#[0-9a-f]{6}$/i, "expected #rrg
 
 export const ProfileSchema = z.object({
   id: IdSchema, name: z.string().min(1), icon: z.string(), color: z.string(),
-  sortOrder: z.number().int(), ...Timestamps,
+  sortOrder: z.number().int(),
+  /** The Electron session partition this profile's browser panes use — its own cookie jar, site data
+   *  and cache. Fixed when the profile is made and never edited: the first profile of a home keeps
+   *  `persist:browser`, the jar every pane shared before profiles were separate, so the sign-ins made
+   *  then survive; every other profile has `persist:browser-<id>`. Reordering profiles must not move
+   *  anybody's cookies, which is why this is stored rather than derived from the order. */
+  browserPartition: z.string(),
+  ...Timestamps,
 });
 export type Profile = z.infer<typeof ProfileSchema>;
 

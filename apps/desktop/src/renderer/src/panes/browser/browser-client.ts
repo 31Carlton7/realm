@@ -120,8 +120,10 @@ export type BrowserServerBridge = {
   /** Plan 26 W6: the handful of pages this space's profile went to last, newest first — what a blank
    *  tab lists under its tools. */
   recent(spaceId: string): Promise<BrowserHistoryPage[]>;
-  /** Forget every visited page — Clear browsing data's other half. */
-  clearHistory(): Promise<void>;
+  /** Whose browser this is: its space's profile, and that profile's partition (`browsers.profile`). */
+  profile(browserId: string): Promise<{ profileId: string; partition: string }>;
+  /** Forget the pages ONE profile's panes visited — Clear browsing data's other half. */
+  clearHistory(profileId: string): Promise<void>;
 };
 
 export type BrowserBridges = { host: BrowserHostBridge; server: BrowserServerBridge };
@@ -145,7 +147,8 @@ export function getBrowserBridges(): BrowserBridges {
       screenshotDir: async (spaceId) => (await rpc().call("browsers.screenshotDir", { spaceId })).dir,
       suggest: async (spaceId, query) => (await rpc().call("browsers.suggest", { spaceId, query })).pages,
       recent: async (spaceId) => (await rpc().call("browsers.recent", { spaceId })).pages,
-      clearHistory: async () => { await rpc().call("browsers.clearHistory", {}); },
+      profile: (browserId) => rpc().call("browsers.profile", { browserId }),
+      clearHistory: async (profileId) => { await rpc().call("browsers.clearHistory", { profileId }); },
     },
   });
 }

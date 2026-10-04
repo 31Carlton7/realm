@@ -334,7 +334,13 @@ export const Methods = {
   "profiles.list":   { params: z.object({}), result: z.array(ProfileSchema) },
   "profiles.create": { params: z.object({ name: z.string().min(1), icon: z.string().default("user"), color: z.string().default("#6b7280") }), result: ProfileSchema },
   "profiles.update": { params: z.object({ id: IdSchema, name: z.string().min(1).optional(), icon: z.string().optional(), color: z.string().optional(), sortOrder: z.number().int().optional() }), result: ProfileSchema },
+  /** Delete a profile with its spaces and their sessions, terminals, machines and simulators — each
+   *  stopped the way deleting the space stops it. Refused for the last profile (`LAST_PROFILE`): a
+   *  home with none has nowhere to put a space. Folders on disk are kept, as a space's are. */
   "profiles.delete": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** What deleting a profile takes with it, counted, so the confirm can say so before anyone types
+   *  the name. */
+  "profiles.usage": { params: z.object({ id: IdSchema }), result: z.object({ spaces: z.number().int(), sessions: z.number().int() }) },
 
   "spaces.list":   { params: z.object({}), result: z.array(SpaceSchema) },
   "spaces.create": { params: z.object({ profileId: IdSchema, name: z.string().min(1), icon: z.string().default("folder"), color: HexColorSchema.optional() }), result: SpaceSchema },
@@ -743,6 +749,13 @@ export const Methods = {
   "eggs.unlock": { params: z.object({ passphrase: z.string().min(1).max(200) }), result: z.object({ pack: UnlockedEggPackSchema.nullable() }) },
   "eggs.forget": { params: z.object({ id: z.string().min(1).max(64) }), result: z.object({ ok: z.literal(true) }) },
   "browsers.get":    { params: z.object({ browserId: IdSchema }), result: BrowserSchema },
+  /**
+   * Whose browser this is: the profile of the space the pane is in, and that profile's partition
+   * (`Profile.browserPartition`). Electron main asks before it gives a pane a view, so a pane's
+   * cookie jar is decided by the server's space→profile join rather than by anything a window
+   * remembers — a space moved to another profile takes its panes to that profile's jar.
+   */
+  "browsers.profile": { params: z.object({ browserId: IdSchema }), result: z.object({ profileId: IdSchema, partition: z.string() }) },
   /** Last committed navigation state, written back by the renderer (debounced). A `title` also renames
    *  the browser's item — the pane header and sidebar track the page, as in any browser's tab strip —
    *  and a `favicon` becomes the item's mark. Any string is accepted and one that is not
@@ -783,8 +796,10 @@ export const Methods = {
     params: z.object({ spaceId: IdSchema, limit: z.number().int().min(1).max(20).default(5) }),
     result: z.object({ pages: z.array(BrowserHistoryPageSchema) }),
   },
-  /** Forget every visited page — Clear browsing data's other half, after main has cleared the partition. */
-  "browsers.clearHistory": { params: z.object({}), result: z.object({ ok: z.literal(true) }) },
+  /** Forget the pages ONE profile's panes visited — Clear browsing data's other half, after main has
+   *  cleared that profile's partition. Each profile has its own cookie jar now, so a clear in one
+   *  takes nothing from another. */
+  "browsers.clearHistory": { params: z.object({ profileId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 
   /**
    * The document workspace (Plan 17 W1). Unlike the browser trio, the SERVER owns the content here —

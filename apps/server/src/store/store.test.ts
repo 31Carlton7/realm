@@ -30,6 +30,59 @@ describe("ProfilesStore", () => {
     s.delete(a.id);
     expect(s.list()).toHaveLength(1);
   });
+
+  it("the first profile of a home takes the shared browser partition; every later one gets its own", () => {
+    /* THE mutant: give every profile `persist:browser-<id>`, and a fresh install's first profile starts
+       on a jar nothing ever opens again — while a later profile taking the shared name would share it. */
+    const s = new ProfilesStore(db);
+    const first = s.create({ name: "Personal", icon: "user", color: "#000" });
+    const second = s.create({ name: "Work", icon: "briefcase", color: "#111" });
+    expect(first.browserPartition).toBe("persist:browser");
+    expect(second.browserPartition).toBe(`persist:browser-${second.id}`);
+  });
+
+  it("reordering, renaming and recolouring never move a profile's partition", () => {
+    const s = new ProfilesStore(db);
+    const first = s.create({ name: "Personal", icon: "user", color: "#000" });
+    const second = s.create({ name: "Work", icon: "briefcase", color: "#111" });
+    s.update({ id: second.id, sortOrder: -5, name: "Day job", color: "#222", icon: "bolt" });
+    expect(s.get(first.id)!.browserPartition).toBe("persist:browser");
+    expect(s.get(second.id)!).toMatchObject({ name: "Day job", color: "#222", icon: "bolt", browserPartition: `persist:browser-${second.id}` });
+  });
+
+  it("refuses a name that is only spaces, on create and on rename", () => {
+    const s = new ProfilesStore(db);
+    expect(() => s.create({ name: "   ", icon: "user", color: "#000" })).toThrow(RpcError);
+    const p = s.create({ name: "  Work  ", icon: "user", color: "#000" });
+    expect(p.name).toBe("Work");
+    expect(() => s.update({ id: p.id, name: " " })).toThrow(/needs a name/);
+    expect(s.get(p.id)!.name).toBe("Work");
+  });
+
+  it("refuses to delete the last profile — every space needs one", () => {
+    const s = new ProfilesStore(db);
+    const only = s.create({ name: "Personal", icon: "user", color: "#000" });
+    expect(() => s.delete(only.id)).toThrow(expect.objectContaining({ code: "LAST_PROFILE" }));
+    expect(s.list()).toHaveLength(1);
+    const other = s.create({ name: "Work", icon: "user", color: "#000" });
+    s.delete(only.id);
+    expect(s.list().map((p) => p.id)).toEqual([other.id]);
+  });
+
+  it("counts what a delete would take: the profile's spaces and the sessions in them, no one else's", () => {
+    const s = new ProfilesStore(db); const spaces = new SpacesStore(db, home);
+    const work = s.create({ name: "Work", icon: "user", color: "#000" });
+    const home2 = s.create({ name: "Home", icon: "user", color: "#000" });
+    const a = spaces.create({ profileId: work.id, name: "A", icon: "folder" });
+    spaces.create({ profileId: work.id, name: "B", icon: "folder" });
+    const h = spaces.create({ profileId: home2.id, name: "H", icon: "folder" });
+    const envs = new EnvironmentsStore(db); const sessions = new SessionsStore(db);
+    const session = (spaceId: string) => sessions.create({ spaceId, projectId: null, agentKind: "fake", model: null, effort: null,
+      permissionMode: "default", environmentId: envs.ensurePrimary(spaceId).id, title: "t" });
+    session(a.id); session(a.id); session(h.id);
+    expect(s.usage(work.id)).toEqual({ spaces: 2, sessions: 2 });
+    expect(s.usage(home2.id)).toEqual({ spaces: 1, sessions: 1 });
+  });
 });
 
 describe("SpacesStore", () => {

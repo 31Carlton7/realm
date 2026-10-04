@@ -5,6 +5,7 @@ import { isHistoryUrl, type BrowserHistoryStore } from "../store/browser-history
 import type { BrowsersStore } from "../store/browsers";
 import type { ItemsStore } from "../store/items";
 import type { SpacesStore } from "../store/spaces";
+import type { ProfilesStore } from "../store/profiles";
 import { NotFoundError } from "../store/rows";
 
 /**
@@ -80,9 +81,19 @@ export class BrowserService {
     return space ? this.d.history.recent(space.profileId, limit) : [];
   }
 
-  /** Every profile's history goes, as the partition's cookies and cache did a moment before. */
-  clearHistory(): void {
-    this.d.history.clearAll();
+  /** The profile a pane belongs to — its space's — and that profile's partition. NOT_FOUND for a pane,
+   *  space or profile that is gone: main then gives the pane no view at all rather than a guess. */
+  profileOf(browserId: string, profiles: Pick<ProfilesStore, "get">): { profileId: string; partition: string } {
+    const row = this.get(browserId);
+    const space = this.d.spaces.get(row.spaceId); if (!space) throw new NotFoundError("space", row.spaceId);
+    const profile = profiles.get(space.profileId); if (!profile) throw new NotFoundError("profile", space.profileId);
+    return { profileId: profile.id, partition: profile.browserPartition };
+  }
+
+  /** One profile's history goes, as its partition's cookies and cache did a moment before. Another
+   *  profile's panes have their own partition, and their own history. */
+  clearHistory(profileId: string): void {
+    this.d.history.clearProfile(profileId);
   }
 
   /**

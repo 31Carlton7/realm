@@ -77,6 +77,8 @@ function setup(opts: {
       },
     },
     documents: { rootForSpace: () => (opts.spaceRoot === undefined ? UPLOAD_ROOT : opts.spaceRoot) },
+    // space1 is the Work profile's; every other space here belongs to nobody the harness knows.
+    profileOf: (spaceId) => (spaceId === "space1" ? "profile-work" : null),
     mcp: { providerEnabled: () => opts.enabled ?? true },
     bridge: {
       call: async (op, params) => {
@@ -566,7 +568,17 @@ describe("browser_credentials / browser_fill_credential", () => {
     const { call, calls } = setup();
     await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
     const sent = calls.bridge.find((b) => b.op === "fillCredential")!;
-    expect(Object.keys(sent.params).sort()).toEqual(["browserId", "credentialId", "ref"]);
+    expect(Object.keys(sent.params).sort()).toEqual(["browserId", "credentialId", "profileId", "ref"]);
+  });
+
+  it("names the SESSION's profile to main on every credential op — sign-ins are a profile's own", async () => {
+    /* THE mutant: ask main for "the" sign-ins with no profile, and an agent in a Work space is offered
+       Personal's. Main keeps each profile's apart; the tool has to say whose it is asking for. */
+    const { call, calls } = setup();
+    await call("browser_credentials", {});
+    await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
+    expect(calls.bridge.filter((b) => b.op === "credentials").map((b) => b.params.profileId)).toEqual(["profile-work", "profile-work"]);
+    expect(calls.bridge.find((b) => b.op === "fillCredential")!.params.profileId).toBe("profile-work");
   });
 
   it("an origin_mismatch refusal reaches the agent as an error naming both origins and nothing else", async () => {

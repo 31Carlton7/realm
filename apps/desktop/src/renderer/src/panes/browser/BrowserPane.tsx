@@ -687,8 +687,10 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
         const { cleared } = await host.clearData();
         if (!cleared) return;
         // The partition is main's; the pages it showed are the server's. Both, or the field would go on
-        // suggesting the history of a browser that has just been told to forget it.
-        const forgot = await getBrowserBridges().server.clearHistory().then(() => true, () => false);
+        // suggesting the history of a browser that has just been told to forget it. The history is the
+        // pane's PROFILE's, asked of the server rather than read off a store this pane may not have.
+        const { server } = getBrowserBridges();
+        const forgot = await server.profile(browserId).then(({ profileId }) => server.clearHistory(profileId)).then(() => true, () => false);
         if (forgot) announceHistoryCleared();
         toast.say("Cleared browsing data. Every browser pane is signed out of its sites.", "check");
         return;

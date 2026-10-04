@@ -739,4 +739,21 @@ export const migrations: string[] = [
     digest TEXT NOT NULL, data TEXT NOT NULL,
     PRIMARY KEY (profile_id, digest));
   `,
+  // v37 — a browser cookie jar per profile (Plan 27 Phase 2).
+  //
+  // Until now every browser pane in every profile used ONE Electron partition, `persist:browser`, so a
+  // Work profile was signed in to whatever Personal was. Each profile now names its own partition, and
+  // the name is STORED rather than derived from the order: the profile that owns the old shared jar is
+  // decided once, here, and reordering profiles later must never hand one profile another's cookies.
+  //
+  // The backfill gives `persist:browser` to the profile the app lists first (sort order, then age, then
+  // insertion), so every sign-in made before this keeps working where the user will look for it; every
+  // other profile starts with an empty jar of its own. A home with no profiles yet is left to
+  // `ProfilesStore.create`, which gives the first profile it makes the old name for the same reason.
+  `
+  ALTER TABLE profiles ADD COLUMN browser_partition TEXT NOT NULL DEFAULT '';
+  UPDATE profiles SET browser_partition = 'persist:browser-' || id;
+  UPDATE profiles SET browser_partition = 'persist:browser'
+    WHERE rowid = (SELECT rowid FROM profiles ORDER BY sort_order, created_at, rowid LIMIT 1);
+  `,
 ];

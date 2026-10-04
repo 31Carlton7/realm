@@ -57,6 +57,7 @@ export function fakeBrowserBridges(over: {
     screenshotDir: async () => null,
     suggest: async () => [],
     recent: async () => [],
+    profile: async () => ({ profileId: "p1", partition: "persist:browser" }),
     clearHistory: async () => {},
     ...over.server,
   };

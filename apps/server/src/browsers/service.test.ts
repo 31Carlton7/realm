@@ -84,6 +84,25 @@ describe("browsers RPC", () => {
     c.close();
   });
 
+  it("browsers.profile answers whose pane it is — its space's profile, and that profile's own partition", async () => {
+    /* THE mutants: answer the shared partition for every pane (every profile signed in to the same
+       sites again), or decide the profile when the pane was made and never again (a space moved to
+       another profile keeps the old jar). */
+    const home = tempDir("realm-home-");
+    const app = await createApp({ home, port: 0 }); apps.push(app);
+    const c = await client(app.port);
+    // createApp seeds Personal, the first profile, which holds the shared jar.
+    const [personal] = (await c.call("profiles.list", {})).result;
+    const work = (await c.call("profiles.create", { name: "Work" })).result;
+    const space = (await c.call("spaces.create", { profileId: work.id, name: "Versed" })).result;
+    const { browserId } = (await c.call("browsers.create", { spaceId: space.id })).result;
+    expect((await c.call("browsers.profile", { browserId })).result).toEqual({ profileId: work.id, partition: `persist:browser-${work.id}` });
+    await c.call("spaces.update", { id: space.id, profileId: personal.id });
+    expect((await c.call("browsers.profile", { browserId })).result).toEqual({ profileId: personal.id, partition: "persist:browser" });
+    expect((await c.call("browsers.profile", { browserId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" })).error.code).toBe("NOT_FOUND");
+    c.close();
+  });
+
   describe("the page's favicon", () => {
     const G = "data:image/x-icon;base64,AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQ";
     async function setup() {
@@ -287,14 +306,15 @@ describe("browsers RPC", () => {
       c.close();
     });
 
-    it("an empty query suggests nothing, and clearHistory forgets every profile's pages", async () => {
+    it("an empty query suggests nothing, and clearHistory forgets ONE profile's pages", async () => {
       const { c, a, other, pane, suggest } = await setup();
       await c.call("browsers.update", { browserId: await pane(a.id), url: "https://a.example/", title: "A" });
       await c.call("browsers.update", { browserId: await pane(other.id), url: "https://b.example/", title: "B" });
       expect(await suggest(a.id, "")).toEqual([]);
-      expect((await c.call("browsers.clearHistory", {})).result).toEqual({ ok: true });
+      expect((await c.call("browsers.clearHistory", { profileId: a.profileId })).result).toEqual({ ok: true });
       expect(await suggest(a.id, "example")).toEqual([]);
-      expect(await suggest(other.id, "example")).toEqual([]);
+      // The other profile's panes have their own partition, and so their own history.
+      expect((await suggest(other.id, "example")).map((p: { title: string }) => p.title)).toEqual(["B"]);
       c.close();
     });
   });

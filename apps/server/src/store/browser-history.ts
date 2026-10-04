@@ -95,11 +95,11 @@ export class BrowserHistoryStore {
       WHERE h.profile_id = ? ORDER BY h.last_visit_at DESC, h.visit_count DESC LIMIT ?`).all(profileId, limit) as Row[]).map(toPage);
   }
 
-  /** Every profile's history — the browser's partition is shared by every profile, and so is a clear.
-   *  The pictures go too: a list of icons is a list of the sites they came from. */
-  clearAll(): void {
-    this.db.prepare("DELETE FROM browser_history").run();
-    this.db.prepare("DELETE FROM browser_favicons").run();
+  /** One profile's history — each profile's panes have their own partition, so a clear is that
+   *  profile's alone. The pictures go too: a list of icons is a list of the sites they came from. */
+  clearProfile(profileId: string): void {
+    this.db.prepare("DELETE FROM browser_history WHERE profile_id = ?").run(profileId);
+    this.db.prepare("DELETE FROM browser_favicons WHERE profile_id = ?").run(profileId);
   }
 
   private trim(profileId: string): void {

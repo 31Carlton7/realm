@@ -88,7 +88,8 @@ function fakeBridges(row: Partial<Browser> = {}) {
       return new Promise((resolve) => { heldSuggest.push({ query, release: () => resolve(answer) }); });
     },
     recent: async (spaceId) => { calls.push(`recent:${spaceId}`); return recentPages; },
-    clearHistory: async () => { calls.push("clear-history"); },
+    profile: async (browserId) => ({ profileId: "p1", partition: `persist:browser-p1:${browserId}` }),
+    clearHistory: async (profileId) => { calls.push(`clear-history:${profileId}`); },
   };
   const bridges: BrowserBridges = { host, server };
   return {
@@ -990,12 +991,13 @@ describe("BrowserPane — the ⋯ menu (Plan 26 W7)", () => {
     await choose(f, "clear-data");
     expect(f.calls).toContain("clear-data");
     expect(screen.queryByRole("status")).toBeNull();
-    expect(f.calls).not.toContain("clear-history");
+    expect(f.calls).not.toContain("clear-history:p1");
     f.setCleared(true);
     await choose(f, "clear-data");
     expect(screen.getByRole("status")).toHaveTextContent("Every browser pane is signed out");
-    // …and the pages it showed go too, or the address field would go on suggesting them.
-    expect(f.calls).toContain("clear-history");
+    // …and the pages it showed go too, or the address field would go on suggesting them — the pane's
+    // own profile's pages, which the server names.
+    expect(f.calls).toContain("clear-history:p1");
   });
 
   it("Device size reaches the view, and the pane's ground frames the device's box", async () => {
@@ -1257,7 +1259,7 @@ describe("BrowserPane — Recently visited on a blank tab (Plan 26 W6)", () => {
     expect(listed()).toEqual(["Delta careers", "Getting started"]);
     f.setCleared(true);
     await clearData();
-    expect(f.calls).toContain("clear-history");
+    expect(f.calls).toContain("clear-history:p1");
     expect(listed()).toBeNull();
   });
 
