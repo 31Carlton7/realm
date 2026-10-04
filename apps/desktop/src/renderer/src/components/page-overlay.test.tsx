@@ -5,7 +5,7 @@ import { allItems, PAGE_REF_IDS } from "@realm/contracts";
    through the same registry, so a test that never imports them gets the placeholder. */
 import "../panes";
 import { PageOverlay } from "./PageOverlay";
-import { Destinations } from "./sidebar/Destinations";
+import { Rail } from "./sidebar/Rail";
 import { StoreContext, createAppStore } from "../state/store";
 import { fakeApi, item, type FakeData } from "../state/store.test-fakes";
 
@@ -15,7 +15,7 @@ async function mount(overrides: FakeData = {}) {
   await store.getState().boot();
   const r = render(
     <StoreContext.Provider value={store}>
-      <Destinations />
+      <Rail />
       <PageOverlay />
     </StoreContext.Provider>,
   );
@@ -32,7 +32,7 @@ describe("app-level pages over the workspace", () => {
     expect(overlay()).toBeNull();
   });
 
-  it("opens from the sidebar row and takes no item, no leaf, no sidebar entry", async () => {
+  it("opens from the rail and takes no item, no leaf, no sidebar entry", async () => {
     /* The complaint this answers: "I don't like that it even adds to the sidebar at all." These were
        layout items — each open split a pane, zoomed it, and left a row in the Open list. */
     const { store, api } = await mount();
@@ -61,7 +61,7 @@ describe("app-level pages over the workspace", () => {
     await waitFor(() => expect(store.getState().pageOverlay).toBeNull());
   });
 
-  it("the row that opened it lights, and closes it when pressed again", async () => {
+  it("the rail button that opened it lights, and closes it when pressed again", async () => {
     // design.md: a lit control says the state and undoes it in the same click.
     const { store } = await mount();
     const row = () => screen.getByRole("button", { name: "Library" });

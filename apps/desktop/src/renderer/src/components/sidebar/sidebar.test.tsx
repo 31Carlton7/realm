@@ -72,7 +72,6 @@ describe("Arc sidebar", () => {
     }));
     const button = () => screen.getByRole("button", { name: "Activity" });
     expect(button().closest(".sb-head")).not.toBeNull();
-    expect(button().nextElementSibling).toHaveClass("sb-toggle"); // the collapse toggle keeps the edge
     expect(button()).toHaveAttribute("aria-pressed", "false");
     expect(container.querySelector(".swiper")).not.toBeNull();
 
@@ -119,22 +118,13 @@ describe("Arc sidebar", () => {
     await waitFor(() => expect(store.getState().paletteOpen).toBe(true));
   });
 
-  /* The feed was a destination row with a count pill — a permanent line of the nav for something
-     usually at zero. It is a button in the head row now, beside the activity log: both are
-     app-level, both are "is this up", and neither is a place in this space. */
-  it("opens the notifications page from the head row's bell, and closes it again", async () => {
-    const { store, container } = await mount();
-    const bell = () => screen.getByRole("button", { name: "Notifications" });
-    expect(bell().closest(".sb-head")).not.toBeNull();
-    expect(bell().nextElementSibling).toHaveAccessibleName("Activity");
-    // …and it is not ALSO a row in the nav, which is the state a half-done move leaves behind.
-    expect(within(container.querySelector<HTMLElement>(".sb-destinations")!).queryByRole("button", { name: /Notifications/ })).toBeNull();
-    expect(bell()).toHaveAttribute("aria-pressed", "false");
-    fireEvent.click(bell());
-    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("notifications-page"));
-    expect(bell()).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(bell());
-    await waitFor(() => expect(store.getState().pageOverlay).toBeNull());
+  /* The bell, the collapse toggle and the destination rows moved to the rail (Plan 27). THE mutant is
+     the half-done move: the rail draws them and the sidebar still does too, two doors for one page. */
+  it("carries no bell, no collapse toggle and no destination rows — the rail does", async () => {
+    await mount();
+    for (const name of [/Notifications/, /sidebar/, /^Library$/, /^Connections$/, /^Scheduled tasks$/, /^Agents/]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    }
   });
 
   it("session items show a status dot that follows sessionStatus, and the row's accessible name carries the status (A-L4)", async () => {

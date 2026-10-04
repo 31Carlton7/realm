@@ -17,9 +17,9 @@ export const initialOf = (name: string): string => [...name.trim()][0]?.toLocale
  * A copy that will not load (removed from the home by hand) falls back to the initial, not to a
  * broken-image glyph.
  *
- * Two sizes, one per place it appears: the page's head and a menu row.
+ * Three sizes, one per place it appears: the page's head, the foot of the rail, and a menu row.
  */
-export function Avatar({ size }: { size: 16 | 56 }) {
+export function Avatar({ size }: { size: 16 | 24 | 56 }) {
   const path = useApp((s) => s.avatarPath);
   const name = useApp((s) => s.userName);
   const [failed, setFailed] = useState<string | null>(null);
@@ -30,7 +30,7 @@ export function Avatar({ size }: { size: 16 | 56 }) {
   const initial = initialOf(name);
   return (
     <span className="avatar avatar-initial" data-size={size} aria-hidden="true">
-      {initial || (size === 56 ? <Icon name="user" size={20} /> : <Icon name="user" size={12} />)}
+      {initial || <Icon name="user" size={size === 56 ? 20 : size === 24 ? 14 : 12} />}
     </span>
   );
 }

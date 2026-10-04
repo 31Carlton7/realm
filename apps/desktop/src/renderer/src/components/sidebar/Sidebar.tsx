@@ -1,12 +1,9 @@
 import { ActiveSessions } from "./ActiveSessions";
 import { ChatFeed } from "./ChatFeed";
-import { Destinations } from "./Destinations";
 import { SidebarActivity } from "./SidebarActivity";
 import { NeedsYou } from "./NeedsYou";
 import { NewSessionRow } from "./NewSessionRow";
-import { SidebarNotifications } from "./SidebarNotifications";
 import { SidebarResizer } from "./SidebarResizer";
-import { SidebarToggle } from "./SidebarToggle";
 import { SpaceHeader } from "./SpaceHeader";
 import { SpaceSwiper } from "./SpaceSwiper";
 import { SpaceStrip } from "./SpaceStrip";
@@ -31,7 +28,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
           one name, told apart only by a property jsdom does not implement and a reader cannot see.
           One control, wherever it currently lives. */}
       {/* "N need you" leads the band, beside the bell: what is waiting on you, answered where it is. */}
-      <div className="sb-head">{!collapsed && <><NeedsYou /><SidebarNotifications /><SidebarActivity /><SidebarToggle /></>}</div>
+      <div className="sb-head">{!collapsed && <><NeedsYou /><SidebarActivity /></>}</div>
       {/* The space's name heads the column, rather than sitting above the list.
           It used to sit inside each swiper page, which made it N headers with N identical "Space
           menu" buttons — one per space, told apart only by `inert`. There is one space you are in,
@@ -41,7 +38,6 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
         <SpaceHeader />
         <NewSessionRow />
       </div>
-      <Destinations />
       {/* One body, two lenses. The feed stands where the space's list stands rather than beside it:
           they answer the same shape of question, and the column has room for one answer. Everything
           above stays — the title, the search, the destinations are how you get anywhere, and a lens

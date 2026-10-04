@@ -314,21 +314,17 @@ kbd { font: 11px var(--font-mono); }
    — the app's one adjustable ground, composed in tokens.css so the user's setting and
    prefers-reduced-transparency both reach it. --page flips with data-mode, so one rule serves both
    themes and every palette. */
-/* Flush to the window, rounded on its own corners only.
-   The inset came off: a sidebar floating inside the frame leaves a strip of window showing down its
-   left edge, which reads as a gap rather than as depth — it is the app's own edge, not a card on a
-   page. It keeps the rounding, because the window's corners are rounded and a square column inside
-   them shows through. The rule down its right stays gone: a change of surface is the boundary. */
+/* Square: the rail is the window's left edge now, and wears the window's rounded corners (below).
+   The rule down its right stays gone: a change of surface is the boundary. */
 .sidebar {
   /* relative for `.sb-resize`, which is placed against this column's own right edge. */
   width: var(--sidebar-w); flex: none; position: relative; display: flex; flex-direction: column; min-height: 0;
-  border-radius: var(--r-float) 0 0 var(--r-float); corner-shape: squircle;
-  background: var(--sidebar-ground); -webkit-app-region: drag;
+  -webkit-app-region: drag;
   /* §6's on-screen-movement rung, because that is what this is: the column leaves to the left and
      the panes take the room it gives up. Margin rather than width — a width transition relays out
-     every row inside the sidebar on every frame, and the rows are not what is moving. Opacity rides
-     along at the shorter rung so the column is gone before the gap closes, instead of a fully drawn
-     sidebar sliding under the pane beside it. */
+     every row inside the sidebar on every frame, and the rows are not what is moving. It slides
+     UNDER the rail (which stacks above it), and opacity rides along at the shorter rung so the column
+     is gone before the gap closes. */
   transition: margin-inline-start var(--dur-move) var(--ease-in-out-strong), opacity var(--dur-base) ease;
 }
 .sidebar[data-collapsed] { margin-inline-start: calc(-1 * var(--sidebar-w)); opacity: 0; }
@@ -392,9 +388,9 @@ kbd { font: 11px var(--font-mono); }
    sized for that; here the left side is partly the user's desktop, so the same 8% white lands
    somewhere between subtle and absent depending on the wallpaper.
 
-   Only while the sidebar is there. Collapsed, nothing takes the column's place, so this same line
-   would be a stray rule down the window's own left edge. */
-.app:not([data-sidebar-collapsed]) .main { border-left: var(--hairline-w) solid var(--rl-line); }
+   In both states: collapsed, the rail is still beside the panes (Plan 27), so the line is still
+   between two surfaces rather than down the window's own edge. */
+.app > .main { border-left: var(--hairline-w) solid var(--rl-line); }
 /* The traffic-light band, as a real row rather than .sb-top's old 40px of top padding: the toggle
    sits at its right edge, mirroring the lights at its left. Height + .sb-top's new padding sum to
    the 48px of head room the sidebar had before, so nothing below it moves. */
@@ -405,56 +401,37 @@ kbd { font: 11px var(--font-mono); }
    rather than on `.space-header` because it is the COLUMN's head room: the title happens to be first
    today, and was the search field yesterday. */
 .sb-top { padding: 8px 16px 8px; display: flex; flex-direction: column; gap: 8px; }
-/* Collapsed: the 280px column goes and nothing takes its place. The rail that used to stand in for it
-   spent 38px of window HEIGHT, full width, for a strip whose entire content was one button — a
-   permanent tax on every pane, paid so the traffic lights would not land on pane chrome. The lights
-   land on pane chrome now, on purpose: the corner is an overlay, so it costs no height, and the strip
-   underneath reserves the width they need. Still a drag region, so the window is still draggable by
-   its own top-left corner.
-   padding-left clears the lights — main places them at x:12 and the three run to about 66px — which
-   leaves the toggle immediately right of them, the same vertical band it occupies inside .sb-head, so
-   collapsing reads as the button moving rather than as one control being swapped for another. */
-/* 76 to clear the lights, 26 for the toggle, then 16 so the first pane's leading control is not
-   touching it — .panel-nav opens with a -8px margin, so the gap has to be budgeted at 16 to land
-   as 8 on screen.
-   On :root rather than on the collapsed shell, because one of the strips that has to reserve it is
-   NOT inside `.app` at all: an app-level page is portalled to <body> (PageOverlay), so a token
-   declared on the shell never reaches it. The token existing always costs nothing — what is gated on
-   being collapsed is every rule that SPENDS it. */
-:root { --corner-w: 118px; }
-/* The lights' clearance moves on the same rung as the column. Without this the pane bar's indent
-   snaps to 118px on the first frame while the sidebar is still a third of the way out, and the two
-   halves of one gesture read as two events. */
-.main > .error-bar:first-child,
-.main > .group-bar:first-child,
-.main > .panehost:first-child .panel[data-first-leaf] > .panel-bar {
-  transition: padding-left var(--dur-move) var(--ease-in-out-strong);
-}
-/* z-index 36: over an app-level page (35), under the scrims (40+).
-   THE TRAP this closes, and the component's own doc names it — "a collapse control that disappears on
-   collapse is a trap". A page covers the whole window when the sidebar is collapsed (`inset: 0`
-   below), so at the corner's old rung of 5 the only control that brings the column back was painted
-   over and hit-tested to the page: open Agents, collapse the sidebar, and the sidebar could not be
-   opened again except by ⌘B. It is window chrome, like the traffic lights it sits beside — which the
-   OS draws over everything — so it yields to a sheet or the palette and to nothing else. */
-.sb-corner { position: absolute; top: 0; left: 0; z-index: 36; height: 40px; display: flex; align-items: center;
-  padding-left: 76px; -webkit-app-region: drag;
-  /* Fades in behind the departing column rather than appearing under it mid-slide. No exit: it is
-     unmounted the moment the sidebar comes back, and §6 wants an exit quieter than its enter. */
-  animation: rl-corner-in var(--dur-base) var(--ease-out-strong); }
-@keyframes rl-corner-in { from { opacity: 0; } to { opacity: 1; } }
-.sb-corner button { -webkit-app-region: no-drag; }
-/* Whichever strip is first in the main column is the one under the lights, so it is the one that
-   reserves them. `:first-child` on each candidate keeps the three mutually exclusive — an error bar
-   pushes the others down, and only the bar actually at the top should be indented.
-   The lights themselves never move: main places them once at y:14, which centres a ~14px control in a
-   40px strip, and .sb-head, .panel-bar and the collapsed group bar are all 40px. Changing any of
-   those heights leaves the lights off-centre in that one state. */
-.app[data-sidebar-collapsed] .main > .error-bar:first-child,
-.app[data-sidebar-collapsed] .main > .group-bar:first-child,
-.app[data-sidebar-collapsed] .main > .panehost:first-child .panel[data-first-leaf] > .panel-bar { padding-left: var(--corner-w); }
-/* The group bar is 34px at rest and takes the panel bar's 40px when it is the strip under the lights. */
-.app[data-sidebar-collapsed] .main > .group-bar:first-child { min-height: 40px; }
+/* ── The rail (Plan 27) ──
+   The window's left edge in every state: the traffic lights sit in its top 40px (main places them at
+   x:12, y:14, and the three run to about 66px — the rail is as wide as they need), the window's back
+   and forward under them, then the app's destinations, and at the foot the sidebar's toggle, the
+   person and a ready update. Collapsing folds the sidebar away and leaves this, so nothing in the main
+   column has to make room for the lights in either state.
+   The same ground as the sidebar, with no line between them: the two are one column of chrome that
+   folds in half. It stacks over the sidebar so the sidebar slides out underneath it, and it carries
+   the window's rounded left corners, which the sidebar used to. */
+:root { --rail-w: 76px; }
+.app-rail, .sidebar { background: var(--sidebar-ground); }
+.app-rail { position: relative; z-index: 2; width: var(--rail-w); flex: none; min-height: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 40px 0 10px;
+  border-radius: var(--r-float) 0 0 var(--r-float); corner-shape: squircle; -webkit-app-region: drag; }
+.app-rail button { -webkit-app-region: no-drag; }
+.rail-nav { display: flex; gap: 2px; margin-bottom: 10px; }
+.rail-nav-btn { display: grid; place-items: center; width: 28px; height: 26px; border-radius: var(--r-ctl); corner-shape: squircle;
+  color: var(--rl-text-faint); }
+.rail-nav-btn:hover:not(:disabled) { background: var(--rl-hover); color: var(--rl-text-bright); }
+.rail-group, .rail-foot { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+/* The foot sits at the bottom of the column however tall the window is. */
+.rail-foot { margin-top: auto; }
+.rail-btn { position: relative; overflow: visible; display: grid; place-items: center; width: 40px; height: 36px;
+  border-radius: var(--r-ctl); corner-shape: squircle; color: var(--rl-text-dim); }
+.rail-btn:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+/* Lit while its page is up — one rung past hover, so on always reads as more than under the pointer. */
+.rail-btn[aria-pressed="true"] { background: var(--rl-active); color: var(--rl-text-bright); }
+/* The glyph is what a count hangs off: the badge overhangs the glyph's shoulder, not the button's. */
+.rail-glyph { position: relative; display: grid; place-items: center; }
+/* A ready update is the one control here that wants a click soon, so it takes the accent. */
+.rail-update { color: var(--rl-accent); }
 /* ink-3 → ink-2 on hover, matching .search: the glyph itself IS the state, no fill change. */
 .sb-toggle { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px;
   border-radius: var(--r-ctl); corner-shape: squircle; color: var(--rl-text-faint); }
@@ -464,15 +441,13 @@ kbd { font: 11px var(--font-mono); }
    past hover, the same step `.icon-btn` takes, so "on" always reads as more than "under the
    pointer". */
 .sb-toggle[aria-pressed="true"] { color: var(--rl-text-bright); background: var(--hover-2); }
-/* The unread count, at the bell's shoulder — the pill the destinations row carried, at the size a
-   26px button leaves for one. `overflow: visible` and negative offsets on purpose: a digit fitted
-   INSIDE the button would have to sit under the type floor to clear the glyph, and a badge that
-   overhangs its control is how every bell on this platform is drawn.
-   The colours are the row's, unchanged: orange on its own 14% tint, which is what "something is
+/* A count at a rail glyph's shoulder — Home's waiting count and the bell's unread (`.rail-glyph`).
+   `overflow: visible` and negative offsets on purpose: a badge that overhangs its glyph is how every
+   bell on this platform is drawn, and a digit squeezed inside would go under the type floor.
+   The colours are the warning pill's: orange on its own 14% tint, which is what "something is
    waiting on you" reads as everywhere else in the app. The tint is thin by design, so it is painted
-   over `--rl-frame` rather than straight onto a see-through column — the pill in the nav had an
-   opaque row under it, and this one has the bell. The same opaque colour rings it, which is what
-   separates the chip from the glyph beneath the way `.strip-badge`'s border does. */
+   over `--rl-frame` rather than straight onto a see-through column, and the same opaque colour rings
+   it, which is what separates the chip from the glyph beneath. */
 /* "N need you" (NeedsYou): the warning pill the bell's badge and the Agents row wear, as a control —
    orange on its own tint, the tint laid over `--rl-frame` for the badge's reason (the column under it
    is see-through). It leads the head band's controls, nearest the lights, so it is the one that
@@ -491,7 +466,6 @@ kbd { font: 11px var(--font-mono); }
 .needs-you-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: var(--fw-label); }
 .needs-you-space { flex: none; font-size: 12px; color: var(--rl-text-faint); }
 .needs-you-head .icon-btn { margin-left: auto; flex: none; }
-.sb-bell { position: relative; overflow: visible; }
 .sb-badge {
   position: absolute; top: -4px; right: -6px; min-width: 16px; height: 16px; padding: 0 4px;
   display: grid; place-items: center; border-radius: 999px;
@@ -2066,15 +2040,16 @@ button.panel-title:hover { background: var(--rl-hover); }
    behind Settings, ⌘K opened behind it, a sheet raised from a page landed under the page that raised
    it, and any menu portalled out of a page's own body was painted over by that page. A page is a
    SCREEN — the bottom of the overlay stack, not the top. */
-.page-overlay { position: fixed; z-index: 35; inset: 0 0 0 var(--sidebar-w, 0px);
+.page-overlay { position: fixed; z-index: 35; inset: 0 0 0 calc(var(--rail-w) + var(--sidebar-w, 0px));
   display: flex; flex-direction: column; min-width: 0;
   background: var(--rl-panel); outline: none;
   animation: rl-page-in var(--dur-base) var(--ease-out-strong); }
 /* A rise and a fade, not a slide: the page replaces what was there rather than arriving from a
    direction, and a horizontal move would imply it came from the sidebar it is not part of. */
 @keyframes rl-page-in { from { translate: 0 6px; opacity: 0; } to { translate: 0 0; opacity: 1; } }
-/* Collapsed, the sidebar is pulled off by its own negative margin and the page takes the width back. */
-.page-overlay[data-sidebar-collapsed] { inset: 0; }
+/* Collapsed, the sidebar is pulled off by its own negative margin and the page takes its width back —
+   never the rail's, which holds the buttons that open and close it and the way back to the sidebar. */
+.page-overlay[data-sidebar-collapsed] { inset: 0 0 0 var(--rail-w); }
 /* One bar, carrying what the overlay IS and the way out. The hairline is earned here — the page's
    own scroller genuinely passes under it. */
 /* No rule under it. The bar holds the page's own name and the control that closes it — chrome FOR
@@ -2083,11 +2058,6 @@ button.panel-title:hover { background: var(--rl-hover); }
    `.md-code-head` and the terminal dock's bar. */
 .page-overlay-bar { flex: none; display: flex; align-items: center; gap: 8px; min-height: 38px;
   padding: 0 6px 0 14px; }
-/* Collapsed, the page takes the whole window (below) — so its bar is the strip under the traffic
-   lights and the corner toggle, and it reserves them the way the pane bar and the group bar do. It
-   cannot join that rule: it is portalled to <body>, so `.app[data-sidebar-collapsed] .main > …`
-   cannot reach it. Without this the page's own title is drawn underneath the lights. */
-.page-overlay[data-sidebar-collapsed] .page-overlay-bar { padding-left: var(--corner-w); }
 .page-overlay-mark { flex: none; color: var(--rl-text-faint); }
 .page-overlay-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 12.5px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
@@ -5100,7 +5070,7 @@ select { appearance: none; padding-right: 22px;
    control's fill has ONE timing however the fill is drawn; on the rows that never paint it names a
    property that never changes, which costs nothing. */
 .item-row, .item-close, .item-shelf, .item-disclose, .icon-btn, .btn, .ghost-chip, .tool-row, .tool-group-row, .tool-copy, .msg-action,
-.delegation-row, .delegation-item,
+.delegation-row, .delegation-item, .rail-btn, .rail-nav-btn,
 .strip-space, .strip-profile, .space-card, .palette-opt, .permission-option, .menu [role^="menuitem"],
 .question-option, .question-skip {
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease, --sq-fill var(--dur-hover) ease;
