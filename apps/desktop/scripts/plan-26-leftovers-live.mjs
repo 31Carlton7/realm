@@ -371,7 +371,7 @@ async function main() {
   await until(async () => { const { notifications } = await api.call("notifications.list", {}); return titles.every((t) => notifications.some((n) => n.title === t)); }, 20_000, "the three rows");
 
   await intoLead();
-  await evalIn(c, `(() => { document.querySelector('.sb-head .sb-bell').click(); return true; })()`);
+  await evalIn(c, `(() => { [...document.querySelectorAll('.app-rail .rail-btn')].find((b) => (b.getAttribute('aria-label') ?? '').startsWith('Notifications')).click(); return true; })()`);
   await until(() => evalIn(c, `document.querySelectorAll('.notif-cards > li').length >= 3`), 10_000, "the feed");
   await sleep(800); // every space's rows, for the guard, are read as the page comes up
   await mouseTo(c, { x: 4, y: WINDOW.height - 4 });
@@ -432,9 +432,10 @@ async function main() {
   const peekTab = () => evalIn(c, `(() => { const t = document.querySelector('.pane-tab[data-peek] [role=tab]'); return t ? { label: t.getAttribute('aria-label'), selected: t.getAttribute('aria-selected') === 'true' } : null; })()`);
   const tab = await until(peekTab, 10_000, "the peek's tab").catch(() => null);
   const overlay = await evalIn(c, `!!document.querySelector('.notifications-page-pane')`);
-  const activeSpace = () => evalIn(c, `document.querySelector('.strip-space[aria-pressed="true"]')?.getAttribute('aria-label') ?? null`);
+  // The current space is the focused session's: the lead's pane keeps the keyboard, so its crumb names Live.
+  const activeSpace = () => evalIn(c, `document.querySelector('.panel[data-focused] .panel-crumb')?.getAttribute('aria-label') ?? null`);
   check("the eye opens the other space's session as a tab of the lead's side pane, the feed out of the way, still in Live",
-    tab?.label === "Peek: Peek target" && tab.selected && !overlay && (await activeSpace()) === "Switch to space Live", { tab, overlay, space: await activeSpace() });
+    tab?.label === "Peek: Peek target" && tab.selected && !overlay && (await activeSpace()) === "Open Live", { tab, overlay, space: await activeSpace() });
   const peekPane = () => evalIn(c, `(() => { const p = document.querySelector('.session-pane[data-peek]');
     return p ? { card: !!p.querySelector('.permission-card'), composer: !!p.querySelector('.composer'), bar: p.querySelector('.peek-bar')?.textContent ?? null } : null; })()`);
   const pane = await until(async () => { const p = await peekPane(); return p?.card ? p : null; }, 10_000, "the peek's card").catch(peekPane);
@@ -442,20 +443,23 @@ async function main() {
   check("…with no browser view over it", (await showing()).length === 0, await views());
   const readRow = await until(async () => { const { notifications } = await api.call("notifications.list", {}); const n = notifications.find((x) => x.title === "Peek target"); return n?.readAt ? n : null; }, 5_000, "the row read").catch(() => null);
   check("…and the row it was opened from is read, as opening it would make it", !!readRow, readRow);
-  const savedIds = async (spaceId) => {
-    const sp = (await api.call("spaces.list", {})).find((x) => x.id === spaceId);
+  /** Every item the window's saved view names — on screen or kept in a side pane — as the profile's
+   *  `ui.view:<id>` row has it. */
+  const savedIds = async () => {
+    const { value } = await api.call("settings.get", { key: `ui.view:${space.profileId}` });
     const walk = (n) => (n.type === "leaf" ? [...(n.tabs ?? []), ...(n.itemId ? [n.itemId] : [])] : n.children.flatMap(walk));
-    return [...new Set((sp.groups?.groups ?? []).flatMap((g) => walk(g.layout)))];
+    const kept = Object.values(value?.sidePanes ?? {}).flatMap((p) => p.tabs);
+    return [...new Set([...(value?.layout ? walk(value.layout) : []), ...kept])];
   };
   const targetItem = (await api.call("items.list", { spaceId: homework.id })).find((i) => i.refId === target.id);
   await sleep(600);
-  const saved = await savedIds(space.id);
-  check("…never written into Live's saved layout", saved.length > 0 && !saved.includes(targetItem.id), { saved, peek: targetItem.id });
+  const saved = await savedIds();
+  check("…never written into the window's saved view", saved.length > 0 && !saved.includes(targetItem.id), { saved, peek: targetItem.id });
   await sleep(300);
   await shot(c, "notif-peeked");
 
   // A same-space session from its row: the next peek replaces the last.
-  await evalIn(c, `(() => { document.querySelector('.sb-head .sb-bell').click(); return true; })()`);
+  await evalIn(c, `(() => { [...document.querySelectorAll('.app-rail .rail-btn')].find((b) => (b.getAttribute('aria-label') ?? '').startsWith('Notifications')).click(); return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('.notif-cards button[aria-label="Peek at Second session"]')`), 10_000, "the feed again");
   const g2 = await geometry("Second session");
   await mouseTo(c, { x: g2.row.left + 60, y: g2.row.top + 12 });
@@ -463,11 +467,11 @@ async function main() {
   await clickAt(c, { x: (g2.eye.left + g2.eye.right) / 2, y: g2.eye.cy });
   const tab2 = await until(async () => { const t = await peekTab(); return t?.label === "Peek: Second session" ? t : null; }, 10_000, "the second peek").catch(peekTab);
   const peeks = await evalIn(c, `document.querySelectorAll('.pane-tab[data-peek]').length`);
-  check("a same-space session's eye peeks at it beside the lead, replacing the last peek", tab2?.label === "Peek: Second session" && peeks === 1 && !(await savedIds(space.id)).includes(secondItem), { tab2, peeks });
+  check("a same-space session's eye peeks at it beside the lead, replacing the last peek", tab2?.label === "Peek: Second session" && peeks === 1 && !(await savedIds()).includes(secondItem), { tab2, peeks });
 
   // The Agents page draws the same component: its eye still peeks.
   await intoLead();
-  await evalIn(c, `(() => { [...document.querySelectorAll('.sb-destinations .dest-row')].find((b) => b.textContent.startsWith('Agents')).click(); return true; })()`);
+  await evalIn(c, `(() => { [...document.querySelectorAll('.app-rail .rail-btn')].find((b) => (b.getAttribute('aria-label') ?? '').startsWith('Home')).click(); return true; })()`);
   const agentsEye = await until(() => evalIn(c, `(() => { const b = document.querySelector('.agents-page button[aria-label="Peek at Peek target"]'); return b ? b.className : null; })()`), 10_000, "the Agents page's eye").catch(() => null);
   if (agentsEye) await evalIn(c, `(() => { document.querySelector('.agents-page button[aria-label="Peek at Peek target"]').click(); return true; })()`);
   const tab3 = await until(async () => { const t = await peekTab(); return t?.label === "Peek: Peek target" ? t : null; }, 10_000, "the Agents page's peek").catch(peekTab);

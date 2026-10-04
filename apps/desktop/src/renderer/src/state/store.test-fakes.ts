@@ -364,9 +364,9 @@ export type FakeApi = Api & {
 /** Defaults: profiles p1 "Work" / p2 "School"; spaces s1 "Versed" and s2 "Homework", BOTH under p1
  *  (#7c6cff / #3ddc97); items: s1 has one terminal (i1). Pass `overrides` to replace any of these.
  *
- *  Both default spaces share a profile because the sidebar is profile-scoped: the strip, the swiper,
- *  ⌃Tab and ⌘1…9 all page within one profile, so a fixture that split its two spaces across two
- *  profiles would model a strip with one button in it — not the two-space sidebar these tests mean.
+ *  Both default spaces share a profile because the sidebar is profile-scoped: its sections, ⌃Tab and
+ *  ⌘1…9 all stay within one profile, so a fixture that split its two spaces across two profiles
+ *  would model a sidebar with one section in it — not the two-space sidebar these tests mean.
  *  p2 is deliberately left empty; the profile-crossing tests pass their own spaces. */
 export function fakeApi(overrides: FakeData = {}): FakeApi {
   const calls: string[] = [];

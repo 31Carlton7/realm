@@ -547,9 +547,9 @@ kbd { font: 11px var(--font-mono); }
    edge. `.activity-call` and `.activity-duration` are the sheet's own classes, so the two surfaces
    cannot drift into two different ways of printing the same tool name.
 
-   The inset is `.space-page`'s, because this stands where that page stands: the feed is a sibling of
-   the swiper rather than a page inside it, so it inherited none of the 16px every other row in this
-   column sits inside and every row and the empty line sat flush against the window's own edge.
+   The inset is its own: the feed stands in the column without a section around it, so it inherits
+   none of the 16px every other row in this column sits inside, and without it every row and the
+   empty line would sit flush against the window's own edge.
    The heading of a run keeps its own top padding except at the very top, where `.space-body`'s
    clearance under the fade is already the gap. */
 .sb-activity { padding-inline: 16px; }

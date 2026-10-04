@@ -512,8 +512,25 @@ async function main() {
   check("…with Home's count and the way back still on screen", railC.buttons.some((b) => b.name === "Home, 1 waiting on you") && railC.buttons.some((b) => b.name === "Show sidebar (⌘B)"), railC.buttons.map((b) => b.name));
   await park(c);
   await shot(c, "collapsed-dark");
+  /* Collapsed with a page up, the way back must still take the click. A page drawn over the toggle
+     hit-tests to the page, which no screenshot shows, because the button is still painted underneath
+     — the bug the old corner toggle once had, carried over to the rail. */
+  await evalIn(c, `__live.clickName('Library', '.app-rail')`);
+  await until(() => evalIn(c, `!!document.querySelector('.page-overlay')`), 8_000, "a page over the panes");
+  await sleep(300);
+  const onPage = await evalIn(c, `(() => {
+    const t = [...document.querySelectorAll('.app-rail button')].find((b) => b.getAttribute('aria-label') === 'Show sidebar (⌘B)')?.getBoundingClientRect();
+    if (!t) return { toggle: null };
+    const el = document.elementFromPoint(t.left + t.width / 2, t.top + t.height / 2);
+    return { hitsToggle: el?.closest('button')?.getAttribute('aria-label') === 'Show sidebar (⌘B)', hit: el?.className ?? null,
+      pageLeft: __live.box(document.querySelector('.page-overlay')).l };
+  })()`);
+  check("with a page up, a click at the rail's Show sidebar lands on it, not on the page", onPage.hitsToggle === true, onPage);
+  check("…the page standing beside the rail rather than over it", onPage.pageLeft >= railC.box.r - 0.5, { page: onPage.pageLeft, rail: railC.box.r });
   await evalIn(c, `__live.clickName('Show sidebar (⌘B)', '.app-rail')`);
   await until(() => evalIn(c, `!__live.sidebar().collapsed`), 5_000, "open again");
+  await evalIn(c, `__live.clickName('Library', '.app-rail')`);
+  await until(() => evalIn(c, `!document.querySelector('.page-overlay')`), 8_000, "the page closed");
 
   /* ── The light face ─────────────────────────────────────────────────────────────────────────── */
   await api.call("settings.set", { key: "ui.theme", value: "light" });

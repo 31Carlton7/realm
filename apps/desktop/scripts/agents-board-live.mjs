@@ -192,7 +192,7 @@ async function main() {
   await settleTo(question.id, "waiting_permission", "question waits");
   await settleTo(hang.id, "running", "hang runs");
 
-  await evalIn(c, `(() => { [...document.querySelectorAll('.dest-row')].find((b) => b.textContent.includes('Agents')).click(); return true; })()`);
+  await evalIn(c, `(() => { [...document.querySelectorAll('.app-rail .rail-btn')].find((b) => (b.getAttribute('aria-label') ?? '').startsWith('Home')).click(); return true; })()`);
   await until(() => page(`overlayUp() && !!rowItem("Clean the build folder")?.querySelector('[role=group][aria-label="Permission request"]') && !!rowItem("Pick a base branch")?.querySelector('[role=group][aria-label="Base"]')`), 15_000, "cards on the list");
   await sleep(500);
 
@@ -274,9 +274,9 @@ async function main() {
   await settleTo(light.id, "waiting_permission", "light waits");
   await api.call("settings.set", { key: "ui.theme", value: "light" });
   await c.send("Page.reload", {});
-  await until(() => evalIn(c, `document.documentElement?.dataset.mode === 'light' && !!document.querySelector('.dest-row')`).catch(() => false), 30_000, "light reload");
+  await until(() => evalIn(c, `document.documentElement?.dataset.mode === 'light' && !!document.querySelector('.app-rail .rail-btn')`).catch(() => false), 30_000, "light reload");
   await sleep(600);
-  await evalIn(c, `(() => { [...document.querySelectorAll('.dest-row')].find((b) => b.textContent.includes('Agents')).click(); return true; })()`);
+  await evalIn(c, `(() => { [...document.querySelectorAll('.app-rail .rail-btn')].find((b) => (b.getAttribute('aria-label') ?? '').startsWith('Home')).click(); return true; })()`);
   await until(() => page(`!!rowItem("Remove the old fixtures")?.querySelector('[role=group][aria-label="Permission request"]') || !!tileItem("Remove the old fixtures")?.querySelector('[role=group]')`), 15_000, "light card");
   await sleep(500);
   await shot(c, "light", ".agents-page .page-content");

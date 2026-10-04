@@ -18,8 +18,9 @@ function helperPath(): string | null {
 }
 
 /** Streams native trackpad scroll phases (began/changed/ended + momentum) to the renderer so the
- *  space swiper can hold/settle/commit exactly on finger lift, like macOS Spaces. Optional: when the
- *  helper is missing (non-mac, or not built) the renderer falls back to timer heuristics. */
+ *  rubber band at a scroller's ends (renderer/rubber-band.ts) can tell fingers on the pad from a lift
+ *  and a coast, as a Mac scroll view does. Optional: when the helper is missing (non-mac, or not
+ *  built) the renderer falls back to timer heuristics. */
 export function startScrollPhaseStream(win: BrowserWindow): { stop(): void } {
   const bin = helperPath();
   if (!bin) return { stop() {} };

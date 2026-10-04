@@ -619,8 +619,7 @@ export function SpacePage({ item }: PaneProps) {
   const count = Object.values(sessions).filter((s) => s.spaceId === spaceId).length;
 
   return (
-    // `.page` establishes the pattern; the modifier is `space-page-pane` (`.space-page` is taken —
-    // it is the swiper's per-space sidebar column).
+    // `.page` establishes the pattern; the modifier is `space-page-pane`.
     <div className="page space-page-pane">
       <header className="page-head">
         {/* Plain text. The space's colour is carried by its icon in the sidebar, which is where a

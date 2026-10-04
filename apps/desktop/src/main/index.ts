@@ -445,7 +445,7 @@ async function createWindow(info: { port: number; home: string; token: string },
   // Replay whatever the server's health last was. A window created after the event — reopened from
   // the tray, or the first one on a launch that adopted a stale daemon — has heard nothing yet.
   if (lastDaemonState) win.webContents.send("daemon:state", lastDaemonState);
-  // Native trackpad phases for the space swiper (macOS; optional helper).
+  // Native trackpad phases for the rubber band at a scroller's ends (macOS; optional helper).
   const phases = startScrollPhaseStream(win);
   const id = win.id;
   win.on("closed", () => {

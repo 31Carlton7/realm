@@ -231,11 +231,19 @@ describe("a stale focus", () => {
   });
 });
 
-describe("the sidebar while it still lists a space's rows", () => {
-  it("lists what of the space is on screen under one Open heading, and offers no New split", async () => {
-    const { store } = await mount("sidebar");
-    await twoPanes(store);
-    await waitFor(() => expect(screen.getByText("Open")).toBeInTheDocument());
+describe("the sidebar beside a split", () => {
+  it("lists both sessions in their space's section — no Open list, no New split, no split to show", async () => {
+    // THE MUTANTS: bring back the list of what is on screen, or a New split or a split's row. With
+    // one view there is nothing for either to name that the sessions' own rows do not.
+    const { store } = await mount("sidebar", {
+      items: { s1: [item("ia", "s1", { kind: "session", refId: "a", title: "Alpha" }), item("ib", "s1", { kind: "session", refId: "b", title: "Bravo" })] },
+      sessions: [session("a", "s1", { title: "Alpha" }), session("b", "s1", { title: "Bravo" })],
+    });
+    await act(async () => { await store.getState().openItem("ia"); });
+    await act(async () => { await store.getState().openItemBeside("ib"); });
+    await waitFor(() => expect(screen.getByText("Bravo")).toBeInTheDocument());
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.queryByText("Open")).toBeNull();
     expect(screen.queryByRole("button", { name: /New split/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Show Main" })).toBeNull();
   });

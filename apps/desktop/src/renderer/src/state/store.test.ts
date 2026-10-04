@@ -132,7 +132,7 @@ describe("app store", () => {
   });
 
   it("nextSpace/prevSpace stay inside the active PROFILE — they never step across the boundary", async () => {
-    // s1, s2 in Work; s3 in School. The strip and the swiper show one profile, so stepping must too.
+    // s1, s2 in Work; s3 in School. The sidebar shows one profile, so stepping must too.
     const store = createAppStore(fakeApi({
       spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework"), space("s3", "p2", "Thesis")],
       items: { s1: [], s2: [], s3: [] },
