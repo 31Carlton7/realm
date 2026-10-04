@@ -557,7 +557,7 @@ async function main() {
   /* This Mac can run a simulator, so the row carries the space's switch as every other provider's
      does. The other answer — "Needs Xcode or Android Studio", with no switch — is
      `simulator-settings-row-live.mjs`, which boots with both toolchains hidden. */
-  await evalIn(c, `(() => { [...document.querySelectorAll('.sb-destinations .dest-row')].find((b) => b.textContent.trim().startsWith("Connections")).click(); return true; })()`);
+  await evalIn(c, `(() => { [...document.querySelectorAll('.app-rail .rail-btn')].find((b) => (b.getAttribute('aria-label') ?? '').startsWith("Connections")).click(); return true; })()`);
   const row = await until(() => evalIn(c, `(() => {
     const row = [...document.querySelectorAll('.mcp-row')].find((r) => r.querySelector('.env-name')?.textContent === "realm-simulator");
     if (!row) return null;

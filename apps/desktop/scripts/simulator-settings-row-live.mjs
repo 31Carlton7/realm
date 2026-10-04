@@ -127,7 +127,7 @@ async function main() {
     input.closest("form").requestSubmit(); return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('.composer')`), 20_000, "composer");
 
-  await evalIn(c, `(() => { [...document.querySelectorAll('.sb-destinations .dest-row')].find((b) => b.textContent.trim().startsWith("Connections")).click(); return true; })()`);
+  await evalIn(c, `(() => { [...document.querySelectorAll('.app-rail .rail-btn')].find((b) => (b.getAttribute('aria-label') ?? '').startsWith("Connections")).click(); return true; })()`);
   const read = (name) => `(() => {
     const row = [...document.querySelectorAll('.mcp-row')].find((r) => r.querySelector('.env-name')?.textContent === ${JSON.stringify(name)});
     if (!row) return null;

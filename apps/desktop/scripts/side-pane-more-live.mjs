@@ -16,10 +16,10 @@
  *      open by then — by going to the tab that has it.
  *   6. Peek, from the Agents page, at a session in another space that is waiting on a card: a tab of
  *      the lead's side pane, eye and italic, its card answered in place, no prompter — never in the
- *      space's saved groups, gone on a space switch. Peek from a sidebar row's menu, then Open
- *      session, keeps a same-space session as a saved tab; Open session on another space's goes there.
- *   7. "N need you" in the sidebar's head: absent while nothing waits, a count across spaces beside
- *      the bell when sessions do, a list that answers each card in place and goes to the session.
+ *      window's saved view, and Home's count gone once it is answered. Peek from a sidebar row's
+ *      menu, then Open session: the session takes the lead's place in the main view, from this space
+ *      or another, with nothing switched. (What waits on you is the sidebar's Needs you list now —
+ *      sidebar-rail-live measures it.)
  *
  * Ports: LIVE_SERVER_PORT (8964), LIVE_CDP_PORT (9364), LIVE_MAIN_INSPECT_PORT (9464), LIVE_SITE_PORT
  * (8974). Touches only a scratch dir; kills only what is listening on its own ports. Browses nothing
@@ -275,10 +275,10 @@ async function main() {
     await sleep(100);
   };
 
-  const chipNow = () => evalIn(c, `(() => { const b = document.querySelector('.sb-head .needs-you'); if (!b) return null;
-    const r = b.getBoundingClientRect(); const bell = document.querySelector('.sb-head .sb-bell').getBoundingClientRect();
-    return { text: b.textContent, name: b.getAttribute('aria-label'), left: Math.round(r.left), right: Math.round(r.right), bellLeft: Math.round(bell.left) }; })()`);
-  check("no need-you count in the head band while nothing waits", (await chipNow()) === null);
+  /** Home's count in the rail: what waits on you, from every space. Null while nothing does. */
+  const homeCount = () => evalIn(c, `(() => { const b = [...document.querySelectorAll('.app-rail .rail-btn')].find((x) => (x.getAttribute('aria-label') ?? '').startsWith('Home'));
+    return b?.querySelector('.sb-badge')?.textContent ?? null; })()`);
+  check("no count on Home while nothing waits", (await homeCount()) === null);
 
   // ── The lead's agent opens a browser: a side pane with one tab, its view on screen ────────────
   const opened = await call("realm-browser__browser_open", { url: `${SITE}/job-1` });
@@ -430,17 +430,21 @@ async function main() {
   await api.call("sessions.send", { id: other.id, text: "PERMIT", attachments: [], mentions: [] });
   await until(async () => (await api.call("sessions.get", { id: other.id })).status === "waiting_permission", 30_000, "the peek target waiting on a card");
   const otherItem = (await api.call("items.list", { spaceId: space2.id })).find((i) => i.refId === other.id);
-  /** Every item id the server holds in a space's saved groups — what a relaunch would restore. */
-  const savedIds = async (spaceId) => {
-    const sp = (await api.call("spaces.list", {})).find((x) => x.id === spaceId);
+  /** Every item the window's saved view names, on screen or kept in a side pane — what a relaunch
+   *  would restore, as the profile's `ui.view:<id>` row has it. */
+  const savedIds = async () => {
+    const { value } = await api.call("settings.get", { key: `ui.view:${space.profileId}` });
     const walk = (n) => (n.type === "leaf" ? [...(n.tabs ?? []), ...(n.itemId ? [n.itemId] : [])] : n.children.flatMap(walk));
-    return [...new Set((sp.groups?.groups ?? []).flatMap((g) => walk(g.layout)))];
+    const kept = Object.values(value?.sidePanes ?? {}).flatMap((p) => p.tabs);
+    return [...new Set([...(value?.layout ? walk(value.layout) : []), ...kept])];
   };
   const peekTab = () => evalIn(c, `(() => { const t = document.querySelector('.pane-tab[data-peek] [role=tab]');
     return t ? { label: t.getAttribute('aria-label'), italic: getComputedStyle(t.querySelector('.pane-tab-title')).fontStyle, draggable: t.getAttribute('draggable') } : null; })()`);
-  const activeSpace = () => evalIn(c, `document.querySelector('.strip-space[aria-pressed="true"]')?.getAttribute('aria-label') ?? null`);
+  // The current space is the focused session's, which its pane's crumb names.
+  const activeSpace = () => evalIn(c, `document.querySelector('.panel[data-focused] .panel-crumb')?.getAttribute('aria-label') ?? null`);
+  const focusedTitle = () => evalIn(c, `document.querySelector('.panehost .panel[data-focused] .panel-title')?.textContent ?? null`);
   const openAgents = async () => {
-    await evalIn(c, `(() => { [...document.querySelectorAll('.sb-destinations .dest-row')].find((b) => b.textContent.startsWith('Agents')).click(); return true; })()`);
+    await evalIn(c, `(() => { [...document.querySelectorAll('.app-rail .rail-btn')].find((b) => (b.getAttribute('aria-label') ?? '').startsWith('Home')).click(); return true; })()`);
     await until(() => evalIn(c, `!!document.querySelector('button[aria-label="Peek at Peek target"]')`), 10_000, "the Agents page's peek on the target");
   };
 
@@ -451,7 +455,7 @@ async function main() {
   const tab = await until(peekTab, 10_000, "the peek's tab").catch(() => null);
   const page = await evalIn(c, `!!document.querySelector('.agents-page')`);
   check("Peek on the Agents page opens another space's session as a tab of the lead's side pane, the page out of the way",
-    tab?.label === "Peek: Peek target" && !page && (await activeSpace()) === "Switch to space Live", { tab, page, space: await activeSpace() });
+    tab?.label === "Peek: Peek target" && !page && (await activeSpace()) === "Open Live", { tab, page, space: await activeSpace() });
   check("…marked as a peek: an eye and an italic title, and it does not drag", tab?.italic === "italic" && tab?.draggable === "false", tab);
   const peekPane = () => evalIn(c, `(() => { const p = document.querySelector('.session-pane[data-peek]');
     return p ? { card: p.querySelector('.permission-card')?.textContent?.slice(0, 80) ?? null, composer: !!p.querySelector('.composer'),
@@ -462,34 +466,21 @@ async function main() {
   await sleep(500);
   await shot(c, "peek");
 
-  // Saved groups: a layout write with the peek on screen, then what the server holds.
+  // The saved view: a layout write with the peek on screen, then what the server holds.
   await evalIn(c, `(() => { [...document.querySelectorAll('.pane-tabs [role=tab]')].find((t) => t.textContent === 'Job 1').click(); return true; })()`);
   await sleep(400);
   await evalIn(c, `(() => { document.querySelector('.pane-tab[data-peek] [role=tab]').click(); return true; })()`);
   await sleep(800);
-  const saved1 = await savedIds(space.id);
-  check("the peek is never written into the space's saved groups", saved1.length > 0 && !saved1.includes(otherItem.id), { saved: saved1, peek: otherItem.id });
+  const saved1 = await savedIds();
+  check("the peek is never written into the window's saved view", saved1.length > 0 && !saved1.includes(otherItem.id), { saved: saved1, peek: otherItem.id });
 
   // The card, answered in the peek.
   await evalIn(c, `(() => { document.querySelector('.session-pane[data-peek] .permission-card button[aria-label="Allow"]').click(); return true; })()`);
   const answered = await until(async () => { const st = (await api.call("sessions.get", { id: other.id })).status; return st !== "waiting_permission" ? st : null; }, 10_000, "the card answered").catch(() => "waiting_permission");
   const cardGone = await until(async () => { const p = await peekPane(); return p && !p.card ? true : null; }, 5_000, "the card gone").catch(() => false);
   check("Allow in the peek answers the other space's card", answered !== "waiting_permission" && cardGone === true, { status: answered });
-  const chipGone = await until(async () => ((await chipNow()) === null ? true : null), 5_000, "the count gone").catch(chipNow);
-  check("…and with nothing else waiting, the need-you count leaves the head band", chipGone === true, chipGone);
-
-  // A space switch takes it away — and coming back does not bring it.
-  await evalIn(c, `(() => { document.querySelector('button[aria-label="Switch to space Homework"]').click(); return true; })()`);
-  await until(async () => (await activeSpace()) === "Switch to space Homework", 10_000, "in Homework");
-  await sleep(600);
-  const inHomework = await peekTab();
-  await evalIn(c, `(() => { document.querySelector('button[aria-label="Switch to space Live"]').click(); return true; })()`);
-  await until(async () => (await activeSpace()) === "Switch to space Live", 10_000, "back in Live");
-  await sleep(800);
-  const back = await peekTab();
-  const sideBack = await sidePane();
-  check("a space switch takes the peek away, and switching back does not bring it", inHomework === null && back === null
-    && !(sideBack?.tabs ?? []).some((t) => t.name === "Peek target"), { inHomework, back, tabs: sideBack?.tabs });
+  const countGone = await until(async () => ((await homeCount()) === null ? true : null), 5_000, "the count gone").catch(homeCount);
+  check("…and with nothing else waiting, Home's count goes", countGone === true, countGone);
 
   // A same-space session, from its sidebar row's menu, then Open session: the tab stays, and is saved.
   const { session: second, itemId: secondItem } = await api.call("sessions.create", { spaceId: space.id, agentKind: "acp:gemini", title: "Second session", permissionMode: "default" });
@@ -505,11 +496,14 @@ async function main() {
   check("…and peeks at it beside the lead", tab2?.label === "Peek: Second session", tab2);
   await evalIn(c, `(() => { [...document.querySelectorAll('.session-pane[data-peek] .peek-bar button')].find((b) => b.textContent === 'Open session').click(); return true; })()`);
   await sleep(800);
-  const kept = await sidePane();
-  const saved2 = await savedIds(space.id);
-  check("Open session on this space's peek keeps its tab, as an ordinary tab now saved with the layout",
-    (await peekTab()) === null && kept?.tabs.some((t) => t.name === "Second session") && saved2.includes(secondItem), { tabs: kept?.tabs, saved: saved2.includes(secondItem) });
+  const saved2 = await savedIds();
+  const inFront = await focusedTitle();
+  check("Open session on this space's peek takes the lead's place in the main view, saved with it",
+    (await peekTab()) === null && inFront === "Second session" && saved2.includes(secondItem), { focused: inFront, saved: saved2.includes(secondItem) });
   void second;
+  // Back to the lead for the next peek, the way a person would: its row.
+  await evalIn(c, `(() => { [...document.querySelectorAll('.item-list .item-row')].find((b) => b.textContent.includes(${JSON.stringify(TITLE)})).click(); return true; })()`);
+  await until(async () => ((await focusedTitle()) === TITLE ? true : null), 10_000, "the lead in front again");
 
   // Another space's, Open session: that space, with the session in front.
   await intoLead();
@@ -517,55 +511,11 @@ async function main() {
   await evalIn(c, `(() => { document.querySelector('button[aria-label="Peek at Peek target"]').click(); return true; })()`);
   await until(peekTab, 10_000, "the third peek's tab");
   await evalIn(c, `(() => { [...document.querySelectorAll('.session-pane[data-peek] .peek-bar button')].find((b) => b.textContent === 'Open session').click(); return true; })()`);
-  await until(async () => (await activeSpace()) === "Switch to space Homework", 10_000, "opened in Homework").catch(() => {});
+  await until(async () => ((await focusedTitle()) === "Peek target" ? true : null), 10_000, "Peek target in front").catch(() => {});
   await sleep(600);
   const there = await evalIn(c, `(() => { const p = document.querySelector('.panehost .panel[data-focused]'); return p ? p.querySelector('.panel-title')?.textContent ?? [...p.querySelectorAll('.pane-tabs [role=tab][aria-selected=true]')].map((t) => t.textContent).join() : null; })()`);
-  check("Open session on another space's peek switches there with the session in front", (await activeSpace()) === "Switch to space Homework" && there === "Peek target" && (await peekTab()) === null, { space: await activeSpace(), focused: there });
+  check("Open session on another space's peek brings it into the main view, in front, with nothing switched", (await activeSpace()) === "Open Homework" && there === "Peek target" && (await peekTab()) === null, { space: await activeSpace(), focused: there });
   await shot(c, "peek-opened");
-
-  // ── 7. N need you ────────────────────────────────────────────────────────────────────────
-  await evalIn(c, `(() => { document.querySelector('button[aria-label="Switch to space Live"]').click(); return true; })()`);
-  await until(async () => (await activeSpace()) === "Switch to space Live", 10_000, "back in Live for the count");
-  await api.call("sessions.send", { id: second.id, text: "PERMIT", attachments: [], mentions: [] });
-  await until(async () => (await api.call("sessions.get", { id: second.id })).status === "waiting_permission", 30_000, "Second session waiting");
-  await api.call("sessions.send", { id: other.id, text: "PERMIT", attachments: [], mentions: [] });
-  await until(async () => (await api.call("sessions.get", { id: other.id })).status === "waiting_permission", 30_000, "Peek target waiting again");
-  const chip2 = await until(async () => { const ch = await chipNow(); return ch?.text === "2 need you" ? ch : null; }, 10_000, "the count at two").catch(chipNow);
-  check("two sessions waiting, in two spaces, read \"2 need you\" beside the bell and clear of the traffic lights",
-    chip2?.text === "2 need you" && chip2.name === "2 sessions need you" && chip2.right <= chip2.bellLeft && chip2.left >= 76, chip2);
-  // A browser view on screen under the popover's way: Job 1 in the lead's side pane.
-  await evalIn(c, `(() => { [...document.querySelectorAll('.pane-tabs [role=tab]')].find((t) => t.textContent === 'Job 1').click(); return true; })()`);
-  await sleep(800);
-  await evalIn(c, `(() => { document.querySelector('.sb-head .needs-you').click(); return true; })()`);
-  const pop = await until(() => evalIn(c, `(() => { const d = document.querySelector('[role=dialog][aria-label="Waiting on you"]');
-    if (!d || getComputedStyle(d).visibility !== 'visible') return null;
-    const groups = [...d.querySelectorAll('.needs-you-session')].map((g) => ({ name: g.getAttribute('aria-label'), card: !!g.querySelector('.permission-card') }));
-    if (!groups.length || !groups.every((g) => g.card)) return null;
-    const r = d.getBoundingClientRect(); return { rect: { x: r.x, y: r.y, width: r.width, height: r.height }, groups }; })()`), 10_000, "the list with both cards").catch(() => null);
-  const shownViews = Object.values(await views()).filter((v) => v.shown && v.width > 0);
-  check("its list names both sessions and their spaces, each with its card", !!pop && pop.groups.map((g) => g.name).sort().join("|") === "Peek target, in Homework|Second session, in Live", pop?.groups);
-  check("…and sits clear of the browser view on screen", !!pop && shownViews.length > 0 && shownViews.every((v) => !intersects(pop.rect, v)), { pop: pop?.rect, views: shownViews });
-  await sleep(300);
-  await shot(c, "needs-you");
-  await evalIn(c, `(() => { const g = [...document.querySelectorAll('.needs-you-session')].find((x) => x.getAttribute('aria-label') === 'Second session, in Live');
-    g.querySelector('.permission-card button[aria-label="Allow"]').click(); return true; })()`);
-  const secondSt = await until(async () => { const st = (await api.call("sessions.get", { id: second.id })).status; return st !== "waiting_permission" ? st : null; }, 10_000, "Second answered").catch(() => "waiting_permission");
-  const chip1 = await until(async () => { const ch = await chipNow(); return ch?.text === "1 needs you" ? ch : null; }, 10_000, "the count at one").catch(chipNow);
-  check("Allow in the list answers that session's card, and the count drops to one", secondSt !== "waiting_permission" && chip1?.text === "1 needs you", { status: secondSt, chip: chip1 });
-  // The list may have closed when its row went; open it again if so, then go to the other one.
-  if (!(await evalIn(c, `!!document.querySelector('[role=dialog][aria-label="Waiting on you"]')`))) await evalIn(c, `(() => { document.querySelector('.sb-head .needs-you').click(); return true; })()`);
-  await until(() => evalIn(c, `!!document.querySelector('button[aria-label="Go to Peek target"]')`), 10_000, "Go to Peek target");
-  await evalIn(c, `(() => { document.querySelector('button[aria-label="Go to Peek target"]').click(); return true; })()`);
-  await until(async () => (await activeSpace()) === "Switch to space Homework", 10_000, "gone to Homework").catch(() => {});
-  await sleep(600);
-  const went = await evalIn(c, `document.querySelector('.panehost .panel[data-focused] .panel-title')?.textContent ?? null`);
-  const listShut = await evalIn(c, `!document.querySelector('[role=dialog][aria-label="Waiting on you"]')`);
-  check("Go to the session switches to its space with it in front, and the list closes", (await activeSpace()) === "Switch to space Homework" && went === "Peek target" && listShut, { space: await activeSpace(), focused: went });
-  await evalIn(c, `(() => { document.querySelector('.sb-head .needs-you').click(); return true; })()`);
-  await until(() => evalIn(c, `!!document.querySelector('.needs-you-session .permission-card button[aria-label="Allow"]')`), 10_000, "Peek target's card in the list");
-  await evalIn(c, `(() => { document.querySelector('.needs-you-session .permission-card button[aria-label="Allow"]').click(); return true; })()`);
-  const none = await until(async () => ((await chipNow()) === null ? true : null), 10_000, "nothing waiting").catch(chipNow);
-  check("with the last card answered, the count leaves the head band", none === true, none);
 }
 
 /** The window as the renderer draws it. Native browser views are not in a DOM capture, so a tab's

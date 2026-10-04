@@ -102,11 +102,30 @@ function rpc(port, token) {
 
 const HELPERS = `
 window.__live = window.__live ?? {
-  /** Click a sidebar destination by its label, and wait for its page to be the one on screen. */
+  /** Click a rail destination by its label (Agents is the rail's Home), and wait for its page to be
+   *  the one on screen. */
   async destination(label) {
-    const row = [...document.querySelectorAll('.sb-destinations .dest-row')].find((b) => b.textContent.trim().startsWith(label));
-    if (!row) throw new Error('no destination: ' + label);
-    row.click();
+    if (label === "Settings") {
+      // Behind the rail's avatar menu, which is the system's: the palette's "Open settings" instead.
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+      for (let i = 0; i < 40 && !document.querySelector(".palette input"); i++) await new Promise((r) => setTimeout(r, 25));
+      const input = document.querySelector(".palette input");
+      if (!input) throw new Error('no palette');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "settings");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      let hit = null;
+      for (let i = 0; i < 40 && !hit; i++) {
+        hit = [...document.querySelectorAll(".palette-list [role=option]")].find((b) => /open settings/i.test(b.textContent)) ?? null;
+        if (!hit) await new Promise((r) => setTimeout(r, 25));
+      }
+      if (!hit) throw new Error('no destination: Settings');
+      hit.click();
+    } else {
+      const name = label === "Agents" ? "Home" : label;
+      const row = [...document.querySelectorAll('.app-rail .rail-btn')].find((b) => (b.getAttribute('aria-label') ?? '').startsWith(name));
+      if (!row) throw new Error('no destination: ' + label);
+      row.click();
+    }
     for (let i = 0; i < 60; i++) {
       if (document.querySelector('.page')) return true;
       await new Promise((r) => setTimeout(r, 25));
@@ -440,7 +459,7 @@ async function main() {
   }
   await api.call("sessions.setAgent", { id: first.id, agentKind: "fake" });
   await api.call("sessions.send", { id: first.id, text: "hello", attachments: [], mentions: [] });
-  await until(() => evalIn(c, `!!document.querySelector('.sb-destinations')`), 10000, "the sidebar");
+  await until(() => evalIn(c, `!!document.querySelector('.app-rail .rail-btn')`), 10000, "the rail");
   await sleep(2500);
 
   /* ── Settings: rail + reading column ─────────────────────────────────────────────────────── */

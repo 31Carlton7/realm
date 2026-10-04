@@ -8,8 +8,8 @@
  * spent an hour of its 107 minutes waiting on a permission, a heavy day of tokens, three skill
  * loads. Then, in the real window:
  *
- *   1. The profile chip's menu has an entry named for the user, wearing their initial, and it opens
- *      the page as an overlay headed by their name.
+ *   1. The rail's avatar opens a menu with an entry named for the user, wearing their initial, and it
+ *      opens the page as an overlay headed by their name.
  *   2. The five figures read what the history says: tokens, the peak day, the longest turn with the
  *      wait taken out, a current streak of five that includes today, and a longest streak of seven.
  *   3. The figures sit five across, tabular, inside the column; the calendar opens at today and its
@@ -228,18 +228,18 @@ async function main() {
   execFileSync("sqlite3", [path.join(home, "realm.db")], { input: sql });
 
   // 1. The menu entry, and the page it opens.
-  await evalIn(c, `(() => { document.querySelector('.strip-profile').click(); return true; })()`);
+  await evalIn(c, `(() => { document.querySelector('.app-rail .rail-btn[aria-haspopup=menu]').click(); return true; })()`);
   const entry = await until(() => evalIn(c, `(() => {
-    const menu = document.querySelector('[role=menu][aria-label=Profiles]');
+    const menu = document.querySelector('[role=menu][aria-label=You]');
     const item = menu && [...menu.querySelectorAll('[role=menuitem]')].find((b) => b.querySelector('.menu-label')?.textContent === ${JSON.stringify(name)});
     if (!item) return null;
     const av = item.querySelector('.avatar');
     return { text: item.querySelector('.menu-label').textContent, avatar: av ? { initial: av.textContent, w: av.offsetWidth } : null };
   })()`), 5000, "menu entry");
-  await shot(c, "menu", "[role=menu][aria-label=Profiles]");
-  check(`the profile chip's menu has an entry named for the user ("${name}"), wearing their initial`,
+  await shot(c, "menu", "[role=menu][aria-label=You]");
+  check(`the rail's avatar menu has an entry named for the user ("${name}"), wearing their initial`,
     entry.text === name && entry.avatar !== null && entry.avatar.w === 16 && (name === "You" || entry.avatar.initial === name[0].toUpperCase()), entry);
-  await evalIn(c, `(() => { [...document.querySelectorAll('[role=menu][aria-label=Profiles] [role=menuitem]')].find((b) => b.querySelector('.menu-label')?.textContent === ${JSON.stringify(name)}).click(); return true; })()`);
+  await evalIn(c, `(() => { [...document.querySelectorAll('[role=menu][aria-label=You] [role=menuitem]')].find((b) => b.querySelector('.menu-label')?.textContent === ${JSON.stringify(name)}).click(); return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('.page-overlay[aria-label="You"] .you-figures .stat-tile')`), 10_000, "page");
   await sleep(600);
   const head = await evalIn(c, `(() => {
@@ -317,12 +317,12 @@ async function main() {
   })()`);
   check("the picture survives the original being deleted", survived.natural === 96 && fs.existsSync(set.path), survived);
   // …and the menu entry wears the same face.
-  await evalIn(c, `(() => { document.querySelector('.strip-profile').click(); return true; })()`);
-  const menuFace = await until(() => evalIn(c, `(() => { const img = document.querySelector('[role=menu][aria-label=Profiles] img.avatar'); return img && img.complete ? { src: decodeURIComponent(img.getAttribute('src')), w: img.offsetWidth } : null; })()`), 5000, "menu face");
+  await evalIn(c, `(() => { document.querySelector('.app-rail .rail-btn[aria-haspopup=menu]').click(); return true; })()`);
+  const menuFace = await until(() => evalIn(c, `(() => { const img = document.querySelector('[role=menu][aria-label=You] img.avatar'); return img && img.complete ? { src: decodeURIComponent(img.getAttribute('src')), w: img.offsetWidth } : null; })()`), 5000, "menu face");
   check("the menu entry wears the same picture, at 16px", menuFace.src === pic.src && menuFace.w === 16, menuFace);
   // Closed by its own toggle, not Escape: the page overlay under it answers Escape too, and closes.
-  await evalIn(c, `(() => { document.querySelector('.strip-profile').click(); return true; })()`);
-  await until(() => evalIn(c, `!document.querySelector('[role=menu][aria-label=Profiles]')`), 5000, "menu closed");
+  await evalIn(c, `(() => { document.querySelector('.app-rail .rail-btn[aria-haspopup=menu]').click(); return true; })()`);
+  await until(() => evalIn(c, `!document.querySelector('[role=menu][aria-label=You]')`), 5000, "menu closed");
   await shot(c, "picture", ".you-page .page-head");
   await evalIn(c, `(() => { [...document.querySelectorAll('.you-page button')].find((b) => b.textContent === 'Remove picture').click(); return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('.you-page .page-head .avatar-initial')`), 5000, "initial back");
@@ -333,11 +333,11 @@ async function main() {
   await api.call("settings.set", { key: "ui.theme", value: "light" });
   await c.send("Page.reload", {});
   // Mid-navigation the page has no context to evaluate in, so a throw here is "not yet".
-  await until(() => evalIn(c, `document.documentElement?.dataset.mode === 'light' && !!document.querySelector('.strip-profile')`).catch(() => false), 30_000, "light reload");
+  await until(() => evalIn(c, `document.documentElement?.dataset.mode === 'light' && !!document.querySelector('.app-rail .rail-btn[aria-haspopup=menu]')`).catch(() => false), 30_000, "light reload");
   await sleep(800);
-  await evalIn(c, `(() => { document.querySelector('.strip-profile').click(); return true; })()`);
-  await until(() => evalIn(c, `!!document.querySelector('[role=menu][aria-label=Profiles] [role=menuitem]')`), 5000, "menu (light)");
-  await evalIn(c, `(() => { [...document.querySelectorAll('[role=menu][aria-label=Profiles] [role=menuitem]')].find((b) => b.querySelector('.menu-label')?.textContent === ${JSON.stringify(name)}).click(); return true; })()`);
+  await evalIn(c, `(() => { document.querySelector('.app-rail .rail-btn[aria-haspopup=menu]').click(); return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector('[role=menu][aria-label=You] [role=menuitem]')`), 5000, "menu (light)");
+  await evalIn(c, `(() => { [...document.querySelectorAll('[role=menu][aria-label=You] [role=menuitem]')].find((b) => b.querySelector('.menu-label')?.textContent === ${JSON.stringify(name)}).click(); return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('.page-overlay[aria-label="You"] .you-figures .stat-tile')`), 10_000, "page (light)");
   await sleep(800);
   await shot(c, "light");

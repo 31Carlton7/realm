@@ -1,16 +1,13 @@
 /**
- * Live check for the five sidebar/splits slices
- * (run with: node apps/desktop/scripts/sidebar-and-splits-live.mjs)
+ * Live check for two Settings rows (run with: node apps/desktop/scripts/settings-leading-live.mjs)
  *
- * Every claim these commits make is about something jsdom cannot answer:
+ * What is left of the sidebar-and-splits check once Plan 27 retired the strip of splits, ⌘⇧G and the
+ * sidebar's non-session rows — the two claims that never depended on them, and that jsdom cannot see:
  *
- *  - The Sessions heading and the Splits strip are strings, but the strip only EXISTS past two
- *    groups and only looks cramped once it is painted beside the traffic lights.
- *  - The bar's inset is the whole gap between a tab's text and the window frame. A stylesheet says
- *    what was written; `getBoundingClientRect` says where the first tab's text actually lands.
- *  - The row's trash is `opacity: 0` until `:hover`, and a hover cannot be faked with a synthetic
- *    pointer here — `CSS.forcePseudoState` is the renderer's own, which is the only way to see it.
- *  - ⌘⇧G is a keystroke; the unit test drives the hook, this drives the window.
+ *  - Ask before deleting is reachable in Settings, on by default, under its own Deleting heading.
+ *  - The Line height slider moves the USED line-height of prose, not merely the declaration:
+ *    `--lh-shift` is a registered custom property each surface adds to its own ratio, and jsdom
+ *    computes no cascade at all.
  *
  * Ports: env-overridable. Touches only a scratch dir; kills only the process it started.
  */
@@ -23,8 +20,8 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9377), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8944);
-const shots = process.env.LIVE_SHOT_DIR ?? "/tmp/realm-sidebar-live";
-const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-sidebar-live-"));
+const shots = process.env.LIVE_SHOT_DIR ?? "/tmp/realm-settings-leading-live";
+const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-settings-leading-"));
 let electron = null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -85,14 +82,6 @@ async function shoot(c, name, clip) {
   return file;
 }
 
-/** A named element's box, or null. Used for both the geometry checks and the screenshot clips. */
-const boxOf = (c, sel) => evalIn(c, `(() => {
-  const e = document.querySelector(${JSON.stringify(sel)});
-  if (!e) return null;
-  const r = e.getBoundingClientRect();
-  return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
-})()`);
-
 async function main() {
   fs.mkdirSync(shots, { recursive: true });
   for (const p of [CDP_PORT, SERVER_PORT]) {
@@ -143,125 +132,7 @@ async function main() {
   await c.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 860, deviceScaleFactor: 2, mobile: false });
   await sleep(500);
 
-  // ---- 1. the sidebar's catch-all heading ------------------------------------------------------
-  const headings = await evalIn(c, `Array.from(document.querySelectorAll('.group-label')).map(n => n.textContent.trim())`);
-  console.log(`  .group-label headings on screen: ${JSON.stringify(headings)}`);
-  check("the catch-all section says Sessions", headings.includes("Sessions"), headings);
-  check("nothing still says Space", !headings.includes("Space"), headings);
-
-  // ---- 2. ⌘⇧G makes a split, twice, which is also what makes the strip appear -------------------
-  const stripBefore = await boxOf(c, ".group-bar");
-  check("no strip while the space has one split", stripBefore === null, stripBefore);
-  for (let i = 0; i < 2; i++) {
-    for (const type of ["keyDown", "keyUp"]) {
-      await c.send("Input.dispatchKeyEvent", {
-        type, key: "G", code: "KeyG", windowsVirtualKeyCode: 71, nativeVirtualKeyCode: 71,
-        modifiers: 4 | 8, ...(type === "keyDown" ? { text: "G" } : {}),
-      });
-    }
-    await sleep(450);
-  }
-  const strip = await boxOf(c, ".group-bar");
-  check("⌘⇧G made splits and the strip came up", strip !== null && strip.h >= 38, strip);
-
-  // ---- 3. the strip's own words ----------------------------------------------------------------
-  const words = await evalIn(c, `(() => {
-    const bar = document.querySelector('.group-bar');
-    const tabs = document.querySelector('.group-tabs');
-    const add = document.querySelector('.group-add');
-    return {
-      bar: bar && bar.getAttribute('aria-label'),
-      tabs: tabs && tabs.getAttribute('aria-label'),
-      add: add && add.getAttribute('aria-label'),
-      names: Array.from(document.querySelectorAll('.group-tab-name')).map(n => n.textContent),
-    };
-  })()`);
-  console.log(`  strip labels: ${JSON.stringify(words)}`);
-  check("the strip calls itself Splits", words.bar === "Splits" && words.tabs === "Splits", words);
-  check("the + says New split", words.add === "New split", words.add);
-
-  // ---- 4. the inset, measured where the text actually lands -------------------------------------
-  const inset = await evalIn(c, `(() => {
-    const bar = document.querySelector('.group-bar');
-    const first = document.querySelector('.group-tab');
-    const name = document.querySelector('.group-tab-name');
-    const b = bar.getBoundingClientRect(), t = first.getBoundingClientRect(), n = name.getBoundingClientRect();
-    const cs = getComputedStyle(bar);
-    return {
-      barH: Math.round(b.height),
-      padLeft: cs.paddingLeft, padRight: cs.paddingRight,
-      tabFromBarLeft: Math.round(t.left - b.left),
-      textFromBarLeft: Math.round(n.left - b.left),
-      textFromBarTop: Math.round(n.top - b.top),
-      textToBarBottom: Math.round(b.bottom - n.bottom),
-    };
-  })()`);
-  console.log(`  strip geometry: ${JSON.stringify(inset)}`);
-  check("the bar is 38px tall in the window", inset.barH === 38, inset.barH);
-  // 16px of bar inset + 14px of tab padding = the first label sits 30px in, not the old 22px.
-  check("the first tab's TEXT clears the frame by more than the tab's own padding",
-    inset.textFromBarLeft >= 28, inset);
-  check("the label is not flush with the bar's top or bottom",
-    inset.textFromBarTop >= 9 && inset.textToBarBottom >= 9, inset);
-  await shoot(c, "01-splits-strip", { x: 0, y: 0, width: 640, height: 120 });
-
-  // ---- 5. a new split's NAME, which is the one string the unit tests cannot see -----------------
-  //
-  // Every label in these commits is asserted in jsdom; `nextGroupName` is not, because no test
-  // renders a tab it generated. The first run of this script photographed "Group 2" and "Group 3"
-  // sitting in the strip under a bar that called itself Splits.
-  check("a split made just now is NAMED a split", words.names.every((n) => !/^Group \d/.test(n)), words.names);
-  check("the generated names follow the first one", words.names.some((n) => /^Split \d/.test(n)), words.names);
-
-  // ---- 6. the row's trash: absent at rest, there on hover ---------------------------------------
-  //
-  // A terminal, because the onboarded space holds one session and a session is the kind that keeps
-  // the shelf instead — hovering the row that is already there would prove the opposite thing.
-  for (const type of ["keyDown", "keyUp"]) {
-    await c.send("Input.dispatchKeyEvent", {
-      type, key: "t", code: "KeyT", windowsVirtualKeyCode: 84, nativeVirtualKeyCode: 84,
-      modifiers: 4, ...(type === "keyDown" ? { text: "t" } : {}),
-    });
-  }
-  await until(() => evalIn(c, `!!document.querySelector('.item .item-delete')`), 15000, "a non-session row");
-
-  await c.send("DOM.enable");
-  await c.send("CSS.enable");
-  const trashRow = await evalIn(c, `(() => {
-    const rows = Array.from(document.querySelectorAll('.item'));
-    const i = rows.findIndex((r) => r.querySelector('.item-delete'));
-    return { index: i, title: rows[i]?.querySelector('.item-title')?.textContent ?? null,
-             shelved: !!rows[i]?.querySelector('.item-shelf') };
-  })()`);
-  console.log(`  row carrying a trash: ${JSON.stringify(trashRow)}`);
-  check("a non-session row carries a trash", trashRow.index >= 0, trashRow);
-  check("and it is not also wearing the session shelf", trashRow.shelved === false, trashRow);
-
-  /* The opacity the trash is DRAWN at: its own times every ancestor's. The row's actions share one
-     slot with its state, and it is the slot that is hidden at rest (`.item-actions`), so the button's
-     own opacity is 1 either way — reading it alone passed a trash nobody could see and one everybody
-     could alike. */
-  const opacityOf = () => evalIn(c, `(() => {
-    const e = document.querySelector('.item .item-delete');
-    if (!e) return null;
-    let o = 1;
-    for (let n = e; n && n !== document.body; n = n.parentElement) o *= parseFloat(getComputedStyle(n).opacity);
-    return String(o);
-  })()`);
-  const atRest = await opacityOf();
-  check("the trash is invisible at rest", atRest === "0", { atRest });
-
-  const { root } = await c.send("DOM.getDocument", { depth: -1 });
-  const { nodeId: rowNode } = await c.send("DOM.querySelector", { nodeId: root.nodeId, selector: `.item:has(.item-delete)` });
-  await c.send("CSS.forcePseudoState", { nodeId: rowNode, forcedPseudoClasses: ["hover"] });
-  await sleep(350);
-  const hovered = await opacityOf();
-  console.log(`  .item-delete opacity: rest=${atRest} hover=${hovered}`);
-  check("the trash appears on hover", hovered === "1", { atRest, hovered });
-  await shoot(c, "02-row-trash-hovered", { x: 0, y: 0, width: 340, height: 860 });
-  await c.send("CSS.forcePseudoState", { nodeId: rowNode, forcedPseudoClasses: [] });
-
-  // ---- 7. the setting is reachable, on, and under its own heading -------------------------------
+  // ---- 1. the setting is reachable, on, and under its own heading -------------------------------
   // Through the palette, because Settings is not one of the sidebar's destinations — the first run
   // of this script assumed it was, and reported the switch missing when the page had never opened.
   for (const type of ["keyDown", "keyUp"]) {
@@ -299,9 +170,9 @@ async function main() {
   console.log(`  settings switch: ${JSON.stringify(sw)}`);
   check("Settings carries the Ask-before-deleting switch, on by default", sw.found && sw.checked === true, sw);
   check("it sits under its own Deleting heading", sw.heads.includes("Deleting"), sw.heads);
-  await shoot(c, "03-deleting-setting");
+  await shoot(c, "01-deleting-setting");
 
-  // ---- 8. the leading slider, measured through the real cascade --------------------------------
+  // ---- 2. the leading slider, measured through the real cascade --------------------------------
   //
   // `--lh-shift` is a registered custom property that each surface ADDS to its own ratio. jsdom
   // computes no cascade at all, so the only thing a unit test can assert is the string written into
@@ -349,7 +220,7 @@ async function main() {
   // 15px at 1.9 is 28.5px. The point of the check is that the USED value moved, not the declaration.
   check("moving the slider moves the used line-height, not just the declaration",
     after.shift === "0.3" && parseFloat(after.lineHeight) > parseFloat(before.lineHeight) + 3, { before, after });
-  await shoot(c, "04-line-height", { x: 0, y: 0, width: 1280, height: 860 });
+  await shoot(c, "02-line-height", { x: 0, y: 0, width: 1280, height: 860 });
 
   c.close();
 }

@@ -390,10 +390,30 @@ async function openPaneMenu(c, m) {
 const paneToast = (c) => evalIn(c, `[...document.querySelectorAll('.browser-pane [role=status]')].map((s) => s.textContent).join(" | ")`);
 
 /** Open a browser on the site in a space, through its sidebar row in a window. */
+/** Open a browser on SITE in this space. The sidebar lists sessions only, so a browser made on its own
+ *  is reached the way any item is — through the palette, where it is the one still titled "Browser"
+ *  (a page renames its item once it has loaded) and, in a space other than the current one, the one
+ *  whose hint names that space. */
 async function openBrowserIn(c, spaceId) {
   const { browserId } = await api.call("browsers.create", { spaceId, url: `${SITE}/` });
-  await until(() => evalIn(c, `[...document.querySelectorAll('.item-list .item-row')].some((b) => b.textContent.includes('Browser') || b.textContent.includes('Signed'))`), 15_000, "the browser's row");
-  await evalIn(c, `(() => { [...document.querySelectorAll('.item-list .item-row')].find((b) => b.textContent.includes('Browser') || b.textContent.includes('Signed')).click(); return true; })()`);
+  const space = (await api.call("spaces.list", {})).find((sp) => sp.id === spaceId);
+  await evalIn(c, `(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    if (!document.querySelector(".palette input")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+    for (let i = 0; i < 60 && !document.querySelector(".palette input"); i++) await wait(25);
+    const input = document.querySelector(".palette input");
+    if (!input) throw new Error("the palette did not open");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "Browser");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    for (let i = 0; i < 120; i++) {
+      const opts = [...document.querySelectorAll(".palette-list [role=option]")].filter((o) => o.querySelector(".palette-label")?.textContent === "Browser");
+      const hit = opts.find((o) => (o.querySelector(".palette-hint")?.textContent ?? "").includes(${JSON.stringify(space.name)})) ?? opts[0];
+      if (hit) { hit.click(); return true; }
+      await wait(25);
+    }
+    throw new Error("no unopened browser in the palette");
+  })()`);
+  await sleep(300);
   return browserId;
 }
 
@@ -484,12 +504,12 @@ async function main() {
   await inMain(m, `(() => { for (const w of require("electron").BrowserWindow.getAllWindows()) w.setContentSize(${WINDOW.width}, ${WINDOW.height}); return true; })()`);
   const bound = await evalIn(c2, `window.realm.profileId ?? null`);
   check("the second window is bound to Work (window.realm.profileId)", bound === work.id, { bound, work: work.id });
-  await until(() => evalIn(c2, `document.querySelector('.space-name')?.textContent === 'Clients'`), 20_000, "Work's window on Clients").catch(() => {});
-  const side = async (cc) => evalIn(cc, `({ space: document.querySelector('.space-name')?.textContent ?? null,
-    strip: [...document.querySelectorAll('.strip-space')].map((b) => b.getAttribute('aria-label').replace('Switch to space ', '')) })`);
+  await until(() => evalIn(c2, `!!document.querySelector('.sb-section[aria-label="Clients"]')`), 20_000, "Work's window listing Clients").catch(() => {});
+  const side = async (cc) => evalIn(cc, `({ profile: document.querySelector('.sb-profile')?.getAttribute('aria-label') ?? null,
+    spaces: [...document.querySelectorAll('.sb-section')].map((sec) => sec.getAttribute('aria-label')) })`);
   const w1 = await side(c); const w2 = await side(c2);
   check("each window shows its own profile's spaces — Personal's in the first, Work's in the second",
-    w1.space === "Live" && w1.strip.join() === "Live" && w2.space === "Clients" && w2.strip.join() === "Clients", { first: w1, second: w2 });
+    w1.spaces.join() === "Live" && w2.spaces.join() === "Clients", { first: w1, second: w2 });
   const titles = await inMain(m, `require("electron").BrowserWindow.getAllWindows().map((w) => ({ id: w.id, title: w.getTitle() }))`);
   check("each window is titled by the profile it shows — what the Window menu lists", titles.map((t) => t.title).sort().join() === "Personal,Work", titles);
   const workWindowId = titles.find((t) => t.title === "Work").id;
@@ -589,9 +609,7 @@ async function main() {
   // ── 7b. A space moved to another profile takes its open browser with it ───────────────────────
   await evalIn(c, `(() => { document.querySelector('.page-overlay-bar [aria-label^="Close"]')?.click(); return true; })()`);
   const spare = await api.call("spaces.create", { profileId: personal.id, name: "Spare" });
-  await until(() => evalIn(c, `!!document.querySelector('[aria-label="Switch to space Spare"]')`), 10_000, "Spare in the strip");
-  await evalIn(c, `(() => { document.querySelector('[aria-label="Switch to space Spare"]').click(); return true; })()`);
-  await until(() => evalIn(c, `document.querySelector('.space-name')?.textContent === 'Spare'`), 10_000, "on Spare");
+  await until(() => evalIn(c, `!!document.querySelector('.sb-section[aria-label="Spare"]')`), 10_000, "Spare in the sidebar");
   const spareBrowser = await openBrowserIn(c, spare.id);
   await until(async () => (await fixtureViews(m)).some((v) => v.windowId === personalWindowId && v.partition === "persist:browser" && v.title === "Signed in as alice"), 15_000, "Spare's view in Personal's jar");
   await api.call("spaces.update", { id: spare.id, profileId: work.id });
@@ -606,7 +624,7 @@ async function main() {
   check("…and moved back, into Personal's again, signed in", back?.title === "Signed in as alice", back);
   await api.call("browsers.close", { browserId: spareBrowser }).catch(() => {});
   await api.call("spaces.delete", { id: spare.id });
-  await until(() => evalIn(c, `document.querySelector('.space-name')?.textContent === 'Live'`), 10_000, "back on Live").catch(() => {});
+  await until(() => evalIn(c, `!document.querySelector('.sb-section[aria-label="Spare"]')`), 10_000, "Spare gone from the sidebar").catch(() => {});
 
   // ── 8. Deleting Work is guarded ───────────────────────────────────────────────────────────────
   // Work holds the site's cookies again, so the delete has a jar to clear.
