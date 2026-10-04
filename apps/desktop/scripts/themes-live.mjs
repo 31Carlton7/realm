@@ -79,6 +79,26 @@ async function until(fn, ms, tag) {
   }
 }
 
+/**
+ * Pick a command-palette row by its label — the Theme and Palette rows moved there from the header's
+ * ⋯ with Plan 27. Driven from here in short synchronous steps rather than as one awaited page promise:
+ * the palette's first opening in a fresh window lost such a promise mid-wait ("Promise was collected"),
+ * and a step that answers at once has nothing to lose. Throws when the row is not offered, after
+ * putting the palette away, as the menu it replaced closed on a miss.
+ */
+async function paletteRow(c, label) {
+  await evalIn(c, `(() => { if (!document.querySelector(".palette input")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true })); return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector(".palette input")`), 5000, "the palette");
+  await evalIn(c, `(() => { const input = document.querySelector(".palette input");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(label)});
+    input.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
+  const picked = await until(() => evalIn(c, `(() => { const hit = [...document.querySelectorAll(".palette-list [role=option]")].find((o) => o.querySelector(".palette-label")?.textContent.trim() === ${JSON.stringify(label)});
+    if (!hit) return null; hit.click(); return true; })()`), 2000, `palette row ${label}`).catch(() => false);
+  if (picked) return true;
+  await evalIn(c, `(() => { document.querySelector(".palette input")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); return true; })()`);
+  throw new Error(`no palette row: ${label}`);
+}
+
 function cdp(wsUrl) {
   const ws = new WebSocket(wsUrl);
   let id = 0;
@@ -114,22 +134,6 @@ window.__live = window.__live ?? {
     el.dispatchEvent(new Event("input", { bubbles: true }));
   },
   /** Click a menu item by its visible label, opening the space menu first. */
-  async menu(label) {
-    // The Theme and Palette rows left the header's ⋯ with Plan 27 (Settings ▸ Appearance holds them);
-    // the command palette carries the same rows under the same names.
-    if (!document.querySelector(".palette input")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
-    for (let i = 0; i < 40 && !document.querySelector(".palette input"); i++) await new Promise((r) => setTimeout(r, 25));
-    const input = document.querySelector(".palette input");
-    if (!input) throw new Error("the palette did not open");
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, label);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    for (let i = 0; i < 80; i++) {
-      const hit = [...document.querySelectorAll(".palette-list [role=option]")].find((o) => o.querySelector(".palette-label")?.textContent.trim() === label);
-      if (hit) { hit.click(); return true; }
-      await new Promise((r) => setTimeout(r, 25));
-    }
-    throw new Error("no palette row: " + label);
-  },
   /** A fenced-code fragment in the pane, carrying one span per syntax role. Reused across themes so
    *  the sampled geometry never moves; the colours are re-read after every switch. */
   plantCode() {
@@ -349,17 +353,17 @@ async function main() {
   const grounds = new Map();
   let mappingChecked = false;
   for (const mode of ["light", "dark"]) {
-    await evalIn(c, `__live.menu(${JSON.stringify(`Theme: ${mode[0].toUpperCase()}${mode.slice(1)}`)})`);
+    await paletteRow(c, `Theme: ${mode[0].toUpperCase()}${mode.slice(1)}`);
     await sleep(300);
     for (const [label, name, modes] of PALETTES) {
       if (!modes.includes(mode)) {
         // The other half of the split: a palette with no such face must not be OFFERED for it. The
         // menu is filtered, so asking throws — which is the assertion.
-        const offered = await evalIn(c, `__live.menu(${JSON.stringify(`Palette: ${label}`)}).then(() => true, () => false)`);
+        const offered = await paletteRow(c, `Palette: ${label}`).then(() => true, () => false);
         check(`${name}: not offered for the ${mode} face it does not have`, offered === false);
         continue;
       }
-      await evalIn(c, `__live.menu(${JSON.stringify(`Palette: ${label}`)})`);
+      await paletteRow(c, `Palette: ${label}`);
       await sleep(300);
       const p = await evalIn(c, `__live.probe()`);
       const tag = `${name}-${mode}`;
@@ -414,13 +418,13 @@ async function main() {
   // 7. The two slots really are two. Set a different palette on each face and flip between them: a
   //    shared slot would show the same palette both times, which no per-face check above can see
   //    because each of them only ever looks at one face.
-  await evalIn(c, `__live.menu("Theme: Light")`); await sleep(250);
-  await evalIn(c, `__live.menu("Palette: Solarized")`); await sleep(300);
+  await paletteRow(c, "Theme: Light"); await sleep(250);
+  await paletteRow(c, "Palette: Solarized"); await sleep(300);
   const lightFace = await evalIn(c, `__live.probe()`);
-  await evalIn(c, `__live.menu("Theme: Dark")`); await sleep(250);
-  await evalIn(c, `__live.menu("Palette: Monokai")`); await sleep(300);
+  await paletteRow(c, "Theme: Dark"); await sleep(250);
+  await paletteRow(c, "Palette: Monokai"); await sleep(300);
   const darkFace = await evalIn(c, `__live.probe()`);
-  await evalIn(c, `__live.menu("Theme: Light")`); await sleep(300);
+  await paletteRow(c, "Theme: Light"); await sleep(300);
   const backToLight = await evalIn(c, `__live.probe()`);
   check("each face keeps its own palette across a mode flip",
     lightFace.theme === "solarized" && darkFace.theme === "monokai" && backToLight.theme === "solarized",
@@ -511,7 +515,7 @@ async function main() {
   await sleep(300);
 
   // 12. …and returning to the default lands exactly back on the palette that shipped.
-  await evalIn(c, `__live.menu("Palette: Realm")`);
+  await paletteRow(c, "Palette: Realm");
   await sleep(300);
   const back = await evalIn(c, `__live.probe()`);
   // tokens.css: dark --canvas is oklch(0.231 0.004 264.487) = #1c1d1f, light is

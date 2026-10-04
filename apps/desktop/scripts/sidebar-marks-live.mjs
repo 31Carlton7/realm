@@ -309,7 +309,8 @@ async function main() {
   await sleep(150);
   const oldRest = await farEnd("old");
   check("the mutant reproduces the old row (actions in the flow ⇒ the title gives up their width at rest)",
-    rest.title.w - oldRest.title.w >= 40, { titleNow: rest.title.w, titleBefore: oldRest.title.w });
+    // By the actions' own width, measured: a session row carries one now (it was two, and a fixed 40px).
+    rest.title.w - oldRest.title.w >= rest.actions.w - 1, { titleNow: rest.title.w, titleBefore: oldRest.title.w, actions: rest.actions.w });
   await evalIn(c, `(() => { document.getElementById('mutant-flow').remove(); return true; })()`);
   await sleep(150);
   // Under a real hover: the state steps aside, the actions take its place, the title stops short of them.

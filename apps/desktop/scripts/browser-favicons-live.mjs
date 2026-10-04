@@ -14,8 +14,8 @@
  *   4. A tab that moves from a page with an icon to one whose icon is slow to answer shows the glyph
  *      in the meantime — the icon is the page's, and is not lent to the next one (main drops it on
  *      the navigation; this is the check that fails without that).
- *   5. The sidebar's rows and a browser's own pane bar wear the same marks, and the server kept each
- *      icon on its browser row.
+ *   5. A browser's own pane bar wears its page's mark, and the server kept each icon on its browser
+ *      row. (The sidebar lists sessions only since Plan 27, so a browser has no row there to wear one.)
  *   6. A blank tab's Recently visited and the address suggestions show each page's icon.
  *   7. Relaunched with the site DOWN, each restored tab still draws its icon — from what Realm kept,
  *      since nothing can be fetched — and keeps it after its page has failed to load.
@@ -77,6 +77,26 @@ async function until(fn, ms, tag) {
     if (Date.now() - t0 > ms) throw new Error(`timeout:${tag}`);
     await sleep(200);
   }
+}
+
+/**
+ * Pick a command-palette row by its label — the Theme and Palette rows moved there from the header's
+ * ⋯ with Plan 27. Driven from here in short synchronous steps rather than as one awaited page promise:
+ * the palette's first opening in a fresh window lost such a promise mid-wait ("Promise was collected"),
+ * and a step that answers at once has nothing to lose. Throws when the row is not offered, after
+ * putting the palette away, as the menu it replaced closed on a miss.
+ */
+async function paletteRow(c, label) {
+  await evalIn(c, `(() => { if (!document.querySelector(".palette input")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true })); return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector(".palette input")`), 5000, "the palette");
+  await evalIn(c, `(() => { const input = document.querySelector(".palette input");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(label)});
+    input.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
+  const picked = await until(() => evalIn(c, `(() => { const hit = [...document.querySelectorAll(".palette-list [role=option]")].find((o) => o.querySelector(".palette-label")?.textContent.trim() === ${JSON.stringify(label)});
+    if (!hit) return null; hit.click(); return true; })()`), 2000, `palette row ${label}`).catch(() => false);
+  if (picked) return true;
+  await evalIn(c, `(() => { document.querySelector(".palette input")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); return true; })()`);
+  throw new Error(`no palette row: ${label}`);
 }
 
 function cdp(wsUrl) {
@@ -334,24 +354,9 @@ const stripClip = (c) => evalIn(c, `(() => {
   return { x: Math.max(0, bar.x - 8), y: Math.max(0, bar.y - 8), width: Math.min(bar.width + 16, ${WINDOW.width}), height: bar.height + 16 };
 })()`);
 
-/** The face, from the palette's Theme rows — the header's ⋯ that used to carry them went with Plan 27,
- *  which moved the theme to Settings ▸ Appearance; the palette keeps the same rows under the same names. */
+/** The face, from the palette's Theme rows — the header's ⋯ that used to carry them went with Plan 27. */
 async function setTheme(c, label) {
-  await evalIn(c, `(async () => {
-    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-    if (!document.querySelector(".palette input")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
-    for (let i = 0; i < 40 && !document.querySelector(".palette input"); i++) await wait(25);
-    const input = document.querySelector(".palette input");
-    if (!input) throw new Error("the palette did not open");
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(label)});
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    for (let i = 0; i < 80; i++) {
-      const hit = [...document.querySelectorAll(".palette-list [role=option]")].find((o) => o.querySelector(".palette-label")?.textContent === ${JSON.stringify(label)});
-      if (hit) { hit.click(); return true; }
-      await wait(25);
-    }
-    throw new Error("no palette row: " + ${JSON.stringify(label)});
-  })()`);
+  await paletteRow(c, label);
   await sleep(400);
 }
 
@@ -448,10 +453,7 @@ async function main() {
   const answered = await tab(c, "Quiet page");
   check("…and keeps the glyph once that icon turns out to be a 404", !!answered && answered.icon === null && answered.glyph, answered);
 
-  // ── 5. The rows, a pane bar, and what the server kept ─────────────────────────────────────────
-  const rows = await evalIn(c, `Object.fromEntries([...document.querySelectorAll('.item-list .item-row')].map((b) => [b.querySelector('.item-title')?.textContent, ${MARK}(b)]))`);
-  check("the sidebar's rows wear the same marks as the tabs",
-    rows["two - Search"] === "image/png" && rows["Docs"] === "image/svg+xml" && rows["Plain page"] === "glyph" && rows["Quiet page"] === "glyph", rows);
+  // ── 5. What the server kept, and a pane bar ───────────────────────────────────────────────────
   const items = (await api.call("items.list", { spaceId: space.id })).filter((i) => i.kind === "browser");
   const kept = Object.fromEntries(await Promise.all(items.map(async (i) => [i.title, (await api.call("browsers.get", { browserId: i.refId })).favicon.slice(0, 22)])));
   check("the server kept each icon on its browser row, and none for the page without one",
@@ -459,11 +461,26 @@ async function main() {
 
   // A browser in a pane of its own: split the session, and open a fresh browser into the new pane.
   const { browserId: soloId } = await api.call("browsers.create", { spaceId: space.id, url: `${SITE}/search?q=pane` });
-  await until(() => evalIn(c, `[...document.querySelectorAll('.item-list .item-row')].some((b) => b.textContent === 'Browser')`), 10_000, "the fresh browser's row");
   await intoSession(c);
   await press(c, { key: "\\", code: "Backslash", keyCode: 220, meta: true });
   await until(() => evalIn(c, `document.querySelectorAll('.panehost .panel[data-empty]').length === 1`), 5_000, "an empty pane").catch(() => {});
-  await evalIn(c, `(() => { [...document.querySelectorAll('.item-list .item-row')].find((b) => b.textContent === 'Browser').click(); return true; })()`);
+  // From the palette, as any item is reached now that the sidebar lists sessions only: the fresh
+  // browser is the one still titled "Browser", its page not yet loaded to name it.
+  await evalIn(c, `(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    if (!document.querySelector(".palette input")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+    for (let i = 0; i < 40 && !document.querySelector(".palette input"); i++) await wait(25);
+    const input = document.querySelector(".palette input");
+    if (!input) throw new Error("the palette did not open");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "Browser");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    for (let i = 0; i < 80; i++) {
+      const hit = [...document.querySelectorAll(".palette-list [role=option]")].find((o) => o.querySelector(".palette-label")?.textContent === "Browser");
+      if (hit) { hit.click(); return true; }
+      await wait(25);
+    }
+    throw new Error("no palette row for the fresh browser");
+  })()`);
   const solo = await until(() => evalIn(c, `(() => { const p = [...document.querySelectorAll('.panehost .panel:not([data-tabbed])')].find((x) => x.querySelector('.panel-title')?.textContent === 'pane - Search');
     const img = p?.querySelector('.panel-icon img.page-icon'); return img && img.naturalWidth > 0 ? { src: img.getAttribute('src').slice(0, 22), box: [Math.round(img.getBoundingClientRect().width), Math.round(img.getBoundingClientRect().height)] } : null; })()`), 15_000, "the solo pane's mark").catch(() => null);
   check("a browser in its own pane wears its page's icon in the pane bar, where the glyph went", solo?.src === "data:image/png;base64," && solo.box.join() === "14,14", { solo, browserId: soloId });

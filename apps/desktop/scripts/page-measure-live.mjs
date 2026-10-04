@@ -56,6 +56,26 @@ async function until(fn, ms, tag) {
   }
 }
 
+/**
+ * Pick a command-palette row by its label — the Theme and Palette rows moved there from the header's
+ * ⋯ with Plan 27. Driven from here in short synchronous steps rather than as one awaited page promise:
+ * the palette's first opening in a fresh window lost such a promise mid-wait ("Promise was collected"),
+ * and a step that answers at once has nothing to lose. Throws when the row is not offered, after
+ * putting the palette away, as the menu it replaced closed on a miss.
+ */
+async function paletteRow(c, label) {
+  await evalIn(c, `(() => { if (!document.querySelector(".palette input")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true })); return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector(".palette input")`), 5000, "the palette");
+  await evalIn(c, `(() => { const input = document.querySelector(".palette input");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(label)});
+    input.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
+  const picked = await until(() => evalIn(c, `(() => { const hit = [...document.querySelectorAll(".palette-list [role=option]")].find((o) => o.querySelector(".palette-label")?.textContent.trim() === ${JSON.stringify(label)});
+    if (!hit) return null; hit.click(); return true; })()`), 2000, `palette row ${label}`).catch(() => false);
+  if (picked) return true;
+  await evalIn(c, `(() => { document.querySelector(".palette input")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); return true; })()`);
+  throw new Error(`no palette row: ${label}`);
+}
+
 function cdp(wsUrl) {
   const ws = new WebSocket(wsUrl);
   let id = 0;
@@ -149,22 +169,6 @@ window.__live = window.__live ?? {
     }
     throw new Error('no palette entry: ' + label);
   },
-  async menu(label) {
-    // The Theme and Palette rows left the header's ⋯ with Plan 27 (Settings ▸ Appearance holds them);
-    // the command palette carries the same rows under the same names.
-    if (!document.querySelector(".palette input")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
-    for (let i = 0; i < 40 && !document.querySelector(".palette input"); i++) await new Promise((r) => setTimeout(r, 25));
-    const input = document.querySelector(".palette input");
-    if (!input) throw new Error("the palette did not open");
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, label);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    for (let i = 0; i < 80; i++) {
-      const hit = [...document.querySelectorAll(".palette-list [role=option]")].find((o) => o.querySelector(".palette-label")?.textContent.trim() === label);
-      if (hit) { hit.click(); return true; }
-      await new Promise((r) => setTimeout(r, 25));
-    }
-    throw new Error("no palette row: " + label);
-  },
   box(e) { if (!e) return null; const r = e.getBoundingClientRect();
     return { l: Math.round(r.left), r: Math.round(r.right), t: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }; },
   /** Open a Settings rail tab by its visible label. */
@@ -251,6 +255,8 @@ window.__live = window.__live ?? {
     const r = e.getBoundingClientRect();
     return { sel, gutter: e.offsetWidth - e.clientWidth, overflow: e.scrollHeight - e.clientHeight,
       scrollTop: e.scrollTop, width: cs.scrollbarWidth, color: cs.scrollbarColor,
+      overlay: document.documentElement.hasAttribute('data-overlay-scrollbars'),
+      dissolve: e.hasAttribute('data-dissolve') || e.hasAttribute('data-dissolve-x'),
       box: { l: Math.round(r.left), r: Math.round(r.right), t: Math.round(r.top), b: Math.round(r.bottom) } };
   },
   /** Pixels down the gutter of a scroller, each PAIRED with the page's own ground at the same y.
@@ -624,8 +630,10 @@ async function main() {
     appearance.every((a) => a.grids.every((g) => g.cards.l >= a.content.l - 1 && g.cards.r <= a.content.r + 1)),
     appearance.map((a) => ({ width: a.width, col: [a.content.l, a.content.r],
       grids: a.grids.map((g) => [g.cards.l, g.cards.r]) })));
-  check("appearance: nothing in the App tab scrolls sideways at any width",
-    appearance.every((a) => a.overflowX <= 0 && a.grids.every((g) => g.overflowX <= 0)),
+  /* At any width a window can be: main's minWidth is 900, and the rail and the sidebar take a third
+     of that, so the sweep's two narrowest widths measure a page no window can show. */
+  check("appearance: nothing in the App tab scrolls sideways at any width a window can be",
+    appearance.filter((a) => a.width >= 900).every((a) => a.overflowX <= 0 && a.grids.every((g) => g.overflowX <= 0)),
     appearance.map((a) => ({ width: a.width, content: a.overflowX, grids: a.grids.map((g) => g.overflowX) })));
 
   // Back to the widest and to the tab the page opens on, the way `sweep` leaves it. The App tab is
@@ -636,18 +644,24 @@ async function main() {
   await sleep(300);
 
   /* ── Scrollbars, in both modes, on a scroller that is actually overflowing ───────────────── */
+  /* On a Mac whose system draws OVERLAY bars, Realm's styling stands down (App.tsx,
+     overlayScrollbars) and the bar is the system's — both properties stay at auto. A scroller that
+     dissolves at its ends hands both back too, on any Mac: its bar is the ::-webkit-scrollbar one,
+     whose track margins keep the thumb out of the fade, and the pixel read of the gutter below is what
+     judges it. Everywhere else the bar is Realm's thin line with a transparent track. */
+  const barAsDesigned = (x) => (x.overlay || x.dissolve ? x.color === "auto" && x.width === "auto" : TRACKLESS.test(x.color) && x.width === "thin");
   await evalIn(c, `__live.destination('Settings')`);
   await sleep(400);
   await c.send("Emulation.setDeviceMetricsOverride", { width: 1400, height: 620, deviceScaleFactor: 1, mobile: false });
   await sleep(400);
   for (const mode of ["Dark", "Light"]) {
-    await evalIn(c, `__live.menu(${JSON.stringify(`Theme: ${mode}`)})`);
+    await paletteRow(c, `Theme: ${mode}`);
     await sleep(500);
     const s = await evalIn(c, `__live.scroller('.page-content')`);
     check(`${mode.toLowerCase()}: the settings column is genuinely overflowing, so there is a bar to judge`,
       s && s.overflow > 40, s);
-    check(`${mode.toLowerCase()}: the track is transparent — the thumb is the only thing the bar paints`,
-      TRACKLESS.test(s.color) && s.width === "thin", { color: s.color, width: s.width, gutter: s.gutter });
+    check(`${mode.toLowerCase()}: the bar is the one designed for this scroller — the system's, the dissolve's, or a thin line with no track`,
+      barAsDesigned(s), { overlay: s.overlay, dissolve: s.dissolve, color: s.color, width: s.width, gutter: s.gutter });
     await gutter(c, mode, s, await shot(c, `settings-${mode.toLowerCase()}`));
 
     await evalIn(c, `__live.destination('Notifications')`);
@@ -655,8 +669,8 @@ async function main() {
     // `.notif-feed`, not `.notif-list`: the feed is one scrolling column now, not a list beside a
     // detail panel.
     const n = await evalIn(c, `__live.scroller('.notif-feed')`);
-    check(`${mode.toLowerCase()}: the notifications feed is overflowing too, and its bar is the same thin one`,
-      n && n.overflow > 40 && TRACKLESS.test(n.color) && n.width === "thin", n);
+    check(`${mode.toLowerCase()}: the notifications feed is overflowing too, and its bar is the settings column's`,
+      n && n.overflow > 40 && barAsDesigned(n), n);
     await gutter(c, mode, n, await shot(c, `notifications-${mode.toLowerCase()}`));
     await evalIn(c, `__live.destination('Settings')`);
     await sleep(300);
