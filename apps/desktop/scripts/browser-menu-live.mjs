@@ -786,7 +786,7 @@ async function main() {
 
   // ── 10. Browser settings ──────────────────────────────────────────────────────────────────────
   await choose(["Browser settings"]);
-  const settings = await until(() => evalIn(c, `(() => { const r = document.querySelector('.settings-page-pane input[name=settings-page-tab]:checked'); return r ? r.value : null; })()`), 5_000, "settings page").catch(() => null);
+  const settings = await until(() => evalIn(c, `(() => { const r = document.querySelector('input[name=settings-page-tab]:checked'); return r ? r.value : null; })()`), 5_000, "settings page").catch(() => null);
   check("Browser settings opens Settings on Sign-ins", settings === "signins", settings);
   await sleep(400);
   check("…and the page's view steps aside while Settings is over it", (await view())?.shown === false);

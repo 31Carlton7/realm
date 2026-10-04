@@ -270,6 +270,10 @@ async function main() {
   const c = cdp(target.webSocketDebuggerUrl);
   await c.ready;
   await c.send("Runtime.enable");
+  // Opened behind whatever the person is using, the window is unfocused and Realm parks its motion
+  // (data-quiet) — the frame loop this measures would read as dead. Focus is emulated, as the other
+  // motion checks do.
+  await c.send("Emulation.setFocusEmulationEnabled", { enabled: true });
   await c.send("Page.enable");
 
   await until(() => evalIn(c, `!!document.querySelector('.onboarding input:not([type=radio])')`), 20000, "onboarding");
