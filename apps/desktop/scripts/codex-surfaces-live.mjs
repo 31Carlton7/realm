@@ -291,6 +291,11 @@ async function main() {
   await api.call("memory.set", { spaceId: session.spaceId, doc: MEMORY_DOC });
   note("seeded", { session: session.id, space: session.spaceId });
 
+  // The rail's face: a person in a 24px circle until a picture is chosen — never a bare initial.
+  const avatar = await evalIn(c, `(() => { const a = document.querySelector('.app-rail .avatar'); if (!a) return null; const cs = getComputedStyle(a); const b = a.getBoundingClientRect();
+    return { w: Math.round(b.width), h: Math.round(b.height), radius: cs.borderTopLeftRadius, glyph: !!a.querySelector('svg'), text: a.textContent, fill: cs.backgroundColor }; })()`);
+  check("the rail's avatar is a person in a circle, not a letter", avatar !== null && avatar.w === 24 && avatar.h === 24 && avatar.radius === "50%" && avatar.glyph && avatar.text === "", avatar);
+
   for (const face of ["dark", "light"]) {
     if (face === "light") { await paletteRow(c, "Theme: Light"); await sleep(500); }
 
