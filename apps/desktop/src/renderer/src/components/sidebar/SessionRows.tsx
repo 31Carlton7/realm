@@ -41,32 +41,32 @@ export function ListRowView({ row, where, nested = false, onChanged }: { row: Li
  * the far end, and the row's action — the shelf — takes that slot under the pointer or the keyboard.
  *
  * A click opens the session wherever it is (`revealSession`, the one path every list of sessions
- * takes). The row of the session in focus is lit. A session a schedule started wears a clock — in
+ * takes); ⌘-click opens it BESIDE the one in focus — the window's one split. The row of the session
+ * in focus is lit, whichever space it is in. A session a schedule started wears a clock — in
  * the gutter under its section's icon when nested, so its title stays on the column the others use.
  */
 export function SessionRowView({ row, where, nested = false, onChanged }: { row: SessionRow; where?: string; nested?: boolean; onChanged: () => void }) {
-  const activeSpaceId = useApp((s) => s.activeSpaceId);
   const layout = useApp((s) => s.layout);
   const focused = useApp((s) => (s.layout ? itemIdOfLeaf(s.layout, s.focusedLeafId) === row.item.id : false));
   const revealSession = useApp((s) => s.revealSession);
+  const openItemBeside = useApp((s) => s.openItemBeside);
   const run = useApp((s) => s.run);
   const archive = useArchiveAnywhere(onChanged);
   const [renaming, setRenaming] = useState(false);
   const [dragging, setDragging] = useState(false);
   const { onContextMenu, element } = useItemContextMenu(() => setRenaming(true), { onChanged });
-  // A row in the room on screen is the only one a pane can be dropped from or drawn in today.
-  const here = row.item.spaceId === activeSpaceId;
   const mark = sessionMark(row.status, row.unread);
   const named = `${row.title}${row.scheduled ? ", from a schedule" : ""}${where ? ` in ${where}` : ""}`;
   return (
-    <div className="item sb-row" data-nested={nested || undefined} data-active={(here && focused) || undefined} data-actions="1"
-      data-dragging={dragging || undefined} draggable={here}
+    // Every space of the profile is loaded, so any row can be dragged into the view or lit as its focus.
+    <div className="item sb-row" data-nested={nested || undefined} data-active={focused || undefined} data-actions="1"
+      data-dragging={dragging || undefined} draggable
       onDragStart={(e) => { e.dataTransfer.setData("application/x-realm-item", row.item.id); e.dataTransfer.effectAllowed = "move"; setDragging(true); }}
       onDragEnd={() => setDragging(false)} onContextMenu={onContextMenu(row.item)}>
       {renaming ? <RenameInput item={row.item} onDone={() => { setRenaming(false); onChanged(); }} /> : (
         <>
           <button type="button" className="item-row" aria-label={mark ? `${named} — ${mark.label}` : named}
-            onClick={() => run(() => revealSession(row.id, row.spaceId))}>
+            onClick={(e) => run(() => (e.metaKey ? openItemBeside(row.item.id) : revealSession(row.id, row.spaceId)))}>
             {nested
               ? <span className="sb-gutter" title={row.scheduled ? "Started by a schedule" : undefined}>{row.scheduled && <Icon name="clock" size={12} />}</span>
               : <Icon name={row.scheduled ? "clock" : "session"} size={16} />}
@@ -75,7 +75,7 @@ export function SessionRowView({ row, where, nested = false, onChanged }: { row:
             <span className="item-trail">
               {mark && <span className="status-dot item-status" data-status={mark.mark} title={mark.mark === "unseen" ? "New since you were here" : mark.label} />}
               {/* The pane glyph W1 draws, for a session on screen in a split: which side it is. */}
-              {here && layout && <ItemGlyph layout={layout} itemId={row.item.id} />}
+              {layout && <ItemGlyph layout={layout} itemId={row.item.id} />}
             </span>
           </button>
           <span className="item-actions">

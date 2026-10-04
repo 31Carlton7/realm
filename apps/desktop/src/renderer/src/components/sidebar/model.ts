@@ -17,8 +17,10 @@ import { groupByDay, type DayGroup } from "./chat-feed";
 export type SidebarState = {
   spaces: readonly Space[];
   profiles: readonly Profile[];
+  /** The profile this window shows. Its own lists (`items`, `sessions`) carry every space of it. */
+  activeProfileId: string | null;
   activeSpaceId: string | null;
-  /** The active space's items as this window holds them, archived rows included. */
+  /** Every space of the window's profile, as this window holds them, archived rows included. */
   items: readonly Item[];
   /** Every space's items, as `items.listAll` answers: archived rows are already left out. */
   allItems: readonly Item[];
@@ -104,13 +106,20 @@ export function spaceOfSession(s: SidebarState, session: Session): string {
 /** A sub-agent a session started — listed under its lead's running-agents control, never as a row. */
 const isChild = (session: Session | undefined): boolean => !!session?.dispatchedBy && CHILD_ORIGINS.has(session.dispatchedBy.kind);
 
-/** Every live item the window knows of: the active space's own list, and every other space's from
- *  `allItems`. Archived rows are not live. */
+/** Every live item the window knows of, each once. The window's own list carries every space of its
+ *  profile (there is no room any more) and is the fresher of the two, so for those spaces it alone
+ *  is trusted — a stale `allItems` copy of a row this window has since deleted must not come back.
+ *  `allItems` adds the other profiles' spaces. Archived rows are not live. */
 export function liveItems(s: SidebarState): Item[] {
-  return [
-    ...s.items.filter((i) => !i.archived),
-    ...s.allItems.filter((i) => i.spaceId !== s.activeSpaceId && !i.archived),
-  ];
+  const mine = new Set(s.spaces.filter((sp) => sp.profileId === s.activeProfileId).map((sp) => sp.id));
+  const seen = new Set<string>();
+  const out: Item[] = [];
+  for (const i of [...s.items, ...s.allItems.filter((x) => !mine.has(x.spaceId))]) {
+    if (i.archived || seen.has(i.id)) continue;
+    seen.add(i.id);
+    out.push(i);
+  }
+  return out;
 }
 
 /**

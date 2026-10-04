@@ -9,11 +9,13 @@ import {
 const NOW = new Date(2026, 9, 4, 15, 0).getTime();
 const MIN = 60_000;
 
-/** A home: two profiles, Work (Homework, Thesis) and School (Lectures); Homework is the room on screen. */
+/** A home: two profiles, Work (Homework, Thesis) and School (Lectures). The window shows Work, so its
+ *  own lists carry both of Work's spaces; Homework holds the session in focus. */
 function home(over: Partial<SidebarState> = {}): SidebarState {
   return {
     spaces: [space("hw", "p1", "Homework"), space("th", "p1", "Thesis"), space("lec", "p2", "Lectures")],
     profiles: [profile("p1", "Work"), profile("p2", "School")],
+    activeProfileId: "p1",
     activeSpaceId: "hw",
     items: [], allItems: [], sessions: {}, allSessions: {}, sessionStatus: {}, sessionSpace: {}, sessionUpdatedAt: {},
     quickChatId: null,
@@ -33,7 +35,7 @@ function seed(rows: { id: string; space: string; status?: SessionStatus; at?: nu
     allSessions[r.id] = row;
     sessionStatus[r.id] = row.status; sessionSpace[r.id] = r.space; sessionUpdatedAt[r.id] = at;
     const it = item(`i-${r.id}`, r.space, { kind: "session", refId: r.id, title: r.title ?? `session ${r.id}`, ...r.item });
-    if (r.space === s.activeSpaceId) items.push(it);
+    if (s.spaces.find((sp) => sp.id === r.space)?.profileId === s.activeProfileId) items.push(it);
     if (!it.archived) allItems.push(it);
   }
   return { ...s, items, allItems, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, ...over };
@@ -274,8 +276,11 @@ describe("counts", () => {
 
 describe("pinnedItems", () => {
   it("lists the profile's pinned items across its spaces, in the spaces' order, then their own", () => {
+    // The window's list carries every Work space; allItems repeats one of them, adds School's, and
+    // still holds a Homework row this window has deleted since — which must not come back.
     const s = home({
-      items: [item("hw-b", "hw", { pinned: true, sortOrder: 2 }), item("hw-a", "hw", { pinned: true, sortOrder: 1 }), item("hw-c", "hw")],
+      items: [item("hw-b", "hw", { pinned: true, sortOrder: 2 }), item("hw-a", "hw", { pinned: true, sortOrder: 1 }), item("hw-c", "hw"),
+        item("th-a", "th", { pinned: true, sortOrder: 5 })],
       allItems: [item("th-a", "th", { pinned: true, sortOrder: 5 }), item("lec-a", "lec", { pinned: true }), item("hw-stale", "hw", { pinned: true })],
     });
     const profileSpaces = s.spaces.filter((sp) => sp.profileId === "p1");

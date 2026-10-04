@@ -297,6 +297,29 @@ describe("a session's row", () => {
     expect(onCells(glyph(/^Beta/))).toEqual([1]);
   });
 
+  it("opens a session BESIDE the one in focus on ⌘-click — from any space", async () => {
+    // THE MUTANT: ignore the modifier. ⌘-click would then replace the session on screen, and the
+    // window's one split would have no way in from the list.
+    const { store } = await mount(home());
+    fireEvent.click(within(section("Versed")).getByRole("button", { name: /^Alpha/ }));
+    await waitFor(() => expect(store.getState().layout).not.toBeNull());
+    fireEvent.click(within(section("Homework")).getByRole("button", { name: /^Wants a yes/ }), { metaKey: true });
+    await waitFor(() => {
+      const open = allItems(store.getState().layout!);
+      expect(open).toEqual(expect.arrayContaining(["i-a", "i-b"]));
+    });
+  });
+
+  it("lights a row from another space once its session has focus", async () => {
+    // THE MUTANT: keep the room's rule (only the current space's rows light). A session from another
+    // space would then never show it is the one in focus.
+    const { store } = await mount(home());
+    const other = within(section("Homework")).getByRole("button", { name: /^Wants a yes/ }).closest(".item")!;
+    fireEvent.click(within(section("Homework")).getByRole("button", { name: /^Wants a yes/ }));
+    await waitFor(() => expect(other).toHaveAttribute("data-active"));
+    void store;
+  });
+
   it("lights the row of the session in focus, and only that one", async () => {
     const layout: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
       { type: "leaf", id: "L1", itemId: "i-a" }, { type: "leaf", id: "L2", itemId: "i-x" },
@@ -310,7 +333,7 @@ describe("a session's row", () => {
     expect(row(/^Alpha/)).not.toHaveAttribute("data-active");
   });
 
-  it("drags into a pane from the room on screen, carrying its item", async () => {
+  it("drags into a pane from any space, carrying its item", async () => {
     await mount(home());
     const row = within(section("Versed")).getByRole("button", { name: /^Alpha/ }).closest(".item")!;
     expect(row).toHaveAttribute("draggable", "true");
@@ -320,9 +343,10 @@ describe("a session's row", () => {
     expect(row).toHaveAttribute("data-dragging");
     fireEvent.dragEnd(row);
     expect(row).not.toHaveAttribute("data-dragging");
-    // Another room's row has no pane to land in today.
+    // Another space's row drags just the same: the view is the window's, not a room's.
     const other = (await within(section("Homework")).findByRole("button", { name: /^Wants a yes/ })).closest(".item")!;
-    expect(other).toHaveAttribute("draggable", "false");
+    fireEvent.dragStart(other, { dataTransfer: { setData: (k: string, v: string) => { data[k] = v; }, effectAllowed: "" } });
+    expect(data["application/x-realm-item"]).toBe("i-b");
   });
 
   it("pins from its menu, and the pin shows under Pinned", async () => {

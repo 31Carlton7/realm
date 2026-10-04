@@ -9,6 +9,7 @@ import { listedSessions, orderSpaces, type SessionRow, type SidebarState } from 
 export function useSidebarState(): SidebarState {
   const spaces = useApp((s) => s.spaces);
   const profiles = useApp((s) => s.profiles);
+  const activeProfileId = useApp((s) => s.activeProfileId);
   const activeSpaceId = useApp((s) => s.activeSpaceId);
   const items = useApp((s) => s.items);
   const allItems = useApp((s) => s.allItems);
@@ -18,8 +19,8 @@ export function useSidebarState(): SidebarState {
   const sessionSpace = useApp((s) => s.sessionSpace);
   const sessionUpdatedAt = useApp((s) => s.sessionUpdatedAt);
   const quickChatId = useApp((s) => s.quickChat?.sessionId ?? null);
-  return useMemo(() => ({ spaces, profiles, activeSpaceId, items, allItems, sessions, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, quickChatId }),
-    [spaces, profiles, activeSpaceId, items, allItems, sessions, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, quickChatId]);
+  return useMemo(() => ({ spaces, profiles, activeProfileId, activeSpaceId, items, allItems, sessions, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, quickChatId }),
+    [spaces, profiles, activeProfileId, activeSpaceId, items, allItems, sessions, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, quickChatId]);
 }
 
 /** The active profile's spaces, in section order. */
@@ -97,60 +98,42 @@ export function useSpaceTint(hex: string | undefined): string | undefined {
  * a pinned document or site in another space — still needs its own room on screen first.
  */
 export function useOpenAnywhere(): (item: Item) => void {
-  const store = useAppStore();
   const revealSession = useApp((s) => s.revealSession);
-  const selectSpace = useApp((s) => s.selectSpace);
-  const openItem = useApp((s) => s.openItem);
+  const revealItem = useApp((s) => s.revealItem);
   const run = useApp((s) => s.run);
+  // Every space of the profile is loaded, so any item opens where it is, from any section.
   return useCallback((item: Item) => run(async () => {
-    if (item.kind === "session") { await revealSession(item.refId, item.spaceId); return; }
-    // Plan 27: open in place once rooms retire — today an item opens only inside its own room.
-    if (store.getState().activeSpaceId !== item.spaceId) await selectSpace(item.spaceId);
-    await openItem(item.id);
-  }), [store, revealSession, selectSpace, openItem, run]);
+    if (item.kind === "session") await revealSession(item.refId, item.spaceId);
+    else await revealItem(item.id, item.spaceId);
+  }), [revealSession, revealItem, run]);
 }
 
 /** A new session in a given space — a section's +. */
 export function useNewSessionIn(): (spaceId: string, worktree?: boolean) => void {
-  const store = useAppStore();
-  const selectSpace = useApp((s) => s.selectSpace);
   const newSessionInstant = useApp((s) => s.newSessionInstant);
   const newSessionInWorktree = useApp((s) => s.newSessionInWorktree);
   const run = useApp((s) => s.run);
+  // The section's own space, named outright — the create actions take one now that there is no room.
   return useCallback((spaceId: string, worktree = false) => run(async () => {
-    // Plan 27: explicit spaceId once rooms retire — the create action makes a session in the active
-    // space, so the room is switched to the section's space first.
-    if (store.getState().activeSpaceId !== spaceId) await selectSpace(spaceId);
-    await (worktree ? newSessionInWorktree() : newSessionInstant());
-  }), [store, selectSpace, newSessionInstant, newSessionInWorktree, run]);
+    await (worktree ? newSessionInWorktree(null, spaceId) : newSessionInstant(null, undefined, spaceId));
+  }), [newSessionInstant, newSessionInWorktree, run]);
 }
 
 /** A space's own page — "Show more", a section's ⋯, a pane bar's breadcrumb — on a given tab, or on
  *  whichever it last showed. */
 export function useOpenSpacePage(): (spaceId: string, tab?: SpacePageTab) => void {
-  const store = useAppStore();
-  const selectSpace = useApp((s) => s.selectSpace);
   const openSpacePage = useApp((s) => s.openSpacePage);
-  const run = useApp((s) => s.run);
-  return useCallback((spaceId: string, tab?: SpacePageTab) => run(async () => {
-    // Plan 27: open any space's page in place once rooms retire — today `openSpacePage` opens a page
-    // only over its own room, so the room is switched to that space first.
-    if (store.getState().activeSpaceId !== spaceId) await selectSpace(spaceId);
-    openSpacePage(spaceId, tab);
-  }), [store, selectSpace, openSpacePage, run]);
+  // Any space of the profile has a page to show — there is no room to walk into first.
+  return useCallback((spaceId: string, tab?: SpacePageTab) => openSpacePage(spaceId, tab), [openSpacePage]);
 }
 
 /** Put a session row away, from whichever space it is in. */
 export function useArchiveAnywhere(refreshAll: () => void): (item: Item) => void {
-  const store = useAppStore();
   const archiveItem = useApp((s) => s.archiveItem);
-  const updateItem = useApp((s) => s.updateItem);
   const run = useApp((s) => s.run);
+  // One path for every space's row: the view is the window's, so its pane (if any) closes first.
   return useCallback((item: Item) => run(async () => {
-    if (store.getState().activeSpaceId === item.spaceId) await archiveItem(item.id, true);
-    // Plan 27: one archive path once rooms retire. `archiveItem` closes the pane in the room on
-    // screen first; another room's pane is pruned by that room's own reconcile when it next loads.
-    else await updateItem({ id: item.id, archived: true });
+    await archiveItem(item.id, true);
     refreshAll();
-  }), [store, archiveItem, updateItem, run, refreshAll]);
+  }), [archiveItem, run, refreshAll]);
 }

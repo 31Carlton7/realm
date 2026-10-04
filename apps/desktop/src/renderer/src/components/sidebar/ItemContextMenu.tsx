@@ -85,11 +85,8 @@ export function useItemContextMenu(onRename: (item: Item) => void, opts: {
             ...(menu.item.kind === "session"
               ? [{ label: menu.item.archived ? "Unarchive" : "Archive",
                    title: menu.item.archived ? "Put it back in the space list" : "Close the pane and shelve the row; nothing is deleted",
-                   // Another space's row has no pane on screen to close first (Plan 27: one path once
-                   // rooms retire), so it is shelved directly.
-                   onSelect: () => write(() => (menu.item.spaceId === activeSpaceId
-                     ? archiveItem(menu.item.id, !menu.item.archived)
-                     : updateItem({ id: menu.item.id, archived: !menu.item.archived }))) }]
+                   // One path from any space: the view is the window's, so a pane on screen closes first.
+                   onSelect: () => write(() => archiveItem(menu.item.id, !menu.item.archived)) }]
               : []),
             { label: "Rename", onSelect: () => onRename(menu.item) },
             // A plain row click goes TO the pane, which is right when you meant "take me there" and
