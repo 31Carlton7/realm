@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Item, Session, SessionStatus } from "@realm/contracts";
 import { item, profile, session, space } from "../../state/store.test-fakes";
 import {
-  FAN_OUT_GAP_MS, listedSessions, needsYou, orderSpaces, pinnedItems, profileWaiting, recentDays, reorderWithin,
+  attentionRank, FAN_OUT_GAP_MS, listedSessions, needsYou, orderSpaces, pinnedItems, profileWaiting, recentDays, reorderWithin,
   rowsBySpace, sectionView, spaceRows, spaceTally, tallyOf, tallyWords, waitingCount, type SessionRow, type SidebarState,
 } from "./model";
 
@@ -96,6 +96,20 @@ describe("spaceRows — one space's list", () => {
     expect(ids(spaceRows(listedSessions(s)))).toEqual(["new", "mid", "old"]);
   });
 
+  it("puts what needs you first, then what is working, then what is new — newest first within each", () => {
+    // THE MUTANT: recency alone. A session working since this morning last moved this morning, and
+    // would sit under Show more behind every idle session touched since.
+    const s = seed([
+      { id: "idle-new", space: "hw", at: NOW },
+      { id: "working", space: "hw", status: "running", at: NOW - 60 * MIN },
+      { id: "news", space: "hw", at: NOW - 30 * MIN, session: { seenSeq: 1, lastEventSeq: 3 } },
+      { id: "asks", space: "hw", status: "waiting_permission", at: NOW - 90 * MIN },
+      { id: "broke", space: "hw", status: "error", at: NOW - 10 * MIN },
+      { id: "idle-old", space: "hw", at: NOW - 120 * MIN },
+    ]);
+    expect(ids(spaceRows(listedSessions(s)))).toEqual(["broke", "asks", "working", "news", "idle-new", "idle-old"]);
+  });
+
   const dispatched = (id: string, created: number, extra: Partial<Session> = {}) =>
     ({ id, space: "hw", at: created, session: { dispatchedBy: { kind: "user-dispatch" as const, sessionId: null }, createdAt: created, ...extra } });
 
@@ -112,6 +126,13 @@ describe("spaceRows — one space's list", () => {
     expect(fan.title).toBe("session f1");
     expect(ids(fan.sessions)).toEqual(["f3", "f2", "f1"]);
     expect(fan.tally).toEqual({ waiting: 1, running: 2, failed: 0, unread: 0 });
+  });
+
+  it("ranks a fan-out by its most urgent session", () => {
+    const s = seed([dispatched("f1", NOW - 50 * MIN), dispatched("f2", NOW - 49 * MIN), { id: "x", space: "hw", at: NOW }]);
+    const asking = { ...s, sessionStatus: { ...s.sessionStatus, f2: "waiting_permission" as const } };
+    const rows = spaceRows(listedSessions(asking));
+    expect(rows.map((r) => [r.kind, attentionRank(r)])).toEqual([["fan-out", 0], ["session", 3]]);
   });
 
   it("leaves one dispatched session a row of its own", () => {
@@ -284,6 +305,13 @@ describe("section order", () => {
 });
 
 describe("recentDays — every session by time", () => {
+  it("counts a session still at work as active now, whenever its status last moved", () => {
+    const yesterday = NOW - 24 * 60 * MIN;
+    const s = seed([{ id: "since-yesterday", space: "hw", status: "running", at: yesterday }, { id: "done", space: "hw", at: yesterday }]);
+    const days = recentDays(listedSessions(s), NOW);
+    expect(days.map((d) => [d.label, d.rows.map((r) => r.id)])).toEqual([["Today", ["since-yesterday"]], ["Yesterday", ["done"]]]);
+  });
+
   it("cuts the profile's rows into days, newest first, a fan-out still one row", () => {
     const yesterday = NOW - 24 * 60 * MIN;
     const s = seed([

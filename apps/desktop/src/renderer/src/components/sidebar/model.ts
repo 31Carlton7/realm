@@ -180,7 +180,23 @@ const fanOutCandidate = (r: SessionRow): boolean =>
   r.session?.dispatchedBy?.kind === "user-dispatch" && r.session.dispatchedBy.sessionId === null;
 
 /**
- * One space's rows, newest first, a fan-out folded into one row.
+ * How much a row asks for a look: waiting on you or failed, then working, then something new, then
+ * the rest. A section shows what needs you before what is merely recent — a session working for an
+ * hour last moved when it started, and ordering by that alone would bury it under "Show more".
+ */
+export function attentionRank(r: ListRow): number {
+  if (r.kind === "fan-out") {
+    const t = r.tally;
+    return t.waiting + t.failed > 0 ? 0 : t.running > 0 ? 1 : t.unread > 0 ? 2 : 3;
+  }
+  if (r.status === "waiting_permission" || r.status === "error") return 0;
+  if (r.status === "running") return 1;
+  return r.unread ? 2 : 3;
+}
+
+/**
+ * One space's rows — what needs you first, then by when each last moved (`attentionRank`) — with a
+ * fan-out folded into one row.
  *
  * There is no fan-out record: the Agents page's "Start agents…" makes several sessions in a row, each
  * dispatched by the user (`dispatchedBy: user-dispatch`), one agent kind, seconds apart. Those are
@@ -207,7 +223,7 @@ export function spaceRows(rows: readonly SessionRow[]): ListRow[] {
       sessions, at: sessions[0]!.at, tally: tallyOf(sessions) });
   }
   for (const r of rows) if (!folded.has(r.id)) out.push(r);
-  return out.sort((a, b) => b.at - a.at);
+  return out.sort((a, b) => attentionRank(a) - attentionRank(b) || b.at - a.at);
 }
 
 /** Rows by space, each space's folded and ordered by `spaceRows`. */
@@ -225,10 +241,14 @@ export function sectionView(rows: readonly ListRow[], limit = SECTION_ROWS): { s
   return { shown: rows.slice(0, limit), hidden: Math.max(0, rows.length - limit) };
 }
 
-/** The Recent lens: the profile's rows across all its spaces, by last activity, cut into days. */
+/**
+ * The Recent lens: the profile's rows across all its spaces, by last activity, cut into days. A
+ * session still at work — or stopped on a question — is active now, whenever its status last moved.
+ */
 export function recentDays(rows: readonly SessionRow[], now: number): DayGroup<ListRow>[] {
   const folded = [...rowsBySpace(rows).values()].flat();
-  return groupByDay(folded, (r) => r.at, now);
+  const live = (r: ListRow) => (r.kind === "fan-out" ? r.tally.running + r.tally.waiting > 0 : r.status === "running" || r.status === "waiting_permission");
+  return groupByDay(folded, (r) => (live(r) ? Math.max(r.at, now) : r.at), now);
 }
 
 /** A row Needs you lists: waiting on a permission or a question, or failed. */
