@@ -119,6 +119,10 @@ describe("Needs you", () => {
   it("gives a failed row nothing to answer, and drops it once it is read", async () => {
     const { store } = await mount();
     expect(within(section()).queryByRole("button", { name: "Answer Notes here" })).toBeNull();
+    // …so its state stays on screen under the pointer, rather than stepping aside for an empty slot.
+    const rowOf = (name: string) => within(section()).getByRole("button", { name }).closest(".item");
+    expect(rowOf("Notes in Lectures · School — error")).toHaveAttribute("data-actions", "0");
+    expect(rowOf("Build in Versed — waiting on you")).toHaveAttribute("data-actions", "1");
     const notes = store.getState().allSessions.notes!;
     act(() => store.setState({ allSessions: { ...store.getState().allSessions, notes: { ...notes, seenSeq: notes.lastEventSeq } } }));
     await waitFor(() => expect(rowNames()).toEqual(["Schema in Homework — waiting on you", "Build in Versed — waiting on you"]));
