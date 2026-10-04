@@ -87,9 +87,10 @@ describe("starting a sign-in", () => {
   it("opens the pane at the URL the terminal printed", async () => {
     const { flow, calls } = setup({ output: ["$ ", `Open this URL:\r\n${CONSENT}`] });
     const r = await flow.start(SPACE, "claude");
-    expect(r).toMatchObject({ ok: true, terminalId: "t1" });
+    // With each pane's item, which is what a client opens beside the session that asked.
+    expect(r).toMatchObject({ ok: true, terminalId: "t1", terminalItemId: "i1" });
     if (!r.ok) return;
-    expect(await r.settled).toMatchObject({ browserId: "b1", url: CONSENT });
+    expect(await r.settled).toMatchObject({ browserId: "b1", browserItemId: "i2", url: CONSENT });
     expect(calls.opened).toEqual(["terminal", CONSENT]);
   });
 
