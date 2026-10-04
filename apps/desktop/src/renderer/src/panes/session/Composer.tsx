@@ -60,12 +60,16 @@ function GitChip({ gitInfo, onOpenDiff }: { gitInfo: GitInfo | null; onOpenDiff:
 /** Borderless ghost chip that opens an upward Menu (§4 control row). With nothing to pick it is not a
  *  control at all but a label — an agent whose CLI owns model choice still deserves its model named,
  *  and a disabled button would leave the tab order and be announced as unavailable. */
-function ChipMenu({ ariaLabel, title, label, icon, items, warning }: { ariaLabel: string; title?: string; label: ReactNode; icon?: string; items: MenuItem[]; warning?: boolean }) {
+function ChipMenu({ ariaLabel, title, label, icon, tint, items, warning }: { ariaLabel: string; title?: string; label: ReactNode; icon?: string;
+  /** A colour for the glyph alone — the space chip wears its space's (Plan 27). */
+  tint?: string; items: MenuItem[]; warning?: boolean }) {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   // A sibling of chip-label, never inside it: chip-label truncates with an ellipsis, which needs a
   // plain inline box — an icon nested in there gets no gap and sits off the text's centre line.
-  const glyph = icon ? <Icon name={icon} size={12} className="chip-brand" /> : null;
+  const glyph = icon ? (tint
+    ? <span className="chip-brand chip-tint" style={{ color: tint }}><Icon name={icon} size={12} /></span>
+    : <Icon name={icon} size={12} className="chip-brand" />) : null;
   if (items.length === 0) {
     return <span className="ghost-chip" data-static title={title ?? ariaLabel} data-warning={warning || undefined}>{glyph}<span className="chip-label">{label}</span></span>;
   }
@@ -418,7 +422,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, supportsFastMode, links, onLinkPaste, quote = null, compact = false }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, supportsFastMode, links, onLinkPaste, quote = null, compact = false }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /**
    * The quick chat's prompter: the card, and only the card.
@@ -483,6 +487,8 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   modelInfo: Record<string, ModelInfo>;
   onToggleModelFavorite: (key: string) => void;
   hero: boolean; spaceName: string;
+  /** The space's colour, as the face on screen can carry it, for the space chip's glyph (Plan 27). */
+  spaceTint?: string;
   /**
    * The place the hero greeting names, and where it leads: the space's page. `name` is the space's own
    * name when the session runs in the space's folder, and the checkout's folder name when it runs
@@ -1343,7 +1349,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             <span className="chip-label">{machineName}</span>
           </span>
         )}
-        <ChipMenu ariaLabel="Workspace" icon={envIcon} label={envLabel} items={envItems}
+        <ChipMenu ariaLabel="Workspace" icon={envIcon} tint={spaceTint} label={envLabel} items={envItems}
           title={canSwitchAgent ? `Workspace: ${envLabel}` : `Workspace: ${envLabel} — a session's checkout can only change before its first message`} />
         {/* The branch group is NOT here any more — it has the over-strip above the card (see there
             for why). What is left is standing context: the machine, the workspace, and the meter.

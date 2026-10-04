@@ -1763,6 +1763,17 @@ kbd { font: 11px var(--font-mono); }
 button.panel-title { text-align: left; padding: 2px 6px; margin-left: -6px; border-radius: var(--r-chip); }
 button.panel-title:hover { background: var(--rl-hover); }
 .panel-rename { display: flex; min-width: 120px; max-width: 280px; }
+/* A session's breadcrumb (Plan 27): the space it works in, its icon in the space's colour and its
+   name, then the title. The title is the unbounded part and takes the slack; the space's name keeps a
+   short cap, and a narrow pane gives up the name before anything of the title. The separator's margin
+   pays back the crumb's own padding, so "›" sits evenly between the two words. */
+.panel-crumb { flex: none; display: flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 6px; margin-left: -6px;
+  border-radius: var(--r-chip); font-weight: var(--fw-label); color: var(--rl-text-dim); }
+.panel-crumb:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.panel-crumb-icon { flex: none; display: grid; place-items: center; }
+.panel-crumb-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-crumb-sep { flex: none; margin-left: -6px; color: var(--rl-text-faint); }
+@container (max-width: 380px) { .panel-crumb-name, .panel-crumb-sep { display: none; } }
 /* A side pane's tab strip, in the title's place (PaneTabs). The strip takes the bar's slack and
    scrolls sideways past it; each tab gives up width before it gives up its name's first letters.
    The "+" rides at the end of the tabs, not at the bar's far edge, and stays put while they scroll:
@@ -3902,6 +3913,9 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* The brand mark is filled where the rest of the set is stroked, so it reads a touch heavier at the
    same box; it keeps the chip's own colour (§7: text-dim at rest) and never shrinks. */
 .ghost-chip .chip-brand { flex: none; }
+/* The space chip's glyph in its space's colour (Plan 27): the span carries the colour, the glyph is
+   centred in it the way a bare one sits in the chip. */
+.ghost-chip .chip-tint { display: grid; place-items: center; }
 
 .chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 /* The model chip's effort suffix — "Claude Fable 5 Max" with the Max a shade grayer. A sibling of
@@ -4949,7 +4963,7 @@ select { appearance: none; padding-right: 22px;
    control's fill has ONE timing however the fill is drawn; on the rows that never paint it names a
    property that never changes, which costs nothing. */
 .item-row, .item-close, .item-shelf, .item-disclose, .item-act, .icon-btn, .btn, .ghost-chip, .tool-row, .tool-group-row, .tool-copy, .msg-action,
-.delegation-row, .delegation-item, .rail-btn, .rail-nav-btn,
+.delegation-row, .delegation-item, .rail-btn, .rail-nav-btn, .panel-crumb, .sb-profile,
 .space-card, .palette-opt, .permission-option, .menu [role^="menuitem"],
 .question-option, .question-skip {
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease, --sq-fill var(--dur-hover) ease;

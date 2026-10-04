@@ -26,6 +26,7 @@ import { SessionSummaryHost, useSummaryLive } from "./SessionSummary";
 import { SessionFilesHost } from "./SessionFiles";
 import { GoalStrip } from "./GoalStrip";
 import { PathMenu, asRef } from "./PathMenu";
+import { useSpaceTint } from "../../components/sidebar/use-sidebar-model";
 import type { SlashCommand } from "./slash-commands";
 
 /** Stable empty array: a fresh `[]` from the selector on every render makes useSyncExternalStore
@@ -469,6 +470,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const eggPacks = useApp((st) => st.eggPacks);
   const packLabels = useMemo(() => eggPacks.flatMap((p) => p.labels), [eggPacks]);
   const packGreetings = useMemo(() => eggPacks.flatMap((p) => p.greetings), [eggPacks]);
+  // The space's colour on the composer's space chip — one of the three places it marks (Plan 27).
+  const spaceTint = useSpaceTint(spaces.find((s) => s.id === session?.spaceId)?.color);
 
   /* EVERY hook is above this line, and that is load-bearing rather than tidy: an early return with
      hooks below it renders a different NUMBER of hooks depending on whether the session row has
@@ -656,7 +659,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onManageConnections={() => openSpacePage(session.spaceId, "connections")}
             submitKey={submitKey}
             eggs={easterEggs}
-            hero={hero} spaceName={space?.name ?? "this space"} place={place}
+            hero={hero} spaceName={space?.name ?? "this space"} spaceTint={spaceTint} place={place}
             promptHint={hint} usage={transcript.usage} slashCommands={slashCommands}
             packGreetings={packGreetings}
             goal={<GoalStrip goal={goal}

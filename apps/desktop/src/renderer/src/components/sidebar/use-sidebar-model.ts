@@ -125,13 +125,14 @@ export function useNewSessionIn(): (spaceId: string, worktree?: boolean) => void
   }), [store, selectSpace, newSessionInstant, newSessionInWorktree, run]);
 }
 
-/** A space's own page — "Show more", and the section's ⋯ — on a given tab. */
-export function useOpenSpacePage(): (spaceId: string, tab: SpacePageTab) => void {
+/** A space's own page — "Show more", a section's ⋯, a pane bar's breadcrumb — on a given tab, or on
+ *  whichever it last showed. */
+export function useOpenSpacePage(): (spaceId: string, tab?: SpacePageTab) => void {
   const store = useAppStore();
   const selectSpace = useApp((s) => s.selectSpace);
   const openSpacePage = useApp((s) => s.openSpacePage);
   const run = useApp((s) => s.run);
-  return useCallback((spaceId: string, tab: SpacePageTab) => run(async () => {
+  return useCallback((spaceId: string, tab?: SpacePageTab) => run(async () => {
     // Plan 27: open any space's page in place once rooms retire — today `openSpacePage` opens a page
     // only over its own room, so the room is switched to that space first.
     if (store.getState().activeSpaceId !== spaceId) await selectSpace(spaceId);

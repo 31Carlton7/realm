@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, createEvent, waitFor, act, within, cleanup } from "@testing-library/react";
 import { AGENT_CLI_COMMANDS, AGENT_NOTES, MODEL_NOTES, canonicalModelKey, sessionEvent, type CliStatus, type Environment } from "@realm/contracts";
+import { spaceColor } from "@realm/ui";
 import { StoreContext, createAppStore, type AgentProbe } from "../../state/store";
 import { fakeApi, item, mcpServer, session, skillRow, externalSkillRow } from "../../state/store.test-fakes";
 import { PanelBar } from "../../components/PanelBar";
@@ -2523,6 +2524,18 @@ describe("under-strip (Plan 12 W1)", () => {
     const label = within(strip as HTMLElement).getByText("Carlton's M4 MacBook Pro");
     expect(label.closest("button")).toBeNull(); // display only: Realm runs agents on this Mac, full stop
     expect(label.closest(".ghost-chip")).toHaveAttribute("data-static");
+  });
+
+  it("wears the space's colour on the workspace chip's glyph, as the face can carry it (Plan 27)", async () => {
+    // THE MUTANT: leave the glyph in the chip's own ink — the composer would no longer say which
+    // space the next message runs in, now that the space is not a room on screen.
+    await mountStrip();
+    const tint = screen.getByRole("button", { name: "Workspace" }).querySelector<HTMLElement>(".chip-tint")!;
+    // jsdom has no media queries, so the face is light; the default fixture's Versed is #7c6cff.
+    const hex = spaceColor("#7c6cff", "light");
+    const n = Number.parseInt(hex.slice(1), 16);
+    expect(tint.style.color).toBe(`rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`);
+    expect(tint.querySelector("svg")).not.toBeNull();
   });
 
   it("labels the workspace chip: space name for the primary, branch for a worktree", async () => {
