@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { FAVICON_MAX_BYTES, isFaviconDataUrl } from "@realm/contracts";
 import {
   BrowserPaneHost, DEVICE_PRESETS, FAVICON_TRIES, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, createFaviconResolver, dataUrlBytes, deviceFit, faviconDataUrl,
-  isFindShortcut, nextZoomFactor, normalizeAddress, originAllowed, rankFavicons, readCapped, sniffImage, toViewBounds, zoomPercent,
+  isFindShortcut, nextZoomFactor, normalizeAddress, originAllowed, rankFavicons, readCapped, shownPage, sniffImage, toViewBounds, zoomPercent,
   type DeviceMetrics,
   type BrowserViewState, type FindResult, type ViewHandle, type ViewHooks,
 } from "./browser-host";
@@ -740,6 +740,19 @@ describe("the state a pane's chrome is drawn from", () => {
     v.nav.favicon = `data:image/x-icon;base64,${ICO.toString("base64")}`;
     v.getHooks().emitState();
     expect(states.at(-1)!.favicon).toBe(v.nav.favicon);
+  });
+});
+
+describe("shownPage", () => {
+  it("names Realm's about:blank bootstrap after nothing: the address asked for, and no title", () => {
+    // THE MUTANT: let the bootstrap's own title through. A restored tab was renamed "about:blank"
+    // while its page was on the way — and kept that name when the page never came.
+    expect(shownPage({ url: "about:blank", title: "about:blank" }, "https://example.com/")).toEqual({ url: "https://example.com/", title: "" });
+    expect(shownPage({ url: "", title: "" }, null)).toEqual({ url: "", title: "" });
+  });
+
+  it("is the page's own address and title once it has committed", () => {
+    expect(shownPage({ url: "https://example.com/", title: "Example Domain" }, "https://example.com/")).toEqual({ url: "https://example.com/", title: "Example Domain" });
   });
 });
 

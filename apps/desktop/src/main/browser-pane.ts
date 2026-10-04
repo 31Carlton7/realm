@@ -1,6 +1,6 @@
 import { WebContentsView, screen, session, type BrowserWindow, type WebContents } from "electron";
 import { FAVICON_MAX_BYTES } from "@realm/contracts";
-import { BrowserPaneHost, FAVICON_FETCH_MS, browserUserAgent, createFaviconResolver, isFindShortcut, readCapped, type FaviconFetch, type ViewFactory } from "./browser-host";
+import { BrowserPaneHost, FAVICON_FETCH_MS, browserUserAgent, createFaviconResolver, isFindShortcut, readCapped, shownPage, type FaviconFetch, type ViewFactory } from "./browser-host";
 import { attachTextContextMenu } from "./text-context-menu";
 import type { CdpBinding } from "./browser-agent-host";
 import { asDownloadItem, type DownloadDecision, type DownloadItemLike } from "./downloads";
@@ -210,11 +210,8 @@ export function electronViewFactory(
         activeIndex: wc.navigationHistory.getActiveIndex(),
       }),
       goToIndex: (index) => wc.navigationHistory.goToIndex(index),
-      getURL: () => {
-        const live = wc.getURL();
-        return live === "about:blank" || live === "" ? wanted ?? "" : live;
-      },
-      getTitle: () => wc.getTitle(),
+      getURL: () => shownPage({ url: wc.getURL(), title: "" }, wanted).url,
+      getTitle: () => shownPage({ url: wc.getURL(), title: wc.getTitle() }, wanted).title,
       isLoading: () => wc.isLoading(),
       getFavicon: () => favicon,
       findInPage: (text, opts) => { wc.findInPage(text, opts); },

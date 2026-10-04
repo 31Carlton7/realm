@@ -443,6 +443,21 @@ describe("BrowserPane", () => {
     expect(f.updates).toEqual([{ id: "b1", url: "https://example.com/2", title: "Example 2", favicon: "" }]); // one debounced write
   });
 
+  it("saves nothing while the view has no page yet — a restored tab keeps its title until its page names it", async () => {
+    // THE MUTANT: persist the untitled state the view reports while it is still on Realm's bootstrap.
+    // The row would be renamed "Browser" during every relaunch, and for good if the page never came.
+    const f = fakeBridges({ url: "" });
+    setBrowserBridgesForTests(f.bridges);
+    render(<BrowserPane item={browserItem()} visible />);
+    await settle();
+    act(() => f.emit(state({ url: "https://example.com/", title: "", loading: false })));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(f.updates).toEqual([]);
+    act(() => f.emit(state({ url: "https://example.com/", title: "Example Domain", loading: false })));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(f.updates).toEqual([{ id: "b1", url: "https://example.com/", title: "Example Domain", favicon: "" }]);
+  });
+
   it("persists the page's icon with its address and title, so the tab and its row can draw it", async () => {
     // THE mutant: persist url and title alone. The icon main resolved would never reach the item.
     const f = fakeBridges({ url: "" });

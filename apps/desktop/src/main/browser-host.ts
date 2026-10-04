@@ -343,6 +343,19 @@ export type FindResult = { activeMatchOrdinal: number; matches: number; finalUpd
 export type KeyInput = { type: string; key: string; meta: boolean; control: boolean; alt: boolean; shift: boolean };
 
 /**
+ * What a view says it is showing, for the address bar, the tab and the title the row is saved under.
+ *
+ * Realm loads `about:blank` into a new view before its first page (browser-pane.ts: the passkey
+ * install needs a document to attach to), and that bootstrap is nobody's page. Until the page asked
+ * for commits, the view is showing what it was ASKED for, under no title at all — Chromium would name
+ * it "about:blank", the URL of an untitled document, and a tab restored after a relaunch was renamed
+ * that while its page was still on the way, and for good when the page never came.
+ */
+export function shownPage(live: { url: string; title: string }, wanted: string | null): { url: string; title: string } {
+  return live.url === "about:blank" || live.url === "" ? { url: wanted ?? "", title: "" } : live;
+}
+
+/**
  * ⌘F, pressed while the PAGE has the keyboard.
  *
  * The renderer never sees that keydown — it goes to the view's own webContents, which is a different

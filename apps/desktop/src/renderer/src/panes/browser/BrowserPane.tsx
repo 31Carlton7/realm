@@ -492,12 +492,14 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
     // Persist last committed url/title/icon, debounced; the item's title and mark track the page
     // server-side. A page that has not offered its icon YET keeps the one it had at this address: a
     // relaunched tab reloading its page must not trade the icon it was restored with for the glyph
-    // while the icon is fetched again. A new address with none is a page with none.
+    // while the icon is fetched again. A new address with none is a page with none. A state with no
+    // title is a view with no page yet (main names its bootstrap nothing — `shownPage`): saved, it
+    // would rename a restored tab "Browser" while its page is still on the way.
     let persistTimer: ReturnType<typeof setTimeout> | undefined;
     let persisted = { url: "", title: "", favicon: "" };
     const persist = (s: BrowserViewState) => {
       const favicon = s.favicon ?? (s.url === persisted.url ? persisted.favicon : "");
-      if (s.loading || s.url === "" || (s.url === persisted.url && s.title === persisted.title && favicon === persisted.favicon)) return;
+      if (s.loading || s.url === "" || s.title === "" || (s.url === persisted.url && s.title === persisted.title && favicon === persisted.favicon)) return;
       clearTimeout(persistTimer);
       persistTimer = setTimeout(() => {
         persisted = { url: s.url, title: s.title, favicon };
