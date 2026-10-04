@@ -7348,3 +7348,16 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .files-crumb + .files-crumb::before { content: "/"; margin-right: 5px; color: var(--rl-text-faint); }
 /* Reading, empty, or capped — the three things this panel says in prose. */
 .files-note { margin: 0; padding: 6px 10px 10px; font-size: 11.5px; line-height: 1.45; color: var(--rl-text-faint); }
+
+/* Settings ▸ App ▸ App icon (AppIconPicker.tsx). The icon is the picture, so the tile adds no fill
+   or edge of its own until it is the choice — then the same 2px accent ring the theme cards wear. */
+.app-icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 4px; max-width: 560px; margin: 0; padding: 0; border: 0; }
+.app-icon-opt { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px 6px;
+  border-radius: var(--r-panel); cursor: default; transition: background-color var(--dur-hover) ease; }
+.app-icon-opt:hover { background: var(--rl-hover); }
+.app-icon-opt[data-selected] { background: var(--rl-hover); box-shadow: inset 0 0 0 2px var(--rl-accent); }
+.app-icon-opt input { position: absolute; opacity: 0; pointer-events: none; }
+.app-icon-opt:has(input:focus-visible) { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
+.app-icon-opt img { width: 56px; height: 56px; }
+.app-icon-name { font-size: 12px; color: var(--rl-text-dim); }
+.app-icon-opt[data-selected] .app-icon-name { color: var(--rl-text-bright); }

@@ -1,4 +1,5 @@
 import { PageScroll } from "../../components/ScrollFades";
+import { AppIconPicker, canChooseAppIcon } from "../../components/settings/AppIconPicker";
 import { EDITOR_CURSOR_BLINK_COPY, TERMINAL_CURSOR_STYLES, TERMINALS_CURSOR_STYLE_COPY, type TerminalCursorStyle, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
   PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, type NotificationCategory, } from "@realm/contracts";
@@ -899,6 +900,19 @@ function AppTab() {
             <span className="slider-value">{100 - groundAlpha}%</span>
           </div>
         </div>
+
+        {/* Offered only where main can put it on a Dock. The sentence is the one fact the tiles cannot
+            say: a running app can change its own Dock tile and nothing else, so the Finder keeps the
+            bundle's icon (main/app-icon.ts). */}
+        {canChooseAppIcon() && (
+          <div className="settings-row" data-stack>
+            <div className="settings-row-main">
+              <span className="settings-row-name">App icon</span>
+              <span className="settings-row-desc">Shown in the Dock while Realm is open. The Finder and Launchpad keep the standard icon.</span>
+            </div>
+            <AppIconPicker />
+          </div>
+        )}
       </div>
       {/* One line, not a switch (Plan 14 W5): the OS setting is the control, and styles.css's global
           prefers-reduced-motion kill is what makes this sentence true. It stays visible because it is
