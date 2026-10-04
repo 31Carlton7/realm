@@ -94,7 +94,6 @@ export function electronViewFactory(
 ): ViewFactory {
   return (id, hooks, partition) => {
     applyBrowserUserAgent(partition);
-    const resolveFavicon = faviconResolverFor(partition);
     const view = new WebContentsView({
       webPreferences: {
         partition,
@@ -164,7 +163,9 @@ export function electronViewFactory(
     wc.on("did-navigate", () => { asked++; favicon = null; });
     wc.on("page-favicon-updated", (_e, candidates) => {
       const n = ++asked;
-      void resolveFavicon(candidates).then((icon) => {
+      // Looked up at each use rather than kept: a clear forgets the partition's icons, and a view
+      // already open must not go on answering from the memory that was just cleared.
+      void faviconResolverFor(partition)(candidates).then((icon) => {
         if (n !== asked || wc.isDestroyed() || icon === favicon) return;
         favicon = icon;
         hooks.emitState();

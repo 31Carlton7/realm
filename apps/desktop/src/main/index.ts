@@ -522,12 +522,6 @@ const agentHost = new BrowserAgentHost({
   readFile: async (path) => new Uint8Array(await readFile(path)),
 });
 
-/**
- * Downloads on every profile's partition are DEFAULT-DENY (Plan 11 W3), narrowed by Plan 23 to let
- * through exactly those covered by a live one-shot grant from an approved `browser_download`.
- * Everything else is still cancelled, in every permission mode. One policy, applied to each partition
- * the first time a view is made in it (`governBrowserDownloads`).
- */
 /** The browser a download came from, in whichever window holds its view. */
 function browserIdOfWebContents(wcId: number): string | null {
   for (const { pane } of windowPanes.values()) {
@@ -536,6 +530,12 @@ function browserIdOfWebContents(wcId: number): string | null {
   }
   return null;
 }
+/**
+ * Downloads on every profile's partition are DEFAULT-DENY (Plan 11 W3), narrowed by Plan 23 to let
+ * through exactly those covered by a live one-shot grant from an approved `browser_download`.
+ * Everything else is still cancelled, in every permission mode. One policy, applied to each partition
+ * the first time a view is made in it (`governBrowserDownloads`).
+ */
 const downloadPolicy: DownloadPolicy = {
   browserIdFor: browserIdOfWebContents,
   decide: (browserId, item) => downloadGovernor.handle(browserId, item),
@@ -773,7 +773,7 @@ ipcMain.handle("browser:annotate", async (_e, id: string, accent: unknown, dir: 
 ipcMain.handle("browser:cancel-annotate", (_e, id: string) => { agentHost.cancelAnnotate(String(id)); });
 
 /** The renderer's theme accent, for the marks main draws INSIDE a driven page (Plan 25 W1). Not per
- *  browser id: it is one value per window, and this process has one agent host per window. */
+ *  browser id: it is one value for the app — one theme — and one agent host serves every window. */
 ipcMain.on("browser:set-accent", (_e, accent: string) => {
   if (typeof accent !== "string") return;
   agentHost.setAccent(accent);

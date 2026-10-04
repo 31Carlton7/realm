@@ -11,7 +11,8 @@
  *   3. "Open Work in a new window" opens a second window bound to Work, and each window shows its own
  *      profile's spaces; asking again brings the same window forward rather than opening a third.
  *   4. A cookie set in Personal is absent in Work; each pane's view lives in its own profile's
- *      partition and in its own window.
+ *      partition and in its own window; each profile's pane fetched the site's icon on its own
+ *      partition, with no cookie.
  *   5. The pane's ⋯ menu "Share this site's sign-in with ▸ Work" copies the site's cookies, and Work's
  *      pane is then signed in; Personal keeps its own.
  *   6. Clear browsing data in Work clears Work's jar only, behind a confirm that names Work.
@@ -31,6 +32,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import { connect } from "node:net";
 import http from "node:http";
+import zlib from "node:zlib";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -149,6 +151,25 @@ function keychainItemExists() {
   try { execFileSync("security", ["find-generic-password", "-s", KEYCHAIN_SERVICE], { stdio: "ignore" }); return true; } catch { return false; }
 }
 
+/** A 16px PNG, a solid square — enough for a tab to draw, encoded here so it is a real PNG. */
+function squarePng() {
+  const size = 16;
+  const raw = Buffer.alloc((size * 4 + 1) * size);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) raw.set([22, 163, 74, 255], y * (size * 4 + 1) + 1 + x * 4);
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(type), data]);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(zlib.crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(size, 0); ihdr.writeUInt32BE(size, 4); ihdr[8] = 8; ihdr[9] = 6;
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", ihdr), chunk("IDAT", zlib.deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
+}
+const ICON = squarePng();
+/** Every request for the site's icon, with the cookie it carried — which must be none. */
+const iconAsks = [];
+
 /**
  * The sign-in site. `/` says who it thinks you are from the `session` cookie; `/login?user=x` signs
  * you in (an HttpOnly session cookie and a plain preference cookie) and sends you home.
@@ -166,7 +187,12 @@ function startSite() {
       if (url.pathname === "/") {
         const who = cookies.session ? `Signed in as ${cookies.session}` : "Signed out";
         res.writeHead(200, { "content-type": "text/html" });
-        return res.end(`<!doctype html><meta charset=utf-8><title>${who}</title><body style="margin:0;font:28px -apple-system;padding:32px;background:#fff"><h1>${who}</h1><p>${SITE}</p></body>`);
+        return res.end(`<!doctype html><meta charset=utf-8><title>${who}</title><link rel="icon" href="/icon.png"><body style="margin:0;font:28px -apple-system;padding:32px;background:#fff"><h1>${who}</h1><p>${SITE}</p></body>`);
+      }
+      if (url.pathname === "/icon.png") {
+        iconAsks.push({ cookie: req.headers.cookie ?? null });
+        res.writeHead(200, { "content-type": "image/png" });
+        return res.end(ICON);
       }
       res.writeHead(404, { "content-type": "text/html" });
       res.end("<!doctype html><title>Not found</title>");
@@ -485,6 +511,11 @@ async function main() {
   const before = { personal: await cookiesIn(m, "persist:browser"), work: await cookiesIn(m, WORK_PARTITION) };
   check("a cookie set in Personal is absent in Work", before.personal.session === "alice" && before.work.session === undefined, before);
   await captureView(m, WORK_PARTITION, "work-pane-signed-out");
+  // The icon: each profile's pane asked for it on its OWN partition — two asks, since one profile's
+  // memory of icons is not another's — and neither carried the cookies the page had set.
+  const workIcon = await until(() => evalIn(c2, `(() => { const img = [...document.querySelectorAll('.item-list .item-row img.page-icon')][0]; return img && img.naturalWidth > 0; })()`), 10_000, "Work's row icon").catch(() => false);
+  check("each profile's pane fetched the site's icon on its own partition, and with no cookie",
+    workIcon && iconAsks.length === 2 && iconAsks.every((a) => a.cookie === null), { workIcon, iconAsks });
 
   // ── 5. Share this site's sign-in with ▸ Work ──────────────────────────────────────────────────
   const menu = await openPaneMenu(c, m);
@@ -513,6 +544,11 @@ async function main() {
   check("Clear browsing data asks about Work by name, and clears Work's jar and only Work's",
     dialog?.message === "Clear browsing data for Work?" && Object.keys(cleared.work).length === 0 && cleared.personal.session === "alice", { dialog, cleared });
   await inMain(m, `(() => { globalThis.__live.dialogAnswer = 1; return true; })()`);
+  // A clear forgets the profile's icons too — in the pane already open, not just in the next one.
+  const asksBeforeReload = iconAsks.length;
+  await reloadView(m, WORK_PARTITION);
+  await until(() => iconAsks.length > asksBeforeReload, 10_000, "the icon asked for again").catch(() => {});
+  check("…and forgets Work's icons, so Work's open pane asks for the site's icon again", iconAsks.length === asksBeforeReload + 1, { before: asksBeforeReload, after: iconAsks.length });
 
   // ── 7. A sign-in saved in Personal is invisible in Work until shared ──────────────────────────
   await openSignIns(c, m, personalWindowId);
