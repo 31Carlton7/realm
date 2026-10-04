@@ -42,7 +42,7 @@
 .theme-import textarea, .tool-body pre, .tool-stat, .tool-summary, .tool-well, .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .composer-queue-item .queue-position, .composer-queue-item .queue-attach, .terminal-dock-title,
-.sim-detail, .sb-chat-mono, .upl-path, .laya-facts code, .laya-reason, .computer-app-id {
+.sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id {
   letter-spacing: normal;
 }
 
@@ -314,25 +314,21 @@ kbd { font: 11px var(--font-mono); }
    — the app's one adjustable ground, composed in tokens.css so the user's setting and
    prefers-reduced-transparency both reach it. --page flips with data-mode, so one rule serves both
    themes and every palette. */
-/* Flush to the window, rounded on its own corners only.
-   The inset came off: a sidebar floating inside the frame leaves a strip of window showing down its
-   left edge, which reads as a gap rather than as depth — it is the app's own edge, not a card on a
-   page. It keeps the rounding, because the window's corners are rounded and a square column inside
-   them shows through. The rule down its right stays gone: a change of surface is the boundary. */
+/* Square: the rail is the window's left edge now, and wears the window's rounded corners (below).
+   The rule down its right stays gone: a change of surface is the boundary. */
 .sidebar {
   /* relative for `.sb-resize`, which is placed against this column's own right edge. */
   width: var(--sidebar-w); flex: none; position: relative; display: flex; flex-direction: column; min-height: 0;
-  border-radius: var(--r-float) 0 0 var(--r-float); corner-shape: squircle;
-  background: var(--sidebar-ground); -webkit-app-region: drag;
+  -webkit-app-region: drag;
   /* §6's on-screen-movement rung, because that is what this is: the column leaves to the left and
      the panes take the room it gives up. Margin rather than width — a width transition relays out
-     every row inside the sidebar on every frame, and the rows are not what is moving. Opacity rides
-     along at the shorter rung so the column is gone before the gap closes, instead of a fully drawn
-     sidebar sliding under the pane beside it. */
+     every row inside the sidebar on every frame, and the rows are not what is moving. It slides
+     UNDER the rail (which stacks above it), and opacity rides along at the shorter rung so the column
+     is gone before the gap closes. */
   transition: margin-inline-start var(--dur-move) var(--ease-in-out-strong), opacity var(--dur-base) ease;
 }
 .sidebar[data-collapsed] { margin-inline-start: calc(-1 * var(--sidebar-w)); opacity: 0; }
-.sidebar button, .sidebar input, .sidebar [data-swiper], .sb-resize { -webkit-app-region: no-drag; }
+.sidebar button, .sidebar input, .sb-resize { -webkit-app-region: no-drag; }
 
 /* ── The column's own edge, as a control ──
    Nothing at rest. The seam here is `.main`'s border-left and it is 1px on purpose (see the note
@@ -392,106 +388,80 @@ kbd { font: 11px var(--font-mono); }
    sized for that; here the left side is partly the user's desktop, so the same 8% white lands
    somewhere between subtle and absent depending on the wallpaper.
 
-   Only while the sidebar is there. Collapsed, nothing takes the column's place, so this same line
-   would be a stray rule down the window's own left edge. */
-.app:not([data-sidebar-collapsed]) .main { border-left: var(--hairline-w) solid var(--rl-line); }
-/* The traffic-light band, as a real row rather than .sb-top's old 40px of top padding: the toggle
-   sits at its right edge, mirroring the lights at its left. Height + .sb-top's new padding sum to
-   the 48px of head room the sidebar had before, so nothing below it moves. */
-.sb-head { flex: none; height: 40px; display: flex; align-items: center; justify-content: flex-end; gap: 2px; padding: 0 10px 0 16px; }
-/* The 8px at the top is the half of the head room `.sb-head` above does not carry: its comment says
-   the two sum to the 48px the sidebar had before the band became a real row, and at 0 they summed to
-   40 — so the space title sat flush under the traffic lights with nothing over it. It belongs here
-   rather than on `.space-header` because it is the COLUMN's head room: the title happens to be first
-   today, and was the search field yesterday. */
-.sb-top { padding: 8px 16px 8px; display: flex; flex-direction: column; gap: 8px; }
-/* Collapsed: the 280px column goes and nothing takes its place. The rail that used to stand in for it
-   spent 38px of window HEIGHT, full width, for a strip whose entire content was one button — a
-   permanent tax on every pane, paid so the traffic lights would not land on pane chrome. The lights
-   land on pane chrome now, on purpose: the corner is an overlay, so it costs no height, and the strip
-   underneath reserves the width they need. Still a drag region, so the window is still draggable by
-   its own top-left corner.
-   padding-left clears the lights — main places them at x:12 and the three run to about 66px — which
-   leaves the toggle immediately right of them, the same vertical band it occupies inside .sb-head, so
-   collapsing reads as the button moving rather than as one control being swapped for another. */
-/* 76 to clear the lights, 26 for the toggle, then 16 so the first pane's leading control is not
-   touching it — .panel-nav opens with a -8px margin, so the gap has to be budgeted at 16 to land
-   as 8 on screen.
-   On :root rather than on the collapsed shell, because one of the strips that has to reserve it is
-   NOT inside `.app` at all: an app-level page is portalled to <body> (PageOverlay), so a token
-   declared on the shell never reaches it. The token existing always costs nothing — what is gated on
-   being collapsed is every rule that SPENDS it. */
-:root { --corner-w: 118px; }
-/* The lights' clearance moves on the same rung as the column. Without this the pane bar's indent
-   snaps to 118px on the first frame while the sidebar is still a third of the way out, and the two
-   halves of one gesture read as two events. */
-.main > .error-bar:first-child,
-.main > .group-bar:first-child,
-.main > .panehost:first-child .panel[data-first-leaf] > .panel-bar {
-  transition: padding-left var(--dur-move) var(--ease-in-out-strong);
-}
-/* z-index 36: over an app-level page (35), under the scrims (40+).
-   THE TRAP this closes, and the component's own doc names it — "a collapse control that disappears on
-   collapse is a trap". A page covers the whole window when the sidebar is collapsed (`inset: 0`
-   below), so at the corner's old rung of 5 the only control that brings the column back was painted
-   over and hit-tested to the page: open Agents, collapse the sidebar, and the sidebar could not be
-   opened again except by ⌘B. It is window chrome, like the traffic lights it sits beside — which the
-   OS draws over everything — so it yields to a sheet or the palette and to nothing else. */
-.sb-corner { position: absolute; top: 0; left: 0; z-index: 36; height: 40px; display: flex; align-items: center;
-  padding-left: 76px; -webkit-app-region: drag;
-  /* Fades in behind the departing column rather than appearing under it mid-slide. No exit: it is
-     unmounted the moment the sidebar comes back, and §6 wants an exit quieter than its enter. */
-  animation: rl-corner-in var(--dur-base) var(--ease-out-strong); }
-@keyframes rl-corner-in { from { opacity: 0; } to { opacity: 1; } }
-.sb-corner button { -webkit-app-region: no-drag; }
-/* Whichever strip is first in the main column is the one under the lights, so it is the one that
-   reserves them. `:first-child` on each candidate keeps the three mutually exclusive — an error bar
-   pushes the others down, and only the bar actually at the top should be indented.
-   The lights themselves never move: main places them once at y:14, which centres a ~14px control in a
-   40px strip, and .sb-head, .panel-bar and the collapsed group bar are all 40px. Changing any of
-   those heights leaves the lights off-centre in that one state. */
-.app[data-sidebar-collapsed] .main > .error-bar:first-child,
-.app[data-sidebar-collapsed] .main > .group-bar:first-child,
-.app[data-sidebar-collapsed] .main > .panehost:first-child .panel[data-first-leaf] > .panel-bar { padding-left: var(--corner-w); }
-/* The group bar is 34px at rest and takes the panel bar's 40px when it is the strip under the lights. */
-.app[data-sidebar-collapsed] .main > .group-bar:first-child { min-height: 40px; }
-/* ink-3 → ink-2 on hover, matching .search: the glyph itself IS the state, no fill change. */
-.sb-toggle { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px;
-  border-radius: var(--r-ctl); corner-shape: squircle; color: var(--rl-text-faint); }
-.sb-toggle:hover { color: var(--rl-text-bright); background: var(--field); }
-/* Activity's button shares the collapse toggle's size and band, and needs the on-state the toggle
-   does not: the column is showing one lens or the other, and the glyph cannot say which. One rung
-   past hover, the same step `.icon-btn` takes, so "on" always reads as more than "under the
-   pointer". */
-.sb-toggle[aria-pressed="true"] { color: var(--rl-text-bright); background: var(--hover-2); }
-/* The unread count, at the bell's shoulder — the pill the destinations row carried, at the size a
-   26px button leaves for one. `overflow: visible` and negative offsets on purpose: a digit fitted
-   INSIDE the button would have to sit under the type floor to clear the glyph, and a badge that
-   overhangs its control is how every bell on this platform is drawn.
-   The colours are the row's, unchanged: orange on its own 14% tint, which is what "something is
+   In both states: collapsed, the rail is still beside the panes (Plan 27), so the line is still
+   between two surfaces rather than down the window's own edge. */
+.app > .main { border-left: var(--hairline-w) solid var(--rl-line); }
+/* ── The sidebar's head row (Plan 27) ──
+   The profile, then search and a new session, in the traffic lights' 40px band beside the rail — the
+   same band the first pane's bar sits in, so the three read as one line across the window. The
+   profile's name is the one thing here of unbounded length, so it gives way first; the two glyphs
+   never shrink. */
+.sb-header { flex: none; height: 40px; display: flex; align-items: center; gap: 4px; padding: 0 10px 0 12px; }
+.sb-profile { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px;
+  border-radius: var(--r-ctl); corner-shape: squircle; font-size: 14px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.sb-profile:hover:not(:disabled) { background: var(--rl-hover); }
+.sb-profile[aria-expanded="true"] { background: var(--rl-active); }
+.sb-profile-mark { flex: none; display: grid; place-items: center; }
+.sb-profile-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-profile-caret { flex: none; color: var(--rl-text-faint); }
+.sb-header-actions { flex: none; margin-left: auto; display: flex; align-items: center; gap: 2px; }
+.sb-header .icon-btn[data-dragging] { opacity: .45; }
+/* The lens: the shared segmented control, across the column, its two readings sharing the width. It
+   sits on the column's translucent ground, not on a pane, where the control's opaque track read as a
+   hole in the sidebar and the loudest thing in it. So it takes the column's own fills — the track a
+   hover's step, the chosen reading the step a selected row takes (design.md: share the component,
+   let the ground choose the step). */
+.sb-lens { display: flex; }
+.sb-lens.seg { background: var(--rl-hover); border-color: transparent; }
+.sb-lens .seg-opt { flex: 1; text-align: center; }
+.sb-lens .seg-opt[data-selected] { background: var(--rl-active); box-shadow: none; }
+/* What needs you: rows in the column's own anatomy, and under a waiting row the session's own request
+   card, at the column's full width — a card squeezed under an indent wraps every option. */
+.sb-needs, .sb-pinned { display: flex; flex-direction: column; }
+/* Whichever of them heads the list sits close under the head row; the scroller's own top padding is
+   the gap. */
+.sb-needs > .group-label, .sb-pinned:first-child > .group-label { padding-top: 4px; }
+.sb-need-answer { display: flex; flex-direction: column; gap: 6px; padding: 2px 0 8px; }
+/* ── The rail (Plan 27) ──
+   The window's left edge in every state: the traffic lights sit in its top 40px (main places them at
+   x:12, y:14, and the three run to about 66px — the rail is as wide as they need), the window's back
+   and forward under them, then the app's destinations, and at the foot the sidebar's toggle, the
+   person and a ready update. Collapsing folds the sidebar away and leaves this, so nothing in the main
+   column has to make room for the lights in either state.
+   The same ground as the sidebar, with no line between them: the two are one column of chrome that
+   folds in half. It stacks over the sidebar so the sidebar slides out underneath it, and it carries
+   the window's rounded left corners, which the sidebar used to. */
+:root { --rail-w: 76px; }
+.app-rail, .sidebar { background: var(--sidebar-ground); }
+.app-rail { position: relative; z-index: 2; width: var(--rail-w); flex: none; min-height: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 40px 0 10px;
+  border-radius: var(--r-float) 0 0 var(--r-float); corner-shape: squircle; -webkit-app-region: drag; }
+.app-rail button { -webkit-app-region: no-drag; }
+.rail-nav { display: flex; gap: 2px; margin-bottom: 10px; }
+.rail-nav-btn { display: grid; place-items: center; width: 28px; height: 26px; border-radius: var(--r-ctl); corner-shape: squircle;
+  color: var(--rl-text-faint); }
+.rail-nav-btn:hover:not(:disabled) { background: var(--rl-hover); color: var(--rl-text-bright); }
+.rail-group, .rail-foot { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+/* The foot sits at the bottom of the column however tall the window is. */
+.rail-foot { margin-top: auto; }
+.rail-btn { position: relative; overflow: visible; display: grid; place-items: center; width: 40px; height: 36px;
+  border-radius: var(--r-ctl); corner-shape: squircle; color: var(--rl-text-dim); }
+.rail-btn:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+/* Lit while its page is up — one rung past hover, so on always reads as more than under the pointer. */
+.rail-btn[aria-pressed="true"] { background: var(--rl-active); color: var(--rl-text-bright); }
+/* The glyph is what a count hangs off: the badge overhangs the glyph's shoulder, not the button's —
+   its centre near the glyph's corner, so the glyph under it is still the glyph it is. */
+.rail-glyph { position: relative; display: grid; place-items: center; }
+.rail-glyph .sb-badge { top: -8px; right: -12px; }
+/* A ready update is the one control here that wants a click soon, so it takes the accent. */
+.rail-update { color: var(--rl-accent); }
+/* A count at a rail glyph's shoulder — Home's waiting count and the bell's unread (`.rail-glyph`).
+   `overflow: visible` and negative offsets on purpose: a badge that overhangs its glyph is how every
+   bell on this platform is drawn, and a digit squeezed inside would go under the type floor.
+   The colours are the warning pill's: orange on its own 14% tint, which is what "something is
    waiting on you" reads as everywhere else in the app. The tint is thin by design, so it is painted
-   over `--rl-frame` rather than straight onto a see-through column — the pill in the nav had an
-   opaque row under it, and this one has the bell. The same opaque colour rings it, which is what
-   separates the chip from the glyph beneath the way `.strip-badge`'s border does. */
-/* "N need you" (NeedsYou): the warning pill the bell's badge and the Agents row wear, as a control —
-   orange on its own tint, the tint laid over `--rl-frame` for the badge's reason (the column under it
-   is see-through). It leads the head band's controls, nearest the lights, so it is the one that
-   gives up its words when the column is narrow. */
-.needs-you { flex: none; display: flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px; margin-right: 4px;
-  border-radius: 999px; font-size: 12px; font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; white-space: nowrap;
-  color: var(--orange); background-color: var(--rl-frame); background-image: linear-gradient(var(--orange-tint), var(--orange-tint));
-  transition: box-shadow var(--dur-hover) var(--ease-out-strong); }
-.needs-you::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.needs-you:hover, .needs-you[aria-expanded="true"] { box-shadow: inset 0 0 0 var(--hairline-w) currentColor; }
-/* Its list: the waiting sessions, each a head line over its own card. */
-.needs-you-pop { width: 400px; max-width: calc(100vw - 24px); max-height: min(70vh, 560px); padding: 6px; }
-.needs-you-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-.needs-you-session { display: flex; flex-direction: column; gap: 6px; }
-.needs-you-head { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 2px 0 0 6px; }
-.needs-you-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: var(--fw-label); }
-.needs-you-space { flex: none; font-size: 12px; color: var(--rl-text-faint); }
-.needs-you-head .icon-btn { margin-left: auto; flex: none; }
-.sb-bell { position: relative; overflow: visible; }
+   over `--rl-frame` rather than straight onto a see-through column, and the same opaque colour rings
+   it, which is what separates the chip from the glyph beneath. */
 .sb-badge {
   position: absolute; top: -4px; right: -6px; min-width: 16px; height: 16px; padding: 0 4px;
   display: grid; place-items: center; border-radius: 999px;
@@ -500,14 +470,12 @@ kbd { font: 11px var(--font-mono); }
   background-image: linear-gradient(var(--orange-tint), var(--orange-tint));
   box-shadow: 0 0 0 2px var(--rl-frame);
 }
-.swiper { flex: 1; min-height: 0; overflow: clip; position: relative; }
-.swiper-track { display: flex; height: 100%; width: 100%; will-change: transform; }
-.space-page { position: relative; flex: 0 0 100%; min-width: 0; height: 100%; display: flex; flex-direction: column; padding: 4px 16px 8px; overflow: hidden;
+/* The list: one scroller holding Needs you, Pinned, the lens and the spaces, on the column's 16px
+   inset. Its edges dissolve (below), and these two depths are the band each end dissolves over. */
+.sb-list { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0 16px;
   --fade-h: 44px;
-  /* A shallower top band than the app's 40, and the gap under the workspace header follows it: the
-     list's padding is `band + 4`, so 40 put 44px of nothing between "Live" and the first session and
-     20 still put 24px there. The band only has to soften a row sliding under the header, not clear a
-     row's height — at 32px rows, 12 does that, and everything past it was air. */
+  /* A shallower top band than the bottom's: it only has to soften a row sliding under the head row,
+     not clear a row's height — at 32px rows, 12 does that. */
   --fade-top-h: 12px; }
 /* A full band of bottom padding, not a fraction of one, for the reason the diff list needs the same:
    these are 32px rows of dense text, so a row that ends inside the ramp is a session you scrolled
@@ -523,7 +491,7 @@ kbd { font: 11px var(--font-mono); }
    card on a solid pane) stripes a translucent column with a tone the material shows straight through.
    And a backdrop blur, which this used to be, blurs the window's own transparency: a translucent
    backdrop composites toward black under a filter, and the band rendered as a dark smudge hanging
-   above the space strip — and, on a short window, over the destinations. The mask is fixed to the
+   above the foot of the column. The mask is fixed to the
    scroller's box, so it holds still while the content scrolls beneath it, and it needs no sibling
    element and no reduced-transparency fallback. */
 .space-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; /* hit-target ::afters poke 3px past the rail */ display: flex; flex-direction: column; gap: 2px;
@@ -539,23 +507,6 @@ kbd { font: 11px var(--font-mono); }
   mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top-h), #000 calc(100% - var(--fade-h)), transparent);
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top-h), #000 calc(100% - var(--fade-h)), transparent); }
 
-/* No padding at all, in either direction. The header sits first in `.sb-top` now rather than above
-   the space's list: the 40px band over it is the traffic lights' row, and the distance down to the
-   search field is `.sb-top`'s own gap — so there is nothing here for the header itself to own. */
-.space-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.space-header h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 17px; font-weight: var(--fw-title); min-width: 0; flex: 0 1 auto; letter-spacing: -0.01em; }
-/* The one identity pixel (§5): the space colour lives here and in the strip glyph, nowhere else. */
-.space-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--rl-space); flex: none; }
-.space-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* The row's yielding ORDER, stated rather than left to the layout. The space's name is the unbounded
-   user data here, so it is the last thing to give width up; beside it are two 28px glyphs that
-   cannot shrink at all and a pill carrying a name the profile chip at the foot of the column also
-   carries. So the PILL is what yields, and it ellipsizes. Left as `flex: none` the actions took
-   their full width first and a 200px column cut "Realm" down to two letters — the one string on
-   this row nothing else in the sidebar repeats. */
-.space-header-actions { display: flex; align-items: center; gap: 2px; flex: 0 4 auto; min-width: 0; }
-.space-header-actions .icon-btn { flex: none; }
-.space-header-actions .pill { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--inset); color: var(--ink-2); } /* W3: StatusPill neutral */
 .icon-btn { display: grid; place-items: center; width: 28px; --btn-h: 28px; height: var(--btn-h); border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; color: var(--rl-text-dim); }
 .icon-btn:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
@@ -578,8 +529,8 @@ kbd { font: 11px var(--font-mono); }
 /* Hit-target extension (V-F8): the visual button stays small; the click target grows 6px each way.
    .tool-copy joins the list — its 20px box sits alone at its row's right edge, so the overhang
    never crosses another interactive element. */
-.icon-btn, .item-close, .item-shelf, .item-disclose, .tool-copy { position: relative; }
-.icon-btn::after, .item-close::after, .item-shelf::after, .item-disclose::after, .tool-copy::after { content: ""; position: absolute; inset: -6px; }
+.icon-btn, .item-close, .item-shelf, .item-disclose, .item-act, .tool-copy { position: relative; }
+.icon-btn::after, .item-close::after, .item-shelf::after, .item-disclose::after, .item-act::after, .tool-copy::after { content: ""; position: absolute; inset: -6px; }
 
 /* Plan 9 W3 — SidebarNav's section label: sentence case, 12.5/500, ink-3. */
 .group-label { font-size: 12.5px; font-weight: var(--fw-medium); color: var(--rl-text-faint); padding: 12px 8px 4px; }
@@ -610,28 +561,6 @@ kbd { font: 11px var(--font-mono); }
 .sb-activity-head { display: flex; align-items: baseline; gap: 8px; }
 .sb-activity-session { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* The chat feed: the sidebar's other lens, one row per conversation under a day heading.
-
-   A two-line row, which the sidebar otherwise avoids — every other row here is one line. It earns
-   the second because the title alone does not identify a chat: "Fix the login form" is a name three
-   different pieces of work will have, and the space, the folder and the branch are what tell them
-   apart. The row is still the sidebar's row (`.item-row`) with its box and its hover; this only adds
-   the stack inside it. */
-.sb-chat-row { align-items: flex-start; gap: 8px; padding-block: 6px; }
-.sb-chat-mark { margin-top: 1px; }
-.sb-chat-main { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
-/* The context line. `min-width: 0` on the chips as well as the column, or a long branch name pushes
-   the row wider than the sidebar instead of ellipsizing inside it. */
-.sb-chat-sub { display: flex; gap: 6px; font-size: 11px; color: var(--rl-text-faint); min-width: 0; }
-.sb-chat-chip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.sb-chat-mono { font-family: var(--font-mono); font-size: 11px; }
-/* Fixed at the trailing edge and never allowed to shrink: it is the one figure on the row, and a
-   relative time that ellipsizes to "2 h…" is worse than no time at all. */
-.sb-chat-when { flex: none; font-size: 11px; color: var(--rl-text-faint); margin-top: 1px; }
-.sb-chat-day { padding-top: 10px; }
-/* A chat from another space is still reachable — clicking it switches — but it is not where you are,
-   and the row says so rather than pretending the whole feed is local. */
-.sb-chat-row[data-elsewhere] .sb-chat-chip:first-child { color: var(--rl-text-dim); }
 .sb-activity-server { flex: none; font-size: 11px; color: var(--rl-text-faint); }
 .sb-activity .activity-duration { flex: none; }
 .sb-activity .item-row:disabled { opacity: 1; color: var(--rl-text-faint); }
@@ -700,126 +629,75 @@ kbd { font: 11px var(--font-mono); }
 .item-trail:empty { display: none; }
 .item-actions { position: absolute; right: 4px; top: 50%; translate: 0 -50%; display: flex; align-items: center; gap: 2px;
   opacity: 0; pointer-events: none; }
-.item:hover .item-actions, .item:has(:focus-visible) .item-actions, .item:has([data-confirming]) .item-actions {
+/* …and while a menu one of them opened is up, so the control that opened it is still where it was. */
+.item:hover .item-actions, .item:has(:focus-visible) .item-actions, .item:has([data-confirming]) .item-actions,
+.item:has(.item-act[aria-expanded="true"]) .item-actions {
   opacity: 1; pointer-events: auto; }
-.item:hover .item-trail, .item:has(:focus-visible) .item-trail, .item:has([data-confirming]) .item-trail { display: none; }
-.item:hover .item-row, .item:has(:focus-visible) .item-row, .item:has([data-confirming]) .item-row { padding-right: 34px; }
+.item:hover .item-trail, .item:has(:focus-visible) .item-trail, .item:has([data-confirming]) .item-trail,
+.item:has(.item-act[aria-expanded="true"]) .item-trail { display: none; }
+.item:hover .item-row, .item:has(:focus-visible) .item-row, .item:has([data-confirming]) .item-row,
+.item:has(.item-act[aria-expanded="true"]) .item-row { padding-right: 34px; }
 .item[data-actions="2"]:hover .item-row, .item[data-actions="2"]:has(:focus-visible) .item-row,
-.item[data-actions="2"]:has([data-confirming]) .item-row { padding-right: 58px; }
+.item[data-actions="2"]:has([data-confirming]) .item-row, .item[data-actions="2"]:has(.item-act[aria-expanded="true"]) .item-row { padding-right: 58px; }
 /* A row with nothing to offer under the pointer keeps its state there: the slot has one occupant,
-   so nothing steps aside and the title gives nothing up. The cross-room rows are these — a session
-   drawn outside its room, and a room with nothing live to unfold (OtherSpaces, LiveSessionRow). */
+   so nothing steps aside and the title gives nothing up — a failed row in Needs you, a fan-out. */
 .item[data-actions="0"]:hover .item-trail:not(:empty), .item[data-actions="0"]:has(:focus-visible) .item-trail:not(:empty) { display: flex; }
 .item[data-actions="0"]:hover .item-row, .item[data-actions="0"]:has(:focus-visible) .item-row { padding-right: 8px; }
-.item-close, .item-shelf, .item-delete, .item-disclose { display: grid; place-items: center; width: 22px; height: 22px; border-radius: var(--r-chip); color: var(--rl-text-dim); }
-.item-close:hover, .item-shelf:hover, .item-disclose:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.item-close, .item-shelf, .item-delete, .item-disclose, .item-act { display: grid; place-items: center; width: 22px; height: 22px; border-radius: var(--r-chip); color: var(--rl-text-dim); }
+.item-close:hover, .item-shelf:hover, .item-disclose:hover, .item-act:hover, .item-act[aria-expanded="true"] { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* The disclosure turns to say which way it is facing, on the shelf caret's timing. */
 .item-disclose svg { transition: transform var(--dur-pop) var(--ease-out-strong); }
 .item-disclose[aria-expanded="true"] svg { transform: rotate(90deg); }
-/* Another room's row: its icon holds its width whatever kind it is (a glyph, an emoji, a picture),
-   and its state is the strip's dot with the count it stands for beside it — the dot keeps the far
-   end, so a column of rooms lines its marks up with the session rows around it. */
-.space-row-icon { flex: none; }
+/* A tally: a count with the mark it stands for beside it — the dot keeps the far end, so a column of
+   section heads lines its marks up with the session rows under them. */
 .item-tally { display: flex; align-items: center; gap: 6px; }
 .item-count { font-size: 12px; line-height: 1; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
-/* A room's live sessions sit under its name: indented by the room's icon and the gap after it, so
-   each session's own glyph lines up with the name it belongs to. */
-.space-live .item-row { padding-left: 34px; }
-/* What needs you, docked at the top of the body on the page's own 16px inset. No scroller of its own:
-   it is bounded, so it never needs one, and nothing scrolls under its edge to earn a rule. */
-.sb-active { flex: none; display: flex; flex-direction: column; padding: 0 16px; }
-.sb-active > .group-label { padding-top: 8px; }
-.sb-active-all { margin: 2px 0 0 2px; }
-/* The room a session in a cross-room list belongs to, after its title and quieter than it. The title
-   is the unbounded half and gives way first; this keeps its own width up to a cap, so a four-letter
-   room is never cut to "L." to make room for a long title. */
+/* The space a session in a cross-space list belongs to (Needs you, Recent), after its title and
+   quieter than it. The title is the unbounded half and gives way first; this keeps its own width up
+   to a cap, so a four-letter space is never cut to "L." to make room for a long title. */
 .item-where { flex: none; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 12px; color: var(--rl-text-faint); }
+/* ── The list (Plan 27): spaces as sections, Recent, New space ──
+   A section's head is a row like any other — name, state at the far end, actions in that slot under
+   the pointer — with a caret before the space's icon. Its sessions sit under it with their titles on
+   the space's name and no glyph of their own: the gutter under the space's icon is theirs, and holds
+   the one mark a row has to wear there (a schedule's clock, a fan-out's caret). */
+.sb-sections, .sb-section { display: flex; flex-direction: column; }
+.sb-section + .sb-section { margin-top: 4px; }
+.sb-section-head > .item-row { color: var(--rl-text-bright); }
+.sb-section-head[data-drag-over] { box-shadow: inset 0 2px 0 var(--rl-accent); }
+.sb-caret { flex: none; width: 12px; display: grid; place-items: center; color: var(--rl-text-faint);
+  transition: transform var(--dur-pop) var(--ease-out-strong); }
+.sb-caret[data-open] { transform: rotate(90deg); }
+/* The caret and the space's icon are one cluster: 6px between them, not the row's 10. */
+.sb-section-head .sb-caret { margin-right: -4px; }
+.sb-space-icon { flex: none; display: grid; place-items: center; }
+/* 26px puts a nested row's 16px gutter under the head's icon and its title on the head's name. */
+.sb-row[data-nested] > .item-row { padding-left: 26px; }
+.sb-gutter, .sb-lead { flex: none; width: 16px; display: grid; place-items: center; color: var(--rl-text-faint); }
+/* A fan-out's sessions sit one step further in, under the fan-out's own title. */
+.sb-fanout-rows[data-nested] .sb-row > .item-row { padding-left: 42px; }
+.sb-fanout-rows:not([data-nested]) .sb-row > .item-row { padding-left: 34px; }
+/* "Show more" is a line of text on the titles' column, not a row: it cannot be mistaken for a session. */
+.sb-more { margin: 0 0 4px 46px; }
+.sb-start { color: var(--rl-text-faint); }
+.sb-new-space { flex: none; width: 100%; min-height: 32px; margin-top: 6px; color: var(--rl-text-dim); }
+.sb-new-space:hover { color: var(--rl-text-bright); }
+.sb-lens { margin: 10px 0 6px; }
+.sb-lens:first-child { margin-top: 2px; }
+.sb-recent .sb-day:first-child > .group-label { padding-top: 4px; }
+/* Nothing yet is its own composition, centred in the room the list would have used. */
+.sb-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 32px 12px; text-align: center;
+  color: var(--rl-text-faint); }
+.sb-empty-line { margin: 6px 0 0; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
+.sb-empty-sub { margin: 0; font-size: 12px; line-height: 1.45; color: var(--rl-text-faint); text-wrap: balance; }
 /* Danger only on the way in and while armed — a row of red trash cans at rest would read as a list
    of problems rather than a list of things. Armed is filled, because the second click is the one
    that spends, and an armed control that looked like the resting one would be a trap. */
 .item-delete:hover { background: var(--rl-hover); color: var(--rl-danger); }
 .item-delete[data-confirming] { background: var(--rl-danger); color: var(--rl-panel); }
-.item[data-dragging], .new-item[data-dragging] { opacity: .45; }
+.item[data-dragging] { opacity: .45; }
 .rename { width: 100%; height: 28px; padding: 0 8px; border-radius: var(--r-chip); border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
-.space-empty { font-size: 12px; color: var(--rl-text-faint); padding: 4px 5px 8px; } /* A-L6 */
-/* Ara refresh §5: the row sits at the sidebar's top now, first row under the search field. */
-.new-item { flex: none; margin: 6px 0 0; }
-.new-row { color: var(--rl-text-dim); width: 100%; border-radius: var(--r-ctl); corner-shape: squircle; min-height: 32px; }
-.new-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
-/* The same row as `.new-row` in every respect that is painted: same height, same glyph, same ink,
-   same hover. It was 30px and 12.5px once, then the same size a rung quieter in tone — both attempts
-   to say "smaller occasion" in the row's appearance, and both read instead as a heading with a
-   sub-item under it. The pair is two ways to start a chat, which is a thing to pick between rather
-   than a hierarchy to descend, so nothing here ranks them; what separates them is the word and what
-   happens on the click.
-   The `-8px` cancels `.sb-top`'s gap for this one seam, so the two stack flush the way the
-   destinations below them do — one block of rows, not two rows with air between. It does NOT come
-   off the container, which would close the seam under the search field too. The 8px below is that
-   block's own separation from the destinations. */
-.quick-row { flex: none; width: 100%; margin: -8px 0 8px; min-height: 32px;
-  color: var(--rl-text-dim); border-radius: var(--r-ctl); corner-shape: squircle; }
-.quick-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
-/* Lit while the window is up — the control that opened it says so and, pressed again, is where the
-   eye goes looking. It does not CLOSE from here: closing deletes, and a delete belongs on the thing
-   being deleted, not on the row that made it. */
-.quick-row[aria-pressed="true"] { background: var(--rl-active); color: var(--rl-text-bright); }
-
-.space-strip { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 12px 10px; }
-/* safe center: centered while it fits, but overflow aligns to start instead of clipping the left end
-   unreachably (A-H2). The scrollbar is hidden — scrollIntoView keeps the active space visible. */
-/* overscroll-behavior: the strip is the innermost horizontal scroller in a window that also swipes
-   between spaces — without it, reaching either end hands the rest of the gesture to the ancestors,
-   which reads as the strip stalling mid-scroll. */
-/* mask: the scrollbar is hidden, so without a fade at each end a strip that overflows looks exactly
-   like one that fits — the spaces past the edge were invisible AND unannounced. The fade only shows
-   where there is something under it, so a strip that fits reads as untouched. */
-.strip-spaces { flex: 1; display: flex; align-items: center; justify-content: safe center; gap: 2px; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
-  mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%); }
-.strip-side { flex: none; }
-/* The profile chip: which profile the strip below is scoped to, and the door to the others. One
-   square the size of a space button, wearing the profile's own icon and colour — spelling the name
-   out here cost roughly two space slots, and the header's profile pill already says it. */
-.strip-profile { position: relative; isolation: isolate; display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--r-ctl); }
-.strip-profile::before {
-  content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; opacity: 0;
-  background: radial-gradient(closest-side, var(--rl-hover), transparent);
-  transition: opacity var(--dur-hover) ease;
-}
-.strip-profile:hover:not(:disabled)::before { opacity: 1; }
-.strip-profile:disabled { opacity: .45; }
-/* The strip sits on the macOS vibrancy, and a flat fill behind the active space read as a plate
-   stuck onto the material rather than part of it — a hard rounded-rect edge is the one thing the
-   blur underneath cannot soften. The fill is a radial wash with no boundary instead: strongest under
-   the glyph, gone by the edge of the box.
-
-   It rides ::before rather than the element so the hover can still cross-fade — a background-image
-   does not interpolate, and .strip-space is in the §6 hover-transition list. `isolation` is what
-   makes z-index: -1 mean "behind the glyph" rather than "behind the sidebar": without a stacking
-   context here the wash would drop through the strip entirely. */
-.strip-space { position: relative; isolation: isolate; display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--r-ctl); color: var(--rl-text-dim); flex: none; }
-.strip-space::before {
-  content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; opacity: 0;
-  background: radial-gradient(closest-side, var(--rl-active), transparent);
-  transition: opacity var(--dur-hover) ease;
-}
-.strip-space:hover { color: var(--rl-text-bright); }
-.strip-space:hover::before { opacity: .6; }
-/* Active space (§5): the wash at full strength, no border; the glyph takes the space colour. */
-.strip-space[data-active] { color: var(--rl-space); }
-.strip-space[data-active]::before { opacity: 1; }
-.strip-space[data-drag-over] { box-shadow: inset 2px 0 0 var(--rl-accent); }
-/* Cross-space agent status (U-H3): waiting > error > running, resolved in spaceBadge. */
-/* This badge does NOT take the .status-dot ping, and the divergence is the point. A status dot says
-   what one session on screen is doing; this says whether anything is happening in a space you are
-   not looking at, and the only answer that asks you to go there is "waiting on you". Running
-   elsewhere needs nothing from anyone, so it is presence and gets colour alone. The geometry agrees:
-   the badge is notched into the corner of a 30px square in a rail of them, and a ring expanding from
-   it would have to cross the square's edge into its neighbour. So waiting alone keeps the blink. */
-.strip-badge { position: absolute; top: 2px; right: 2px; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--rl-frame); }
-.strip-badge[data-status="running"] { background: var(--rl-success); }
-.strip-badge[data-status="waiting_permission"] { background: var(--rl-warning); animation: rl-pulse 0.9s ease-in-out infinite; }
-.strip-badge[data-status="error"] { background: var(--rl-danger); }
 
 /* ── Menus / overlays (raised) ─────────────────────────────────────────── */
 /* max-height + scroll: positioning clamps `top` to the viewport, so a menu taller than the screen
@@ -1561,7 +1439,6 @@ kbd { font: 11px var(--font-mono); }
 :root[data-quiet] .tool-group[data-working] .tool-group-summary,
 :root[data-quiet] .composer-thinking span,
 :root[data-quiet] .status-dot[data-status="circuit_open"],
-:root[data-quiet] .strip-badge[data-status="waiting_permission"],
 :root[data-quiet] .permission-dot,
 :root[data-quiet] .gen-glow,
 :root[data-quiet] .drive-frame-glow,
@@ -1839,22 +1716,6 @@ kbd { font: 11px var(--font-mono); }
 .group-tab-renaming .rename { width: 120px; }
 .group-add { color: var(--rl-text-faint); }
 
-/* Sidebar: one section head per group. The head doubles as a drop target and, when the space has
-   more than one group, as the button that puts that group on screen. */
-.group-head { display: flex; align-items: center; gap: 6px; }
-.group-head[data-active] { color: var(--rl-text-bright); }
-.group-head[data-drop] { outline: 1.5px solid var(--rl-accent); outline-offset: -1px; border-radius: var(--r-ctl); }
-.group-head-name { font: inherit; color: inherit; text-align: left; }
-.group-head-badge { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--rl-text-faint);
-  border: var(--hairline-w) solid var(--rl-hairline); border-radius: 999px; padding: 0 5px; }
-/* The shelf's heading: a disclosure triangle wearing the group heading's own type, so it reads as a
-   sibling of "Sessions" rather than a control bolted under it. */
-.archived-head { padding-top: 14px; }
-.archived-toggle { display: flex; align-items: center; gap: 6px; }
-.archived-toggle:hover { color: var(--rl-text-dim); }
-.archived-caret { display: grid; place-items: center; transition: transform var(--dur-pop) var(--ease-out-strong); }
-.archived-caret[data-open] { transform: rotate(90deg); }
-.archived-count { color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 .group-new { display: flex; align-items: center; gap: 6px; margin: 6px 0 0; padding: 4px 8px; border-radius: var(--r-ctl);
   font-size: 12px; color: var(--rl-text-faint); }
 .group-new:hover { background: var(--rl-hover); color: var(--rl-text-dim); }
@@ -1910,6 +1771,17 @@ kbd { font: 11px var(--font-mono); }
 button.panel-title { text-align: left; padding: 2px 6px; margin-left: -6px; border-radius: var(--r-chip); }
 button.panel-title:hover { background: var(--rl-hover); }
 .panel-rename { display: flex; min-width: 120px; max-width: 280px; }
+/* A session's breadcrumb (Plan 27): the space it works in, its icon in the space's colour and its
+   name, then the title. The title is the unbounded part and takes the slack; the space's name keeps a
+   short cap, and a narrow pane gives up the name before anything of the title. The separator's margin
+   pays back the crumb's own padding, so "›" sits evenly between the two words. */
+.panel-crumb { flex: none; display: flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 6px; margin-left: -6px;
+  border-radius: var(--r-chip); font-weight: var(--fw-label); color: var(--rl-text-dim); }
+.panel-crumb:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.panel-crumb-icon { flex: none; display: grid; place-items: center; }
+.panel-crumb-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-crumb-sep { flex: none; margin-left: -6px; color: var(--rl-text-faint); }
+@container (max-width: 380px) { .panel-crumb-name, .panel-crumb-sep { display: none; } }
 /* A side pane's tab strip, in the title's place (PaneTabs). The strip takes the bar's slack and
    scrolls sideways past it; each tab gives up width before it gives up its name's first letters.
    The "+" rides at the end of the tabs, not at the bar's far edge, and stays put while they scroll:
@@ -2066,15 +1938,16 @@ button.panel-title:hover { background: var(--rl-hover); }
    behind Settings, ⌘K opened behind it, a sheet raised from a page landed under the page that raised
    it, and any menu portalled out of a page's own body was painted over by that page. A page is a
    SCREEN — the bottom of the overlay stack, not the top. */
-.page-overlay { position: fixed; z-index: 35; inset: 0 0 0 var(--sidebar-w, 0px);
+.page-overlay { position: fixed; z-index: 35; inset: 0 0 0 calc(var(--rail-w) + var(--sidebar-w, 0px));
   display: flex; flex-direction: column; min-width: 0;
   background: var(--rl-panel); outline: none;
   animation: rl-page-in var(--dur-base) var(--ease-out-strong); }
 /* A rise and a fade, not a slide: the page replaces what was there rather than arriving from a
    direction, and a horizontal move would imply it came from the sidebar it is not part of. */
 @keyframes rl-page-in { from { translate: 0 6px; opacity: 0; } to { translate: 0 0; opacity: 1; } }
-/* Collapsed, the sidebar is pulled off by its own negative margin and the page takes the width back. */
-.page-overlay[data-sidebar-collapsed] { inset: 0; }
+/* Collapsed, the sidebar is pulled off by its own negative margin and the page takes its width back —
+   never the rail's, which holds the buttons that open and close it and the way back to the sidebar. */
+.page-overlay[data-sidebar-collapsed] { inset: 0 0 0 var(--rail-w); }
 /* One bar, carrying what the overlay IS and the way out. The hairline is earned here — the page's
    own scroller genuinely passes under it. */
 /* No rule under it. The bar holds the page's own name and the control that closes it — chrome FOR
@@ -2083,11 +1956,6 @@ button.panel-title:hover { background: var(--rl-hover); }
    `.md-code-head` and the terminal dock's bar. */
 .page-overlay-bar { flex: none; display: flex; align-items: center; gap: 8px; min-height: 38px;
   padding: 0 6px 0 14px; }
-/* Collapsed, the page takes the whole window (below) — so its bar is the strip under the traffic
-   lights and the corner toggle, and it reserves them the way the pane bar and the group bar do. It
-   cannot join that rule: it is portalled to <body>, so `.app[data-sidebar-collapsed] .main > …`
-   cannot reach it. Without this the page's own title is drawn underneath the lights. */
-.page-overlay[data-sidebar-collapsed] .page-overlay-bar { padding-left: var(--corner-w); }
 .page-overlay-mark { flex: none; color: var(--rl-text-faint); }
 .page-overlay-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 12.5px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
@@ -2840,8 +2708,8 @@ button.panel-title:hover { background: var(--rl-hover); }
    animation is transform + opacity. `--orb-k` scales the 28px stage geometry to the caller's size,
    dots included; the -1px margins still centre them because a transform scales about its own centre. */
 .spinner { position: relative; display: inline-block; flex: none; }
-/* No `will-change` here, unlike the upstream orb: §6 reserves it for the swiper track, and hinting
-   40 dots would promote 40 layers for a 14px glyph. Transform + opacity are composited anyway. */
+/* No `will-change` here, unlike the upstream orb: hinting 40 dots would promote 40 layers for a 14px
+   glyph, and transform + opacity are composited anyway. */
 .spinner-dot { position: absolute; left: 50%; top: 50%; width: 2px; height: 2px; margin: -1px 0 0 -1px;
   border-radius: 50%; background: currentColor; animation: rl-orb-breathe 3.6s linear infinite both; }
 /* The pose table's percentages are uneven on purpose: the 19%/44%/69%/94% steps are the slow crawls,
@@ -3257,9 +3125,9 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    against a height the list does not have.
    The tool card's half addresses DIRECT children: a card now contains its sub-agent's cards, and a
    descendant selector would have opening the parent unfold every body beneath it. */
-.tool-body-wrap, .archived-wrap, .space-live-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-base) var(--ease-in-out-strong); }
-.tool-card[data-open] > .tool-body-wrap, .archived-wrap[data-open], .space-live-wrap[data-open] { grid-template-rows: 1fr; }
-.tool-body-clip, .archived-clip, .space-live-clip { overflow: hidden; min-height: 0; }
+.tool-body-wrap, .sb-section-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-base) var(--ease-in-out-strong); }
+.tool-card[data-open] > .tool-body-wrap, .sb-section-wrap[data-open] { grid-template-rows: 1fr; }
+.tool-body-clip, .sb-section-clip { overflow: hidden; min-height: 0; }
 .tool-card[data-open] > .tool-body-wrap .tool-body { opacity: 1; }
 
 /* Grouped runs (§2.8/§5) wear BUI ThinkingState's header + trace (Plan 9 W2): the collapsed row is
@@ -4062,6 +3930,9 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* The brand mark is filled where the rest of the set is stroked, so it reads a touch heavier at the
    same box; it keeps the chip's own colour (§7: text-dim at rest) and never shrinks. */
 .ghost-chip .chip-brand { flex: none; }
+/* The space chip's glyph in its space's colour (Plan 27): the span carries the colour, the glyph is
+   centred in it the way a bare one sits in the chip. */
+.ghost-chip .chip-tint { display: grid; place-items: center; }
 
 .chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 /* The model chip's effort suffix — "Claude Fable 5 Max" with the Max a shade grayer. A sibling of
@@ -5108,9 +4979,9 @@ select { appearance: none; padding-right: 22px;
    token streams do not interpolate. It rides these two rules rather than a third of its own so a
    control's fill has ONE timing however the fill is drawn; on the rows that never paint it names a
    property that never changes, which costs nothing. */
-.item-row, .item-close, .item-shelf, .item-disclose, .icon-btn, .btn, .ghost-chip, .tool-row, .tool-group-row, .tool-copy, .msg-action,
-.delegation-row, .delegation-item,
-.strip-space, .strip-profile, .space-card, .palette-opt, .permission-option, .menu [role^="menuitem"],
+.item-row, .item-close, .item-shelf, .item-disclose, .item-act, .icon-btn, .btn, .ghost-chip, .tool-row, .tool-group-row, .tool-copy, .msg-action,
+.delegation-row, .delegation-item, .rail-btn, .rail-nav-btn, .panel-crumb, .sb-profile,
+.space-card, .palette-opt, .permission-option, .menu [role^="menuitem"],
 .question-option, .question-skip {
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease, --sq-fill var(--dur-hover) ease;
 }
@@ -5141,15 +5012,14 @@ select { appearance: none; padding-right: 22px;
    hovered and pressed states and nowhere else is the whole mechanism; every base rule above keeps
    its own duration for the release. */
 :is(button, [role="button"], [role="tab"], [role="option"], [role^="menuitem"], [role="switch"], summary,
-  .item-row, .tool-row, .tool-group-row, .delegation-row, .delegation-item, .strip-space, .strip-profile,
+  .item-row, .tool-row, .tool-group-row, .delegation-row, .delegation-item,
   .space-card, .question-option, .question-skip):is(:hover, :active, [data-press-tracking]) { transition-duration: 0s; }
 /* …and a ROW that is chosen from a list changes instantly both ways. An NSMenu's highlight, a
    segmented control's selection, Spotlight's result row: none of them fade, in or out, because the
    highlight IS the current choice and a choice is never half-made. The fade-out above is for a
    button the pointer happens to pass; here the highlight follows the arrow keys as much as the
    pointer, and a trail behind it reads as a lag in the selection itself. */
-.palette-opt, .menu [role^="menuitem"], .mp-row, .mp-seg-opt, .seg-opt, .mention-row, .skill-picker-row,
-.strip-space::before, .strip-profile::before { transition-duration: 0s; }
+.palette-opt, .menu [role^="menuitem"], .mp-row, .mp-seg-opt, .seg-opt, .mention-row, .skill-picker-row { transition-duration: 0s; }
 
 /* The continuous corner, on every control that has one.
    Declarative only: `corner-shape` lands in Chromium 139 and Electron 37.10.3 ships 138, so today
@@ -5158,7 +5028,7 @@ select { appearance: none; padding-right: 22px;
    are hundreds of elements per window against the handful of singleton surfaces it draws now. The
    radii above are what make the difference visible in the meantime. */
 .btn, .icon-btn, .ghost-chip, .composer-chip, .msg-action, .tool-copy,
-.item-row, .new-row, .dest-row, .seg-opt, .mp-seg-opt, .mp-jump, .mp-use,
+.item-row, .seg-opt, .mp-seg-opt, .mp-jump, .mp-use,
 .permission-option, .question-option, .question-skip, .palette-opt, .menu [role^="menuitem"],
 /* `.switch` is deliberately NOT here. A squircle is a corner treatment, and a pill has no corners —
    applying one to `border-radius: 999px` clamps the superellipse to half the box and turns the
@@ -6364,39 +6234,6 @@ select { appearance: none; padding-right: 22px;
 .task-attempt-outcome[data-outcome="succeeded"] { color: var(--rl-text-bright); }
 .task-attempt-outcome[data-outcome="failed"], .task-attempt-outcome[data-outcome="expired"] { color: var(--rl-danger); }
 
-/* The sidebar header's whole title row is the page's front door. */
-.space-title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 4px; margin: -2px -4px;
-  border: none; border-radius: var(--r-chip); corner-shape: squircle; background: none; color: inherit; font: inherit; cursor: default; }
-.space-title:hover { background: var(--rl-hover); }
-/* The switcher's caret. Quiet until wanted — it sits next to a 17px title and must not compete with
-   it — and it brightens on hover like every other affordance in this column. `flex: none` because
-   the title beside it truncates: without it the caret is what gives way on a long space name, which
-   is the one part of the row that cannot afford to. */
-.space-switch { display: grid; place-items: center; flex: none; width: 20px; height: 20px; margin-left: 1px;
-  border: none; border-radius: var(--r-chip); corner-shape: squircle; background: none;
-  color: var(--rl-text-faint); cursor: default; transition: color var(--dur-hover) ease, background-color var(--dur-hover) ease; }
-.space-switch:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
-/* Open, it stays lit: the menu it opened is somewhere else on screen (a portal), so this is the only
-   thing left saying which control produced it. */
-.space-switch[aria-expanded="true"] { color: var(--rl-text-bright); }
-
-/* ——— Plan 12 W4: sidebar destinations + scope groups. The destination rows sit between the New-session
-   block and the space swiper — quiet 32px rows in the item-row idiom (text-dim, hover-brighten). The
-   scope groups are the shared ScopeGroups sections every scoped list renders through. ——— */
-.sb-destinations { flex: none; display: flex; flex-direction: column; padding: 0 16px 6px; }
-.sb-destinations .dest-row { min-height: 32px; width: 100%; border-radius: var(--r-ctl); corner-shape: squircle; }
-.sb-destinations .dest-row:hover { color: var(--rl-text-bright); }
-/* Lit while its page is up. The page is an overlay with one way out of its own, so the row that
-   opened it is the other — and a control that carries the state has to show it (design.md: a lit
-   toggle says it and undoes it in the same click). Same active fill the sidebar's open item wears,
-   because it means the same thing: this is what you are looking at. */
-.sb-destinations .dest-row[data-on] { background: var(--rl-active); color: var(--rl-text-bright); }
-/* W5: the Notifications row's unread count — the StatusPill idiom, pushed to the row's far edge.
-   The tone's status dot is suppressed: a number is not a state, and dot-plus-count reads as two
-   signals where there is one. */
-.sb-destinations .dest-count { margin-left: auto; }
-.sb-destinations .dest-count::before { content: none; }
-
 /* ——— Plan 12 W5: the Notifications page. Quiet feed rows on the page pattern; unread is a dot and a
    brighter title, never a wash. The inline permission card is the session pane's own component. ——— */
 
@@ -7365,10 +7202,11 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 /* A segmented control: one row of radios wearing a shared track. */
 .seg { display: inline-flex; gap: 2px; margin: 0; padding: 2px; border: var(--hairline-w) solid var(--rl-line);
   border-radius: var(--r-ctl); corner-shape: squircle; background: var(--rl-frame); }
+/* No transition: a segment is a choice, and a choice changes instantly both ways (design.md). This
+   rule comes after the instant list, so a `transition` here handed the fade back to every segment. */
 .seg-opt {
   padding: 3px 9px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim);
   border-radius: var(--r-chip); corner-shape: squircle; cursor: default; white-space: nowrap;
-  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease;
 }
 .seg-opt input { position: absolute; opacity: 0; pointer-events: none; }
 .seg-opt:hover { color: var(--rl-text-bright); }

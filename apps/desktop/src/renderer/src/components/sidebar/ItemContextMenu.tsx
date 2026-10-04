@@ -13,7 +13,11 @@ export type ItemMenuState = { item: Item; x: number; y: number } | null;
  *  (layout-only, offered only while the item is open), Delete (destructive, always offered).
  *  Peek (sessions only, W11b): the session as a transient tab beside the one in focus — offered only
  *  where a row click would not already show it, and only while a session is on screen to be beside. */
-export function useItemContextMenu(onRename: (item: Item) => void) {
+export function useItemContextMenu(onRename: (item: Item) => void, opts: {
+  /** Told after a write that may change what the sidebar lists — pin, archive, delete, move — so a
+   *  list drawn from another space's items (`allItems`) can read them again. */
+  onChanged?: () => void;
+} = {}) {
   const [menu, setMenu] = useState<ItemMenuState>(null);
   // Two-step destructive confirm (U-H2): the first Delete click arms this in place; only the second
   // click, within the same open menu, deletes. Opening or closing the menu disarms.
@@ -45,6 +49,9 @@ export function useItemContextMenu(onRename: (item: Item) => void) {
   // nowhere for a peek to go, so it does not offer one.
   const peekOwner = useApp((s) => s.peekOwner());
   const run = useApp((s) => s.run);
+  const { onChanged } = opts;
+  /** A write, then the word to whoever lists it. */
+  const write = (fn: () => Promise<unknown>) => run(async () => { await fn(); onChanged?.(); });
   const onContextMenu = useCallback((item: Item) => (e: MouseEvent) => {
     e.preventDefault(); setConfirmingDelete(false); setMovingToSpace(false); setMovingToGroup(false);
     setMenu({ item, x: e.clientX, y: e.clientY });
@@ -75,20 +82,24 @@ export function useItemContextMenu(onRename: (item: Item) => void) {
       onClose={close} items={
       movingToSpace
         ? (destinations.length > 0
-            ? destinations.map((sp) => ({ label: sp.name, onSelect: () => run(() => moveSessionToSpace(session!.id, sp.id)) }))
+            ? destinations.map((sp) => ({ label: sp.name, onSelect: () => write(() => moveSessionToSpace(session!.id, sp.id)) }))
             : [{ label: "No other spaces", disabled: true, onSelect: () => {} }])
         : movingToGroup
         ? (otherGroups.length > 0
             ? otherGroups.map((g) => ({ label: g.name, onSelect: () => run(() => moveItemToPaneGroup(menu.item.id, g.id)) }))
             : [{ label: "No other groups", disabled: true, onSelect: () => {} }])
         : [
-            { label: menu.item.pinned ? "Unpin" : "Pin", onSelect: () => run(() => updateItem({ id: menu.item.id, pinned: !menu.item.pinned })) },
+            { label: menu.item.pinned ? "Unpin" : "Pin", onSelect: () => write(() => updateItem({ id: menu.item.id, pinned: !menu.item.pinned })) },
             // Pin's opposite, and offered on the same terms the hover button is: sessions only
             // (ItemList explains why), whichever section the row was right-clicked in.
             ...(menu.item.kind === "session"
               ? [{ label: menu.item.archived ? "Unarchive" : "Archive",
                    title: menu.item.archived ? "Put it back in the space list" : "Close the pane and shelve the row; nothing is deleted",
-                   onSelect: () => run(() => archiveItem(menu.item.id, !menu.item.archived)) }]
+                   // Another space's row has no pane on screen to close first (Plan 27: one path once
+                   // rooms retire), so it is shelved directly.
+                   onSelect: () => write(() => (menu.item.spaceId === activeSpaceId
+                     ? archiveItem(menu.item.id, !menu.item.archived)
+                     : updateItem({ id: menu.item.id, archived: !menu.item.archived }))) }]
               : []),
             { label: "Rename", onSelect: () => onRename(menu.item) },
             // A plain row click goes TO the pane, which is right when you meant "take me there" and
@@ -127,10 +138,10 @@ export function useItemContextMenu(onRename: (item: Item) => void) {
               ? [{ label: "Close", onSelect: () => run(() => closeFromLayout(menu.item.id)) }]
               : []),
             confirmingDelete
-              ? { label: <strong>Really delete?</strong>, danger: true, onSelect: () => run(() => deleteItem(menu.item.id)) }
+              ? { label: <strong>Really delete?</strong>, danger: true, onSelect: () => write(() => deleteItem(menu.item.id)) }
               : confirmDelete
                 ? { label: "Delete", danger: true, keepOpen: true, onSelect: () => setConfirmingDelete(true) }
-                : { label: "Delete", danger: true, onSelect: () => run(() => deleteItem(menu.item.id)) },
+                : { label: "Delete", danger: true, onSelect: () => write(() => deleteItem(menu.item.id)) },
           ]
     } />
   ) : null;

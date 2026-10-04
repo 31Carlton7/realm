@@ -308,6 +308,13 @@ describe("§6 motion table", () => {
     // …and it comes after the shared hover rule it overrides, or the cascade would hand the fade back.
     const shared = RULES.findIndex((r) => r.selectors.includes(".palette-opt") && r.body.includes("transition: background-color"));
     expect(RULES.indexOf(rows!)).toBeGreaterThan(shared);
+    // …and no LATER rule for one of them states a transition again: `.seg-opt`'s own rule did, after
+    // this one, and every segmented control in the app faded its choice in and out.
+    const after = RULES.slice(RULES.indexOf(rows!) + 1);
+    for (const sel of rows!.selectors) {
+      const later = after.filter((r) => r.selectors.includes(sel) && /(^|;)\s*transition(-duration)?:/.test(r.body));
+      expect(later.map((r) => r.body), sel).toEqual([]);
+    }
   });
 
   it("the send↔stop icon swap cross-fades over 160ms with opacity, scale and blur", () => {
@@ -324,15 +331,15 @@ describe("§6 motion table", () => {
   });
 
   it("every disclosure in the app opens the same way — one rule, never a second guess at max-height", () => {
-    // The sidebar's archived shelf rides the tool row's declaration rather than carrying a copy.
+    // The sidebar's space sections ride the tool row's declaration rather than carrying a copy.
     // max-height is the alternative, and it is the wrong one twice over: the number has to be
     // guessed, and the easing then runs against a height the content does not have, so a short list
     // snaps and a long one is clipped.
-    for (const sel of [".archived-wrap", ".tool-body-wrap"])
+    for (const sel of [".sb-section-wrap", ".tool-body-wrap"])
       expect(bodiesFor(sel).join(" "), sel).toContain(`transition: grid-template-rows ${dur("--dur-base")} var(--ease-in-out-strong)`);
-    expect(bodiesFor(".archived-wrap[data-open]").join(" ")).toContain("grid-template-rows: 1fr");
+    expect(bodiesFor(".sb-section-wrap[data-open]").join(" ")).toContain("grid-template-rows: 1fr");
     // 0fr only clips against an overflow container; without it the folded rows spill up the sidebar.
-    expect(bodiesFor(".archived-clip").join(" ")).toContain("overflow: hidden");
+    expect(bodiesFor(".sb-section-clip").join(" ")).toContain("overflow: hidden");
     expect(css, "no disclosure may animate max-height").not.toMatch(/transition:[^;]*max-height/);
   });
 
@@ -380,23 +387,19 @@ describe("§6 motion table", () => {
     expect(actionsThatFit(metaGone - padding)).toBeGreaterThan(0);
   });
 
-  it("New session and Quick chat are ONE block of two equal rows, not a row with a sub-item", () => {
-    /* Twice now the quick row has been drawn to say "smaller occasion" — once smaller (30px/12.5px),
-       once a rung quieter in ink — and both times it read as a child of the row above it. THE
-       mutant: put either back. The two are alternatives to pick between, so nothing paints a rank.
-       The negative margin cancels `.sb-top`'s gap for this ONE seam; taking it off the container
-       instead would close the seam under the search field too. */
-    const quick = bodiesFor(".quick-row").join(" ");
-    const primary = bodiesFor(".new-row").join(" ");
-    for (const decl of ["color: var(--rl-text-dim)", "min-height: 32px", "border-radius: var(--r-ctl)"]) {
-      expect(quick, decl).toContain(decl);
-      expect(primary, decl).toContain(decl);
+  it("New session is the head row's glyph and Quick chat a keystroke — neither is a row any more", () => {
+    /* Plan 27: the column's first rows were "New session" and "Quick chat", two equal rows of one verb.
+       New session is the ✎ in the head row now (and each space's + on hover), and Quick chat stays a
+       keystroke. THE mutant is the half-removal: the rows deleted and their rules left behind. */
+    for (const sel of [".new-row", ".quick-row", ".new-item", ".sb-head", ".sb-toggle", ".needs-you", ".sb-active", ".space-header"]) {
+      expect(RULES.filter((r) => r.selectors.some((x) => x.split(/[\s:>[]/).includes(sel))), sel).toEqual([]);
     }
-    expect(bodiesFor(".quick-row:hover").join(" ")).toContain("color: var(--rl-text-bright)");
-    expect(bodiesFor(".new-row:hover").join(" ")).toContain("color: var(--rl-text-bright)");
-    // Flush: the row pulls back exactly the gap its container hands out.
-    const gap = /gap: (\d+)px/.exec(bodiesFor(".sb-top").join(" "))?.[1];
-    expect(quick).toContain(`margin: -${gap}px 0 `);
+    // The head row is the 40px band the traffic lights centre in, beside the rail's.
+    expect(bodiesFor(".sb-header").join(" ")).toContain("height: 40px");
+    // The profile's name is the unbounded part of that row, so it is what gives way.
+    expect(bodiesFor(".sb-profile").join(" ")).toContain("min-width: 0");
+    expect(bodiesFor(".sb-profile-name").join(" ")).toContain("text-overflow: ellipsis");
+    expect(bodiesFor(".sb-header-actions").join(" ")).toContain("flex: none");
   });
 
   it("a menu's shortcut reads as a KEY — a filled chip on the chip rung, not more of the sentence", () => {
@@ -482,11 +485,14 @@ describe("§6 motion table", () => {
       expect(bodiesFor(`.status-dot[data-status="${s}"]`).join(" "), s).not.toContain("rl-pulse");
   });
 
-  it("the space strip's badge stays still — presence, not a summons", () => {
-    // Deliberately NOT the status dot's ping: this is a rollup for a space nobody is looking at, and
-    // only "waiting on you" asks anyone to go there. A running agent elsewhere needs no attention.
-    expect(bodiesFor('.strip-badge[data-status="running"]').join(" ")).not.toContain("animation");
-    expect(bodiesFor('.strip-badge[data-status="waiting_permission"]').join(" ")).toContain("rl-pulse 0.9s ease-in-out infinite");
+  it("a space's state is the rows' own marks with a count, not a badge with a vocabulary of its own", () => {
+    /* The strip's corner badge is gone with the strip (Plan 27). A section's head says what is going on
+       in its space with the same `.status-dot` its rows wear, a count beside each — one fact, one mark,
+       whether it is about a session or about the space it works in. THE mutant is a second badge style
+       coming back for the head. */
+    expect(RULES.filter((r) => r.selectors.some((sel) => sel.includes(".strip-badge")))).toEqual([]);
+    expect(bodiesFor(".item-tally").join(" ")).toContain("display: flex");
+    expect(bodiesFor(".item-count").join(" ")).toContain("font-variant-numeric: tabular-nums");
   });
 
   it("the greeting's nod is on the ladder like everything else, and the preference takes it away", () => {
@@ -498,9 +504,12 @@ describe("§6 motion table", () => {
     expect(RULES.some((r) => r.selectors.some((sel) => sel.includes("::") && sel.includes("hero-greeting")))).toBe(false);
   });
 
-  it("`will-change` is reserved for the swiper track (§6 performance note)", () => {
+  it("nothing asks for `will-change` now the swiper is gone (§6 performance note)", () => {
+    // The swiper's track was the one surface that earned a promoted layer — it moved under the fingers
+    // every frame. With the spaces as sections nothing slides, and a hint with no motion behind it is a
+    // layer held for nothing.
     const owners = RULES.filter((r) => r.body.includes("will-change")).flatMap((r) => r.selectors);
-    expect(owners).toEqual([".swiper-track"]);
+    expect(owners).toEqual([]);
   });
 });
 
@@ -1048,62 +1057,55 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect([...used].filter((n) => !defined.has(n) && !n.startsWith("--dsg-")).sort()).toEqual([]);
   });
 
-  it("collapsing costs no height: no rail, and a corner overlay that clears the lights", () => {
-    // The rail spent 38px of window HEIGHT, full width, to hold one button — a permanent strip across
-    // every pane bought so the traffic lights would not land on pane chrome. Its return is the
-    // regression this pins; sidebar-collapsed-live.mjs measures that the panes really start at y=0.
-    expect(RULES.some((r) => r.selectors.some((s) => s.includes(".sb-rail")))).toBe(false);
-    /* …and the shell no longer changes axis: collapsed is the same row with the column taken out.
-       Read off the rule set rather than through `bodiesFor`, which requires the selector to exist:
-       the collapsed shell has no properties of its own any more — `--corner-w` moved to `:root` so
-       the portalled page could reach it — and "no rule at all" satisfies this just as well. */
+  it("collapsing keeps the rail: the lights sit in it, and nothing in the main column makes room for them", () => {
+    /* Plan 27: the rail is the window's left edge in both states, so collapsing takes the sidebar out
+       of the row and nothing else. The lights (main places them at x:12, y:14; they run to ~66px)
+       sit in the rail's top band, which is why it is as wide as it is and why its icons start below
+       40px. THE mutants: a rail narrower than the lights (they land on the sidebar's or a pane's
+       chrome), or a rail with no top band (the first destination sits under the lights). */
+    const rail = bodiesFor(".app-rail").join(" ");
+    expect(rail).toContain("width: var(--rail-w)");
+    expect(rail).toContain("padding: 40px 0 10px");
+    const railW = Number(/--rail-w: (\d+)px/.exec(RULES.filter((r) => r.selectors.includes(":root")).map((r) => r.body).join(" "))?.[1]);
+    expect(railW).toBeGreaterThanOrEqual(76); // 12 + the three lights' ~54px + a gutter that clears them
+    // The window is still draggable by its own left edge, and the rail's buttons still clickable.
+    expect(rail).toContain("-webkit-app-region: drag");
+    expect(bodiesFor(".app-rail button").join(" ")).toContain("-webkit-app-region: no-drag");
+    // The rail wears the window's rounded corners now; the sidebar beside it is square.
+    expect(rail).toContain("border-radius: var(--r-float) 0 0 var(--r-float)");
+    expect(bodiesFor(".sidebar").join(" ")).not.toContain("border-radius");
+    // The sidebar slides out UNDER the rail, so the rail is the one that stacks.
+    expect(rail).toContain("position: relative");
+    expect(rail).toMatch(/z-index: \d/);
+    /* …and the shell still does not change axis: collapsed is the same row with the column taken out.
+       Read off the rule set rather than through `bodiesFor`, which requires the selector to exist. */
     expect(RULES.filter((r) => partsOf(r).includes(".app[data-sidebar-collapsed]"))
       .every((r) => !r.body.includes("flex-direction"))).toBe(true);
-    const corner = bodiesFor(".sb-corner").join(" ");
-    expect(corner).toContain("position: absolute");
-    expect(corner).toContain("height: 40px");      // the band trafficLightPosition y:14 centres in
-    expect(corner).toContain("padding-left: 76px"); // clears the lights before the toggle starts
-    // The window must still be draggable by its own top-left, and the toggle still clickable inside it.
-    expect(corner).toContain("-webkit-app-region: drag");
-    expect(bodiesFor(".sb-corner button").join(" ")).toContain("-webkit-app-region: no-drag");
-    // An absolutely positioned corner is only in the window's corner if the shell is its containing block.
-    expect(bodiesFor(".app").join(" ")).toContain("position: relative");
   });
 
-  it("the corner that brings the sidebar back outranks an app-level page", () => {
-    /* THE BUG: open Agents, collapse the sidebar, and there is no way to open it again. A page takes
-       the whole window when the sidebar is collapsed (`.page-overlay[data-sidebar-collapsed]` has
-       `inset: 0`), and the corner sat at z-index 5 — painted over and, worse, hit-tested to the page.
-       The corner is window chrome, beside the traffic lights the OS draws over everything; it yields
-       to the scrims and to nothing else. */
+  it("an app-level page never covers the rail, which holds the way in, out and back", () => {
+    /* THE BUG this used to pin: open Agents, collapse the sidebar, and the toggle that brings it back
+       was painted over by the page. The toggle is in the rail now, and the page starts right of the
+       rail in both states, so nothing has to out-stack anything — and the rail's buttons that open
+       and close the page stay under the pointer. */
+    expect(bodiesFor(".page-overlay").join(" ")).toContain("inset: 0 0 0 calc(var(--rail-w) + var(--sidebar-w, 0px))");
+    expect(bodiesFor(".page-overlay[data-sidebar-collapsed]").join(" ")).toContain("inset: 0 0 0 var(--rail-w)");
     const rung = (sel: string) => Number(/z-index:\s*(\d+)/.exec(bodiesFor(sel).join(" "))?.[1]);
-    expect(rung(".sb-corner")).toBeGreaterThan(rung(".page-overlay"));
+    // The rail is chrome, not a floating surface: every scrim still covers it.
     for (const modal of [".sheet-backdrop", ".palette-backdrop"]) {
-      expect(rung(modal), `${modal} still covers the corner`).toBeGreaterThan(rung(".sb-corner"));
+      expect(rung(modal), `${modal} no longer covers the rail`).toBeGreaterThan(rung(".app-rail"));
     }
   });
 
-  it("exactly one strip reserves the lights — whichever is at the top of the main column", () => {
-    // :first-child on each candidate is what keeps the three mutually exclusive: an error bar pushes
-    // the others down, and only the strip actually under the lights may be indented.
-    const owners = RULES.filter((r) => r.body.includes("padding-left: var(--corner-w)")).flatMap((r) => r.selectors);
-    expect(owners).toEqual([
-      ".app[data-sidebar-collapsed] .main > .error-bar:first-child",
-      ".app[data-sidebar-collapsed] .main > .group-bar:first-child",
-      ".app[data-sidebar-collapsed] .main > .panehost:first-child .panel[data-first-leaf] > .panel-bar",
-      /* A fourth candidate, and the only one outside the shell: an app-level page covers the whole
-         window while the sidebar is collapsed, so ITS bar is the strip under the lights then. It is
-         portalled to <body>, which is why it cannot be a fourth selector on the rule above and why
-         the width has to be a root token rather than one declared on `.app`. */
-      ".page-overlay[data-sidebar-collapsed] .page-overlay-bar",
-    ]);
-    // One declaration of the width, or the corner and the space reserved for it drift apart.
-    expect(RULES.filter((r) => r.body.includes("--corner-w:")).flatMap((r) => r.selectors)).toEqual([":root"]);
-    // Every strip the lights can land in is 40px. main places them once at y:14 and never moves them,
-    // which only works while that is true of all of them (see the comment on trafficLightPosition).
-    expect(bodiesFor(".sb-head").join(" ")).toContain("height: 40px");
+  it("no strip in the main column reserves the lights — the rail holds them in both states", () => {
+    // The corner overlay and the indent every top strip took while collapsed are gone with it: a
+    // second way of making room for the lights would be a second thing to keep in step.
+    expect(RULES.filter((r) => r.selectors.some((sel) => sel.includes(".sb-corner")))).toEqual([]);
+    expect(css).not.toContain("--corner-w");
+    // Every strip at the top of the window is still 40px: main places the lights once at y:14 and
+    // never moves them, which centres them in a 40px band — the rail's, beside the sidebar's header
+    // and the first pane's bar.
     expect(bodiesFor(".panel-bar").join(" ")).toContain("height: 40px");
-    expect(bodiesFor(".app[data-sidebar-collapsed] .main > .group-bar:first-child").join(" ")).toContain("min-height: 40px");
   });
 
   it("insets the split strip further than a tab's own padding, so no tab sits flush with the window", () => {
@@ -1121,7 +1123,7 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(tabs).toContain("margin-block: -4px");
   });
 
-  it("the sidebar's right edge is a BORDER on .main, and only while the sidebar is there", () => {
+  it("the left chrome's edge is a BORDER on .main, in both states", () => {
     /* Measured live (`sidebar-edge-live.mjs`): as an inset box-shadow this line computed perfectly
        and painted nothing at all. An inset shadow sits below the element's children, and `.main`'s
        children — `.panehost` and every `.panel` — carry --rl-panel edge to edge, so the pane covered
@@ -1129,10 +1131,10 @@ describe("Plan 9 W1 — the BUI bridge", () => {
        its padding box. This test is the cheap half; the pixels are the real one. */
     const edge = RULES.filter((r) => r.selectors.some((sel) => /(^|\s)\.main$/.test(sel.trim())) && r.body.includes("border-left"))
       .flatMap((r) => r.selectors);
-    expect(edge).toEqual([".app:not([data-sidebar-collapsed]) .main"]);
-    // THE mutant: drop the :not(). Collapsed, nothing takes the sidebar's column, so the same line
-    // becomes a stray rule down the window's own left edge.
-    expect(bodiesFor(".app:not([data-sidebar-collapsed]) .main").join(" ")).toContain("var(--rl-line)");
+    // Unconditional now: collapsed, the rail is still beside the panes (Plan 27), so the line is still
+    // between two surfaces rather than a stray rule down the window's own edge.
+    expect(edge).toEqual([".app > .main"]);
+    expect(bodiesFor(".app > .main").join(" ")).toContain("var(--rl-line)");
     // And no inset shadow creeps back onto .main to say the same thing twice, invisibly.
     expect(bodiesFor(".main").join(" ")).not.toContain("box-shadow: inset");
   });
@@ -1142,12 +1144,14 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     // composed --sidebar-ground, because the number is the user's. What has NOT moved is which
     // surface is translucent — exactly one, so text on a pane never renders over the desktop.
     expect(bodiesFor(".sidebar").join(" ")).toContain("background: var(--sidebar-ground)");
+    expect(bodiesFor(".app-rail").join(" ")).toContain("background: var(--sidebar-ground)");
     // The old per-mode rgba override is gone — --page flips with data-mode on its own.
     expect(css).not.toContain("rgba(244,244,244,.82)");
     // THE second-ground mutant: give .main or a pane a color-mix over --page too. The window looks
     // better on a nice wallpaper and every pane's body text starts depending on it.
     const translucent = RULES.filter((r) => /background:[^;]*var\(--sidebar-ground\)/.test(r.body)).flatMap((r) => r.selectors);
-    expect(translucent).toEqual([".sidebar"]);
+    // The rail and the sidebar are one column of chrome that folds in half (Plan 27): one ground.
+    expect(translucent).toEqual([".app-rail", ".sidebar"]);
   });
 
   it("the ground's alpha is driven, defaulted opaque in CSS, and overridden by reduced transparency", () => {
@@ -1531,7 +1535,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     // you can see and cannot confidently click.
     expect(body).toContain("padding-top: calc(var(--fade-top-h) + 4px)");
 
-    expect(bodiesFor(".space-page").join(" ")).toContain("--fade-h: 44px");
+    expect(bodiesFor(".sb-list").join(" ")).toContain("--fade-h: 44px");
     expect(body).not.toContain("--fade-h:");
     // The ramp is the scroller's own mask, reading the same --fade-h, and it runs to TRANSPARENT: the
     // rows' alpha goes to zero and whatever ground was behind them shows — the vibrancy material, or
@@ -1807,7 +1811,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(sw).not.toContain("corner-shape");
   });
 
-  it("the unread badge OVERHANGS the bell, and wears the count pill's own colours", () => {
+  it("a count OVERHANGS its glyph in the rail, and wears the count pill's own colours", () => {
     /* The feed's count used to be a pill in a destination row, where an opaque row sat under it and
        there was width for padding. It is a badge on a 26px button now, and two things have to hold
        or it stops being readable as the same fact:
@@ -1820,8 +1824,10 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
        make see-through it is the desktop wearing an orange cast, not a chip. The row gave it an
        opaque ground for free and this has to state it. */
     const badge = bodiesFor(".sb-badge").join(" ");
-    expect(bodiesFor(".sb-bell").join(" ")).toContain("position: relative");
-    expect(bodiesFor(".sb-bell").join(" ")).toContain("overflow: visible");
+    // In the rail (Plan 27) the count hangs off the GLYPH's shoulder — Home's and the bell's — and the
+    // button around it does not clip it.
+    expect(bodiesFor(".rail-glyph").join(" ")).toContain("position: relative");
+    expect(bodiesFor(".rail-btn").join(" ")).toContain("overflow: visible");
     expect(badge).toContain("position: absolute");
     expect(badge).toMatch(/top: -\d/);
     expect(badge).toContain("color: var(--orange)");
@@ -2707,19 +2713,25 @@ describe("row and control layout", () => {
     expect(bodiesFor('.item-disclose[aria-expanded="true"] svg').join(" ")).toContain("rotate(90deg)");
   });
 
-  it("a cross-room row's room name keeps its width, and the title is what gives way", () => {
-    /* design.md's yielding order: the title is unbounded and takes the slack; the room's name is
+  it("the sidebar's lens takes the column's own fills, not the shared control's opaque track", () => {
+    /* Spaces | Recent sits on the column's translucent ground, where `.seg`'s opaque `--rl-frame` track
+       read as a hole in the sidebar and the loudest thing in it. Share the component, let the ground
+       choose the step (design.md): the track is a hover's step, the chosen reading a selected row's. */
+    expect(bodiesFor(".sb-lens.seg").join(" ")).toContain("background: var(--rl-hover)");
+    const chosen = bodiesFor(".sb-lens .seg-opt[data-selected]").join(" ");
+    expect(chosen).toContain("background: var(--rl-active)");
+    expect(chosen).toContain("box-shadow: none");
+  });
+
+  it("a cross-space row's space name keeps its width, and the title is what gives way", () => {
+    /* design.md's yielding order: the title is unbounded and takes the slack; the space's name is
        reserved up to a cap. THE MUTANT is letting the name shrink as well — two shrinking items share
-       the shortfall, and a four-letter room comes out as "L." beside a title with room to spare. */
+       the shortfall, and a four-letter space comes out as "L." beside a title with room to spare. */
     const where = bodiesFor(".item-where").join(" ");
     expect(where).toContain("flex: none");
     expect(where).toMatch(/max-width: \d+px/);
     expect(where).toContain("text-overflow: ellipsis");
     expect(bodiesFor(".item-title").join(" ")).toContain("flex: 1");
-    // Docked, not scrolled: the Active list is not a scroller, so it can never need a fade or a rule.
-    const docked = bodiesFor(".sb-active").join(" ");
-    expect(docked).toContain("flex: none");
-    expect(docked).not.toMatch(/overflow(-y)?: (auto|scroll)/);
   });
 
   it("a page pane can shrink to its slot — otherwise it is painted over by the pane beside it", () => {

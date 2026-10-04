@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { PAGE_REF_IDS, sessionEvent, type StoredSessionEvent } from "@realm/contracts";
 import { NotificationsPage, dayLabel } from "./NotificationsPage";
-import { SidebarNotifications } from "../../components/sidebar/SidebarNotifications";
+import { Rail } from "../../components/sidebar/Rail";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, notification, session, type FakeData } from "../../state/store.test-fakes";
 
@@ -263,15 +263,16 @@ describe("the Notifications page (Plan 12 W5)", () => {
   });
 });
 
-/** The row became a bell in the head row; everything the row was tested for is still true of it,
- *  and one thing more — the count now has to reach a reader through the NAME, because a 16px chip
- *  at a glyph's shoulder is not something a screen reader can describe by its shape. */
-describe("the head row's bell", () => {
+/** The row became a bell, and the bell moved to the rail (Plan 27); everything the row was tested for
+ *  is still true of it, and one thing more — the count has to reach a reader through the NAME,
+ *  because a 16px chip at a glyph's shoulder is not something a screen reader can describe by its
+ *  shape. */
+describe("the rail's bell", () => {
   async function mountBell(overrides: FakeData = {}) {
     const api = fakeApi(overrides);
     const store = createAppStore(api);
     await store.getState().boot();
-    const r = render(<StoreContext.Provider value={store}><SidebarNotifications /></StoreContext.Provider>);
+    const r = render(<StoreContext.Provider value={store}><Rail /></StoreContext.Provider>);
     return { store, api, ...r };
   }
 

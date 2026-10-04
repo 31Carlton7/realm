@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Session } from "@realm/contracts";
-import { dayLabel, daysApart, groupSessionsByDay } from "./chat-feed";
+import { dayLabel, daysApart, groupByDay } from "./chat-feed";
 
 /** A fixed `now`: a Wednesday afternoon. Every date assertion below is relative to it. */
 const NOW = new Date(2026, 8, 9, 15, 30).getTime(); // 2026-09-09, local
@@ -53,7 +53,10 @@ describe("dayLabel", () => {
   });
 });
 
-describe("groupSessionsByDay", () => {
+/** Sessions by their own `updatedAt` — the shape the Recent lens hands it, with the live stamp. */
+const groupSessionsByDay = (rows: Session[], now: number) => groupByDay(rows, (s) => s.updatedAt, now);
+
+describe("groupByDay", () => {
   it("orders days newest first and sessions newest first within a day", () => {
     const groups = groupSessionsByDay([
       session("old", at(2026, 8, 1)),
@@ -62,7 +65,7 @@ describe("groupSessionsByDay", () => {
       session("yesterday", at(2026, 8, 8)),
     ], NOW);
     expect(groups.map((g) => g.label)).toEqual(["Today", "Yesterday", dayLabel(at(2026, 8, 1), NOW)]);
-    expect(groups[0]!.sessions.map((s) => s.id)).toEqual(["today-late", "today-early"]);
+    expect(groups[0]!.rows.map((s) => s.id)).toEqual(["today-late", "today-early"]);
   });
 
   it("puts two sessions from the same day in one group", () => {
@@ -70,10 +73,10 @@ describe("groupSessionsByDay", () => {
        own and the feed would be all headings. */
     const groups = groupSessionsByDay([session("a", at(2026, 8, 9, 9)), session("b", at(2026, 8, 9, 14))], NOW);
     expect(groups).toHaveLength(1);
-    expect(groups[0]!.sessions).toHaveLength(2);
+    expect(groups[0]!.rows).toHaveLength(2);
   });
 
-  it("groups by updatedAt, so a long-running chat sits under the day it was last worked on", () => {
+  it("groups by when a row last moved, so a long-running chat sits under the day it was last worked on", () => {
     const groups = groupSessionsByDay([
       session("stale-start", at(2026, 8, 9, 10), { createdAt: at(2026, 7, 1) }),
     ], NOW);

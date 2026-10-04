@@ -1,10 +1,10 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { bareToolName, type DelegatedRun, type DispatchKind, type Session } from "@realm/contracts";
+import { bareToolName, type DelegatedRun, type Session } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
-import { ORIGIN_META, SESSION_STATUS_LABEL } from "../session-labels";
+import { CHILD_ORIGINS, ORIGIN_META, SESSION_STATUS_LABEL } from "../session-labels";
 import { formatDuration, type ToolBlock } from "./tool-group";
 import type { Block } from "./transcript-model";
 import { useElapsed } from "./use-elapsed";
@@ -101,8 +101,6 @@ export function labelOf(input: Record<string, unknown>): string {
 /** The delegation calls whose RESULT names the sessions they started or collected, by the name every
  *  harness ends it with (`bareToolName`). The input names none: the child did not exist yet. */
 const DELEGATION_CALLS = new Set(["agent_run", "agent_start", "agent_wait", "browser_agent_run", "agent_review"]);
-/** The dispatch origins that make a session a delegated CHILD — what the call's own trail names. */
-const CHILD_ORIGINS = new Set<DispatchKind>(["agent_run", "browser_agent_run", "review"]);
 const SESSION_ID = /\b[0-9A-HJKMNP-TV-Z]{26}\b/g;
 
 /**

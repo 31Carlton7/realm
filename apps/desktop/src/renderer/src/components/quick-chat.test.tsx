@@ -3,9 +3,16 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { allItems, sessionEvent } from "@realm/contracts";
 import { reduceAll } from "../panes/session/transcript-model";
 import { QuickChat } from "./QuickChat";
-import { NewSessionRow } from "./sidebar/NewSessionRow";
-import { StoreContext, createAppStore } from "../state/store";
+import { StoreContext, createAppStore, useAppStore } from "../state/store";
+import { appCommands } from "../keys/commands";
 import { fakeApi, type FakeData } from "../state/store.test-fakes";
+
+/** Quick chat is a keystroke now, not a sidebar row (Plan 27): this presses it through the app's own
+ *  command table, the path ⌘⇧N takes. */
+function QuickChatKey() {
+  const store = useAppStore();
+  return <button type="button" onClick={() => appCommands(store)["session.quickChat"]!()}>Quick chat</button>;
+}
 
 async function mount(overrides: FakeData = {}) {
   const api = fakeApi(overrides);
@@ -13,7 +20,7 @@ async function mount(overrides: FakeData = {}) {
   await store.getState().boot();
   const r = render(
     <StoreContext.Provider value={store}>
-      <NewSessionRow />
+      <QuickChatKey />
       <QuickChat />
     </StoreContext.Provider>,
   );

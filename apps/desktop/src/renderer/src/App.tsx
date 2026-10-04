@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { dismissBootSplash } from "./boot-splash";
 import { bannerFor, type DaemonUiState } from "./components/daemon-banner";
 import { Sidebar } from "./components/sidebar/Sidebar";
-import { SidebarToggle } from "./components/sidebar/SidebarToggle";
+import { Rail } from "./components/sidebar/Rail";
 import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
 import { NewProfileSheet } from "./components/profiles/NewProfileSheet";
 import { ProfileWindowBridge } from "./components/profiles/ProfileWindowBridge";
@@ -36,32 +36,25 @@ import { installPressTracking } from "./press-tracking";
 import "./panes";
 
 /**
- * The sidebar column and the content beside it — or, collapsed, a top rail and the content below it.
+ * The rail, the sidebar column and the content beside it (Plan 27).
  *
- * The two states are one row, not two layouts: collapsed, the column is gone and the content takes
- * the whole window. What is left to place is the macOS traffic lights, which have no sidebar to sit
- * in any more and would otherwise land on the first pane's title.
- *
- * They land on the first pane's BAR, and the corner that holds them is an overlay — absolutely
- * positioned, no height of its own — so collapsing buys back the whole column and costs nothing. It
- * used to cost a 38px full-width rail whose only content was this one button, which is a strip of
- * chrome across every pane forever in exchange for a corner. The strip beneath the lights reserves
- * their width instead (see --corner-w in styles.css).
- *
- * The corner is rendered AFTER main and carries a z-index: panes are positioned elements, so DOM
- * order alone would put the first pane's bar on top of it.
+ * The rail is the window's left edge in every state: it holds the traffic lights in its top band, the
+ * app's destinations, and the sidebar's own toggle. Collapsing takes the sidebar column out of the
+ * row and nothing else — the rail stays, so the lights never land on pane chrome and the way back is
+ * where it was.
  *
  * Lives under the store provider so it can read `sidebarCollapsed`. Exported for the shell tests.
  */
 export function AppShell() {
   const collapsed = useApp((s) => s.sidebarCollapsed);
   // The column's width is painted here rather than on the sidebar itself because the collapse
-  // animation is a negative margin of exactly this number, and `.sb-corner` is placed against the
-  // same edge: one variable on the shell, read by everything that has to agree with it.
+  // animation is a negative margin of exactly this number: one variable on the shell, read by
+  // everything that has to agree with it.
   const width = useApp((s) => s.sidebarWidth);
   return (
     <div className="app" data-sidebar-collapsed={collapsed || undefined}
       style={{ "--sidebar-w": `${width}px` } as CSSProperties}>
+      <Rail />
       {/* Mounted whether or not it is showing, so collapsing is a MOVE rather than an unmount —
           there is no exit animation for an element React has already removed. `inert` is what makes
           that safe: a hidden sidebar must not answer the keyboard or a screen reader just because it
@@ -70,7 +63,6 @@ export function AppShell() {
           thing sliding instead of vanishing. */}
       <Sidebar collapsed={collapsed} />
       <main className="main"><Main /></main>
-      {collapsed && <div className="sb-corner"><SidebarToggle /></div>}
     </div>
   );
 }

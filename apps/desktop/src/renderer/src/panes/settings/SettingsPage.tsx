@@ -1261,17 +1261,15 @@ function GeneralTab() {
         </div>
       </div>
 
-      {/* The section `SpaceStrip` names when it explains where its order comes from. One row: the
-          sidebar's other preference — invert swipe — lives in the strip's own header menu, where it
-          sits on the gesture it changes, and moving it here to make a fuller section would take a
-          control away from the thing it acts on. It used to appear twice, a second "Sort by
-          activity" further down the page writing the same key; one switch is one setting. */}
+      {/* The switch the sidebar's space sections take their order from (Plan 27). It used to appear
+          twice, a second "Sort by activity" further down the page writing the same key; one switch
+          is one setting. */}
       <h3 className="settings-head">Files</h3>
       <OpenFilesInRow />
 
       <h3 className="settings-head">Sidebar</h3>
       <ul className="settings-list">
-        <li className="settings-row" data-setting="sidebar-activity-order" title="The strip keeps the order you dragged it into. This orders it by what is happening instead — a space with a question waiting first, then whichever moved most recently — and leaves the dragged order untouched underneath, so turning this off puts it back exactly as you left it.">
+        <li className="settings-row" data-setting="sidebar-activity-order" title="The sidebar keeps its spaces in the order you dragged them into. This orders them by what is happening instead — a space with a question waiting first, then whichever moved most recently — and leaves the dragged order untouched underneath, so turning this off puts it back exactly as you left it.">
           <div className="settings-row-main">
             <span className="settings-row-name">Sort spaces by activity</span>
             <span className="settings-row-detail">A waiting question first, then whatever moved last</span>
@@ -1281,11 +1279,11 @@ function GeneralTab() {
             onChange={(e) => run(() => setSidebarActivityOrder(e.target.checked))} />
         </li>
       </ul>
-      {/* Says what it COSTS, because the strip stops answering the drag while it is on and a switch
+      {/* Says what it COSTS, because the sections stop answering the drag while it is on and a switch
           that quietly disabled a gesture would read as the gesture breaking. */}
       <p className="settings-hint">
-        While this is on the strip reorders itself, so spaces cannot be dragged — a drop into a spot
-        the next status change would move away from is a drop that did nothing.
+        While this is on the sidebar reorders its spaces itself, so spaces cannot be dragged — a drop
+        into a spot the next status change would move away from is a drop that did nothing.
       </p>
 
       <h3 className="settings-head">Deleting</h3>

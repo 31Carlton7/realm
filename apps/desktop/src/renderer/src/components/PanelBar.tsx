@@ -9,6 +9,8 @@ import { PaneTabs } from "./PaneTabs";
 import { useActionBudget } from "./pane-bar-fit";
 import { RenameInput } from "./RenameInput";
 import { ItemIcon } from "./PageIcon";
+import { SpaceIcon } from "./SpaceIcon";
+import { useOpenSpacePage, useSpaceTint } from "./sidebar/use-sidebar-model";
 
 /** Slim per-panel header: item icon + click-to-rename title, per-kind meta (right), ⋯ menu + close.
  *  Split/close/focus stay leaf-scoped callbacks (the host owns focus semantics); rename/delete are
@@ -60,6 +62,12 @@ export function PanelBar({ item, leafId, tabs, onSplit, onClose, zoomed = false,
      offers where the prompter would be. Layout rows — split, focus, close — still apply to the tab. */
   const peek = useApp((s) => s.peek?.item.id === item.id);
   const kindItems = usePaneMenuItems(item, keep);
+  /* A session's bar names the space it works in before its title — `Homework › Wants a yes` — in
+     the space's colour, so the window always says which space a session works in now that the space
+     is not a room you switch to (Plan 27). The space's name opens its page. */
+  const space = useApp((s) => (item.kind === "session" ? s.spaces.find((sp) => sp.id === item.spaceId) : undefined));
+  const tint = useSpaceTint(space?.color);
+  const openSpacePage = useOpenSpacePage();
   const Meta = paneMeta[item.kind];
   const Actions = paneActions[item.kind];
   const closeMenu = () => { setMenuOpen(false); setConfirmingDelete(false); };
@@ -109,7 +117,16 @@ export function PanelBar({ item, leafId, tabs, onSplit, onClose, zoomed = false,
         <button className="icon-btn" aria-label={`Forward in ${item.title}`} title="Forward (⌘])"
           disabled={!canForward} onClick={() => run(() => stepPaneNav(leafId, 1))}><Icon name="chevronRight" size={14} /></button>
       </span>
-      {!tabs && <span className="panel-icon"><ItemIcon item={item} size={14} /></span>}
+      {!tabs && (space ? (
+        <>
+          <button type="button" className="panel-crumb" aria-label={`Open ${space.name}`} title="Open the space's page"
+            onClick={() => openSpacePage(space.id)}>
+            <span className="panel-crumb-icon" style={tint ? { color: tint } : undefined}><SpaceIcon icon={space.icon} size={14} /></span>
+            <span className="panel-crumb-name">{space.name}</span>
+          </button>
+          <span className="panel-crumb-sep" aria-hidden="true">›</span>
+        </>
+      ) : <span className="panel-icon"><ItemIcon item={item} size={14} /></span>)}
       {(renaming || renameArmed)
         ? <span className="panel-rename"><RenameInput item={item} onDone={() => { setRenaming(false); if (renameArmed) requestRename(null); }} /></span>
         : tabs ? <PaneTabs leafId={leafId} tabs={tabs} activeId={item.id} onRename={() => setRenaming(true)} />

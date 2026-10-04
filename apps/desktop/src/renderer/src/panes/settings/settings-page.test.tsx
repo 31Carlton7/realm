@@ -203,8 +203,8 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
   });
 
   /**
-   * The switch `SpaceStrip` points at when it explains where its order comes from. Until this
-   * existed the setting was real, persisted and honoured, and nothing in the app could turn it on.
+   * The switch the sidebar's space sections take their order from. Until this existed the setting
+   * was real, persisted and honoured, and nothing in the app could turn it on.
    */
   describe("Sort spaces by activity", () => {
     const SWITCH = "Sort spaces by activity";
@@ -218,7 +218,7 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
       const { store, api } = await openPage("General");
       fireEvent.click(screen.getByRole("switch", { name: SWITCH }));
       await waitFor(() => expect(store.getState().sidebarActivityOrder).toBe(true));
-      // THE MUTANT: set the state and skip the write. The strip reorders for this session and comes
+      // THE MUTANT: set the state and skip the write. The sections reorder for this session and come
       // back in the dragged order tomorrow, which reads as the switch not having stuck.
       expect(api.calls).toContain("setSetting:ui.sidebarActivityOrder=true");
     });

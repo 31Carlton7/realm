@@ -34,8 +34,8 @@ export function hslToHex({ h, s, l }: Hsl): string {
  *  clamped to [55, 75]; light: clamped to [35, 55]). The 25% saturation floor applies only when the
  *  input has real chroma (s >= 8); below that threshold hue is meaningless noise (black/white/grey),
  *  so flooring it would fabricate a colour the user never chose — achromatic input stays achromatic,
- *  relying on the lightness clamp alone for visibility. It feeds only the space dot and the
- *  space-strip glyph — the one identity pixel; never chrome.
+ *  relying on the lightness clamp alone for visibility. It marks a space's identity (Plan 27): its
+ *  section icon in the sidebar, the composer's space chip and the pane bar's breadcrumb — never chrome.
  *
  *  Plan 9 W1: this is ALL the runtime palette that is left. The full design system — surfaces, ink
  *  ramp, borders, accent, semantic colours, shadows — is the Beautiful UI token set, static CSS in
