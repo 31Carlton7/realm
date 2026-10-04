@@ -611,7 +611,8 @@ describe("the Memory tab (standing-instruction framing)", () => {
     const doc = screen.getByRole("textbox", { name: "Space memory document" });
     expect(doc).toHaveFocus();
     fireEvent.change(doc, { target: { value: "always run the linter" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save memory" }));
+    // The page keeps itself: leaving the field writes it.
+    fireEvent.blur(doc);
     // The named mutant: the CTA/save path writing to the wrong space's document.
     await waitFor(() => expect(api.data.memoryDocs.s1).toBe("always run the linter"));
     expect(api.data.memoryDocs.s2).toBe("another space's memory");

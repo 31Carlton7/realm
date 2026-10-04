@@ -170,7 +170,7 @@ describe("ProfilePage · Memory", () => {
     // The reach is page copy, not a banner: this page IS the defining scope.
     expect(screen.getByText(/every new session in every space of Work/)).toBeInTheDocument();
     fireEvent.change(doc, { target: { value: "new profile-wide rule" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save memory" }));
+    fireEvent.blur(doc);
     await waitFor(() => expect(api.data.profileMemoryDocs.p1).toBe("new profile-wide rule"));
     expect(api.data.profileMemoryDocs.p2).toBe("other profile's doc");
   });

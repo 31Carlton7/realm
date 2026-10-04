@@ -1,103 +1,130 @@
-import { AGENT_META, MEMORY_DOC_MAX, SELECTABLE_AGENT_KINDS, memorySupportNote, type MemorySource } from "@realm/contracts";
+import { AGENT_MEMORY_CHANNEL, AGENT_META, SELECTABLE_AGENT_KINDS, memorySupportNote, type AgentKind, type MemorySource } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useState, type RefObject } from "react";
 import { useApp } from "../../state/store";
+import { MemoryDoc } from "./MemoryDoc";
 
-const fmt = (num: number): string => num.toLocaleString("en-US");
+/** The agents a space's memory reaches, and the ones it cannot: the channel table decides, never a
+ *  list kept here. */
+export const MEMORY_READERS: readonly AgentKind[] = SELECTABLE_AGENT_KINDS.filter((k) => AGENT_MEMORY_CHANNEL[k] !== "none");
+const MEMORY_NON_READERS: readonly AgentKind[] = SELECTABLE_AGENT_KINDS.filter((k) => AGENT_MEMORY_CHANNEL[k] === "none");
+const names = (ks: readonly AgentKind[]): string => ks.map((k) => AGENT_META[k].label).join(", ");
+/** "Claude and Codex", for the line that says who reads it. */
+export const memoryReaderNames = (): string => {
+  const ls = MEMORY_READERS.map((k) => AGENT_META[k].label);
+  return ls.length <= 1 ? (ls[0] ?? "") : `${ls.slice(0, -1).join(", ")} and ${ls.at(-1)}`;
+};
 
 /**
- * The memory tab of the space page (W5, sheet-era; a pane tab since Plan 12 W3): this space's Realm
- * memory document, the opt-in
- * `AGENTS.md`, and what each agent actually loads.
- *
- * The cap is surfaced, never enforced by truncation: past MEMORY_DOC_MAX the save is refused with the
- * overage named, and the text stays exactly as typed. The server would refuse too — the client check
- * exists so the refusal is explained before the round trip, not so the doc can be quietly trimmed.
- *
- * The AGENTS.md toggle appears ONLY where the server would accept it (`agentsFile.writable`): a space
- * whose primary checkout is a linked directory Realm did not create shows the refusal reason instead
- * of a switch that can only error.
+ * The memory of the space page's Memory tab (Plan 12 W3): this space's document, then how it reaches
+ * an agent. The Library's Memory section draws the same two pieces with the inherited profile
+ * document between them, through ScopeGroups — so they are exported apart as well as together.
  */
 export function MemoryPanel({ spaceId, editorRef }: { spaceId: string;
   /** Lets a mount context (the space page's standing-instruction CTA) focus the document editor. */
   editorRef?: RefObject<HTMLTextAreaElement | null> }) {
   const memory = useApp((s) => s.spaceMemory[spaceId]);
   const refreshMemory = useApp((s) => s.refreshMemory);
-  const saveMemoryDoc = useApp((s) => s.saveMemoryDoc);
-  const setAgentsFile = useApp((s) => s.setAgentsFile);
   const run = useApp((s) => s.run);
-  const [draft, setDraft] = useState<string | null>(null); // null = not edited; the stored doc shows
   useEffect(() => { run(() => refreshMemory(spaceId)); }, [spaceId, refreshMemory, run]);
-  useEffect(() => { setDraft(null); }, [spaceId]);
-
   if (!memory) return <div className="form settings-panel"><p className="env-empty">Loading…</p></div>;
-
-  const text = draft ?? memory.doc;
-  const over = text.length - MEMORY_DOC_MAX;
-  const dirty = draft !== null && draft !== memory.doc;
-  const af = memory.agentsFile;
-
-  /*
-   * One thing you write, one thing you can check.
-   *
-   * This page was three co-equal blocks — an editor, a file-mirroring switch, and a per-session
-   * diagnostic — stacked with the same weight and no hierarchy, which is why it read as confusing:
-   * only ONE of them is a thing you do. The other two answer "how does this actually reach the
-   * agent", which is one occasional question, so they fold together behind one disclosure.
-   *
-   * The editor leads and is labelled by what it MEANS rather than by what it is called internally:
-   * "what every session in this space knows" is the sentence a person is trying to write.
-   */
   return (
     <div className="form settings-panel memory-panel">
-      <div className="field">
-        <span>What every session in this space knows</span>
-        <textarea ref={editorRef} className="memory-doc" aria-label="Space memory document" value={text} rows={12} spellCheck={false}
-          onChange={(e) => setDraft(e.target.value)} placeholder="Conventions, links, standing instructions — anything you would otherwise retype at the start of every session." />
-        <div className="memory-meta">
-          {/* The count is chrome until it matters. It used to sit at full weight beside every save,
-              reporting a limit almost nobody is near. */}
-          <span className="settings-hint" data-tone={over > 0 ? "danger" : undefined} data-quiet={over <= 0 || undefined}>
-            {over > 0
-              ? `${fmt(text.length)} / ${fmt(MEMORY_DOC_MAX)} — over by ${fmt(over)} characters. Trim it down; Realm will not truncate it.`
-              : `${fmt(text.length)} / ${fmt(MEMORY_DOC_MAX)}`}
-          </span>
-          <button type="button" className="btn primary" disabled={!dirty || over > 0}
-            onClick={() => run(async () => { await saveMemoryDoc(spaceId, text); setDraft(null); })}>
-            {/* A stable label. A button whose NAME changes with its state ("Save" → "Saved") makes
-                its accessible name a status, which is the one thing a name must not be. */}
-            Save memory
-          </button>
-        </div>
-      </div>
-
-      {/* The mechanics, folded. Everything here answers one question — how this reaches an agent —
-          and it is a question asked once, not on every visit. */}
-      <details className="memory-details">
-        <summary>Where this goes</summary>
-        <div className="memory-details-body">
-          <p className="settings-hint">
-            Stored at <code className="env-path">{memory.path}</code>, and travels into every new
-            Claude and Codex session in this space — never into any agent's own config.
-          </p>
-          {af.writable || af.enabled ? (
-            <label className="settings-inline-toggle">
-              <input type="checkbox" role="switch" className="switch" aria-label="Write AGENTS.md into the space folder"
-                checked={af.enabled} onChange={(e) => run(() => setAgentsFile(spaceId, e.target.checked))} />
-              <span className="settings-agent-note">
-                Also write it to <code className="env-path">{af.path}</code>, so agents started from a
-                terminal in this folder pick it up too. Turning it off removes the file{af.exists && !af.managedByRealm ? " — except this one, which Realm did not write" : ""}.
-              </span>
-            </label>
-          ) : (
-            // The server would refuse (not a Realm-created folder, or a foreign AGENTS.md sits there):
-            // the reason is shown INSTEAD of a toggle, never a switch that can only error.
-            <p className="settings-hint">No AGENTS.md here: {af.reason}.</p>
-          )}
-          <SourcesView spaceId={spaceId} />
-        </div>
-      </details>
+      <div className="settings-row scope-doc-row"><SpaceMemoryDoc spaceId={spaceId} editorRef={editorRef} /></div>
+      <MemoryReach spaceId={spaceId} />
     </div>
+  );
+}
+
+/**
+ * This space's document, wired to the store. Keyed by the space, so a draft never follows the page
+ * from one space to the next.
+ */
+export function SpaceMemoryDoc({ spaceId, editorRef }: { spaceId: string; editorRef?: RefObject<HTMLTextAreaElement | null> }) {
+  const memory = useApp((s) => s.spaceMemory[spaceId]);
+  const saveMemoryDoc = useApp((s) => s.saveMemoryDoc);
+  if (!memory) return <p className="env-empty">Loading…</p>;
+  return (
+    <MemoryDoc key={spaceId} label="Space memory document" doc={memory.doc} editorRef={editorRef}
+      onSave={(text) => saveMemoryDoc(spaceId, text)}
+      placeholder="Conventions, links, standing instructions — anything you would otherwise retype at the start of every session." />
+  );
+}
+
+/**
+ * How the document reaches an agent, as rows: who reads it, the opt-in AGENTS.md mirror, where the
+ * file lives, and — folded — what one session actually loads. It was a disclosure called "Where this
+ * goes" holding a paragraph, a switch sentence and a diagnostic; each is a row now, a label and its
+ * control, and only the diagnostic stays folded, because it is the one occasional question.
+ *
+ * The AGENTS.md switch appears ONLY where the server would accept it (`agentsFile.writable`): a space
+ * whose primary checkout is a linked directory Realm did not create shows the refusal reason instead
+ * of a switch that can only error.
+ */
+export function MemoryReach({ spaceId }: { spaceId: string }) {
+  const memory = useApp((s) => s.spaceMemory[spaceId]);
+  const setAgentsFile = useApp((s) => s.setAgentsFile);
+  const run = useApp((s) => s.run);
+  if (!memory) return null;
+  const af = memory.agentsFile;
+  const reveal = window.realm?.files?.reveal;
+  return (
+    <>
+      <h3 className="settings-head">How agents get it</h3>
+      <div className="settings-group memory-reach">
+        <div className="settings-row" title={`${names(MEMORY_NON_READERS)} take no per-session context, so nothing Realm manages reaches them.`}>
+          <div className="settings-row-main">
+            <span className="settings-row-name">Read by</span>
+            <span className="settings-row-desc">Every new session of these agents, never written into their own config. Other agents take no per-session context.</span>
+          </div>
+          <span className="memory-readers">
+            {MEMORY_READERS.map((k) => (
+              <span key={k} className="memory-reader"><Icon name={AGENT_META[k].icon} size={14} colored />{AGENT_META[k].label}</span>
+            ))}
+          </span>
+        </div>
+        {af.writable || af.enabled ? (
+          <label className="settings-row">
+            <div className="settings-row-main">
+              <span className="settings-row-name">Also write AGENTS.md</span>
+              <span className="settings-row-desc">
+                Agents started from a terminal in this folder read it too. Turning it off removes the
+                file{af.exists && !af.managedByRealm ? " — except this one, which Realm did not write" : ""}.
+              </span>
+            </div>
+            <input type="checkbox" role="switch" className="switch" aria-label="Write AGENTS.md into the space folder"
+              title={af.path} checked={af.enabled} onChange={(e) => run(() => setAgentsFile(spaceId, e.target.checked))} />
+          </label>
+        ) : (
+          // The server would refuse (not a Realm-created folder, or a foreign AGENTS.md sits there):
+          // the reason is shown INSTEAD of a switch, never a switch that can only error.
+          <div className="settings-row">
+            <div className="settings-row-main">
+              <span className="settings-row-name">AGENTS.md</span>
+              <span className="settings-row-desc">No AGENTS.md here: {af.reason}.</span>
+            </div>
+          </div>
+        )}
+        <div className="settings-row memory-path-row">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Stored at</span>
+            <code className="env-path settings-row-desc">{memory.path}</code>
+          </div>
+          {/* Only where the bridge can do it: a button that reveals nothing is a promise broken. */}
+          {reveal && <button type="button" className="btn-quiet" onClick={() => { void reveal(memory.path); }}>Show in Finder</button>}
+        </div>
+        <details className="settings-row settings-disclosure">
+          <summary>
+            <div className="settings-row-main">
+              <span className="settings-row-name">What a session loads</span>
+              <span className="settings-row-desc">The files each agent reads, session by session.</span>
+            </div>
+            <Icon name="chevronRight" size={14} className="settings-disclosure-caret" />
+          </summary>
+          <div className="settings-disclosure-body"><SourcesView spaceId={spaceId} /></div>
+        </details>
+      </div>
+    </>
   );
 }
 

@@ -86,21 +86,23 @@ describe("the Library page (Plan 12 W4)", () => {
     expect(screen.queryByRole("textbox", { name: "Work memory document" })).toBeNull();
   });
 
-  it("Edit here: the inline fallback editor names its reach, and saving writes the PROFILE doc via memory.setProfile — the space doc untouched", async () => {
+  it("shows what the inherited doc SAYS, and offers no second editor for it", async () => {
+    /* The row answers "what am I inheriting" without a trip, and the document is edited in one place:
+       its own profile's page. THE mutants: the row with nothing but a character count (the reader has
+       to leave to learn what travels), or a second, inline editor for the same document. */
     const { api } = await mount();
     fireEvent.click(screen.getByRole("radio", { name: "Memory" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Edit here…" }));
-    expect(screen.getByText("Defined in Work. Changes here apply to every space of Work.")).toBeInTheDocument();
-    const editor = await screen.findByRole("textbox", { name: "Work memory document" });
-    await waitFor(() => expect(api.calls).toContain("getProfileMemory:p1"));
-    fireEvent.change(editor, { target: { value: "New profile-wide rule." } });
-    // Scoped to the inherited group: the space doc's own editor (MemoryPanel) has a Save memory too.
-    fireEvent.click(within(screen.getByRole("region", { name: "From Work" })).getByRole("button", { name: "Save memory" }));
-    await waitFor(() => expect(api.data.profileMemoryDocs.p1).toBe("New profile-wide rule."));
-    expect(api.calls).toContain(`setProfileMemory:p1:${"New profile-wide rule.".length}`);
-    // Never the space doc's wire.
-    expect(api.calls.some((c) => c.startsWith("setMemory:"))).toBe(false);
-    expect(api.data.memoryDocs.s1 ?? "").toBe("");
+    const fromWork = await screen.findByRole("region", { name: "From Work" });
+    expect(within(fromWork).getByText("Work-wide standing instruction.")).toBeInTheDocument();
+    expect(within(fromWork).queryByRole("textbox")).toBeNull();
+    expect(within(fromWork).queryByRole("button", { name: /Edit here/ })).toBeNull();
+    expect(api.calls.some((c) => c.startsWith("setProfileMemory"))).toBe(false);
+  });
+
+  it("leads with who the memory reaches, from the channel table, and the space it is about", async () => {
+    await mount();
+    fireEvent.click(screen.getByRole("radio", { name: "Memory" }));
+    expect(await screen.findByText("Every new Claude and Codex session in Versed starts with what is written here.")).toBeInTheDocument();
   });
 
   it("says so when the page's space is gone, like every page pane", async () => {

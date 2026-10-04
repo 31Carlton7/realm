@@ -1,15 +1,16 @@
-import { MEMORY_DOC_MAX, type ProfileMemoryState } from "@realm/contracts";
+import type { ProfileMemoryState } from "@realm/contracts";
 import { PageScroll } from "../../components/ScrollFades";
 import { Icon } from "@realm/ui";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useApp } from "../../state/store";
-import { MemoryPanel } from "../../components/settings/MemoryPanel";
+import { MemoryReach, SpaceMemoryDoc, memoryReaderNames } from "../../components/settings/MemoryPanel";
 import { SkillsPanel } from "../../components/settings/SkillsPanel";
 import { ScopeGroups } from "../../components/scoped/ScopeGroups";
 import { LibraryFiles } from "./LibraryFiles";
 import { SkillViewer } from "./SkillViewer";
 import type { PaneProps } from "../registry";
 import { PageRail } from "../../components/page-nav";
+import { Markdown } from "../session/Markdown";
 
 /* Files leads. Skills and memory are what you INSTALL into a space and change rarely; files are
    what the work produced, and they are the reason someone opens a Library at all. */
@@ -119,26 +120,36 @@ export function LibraryPage({ item }: PaneProps) {
 }
 
 /**
- * The Memory tab: this space's doc and the inherited profile doc as scoped groups. The space doc's
- * entry IS the existing MemoryPanel — it is already the defining-scope editor for that doc (reused,
- * not forked; it also carries the AGENTS.md toggle and per-agent honesty that belong wherever the doc
- * is edited). The profile doc renders as an inherited row: per-space toggle, editable only through
- * "Edit in profile". Memory has no pre-scoping rows, so no "Everywhere" group can appear here.
+ * The Memory section: this space's document, the profile's beneath it, and how both reach an agent.
+ *
+ * The two documents are scoped items like any other, so they sit in the scoping contract's groups —
+ * "This space" and "From <profile>" — through ScopeGroups; how they travel is mechanics, under them.
+ * The space's own document is the page's working object: it leads, at reading size, as a card that
+ * keeps itself (MemoryDoc). The inherited one is a row with its per-space switch and the first lines
+ * of what it says, edited only on its own profile's page. Memory has no pre-scoping rows, so no
+ * "Everywhere" group can appear here.
  */
 function LibraryMemoryTab({ spaceId }: { spaceId: string }) {
   const memory = useApp((s) => s.spaceMemory[spaceId]);
+  const space = useApp((s) => s.spaces.find((x) => x.id === spaceId));
+  const refreshMemory = useApp((s) => s.refreshMemory);
+  const run = useApp((s) => s.run);
+  useEffect(() => { run(() => refreshMemory(spaceId)); }, [spaceId, refreshMemory, run]);
   return (
-    <div className="form settings-panel">
+    <div className="form settings-panel memory-page">
+      {/* Who it reaches, from the channel table — the one sentence the page needs before anything. */}
+      <p className="page-lede">Every new {memoryReaderNames()} session in {space?.name ?? "this space"} starts with what is written here.</p>
       <ScopeGroups entries={[
         {
           key: "space-doc", scope: { kind: "space", spaceId },
-          row: <li key="space-doc" className="settings-row scope-doc-row"><MemoryPanel spaceId={spaceId} /></li>,
+          row: <li key="space-doc" className="settings-row scope-doc-row"><SpaceMemoryDoc spaceId={spaceId} /></li>,
         },
         ...(memory?.profile ? [{
           key: "profile-doc", scope: { kind: "profile" as const, profileId: memory.profile.profileId },
           row: <ProfileMemoryRow key="profile-doc" spaceId={spaceId} profile={memory.profile} />,
         }] : []),
       ]} />
+      <MemoryReach spaceId={spaceId} />
     </div>
   );
 }
@@ -148,66 +159,48 @@ const fmt = (n: number): string => n.toLocaleString("en-US");
 /**
  * The inherited profile doc, following §2's contract to the letter: the switch is THIS space's
  * override (`memory.setProfileDocEnabled` — it never touches the doc), and the document is edited only
- * behind "Edit in profile", where the editor names its reach before any keystroke. Same cap posture as
- * MemoryPanel: over MEMORY_DOC_MAX the save is refused with the overage named, never truncated.
+ * on its own profile's page, where the editor names its reach before any keystroke. What it SAYS is
+ * shown here, its first lines, so the row answers "what am I inheriting" without a trip — it used to
+ * offer a second, inline editor for the same document instead, which made one object open two ways.
  */
 function ProfileMemoryRow({ spaceId, profile }: { spaceId: string; profile: ProfileMemoryState }) {
   const profiles = useApp((s) => s.profiles);
-  const stored = useApp((s) => s.profileMemory[profile.profileId]);
-  const refreshProfileMemory = useApp((s) => s.refreshProfileMemory);
-  const saveProfileMemoryDoc = useApp((s) => s.saveProfileMemoryDoc);
   const setProfileDocEnabled = useApp((s) => s.setProfileDocEnabled);
   const openProfilePage = useApp((s) => s.openProfilePage);
   const run = useApp((s) => s.run);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState<string | null>(null);
-
+  const [all, setAll] = useState(false);
   const name = profiles.find((p) => p.id === profile.profileId)?.name ?? "profile";
-  // The editor reads the defining scope's own fetch once it lands; the row summary reads the
-  // space-view snapshot either way.
-  const text = draft ?? stored?.doc ?? profile.doc;
-  const over = text.length - MEMORY_DOC_MAX;
-  const dirty = draft !== null && draft !== (stored?.doc ?? profile.doc);
-
-  const toggleEditor = () => {
-    if (!editing) run(() => refreshProfileMemory(profile.profileId));
-    setDraft(null);
-    setEditing((v) => !v);
-  };
-
+  const empty = profile.doc.trim() === "";
+  // Long enough to say what it is about; the rest is a click, or the profile's own page.
+  const lines = profile.doc.trim().split("\n");
+  const long = lines.length > 6 || profile.doc.length > 480;
   return (
-    <li className="settings-row scope-doc-row">
-      <div className="settings-row-main">
-        <span className="settings-row-name">{name} memory</span>
-        <span className="settings-row-desc">
-          {profile.doc.trim() === ""
-            ? "Empty — nothing extra travels into this space's sessions."
-            : `${fmt(profile.doc.length)} characters, injected before this space's own memory.`}
-        </span>
-      </div>
-      {/* Plan 14 W2: the defining scope has a real page now, so "Edit in profile" JUMPS there
-          (primary); the banner-wearing inline editor below stays as the fallback behind "Edit here…". */}
-      {!editing && (
+    <li className="settings-row scope-doc-row profile-memory-row" data-off={!profile.enabledHere || undefined}>
+      <div className="profile-memory-head">
+        <span className="memory-row-mark" aria-hidden="true"><Icon name="user" size={16} /></span>
+        <div className="settings-row-main">
+          <span className="settings-row-name">{name} memory</span>
+          <span className="settings-row-desc">
+            {empty
+              ? "Empty — nothing extra travels into this space's sessions."
+              : `${fmt(profile.doc.length)} characters, injected before this space's own memory.`}
+          </span>
+        </div>
         <button type="button" className="btn-quiet scope-move" onClick={() => openProfilePage("memory")}>Edit in profile…</button>
-      )}
-      <button type="button" className="btn-quiet scope-move" onClick={toggleEditor}>{editing ? "Close" : "Edit here…"}</button>
-      <input type="checkbox" role="switch" className="switch" aria-label={`${name} memory in this space`}
-        title={`Defined in ${name} — this switch is this space's override.`}
-        checked={profile.enabledHere} onChange={(e) => run(() => setProfileDocEnabled(spaceId, e.target.checked))} />
-      {editing && (
-        <div className="scope-doc-editor">
-          <p className="settings-note scope-note">Defined in {name}. Changes here apply to every space of {name}.</p>
-          <textarea className="memory-doc" aria-label={`${name} memory document`} value={text} rows={8} spellCheck={false}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder={`Durable context for every ${name} space — conventions, links, standing instructions…`} />
-          <div className="memory-meta">
-            <span className="settings-hint" data-tone={over > 0 ? "danger" : undefined}>
-              {fmt(text.length)} / {fmt(MEMORY_DOC_MAX)}
-              {over > 0 && ` — over the cap by ${fmt(over)} characters. Trim it down; Realm will not truncate it.`}
-            </span>
-            <button type="button" className="btn primary" disabled={!dirty || over > 0}
-              onClick={() => run(async () => { await saveProfileMemoryDoc(profile.profileId, text); setDraft(null); })}>Save memory</button>
+        <input type="checkbox" role="switch" className="switch" aria-label={`${name} memory in this space`}
+          title={`Defined in ${name} — this switch is this space's override.`}
+          checked={profile.enabledHere} onChange={(e) => run(() => setProfileDocEnabled(spaceId, e.target.checked))} />
+      </div>
+      {!empty && (
+        <div className="memory-inherited">
+          <div className="memory-inherited-text" data-clamped={(long && !all) || undefined}>
+            <Markdown text={profile.doc} className="memory-preview" />
           </div>
+          {long && (
+            <button type="button" className="btn-quiet memory-inherited-more" aria-expanded={all} onClick={() => setAll((v) => !v)}>
+              {all ? "Show less" : "Show all"}
+            </button>
+          )}
         </div>
       )}
     </li>

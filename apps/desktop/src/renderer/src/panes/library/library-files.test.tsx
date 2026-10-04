@@ -175,26 +175,29 @@ describe("the Library's file browser", () => {
 
   it("walks the tiles with the arrow keys, by where they are on screen", async () => {
     /* jsdom lays nothing out, so the tiles are given the boxes a three-column grid would: a, b, c
-       across the top, d under a. THE mutants: step by DOM order (Down from a lands on b), or let
-       Right off the end of a row wrap into the next one. */
-    await mount({ artifacts: ["a", "b", "c", "d"].map((id, i) => file({ id: `${id}.md`, ts: 1_700_000_000_000 - i })) });
-    await screen.findByText("d.md");
+       across the top, d, e, f under them. THE mutants: step by DOM order (Down from b lands on d,
+       the first tile below rather than the one under it), or let Right off the end of a row wrap
+       into the next one. */
+    await mount({ artifacts: ["a", "b", "c", "d", "e", "f"].map((id, i) => file({ id: `${id}.md`, ts: 1_700_000_000_000 - i })) });
+    await screen.findByText("f.md");
     const tiles = [...document.querySelectorAll<HTMLElement>(".library-tile")];
-    const boxes: [number, number][] = [[0, 0], [200, 0], [400, 0], [0, 200]];
+    const boxes: [number, number][] = [[0, 0], [200, 0], [400, 0], [0, 200], [200, 200], [400, 200]];
     tiles.forEach((t, i) => {
       const [x, y] = boxes[i]!;
       t.getBoundingClientRect = () => ({ left: x, top: y, right: x + 180, bottom: y + 180, width: 180, height: 180, x, y, toJSON() {} }) as DOMRect;
       t.scrollIntoView = () => {};
     });
-    tiles[0]!.focus();
-    fireEvent.keyDown(tiles[0]!, { key: "ArrowDown" });
+    tiles[1]!.focus();
+    fireEvent.keyDown(tiles[1]!, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(tiles[4]);
+    fireEvent.keyDown(tiles[4]!, { key: "ArrowLeft" });
     expect(document.activeElement).toBe(tiles[3]);
     fireEvent.keyDown(tiles[3]!, { key: "ArrowUp" });
     expect(document.activeElement).toBe(tiles[0]);
-    fireEvent.keyDown(tiles[0]!, { key: "ArrowRight" });
-    expect(document.activeElement).toBe(tiles[1]);
+    // The end of a row is the end: Right from c does not wrap round to d.
+    tiles[2]!.focus();
     fireEvent.keyDown(tiles[2]!, { key: "ArrowRight" });
-    expect(document.activeElement).toBe(tiles[1]);
+    expect(document.activeElement).toBe(tiles[2]);
   });
 
   it("asks main for a picture only where the picture IS the file", async () => {

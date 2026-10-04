@@ -34,7 +34,7 @@
 .diff-counts, .diff-hunk-head, .diff-line, .diff-status, .documents-picker-head, .documents-raw,
 .documents-rich-surface code, .documents-source, .env-path, .failover-pos, .fd-line, .fd-path, .fd-stat,
 .file-preview-path, .files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
-.mcp-tool-name, .md code, .md-code-lang, .media-name, .media-time, .memory-doc, .mention-row-id,
+.mcp-tool-name, .md code, .md-code-lang, .media-name, .media-time, .mention-row-id,
 .msg-error pre, .office-drawn-size, .office-kept, .pane-empty-path, .permission-details pre, .permission-tool code, .req-target,
 .sched-cron-input, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
 .font-installed-size, .sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-file-name code, .skill-picker-row-id,
@@ -5458,32 +5458,52 @@ select { appearance: none; padding-right: 22px;
    sentence about nothing yet, so it takes the secondary ink rather than a name's. */
 .creds-empty .settings-row-name { color: var(--rl-text-dim); font-weight: var(--fw-medium); }
 .creds-form { gap: 12px; }
-/* ── Memory: one editor, and the mechanics folded under it ───────────────────────────────────── */
-.memory-panel { gap: 14px; width: 100%; min-width: 0; }
-/* The panel is dropped into a `.settings-row` card, which is a flex row — so it has to claim the
-   width or the editor sizes to its own content and sits in a 300px column inside a 900px card.
-   `min-width: 0` on both is what actually lets it shrink AND grow: a flex item's default
-   `min-width: auto` refuses to go below its content, which is how the two end up disagreeing. */
-.scope-doc-row { display: block; }
-.scope-doc-row > .memory-panel { width: 100%; }
-/* The editor IS the page, so it gets the room. It shared the page equally with a switch and a
-   diagnostic before, which is most of why the page read as three unrelated things. */
-.memory-panel .memory-doc { min-height: 220px; width: 100%; }
-.memory-meta { display: flex; align-items: center; gap: 12px; }
-.memory-meta .settings-hint { flex: 1; min-width: 0; }
-/* The count recedes until it matters — it reports a limit almost nobody is near. */
-.memory-meta .settings-hint[data-quiet] { color: color-mix(in srgb, var(--rl-text-faint) 70%, transparent); }
-.memory-details > summary {
-  list-style: none; cursor: default; width: fit-content; padding: 2px 0;
-  font-size: 12.5px; color: var(--rl-text-faint);
+/* ── Memory: a document that keeps itself, then how it travels ─────────────────────────────── */
+/* The document's card is a scope-grouped row (`.scope-doc-row`) holding the page you write on: a
+   head with what the page has done with your words and the Write/Preview choice, the text at reading
+   size in the content face, and the count at the foot. No field inside the card — the card IS the
+   field, so its rim takes the accent while you are in it, the way a text field's edge would. */
+/* Two classes, because `.settings-row` (declared further down) makes every row a flex ROW, and a
+   document beside nothing in a flex row sizes to its own content — a 160px column in a 700px card. */
+.settings-row.scope-doc-row { display: block; }
+.scope-doc-row:has(.memory-doc:focus) { border-color: color-mix(in srgb, var(--rl-accent) 55%, var(--rl-card-rim)); }
+.memory-doc-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.memory-doc-head { display: flex; align-items: center; gap: 12px; min-height: 28px; }
+.memory-doc-status { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--rl-text-dim); }
+.memory-doc-status[data-tone="danger"], .memory-doc-count[data-tone="danger"] { color: var(--rl-danger); }
+.memory-doc-view { flex: none; }
+/* The editor grows with the document (MemoryDoc measures it), so the PAGE scrolls rather than a box
+   inside it — and it is prose, a person's standing instructions, so it is set as reading rather than
+   in the code face. */
+.memory-doc {
+  display: block; width: 100%; min-height: 220px; margin: 0; padding: 6px 0; border: none; background: none;
+  resize: none; overflow: hidden; outline: none;
+  font: 14px/1.65 var(--font-content); color: var(--rl-text-bright);
 }
-.memory-details > summary::-webkit-details-marker { display: none; }
-.memory-details > summary::before { content: "▸ "; }
-.memory-details[open] > summary::before { content: "▾ "; }
-.memory-details > summary:hover { color: var(--rl-text-dim); }
-.memory-details-body { display: flex; flex-direction: column; gap: 14px; padding-top: 10px; }
-/* A heading INSIDE the disclosure is a sub-heading, not a peer of the editor's label. */
-.memory-sub { font-size: 12px; color: var(--rl-text-faint); }
+.memory-doc::placeholder { color: var(--rl-text-faint); }
+.memory-preview { min-height: 220px; padding: 6px 0; font-size: 14px; color: var(--rl-text-bright); }
+.memory-preview > :first-child { margin-top: 0; }
+.memory-preview-empty { margin: 0; min-height: 220px; padding: 6px 0; font-size: 14px; color: var(--rl-text-dim); }
+.memory-doc-foot { display: flex; align-items: center; gap: 12px; }
+/* The count recedes until it matters — it reports a limit almost nobody is near. */
+.memory-doc-count { font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+/* The inherited document: its row, and what it says under the row, quoted — a tick down its side, the
+   secondary ink, its first lines only until asked. Switched off in this space, it fades with the
+   switch, because it no longer travels. */
+.profile-memory-head { display: flex; align-items: center; gap: 12px; }
+.memory-row-mark { flex: none; display: inline-flex; color: var(--rl-text-faint); }
+.memory-inherited { margin: 12px 0 0 28px; padding: 2px 0 2px 12px; border-left: 2px solid var(--rl-line-strong); }
+.memory-inherited .memory-preview { min-height: 0; padding: 0; font-size: 13px; color: var(--rl-text-dim); }
+.memory-inherited-text[data-clamped] { max-height: 9.5em; overflow: hidden;
+  mask-image: linear-gradient(to bottom, black 55%, transparent); }
+.memory-inherited-more { margin-top: 6px; margin-left: -10px; }
+.profile-memory-row[data-off] .memory-inherited { opacity: 0.5; }
+/* Who reads it: each agent's mark and name, inline — identities, not pills. */
+.memory-readers { flex: none; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px 16px; }
+.memory-reader { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--rl-text-bright); }
+.memory-path-row .env-path { word-break: normal; overflow-wrap: anywhere; }
+/* A heading inside the folded diagnostic is a sub-heading, not a peer of the rows around it. */
+.memory-sub { font-size: 13px; color: var(--rl-text-dim); }
 .settings-note code { font: 12px var(--font-mono); }
 /* The foot note: separated by air and a rule above it rather than by a tinted box, which at the
    bottom of a page reads as a banner nobody put there on purpose. */
@@ -5714,8 +5734,7 @@ select { appearance: none; padding-right: 22px;
    wherever there is one; where the input stands alone, this gives it the reach. */
 .checkbox::before { content: ""; position: absolute; inset: -8px; }
 
-.memory-doc { min-height: 140px; padding: 8px 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; font: 12px/1.5 var(--font-mono); resize: vertical; }
-.memory-doc:focus { border-color: var(--rl-accent); }
+
 .memory-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .settings-inline-toggle { display: flex; align-items: flex-start; gap: 10px; cursor: default; }
 .settings-source-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 6px 0; }

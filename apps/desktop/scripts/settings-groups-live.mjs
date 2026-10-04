@@ -716,11 +716,12 @@ async function appearanceChecks(c, size) {
   await shoot(c, "text-ui-14-dark", await textClip());
   // The rail's headings are the sidebar's own group labels while the rail is in its column.
   const headSize = (await evalIn(c, `!!document.querySelector('.sb-page-nav .page-rail-head')`)) ? 12.5 : 11.5;
-  check("at the defaults every size is the stylesheet's own", base.body === 14 && base.row === 13.5 && base.head === headSize, { ...base, headSize });
+  // A row's label is the interface body, 14, since the settings pages took Codex's type (it was 13.5).
+  check("at the defaults every size is the stylesheet's own", base.body === 14 && base.row === 14 && base.head === headSize, { ...base, headSize });
   await setRange("UI font size", 18);
   await sleep(400);
   const big = await sizes();
-  check("UI font size 18: the UI text scales by 18/14 and the code does not", Math.abs(big.body - 18) < 0.01 && Math.abs(big.row - 13.5 * 18 / 14) < 0.02 && big.code === base.code, big);
+  check("UI font size 18: the UI text scales by 18/14 and the code does not", Math.abs(big.body - 18) < 0.01 && Math.abs(big.row - 14 * 18 / 14) < 0.02 && big.code === base.code, big);
   check("…and it is not page zoom: the window's zoom factor is untouched", big.zoom === base.zoom, { zoom: big.zoom });
   await shoot(c, "text-ui-18-dark", await textClip());
   await setRange("UI font size", 12);

@@ -262,10 +262,24 @@ async function main() {
   await until(() => evalIn(c, `document.querySelectorAll('.library-grid li').length >= 12`), 20000, "seeded files");
   await sleep(500);
 
-  /* How far into the bar to park, per tab. The Library's is two rows and the chips are the second, so
-     50px puts the strip on the CHIPS — which is the row that was reported smudged. The Skills bar is
-     one row, so it is read at its own top. */
-  for (const [tab, sel, ready, into] of [["Files", ".page-filters", ".library-files", 50], ["Skills", ".skills-filter-row", ".settings-panel", 6]]) {
+  /* Files: its toolbar is the column's head now, standing OUTSIDE the scroller (Codex's layout), so it
+     is never under the dissolve at all — the strongest form of the property this check exists for.
+     Held: scrolled to the end, the toolbar has not moved a pixel and is not inside what scrolls. */
+  await evalIn(c, `__live.tab("Files")`);
+  await until(() => evalIn(c, `!!document.querySelector('.library-files .library-toolbar')`), 15000, "Files toolbar");
+  await sleep(400);
+  const toolbar = await evalIn(c, `(() => {
+    const bar = document.querySelector('.library-files .library-toolbar');
+    const col = document.querySelector('.library-files .page-content');
+    const at = () => { const r = bar.getBoundingClientRect(); return { y: Math.round(r.top), h: Math.round(r.height) }; };
+    const before = at(); col.scrollTop = col.scrollHeight; const after = at(); col.scrollTop = 0;
+    return { before, after, inScroller: col.contains(bar), overflow: col.scrollHeight - col.clientHeight };
+  })()`);
+  check("Files: the toolbar stands outside the scroller and stays put while the files scroll",
+    !toolbar.inScroller && toolbar.overflow > 12 && toolbar.before.y === toolbar.after.y && toolbar.before.h === toolbar.after.h, toolbar);
+
+  /* The Skills bar is one row inside its column, so it is read at its own top. */
+  for (const [tab, sel, ready, into] of [["Skills", ".skills-filter-row", ".settings-panel", 6]]) {
     await evalIn(c, `__live.tab(${JSON.stringify(tab)})`);
     await until(() => evalIn(c, `!!document.querySelector('${ready} ${sel}')`), 15000, `${tab} bar`);
     await sleep(400);

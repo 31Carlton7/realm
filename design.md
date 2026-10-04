@@ -88,6 +88,10 @@ Treat a Realm screen as a field of work, not a stack of cards.
 - Use the full useful width for work that benefits from it: diffs, terminals, documents, sheets,
   usage tables, and comparisons.
 - Keep persistent navigation narrow and stable. Do not make the sidebar the loudest surface.
+- A page's head names what it SHOWS — "Sign-ins", "Files" — not the area it belongs to. The pane bar
+  and the column already say Settings or Library, and a third copy of that word was the one heading
+  on the page that said nothing about what was under it. Each section in the column wears a glyph
+  beside its name, as Codex's do, so eleven pages are found by shape before they are read.
 - Preserve source order as reading order. A visual split must still read sensibly when stacked.
 - Use empty space to isolate a focal object, not to make sparse content look premium.
 - Repetition is for true peers. If one object is decisive, give it different scale or placement.
@@ -171,6 +175,14 @@ Rules:
   the rung lighter than both sides of it, as Codex's is (chrome 60, sheet 47, rim 65, measured).
   A corner over a translucent ground is a hole in that ground with the chrome laid in it — tinting
   over the ground instead composites twice and reads a shade darker than the rail beside it.
+- A group of settings is a card in Codex's grammar: a step ABOVE the ground it stands on, under a rim
+  the rung lighter than both sides, its rows divided by hairlines inset from both ends (Codex,
+  measured: page 41, card 47, rim 57; its file tiles go further, 16 levels up, because a tile is an
+  object you pick up and a card is a group you read). It is not a well. The rows were `--rl-frame`,
+  a shade BELOW the page, and a group of controls that reads as a hole in the page reads as nothing
+  in particular. The fill is an overlay rather than a colour, because the ground under a page is the
+  pane's translucent canvas and the card has to lift whatever that came to. The rim runs round the
+  run of rows, not round each one: a row under another hands its top edge to the divider.
 - A hairline with NO change of surface beside it needs its own weight, and its own token. The
   ordinary line is sized for the ordinary case, where a surface step carries most of the boundary
   and the line only sharpens it. Where both sides are the same ground the line is the whole
@@ -320,6 +332,10 @@ Using the same families across the app and site is a brand decision.
 
 - Interface body: 14/20 in the desktop app.
 - Small UI: 13/16; tiny operational labels: 11/14.
+- A page of settings reads at the body: a row's label 14/20, the line under it 13/18, a page's notes
+  12.5 — all in the secondary ink. The tertiary ink measures 3.5:1 on the dark ground, under AA at
+  those sizes, and a page whose explanations were 11px in it is a page people called hard to read.
+  Tertiary is for what a reader may skip (a count, a timestamp), never for what they must read.
 - Product titles: 18, 20, 24, or 28 with the shared title weight and tracking.
 - Marketing body: at least 16 px with a 1.5–1.6 line-height.
 - Marketing display type may scale fluidly, but keep one display statement per page.
@@ -400,6 +416,16 @@ string staying that way.
   beside a chip reading Granted — or that paraphrases the command printed directly under it is how a
   page of settings becomes an essay, and nine of them under nine switches is most of the reading on
   the page. Everything else is the control's `title`: kept, reachable, and off the screen.
+- A page's explanations are a line each. Where the full sentences matter — what Realm cannot do
+  with a secret — fold them under ONE row that names every limit, rather than leaving paragraphs at
+  the foot of the page: Sign-ins read as three paragraphs of fine print under four controls, and
+  now reads as four short cards with the sentences one click under the row that lists them. A
+  sentence's contract to appear on a surface ("any surface that takes a credential shows where it
+  goes") is met on the surface that takes it — the sheet with the password field — not the list.
+- A document a person writes keeps itself. A pause in typing writes it, leaving the field writes it
+  at once, and the head says Edited, Saving…, Saved — the one fact a Save button carried, without a
+  control whose resting state is disabled. A limit is named and refused, never enforced by trimming,
+  and the text stays exactly as typed. Preview renders what the agent is handed.
 - A control that carries a REQUEST must show what actually happened when the two can differ. A
   switch reading only its own state keeps claiming a thing the system is not doing — and the
   reasons it is not are worth telling apart, because one may resolve itself and another never
@@ -594,12 +620,17 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   year-wide graph that starts at its oldest column hides it behind a scroll they may not attempt.
 - A sequential scale steps one hue's opacity. Walking a hue across the steps reads as categories,
   which is the opposite of what a single quantity means.
-- A file browser's card is a picture over a caption, in that order. The preview field takes the top
-  of the card and the name and provenance sit under it, the way a drive lays out files, because a
-  screenshot is recognisable at that size and was a smudge beside a name. A file with no picture
-  keeps the SAME card: its glyph sits small in a well at the field's centre, so the grid's shape
-  does not change from file to file. A field that wide needs a picture minted for it — the 96px
-  mark the composer's chips use is a smear there — so the size is named, not assumed.
+- A file is one square tile, as Codex's library lays them out. A file whose picture IS the file is
+  that picture, edge to edge, its name and session coming up over a scrim under the pointer or the
+  focus; any other file is its name at the head, its glyph at the middle and where it came from at
+  the foot. One square for both, so the grid's shape never changes from file to file. A name wraps
+  between its words and keeps its extension whole — breaking anywhere is how Codex's own tile ends
+  in "…pd" over "f". A tile that wide needs a picture minted for it — the 96px mark the composer's
+  chips use is a smear there — so the size is named, not assumed.
+- A browser of files leads with what KIND of thing a file is, as tabs, because that is the first
+  narrowing a person reaches for. The rarer ones — which space, who made it — live behind a filter
+  that lights while it narrows and says so as a chip by the tabs, undone from there: a list that is
+  shorter than it should be has to say why. The toolbar is the column's head, outside its scroller.
 - A file the app shows behaves like one in the Finder: Space opens it in Quick Look (Return still
   acts), it drags out to the Finder or into another app, and its menu offers Quick Look and the
   system Share menu. Each is offered only where the desktop bridge has it — a Space that swallows the

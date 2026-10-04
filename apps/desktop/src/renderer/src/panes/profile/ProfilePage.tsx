@@ -1,4 +1,4 @@
-import { MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, SPACE_COLORS, type McpServer, type Profile, type Skill } from "@realm/contracts";
+import { MCP_SECRET_STORAGE_NOTE, SPACE_COLORS, type McpServer, type Profile, type Skill } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
 import { useEffect, useState } from "react";
 import { useApp, type ProfilePageTab, type ProfileUsage } from "../../state/store";
@@ -8,6 +8,7 @@ import { IconPicker } from "../../components/IconPicker";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import type { PaneProps } from "../registry";
 import { PageRail } from "../../components/page-nav";
+import { MemoryDoc } from "../../components/settings/MemoryDoc";
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -382,43 +383,40 @@ function ProfileServerRow({ spaceId, server, profileName, spaceName }: { spaceId
   );
 }
 
-const fmt = (n: number): string => n.toLocaleString("en-US");
-
 /**
- * The Memory tab: the profile document at its defining scope, edited in full — no banner, because
- * this page IS the scope the Library's banner editor named. The reach is still SAID (a save lands in
- * every space of the profile), just as page copy rather than a warning about being somewhere else.
- * Cap posture is MemoryPanel's: over MEMORY_DOC_MAX the save is refused with the overage named.
+ * The Memory tab: the profile document at its defining scope, edited in full — the one place it is
+ * edited at all, now that the Library's row shows what it says rather than a second editor. The
+ * reach is still SAID (a save lands in every space of the profile), as page copy rather than a
+ * warning about being somewhere else. Cap posture is MemoryDoc's: over MEMORY_DOC_MAX nothing is
+ * sent, and the overage is named.
  */
 function ProfileMemoryTab({ profileId, profileName }: { profileId: string; profileName: string }) {
   const stored = useApp((s) => s.profileMemory[profileId]);
   const refreshProfileMemory = useApp((s) => s.refreshProfileMemory);
   const saveProfileMemoryDoc = useApp((s) => s.saveProfileMemoryDoc);
   const run = useApp((s) => s.run);
-  const [draft, setDraft] = useState<string | null>(null);
   useEffect(() => { run(() => refreshProfileMemory(profileId)); }, [profileId, refreshProfileMemory, run]);
-  useEffect(() => { setDraft(null); }, [profileId]);
 
   if (!stored) return <div className="form settings-panel"><p className="env-empty">Loading…</p></div>;
-  const text = draft ?? stored.doc;
-  const over = text.length - MEMORY_DOC_MAX;
-  const dirty = draft !== null && draft !== stored.doc;
-
+  const reveal = window.realm?.files?.reveal;
+  // The same page a space's memory is (MemoryDoc), keyed by the profile so a draft never follows
+  // the page from one profile to the next. The reach is page copy, not a banner: this page IS the
+  // defining scope.
   return (
-    <div className="form settings-panel">
-      <div className="field">
-        <span>{profileName} memory</span>
-        <p className="settings-hint">Travels into every new session in every space of {profileName}, injected before each space's own memory. Stored at <code className="env-path">{stored.path}</code>.</p>
-        <textarea className="memory-doc" aria-label={`${profileName} memory document`} value={text} rows={10} spellCheck={false}
-          onChange={(e) => setDraft(e.target.value)}
+    <div className="form settings-panel memory-page">
+      <p className="page-lede">Travels into every new session in every space of {profileName}, injected before each space's own memory.</p>
+      <div className="settings-row scope-doc-row">
+        <MemoryDoc key={profileId} label={`${profileName} memory document`} doc={stored.doc}
+          onSave={(text) => saveProfileMemoryDoc(profileId, text)}
           placeholder={`Durable context for every ${profileName} space — conventions, links, standing instructions…`} />
-        <div className="memory-meta">
-          <span className="settings-hint" data-tone={over > 0 ? "danger" : undefined}>
-            {fmt(text.length)} / {fmt(MEMORY_DOC_MAX)}
-            {over > 0 && ` — over the cap by ${fmt(over)} characters. Trim it down; Realm will not truncate it.`}
-          </span>
-          <button type="button" className="btn primary" disabled={!dirty || over > 0}
-            onClick={() => run(async () => { await saveProfileMemoryDoc(profileId, text); setDraft(null); })}>Save memory</button>
+      </div>
+      <div className="settings-group">
+        <div className="settings-row memory-path-row">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Stored at</span>
+            <code className="env-path settings-row-desc">{stored.path}</code>
+          </div>
+          {reveal && <button type="button" className="btn-quiet" onClick={() => { void reveal(stored.path); }}>Show in Finder</button>}
         </div>
       </div>
     </div>
