@@ -268,3 +268,34 @@ still switches rooms underneath, instantly and without the slide (W4).
 4. **Needs you is the one list of what waits on you; the pill and Active go.** Yes.
 5. **Build all three phases.** Phase 1 (`feat/sidebar-rail`), Phase 2 (`feat/profiles-real`) and
    Phase 3 (`feat/one-list-no-rooms`) are built in parallel and merged on `integration/plan-26`.
+
+## Status (2026-10-04)
+
+Built as the three branches above, each gated (typecheck, build, full suite) and checked in the built
+app, and merged on `integration/plan-26`, which passes the same gates and the live checks below. Not
+pushed.
+
+- **Phase 1:** the rail (back and forward; Home with the waiting count, Library, Connections,
+  Scheduled tasks, Notifications; you and Settings at its foot) stays when the sidebar collapses. The
+  header is the profile switcher, search and new session. Needs you is drawn only when something
+  waits. Each space is a section — its tally, five sessions then Show more, a fan-out as one row, a
+  schedule's clock, a + and a ⋯ on hover, folded per space — beside Pinned and the Spaces | Recent
+  lens. The sidebar lists sessions only; what an agent opens goes into its session's side pane.
+- **Phase 2:** a browser partition per profile (the first keeps `persist:browser`, so nothing signed in
+  is lost), sign-ins and passkeys per profile, a Share with button on each, create, rename, recolour
+  and delete in the app, one window per profile from Open in new window, and what waits in each other
+  profile in the switcher's menu.
+- **Phase 3:** every space of the profile is loaded at once and the current space is the focused
+  session's. A window has one view, saved per profile (`ui.view:<profileId>`) and migrated once from a
+  room's groups; `groups_json` and `layout_json` are read for that and never written again (the
+  columns stay, since migrations only add).
+- **Finished after the merge:** a sign-in started from a session's card opens its terminal and consent
+  page in that session's side pane; the composer's space chip moves a session that has not started to
+  another space of its profile; browsers an agent opens in quick succession all stay, in order (an
+  overtaken items fetch had pruned with the list from before); a restored tab keeps its title while
+  its page loads; the swiper's gesture module and invert setting are gone.
+- **Live checks:** `one-list`, `sidebar-rail` and `profiles` are new. The Plan 26 checks, and the older
+  ones that opened pages from the destination rows, now use the rail, the sections and the one view.
+  Retired: `space-swipe`, `sidebar-spaces`, `sidebar-collapsed` (its one live claim — a page up must not
+  swallow the click that brings the sidebar back — moved to `sidebar-rail`) and `pane-close`;
+  `sidebar-and-splits` kept its two Settings claims as `settings-leading`.
