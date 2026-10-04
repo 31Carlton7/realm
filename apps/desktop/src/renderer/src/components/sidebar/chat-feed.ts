@@ -1,7 +1,7 @@
 import type { Session } from "@realm/contracts";
 
 /**
- * The chat feed's arithmetic: which day a session belongs to, and in what order the days come.
+ * The Recent lens's arithmetic: which day a session belongs to, and in what order the days come.
  *
  * Pure and separate from the component for the usual reason, and one specific one: every bug this
  * kind of list has is a date bug, and date bugs are only findable with a fixed `now`. Nothing here
@@ -43,26 +43,31 @@ export function dayLabel(ts: number, now: number): string {
   return d.toLocaleDateString(undefined, sameYear ? { day: "numeric", month: "short" } : { day: "numeric", month: "short", year: "numeric" });
 }
 
-export type ChatDay = { key: number; label: string; sessions: Session[] };
+export type DayGroup<T> = { key: number; label: string; rows: T[] };
 
 /**
- * Every session, newest first, cut into local days.
+ * Rows, newest first, cut into local days by when each last moved (`at`).
  *
- * `updatedAt` and not `createdAt`: the question this feed answers is "what have I been working on",
- * and a conversation started on Monday and worked on today belongs under today. A session that has
- * never been touched since creation has the two equal anyway.
+ * Last activity and not creation: the question this answers is "what have I been working on", and a
+ * session started on Monday and worked on today belongs under today. A session never touched since
+ * it was made has the two equal anyway.
  *
  * `key` is the day's local midnight, so a caller can key a list on something stable while the label
  * stays a display string that changes under the user's feet at midnight — which it should.
  */
-export function groupSessionsByDay(sessions: readonly Session[], now: number): ChatDay[] {
-  const byDay = new Map<number, Session[]>();
-  for (const s of [...sessions].sort((a, b) => b.updatedAt - a.updatedAt)) {
-    const key = startOfLocalDay(s.updatedAt);
+export function groupByDay<T>(rows: readonly T[], at: (row: T) => number, now: number): DayGroup<T>[] {
+  const byDay = new Map<number, T[]>();
+  for (const row of [...rows].sort((a, b) => at(b) - at(a))) {
+    const key = startOfLocalDay(at(row));
     const bucket = byDay.get(key);
-    if (bucket) bucket.push(s); else byDay.set(key, [s]);
+    if (bucket) bucket.push(row); else byDay.set(key, [row]);
   }
   return [...byDay.entries()]
     .sort((a, b) => b[0] - a[0])
-    .map(([key, rows]) => ({ key, label: dayLabel(key, now), sessions: rows }));
+    .map(([key, grouped]) => ({ key, label: dayLabel(key, now), rows: grouped }));
+}
+
+/** The chat feed's reading — sessions by their own `updatedAt` — until the Recent lens replaces it. */
+export function groupSessionsByDay(sessions: readonly Session[], now: number): { key: number; label: string; sessions: Session[] }[] {
+  return groupByDay(sessions, (s) => s.updatedAt, now).map((d) => ({ key: d.key, label: d.label, sessions: d.rows }));
 }
