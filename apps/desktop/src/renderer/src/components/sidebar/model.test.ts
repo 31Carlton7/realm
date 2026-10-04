@@ -255,7 +255,7 @@ describe("pinnedItems", () => {
   it("lists the profile's pinned items across its spaces, in the spaces' order, then their own", () => {
     const s = home({
       items: [item("hw-b", "hw", { pinned: true, sortOrder: 2 }), item("hw-a", "hw", { pinned: true, sortOrder: 1 }), item("hw-c", "hw")],
-      allItems: [item("th-a", "th", { pinned: true }), item("lec-a", "lec", { pinned: true }), item("hw-stale", "hw", { pinned: true })],
+      allItems: [item("th-a", "th", { pinned: true, sortOrder: 5 }), item("lec-a", "lec", { pinned: true }), item("hw-stale", "hw", { pinned: true })],
     });
     const profileSpaces = s.spaces.filter((sp) => sp.profileId === "p1");
     expect(pinnedItems(s, [...profileSpaces].reverse()).map((i) => i.id)).toEqual(["th-a", "hw-a", "hw-b"]);
