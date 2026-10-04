@@ -263,6 +263,12 @@ describe("what agents open goes into the side pane of the session that asked", (
     expect(store.getState().offscreenBrowsers).toEqual(["i-br2"]);
     await store.getState().deleteItem("i-br2");
     expect(store.getState().offscreenBrowsers).toEqual([]);
+    // Deleted from another window: the broadcast's refresh is what says so.
+    browser("i-br4");
+    await store.getState().applyAgentPaneOpened({ spaceId: "s1", itemId: "i-br4", openedBy: "z" });
+    api.data.items.s1 = api.data.items.s1!.filter((i) => i.id !== "i-br4");
+    await store.getState().refreshItems("s1");
+    expect(store.getState().offscreenBrowsers).toEqual([]);
     browser("i-br3");
     await store.getState().applyAgentPaneOpened({ spaceId: "s1", itemId: "i-br3", openedBy: "z" });
     await store.getState().selectProfile("p2");
