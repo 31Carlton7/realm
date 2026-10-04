@@ -240,7 +240,7 @@ describe("App tab", () => {
     fireEvent.blur(field);
     expect(store.getState().themeOverrides).toEqual({});
     // Realm's light background seed (REALM_SEED.light.bg) — its paper, since the light ramp anchors there.
-    expect(field.value).toBe("#f5f6f7");
+    expect(field.value).toBe("#f9fafb");
   });
 
   it("an edited palette offers a way back to the palette itself", async () => {

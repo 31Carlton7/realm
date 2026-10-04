@@ -67,6 +67,11 @@ export function useApplyTheme({ color, pref, themes = DEFAULT_SELECTION, overrid
   const theme = paletteFor(themes, mode);
   const override = overrides[overrideKey(theme, mode)];
   // Layout effect so the first paint already carries the mode (no flash of default vars).
+  // The native side of the same preference: the window's material, menus and panels are drawn in the
+  // APP's appearance, which otherwise stays the Mac's — Light on a Dark Mac laid a light ground over a
+  // dark material and came out grey (main/appearance.ts). The PREFERENCE, not the resolved mode, so
+  // "System" goes on following the Mac rather than being pinned to whatever it was at the time.
+  useEffect(() => { window.realm?.setAppearance?.(pref); }, [pref]);
   useLayoutEffect(() => {
     const done = suppressTransitions(document.documentElement);
     applyTheme({ space: color ?? "#7c6cff", mode, theme, override, contrast, fonts, groundAlpha });

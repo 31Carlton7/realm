@@ -122,8 +122,12 @@ const DARK: Ramp = {
 };
 
 const LIGHT: Ramp = {
-  page: { l: -0.024, c: 0.002 },
-  paperMax: 0.976,
+  // Codex-light: near-white neutral paper with the frame one quiet step under it. The paper cap was
+  // 0.976 and the frame 0.024 below, which on a translucent window over any wallpaper read as a grey
+  // app; Codex's canvas measures 0.985 and its sidebar 0.976. A white paper still leaves cards a step
+  // (to 1), and the floors below re-derive every ink tier against the lighter ground.
+  page: { l: -0.017, c: 0.002 },
+  paperMax: 0.986,
   surfaces: { canvas: 0, surface: 0.028, inset: 0.013, hover: -0.014, "hover-2": -0.047, field: -0.01, "stripe-bg": -0.002 },
   chroma: { surface: -0.002, hover: 0.001, "hover-2": 0.002, "stripe-bg": -0.002 },
   ink2: 0.689,
@@ -560,9 +564,9 @@ export const REALM_SEED: Record<Mode, ThemeSeed> = {
     syntax: { comment: "#6c6f75", keyword: "#3d9aff", string: "#3cbb72", number: "#f68f3c", title: "#f2f3f4", type: "#f2f3f4", attr: "#a5a8ad" },
   },
   light: {
-    bg: "#f5f6f7", ink: "#1d1e21", accent: "#0c7cf4",
+    bg: "#f9fafb", ink: "#1d1e21", accent: "#0c7cf4",
     green: "#007c3a", orange: "#af4b00", red: "#c72d31",
-    syntax: { comment: "#676a70", keyword: "#0c7cf4", string: "#007c3a", number: "#af4b00", title: "#1d1e21", type: "#1d1e21", attr: "#54575c" },
+    syntax: { comment: "#696c72", keyword: "#0c7cf4", string: "#007c3a", number: "#af4b00", title: "#1d1e21", type: "#1d1e21", attr: "#55585e" },
   },
 };
 

@@ -108,3 +108,32 @@ describe("the pane ground, with the desktop showing through it", () => {
     expect(block).toContain("--sidebar-ground: var(--page)");
   });
 });
+
+/* The light face shows far less of the desktop than the dark one (tokens.css). Over a Mac's usual
+   wallpaper — darker and more saturated than near-white paper — the dark face's alphas turned light
+   mode into a grey-blue wash; Codex's light window, measured beside it, shows almost none. */
+describe("the light face is nearly opaque", () => {
+  const light = tokensCss.slice(tokensCss.indexOf("The LIGHT face shows far less of the desktop"));
+  const at = (expr: string, ground: number) =>
+    // calc(A% + var(--ground-alpha) * B) or calc(A% + (var(--ground-alpha) - C%) * B), at a ground alpha in %.
+    Function("g", `return ${expr.replace(/var\(--ground-alpha\)/g, "g").replace(/%/g, "")};`)(ground) as number;
+  const sidebar = /--sidebar-ground: color-mix\(in srgb, var\(--page\) calc\(([^;]+)\), transparent\);/.exec(light)![1]!;
+  const pane = /--pane-alpha: calc\(([^;]+)\);/.exec(light)![1]!;
+
+  it("at the default setting the light sidebar is ~80% and the panes 92%, against the dark 55% and 84%", () => {
+    expect(at(sidebar, 55)).toBeCloseTo(79.75, 1);
+    expect(at(pane, 55)).toBeCloseTo(92, 1);
+  });
+
+  it("fully opaque still means opaque, in the light face too", () => {
+    expect(at(sidebar, 100)).toBeCloseTo(100, 1);
+    expect(at(pane, 100)).toBeCloseTo(100, 1);
+  });
+
+  it("Reduce Transparency still wins over the light rule — it is more specific than a bare :root", () => {
+    // THE mutant: the media block left as `:root { … }`. `:root[data-mode="light"]` outranks it and
+    // the light window stays see-through under a preference that asked for it not to be.
+    const reduce = tokensCss.slice(tokensCss.indexOf("@media (prefers-reduced-transparency: reduce)"));
+    expect(reduce.slice(0, reduce.indexOf("}") + 1)).toContain(':root[data-mode="light"] { --sidebar-ground: var(--page); --pane-ground: var(--canvas); }');
+  });
+});

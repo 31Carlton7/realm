@@ -71,7 +71,7 @@ describe("what a theme states survives derivation", () => {
      one correction: a light paper above `paperMax` is taken down to it, so a white background still
      leaves its cards somewhere to go. Hue and chroma are never touched. */
   it("the ground and the ink are the seed exactly — those two are never corrected", () => {
-    const PAPER_MAX = 0.976;
+    const PAPER_MAX = 0.986;
     for (const { theme, mode } of faces()) {
       const seed = mode === "dark" ? theme.dark : theme.light;
       if (!seed) continue;

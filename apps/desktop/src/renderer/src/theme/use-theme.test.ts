@@ -154,3 +154,26 @@ describe("the adjustable ground reaches :root", () => {
     expect(hasWindowMaterial()).toBe(true);
   });
 });
+
+/* The window's native material, menus and panels are drawn in the APP's appearance, which stays the
+   Mac's unless main is told otherwise — Light on a Dark Mac came out grey (main/appearance.ts). */
+describe("the native appearance follows the preference", () => {
+  afterEach(() => { delete (window as { realm?: unknown }).realm; });
+
+  it("tells main the PREFERENCE on mount and on every change — System stays System", () => {
+    const setAppearance = vi.fn();
+    Object.assign(window, { realm: { setAppearance } });
+    const { rerender } = renderHook(({ pref }) => useApplyTheme({ color: "#7c6cff", pref }), { initialProps: { pref: "light" as ThemePref } });
+    expect(setAppearance).toHaveBeenLastCalledWith("light");
+    rerender({ pref: "system" });
+    // Not the resolved mode: pinning "dark" here would stop following the Mac when it changes.
+    expect(setAppearance).toHaveBeenLastCalledWith("system");
+    rerender({ pref: "dark" });
+    expect(setAppearance).toHaveBeenLastCalledWith("dark");
+    expect(setAppearance).toHaveBeenCalledTimes(3);
+  });
+
+  it("is a no-op without the bridge (tests, a browser)", () => {
+    expect(() => renderHook(() => useApplyTheme({ color: "#7c6cff", pref: "light" }))).not.toThrow();
+  });
+});

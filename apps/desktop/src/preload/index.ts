@@ -97,6 +97,8 @@ contextBridge.exposeInMainWorld("realm", {
   },
   /** The Dock icon chosen in Settings ▸ App (main/app-icon.ts). `set` hands main the picture's bytes,
    *  which it puts on the Dock and keeps for the next launch; false when main refused them. */
+  /** Realm's theme preference, for the window's native appearance (main/appearance.ts). */
+  setAppearance: (pref: string): void => ipcRenderer.send("appearance:set", pref),
   appIcon: {
     get: (): Promise<string> => ipcRenderer.invoke("app-icon:get"),
     set: (id: string, png: Uint8Array): Promise<boolean> => ipcRenderer.invoke("app-icon:set", id, png),

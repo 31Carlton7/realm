@@ -131,21 +131,21 @@
   color-scheme: light;
 
   /* surfaces — cool neutrals on the hue the dark face uses, in the dark face's order */
-  --page: oklch(0.949 0.004 264);
-  --canvas: oklch(0.973 0.002 264);
+  --page: oklch(0.968 0.004 264);
+  --canvas: oklch(0.985 0.002 264);
   --surface: oklch(1 0 0);
-  --inset: oklch(0.986 0.002 264);
-  --hover: oklch(0.959 0.003 264);
-  --hover-2: oklch(0.926 0.004 264);
+  --inset: oklch(0.998 0.002 264);
+  --hover: oklch(0.971 0.003 264);
+  --hover-2: oklch(0.938 0.004 264);
 
   /* ink: 15.4 / 6.7 / 5.0 : 1 on the canvas; the quiet tier still 4.6 : 1 on the frame */
   --ink: oklch(0.235 0.006 264);
-  --ink-2: oklch(0.455 0.01 264);
-  --ink-3: oklch(0.525 0.01 264);
+  --ink-2: oklch(0.459 0.01 264);
+  --ink-3: oklch(0.531 0.01 264);
 
-  --field: oklch(0.963 0.002 264);
+  --field: oklch(0.975 0.002 264);
   --stripe: oklch(0.405 0 0 / 0.075);
-  --stripe-bg: oklch(0.971 0 0);
+  --stripe-bg: oklch(0.983 0 0);
 
   /* The fill is Apple's own blue's weight — a white label on it reads 4.0 : 1, where the brighter
      blue it replaces read 3.6. The ink is the link and prose colour, at 4.8 : 1 on the frame. */
@@ -164,7 +164,7 @@
 
   /* The inverted chip, built off the ink as every light theme's is (themes.ts LIGHT.tooltip). */
   --tooltip-bg: oklch(0.26 0.008 271);
-  --tooltip-fg: oklch(0.94 0.003 264);
+  --tooltip-fg: oklch(0.959 0.003 264);
   --tooltip-muted: oklch(0.731 0.006 271);
   --tooltip-border: oklch(0.344 0.007 271);
 
@@ -732,12 +732,22 @@ a {
   --pane-ground: color-mix(in srgb, var(--canvas) var(--pane-alpha), transparent);
 }
 
+/* The LIGHT face shows far less of the desktop. Whatever is behind a window is usually darker and
+ * more saturated than near-white paper, so a light ground thinned to the dark face's alphas read as a
+ * grey-blue wash — Codex's light window, beside it, shows almost none. Same slider, same 100% end
+ * (fully opaque still means opaque), but the light range starts much higher: at the default the
+ * sidebar is ~80% and the panes 92%, where the dark face is 55% and 84%. */
+:root[data-mode="light"] {
+  --sidebar-ground: color-mix(in srgb, var(--page) calc(55% + var(--ground-alpha) * 0.45), transparent);
+  --pane-alpha: calc(92% + (var(--ground-alpha) - 55%) * 0.1778);
+}
+
 @media (prefers-reduced-transparency: reduce) {
   /* Every ground goes solid whatever the slider says — the preference is about the window being
    * see-through, and it outranks a setting the user may have left on months ago. Both of them, not
    * just the column: a pane still showing the desktop through itself beside an opaque sidebar
    * answers the preference by half. */
-  :root { --sidebar-ground: var(--page); --pane-ground: var(--canvas); }
+  :root, :root[data-mode="light"] { --sidebar-ground: var(--page); --pane-ground: var(--canvas); }
 }
 
 /* ══ DECORATIVE GRAIN ══════════════════════════════════════════════════════════

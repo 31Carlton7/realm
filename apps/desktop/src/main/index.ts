@@ -1,4 +1,4 @@
-import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, screen, shell, systemPreferences, Tray, type MenuItemConstructorOptions } from "electron";
+import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, safeStorage, screen, shell, systemPreferences, Tray, type MenuItemConstructorOptions } from "electron";
 import { BrowserCredentialInputSchema, newId, type BrowserCredential, type MediaFile, type Passkey } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { copyFile, readFile, writeFile } from "node:fs/promises";
@@ -47,6 +47,7 @@ import { WindowRegistry, cascadeFrom, readSavedWindows, writeSavedWindows } from
 import type { WebContents } from "electron";
 import { registerFileActions } from "./file-actions";
 import { AppIconStore, registerAppIcon } from "./app-icon";
+import { registerAppearance, savedAppearance } from "./appearance";
 import { DEFAULT_KEYBINDINGS, KeybindingSchema, type Keybinding } from "@realm/contracts";
 import { browseFolder, type BrowseResult } from "./browse";
 import { handleMediaProtocol, mediaPoster, registerMediaScheme, servablePath, statMedia } from "./media";
@@ -1101,6 +1102,10 @@ const dock = process.platform === "darwin" && app.dock
   ? { setIcon: (png: Uint8Array) => app.dock?.setIcon(nativeImage.createFromBuffer(Buffer.from(png))) }
   : null;
 registerAppIcon({ handle: (channel, fn) => ipcMain.handle(channel, fn), store: appIcons, dock });
+/** The window's native appearance follows Realm's theme setting (appearance.ts) — applied from the
+ *  last run before any window exists, then kept current by the renderer. */
+nativeTheme.themeSource = savedAppearance(app.getPath("userData"));
+registerAppearance({ on: (channel, fn) => ipcMain.on(channel, fn), theme: nativeTheme, dir: app.getPath("userData") });
 /**
  * Save a copy of a file somewhere the user names.
  *

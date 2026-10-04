@@ -240,6 +240,15 @@ Rules:
 
 The light theme is an equal mode, not an inverted dark screenshot. Use its authored token values.
 
+The window's NATIVE appearance follows Realm's theme setting, not the Mac's. The material behind the
+window, and every menu and panel macOS draws for it, take the app's appearance — and Light on a Mac set
+to Dark laid a light ground over a dark material, so the whole window came out mid-grey (the sidebar
+measured `#a8a8ab` where Codex's measures `#f7f7f7`). `main/appearance.ts` sets it from the preference.
+And the light face shows far less of the desktop than the dark one: a wallpaper is almost always
+darker and more saturated than near-white paper, so the dark face's alphas read as a grey-blue wash in
+light. Judge light mode on a real screen over a dark, saturated wallpaper — a CDP capture has no
+material in it and looks fine either way.
+
 Both faces keep ONE depth order: the frame (sidebar, wells) under the canvas, the surface (cards, the
 composer, floating things) over it, about one perceptible step each way. Light mode once had its frame
 LIGHTER than its canvas, which made the sidebar the brightest region in the window and drew every
