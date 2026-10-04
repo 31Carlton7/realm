@@ -34,6 +34,17 @@ describe("the sidebar's remembered choices", () => {
     }
   });
 
+  it("lets a choice made while the settings are read win over what they said", async () => {
+    const { store } = await booted({ "ui.sidebarLens": "spaces", "ui.sidebarCollapsedSpaces": [] });
+    // The read is in flight when the person picks: the picks land before it answers.
+    const reading = store.getState().hydrateSidebarPrefs();
+    await store.getState().setSidebarLens("recent");
+    await store.getState().setSpaceSectionCollapsed("s1", true);
+    await reading;
+    expect(store.getState().sidebarLens).toBe("recent");
+    expect(store.getState().sidebarCollapsedSpaces).toEqual(["s1"]);
+  });
+
   it("writes the lens when it changes", async () => {
     const { api, store } = await booted();
     await store.getState().setSidebarLens("recent");

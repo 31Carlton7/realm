@@ -3745,10 +3745,14 @@ await get().refreshCustomThemes().catch(() => {});
       sidebarLens: "spaces",
       sidebarCollapsedSpaces: [],
       async hydrateSidebarPrefs() {
+        const before = { lens: get().sidebarLens, folded: get().sidebarCollapsedSpaces };
         const [lens, folded] = await Promise.all([api.getSetting("ui.sidebarLens"), api.getSetting("ui.sidebarCollapsedSpaces")]);
         // Anything but the two words, or a list of ids, reads as the resting state: Spaces, all open.
-        set({ sidebarLens: lens === "recent" ? "recent" : "spaces",
-          sidebarCollapsedSpaces: Array.isArray(folded) ? folded.filter((id): id is string => typeof id === "string") : [] });
+        // A choice made while the settings were being read wins over what they said.
+        if (get().sidebarLens === before.lens) set({ sidebarLens: lens === "recent" ? "recent" : "spaces" });
+        if (get().sidebarCollapsedSpaces === before.folded) {
+          set({ sidebarCollapsedSpaces: Array.isArray(folded) ? folded.filter((id): id is string => typeof id === "string") : [] });
+        }
       },
       async setSidebarLens(lens) {
         set({ sidebarLens: lens });
