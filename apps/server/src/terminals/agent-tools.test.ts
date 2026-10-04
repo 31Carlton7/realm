@@ -271,6 +271,23 @@ describe("whose terminal it is", () => {
     expect(calls.gates.map((g) => g.toolKey)).toEqual(["terminal_write:t1", "terminal_open", `terminal_write:${id}`]);
   });
 
+  /**
+   * THE MUTANT: open the pty and say nothing. The terminal then exists only as a sidebar row — the
+   * app is never told to put it beside the session that asked, so the user cannot watch it.
+   */
+  it("tells the app which session opened it, so it lands in that session's side pane", async () => {
+    const { call, calls } = setup();
+    const id = text(await call("terminal_open", {})).match(/Opened terminal (\w+)/)![1]!;
+    expect(calls.broadcasts.filter((b) => b.event === "terminal.agentOpened"))
+      .toEqual([{ event: "terminal.agentOpened", payload: { spaceId: SPACE, terminalId: id, itemId: `item-${id}`, openedBy: SESSION } }]);
+  });
+
+  it("says nothing when the open was refused", async () => {
+    const { call, calls } = setup({ gate: { allowed: false, reason: "no" } });
+    await call("terminal_open", {});
+    expect(calls.broadcasts.filter((b) => b.event === "terminal.agentOpened")).toEqual([]);
+  });
+
   it("stops calling a terminal its own once it has closed it", async () => {
     const { call, calls } = setup();
     const id = text(await call("terminal_open", {})).match(/Opened terminal (\w+)/)![1]!;

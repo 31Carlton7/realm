@@ -1836,6 +1836,10 @@ export const Events = {
    *  (`items.changed` was broadcast too); this brings the pane INTO the layout beside the session, for
    *  `browser.agentOpened`'s reason — a device an agent is running an app on is one the user watches. */
   "simulator.agentOpened": z.object({ spaceId: IdSchema, simulatorId: IdSchema, itemId: IdSchema, openedBy: IdSchema }),
+  /** An agent opened a terminal via `terminal_open`. The row + item already exist (`items.changed`
+   *  was broadcast too); this brings the pane INTO the layout as a tab of the opener's side pane, for
+   *  `browser.agentOpened`'s reason — a shell an agent is typing into is one the user watches. */
+  "terminal.agentOpened": z.object({ spaceId: IdSchema, terminalId: IdSchema, itemId: IdSchema, openedBy: IdSchema }),
   /** The notifications feed changed (Plan 12 W5). `unread` is the fresh global unread count — the
    *  sidebar pill applies it directly, so the count has exactly one derivation site (the server's).
    *  `notification` is the row an event just created or re-surfaced, so the renderer can react to it

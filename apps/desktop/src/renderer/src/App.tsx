@@ -22,11 +22,11 @@ import { getTerminalHub } from "./panes/terminal-hub";
 import { getBrowserBridges } from "./panes/browser/browser-client";
 import { GroupBar } from "./components/GroupBar";
 import { Onboarding } from "./components/Onboarding";
-import { StoreContext, createAppStore, useApp } from "./state/store";
-import { useStore } from "zustand";
+import { StoreContext, createAppStore, useApp, type AppState } from "./state/store";
+import { useStore, type StoreApi } from "zustand";
 import { liveApi } from "./state/live-api";
 import { rpc } from "./rpc/client";
-import { emptyLayout } from "@realm/contracts";
+import { emptyLayout, type EventPayload } from "@realm/contracts";
 import { useApplyTheme } from "./theme/useTheme";
 import { useZoom } from "./theme/zoom";
 import { installRubberBand } from "./rubber-band";
@@ -358,6 +358,25 @@ export function Main() {
   );
 }
 
+/** The broadcasts that bring an agent-opened pane into the layout. Exported for its test. */
+export const AGENT_PANE_EVENTS = ["browser.agentOpened", "simulator.agentOpened", "terminal.agentOpened"] as const;
+type AgentPaneEvent = (typeof AGENT_PANE_EVENTS)[number];
+
+/**
+ * An agent opened a browser (`browser_open`), a device (`simulator_open`) or a shell (`terminal_open`):
+ * bring it into the layout as a tab of the side pane of the session that opened it, not as a column
+ * beside whatever has focus. The user WATCHES what an agent drives, and a browser's native view only
+ * exists once its pane mounts. The terminal was the one missing here, so an agent's shell was a row in
+ * the sidebar and nowhere on screen.
+ */
+export function subscribeAgentPanes(
+  store: StoreApi<AppState>,
+  on: <E extends AgentPaneEvent>(event: E, fn: (payload: EventPayload<E>) => void) => () => void,
+): () => void {
+  const offs = AGENT_PANE_EVENTS.map((event) => on(event, (p) => { const st = store.getState(); st.run(() => st.applyAgentPaneOpened(p)); }));
+  return () => { for (const off of offs) off(); };
+}
+
 export function App() {
   const store = useMemo(() => createAppStore(liveApi()), []);
   /* One keymap, one handler. The three hooks this replaces each owned a slice of the keyboard and
@@ -455,14 +474,7 @@ export function App() {
       const st = store.getState();
       if (st.spaceMemory[spaceId]) st.run(() => st.refreshMemory(spaceId));
     });
-    // An agent opened a browser pane (Plan 11 W3): bring it into the layout — the whole point of the
-    // architecture is that the user WATCHES agent-driven browsing, and the native view only exists
-    // once the pane mounts. It goes in as a tab of the side pane of the session that opened it, not as
-    // a column beside whatever has focus. Other spaces just gain the sidebar item via items.changed.
-    const offB = rpc().on("browser.agentOpened", (p) => { const st = store.getState(); st.run(() => st.applyAgentPaneOpened(p)); });
-    // An agent opened a device with `simulator_open`: the same idiom, for the same reason — the user
-    // watches the app the agent is running, and the pane's own "Booting…" is the progress worth seeing.
-    const offSO = rpc().on("simulator.agentOpened", (p) => { const st = store.getState(); st.run(() => st.applyAgentPaneOpened(p)); });
+    const offB = subscribeAgentPanes(store, (event, fn) => rpc().on(event, fn));
     // A session delegated a browsing goal to a browser-agent session (Plan 11 W5): same idiom — the
     // child is a real session, and the point of it being one is that the user watches its whole
     // trace, so it comes into the layout the moment it exists. Other spaces gain the sidebar item
@@ -557,7 +569,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offSc(); offI(); offV(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offSO(); offDO(); offSA(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offSc(); offI(); offV(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offDO(); offSA(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);
