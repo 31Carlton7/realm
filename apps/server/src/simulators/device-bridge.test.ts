@@ -312,6 +312,8 @@ describe("the picture, as live video", () => {
     v.feeds[0]!.frame(1);
     v.feeds[0]!.ready();
     await until(() => told.length === 1);
+    // Parked on the feed: no screenshot for a while, so nothing but the feed's end can wake it.
+    await sleep(100);
     const shots = p.shots();
     v.feeds[0]!.end("failed");
     // THE MUTANT: wait on a feed that is gone. The picture freezes on its last frame.
