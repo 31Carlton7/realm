@@ -29,6 +29,14 @@ describe("ProfileDirectory", () => {
     expect(dir.defaultProfileId()).toBe("pPersonal");
   });
 
+  it("says whose a partition is — a pane's profile, read off its view's cookie jar", async () => {
+    const { dir } = directory([[personal, work]]);
+    await dir.refresh();
+    expect(dir.byPartition("persist:browser")).toEqual(personal);
+    expect(dir.byPartition("persist:browser-pWork")).toEqual(work);
+    expect(dir.byPartition("persist:browser-pGone")).toBeNull();
+  });
+
   it("notices a profile that disappeared between answers, and not on the first answer", async () => {
     const { dir, removed } = directory([[personal, work], [personal]]);
     await dir.refresh();

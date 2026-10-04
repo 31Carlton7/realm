@@ -52,6 +52,10 @@ export class ProfileDirectory {
 
   get(id: string): ProfileFacts | null { return this.known().find((p) => p.id === id) ?? null; }
 
+  /** The profile a partition belongs to — every profile's is its own, so a view's partition says whose
+   *  pane it is. Null for a partition no profile in the last answer holds. */
+  byPartition(partition: string): ProfileFacts | null { return this.known().find((p) => p.browserPartition === partition) ?? null; }
+
   /** The profile that kept the shared partition, which is the one that inherits rows from before
    *  profiles were separate. Null until the server has answered, and if that profile was deleted. */
   defaultProfileId(): string | null {

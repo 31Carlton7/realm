@@ -111,10 +111,14 @@ const profileDirectory = new ProfileDirectory({
  *  nothing — only a guard against a value that is not an id at all. */
 const profileArg = (v: unknown): string => (typeof v === "string" && /^[0-9A-Za-z]{1,64}$/.test(v) ? v : "");
 
-/** Which profile each browser pane belongs to — its space's, as realm-server said when the view was
- *  made. Keyed by browser id, which is unique across windows. What the passkey broker and the fill op
- *  read to find a pane's keys and sign-ins: a pane's secrets are its profile's. */
-const paneProfiles = new Map<string, string>();
+/** Whose a browser pane is: the profile that owns its view's partition — each profile's is its own,
+ *  and the view was made in its space's profile's (`browser:create`). Read off the view itself, so a
+ *  view rebuilt in another profile's jar can never be mistaken for its old profile's. What the passkey
+ *  broker and the fill op read to find a pane's keys and sign-ins: a pane's secrets are its profile's. */
+function profileOfPane(browserId: string): string | null {
+  const partition = paneFor(browserId)?.partitionOf(browserId);
+  return partition ? profileDirectory.byPartition(partition)?.id ?? null : null;
+}
 
 /** Whose browser this is, asked of the server (`browsers.profile`). Null for a pane, space or profile
  *  that is gone — such a pane gets no view rather than a guess at whose cookies to give it. */
@@ -430,7 +434,7 @@ async function createWindow(info: { port: number; home: string; token: string },
   // renderer boots, and a window with no pane surface yet would have nowhere to put it.
   const pane = createBrowserPane(win, (paneId, cdp) => passkeys.install(paneId, cdp)); // destroys its views on win "closed" itself
   windowPanes.set(win.id, { win, pane });
-  pane.onViewDestroyed((id) => { agentHost.release(id); passkeys.release(id); paneProfiles.delete(id); });
+  pane.onViewDestroyed((id) => { agentHost.release(id); passkeys.release(id); });
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else await win.loadFile(join(__dirname, "../renderer/index.html"));
   if (savedWindow?.fullScreen) win.setFullScreen(true);
@@ -467,19 +471,19 @@ const passkeys = new PasskeyBroker({
   pageUrl: (paneId) => paneFor(paneId)?.pageState(paneId)?.url ?? null,
   // A pane's passkeys are its profile's. A pane main has no profile for has none.
   hasPasskeyFor: (paneId, rpId) => {
-    const profileId = paneProfiles.get(paneId);
+    const profileId = profileOfPane(paneId);
     return profileId ? secrets()?.hasPasskeyFor(profileId, rpId) ?? false : false;
   },
   withPasskeysFor: async (paneId, rpId, kind, use) => {
-    const profileId = paneProfiles.get(paneId);
+    const profileId = profileOfPane(paneId);
     return (profileId ? await secrets()?.withPasskeysFor(profileId, rpId, kind, use) : null) ?? { ok: false, refused: "no_passkey" };
   },
   recordPasskey: (paneId, input) => {
-    const profileId = paneProfiles.get(paneId);
+    const profileId = profileOfPane(paneId);
     if (profileId) secrets()?.recordPasskey(profileId, input);
   },
   notePasskeyUse: (paneId, credentialId, signCount) => {
-    const profileId = paneProfiles.get(paneId);
+    const profileId = profileOfPane(paneId);
     if (profileId) secrets()?.notePasskeyUse(profileId, credentialId, signCount);
   },
   // Biometrics only, like every other presence check here: `promptTouchID` has no password
@@ -514,7 +518,7 @@ const agentHost = new BrowserAgentHost({
     withCredentialValue: async (profileId, id, use) => secrets()?.withCredentialValue(profileId, id, use) ?? { ok: false, refused: "no_credential" },
     audit: (entry) => secrets()?.audit(entry),
   },
-  profileOf: (id) => (paneFor(id) ? paneProfiles.get(id) ?? null : null),
+  profileOf: (id) => profileOfPane(id),
   downloads: downloadGovernor,
   // The `upload` op's drop route, and nothing else. The path is already resolved, symlink-checked,
   // confined and user-approved by the time it reaches here — realm-server did all of that before
@@ -565,14 +569,14 @@ ipcMain.handle("browser:create", async (e, id: string, url: string, allowlist: s
   if (!owner) throw new Error("This browser's space or profile is gone, so it has nowhere to open.");
   const pane = senderPane(e.sender);
   if (!pane) return;
+  // Known to main before the view is made, so the pane's profile can be read off its partition from
+  // the first request its page makes — a profile made a moment ago may not be in the last answer yet.
+  await profileDirectory.resolve(owner.profileId);
   // A view composites into ONE window. The same browser asked for in another window — its profile
   // moved windows — is closed where it was before it opens here.
   for (const other of windowPanes.values()) if (other.pane !== pane) other.pane.host.destroy(browserId);
   governBrowserDownloads(owner.partition, downloadPolicy);
   pane.host.create(browserId, url, allowlist, owner.partition);
-  // Noted AFTER the view is made: a view rebuilt in a new profile's jar destroys the old one first,
-  // and destroying a view forgets whose it was.
-  paneProfiles.set(browserId, owner.profileId);
 });
 /* The browser was closed or deleted: no window keeps a view of it. */
 ipcMain.handle("browser:destroy", (_e, id: string) => { for (const { pane } of windowPanes.values()) pane.host.destroy(String(id)); });
@@ -651,7 +655,7 @@ ipcMain.handle("browser:menu-state", (e, id: string): BrowserMenuState => {
   const browserId = String(id);
   const browserHost = paneFor(browserId, e.sender)?.host;
   const zoom = browserHost?.zoom(browserId, null) ?? 1;
-  const own = paneProfiles.get(browserId);
+  const own = profileOfPane(browserId);
   return {
     zoom,
     canZoomIn: nextZoomFactor(zoom, "in") > zoom,
@@ -706,7 +710,7 @@ ipcMain.handle("browser:screenshot", async (e, id: string, dir: unknown): Promis
 ipcMain.handle("browser:clear-data", async (e, id: unknown): Promise<{ cleared: boolean; profileId: string | null }> => {
   const browserId = String(id);
   const partition = paneFor(browserId, e.sender)?.partitionOf(browserId) ?? null;
-  const profileId = paneProfiles.get(browserId) ?? null;
+  const profileId = profileOfPane(browserId);
   if (!partition || !profileId) return { cleared: false, profileId: null };
   const profile = await profileDirectory.resolve(profileId);
   const win = BrowserWindow.fromWebContents(e.sender);
