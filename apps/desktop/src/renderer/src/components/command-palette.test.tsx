@@ -235,6 +235,16 @@ describe("CommandPalette", () => {
     expect(screen.queryByText(/^Layout: /)).toBeNull();
   });
 
+  it("offers a split while the view has room for a second pane, and none once it shows two", async () => {
+    // THE MUTANT: list both splits always. At two panes the window refuses a third, so each would be
+    // an entry whose only outcome is nothing happening.
+    const { store } = await mount({ items: { s1: [item("i1", "s1", { title: "Notes" }), item("i2", "s1", { title: "Plan" })] } });
+    await act(async () => { await store.getState().openItem("i1"); });
+    expect(options().filter((o) => /Split (right|down)/.test(o ?? ""))).toHaveLength(2);
+    await act(async () => { await store.getState().openItemBeside("i2"); });
+    await waitFor(() => expect(options().filter((o) => /Split (right|down)/.test(o ?? ""))).toEqual([]));
+  });
+
   it("⌘K toggles the palette (still guarded by sheets)", () => {
     const store = createAppStore(fakeApi());
     renderHook(() => usePaletteHotkey(store));

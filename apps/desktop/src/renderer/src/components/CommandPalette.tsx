@@ -1,5 +1,5 @@
 import { Icon, THEMES, themeModes } from "@realm/ui";
-import { AGENT_META, SELECTABLE_AGENT_KINDS, chordsForCommand, displayKeyChord, emptyLayout, itemIdOfLeaf, allItems as openItemIds, type DestinationPageKind, type Item, type SearchResults, type SearchSnippet } from "@realm/contracts";
+import { AGENT_META, SELECTABLE_AGENT_KINDS, VIEW_MAX_PANES, chordsForCommand, displayKeyChord, emptyLayout, itemIdOfLeaf, primaryLeaves, allItems as openItemIds, type DestinationPageKind, type Item, type SearchResults, type SearchSnippet } from "@realm/contracts";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import type { StoreApi } from "zustand";
 import { centerOverComplement } from "../state/no-overlay";
@@ -337,8 +337,12 @@ function PaletteBody({ closing }: { closing: boolean }) {
         act(`open-${noun}`, `Open ${noun}`, kind, () => openDestinationPage(kind))) : []),
       // Global (every space's calls, W7) — unlike the space page above, it never needs an activeSpaceId.
       act("mcp-activity", "MCP Activity", "tool", () => run(() => openActivity())),
-      act("split-right", "Split right", "layout", () => run(() => splitFocused("row")), kbd("pane.splitRight")),
-      act("split-down", "Split down", "layout", () => run(() => splitFocused("col")), kbd("pane.splitDown")),
+      // Offered while the view has room for a second pane — at two the window refuses a third, and an
+      // entry whose only outcome is nothing happening is the dead chrome the pane bar leaves out too.
+      ...(primaryLeaves(layout ?? emptyLayout()).length < VIEW_MAX_PANES ? [
+        act("split-right", "Split right", "layout", () => run(() => splitFocused("row")), kbd("pane.splitRight")),
+        act("split-down", "Split down", "layout", () => run(() => splitFocused("col")), kbd("pane.splitDown")),
+      ] : []),
       ...(focusedItem ? [
         act("close-pane", "Close pane", "close", () => run(() => closeFromLayout(focusedItem.id)), kbd("pane.close")),
         // The pane keeps its place in the view either way — this only changes how much room it gets.
