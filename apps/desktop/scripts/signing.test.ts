@@ -106,7 +106,19 @@ describe("macOS consent packaging (Settings → Permissions can only work if the
     // The mutant: Electron's boilerplate ("This app needs access to …"), which tells nobody anything.
     expect(builder).not.toMatch(/This app needs access to/);
     const strings = builder.match(/NS\w+UsageDescription: >-\n(?:\s{6}.+\n)+/g) ?? [];
-    expect(strings).toHaveLength(6);
+    expect(strings).toHaveLength(7);
     for (const s of strings) expect(s).toContain("Realm");
+  });
+
+  it("signed builds may open a capture device, and the camera dialog says it is the iPhone's screen", () => {
+    // Without the entitlement a hardened-runtime phonescreen is refused before any prompt, and a real
+    // phone's picture stays a screenshot a second. MEASURED: the installed Realm, lacking it, was
+    // refused silently — askForMediaAccess answered and the status stayed "not-determined".
+    expect(entitlements).toContain("com.apple.security.device.camera");
+    // The dialog reads "Realm would like to access the camera" — and the person is looking at a
+    // phone, not at this Mac's camera. The string has to say which, or the answer is a no.
+    const camera = builder.match(/NSCameraUsageDescription: >-\n((?:\s{6}.+\n)+)/)?.[1].replace(/\s+/g, " ") ?? "";
+    expect(camera).toMatch(/connected iPhone's screen/);
+    expect(camera).toMatch(/never turns on this Mac's camera/);
   });
 });

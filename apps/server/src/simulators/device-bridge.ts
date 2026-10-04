@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
 import { SIM_WS_OPCODE, SHIFT_USAGE } from "@realm/contracts";
+import type { StartVideo, VideoFeed, VideoStop } from "./phone-video";
 import type { RunnerAct } from "./runner-client";
 
 /**
@@ -16,6 +17,12 @@ import type { RunnerAct } from "./runner-client";
  *
  * Frames are taken only while somebody is watching: the first client starts the loop, the last one to
  * leave stops it. A pane that is off screen drops its `<img>`, so a hidden pane costs the phone nothing.
+ *
+ * Where the Mac can take the phone's screen as VIDEO (`phone-video.ts`: on a cable, with Realm allowed
+ * the camera), that is the picture instead, and the runner takes no screenshots at all. MEASURED on an
+ * iPhone 17 Pro: a screenshot is 773 ms, so the pane ran at one frame a second and a tap waited behind
+ * one; video is 40 frames a second, 32 ms old. Screenshots stay the picture until the first video frame
+ * is out, and whenever there is none — so a feed that never comes is a pane that never goes dark.
  */
 
 export type BridgeRunner = {
@@ -35,7 +42,20 @@ export type BridgeOptions = {
   frameMs?: number;
   /** Keystrokes arriving this close together are typed as one run. */
   typeAfterMs?: number;
+  /** The screen as live video, where this Mac can take it. Absent: screenshots, always. */
+  video?: StartVideo;
+  /** Told when the picture turns into live video (null) or back into screenshots (why). */
+  onStills?: (why: VideoStop | null) => void;
+  /** How long after a feed stops it is tried again, by why it stopped. */
+  retryMs?: Record<VideoStop, number>;
+  /** How long video runs on after the last watcher leaves: an agent's next look usually comes back
+   *  within it, and a feed takes a second to start. */
+  warmMs?: number;
 };
+
+/** A camera not asked for yet is retried soon — the person may be clicking Allow right now. A phone
+ *  with no cable is looked for again rarely: each look waits six seconds for it. */
+const RETRY_MS: Record<VideoStop, number> = { camera: 2_000, "camera-denied": 10_000, "no-cable": 30_000, failed: 30_000 };
 
 /** A finger that moved less than this, in points, did not swipe. */
 const TAP_SLOP = 10;
@@ -51,14 +71,22 @@ export class DeviceBridge {
   private looping = false;
   private closed = false;
   private queue: Promise<unknown> = Promise.resolve();
+  /** The video feed, while one is starting or running; `live` once its first frame is out. */
+  private feed: VideoFeed | null = null;
+  private live = false;
+  /** Why the picture is screenshots, as last told — undefined before anything was. */
+  private stills: VideoStop | null | undefined = undefined;
+  private retryAt = 0;
+  private cool: ReturnType<typeof setTimeout> | null = null;
+  private wake: (() => void) | null = null;
 
-  private constructor(private readonly server: Server, private readonly wss: WebSocketServer, readonly port: number, private readonly o: Required<BridgeOptions>) {
+  private constructor(private readonly server: Server, private readonly wss: WebSocketServer, readonly port: number, private readonly o: BridgeOptions & Required<Pick<BridgeOptions, "frameMs" | "typeAfterMs" | "retryMs" | "warmMs">>) {
     this.streamUrl = `http://127.0.0.1:${port}/stream.mjpeg`;
     this.wsUrl = `ws://127.0.0.1:${port}/ws`;
   }
 
   static async start(options: BridgeOptions): Promise<DeviceBridge> {
-    const o: Required<BridgeOptions> = { frameMs: 250, typeAfterMs: 150, ...options };
+    const o = { frameMs: 250, typeAfterMs: 150, retryMs: RETRY_MS, warmMs: 10_000, ...options };
     const server = createServer();
     const wss = new WebSocketServer({ noServer: true });
     await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", () => resolve()); });
@@ -73,6 +101,8 @@ export class DeviceBridge {
 
   async close(): Promise<void> {
     this.closed = true;
+    this.stopVideo();
+    this.wakeLoop();
     for (const res of this.watchers) res.end();
     this.watchers.clear();
     for (const ws of this.wss.clients) ws.terminate();
@@ -90,10 +120,16 @@ export class DeviceBridge {
       Connection: "close",
     });
     this.watchers.add(res);
+    if (this.cool) { clearTimeout(this.cool); this.cool = null; }
     // The last frame at once, so a pane that reconnects is not black until the next one.
     if (this.latest) this.send(res, this.latest);
-    res.on("close", () => this.watchers.delete(res));
+    res.on("close", () => { this.watchers.delete(res); this.wakeLoop(); });
     void this.loop();
+  }
+
+  private publish(jpeg: Buffer): void {
+    this.latest = jpeg;
+    for (const res of this.watchers) this.send(res, jpeg);
   }
 
   private send(res: ServerResponse, jpeg: Buffer): void {
@@ -108,22 +144,71 @@ export class DeviceBridge {
     this.looping = true;
     try {
       while (!this.closed && this.watchers.size > 0) {
+        this.tryVideo();
+        // Live: the feed pushes its own frames, and the runner is left alone until it stops.
+        if (this.live) { await new Promise<void>((r) => { this.wake = r; }); continue; }
         const t0 = Date.now();
         try {
           // Half size: a quarter of the bytes across the cable, and still sharper than the pane draws it.
           const jpeg = await this.o.runner.screenshot({ format: "jpeg", scale: 0.5, quality: 0.6 });
-          this.latest = jpeg;
-          for (const res of this.watchers) this.send(res, jpeg);
+          // Video went live while this was being taken: it is the older picture, and must not follow.
+          if (!this.live) this.publish(jpeg);
         } catch {
           // A runner mid-restart, or a phone that went to sleep: keep the last picture and look again later.
           await new Promise((r) => setTimeout(r, 1_000));
         }
         const left = this.o.frameMs - (Date.now() - t0);
-        if (left > 0) await new Promise((r) => setTimeout(r, left));
+        if (left > 0 && !this.live) await new Promise((r) => setTimeout(r, left));
       }
     } finally {
       this.looping = false;
+      // Nobody watches: the feed runs on a while for whoever comes back, then stops.
+      if (this.feed && !this.closed && !this.cool) {
+        this.cool = setTimeout(() => { this.cool = null; if (this.watchers.size === 0) this.stopVideo(); }, this.o.warmMs);
+      }
     }
+  }
+
+  private wakeLoop(): void {
+    const w = this.wake;
+    this.wake = null;
+    w?.();
+  }
+
+  /** Start the feed when there is one to start and its retry is due. Never waits for it: screenshots
+   *  go on being the picture until its first frame is out. */
+  private tryVideo(): void {
+    const start = this.o.video;
+    if (!start || this.feed || this.closed || Date.now() < this.retryAt) return;
+    const feed = start((jpeg) => { if (this.feed === feed) this.publish(jpeg); });
+    this.feed = feed;
+    void feed.ready.then(() => {
+      if (this.feed !== feed) return;
+      this.live = true;
+      this.tell(null);
+    });
+    void feed.ended.then((why) => {
+      if (this.feed !== feed) return;
+      this.feed = null;
+      this.live = false;
+      if (why) { this.retryAt = Date.now() + this.o.retryMs[why]; this.tell(why); }
+      this.wakeLoop();
+    });
+  }
+
+  private stopVideo(): void {
+    if (this.cool) { clearTimeout(this.cool); this.cool = null; }
+    const feed = this.feed;
+    this.feed = null;
+    this.live = false;
+    feed?.stop();
+  }
+
+  /** The picture's kind, told once per change. */
+  private tell(why: VideoStop | null): void {
+    if (this.stills === why) return;
+    this.stills = why;
+    this.o.onStills?.(why);
   }
 
   /* ── touch and keys ──────────────────────────────────────────────────────────────────────────── */

@@ -4813,7 +4813,8 @@ await get().refreshCustomThemes().catch(() => {});
         // that is already showing a live stream.
         if (cur && cur.status === next.status && cur.streamUrl === next.streamUrl && cur.wsUrl === next.wsUrl
           && cur.error === next.error && cur.screen?.width === next.screen?.width
-          && cur.screen?.height === next.screen?.height && cur.screen?.orientation === next.screen?.orientation) return;
+          && cur.screen?.height === next.screen?.height && cur.screen?.orientation === next.screen?.orientation
+          && (cur.stills ?? null) === (next.stills ?? null)) return;
         set({ simulatorState: { ...get().simulatorState, [next.simulatorId]: next } });
       },
       applyMachineState(next) {

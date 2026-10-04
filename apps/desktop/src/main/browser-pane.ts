@@ -2,6 +2,7 @@ import { WebContentsView, screen, session, type BrowserWindow, type WebContents 
 import { FAVICON_MAX_BYTES } from "@realm/contracts";
 import { BrowserPaneHost, FAVICON_FETCH_MS, browserUserAgent, createFaviconResolver, isFindShortcut, readCapped, shownPage, type FaviconFetch, type ViewFactory } from "./browser-host";
 import { attachTextContextMenu } from "./text-context-menu";
+import { refuseCapture } from "./capture-guard";
 import type { CdpBinding } from "./browser-agent-host";
 import { asDownloadItem, type DownloadDecision, type DownloadItemLike } from "./downloads";
 import type { PasskeyCdp } from "./passkeys";
@@ -352,7 +353,9 @@ export function applyBrowserUserAgent(partition: string): void {
   userAgentApplied.add(partition);
   const ses = session.fromPartition(partition);
   ses.setUserAgent(browserUserAgent(ses.getUserAgent()));
+  refuseCapture(ses);
 }
+
 
 /**
  * Downloads on the browser partition (Plan 11 W3, narrowed by Plan 23).

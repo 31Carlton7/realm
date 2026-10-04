@@ -5,10 +5,12 @@
 delete process.env.ELECTRON_RUN_AS_NODE;
 
 import { billedGenerators } from "./billed-calls";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { createApp } from "./app";
 import { toolchainAvailable } from "./simulators/service";
 import { PhysicalDevices } from "./simulators/physical";
+import { phoneVideo } from "./simulators/phone-video";
 import { simctl } from "./simulators/simctl";
 import { realLayaRuntime } from "./laya/runtime";
 import { DAEMON_PROTOCOL } from "@realm/contracts";
@@ -37,6 +39,9 @@ try {
     process.exit(3);
   }
   lockedHome = home;
+  // The live-video helper for a real iPhone's picture, as the app handed it over. Absent — a build
+  // without swiftc, a launch that is not the app's — the picture is the runner's screenshots.
+  const phoneScreen = process.env.REALM_PHONESCREEN_BIN && existsSync(process.env.REALM_PHONESCREEN_BIN) ? process.env.REALM_PHONESCREEN_BIN : null;
 
   const app = await createApp({
     home, port, token,
@@ -61,9 +66,11 @@ try {
     laya: realLayaRuntime({ home }),
     // Real iPhones and iPads, through devicectl and Realm's test runner. Only here, for the probe's
     // reason. `REALM_RUNNER_SIMULATOR` names simulators to reach the phone's way instead — the
-    // rehearsal a live check runs before anything is done to a real phone.
-    physicalDevices: (onExit) => new PhysicalDevices({
-      home, simctl: simctl(), onExit,
+    // rehearsal a live check runs before anything is done to a real phone. Their picture is live video
+    // over the cable where the app handed over its `phonescreen` helper (REALM_PHONESCREEN_BIN).
+    physicalDevices: (onExit, onPicture) => new PhysicalDevices({
+      home, simctl: simctl(), onExit, onPicture,
+      ...(phoneScreen ? { video: (name: string) => phoneVideo({ bin: phoneScreen, name }) } : {}),
       rehearsal: (process.env.REALM_RUNNER_SIMULATOR ?? "").split(",").map((u) => u.trim()).filter(Boolean),
     }),
   });

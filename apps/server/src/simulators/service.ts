@@ -12,6 +12,7 @@ import { AndroidStream } from "./android-stream";
 import { ANDROID_KEYCODES, inputRefusal, iosSteps, sendSteps, type DeviceInput, type DevicePoint, type InputChannel } from "./device-input";
 import { watchMjpeg, type ScreenMotion } from "./screen-motion";
 import type { PhysicalDevices } from "./physical";
+import type { VideoStop } from "./phone-video";
 import { RunnerError } from "./device-runner";
 import { RunnerUnreachable } from "./runner-client";
 
@@ -83,6 +84,8 @@ export async function toolchainAvailable(cli: Pick<Simctl, "available"> = simctl
 
 export class SimulatorService {
   private readonly state = new Map<string, SimulatorState>();
+  /** Each real device's picture as its bridge last told it: null live, else why it is screenshots. */
+  private readonly pictures = new Map<string, VideoStop | null>();
   /** Which start is the one anyone is still waiting for. A second press while the first is booting
    *  must not have the first one's failure land on top of the second one's stream. */
   private readonly token = new Map<string, number>();
@@ -523,6 +526,17 @@ export class SimulatorService {
     }
   }
 
+  /** A phone's picture turned into live video (null) or back into screenshots, and why. Kept per device
+   *  as well as put on the panes showing it, because a pane opened later is told nothing by the bridge:
+   *  the bridge tells a change once. */
+  pictureChanged(udid: string, stills: VideoStop | null): void {
+    this.pictures.set(udid, stills);
+    for (const [, st] of this.state) {
+      if (st.udid !== udid || !st.physical || st.status !== "running") continue;
+      this.set({ ...st, stills });
+    }
+  }
+
   /** A runner that stopped on its own. Every pane showing that device says so; none claims to be live. */
   runnerStopped(udid: string, error: RunnerError): void {
     for (const [simulatorId, st] of this.state) {
@@ -667,7 +681,7 @@ export class SimulatorService {
     try {
       const up = await this.real().start(udid);
       if (!current()) return;
-      this.set({ simulatorId, status: "running", udid, serial: null, streamUrl: up.streamUrl, wsUrl: up.wsUrl, screen: up.screen, error: null, detail: null, physical: true });
+      this.set({ simulatorId, status: "running", udid, serial: null, streamUrl: up.streamUrl, wsUrl: up.wsUrl, screen: up.screen, error: null, detail: null, physical: true, stills: this.pictures.get(udid) });
     } catch (e) {
       if (!current()) return;
       /* The code is the word the pane and the tools turn into a sentence of their own, remedy and all;
@@ -721,7 +735,7 @@ export class SimulatorService {
     // a sidebar dot must not repaint because a poll said the same thing twice.
     if (prev && prev.status === next.status && prev.streamUrl === next.streamUrl && prev.error === next.error
       && prev.screen?.width === next.screen?.width && prev.screen?.height === next.screen?.height
-      && prev.screen?.orientation === next.screen?.orientation) return next;
+      && prev.screen?.orientation === next.screen?.orientation && (prev.stills ?? null) === (next.stills ?? null)) return next;
     this.d.rpc.broadcast("simulator.status", next);
     return next;
   }

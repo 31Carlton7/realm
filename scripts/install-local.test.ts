@@ -2,7 +2,7 @@ import { mkdirSync, rmSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { tempDir } from "@realm/test-utils";
-import { findBuiltApp, installLocal, installPaths, sweepable } from "./install-local.mjs";
+import { findBuiltApp, installLocal, installPaths, permissionReset, sweepable } from "./install-local.mjs";
 
 describe("findBuiltApp", () => {
   const dirs: string[] = [];
@@ -34,6 +34,7 @@ describe("installLocal", () => {
     const ops = {
       exists: (path: string) => present.has(path),
       verifyBundle: (path: string, id: string) => calls.push(`verify ${path} ${id}`),
+      signingTeam: (path: string) => (path === "/build/Realm.app" ? "TEAM1" : "TEAM1"),
       runningPids: () => [41],
       keptBundles: () => [],
       daemonEntry: () => null,
@@ -45,7 +46,7 @@ describe("installLocal", () => {
       launch: () => calls.push("launch"),
       ...overrides,
     };
-    const run = () => installLocal({ source: "/build/Realm.app", target: "/Applications/Realm.app", pid: 7, ops: ops as never, log: () => {} });
+    const run = (allowReset = false) => installLocal({ source: "/build/Realm.app", target: "/Applications/Realm.app", pid: 7, ops: ops as never, log: () => {}, allowReset });
     return { calls, ops, present, run };
   }
 
@@ -118,5 +119,58 @@ describe("sweepable", () => {
     // `.previous-1` is a string prefix of `.previous-12`; only a path SEGMENT boundary counts.
     expect(sweepable(["/Applications/.Realm.app.previous-1"], "/Applications/.Realm.app.previous-12/Contents/x"))
       .toEqual(["/Applications/.Realm.app.previous-1"]);
+  });
+});
+
+describe("keeping the owner's macOS permissions", () => {
+  /** A harness whose installed and built apps are signed by the teams given (null = unsigned). */
+  function signed(installed: string | null, built: string | null, present = true) {
+    const calls: string[] = [];
+    const exists = new Set(["/build/Realm.app", ...(present ? ["/Applications/Realm.app"] : [])]);
+    const ops = {
+      exists: (p: string) => exists.has(p),
+      verifyBundle: () => calls.push("verify"),
+      signingTeam: (p: string) => (p === "/build/Realm.app" ? built : installed),
+      runningPids: () => [41], keptBundles: () => [], daemonEntry: () => null,
+      quit: () => calls.push("quit"), waitUntilStopped: () => true,
+      copy: (_f: string, to: string) => { calls.push("copy"); exists.add(to); },
+      move: (f: string, to: string) => { calls.push("move"); exists.delete(f); exists.add(to); },
+      remove: () => calls.push("remove"), launch: () => calls.push("launch"),
+    };
+    const run = (allowReset = false) => installLocal({ source: "/build/Realm.app", target: "/Applications/Realm.app", pid: 7, ops: ops as never, log: () => {}, allowReset });
+    return { calls, run };
+  }
+
+  it("refuses to put an unsigned build over a signed Realm, before quitting or copying anything", () => {
+    const h = signed("FY9QB79VAP", null);
+    // THE MUTANT: no guard. Every macOS grant the owner gave Realm goes with the old signature —
+    // 09-12, "The permission grants always disappear for the mac apps".
+    expect(() => h.run()).toThrow(/signed by team FY9QB79VAP and this build is unsigned\. Installing it would reset every macOS permission/);
+    expect(h.calls).toEqual(["verify"]);
+  });
+
+  it("refuses a build signed by another team too, and names it", () => {
+    expect(() => signed("FY9QB79VAP", "OTHERTEAM1").run()).toThrow(/this build is signed by team OTHERTEAM1/);
+  });
+
+  it("installs a build signed by the same team — the grants stay", () => {
+    const h = signed("FY9QB79VAP", "FY9QB79VAP");
+    h.run();
+    expect(h.calls).toContain("launch");
+  });
+
+  it("installs anyway when told to, and over an unsigned or absent app it has nothing to protect", () => {
+    // THE MUTANT: ignore the override. A deliberate unsigned install would be impossible.
+    expect(signed("FY9QB79VAP", null).run(true)).toBeUndefined();
+    expect(signed(null, null).run()).toBeUndefined();
+    expect(signed(null, "FY9QB79VAP").run()).toBeUndefined();
+    expect(signed(null, null, false).run()).toBeUndefined();
+  });
+
+  it("says what to do, in the refusal itself", () => {
+    const why = permissionReset({ installedTeam: "FY9QB79VAP", builtTeam: null, allowReset: false })!;
+    expect(why).toMatch(/pnpm app:update` signs with your Developer ID when ~\/\.config\/realm-signing\.env names it/);
+    expect(why).toMatch(/REALM_ALLOW_PERMISSION_RESET=1/);
+    expect(permissionReset({ installedTeam: "FY9QB79VAP", builtTeam: "FY9QB79VAP", allowReset: false })).toBeNull();
   });
 });
