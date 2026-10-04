@@ -3514,7 +3514,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       if (cur === s.activeSpaceId) return;
       const pid = s.activeProfileId;
       set({ activeSpaceId: cur, ...(pid && cur && s.lastSpaceByProfile[pid] !== cur ? { lastSpaceByProfile: { ...s.lastSpaceByProfile, [pid]: cur } } : {}) });
-      if (cur && layoutHydrated) void api.setSetting(SETTING_ACTIVE_SPACE, cur).catch(() => {});
+      // Only the first window says where the app was left: a window opened for one profile is that
+      // profile's, and its focus must not decide where the first window opens next launch.
+      if (cur && layoutHydrated && api.boundProfileId() === null) void api.setSetting(SETTING_ACTIVE_SPACE, cur).catch(() => {});
     });
     /* A focus move on its own is saved too, on the debounce: where the keyboard is belongs to the view
        a relaunch brings back, and with it the current space — where a new session goes. A write that
@@ -3735,7 +3737,8 @@ await get().refreshCustomThemes().catch(() => {});
         // A page over the workspace is about a space of the profile being left.
         set({ pageOverlay: null });
         await enterProfile(profileId, get().lastSpaceByProfile[profileId] ?? null);
-        get().run(() => api.setSetting(SETTING_ACTIVE_PROFILE, profileId));
+        // The first window's choice is the app's; a profile's own window keeps its switch to itself.
+        if (api.boundProfileId() === null) get().run(() => api.setSetting(SETTING_ACTIVE_PROFILE, profileId));
       }); },
       async refreshSpaces() {
         const before = profileSpaceIds();
@@ -3743,6 +3746,15 @@ await get().refreshCustomThemes().catch(() => {});
         await hydrateSpaceIcons(spaces);
         set({ spaces });
         await syncProfileSpaces(before);
+        /* A window whose profile has gone — deleted here or in another window — or has no space left
+           shows nothing it could act in. It moves to the first profile that has a space, as the
+           switcher would only ever let it pick one. */
+        const pid = get().activeProfileId;
+        const hasSpace = (id: string) => get().spaces.some((sp) => sp.profileId === id);
+        if (pid && !(get().profiles.some((p) => p.id === pid) && hasSpace(pid))) {
+          const next = get().profiles.find((p) => p.id !== pid && hasSpace(p.id));
+          if (next) await get().selectProfile(next.id);
+        }
       },
       async refreshItems(spaceId = null) {
         const ids = spaceId ? (inProfile(spaceId) ? [spaceId] : []) : profileSpaceIds();

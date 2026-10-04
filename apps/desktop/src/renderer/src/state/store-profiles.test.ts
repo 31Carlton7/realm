@@ -21,6 +21,27 @@ describe("store · profiles made real", () => {
     expect(first.getState().activeSpaceId).toBe("s3");
   });
 
+  it("a profile's own window never writes where the app was left — only the first window does", async () => {
+    // THE MUTANT: drop the guard. A second window switched to School would then make the FIRST window
+    // open in School on the next launch.
+    const spaces = [space("s1", "p1", "Versed"), space("s2", "p2", "Homework"), space("s3", "p3", "Notes")];
+    const profiles = [profile("p1", "Work"), profile("p2", "School"), profile("p3", "Clubs")];
+    const api = fakeApi({ spaces, profiles, boundProfileId: "p2" });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().selectProfile("p3");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(store.getState().activeProfileId).toBe("p3");
+    expect(api.calls.filter((c) => c.startsWith("setSetting:ui.activeProfileId") || c.startsWith("setSetting:ui.activeSpaceId"))).toEqual([]);
+    // The first window, bound to nothing, does write it.
+    const first = fakeApi({ spaces, profiles });
+    const main = createAppStore(first);
+    await main.getState().boot();
+    await main.getState().selectProfile("p3");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(first.calls.some((c) => c.startsWith("setSetting:ui.activeProfileId") && c.includes("p3"))).toBe(true);
+  });
+
   it("creates with a name alone or with an icon and colour, and merges the server's row", async () => {
     const api = fakeApi();
     const store = createAppStore(api);
