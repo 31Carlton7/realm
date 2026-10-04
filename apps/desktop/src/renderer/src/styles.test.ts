@@ -380,23 +380,19 @@ describe("§6 motion table", () => {
     expect(actionsThatFit(metaGone - padding)).toBeGreaterThan(0);
   });
 
-  it("New session and Quick chat are ONE block of two equal rows, not a row with a sub-item", () => {
-    /* Twice now the quick row has been drawn to say "smaller occasion" — once smaller (30px/12.5px),
-       once a rung quieter in ink — and both times it read as a child of the row above it. THE
-       mutant: put either back. The two are alternatives to pick between, so nothing paints a rank.
-       The negative margin cancels `.sb-top`'s gap for this ONE seam; taking it off the container
-       instead would close the seam under the search field too. */
-    const quick = bodiesFor(".quick-row").join(" ");
-    const primary = bodiesFor(".new-row").join(" ");
-    for (const decl of ["color: var(--rl-text-dim)", "min-height: 32px", "border-radius: var(--r-ctl)"]) {
-      expect(quick, decl).toContain(decl);
-      expect(primary, decl).toContain(decl);
+  it("New session is the head row's glyph and Quick chat a keystroke — neither is a row any more", () => {
+    /* Plan 27: the column's first rows were "New session" and "Quick chat", two equal rows of one verb.
+       New session is the ✎ in the head row now (and each space's + on hover), and Quick chat stays a
+       keystroke. THE mutant is the half-removal: the rows deleted and their rules left behind. */
+    for (const sel of [".new-row", ".quick-row", ".new-item", ".sb-head", ".sb-toggle", ".needs-you", ".sb-active", ".space-header"]) {
+      expect(RULES.filter((r) => r.selectors.some((x) => x.split(/[\s:>[]/).includes(sel))), sel).toEqual([]);
     }
-    expect(bodiesFor(".quick-row:hover").join(" ")).toContain("color: var(--rl-text-bright)");
-    expect(bodiesFor(".new-row:hover").join(" ")).toContain("color: var(--rl-text-bright)");
-    // Flush: the row pulls back exactly the gap its container hands out.
-    const gap = /gap: (\d+)px/.exec(bodiesFor(".sb-top").join(" "))?.[1];
-    expect(quick).toContain(`margin: -${gap}px 0 `);
+    // The head row is the 40px band the traffic lights centre in, beside the rail's.
+    expect(bodiesFor(".sb-header").join(" ")).toContain("height: 40px");
+    // The profile's name is the unbounded part of that row, so it is what gives way.
+    expect(bodiesFor(".sb-profile").join(" ")).toContain("min-width: 0");
+    expect(bodiesFor(".sb-profile-name").join(" ")).toContain("text-overflow: ellipsis");
+    expect(bodiesFor(".sb-header-actions").join(" ")).toContain("flex: none");
   });
 
   it("a menu's shortcut reads as a KEY — a filled chip on the chip rung, not more of the sentence", () => {
@@ -2704,19 +2700,15 @@ describe("row and control layout", () => {
     expect(bodiesFor('.item-disclose[aria-expanded="true"] svg').join(" ")).toContain("rotate(90deg)");
   });
 
-  it("a cross-room row's room name keeps its width, and the title is what gives way", () => {
-    /* design.md's yielding order: the title is unbounded and takes the slack; the room's name is
+  it("a cross-space row's space name keeps its width, and the title is what gives way", () => {
+    /* design.md's yielding order: the title is unbounded and takes the slack; the space's name is
        reserved up to a cap. THE MUTANT is letting the name shrink as well — two shrinking items share
-       the shortfall, and a four-letter room comes out as "L." beside a title with room to spare. */
+       the shortfall, and a four-letter space comes out as "L." beside a title with room to spare. */
     const where = bodiesFor(".item-where").join(" ");
     expect(where).toContain("flex: none");
     expect(where).toMatch(/max-width: \d+px/);
     expect(where).toContain("text-overflow: ellipsis");
     expect(bodiesFor(".item-title").join(" ")).toContain("flex: 1");
-    // Docked, not scrolled: the Active list is not a scroller, so it can never need a fade or a rule.
-    const docked = bodiesFor(".sb-active").join(" ");
-    expect(docked).toContain("flex: none");
-    expect(docked).not.toMatch(/overflow(-y)?: (auto|scroll)/);
   });
 
   it("a page pane can shrink to its slot — otherwise it is painted over by the pane beside it", () => {

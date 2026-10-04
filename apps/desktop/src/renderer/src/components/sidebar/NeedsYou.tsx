@@ -1,112 +1,111 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { Session } from "@realm/contracts";
 import { useApp } from "../../state/store";
-import { useAnchoredPopover } from "../use-anchored-popover";
 import { PendingRequest } from "../../panes/session/PendingRequest";
+import { emptyTranscript } from "../../panes/session/transcript-model";
+import { NEEDS_YOU_LABEL, needsYou, type NeedsYouRow } from "./model";
+import { useSidebarState } from "./use-sidebar-model";
+
+const NO_REQUESTS = emptyTranscript().pendingPermissions;
 
 /**
- * The sidebar column's width below which the chip says only its number. Its words are the part of
- * the head band that yields first: at 280 the head holds the chip, the bell, the activity glyph and
- * the toggle with the traffic lights' corner to spare, and narrower than this the words would reach
- * under the lights. The count and the accessible name stay whole at every width.
- */
-export const NEEDS_YOU_WORDS_MIN = 260;
-
-/**
- * "N need you" (W11c): how many sessions, in any space, are waiting on a permission or a question —
- * in the sidebar's head band beside the bell, and absent when none is. The menu-bar item's job with
- * the window open: the count says something is waiting, and the list answers it where it stands.
+ * Needs you: the one list of what waits on an answer (Plan 27).
  *
- * The count is the status map the space strip's badges and the Agents row read, so the three cannot
- * disagree. A question rides the permission channel, so it is counted by the same status.
+ * Sessions waiting on a permission or a question, the longest-waiting first, then the ones that
+ * failed — from every space and every profile, each naming its space (and its profile, when that is
+ * not the one on screen). Drawn only when something is in it. It replaces the head band's "N need
+ * you" pill and the Active section; working and unread are not here, they show in their spaces and
+ * under Recent.
+ *
+ * A row opens its session, as every row in the sidebar does. A waiting row also answers in place:
+ * its disclosure unfolds the session's own request card under it — the transcript's card, through
+ * the same respond call, so an answer given anywhere takes the card away everywhere.
  */
 export function NeedsYou() {
-  const count = useApp((s) => Object.values(s.sessionStatus).filter((st) => st === "waiting_permission").length);
-  if (count === 0) return null;
-  return <Control count={count} />;
+  const state = useSidebarState();
+  const rows = useMemo(() => needsYou(state), [state]);
+  if (rows.length === 0) return null;
+  return (
+    <section className="sb-needs" aria-label="Needs you">
+      <div className="group-label">Needs you</div>
+      <div className="item-list">
+        {rows.map((r) => <NeedsYouItem key={r.session.id} row={r} />)}
+      </div>
+    </section>
+  );
 }
 
-function Control({ count }: { count: number }) {
-  const [open, setOpen] = useState(false);
-  const anchor = useRef<HTMLButtonElement>(null);
-  const roomy = useApp((s) => s.sidebarWidth >= NEEDS_YOU_WORDS_MIN);
-  const name = count === 1 ? "1 session needs you" : `${count} sessions need you`;
+function NeedsYouItem({ row }: { row: NeedsYouRow }) {
+  const spaces = useApp((s) => s.spaces);
+  const profiles = useApp((s) => s.profiles);
+  const activeProfileId = useApp((s) => s.activeProfileId());
+  const revealSession = useApp((s) => s.revealSession);
+  const run = useApp((s) => s.run);
+  const [answering, setAnswering] = useState(false);
+  const disclose = useRef<HTMLButtonElement>(null);
+  const space = spaces.find((sp) => sp.id === row.spaceId);
+  const profile = space && space.profileId !== activeProfileId ? profiles.find((p) => p.id === space.profileId) : undefined;
+  // The space, and the profile only when it is not the one on screen — a short name kept whole while
+  // the title gives way (design.md, the yielding order).
+  const where = [space?.name, profile?.name].filter(Boolean).join(" · ");
+  const waiting = row.status === "waiting_permission";
+  const said = NEEDS_YOU_LABEL[row.status];
+  const answerId = `needs-you-answer-${row.session.id}`;
   return (
     <>
-      <button ref={anchor} type="button" className="needs-you" aria-haspopup="dialog" aria-expanded={open}
-        aria-label={name} title={`${name} — answer here`} onClick={() => setOpen((o) => !o)}>
-        {roomy ? (count === 1 ? "1 needs you" : `${count} need you`) : count}
-      </button>
-      {open && <Waiting anchor={anchor} onClose={() => setOpen(false)} />}
+      <div className="item sb-need" data-actions={waiting ? 1 : 0}>
+        <button type="button" className="item-row" aria-label={`${row.title}${where ? ` in ${where}` : ""} — ${said}`}
+          title={`${row.title}${where ? ` — ${where}` : ""}`} onClick={() => run(() => revealSession(row.session.id, row.spaceId))}>
+          <Icon name={row.scheduled ? "clock" : "session"} size={16} />
+          <span className="item-title">{row.title}</span>
+          {where && <span className="item-where">{where}</span>}
+          <span className="item-trail"><span className="status-dot item-status" data-status={row.status} title={said} /></span>
+        </button>
+        {waiting && (
+          <span className="item-actions">
+            <button ref={disclose} type="button" className="item-disclose" aria-expanded={answering} aria-controls={answering ? answerId : undefined}
+              aria-label={`Answer ${row.title} here`} title={answering ? "Hide the question" : "Answer here"}
+              onClick={() => setAnswering((v) => !v)}>
+              <Icon name="chevronRight" size={12} />
+            </button>
+          </span>
+        )}
+      </div>
+      {waiting && answering && (
+        <AnswerHere id={answerId} session={row.session} onLeave={() => { setAnswering(false); disclose.current?.focus(); }} />
+      )}
     </>
   );
 }
 
 /**
- * The waiting sessions, each with its card answerable in place and a way to the session itself.
+ * The request cards a session is blocked on, under its row. The transcript is loaded here when no
+ * pane ever opened it, which is the board's own way of drawing a pending request.
  *
- * Titles and spaces come from one `sessions.listAll`, re-read whenever any status moves — the Agents
- * page's rule, since this window holds rows for its own space alone. The cards come from the session's
- * transcript, loaded here when no pane ever opened it, which is the feed's own way of drawing a
- * pending permission: one pipeline, so an answer given anywhere takes the card away everywhere.
+ * Escape folds the card and answers nothing: in the transcript a card takes Escape as Deny, and a
+ * person leaving a list they only looked at must never send one. A field being typed in keeps its
+ * own Escape.
  */
-function Waiting({ anchor, onClose }: { anchor: RefObject<HTMLButtonElement | null>; onClose: () => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef: anchor, onClose, returnFocusRef: anchor, exit: true });
-  const status = useApp((s) => s.sessionStatus);
-  const spaces = useApp((s) => s.spaces);
-  const listAll = useApp((s) => s.listAllSessions);
-  const jumpToPermission = useApp((s) => s.jumpToPermission);
-  const run = useApp((s) => s.run);
-  const [rows, setRows] = useState<Session[] | null>(null);
-  useEffect(() => {
-    let live = true;
-    run(async () => { const all = await listAll(); if (live) setRows(all); });
-    return () => { live = false; };
-  }, [listAll, run, status]);
-  // Longest-waiting first: the one that has been blocked the longest is the one owed an answer first.
-  const waiting = useMemo(() => (rows ?? [])
-    .filter((r) => (status[r.id] ?? r.status) === "waiting_permission")
-    .sort((a, b) => a.updatedAt - b.updatedAt), [rows, status]);
-  const spaceName = (id: string) => spaces.find((sp) => sp.id === id)?.name ?? "";
-  const style: CSSProperties = { position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999,
-    visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "top left" };
-  return createPortal(
-    <div ref={ref} role="dialog" aria-label="Waiting on you" className="menu needs-you-pop" style={style}
-      data-closing={closing || undefined} inert={closing}>
-      <ul className="needs-you-list">
-        {waiting.map((s) => (
-          <WaitingSession key={s.id} session={s} spaceName={spaceName(s.spaceId)}
-            onGo={() => { run(async () => { await jumpToPermission(s.id); }); close(); }} />
-        ))}
-      </ul>
-    </div>,
-    document.body,
-  );
-}
-
-function WaitingSession({ session, spaceName, onGo }: { session: Session; spaceName: string; onGo: () => void }) {
-  const transcript = useApp((s) => s.transcripts[session.id]);
+function AnswerHere({ id, session, onLeave }: { id: string; session: Session; onLeave: () => void }) {
+  const loaded = useApp((s) => s.transcripts[session.id] !== undefined);
+  const pending = useApp((s) => s.transcripts[session.id]?.t.pendingPermissions ?? NO_REQUESTS);
   const openSession = useApp((s) => s.openSession);
   const respondPermission = useApp((s) => s.respondPermission);
   const run = useApp((s) => s.run);
-  useEffect(() => { if (!transcript) run(() => openSession(session.id)); }, [session.id, transcript, openSession, run]);
-  const pending = transcript?.t.pendingPermissions ?? [];
+  useEffect(() => { if (!loaded) run(() => openSession(session.id)); }, [loaded, session.id, openSession, run]);
+  const onKeyDownCapture = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Escape" || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    e.preventDefault(); e.stopPropagation();
+    onLeave();
+  };
+  if (pending.length === 0) return null;
   return (
-    <li className="needs-you-session" role="group" aria-label={`${session.title}, in ${spaceName}`}>
-      <div className="needs-you-head">
-        <span className="needs-you-title">{session.title}</span>
-        <span className="needs-you-space">{spaceName}</span>
-        <button type="button" className="icon-btn" aria-label={`Go to ${session.title}`} title="Go to the session" onClick={onGo}>
-          <Icon name="chevronRight" size={14} />
-        </button>
-      </div>
+    <div className="sb-need-answer" id={id} role="group" aria-label={`Waiting in ${session.title}`} onKeyDownCapture={onKeyDownCapture}>
       {pending.map((p) => (
         <PendingRequest key={p.requestId} permission={p} ownsEscape={false}
           onDecide={(...decision) => run(() => respondPermission(session.id, p.requestId, ...decision))} />
       ))}
-    </li>
+    </div>
   );
 }

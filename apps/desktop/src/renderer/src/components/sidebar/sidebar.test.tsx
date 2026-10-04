@@ -30,69 +30,17 @@ describe("Arc sidebar", () => {
 
   it("shows only the active space's items, the space strip with all spaces, and switches on strip click", async () => {
     const { store } = await mount();
-    expect(screen.getByRole("heading", { name: /Versed/ })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: /Homework/ })).not.toBeInTheDocument(); // other pages are aria-hidden
     expect(screen.getByRole("button", { name: "Terminal" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /switch to space/i })).toHaveLength(2);
     expect(screen.getByRole("button", { name: /switch to space Versed/i })).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(screen.getByRole("button", { name: /switch to space Homework/i }));
-    await waitFor(() => expect(screen.getByRole("heading", { name: /Homework/ })).toBeInTheDocument());
-    expect(store.getState().activeSpaceId).toBe("s2");
-    expect(screen.queryByRole("button", { name: "Terminal" })).not.toBeInTheDocument();
-  });
-
-  /* The heading is the COLUMN's, not the page's. One per swiper page meant one "Space menu" per
-     space, all with the same accessible name and told apart only by `inert` — and it put the space's
-     name below the destination rows instead of at the top of its own sidebar. */
-  it("heads the column, above New session and outside the swiper", async () => {
-    const { container, store } = await mount();
-    const header = container.querySelector(".space-header")!;
-    expect(header.closest(".sb-top")).not.toBeNull();
-    expect(header.closest(".swiper")).toBeNull();
-    // The search bar that used to sit between them is a glyph in the header's own actions now.
-    expect(header.nextElementSibling).toHaveClass("new-item");
-    expect(container.querySelector(".search")).toBeNull();
-    expect(screen.getAllByRole("heading")).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: "Space menu" })).toHaveLength(1);
-    // It follows the active space rather than holding whichever one it was mounted with.
-    fireEvent.click(screen.getByRole("button", { name: /switch to space Homework/i }));
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
-    expect(screen.getByRole("heading", { name: /Homework/ })).toBeInTheDocument();
-  });
-
-  /* The feed answers IN the column: it stands where the space's list stands, in the column's own
-     rows, and nothing about it is a sheet over the work. The button is the lens, lit while the feed
-     is the body and flipping back on a second press. */
-  it("gives the column over to the chat feed, from a button beside the collapse toggle", async () => {
-    /* The lens mechanism, which did not change when its content did: a lit button, the swiper giving
-       up the body, and no sheet. What it shows is now the chats — the gateway log's own behaviour is
-       tested against the component in `activity-list.test.tsx`. */
-    const { store, container } = await mount(fakeApi({
-      sessions: [session("se1", "s1", { title: "Fix the login form", updatedAt: Date.now() })],
-    }));
-    const button = () => screen.getByRole("button", { name: "Activity" });
-    expect(button().closest(".sb-head")).not.toBeNull();
-    expect(button()).toHaveAttribute("aria-pressed", "false");
-    expect(container.querySelector(".swiper")).not.toBeNull();
-
-    fireEvent.click(button());
-    await waitFor(() => expect(store.getState().sidebarView).toBe("activity"));
-    // No sheet — the whole point of the change. The space's list gives up the body instead.
-    expect(store.getState().sheet).toBeNull();
-    expect(button()).toHaveAttribute("aria-pressed", "true");
-    await waitFor(() => expect(container.querySelector(".sb-chat-row")).not.toBeNull());
-    expect(container.querySelector(".swiper")).toBeNull();
-    expect(screen.getByText("Fix the login form")).toBeInTheDocument();
-    expect(container.querySelector(".sb-activity .group-label")!.textContent).toBe("Today");
-
-    fireEvent.click(button());
-    await waitFor(() => expect(store.getState().sidebarView).toBe("space"));
-    expect(container.querySelector(".swiper")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Terminal" })).not.toBeInTheDocument();
   });
 
   it("says the feed is empty in its own words, inside the column's own inset", async () => {
     const { container } = await mount();
-    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Recent" }));
     const blank = await waitFor(() => {
       const el = container.querySelector(".sb-activity-empty");
       if (!el) throw new Error("not yet");
@@ -104,22 +52,6 @@ describe("Arc sidebar", () => {
     expect(container.querySelector(".sb-activity")).toHaveClass("sb-activity-blank");
   });
 
-  /* The full-width "Search… ⌘K" button is gone: it was a control the height of a field standing in
-     for a palette one keystroke away, and it cost the column a row of its own height. What has to
-     survive the swap is the CLICK — the palette is not reachable any other way with a pointer — and
-     the shortcut, which moves to the tooltip where a hint that never changes belongs. */
-  it("opens the palette from a glyph in the header's actions, shortcut on the tooltip", async () => {
-    const { store, container } = await mount();
-    const button = screen.getByRole("button", { name: "Search" });
-    expect(button.closest(".space-header-actions")).not.toBeNull();
-    expect(button).toHaveAttribute("title", "Search (⌘K)");
-    expect(container.querySelector(".sb-top .search")).toBeNull();
-    fireEvent.click(button);
-    await waitFor(() => expect(store.getState().paletteOpen).toBe(true));
-  });
-
-  /* The bell, the collapse toggle and the destination rows moved to the rail (Plan 27). THE mutant is
-     the half-done move: the rail draws them and the sidebar still does too, two doors for one page. */
   it("carries no bell, no collapse toggle and no destination rows — the rail does", async () => {
     await mount();
     for (const name of [/Notifications/, /sidebar/, /^Library$/, /^Connections$/, /^Scheduled tasks$/, /^Agents/]) {
@@ -427,61 +359,6 @@ describe("Arc sidebar", () => {
     expect(screen.getByRole("button", { name: "Build" })).toBeInTheDocument();
   });
 
-  it("the sidebar's + creates a session on the first click — no menu, no sheet, nothing to answer (W3)", async () => {
-    const { store, api } = await mount();
-    const plus = screen.getByRole("button", { name: "New session" });
-    expect(screen.queryByRole("menu")).toBeNull();
-    fireEvent.click(plus);
-    await waitFor(() => expect(Object.keys(store.getState().sessions)).toHaveLength(1));
-    expect(screen.queryByRole("menu")).toBeNull();
-    expect(store.getState().sheet).toBeNull();
-    expect(api.calls).toContain("createSession:claude");
-    const created = Object.values(store.getState().sessions)[0]!;
-    expect(store.getState().items.some((i) => i.kind === "session" && i.refId === created.id)).toBe(true);
-    // The tooltip names the agent you'll actually get, and follows the last-used memory.
-    expect(plus).toHaveAttribute("title", "New Claude session (⌘N)");
-    await waitFor(() => expect(screen.getByRole("button", { name: "New session" })).toHaveAttribute("title", "New Claude session (⌘N)"));
-    await act(() => store.getState().newSession({ agentKind: "codex" }));
-    expect(screen.getByRole("button", { name: "New session" })).toHaveAttribute("title", "New Codex session (⌘N)");
-  });
-
-  it("the New session row is draggable without creating until it is dropped", async () => {
-    const { store, api } = await mount();
-    const button = screen.getByRole("button", { name: "New session" });
-    const row = button.closest(".new-item")!;
-    expect(row).toHaveAttribute("draggable", "true");
-    const setData = vi.fn();
-    fireEvent.dragStart(row, { dataTransfer: { setData, effectAllowed: "", types: [], getData: () => "" } });
-    expect(setData).toHaveBeenCalledWith("application/x-realm-new-session", "new-session");
-    expect(row).toHaveAttribute("data-dragging");
-    expect(api.calls.filter((c) => c.startsWith("createSession"))).toEqual([]);
-    expect(Object.keys(store.getState().sessions)).toHaveLength(0);
-    fireEvent.dragEnd(row);
-    expect(row).not.toHaveAttribute("data-dragging");
-  });
-
-  it("the space menu opens a session in a fresh worktree, leaving \"+\" as the no-questions path (W2)", async () => {
-    const { store, api } = await mount();
-    fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
-    fireEvent.click(within(screen.getByRole("menu", { name: "Space menu" })).getByText("New session in a worktree"));
-    await waitFor(() => expect(api.calls).toContain("createWorktree:s1"));
-    await waitFor(() => expect(Object.keys(store.getState().sessions)).toHaveLength(1));
-    const env = api.data.environments.s1![0]!;
-    const created = Object.values(store.getState().sessions)[0]!;
-    // Pinned to the worktree, and its cwd follows the environment rather than the space folder (W1).
-    expect(created.environmentId).toBe(env.id);
-    expect(created.cwd).toBe(env.path);
-    expect(store.getState().environments[env.id]).toMatchObject({ kind: "worktree" });
-  });
-
-  it("menus render in a portal with fixed positioning so ancestor overflow can't clip them (regression: the swiper's overflow:clip was hiding menus)", async () => {
-    await mount();
-    fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
-    const menu = screen.getByRole("menu", { name: "Space menu" });
-    expect(menu.parentElement).toBe(document.body);
-    expect(menu.style.position).toBe("fixed");
-  });
-
   it("dragging a strip icon onto another reorders spaces", async () => {
     const { store, api } = await mount();
     const versed = screen.getByRole("button", { name: /switch to space Versed/i });
@@ -517,36 +394,6 @@ describe("Arc sidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: /switch to space Homework/i }));
     await waitFor(() => expect(pages[1]!.hasAttribute("inert")).toBe(false));
     expect(pages[0]!.hasAttribute("inert")).toBe(true);
-  });
-
-  it("the head row names the SPACE and nothing else — no profile pill, no Settings row", async () => {
-    /* Both were doors that cost the column its scarcest space. The pill spelled the profile out
-       beside the space's own name and squeezed it to "Rea…"; Settings held a line of the destination
-       nav for something that is not a place you go to look at your work. Each is one control away:
-       the profile chip at the foot of the column names the profile and opens both. */
-    const { store } = await mount();
-    expect(screen.queryByRole("button", { name: "Work" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Settings" })).toBeNull();
-    // …and the space's own name is still its own button, which is the row's actual subject.
-    expect(screen.getByRole("button", { name: "Versed" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "New space" }));
-    expect(store.getState().sheet).toEqual({ kind: "new-space" });
-  });
-
-  it("the header title row itself opens the space PAGE (the transcription's front door)", async () => {
-    const { store } = await mount();
-    const layout = JSON.stringify(store.getState().layout);
-    fireEvent.click(screen.getByRole("button", { name: "Versed" }));
-    await waitFor(() => expect(store.getState().pageOverlay).toEqual({ kind: "space-page", refId: "s1", spaceId: "s1" }));
-    // Over the workspace, not in it: the layout the user arranged is untouched.
-    expect(JSON.stringify(store.getState().layout)).toBe(layout);
-  });
-
-  it("the space menu's Open space opens the page — the sheet's ⋯ entry point did not go dead", async () => {
-    const { store } = await mount();
-    fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Open space" }));
-    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("space-page"));
   });
 
   it("OPEN label is absent when nothing is open; unopened items render under SESSIONS", async () => {
@@ -935,57 +782,6 @@ describe("paneMapOf — the arrangement itself, not a category of arrangement", 
   });
 });
 
-describe("the space switcher", () => {
-  /* A second door to the same place the strip at the foot of the column already is — but next to the
-     NAME, which is where you look when the question is "which space am I in". The strip answers a
-     different question ("which others are there") and answers it without naming them. */
-  const two = () => fakeApi({
-    spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Ledger")],
-  });
-
-  it("does not steal the title's click — that still opens the space page", async () => {
-    // The title has opened the page since Plan 12. Turning it into a switcher would move a door
-    // somebody already knows where to find, which is why the caret is its own control.
-    await mount(two());
-    // Named by its content, which is the space's own name — `title` is a tooltip, not a name.
-    const title = document.querySelector(".space-title") as HTMLButtonElement;
-    expect(title.textContent).toContain("Versed");
-    expect(title.getAttribute("aria-haspopup")).toBe(null);
-    expect(screen.getByRole("button", { name: "Switch space" })).not.toBe(title);
-  });
-
-  it("lists every space, with its own icon and a check on the one you are in", async () => {
-    await mount(two());
-    fireEvent.click(screen.getByRole("button", { name: "Switch space" }));
-    const menu = await screen.findByRole("menu", { name: "Spaces" });
-    const rows = within(menu).getAllByRole("menuitemcheckbox");
-    expect(rows.map((r) => r.textContent)).toEqual(["Versed", "Ledger"]);
-    // The icon slot is what makes a space recognisable at a glance; without it this is a list of
-    // words that happen to be space names.
-    expect(rows[0]!.querySelector("svg")).not.toBeNull();
-    expect(rows.filter((r) => r.getAttribute("aria-checked") === "true").map((r) => r.textContent)).toEqual(["Versed"]);
-  });
-
-  it("switches on select", async () => {
-    const { store } = await mount(two());
-    fireEvent.click(screen.getByRole("button", { name: "Switch space" }));
-    const menu = await screen.findByRole("menu", { name: "Spaces" });
-    await act(async () => { fireEvent.click(within(menu).getByRole("menuitemcheckbox", { name: /Ledger/ })); });
-    await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
-  });
-
-  it("picking the space you are already in does nothing at all", async () => {
-    /* `selectSpace` refetches the whole item list. Doing that to land where you already are is a
-       flash of an empty column for no reason — the mutant is dropping the guard. */
-    const { store, api } = await mount(two());
-    const before = api.calls.length;
-    fireEvent.click(screen.getByRole("button", { name: "Switch space" }));
-    const menu = await screen.findByRole("menu", { name: "Spaces" });
-    await act(async () => { fireEvent.click(within(menu).getByRole("menuitemcheckbox", { name: /Versed/ })); });
-    expect(store.getState().activeSpaceId).toBe("s1");
-    expect(api.calls.length).toBe(before);
-  });
-});
 
 describe("the other spaces, below the room", () => {
   /* Four rooms over two profiles: you are in Versed, two more share its profile, and Lectures is
@@ -1105,81 +901,6 @@ describe("the other spaces, below the room", () => {
   });
 });
 
-describe("Active — what needs you, from every room", () => {
-  const rooms = (extra: Parameters<typeof fakeApi>[0] = {}) => fakeApi({
-    spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework"), space("s4", "p2", "Lectures")],
-    ...extra,
-  });
-  const active = (c: HTMLElement) => c.querySelector<HTMLElement>(".sb-active");
-  const listed = (c: HTMLElement) => [...(active(c)?.querySelectorAll<HTMLElement>(".item-row") ?? [])];
-  const titles = (c: HTMLElement) => listed(c).map((r) => r.querySelector(".item-title")!.textContent);
-
-  it("is not drawn at all while nothing needs you", async () => {
-    const { container } = await mount(rooms({ sessions: [session("q", "s2", { status: "idle", seenSeq: 3, lastEventSeq: 3 })] }));
-    expect(active(container)).toBeNull();
-  });
-
-  it("lists waiting, then working, then unread, from every room of the profile, each naming its room — above the room", async () => {
-    /* THE MUTANTS: cross the profile (School's Lectures in a Work column), or rank by time alone (a
-       question that has waited sinks under work that moved a second ago). */
-    const { container } = await mount(rooms({ sessions: [
-      session("unread", "s2", { title: "Has news", status: "idle", seenSeq: 2, lastEventSeq: 5, updatedAt: 90 }),
-      session("works", "s1", { title: "Working away", status: "running", updatedAt: 80 }),
-      session("asks", "s2", { title: "Wants a yes", status: "waiting_permission", updatedAt: 10 }),
-      session("read", "s2", { title: "Read already", status: "idle", seenSeq: 5, lastEventSeq: 5 }),
-      session("school", "s4", { title: "Elsewhere entirely", status: "running" }),
-    ] }));
-    expect(titles(container)).toEqual(["Wants a yes", "Working away", "Has news"]);
-    expect(listed(container).map((r) => r.querySelector(".item-where")!.textContent)).toEqual(["Homework", "Versed", "Homework"]);
-    expect(listed(container).map((r) => r.querySelector(".status-dot")!.getAttribute("data-status"))).toEqual(["waiting_permission", "running", "unseen"]);
-    expect(listed(container)[0]).toHaveAccessibleName("Wants a yes in Homework — needs permission");
-    // Docked above the room, not inside its swiping pages: the same list whichever room is underneath.
-    const swiper = container.querySelector(".swiper")!;
-    expect(swiper.contains(active(container))).toBe(false);
-    expect(active(container)!.compareDocumentPosition(swiper) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it("shows a handful, then Show all opens the Agents page", async () => {
-    const { container, store } = await mount(rooms({ sessions: [1, 2, 3, 4, 5, 6].map((n) => session(`w${n}`, "s2", { title: `Working ${n}`, status: "running", updatedAt: n })) }));
-    expect(listed(container)).toHaveLength(4);
-    const all = within(active(container)!).getByRole("button", { name: "Show all 6" });
-    fireEvent.click(all);
-    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("agents-page"));
-  });
-
-  it("leaves out the session you are working in, so your own turns do not push the room around", async () => {
-    const { container, store } = await mount(rooms({
-      spaces: [space("s1", "p1", "Versed", { layout: { type: "leaf", id: "L1", itemId: "i1" } }), space("s2", "p1", "Homework")],
-      items: { s1: [item("i1", "s1", { kind: "session", refId: "mine", title: "Mine" })] },
-      sessions: [session("mine", "s1", { title: "Mine", status: "idle" }), session("asks", "s2", { title: "Wants a yes", status: "waiting_permission" })],
-    }));
-    expect(store.getState().focusedLeafId).toBe("L1");
-    act(() => store.getState().applySessionStatus("mine", "running"));
-    expect(titles(container)).toEqual(["Wants a yes"]);
-  });
-
-  it("a row you open stays put while you read it — and goes when you move on", async () => {
-    /* Opening an unread session reads it, which takes it out of what needs you. Dropped then, the row
-       you just clicked would vanish from under the pointer and the room below would jump up a row. */
-    const { container, store } = await mount(rooms({
-      items: { s1: [item("i1", "s1", { title: "Terminal" })],
-        s2: [item("i2", "s2", { kind: "session", refId: "news", title: "Has news" }), item("i3", "s2", { title: "Shell" })] },
-      sessions: [session("news", "s2", { title: "Has news", status: "idle", seenSeq: 2, lastEventSeq: 5 }),
-        session("asks", "s2", { title: "Wants a yes", status: "waiting_permission" })],
-    }));
-    expect(titles(container)).toEqual(["Wants a yes", "Has news"]);
-    fireEvent.click(listed(container)[1]!);
-    await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
-    await waitFor(() => expect(listed(container)[1]?.closest(".item")).toHaveAttribute("data-active"));
-    // Read: the pane has the keyboard, and the mark catches up with the log.
-    act(() => { const row = store.getState().sessions["news"]!; store.setState({ sessions: { ...store.getState().sessions, news: { ...row, seenSeq: 5 } } }); });
-    expect(titles(container)).toEqual(["Wants a yes", "Has news"]);
-    expect(listed(container)[1]!.querySelector(".status-dot")).toBeNull();
-    // Moving on lets it go.
-    await act(async () => { await store.getState().openItem("i3"); });
-    expect(titles(container)).toEqual(["Wants a yes"]);
-  });
-});
 
 describe("opening a session in another room", () => {
   it("switches the room in place: the page lands with no slide, and nothing is queued to animate", async () => {
@@ -1193,7 +914,7 @@ describe("opening a session in another room", () => {
       sessions: [session("asks", "s2", { title: "Wants a yes", status: "waiting_permission" })],
     }));
     const track = container.querySelector<HTMLElement>(".swiper-track")!;
-    const row = container.querySelector<HTMLElement>(".sb-active .item-row")!;
+    const row = container.querySelector<HTMLElement>(".sb-needs .item-row")!;
     queued = 0;
     fireEvent.click(row);
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
@@ -1201,7 +922,5 @@ describe("opening a session in another room", () => {
     expect(track.style.transform).toBe("translateX(-100%)");
     expect(track.style.transition).toBe("");
     expect(queued).toBe(0);
-    // The row clicked is still there, lit: the list above the room did not change under the pointer.
-    expect(container.querySelector(".sb-active .item")).toHaveAttribute("data-active");
   });
 });
