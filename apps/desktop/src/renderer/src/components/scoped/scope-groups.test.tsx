@@ -108,11 +108,12 @@ describe("the shared group-list component is kept single (W4's structural rule)"
 
   it("every scoped surface renders through ScopeGroups — the Library/Connections pages and the space-page tabs share it, not fork it", () => {
     // LibraryPage's skills tab and ConnectionsPage's body reuse SkillsPanel/McpSection, so the
-    // component set below covers all four surfaces.
+    // component set below covers all four surfaces. The Library's Memory is not one of them any
+    // more: it is an index of every space's document, not one vantage's scoped list, so it has no
+    // "This space / From <profile>" to group by.
     expect(filesMentioning("<ScopeGroups")).toEqual([
       "components/settings/SkillsPanel.tsx",
       "components/sidebar/McpSection.tsx",
-      "panes/library/LibraryPage.tsx",
     ]);
   });
 });

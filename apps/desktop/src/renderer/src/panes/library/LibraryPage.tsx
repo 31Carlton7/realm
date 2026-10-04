@@ -1,16 +1,16 @@
-import type { ProfileMemoryState } from "@realm/contracts";
+import type { MemoryState } from "@realm/contracts";
 import { PageScroll } from "../../components/ScrollFades";
 import { Icon } from "@realm/ui";
 import { useEffect, useState } from "react";
 import { useApp } from "../../state/store";
-import { MemoryReach, SpaceMemoryDoc, memoryReaderNames } from "../../components/settings/MemoryPanel";
+import { memoryReaderNames } from "../../components/settings/MemoryPanel";
+import { MemoryDoc } from "../../components/settings/MemoryDoc";
+import { SpaceIcon } from "../../components/SpaceIcon";
 import { SkillsPanel } from "../../components/settings/SkillsPanel";
-import { ScopeGroups } from "../../components/scoped/ScopeGroups";
 import { LibraryFiles } from "./LibraryFiles";
 import { SkillViewer } from "./SkillViewer";
 import type { PaneProps } from "../registry";
 import { PageRail } from "../../components/page-nav";
-import { Markdown } from "../session/Markdown";
 
 /* Files leads. Skills and memory are what you INSTALL into a space and change rarely; files are
    what the work produced, and they are the reason someone opens a Library at all. */
@@ -39,6 +39,10 @@ type LibraryTab = (typeof LIBRARY_TABS)[number]["id"];
 export function LibraryPage({ item }: PaneProps) {
   const spaceId = item.spaceId;
   const space = useApp((s) => s.spaces.find((x) => x.id === spaceId));
+  /* Files and Memory span every space of the profile, so the head names the profile; Skills is a
+     scoped list seen from ONE space, so it names that space — the vantage is a fact about what the
+     section shows, and the sections show different things. */
+  const profileName = useApp((s) => s.profiles.find((p) => p.id === space?.profileId)?.name ?? "");
   const [tab, setTab] = useState<LibraryTab>("files");
   /* The skill being READ, if any. Store state rather than the tab's kind, because the space page's
      and the profile page's Skills lists open a skill by naming it here and then opening this page —
@@ -92,7 +96,7 @@ export function LibraryPage({ item }: PaneProps) {
         {/* The vantage, kept. It used to live in the sub-title paragraph, and that paragraph went —
             but WHICH space a scope-grouped page is seen from is a fact about what it is showing, not
             decoration, and it is the only place that fact appears. */}
-        <span className="page-vantage">{space.name}</span>
+        <span className="page-vantage">{shown === "skills" ? space.name : profileName}</span>
       </header>
       {openSkill !== null ? (
         <>
@@ -119,37 +123,73 @@ export function LibraryPage({ item }: PaneProps) {
   );
 }
 
+/** The first line a document says something on, for a row that has one line to say what it is
+ *  about: markdown's own marks off, and an imported block's fence skipped. */
+export function gistOf(doc: string): string {
+  for (const raw of doc.split("\n")) {
+    const line = raw.trim();
+    if (line === "" || line.startsWith("<!--")) continue;
+    return line.replace(/^#{1,6}\s+/, "").replace(/^[-*+]\s+/, "").replace(/^\d+[.)]\s+/, "");
+  }
+  return "";
+}
+
 /**
- * The Memory section: this space's document, the profile's beneath it, and how both reach an agent.
+ * The Memory section: what every new session starts with, for every space of the window's profile.
  *
- * The two documents are scoped items like any other, so they sit in the scoping contract's groups —
- * "This space" and "From <profile>" — through ScopeGroups; how they travel is mechanics, under them.
- * The space's own document is the page's working object: it leads, at reading size, as a card that
- * keeps itself (MemoryDoc). The inherited one is a row with its per-space switch and the first lines
- * of what it says, edited only on its own profile's page. Memory has no pre-scoping rows, so no
- * "Everywhere" group can appear here.
+ * Reached from the rail, the Library is not one space's — its files already span the profile — so
+ * its memory is the index of all of it. The profile's own document leads, under "Every space",
+ * because it goes into each of them; then every space with its own, in the sidebar's order. The
+ * space the page was opened from is open with its editor, which keeps the old page's one-click path;
+ * the rest are a line each — name, size, first line — and open in place. A space's own page
+ * (Overview › Memory) still edits that space's alone.
+ *
+ * Profiles stay separate: a window shows its own profile's spaces, as the sidebar beside it does.
  */
 function LibraryMemoryTab({ spaceId }: { spaceId: string }) {
-  const memory = useApp((s) => s.spaceMemory[spaceId]);
-  const space = useApp((s) => s.spaces.find((x) => x.id === spaceId));
+  const vantage = useApp((s) => s.spaces.find((x) => x.id === spaceId));
+  const allSpaces = useApp((s) => s.spaces);
+  const profiles = useApp((s) => s.profiles);
+  const spaceMemory = useApp((s) => s.spaceMemory);
+  const profileMemory = useApp((s) => s.profileMemory);
   const refreshMemory = useApp((s) => s.refreshMemory);
+  const refreshProfileMemory = useApp((s) => s.refreshProfileMemory);
+  const saveProfileMemoryDoc = useApp((s) => s.saveProfileMemoryDoc);
   const run = useApp((s) => s.run);
-  useEffect(() => { run(() => refreshMemory(spaceId)); }, [spaceId, refreshMemory, run]);
+  const profileId = vantage?.profileId ?? null;
+  const profile = profiles.find((p) => p.id === profileId) ?? null;
+  const spaces = allSpaces.filter((x) => x.profileId === profileId);
+  const [open, setOpen] = useState<string | null>(spaceId);
+  const ids = spaces.map((x) => x.id).join(" ");
+  useEffect(() => { for (const id of ids.split(" ")) if (id) run(() => refreshMemory(id)); }, [ids, refreshMemory, run]);
+  useEffect(() => { if (profileId) run(() => refreshProfileMemory(profileId)); }, [profileId, refreshProfileMemory, run]);
+  const own = profileId ? profileMemory[profileId] : undefined;
   return (
     <div className="form settings-panel memory-page">
-      {/* Who it reaches, from the channel table — the one sentence the page needs before anything. */}
-      <p className="page-lede">Every new {memoryReaderNames()} session in {space?.name ?? "this space"} starts with what is written here.</p>
-      <ScopeGroups entries={[
-        {
-          key: "space-doc", scope: { kind: "space", spaceId },
-          row: <li key="space-doc" className="settings-row scope-doc-row"><SpaceMemoryDoc spaceId={spaceId} /></li>,
-        },
-        ...(memory?.profile ? [{
-          key: "profile-doc", scope: { kind: "profile" as const, profileId: memory.profile.profileId },
-          row: <ProfileMemoryRow key="profile-doc" spaceId={spaceId} profile={memory.profile} />,
-        }] : []),
-      ]} />
-      <MemoryReach spaceId={spaceId} />
+      {/* Who reads it, from the channel table — the one sentence the page needs before anything. */}
+      <p className="page-lede">
+        Every new {memoryReaderNames()} session starts with {profile ? `${profile.name}'s` : "its profile's"} memory, then its own space's.
+      </p>
+      {profile && (
+        <>
+          <h3 className="settings-head">Every space</h3>
+          <div className="settings-row scope-doc-row">
+            {own ? (
+              <MemoryDoc key={profile.id} label={`${profile.name} memory document`} doc={own.doc}
+                lead={<span className="memory-doc-title"><Icon name="user" size={16} />{profile.name}</span>}
+                onSave={(text) => saveProfileMemoryDoc(profile.id, text)}
+                placeholder={`Durable context for every ${profile.name} space — conventions, links, standing instructions…`} />
+            ) : <p className="env-empty">Loading…</p>}
+          </div>
+        </>
+      )}
+      <h3 className="settings-head">Each space</h3>
+      <ul className="settings-list memory-spaces">
+        {spaces.map((sp) => (
+          <SpaceMemoryCard key={sp.id} spaceId={sp.id} memory={spaceMemory[sp.id]} open={open === sp.id} current={sp.id === spaceId}
+            profileName={profile?.name ?? "the profile"} onToggle={() => setOpen((o) => (o === sp.id ? null : sp.id))} />
+        ))}
+      </ul>
     </div>
   );
 }
@@ -157,52 +197,86 @@ function LibraryMemoryTab({ spaceId }: { spaceId: string }) {
 const fmt = (n: number): string => n.toLocaleString("en-US");
 
 /**
- * The inherited profile doc, following §2's contract to the letter: the switch is THIS space's
- * override (`memory.setProfileDocEnabled` — it never touches the doc), and the document is edited only
- * on its own profile's page, where the editor names its reach before any keystroke. What it SAYS is
- * shown here, its first lines, so the row answers "what am I inheriting" without a trip — it used to
- * offer a second, inline editor for the same document instead, which made one object open two ways.
+ * One space's memory in the index: a line while it is shut — the space, the first thing its document
+ * says, and how long it is — and, open, the same document the space's own page edits, with the
+ * space's three facts under it: whether the profile's memory goes in here (this space's override,
+ * which never touches the profile document), the opt-in AGENTS.md, and where the file is kept.
  */
-function ProfileMemoryRow({ spaceId, profile }: { spaceId: string; profile: ProfileMemoryState }) {
-  const profiles = useApp((s) => s.profiles);
-  const setProfileDocEnabled = useApp((s) => s.setProfileDocEnabled);
-  const openProfilePage = useApp((s) => s.openProfilePage);
-  const run = useApp((s) => s.run);
-  const [all, setAll] = useState(false);
-  const name = profiles.find((p) => p.id === profile.profileId)?.name ?? "profile";
-  const empty = profile.doc.trim() === "";
-  // Long enough to say what it is about; the rest is a click, or the profile's own page.
-  const lines = profile.doc.trim().split("\n");
-  const long = lines.length > 6 || profile.doc.length > 480;
-  return (
-    <li className="settings-row scope-doc-row profile-memory-row" data-off={!profile.enabledHere || undefined}>
-      <div className="profile-memory-head">
-        <span className="memory-row-mark" aria-hidden="true"><Icon name="user" size={16} /></span>
-        <div className="settings-row-main">
-          <span className="settings-row-name">{name} memory</span>
-          <span className="settings-row-desc">
-            {empty
-              ? "Empty — nothing extra travels into this space's sessions."
-              : `${fmt(profile.doc.length)} characters, injected before this space's own memory.`}
+function SpaceMemoryCard({ spaceId, memory, open, current, profileName, onToggle }: {
+  spaceId: string; memory: MemoryState | undefined; open: boolean; current: boolean; profileName: string; onToggle: () => void;
+}) {
+  const space = useApp((s) => s.spaces.find((x) => x.id === spaceId));
+  const saveMemoryDoc = useApp((s) => s.saveMemoryDoc);
+  if (!space) return null;
+  const doc = memory?.doc ?? "";
+  const empty = doc.trim() === "";
+  const name = (
+    <>
+      <Icon name="chevronRight" size={12} className="memory-space-caret" />
+      <SpaceIcon icon={space.icon} size={16} />
+      <span className="memory-space-name">{space.name}</span>
+      {current && <span className="memory-space-here">This space</span>}
+    </>
+  );
+  if (!open) {
+    return (
+      <li className="settings-row memory-space">
+        <button type="button" className="memory-space-head" aria-expanded={false} onClick={onToggle}>
+          {name}
+          <span className="memory-space-gist" data-empty={empty || undefined}>
+            {memory === undefined ? "" : empty ? "Nothing written yet" : gistOf(doc)}
           </span>
-        </div>
-        <button type="button" className="btn-quiet scope-move" onClick={() => openProfilePage("memory")}>Edit in profile…</button>
-        <input type="checkbox" role="switch" className="switch" aria-label={`${name} memory in this space`}
-          title={`Defined in ${name} — this switch is this space's override.`}
-          checked={profile.enabledHere} onChange={(e) => run(() => setProfileDocEnabled(spaceId, e.target.checked))} />
-      </div>
-      {!empty && (
-        <div className="memory-inherited">
-          <div className="memory-inherited-text" data-clamped={(long && !all) || undefined}>
-            <Markdown text={profile.doc} className="memory-preview" />
-          </div>
-          {long && (
-            <button type="button" className="btn-quiet memory-inherited-more" aria-expanded={all} onClick={() => setAll((v) => !v)}>
-              {all ? "Show less" : "Show all"}
-            </button>
-          )}
-        </div>
+          {!empty && <span className="memory-space-size">{fmt(doc.length)} characters</span>}
+        </button>
+      </li>
+    );
+  }
+  return (
+    <li className="settings-row scope-doc-row memory-space" data-open="">
+      {memory === undefined ? <p className="env-empty">Loading…</p> : (
+        <>
+          <MemoryDoc key={space.id} label={`${space.name} memory document`} doc={memory.doc}
+            lead={<button type="button" className="memory-space-head" aria-expanded onClick={onToggle}>{name}</button>}
+            onSave={(text) => saveMemoryDoc(space.id, text)}
+            placeholder="Conventions, links, standing instructions — anything you would otherwise retype at the start of every session." />
+          <SpaceMemoryFacts spaceId={space.id} spaceName={space.name} memory={memory} profileName={profileName} />
+        </>
       )}
     </li>
+  );
+}
+
+function SpaceMemoryFacts({ spaceId, spaceName, memory, profileName }: { spaceId: string; spaceName: string; memory: MemoryState; profileName: string }) {
+  const setProfileDocEnabled = useApp((s) => s.setProfileDocEnabled);
+  const setAgentsFile = useApp((s) => s.setAgentsFile);
+  const run = useApp((s) => s.run);
+  const af = memory.agentsFile;
+  const reveal = window.realm?.files?.reveal;
+  return (
+    <div className="memory-space-facts">
+      {memory.profile && (
+        <label className="memory-fact" title={`Defined for all of ${profileName} — this switch is ${spaceName}'s override, and leaves the document as it is.`}>
+          <span className="memory-fact-label">{profileName}'s memory goes in here too</span>
+          <input type="checkbox" role="switch" className="switch" aria-label={`${profileName} memory in ${spaceName}`}
+            checked={memory.profile.enabledHere} onChange={(e) => run(() => setProfileDocEnabled(spaceId, e.target.checked))} />
+        </label>
+      )}
+      {af.writable || af.enabled ? (
+        <label className="memory-fact" title={af.path}>
+          <span className="memory-fact-label">
+            Also write AGENTS.md
+            <span className="memory-fact-sub">Agents started from a terminal in this folder read it too{af.exists && !af.managedByRealm ? " — except this one, which Realm did not write" : ""}.</span>
+          </span>
+          <input type="checkbox" role="switch" className="switch" aria-label="Write AGENTS.md into the space folder"
+            checked={af.enabled} onChange={(e) => run(() => setAgentsFile(spaceId, e.target.checked))} />
+        </label>
+      ) : (
+        <p className="memory-fact"><span className="memory-fact-sub">No AGENTS.md here: {af.reason}.</span></p>
+      )}
+      <div className="memory-fact">
+        <span className="memory-fact-label">Stored at <code className="env-path">{memory.path}</code></span>
+        {reveal && <button type="button" className="btn-quiet" onClick={() => { void reveal(memory.path); }}>Show in Finder</button>}
+      </div>
+    </div>
   );
 }

@@ -64,6 +64,10 @@ export const LIBRARY_PAGE_SIZE = 60;
 export const LibraryQuerySchema = z.object({
   /** Null spans every space in the profile, which is what "across all sessions" means. */
   spaceId: z.string().nullable().default(null),
+  /** The profile whose spaces "every space" means — the window's. Without it a null `spaceId` read
+   *  every profile's files, so a Work window's Library listed what Personal's sessions made. Null is
+   *  every profile, for a caller that genuinely wants the whole home. */
+  profileId: z.string().nullable().default(null),
   kind: z.enum(ARTIFACT_KINDS).nullable().default(null),
   /** The broad type a file reads as (`artifactTypeOf`), answered from the stored extension — so a type
    *  narrows the whole index, never only the page already in the renderer. Null is every type. */

@@ -104,6 +104,9 @@ function walkGrid(e: ReactKeyboardEvent<HTMLElement>) {
  */
 export function LibraryFiles({ spaceId }: { spaceId: string }) {
   const libraryArtifacts = useApp((s) => s.libraryArtifacts);
+  // "Every space" is every space of THIS window's profile — profiles are separate homes for their
+  // spaces, and the sidebar beside this page lists only its own.
+  const profileId = useApp((s) => s.spaces.find((x) => x.id === spaceId)?.profileId ?? null);
   const view = useApp((s) => s.libraryView);
   const setLibraryView = useApp((s) => s.setLibraryView);
   const run = useApp((s) => s.run);
@@ -130,10 +133,11 @@ export function LibraryFiles({ spaceId }: { spaceId: string }) {
 
   const params = useCallback((before: { ts: number; id: string } | null) => ({
     spaceId: scope === "space" ? spaceId : null,
+    profileId,
     kind: kind === "all" ? null : kind,
     type: type === "all" ? null : type,
     query, limit: LIBRARY_PAGE_SIZE, before,
-  }), [scope, spaceId, kind, type, query]);
+  }), [scope, spaceId, profileId, kind, type, query]);
 
   // First page, and every re-query a filter or the search box causes.
   useEffect(() => {

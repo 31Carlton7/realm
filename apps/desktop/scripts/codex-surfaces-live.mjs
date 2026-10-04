@@ -379,24 +379,24 @@ async function main() {
     await sleep(800);
     await shoot(c, `library-memory-${face}`);
     // Typed into: the head says what the page has done with it.
-    await evalIn(c, `(() => { const t = document.querySelector('textarea.memory-doc'); t.focus();
+    await evalIn(c, `(() => { const t = document.querySelector('.memory-space[data-open] textarea.memory-doc'); t.focus();
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(t, t.value + String.fromCharCode(10) + "- Ask before deleting anything in drafts/.");
       t.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
     await sleep(150);
-    const edited = await evalIn(c, `document.querySelector('.memory-doc-status').textContent`);
-    await shoot(c, `library-memory-edited-${face}`, await evalIn(c, `(() => { const b = __live.box(document.querySelector('.memory-doc-card').closest('.settings-row')); return { x: b.l - 16, y: b.t - 16, width: b.w + 32, height: Math.min(b.h + 32, 700) }; })()`));
+    const edited = await evalIn(c, `document.querySelector('.memory-space[data-open] .memory-doc-status').textContent`);
+    await shoot(c, `library-memory-edited-${face}`, await evalIn(c, `(() => { const b = __live.box(document.querySelector('.memory-space[data-open] .memory-doc-card').closest('.settings-row')); return { x: b.l - 16, y: b.t - 16, width: b.w + 32, height: Math.min(b.h + 32, 700) }; })()`));
     await sleep(1500);
-    const saved = await evalIn(c, `document.querySelector('.memory-doc-status').textContent`);
+    const saved = await evalIn(c, `document.querySelector('.memory-space[data-open] .memory-doc-status').textContent`);
     const onServer = await api.call("memory.get", { spaceId: session.spaceId });
     check(`Memory (${face}): typing says Edited, a pause writes it, and the head says Saved`,
       edited === "Edited" && saved === "Saved" && onServer.doc.includes("Ask before deleting anything in drafts/."), { edited, saved, tail: onServer.doc.slice(-60) });
-    await shoot(c, `library-memory-saved-${face}`, await evalIn(c, `(() => { const b = __live.box(document.querySelector('.memory-doc-card').closest('.settings-row')); return { x: b.l - 16, y: b.t - 16, width: b.w + 32, height: 120 }; })()`));
-    await evalIn(c, `(() => { document.querySelector('.memory-doc-view input[value="preview"]').click(); return true; })()`);
+    await shoot(c, `library-memory-saved-${face}`, await evalIn(c, `(() => { const b = __live.box(document.querySelector('.memory-space[data-open] .memory-doc-card').closest('.settings-row')); return { x: b.l - 16, y: b.t - 16, width: b.w + 32, height: 120 }; })()`));
+    await evalIn(c, `(() => { document.querySelector('.memory-space[data-open] .memory-doc-view input[value="preview"]').click(); return true; })()`);
     await sleep(500);
     await shoot(c, `library-memory-preview-${face}`);
-    const preview = await evalIn(c, `document.querySelector('.memory-preview h1')?.textContent ?? null`);
+    const preview = await evalIn(c, `document.querySelector('.memory-space[data-open] .memory-preview h1')?.textContent ?? null`);
     check(`Memory (${face}): Preview renders the markdown the agents are handed`, preview === "How we work in Homework", { preview });
-    await evalIn(c, `(() => { document.querySelector('.memory-doc-view input[value="write"]').click(); const s = document.querySelector('.library-page-pane .page-content'); s.scrollTop = s.scrollHeight; return true; })()`);
+    await evalIn(c, `(() => { document.querySelector('.memory-space[data-open] .memory-doc-view input[value="write"]').click(); const s = document.querySelector('.library-page-pane .page-content'); s.scrollTop = s.scrollHeight; return true; })()`);
     await sleep(500);
     await shoot(c, `library-memory-bottom-${face}`);
     await evalIn(c, `__live.library("skills")`);

@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, within } from "@testing-library/rea
 import { PAGE_REF_IDS } from "@realm/contracts";
 import { LibraryPage } from "./LibraryPage";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item, skillRow, type FakeData } from "../../state/store.test-fakes";
+import { space, fakeApi, item, skillRow, type FakeData } from "../../state/store.test-fakes";
 
 /** The pane as PaneHost mounts it: kind is the identity, refId the sentinel, spaceId the vantage. */
 const pageItem = (spaceId: string) =>
@@ -55,54 +55,77 @@ describe("the Library page (Plan 12 W4)", () => {
     expect(document.querySelector(".page-vantage")?.textContent).toBe("Homework");
   });
 
-  it("Memory: the space doc sits under This space with its editor; the profile doc under From Work with the override toggle", async () => {
-    await mount();
+  /* ── Memory: every space of the profile, not just the one the page was opened from ── */
+  const memoryTab = async (overrides: FakeData = {}) => {
+    const r = await mount({ memoryDocs: { s1: "# Versed rules\n\nUse pnpm.", s2: "" }, ...overrides });
     fireEvent.click(screen.getByRole("radio", { name: "Memory" }));
-    const thisSpace = await screen.findByRole("region", { name: "This space" });
-    expect(within(thisSpace).getByRole("textbox", { name: "Space memory document" })).toBeInTheDocument();
-    const fromWork = await screen.findByRole("region", { name: "From Work" });
-    expect(within(fromWork).getByRole("switch", { name: "Work memory in this space" })).toBeChecked();
-    expect(within(fromWork).getByText(/injected before this space's own memory/)).toBeInTheDocument();
+    await screen.findByRole("textbox", { name: "Versed memory document" });
+    return r;
+  };
+
+  it("Memory lists every space of the profile, the page's own space open with its editor", async () => {
+    /* THE mutant: the old page — one space's document, named as if it were the Library's. */
+    const { api } = await memoryTab({
+      spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework"), space("s9", "p2", "Elsewhere")],
+    });
+    const list = document.querySelector(".memory-spaces")!;
+    const names = [...list.querySelectorAll(".memory-space-name")].map((n) => n.textContent);
+    expect(names).toEqual(["Versed", "Homework"]);
+    // Another profile's space is not this window's to show.
+    expect(names).not.toContain("Elsewhere");
+    await waitFor(() => expect(api.calls).toContain("getMemory:s2"));
+    // The shut space is one line: its name and what its document says — here, that nothing is written.
+    const homework = within(list as HTMLElement).getByRole("button", { name: /Homework/ });
+    expect(homework).toHaveAttribute("aria-expanded", "false");
+    expect(homework).toHaveTextContent("Nothing written yet");
+    // The page's own space is marked as such, and its line names what its document is about.
+    expect(within(list as HTMLElement).getByRole("button", { name: /Versed/ })).toHaveAttribute("aria-expanded", "true");
+    expect(document.querySelector(".page-vantage")?.textContent).toBe("Work");
   });
 
-  it("the inherited doc's toggle writes THIS space's override — never the profile doc (named mutant: toggle writing the defining scope)", async () => {
-    const { api } = await mount();
-    fireEvent.click(screen.getByRole("radio", { name: "Memory" }));
-    fireEvent.click(await screen.findByRole("switch", { name: "Work memory in this space" }));
+  it("a space opened from the list edits THAT space's document, and no other", async () => {
+    const { api } = await memoryTab();
+    fireEvent.click(screen.getByRole("button", { name: /Homework/ }));
+    const doc = await screen.findByRole("textbox", { name: "Homework memory document" });
+    // One open at a time: opening Homework folds Versed.
+    expect(screen.queryByRole("textbox", { name: "Versed memory document" })).toBeNull();
+    fireEvent.change(doc, { target: { value: "Cite every source." } });
+    fireEvent.blur(doc);
+    await waitFor(() => expect(api.data.memoryDocs.s2).toBe("Cite every source."));
+    expect(api.data.memoryDocs.s1).toBe("# Versed rules\n\nUse pnpm.");
+  });
+
+  it("the profile's document leads, edited here, and lands on the PROFILE — never a space's", async () => {
+    const { api } = await memoryTab();
+    const doc = await screen.findByRole("textbox", { name: "Work memory document" });
+    expect(doc).toHaveValue("Work-wide standing instruction.");
+    fireEvent.change(doc, { target: { value: "New profile-wide rule." } });
+    fireEvent.blur(doc);
+    await waitFor(() => expect(api.data.profileMemoryDocs.p1).toBe("New profile-wide rule."));
+    expect(api.calls.some((c) => c.startsWith("setMemory:"))).toBe(false);
+  });
+
+  it("a space's switch for the profile's memory writes THAT space's override — never the profile doc (named mutant: toggle writing the defining scope)", async () => {
+    const { api } = await memoryTab();
+    fireEvent.click(await screen.findByRole("switch", { name: "Work memory in Versed" }));
     await waitFor(() => expect(api.calls).toContain("setProfileDocEnabled:s1=false"));
     expect(api.calls.some((c) => c.startsWith("setProfileMemory"))).toBe(false);
-    await waitFor(() => expect(screen.getByRole("switch", { name: "Work memory in this space" })).not.toBeChecked());
-    // The doc itself did not move.
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Work memory in Versed" })).not.toBeChecked());
     expect(api.data.profileMemoryDocs.p1).toBe("Work-wide standing instruction.");
   });
 
-  it("'Edit in profile…' is the PRIMARY affordance and jumps to the profile page's Memory tab (Plan 14 W2)", async () => {
-    const { store } = await mount();
-    fireEvent.click(screen.getByRole("radio", { name: "Memory" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Edit in profile…" }));
-    await waitFor(() => expect((store.getState().pageOverlay?.kind === "profile-page")).toBe(true));
-    expect(store.getState().profilePageTab.p1).toBe("memory");
-    // A jump, not the inline editor.
-    expect(screen.queryByRole("textbox", { name: "Work memory document" })).toBeNull();
+  it("leads with who the memory reaches, from the channel table", async () => {
+    await memoryTab();
+    expect(screen.getByText("Every new Claude and Codex session starts with Work's memory, then its own space's.")).toBeInTheDocument();
   });
 
-  it("shows what the inherited doc SAYS, and offers no second editor for it", async () => {
-    /* The row answers "what am I inheriting" without a trip, and the document is edited in one place:
-       its own profile's page. THE mutants: the row with nothing but a character count (the reader has
-       to leave to learn what travels), or a second, inline editor for the same document. */
-    const { api } = await mount();
-    fireEvent.click(screen.getByRole("radio", { name: "Memory" }));
-    const fromWork = await screen.findByRole("region", { name: "From Work" });
-    expect(within(fromWork).getByText("Work-wide standing instruction.")).toBeInTheDocument();
-    expect(within(fromWork).queryByRole("textbox")).toBeNull();
-    expect(within(fromWork).queryByRole("button", { name: /Edit here/ })).toBeNull();
-    expect(api.calls.some((c) => c.startsWith("setProfileMemory"))).toBe(false);
-  });
-
-  it("leads with who the memory reaches, from the channel table, and the space it is about", async () => {
-    await mount();
-    fireEvent.click(screen.getByRole("radio", { name: "Memory" }));
-    expect(await screen.findByText("Every new Claude and Codex session in Versed starts with what is written here.")).toBeInTheDocument();
+  it("shuts a space to a line that says what its document is about", async () => {
+    await memoryTab();
+    fireEvent.click(screen.getByRole("button", { name: /Versed/ }));
+    const line = await screen.findByRole("button", { name: /Versed/ });
+    expect(line).toHaveAttribute("aria-expanded", "false");
+    // The heading's marks are off: the line says what the document says.
+    expect(line.querySelector(".memory-space-gist")!.textContent).toBe("Versed rules");
   });
 
   it("says so when the page's space is gone, like every page pane", async () => {

@@ -24,7 +24,7 @@ function fresh() {
     spaceId: space.id, projectId: null, agentKind: "fake", model: null, effort: null,
     permissionMode: "default", environmentId: env.id, title: "New session",
   });
-  return { db, home, space, session, sessions, events, artifacts, settings };
+  return { db, home, space, session, sessions, events, artifacts, settings, profile: p, env };
 }
 
 const write = (path: string) => sessionEvent("tool_call", { toolUseId: `t${path}`, name: "Write", input: { file_path: path }, parentToolUseId: null });
@@ -142,6 +142,28 @@ describe("ArtifactsStore", () => {
        (everything). It is the complement — a file with no extension is other too. */
     expect(names("other")).toEqual(["Makefile", "bundle.zip"]);
     expect(names(null)).toHaveLength(6);
+  });
+
+  it("means every space of ONE profile by \"every space\", and counts the same way", () => {
+    /* Profiles are separate homes for their spaces (Plan 27). THE mutant: a null spaceId that reads
+       the whole table, so a Work window's Library lists what Personal's sessions made, and its
+       "nothing here yet" counts them too. */
+    const { db, home, events, session, sessions, artifacts, profile } = fresh();
+    const other = new ProfilesStore(db).create({ name: "Other", icon: "x", color: "#111" });
+    const theirs = new SpacesStore(db, home).create({ profileId: other.id, name: "T", icon: "f" });
+    const theirEnv = new EnvironmentsStore(db).ensurePrimary(theirs.id);
+    const theirSession = sessions.create({
+      spaceId: theirs.id, projectId: null, agentKind: "fake", model: null, effort: null,
+      permissionMode: "default", environmentId: theirEnv.id, title: "Theirs",
+    });
+    events.append(session.id, write("/tmp/mine.md"));
+    events.append(theirSession.id, write("/tmp/theirs.md"));
+    expect(artifacts.list({ profileId: profile.id }).map((a) => a.name)).toEqual(["mine.md"]);
+    expect(artifacts.list({ profileId: other.id }).map((a) => a.name)).toEqual(["theirs.md"]);
+    expect(artifacts.count(null, profile.id)).toBe(1);
+    // Asked for the whole home, it is the whole home.
+    expect(artifacts.list({}).map((a) => a.name).sort()).toEqual(["mine.md", "theirs.md"]);
+    expect(artifacts.count(null)).toBe(2);
   });
 
   it("goes with the session: deleting one takes its files out of the Library", () => {

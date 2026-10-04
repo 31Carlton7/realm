@@ -703,9 +703,13 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return data.searchResults;
     },
     libraryArtifacts: async (q) => {
+      // The profile first, so the query itself stays the call log's last word.
+      if (q.profileId != null) calls.push(`libraryArtifactsProfile:${q.profileId}`);
       calls.push(`libraryArtifacts:${q.spaceId ?? "all"}:${q.kind ?? "any"}:${q.type ?? "any"}:${q.query ?? ""}`);
       await wait("libraryArtifacts");
-      const all = data.artifacts;
+      // A profile narrows to its spaces, as the server's join does.
+      const ofProfile = (spaceId: string) => q.profileId == null || data.spaces.find((x) => x.id === spaceId)?.profileId === q.profileId;
+      const all = data.artifacts.filter((a) => ofProfile(a.spaceId));
       const needle = (q.query ?? "").trim().toLowerCase();
       const matching = all.filter((a) =>
         (q.spaceId == null || a.spaceId === q.spaceId)

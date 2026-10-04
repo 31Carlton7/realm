@@ -5481,23 +5481,45 @@ select { appearance: none; padding-right: 22px;
   font: 14px/1.65 var(--font-content); color: var(--rl-text-bright);
 }
 .memory-doc::placeholder { color: var(--rl-text-faint); }
+/* On a page that lists several documents, a short one is short: it starts at a few lines and grows,
+   so an empty document is not the largest thing on the page. */
+.memory-page .memory-doc, .memory-page .memory-preview, .memory-page .memory-preview-empty { min-height: 96px; }
 .memory-preview { min-height: 220px; padding: 6px 0; font-size: 14px; color: var(--rl-text-bright); }
 .memory-preview > :first-child { margin-top: 0; }
 .memory-preview-empty { margin: 0; min-height: 220px; padding: 6px 0; font-size: 14px; color: var(--rl-text-dim); }
 .memory-doc-foot { display: flex; align-items: center; gap: 12px; }
 /* The count recedes until it matters — it reports a limit almost nobody is near. */
 .memory-doc-count { font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
-/* The inherited document: its row, and what it says under the row, quoted — a tick down its side, the
-   secondary ink, its first lines only until asked. Switched off in this space, it fades with the
-   switch, because it no longer travels. */
-.profile-memory-head { display: flex; align-items: center; gap: 12px; }
-.memory-row-mark { flex: none; display: inline-flex; color: var(--rl-text-faint); }
-.memory-inherited { margin: 12px 0 0 28px; padding: 2px 0 2px 12px; border-left: 2px solid var(--rl-line-strong); }
-.memory-inherited .memory-preview { min-height: 0; padding: 0; font-size: 13px; color: var(--rl-text-dim); }
-.memory-inherited-text[data-clamped] { max-height: 9.5em; overflow: hidden;
-  mask-image: linear-gradient(to bottom, black 55%, transparent); }
-.memory-inherited-more { margin-top: 6px; margin-left: -10px; }
-.profile-memory-row[data-off] .memory-inherited { opacity: 0.5; }
+/* The Library's index of every space's memory. Shut, a space is one line — the caret, its mark and
+   name, the first thing its document says, its size — and the whole line is the button that opens
+   it. Open, the line becomes the document's own head (MemoryDoc's `lead`), so a space never wears two
+   heads, and its three facts sit under the page, inside the card. */
+.memory-doc-title { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
+.memory-doc-title > svg { color: var(--rl-text-dim); }
+.settings-row.memory-space:not([data-open]) { padding: 0; }
+.memory-space-head {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; padding: 14px 16px;
+  border: none; border-radius: inherit; background: none; font: inherit; text-align: left; cursor: default;
+}
+.memory-space:not([data-open]) .memory-space-head:hover { background: var(--rl-hover); }
+.memory-space-head:focus-visible { outline: 1.5px solid var(--rl-accent); outline-offset: -1.5px; }
+.memory-doc-head > .memory-space-head { flex: none; width: auto; padding: 4px 8px; margin: -4px 0 -4px -8px; border-radius: var(--r-ctl); corner-shape: squircle; }
+.memory-doc-head > .memory-space-head:hover { background: var(--rl-hover); }
+.memory-space-caret { flex: none; color: var(--rl-text-faint); transition: rotate var(--dur-hover) ease; }
+.memory-space-head[aria-expanded="true"] .memory-space-caret { rotate: 90deg; }
+.memory-space-name { flex: none; font-size: 14px; font-weight: var(--fw-label); color: var(--rl-text-bright); white-space: nowrap; }
+/* Which space the page was opened from — a fact in words beside the name, not a pill. */
+.memory-space-here { flex: none; font-size: 12.5px; color: var(--rl-text-dim); white-space: nowrap; }
+.memory-space-here::before { content: "·"; margin-right: 8px; }
+.memory-space-gist { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--rl-text-dim); }
+.memory-space-gist[data-empty] { font-style: italic; }
+.memory-space-size { flex: none; font-size: 12.5px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.memory-space-facts { display: flex; flex-direction: column; margin-top: 12px; border-top: var(--hairline-w) solid var(--rl-card-rim); }
+.memory-fact { display: flex; align-items: center; gap: 12px; min-height: 44px; margin: 0; padding: 8px 0; }
+.memory-fact + .memory-fact { border-top: var(--hairline-w) solid var(--rl-card-rim); }
+.memory-fact-label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13.5px; color: var(--rl-text-bright); }
+.memory-fact-sub { font-size: 12.5px; line-height: 1.45; color: var(--rl-text-dim); }
+.memory-fact .env-path { color: var(--rl-text-dim); word-break: normal; overflow-wrap: anywhere; }
 /* Who reads it: each agent's mark and name, inline — identities, not pills. */
 .memory-readers { flex: none; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px 16px; }
 .memory-reader { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--rl-text-bright); }
@@ -7611,13 +7633,18 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .usage-caveats svg { vertical-align: -2px; }
 
 /* ── The page about you (YouPage.tsx) ─────────────────────────────────────
-   The face first: the picture the person chose, or the first letter of their name on the accent's
-   tint until they choose one — the accent being the colour they picked for the app. A circle, the
-   one shape a Mac draws a person's picture in; nothing else on this ladder is a person. */
+   The face first: the picture the person chose, or a person in a circle until they choose one — the
+   picture a Mac gives an account before it has its own. A circle, the one shape a Mac draws a
+   person's picture in; nothing else on this ladder is a person. Every size states its box: the
+   rail's 24 had none, and its fallback came to a bare letter with no circle round it. */
 .avatar { flex: none; display: inline-grid; place-items: center; border-radius: 50%; object-fit: cover; }
-.avatar[data-size="56"] { width: 56px; height: 56px; font-size: 24px; }
-.avatar[data-size="16"] { width: 16px; height: 16px; font-size: 11px; }
-.avatar-initial { background: var(--accent-tint); color: var(--accent-ink); font-weight: var(--fw-title); line-height: 1; user-select: none; }
+.avatar[data-size="56"] { width: 56px; height: 56px; }
+.avatar[data-size="24"] { width: 24px; height: 24px; }
+.avatar[data-size="16"] { width: 16px; height: 16px; }
+/* A neutral disc, not the accent: it stands for a picture nobody has chosen yet, and a coloured one
+   would be a claim about the person. The ink is the row's own, a step up, so it reads on the rail's
+   chrome and in a menu alike. */
+.avatar-placeholder { background: color-mix(in srgb, var(--rl-text-dim) 26%, transparent); color: var(--rl-text-bright); user-select: none; }
 /* The edge every picture in the app gets (`.md img`): white at low alpha on dark, black on light. */
 img.avatar { outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
 :root[data-mode="light"] img.avatar { outline-color: rgba(0, 0, 0, 0.1); }

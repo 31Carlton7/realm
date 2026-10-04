@@ -1,6 +1,6 @@
 import { MEMORY_DOC_MAX } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Markdown } from "../../panes/session/Markdown";
 
 const fmt = (n: number): string => n.toLocaleString("en-US");
@@ -28,9 +28,11 @@ type Status = "edited" | "saving" | "saved" | "over" | "failed" | null;
  * Preview renders the markdown the agents are handed, so a heading reads as one and a link as a
  * link, without leaving the page.
  */
-export function MemoryDoc({ label, doc, placeholder, onSave, editorRef }: {
+export function MemoryDoc({ label, doc, placeholder, onSave, editorRef, lead }: {
   /** The editor's accessible name: which document this is. */
   label: string;
+  /** What leads the head, before the status — whose document this is, where a page lists several. */
+  lead?: ReactNode;
   /** The stored document — what a draft is compared against, and what shows when there is none. */
   doc: string;
   placeholder: string;
@@ -100,6 +102,7 @@ export function MemoryDoc({ label, doc, placeholder, onSave, editorRef }: {
   return (
     <div className="memory-doc-card">
       <div className="memory-doc-head">
+        {lead}
         {/* A status, not a control: it says what the page has done with what you wrote. */}
         <span className="memory-doc-status" role="status" aria-live="polite"
           title={status === "failed" ? "Realm will try again the next time you change the document." : undefined}

@@ -58,6 +58,7 @@ export class ArtifactsStore {
     const where: string[] = [];
     const args: (string | number)[] = [];
     if (q.spaceId !== null) { where.push("s.space_id = ?"); args.push(q.spaceId); }
+    if (q.profileId !== null) { where.push("s.space_id IN (SELECT id FROM spaces WHERE profile_id = ?)"); args.push(q.profileId); }
     if (q.kind !== null) { where.push("a.kind = ?"); args.push(q.kind); }
     if (q.type !== null) {
       // "Other" is everything no type claims, so it is the complement of the whole table of them —
@@ -87,10 +88,12 @@ export class ArtifactsStore {
 
   /** How many rows the index holds, for the page's own "nothing here yet" versus "nothing matches"
    *  distinction — the same distinction the schedules page draws. */
-  count(spaceId: string | null): number {
-    const r = spaceId === null
-      ? this.db.prepare("SELECT COUNT(*) AS n FROM artifacts").get() as { n: number }
-      : this.db.prepare("SELECT COUNT(*) AS n FROM artifacts a JOIN sessions s ON s.id = a.session_id WHERE s.space_id = ?").get(spaceId) as { n: number };
+  count(spaceId: string | null, profileId: string | null = null): number {
+    const r = spaceId !== null
+      ? this.db.prepare("SELECT COUNT(*) AS n FROM artifacts a JOIN sessions s ON s.id = a.session_id WHERE s.space_id = ?").get(spaceId) as { n: number }
+      : profileId !== null
+        ? this.db.prepare("SELECT COUNT(*) AS n FROM artifacts a JOIN sessions s ON s.id = a.session_id WHERE s.space_id IN (SELECT id FROM spaces WHERE profile_id = ?)").get(profileId) as { n: number }
+        : this.db.prepare("SELECT COUNT(*) AS n FROM artifacts").get() as { n: number };
     return r.n;
   }
 

@@ -8,7 +8,7 @@ import { resetThumbnailCache } from "../../components/use-thumbnail";
 import { breakableName } from "../../components/FileCard";
 import { allOnScreen } from "../../components/on-screen.test-fakes";
 import { resetMediaCache } from "../session/media/use-media";
-import { fakeApi, item, session, type FakeData } from "../../state/store.test-fakes";
+import { fakeApi, item, session, space, type FakeData } from "../../state/store.test-fakes";
 
 /** The preload bridge, as the preview and the cards see it. jsdom has none, so every capability the
  *  Library offers has to be stubbed here — and a stub that is MISSING is itself the interesting case,
@@ -147,6 +147,18 @@ describe("the Library's file browser", () => {
     fireEvent.click(screen.getByRole("button", { name: /Uploaded by you/ }));
     await waitFor(() => expect(api.calls.at(-1)).toMatch(/^libraryArtifacts:all:any:/));
     expect(screen.getByRole("button", { name: "Filter files" })).not.toHaveAttribute("data-on");
+  });
+
+  it("means every space of the window's profile by every space, and no other profile's", async () => {
+    /* Profiles are separate homes (Plan 27). THE mutant: a query with no profile, which the server
+       answers with every profile's files — a Work window listing what School's sessions made. */
+    const { api } = await mount({
+      spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework"), space("s9", "p2", "Elsewhere")],
+      artifacts: [file({ id: "ours.md" }), file({ id: "theirs.md", spaceId: "s9", sessionId: "se9" })],
+    });
+    expect(await screen.findByText("ours.md")).toBeTruthy();
+    expect(screen.queryByText("theirs.md")).toBeNull();
+    expect(api.calls).toContain("libraryArtifactsProfile:p1");
   });
 
   it("lays the files out as tiles or as rows, and remembers which", async () => {

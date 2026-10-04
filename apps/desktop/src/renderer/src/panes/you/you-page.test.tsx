@@ -37,10 +37,13 @@ async function mount(over: Parameters<typeof fakeApi>[0] = {}) {
 const tile = (label: string) => screen.getByText(label, { selector: ".stat-label" }).closest(".stat-tile") as HTMLElement;
 
 describe("the page about you", () => {
-  it("is headed by your name, with your initial until a picture is chosen", async () => {
+  it("is headed by your name, with a person in a circle until a picture is chosen", async () => {
     await mount({ usageRecords: full() });
     expect(screen.getByRole("heading", { level: 1, name: "Carlton" })).toBeInTheDocument();
-    expect(document.querySelector(".you-page .page-head .avatar-initial")!.textContent).toBe("C");
+    // THE mutant: the name's first letter back in the circle — the bare "C" at the foot of the rail.
+    const face = document.querySelector(".you-page .page-head .avatar-placeholder")!;
+    expect(face.querySelector("svg")).not.toBeNull();
+    expect(face.textContent).toBe("");
     expect(screen.getByRole("button", { name: "Choose a picture…" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Remove picture" })).toBeNull();
   });
@@ -133,11 +136,11 @@ describe("your picture", () => {
     expect(document.querySelector(".you-page img.avatar")).toBeNull();
   });
 
-  it("comes back from the home on the next launch, and goes back to the initial when removed", async () => {
+  it("comes back from the home on the next launch, and goes back to the person when removed", async () => {
     const { api } = await mount({ avatarPath: "/realm-home/avatar/01J.png" });
     expect(document.querySelector<HTMLImageElement>(".you-page img.avatar")!.getAttribute("src")).toBe(mediaUrl("/realm-home/avatar/01J.png"));
     fireEvent.click(screen.getByRole("button", { name: "Remove picture" }));
-    await waitFor(() => expect(document.querySelector(".you-page .avatar-initial")).not.toBeNull());
+    await waitFor(() => expect(document.querySelector(".you-page .avatar-placeholder")).not.toBeNull());
     expect(api.calls).toContain("clearAvatar");
     expect(screen.getByRole("button", { name: "Choose a picture…" })).toBeInTheDocument();
   });
@@ -148,10 +151,10 @@ describe("your picture", () => {
     expect(document.querySelector<HTMLImageElement>(".you-page img.avatar")!.getAttribute("src")).toBe(mediaUrl("/realm-home/avatar/02K.png"));
   });
 
-  it("falls back to the initial when the copy will not load", async () => {
+  it("falls back to the person when the copy will not load", async () => {
     await mount({ avatarPath: "/realm-home/avatar/gone.png" });
     fireEvent.error(document.querySelector(".you-page img.avatar")!);
-    expect(document.querySelector(".you-page .avatar-initial")!.textContent).toBe("C");
+    expect(document.querySelector(".you-page .avatar-placeholder svg")).not.toBeNull();
   });
 });
 
