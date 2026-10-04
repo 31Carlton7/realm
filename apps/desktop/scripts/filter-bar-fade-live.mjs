@@ -249,6 +249,10 @@ async function main() {
   const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
   const session = (await api.call("sessions.listAll", {}))[0];
+  // Onboarding's session runs the first engine this Mac can — the signed-in, billed one — whatever
+  // REALM_ENABLE_FAKE_AGENT says. Onto the fake before anything is sent: the uploads index off the
+  // user's message, which records its attachments whichever agent reads them.
+  await api.call("sessions.setAgent", { id: session.id, agentKind: "fake" });
   const files = Array.from({ length: 12 }, (_, i) => path.join(scratch, `seed-${i}.md`));
   for (const f of files) fs.writeFileSync(f, "# seed\n");
   await api.call("sessions.send", { id: session.id, text: "here are some files",
