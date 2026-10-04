@@ -23,6 +23,7 @@ import { useKeybindings, useMenuBar } from "./keys";
 import { PaneHost } from "./components/PaneHost";
 import { getTerminalHub } from "./panes/terminal-hub";
 import { getBrowserBridges } from "./panes/browser/browser-client";
+import { persistBrowserPages } from "./panes/browser/persist-pages";
 import { Onboarding } from "./components/Onboarding";
 import { StoreContext, createAppStore, useApp, type AppState } from "./state/store";
 import { useStore, type StoreApi } from "zustand";
@@ -506,6 +507,9 @@ export function App() {
       if (st.spaceMemory[spaceId]) st.run(() => st.refreshMemory(spaceId));
     });
     const offB = subscribeAgentPanes(store, (event, fn) => rpc().on(event, fn));
+    // Every browser's page — address, title, icon — saved as it changes, shown in a pane or not: an
+    // agent driving a browser nobody is looking at keeps its sidebar row true (persist-pages.ts).
+    const offPages = persistBrowserPages(getBrowserBridges());
     // A session delegated a browsing goal to a browser-agent session (Plan 11 W5): same idiom — the
     // child is a real session, and the point of it being one is that the user watches its whole
     // trace, so it comes into the layout the moment it exists. Other spaces gain the sidebar item
@@ -601,7 +605,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offDO(); offSA(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offI(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);
