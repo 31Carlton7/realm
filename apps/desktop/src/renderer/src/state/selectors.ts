@@ -35,10 +35,11 @@ export function sessionsBySpace(s: Pick<AppState, "spaces" | "activeProfileId" |
 }
 
 /** The user's pinned items across every space of the active profile — sessions, documents, sites —
- *  in the spaces' order, then each space's own. */
+ *  in the spaces' order, then each space's own. `items` holds the active profile's spaces and no
+ *  other's, so the pins are already the profile's. */
 export function pinnedItems(s: Pick<AppState, "spaces" | "activeProfileId" | "items">): Item[] {
   const order = profileSpaces(s).map((sp) => sp.id);
-  return s.items.filter((i) => i.pinned && !i.archived && order.includes(i.spaceId))
+  return s.items.filter((i) => i.pinned && !i.archived)
     .sort((a, b) => order.indexOf(a.spaceId) - order.indexOf(b.spaceId) || a.sortOrder - b.sortOrder);
 }
 
