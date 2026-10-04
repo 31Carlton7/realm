@@ -210,9 +210,12 @@ async function main() {
       /* The content column's own first child, not the column element itself. That element carries a
          4px padding with a matching negative margin so a focus ring inside it is not clipped, which
          puts its BORDER box 4px left of anything a reader sees. Lining a title up with a box nobody
-         can see is how you ship an off-by-four. (No backticks in here: this whole block is inside a
-         template literal, and one would end it.) */
-      const contentEl = page.querySelector('.page-content, .page-body > *:last-child');
+         can see is how you ship an off-by-four. The column is asked for by name first: a selector
+         list answers with whichever match comes first in the document, and the .page-scroll wrapper
+         that now holds the column is a .page-body child that comes before it — its first child is the
+         column's bleed box again. (No backticks in here: this whole block is inside a template
+         literal, and one would end it.) */
+      const contentEl = page.querySelector('.page-content') ?? page.querySelector('.page-body > *:last-child');
       const content = contentEl?.firstElementChild ?? contentEl;
       return { title: h1.textContent, h1: __live.box(h1),
                rail: rail ? __live.box(rail) : null, content: content ? __live.box(content) : null,

@@ -388,7 +388,7 @@ async function main() {
   check("the eye is on the rows the Agents page would offer it on — the other space's session and an unopened one — and not on the lead's, which is on screen",
     byName(rest, "Peek target")?.eye === "Peek at Peek target" && byName(rest, "Second session")?.eye === "Peek at Second session" && byName(rest, LEAD)?.eye === null, rest);
   check("…beside each row, never inside its button, with the Agents page's tooltip",
-    rest.every((r) => !r.inRow) && byName(rest, "Peek target")?.tip === "Peek — look at it beside your session, without leaving this space", rest);
+    rest.every((r) => !r.inRow) && byName(rest, "Peek target")?.tip === "Peek — look at it beside your session, without opening it", rest);
   check("…and not drawn at rest, where the time and the unread dot show", rest.filter((r) => r.eye).every((r) => r.opacity === "0" && r.time === "visible" && r.dot !== "hidden"), rest);
   await shot(c, "notif-rest", await feedClip(c));
 
@@ -432,10 +432,11 @@ async function main() {
   const peekTab = () => evalIn(c, `(() => { const t = document.querySelector('.pane-tab[data-peek] [role=tab]'); return t ? { label: t.getAttribute('aria-label'), selected: t.getAttribute('aria-selected') === 'true' } : null; })()`);
   const tab = await until(peekTab, 10_000, "the peek's tab").catch(() => null);
   const overlay = await evalIn(c, `!!document.querySelector('.notifications-page-pane')`);
-  // The current space is the focused session's: the lead's pane keeps the keyboard, so its crumb names Live.
-  const activeSpace = () => evalIn(c, `document.querySelector('.panel[data-focused] .panel-crumb')?.getAttribute('aria-label') ?? null`);
-  check("the eye opens the other space's session as a tab of the lead's side pane, the feed out of the way, still in Live",
-    tab?.label === "Peek: Peek target" && tab.selected && !overlay && (await activeSpace()) === "Open Live", { tab, overlay, space: await activeSpace() });
+  // Nothing switched: the lead's own pane is still on screen, its crumb naming Live. (The focus may be
+  // in the side pane now, which carries no crumb.)
+  const leadCrumb = () => evalIn(c, `[...document.querySelectorAll('.panehost .panel')].find((p) => p.querySelector('.panel-title')?.textContent === ${JSON.stringify(LEAD)})?.querySelector('.panel-crumb')?.getAttribute('aria-label') ?? null`);
+  check("the eye opens the other space's session as a tab of the lead's side pane, the feed out of the way, still beside the lead in Live",
+    tab?.label === "Peek: Peek target" && tab.selected && !overlay && (await leadCrumb()) === "Open Live", { tab, overlay, lead: await leadCrumb() });
   const peekPane = () => evalIn(c, `(() => { const p = document.querySelector('.session-pane[data-peek]');
     return p ? { card: !!p.querySelector('.permission-card'), composer: !!p.querySelector('.composer'), bar: p.querySelector('.peek-bar')?.textContent ?? null } : null; })()`);
   const pane = await until(async () => { const p = await peekPane(); return p?.card ? p : null; }, 10_000, "the peek's card").catch(peekPane);

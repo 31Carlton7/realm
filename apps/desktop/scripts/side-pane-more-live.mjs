@@ -454,8 +454,11 @@ async function main() {
   await evalIn(c, `(() => { document.querySelector('button[aria-label="Peek at Peek target"]').click(); return true; })()`);
   const tab = await until(peekTab, 10_000, "the peek's tab").catch(() => null);
   const page = await evalIn(c, `!!document.querySelector('.agents-page')`);
+  // Nothing switched: the lead's own pane is still on screen, its crumb naming Live. (The focus may be
+  // in the side pane now, which carries no crumb.)
+  const leadCrumb = () => evalIn(c, `[...document.querySelectorAll('.panehost .panel')].find((p) => p.querySelector('.panel-title')?.textContent === ${JSON.stringify(TITLE)})?.querySelector('.panel-crumb')?.getAttribute('aria-label') ?? null`);
   check("Peek on the Agents page opens another space's session as a tab of the lead's side pane, the page out of the way",
-    tab?.label === "Peek: Peek target" && !page && (await activeSpace()) === "Open Live", { tab, page, space: await activeSpace() });
+    tab?.label === "Peek: Peek target" && !page && (await leadCrumb()) === "Open Live", { tab, page, lead: await leadCrumb() });
   check("…marked as a peek: an eye and an italic title, and it does not drag", tab?.italic === "italic" && tab?.draggable === "false", tab);
   const peekPane = () => evalIn(c, `(() => { const p = document.querySelector('.session-pane[data-peek]');
     return p ? { card: p.querySelector('.permission-card')?.textContent?.slice(0, 80) ?? null, composer: !!p.querySelector('.composer'),

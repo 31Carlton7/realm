@@ -487,4 +487,7 @@ main()
     await sleep(600);
     electron?.kill("SIGKILL");
     fs.rmSync(scratch, { recursive: true, force: true });
+    // Exit rather than wait for the loop to drain: a CDP socket still open holds the process until
+    // whatever ran it gives up, long after every check has reported.
+    process.exit(process.exitCode ?? 0);
   });

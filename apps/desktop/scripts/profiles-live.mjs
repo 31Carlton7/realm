@@ -17,8 +17,8 @@
  *      pane is then signed in; Personal keeps its own.
  *   6. Clear browsing data in Work clears Work's jar only, behind a confirm that names Work.
  *   7. A sign-in saved in Personal (Settings ▸ Sign-ins) is invisible in Work until Share with ▸ Work.
- *   7b. A space moved from Personal to Work takes its open browser into Work's jar — a new view, which
- *      main still knows is Work's — and back again.
+ *   7b. A space moved from Personal to Work leaves Personal's window for Work's, and its browser opens
+ *      there in Work's jar — a new view, which main knows is Work's — and back again.
  *   8. Deleting Work is guarded — it counts what goes, and only the typed name arms it — and takes
  *      Work's window, cookies and sign-ins with it; the last profile cannot be deleted.
  *
@@ -389,33 +389,41 @@ async function openPaneMenu(c, m) {
 /** The status line the browser pane's toast shows. */
 const paneToast = (c) => evalIn(c, `[...document.querySelectorAll('.browser-pane [role=status]')].map((s) => s.textContent).join(" | ")`);
 
-/** Open a browser on the site in a space, through its sidebar row in a window. */
-/** Open a browser on SITE in this space. The sidebar lists sessions only, so a browser made on its own
- *  is reached the way any item is — through the palette, where it is the one still titled "Browser"
- *  (a page renames its item once it has loaded) and, in a space other than the current one, the one
- *  whose hint names that space. */
-async function openBrowserIn(c, spaceId) {
-  const { browserId } = await api.call("browsers.create", { spaceId, url: `${SITE}/` });
-  const space = (await api.call("spaces.list", {})).find((sp) => sp.id === spaceId);
+/** Open an existing item from a window's palette by its title — the one in `spaceName` when the
+ *  title repeats (another space's row names its space in the hint; the current space's does not, and
+ *  is listed first). */
+async function openFromPalette(c, title, spaceName) {
   await evalIn(c, `(async () => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     if (!document.querySelector(".palette input")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
     for (let i = 0; i < 60 && !document.querySelector(".palette input"); i++) await wait(25);
     const input = document.querySelector(".palette input");
     if (!input) throw new Error("the palette did not open");
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "Browser");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(title)});
     input.dispatchEvent(new Event("input", { bubbles: true }));
     for (let i = 0; i < 120; i++) {
-      const opts = [...document.querySelectorAll(".palette-list [role=option]")].filter((o) => o.querySelector(".palette-label")?.textContent === "Browser");
-      const hit = opts.find((o) => (o.querySelector(".palette-hint")?.textContent ?? "").includes(${JSON.stringify(space.name)})) ?? opts[0];
+      const opts = [...document.querySelectorAll(".palette-list [role=option]")].filter((o) => o.querySelector(".palette-label")?.textContent === ${JSON.stringify(title)});
+      const hit = opts.find((o) => (o.querySelector(".palette-hint")?.textContent ?? "").includes(${JSON.stringify(spaceName)})) ?? opts[0];
       if (hit) { hit.click(); return true; }
       await wait(25);
     }
-    throw new Error("no unopened browser in the palette");
+    throw new Error("no palette row titled " + ${JSON.stringify(title)});
   })()`);
   await sleep(300);
+}
+
+/** Open a browser on SITE in this space. The sidebar lists sessions only, so a browser made on its own
+ *  is reached the way any item is — through the palette, where it is the one still titled "Browser"
+ *  until its page has loaded and named it. */
+async function openBrowserIn(c, spaceId) {
+  const { browserId } = await api.call("browsers.create", { spaceId, url: `${SITE}/` });
+  const space = (await api.call("spaces.list", {})).find((sp) => sp.id === spaceId);
+  await openFromPalette(c, "Browser", space.name);
   return browserId;
 }
+
+/** A browser's item, as the server has it now — its title follows the page it last showed. */
+const browserItem = async (spaceId, browserId) => (await api.call("items.list", { spaceId })).find((i) => i.refId === browserId);
 
 /** Settings ▸ Sign-ins in one window, opened as its menu bar would. */
 async function openSignIns(c, m, windowId) {
@@ -533,7 +541,8 @@ async function main() {
   await captureView(m, WORK_PARTITION, "work-pane-signed-out");
   // The icon: each profile's pane asked for it on its OWN partition — two asks, since one profile's
   // memory of icons is not another's — and neither carried the cookies the page had set.
-  const workIcon = await until(() => evalIn(c2, `(() => { const img = [...document.querySelectorAll('.item-list .item-row img.page-icon')][0]; return img && img.naturalWidth > 0; })()`), 10_000, "Work's row icon").catch(() => false);
+  // Read off the pane: a loose browser has no sidebar row now, and its tab or bar draws the icon.
+  const workIcon = await until(() => evalIn(c2, `(() => { const img = [...document.querySelectorAll('.panehost img.page-icon')].find((x) => x.offsetParent !== null); return !!img && img.naturalWidth > 0; })()`), 10_000, "Work's pane icon").catch(() => false);
   check("each profile's pane fetched the site's icon on its own partition, and with no cookie",
     workIcon && iconAsks.length === 2 && iconAsks.every((a) => a.cookie === null), { workIcon, iconAsks });
 
@@ -606,25 +615,36 @@ async function main() {
     && file.credentials.map((r) => r.profileId).sort().join() === [personal.id, work.id].sort().join()
     && !JSON.stringify(file).includes("correct horse"), file.credentials.map((r) => ({ profileId: r.profileId, origin: r.origin })));
 
-  // ── 7b. A space moved to another profile takes its open browser with it ───────────────────────
+  // ── 7b. A space moved to another profile takes its browser into that profile's jar ────────────
+  // One window per profile: the moved space leaves Personal's window and is Work's to show, where its
+  // browser opens in Work's jar — and, moved back, opens in Personal's again.
   await evalIn(c, `(() => { document.querySelector('.page-overlay-bar [aria-label^="Close"]')?.click(); return true; })()`);
+  await evalIn(c2, `(() => { document.querySelector('.page-overlay-bar [aria-label^="Close"]')?.click(); return true; })()`);
   const spare = await api.call("spaces.create", { profileId: personal.id, name: "Spare" });
   await until(() => evalIn(c, `!!document.querySelector('.sb-section[aria-label="Spare"]')`), 10_000, "Spare in the sidebar");
   const spareBrowser = await openBrowserIn(c, spare.id);
-  await until(async () => (await fixtureViews(m)).some((v) => v.windowId === personalWindowId && v.partition === "persist:browser" && v.title === "Signed in as alice"), 15_000, "Spare's view in Personal's jar");
+  await until(async () => (await fixtureViews(m)).some((v) => v.windowId === personalWindowId && v.shown && v.partition === "persist:browser" && v.title === "Signed in as alice"), 15_000, "Spare's view in Personal's jar");
   await api.call("spaces.update", { id: spare.id, profileId: work.id });
-  const moved = await until(async () => (await fixtureViews(m)).find((v) => v.windowId === personalWindowId && v.partition === WORK_PARTITION && v.title.startsWith("Signed")), 15_000, "Spare's view in Work's jar").catch(() => null);
-  const movedMenu = await openPaneMenu(c, m);
+  const handedOver = await until(async () => (await evalIn(c2, `!!document.querySelector('.sb-section[aria-label="Spare"]')`))
+    && !(await evalIn(c, `!!document.querySelector('.sb-section[aria-label="Spare"]')`)), 10_000, "Spare in Work's window, out of Personal's").catch(() => false);
+  await openFromPalette(c2, (await browserItem(spare.id, spareBrowser)).title, "Spare");
+  const moved = await until(async () => (await fixtureViews(m)).find((v) => v.windowId === workWindowId && v.shown && v.partition === WORK_PARTITION && v.title.startsWith("Signed")), 15_000, "Spare's view in Work's jar").catch(() => null);
+  const movedMenu = await openPaneMenu(c2, m);
   await inMain(m, `(() => { const L = globalThis.__live; const last = L.menus.at(-1); last?.opts.callback?.(); return true; })()`);
   const movedShare = movedMenu.rows.find((r) => r.label === "Share this site's sign-in with");
-  check("a space moved to Work takes its open browser into Work's jar — signed out there, and main knows the new view is Work's",
-    moved?.title === "Signed out" && movedShare?.sub?.map((r) => r.label).join() === "Personal", { moved, shareTo: movedShare?.sub?.map((r) => r.label) ?? null });
+  check("a space moved to Work goes to Work's window, and its browser opens there in Work's jar — signed out, and main knows the view is Work's",
+    handedOver === true && moved?.title === "Signed out" && movedShare?.sub?.map((r) => r.label).join() === "Personal", { handedOver, moved, shareTo: movedShare?.sub?.map((r) => r.label) ?? null });
   await api.call("spaces.update", { id: spare.id, profileId: personal.id });
-  const back = await until(async () => (await fixtureViews(m)).find((v) => v.windowId === personalWindowId && v.partition === "persist:browser" && v.title.startsWith("Signed")), 15_000, "Spare back in Personal's jar").catch(() => null);
-  check("…and moved back, into Personal's again, signed in", back?.title === "Signed in as alice", back);
+  await until(() => evalIn(c, `!!document.querySelector('.sb-section[aria-label="Spare"]')`), 10_000, "Spare back in Personal's window");
+  await openFromPalette(c, (await browserItem(spare.id, spareBrowser)).title, "Spare");
+  const back = await until(async () => (await fixtureViews(m)).find((v) => v.windowId === personalWindowId && v.shown && v.partition === "persist:browser" && v.title.startsWith("Signed")), 15_000, "Spare back in Personal's jar").catch(() => null);
+  check("…and moved back, it opens in Personal's jar again, signed in", back?.title === "Signed in as alice", back);
   await api.call("browsers.close", { browserId: spareBrowser }).catch(() => {});
   await api.call("spaces.delete", { id: spare.id });
   await until(() => evalIn(c, `!document.querySelector('.sb-section[aria-label="Spare"]')`), 10_000, "Spare gone from the sidebar").catch(() => {});
+  // Live's browser back on screen for what follows: Spare's took its place in the view.
+  await openFromPalette(c, (await browserItem(live.id, personalBrowser)).title, "Live");
+  await until(async () => (await fixtureViews(m)).some((v) => v.windowId === personalWindowId && v.shown && v.partition === "persist:browser"), 15_000, "Live's browser on screen");
 
   // ── 8. Deleting Work is guarded ───────────────────────────────────────────────────────────────
   // Work holds the site's cookies again, so the delete has a jar to clear.

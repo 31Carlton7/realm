@@ -633,14 +633,18 @@ async function main() {
   const dialogs = await mainEval(`globalThis.__live.dialogs.slice()`);
   const d0 = dialogs[0];
   check("Clear browsing data asks first, as a sheet on the window, with Cancel the default", dialogs.length === 1 && d0.attached && d0.defaultId === 1 && d0.cancelId === 1 && d0.buttons?.[1] === "Cancel", d0);
-  check("…naming what it does: every pane signed out, sign-ins and passkeys kept", /every browser pane/.test(d0?.message ?? "") && /signed out/.test(d0?.detail ?? "") && /Saved sign-ins and passkeys/.test(d0?.detail ?? ""), d0);
+  // Per profile since Plan 27 made profiles separate jars: it names the profile whose panes it signs
+  // out, and says what it keeps — the other profiles' panes, and the saved sign-ins and passkeys.
+  check("…naming what it does: this profile's panes signed out, other profiles and sign-ins and passkeys kept",
+    /^Clear browsing data for Personal\?$/.test(d0?.message ?? "") && /signed out/.test(d0?.detail ?? "") && /Other profiles' browser panes/.test(d0?.detail ?? "")
+      && /saved sign-ins and passkeys/.test(d0?.detail ?? ""), d0);
   check("Cancel keeps the cookie", (await cookies()).includes("realm_live"), await cookies());
   await mainEval(`globalThis.__live.dialogAnswer = 0; true`);
   await choose(["Clear browsing data…"]);
   const gone = await until(async () => !(await cookies()).includes("realm_live"), 5_000, "cookie cleared").catch(() => false);
   check("Clear takes it", gone, await cookies());
   const clearedToast = await until(() => evalIn(c, `document.querySelector('.browser-toast')?.textContent ?? null`), 3_000, "clear receipt").catch(() => null);
-  check("…and the pane says every browser pane is signed out", /Every browser pane is signed out/.test(clearedToast ?? ""), clearedToast);
+  check("…and the pane says this profile's browser panes are signed out", /This profile's browser panes are signed out/.test(clearedToast ?? ""), clearedToast);
   await typeAddress("fixture");
   const afterClear = await until(suggestions, 5_000, "suggestions after clearing").catch(() => null);
   check("…and the address field has forgotten the pages: only the web search is left", JSON.stringify(afterClear?.rows.map((r) => r.title)) === JSON.stringify(["Search the web for “fixture”"]), afterClear?.rows);

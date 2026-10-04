@@ -183,11 +183,11 @@ async function main() {
   await sleep(400);
 
   /* ── A real two-pane split, made the way a user makes one ────────────────────────────────────
-     "New session" opens into the focused leaf, which pushes the first session out of the OPEN group;
-     splitting right then leaves an empty focused leaf, and clicking the first session's SPACE row
-     opens it there. The result is a two-way row split with two OPEN rows — the layout the glyph is
-     for, reached through the same gestures rather than by writing a layout into the store. */
-  await evalIn(c, `(() => { document.querySelector('.new-row').click(); return true; })()`);
+     The header's "New session" opens into the focused leaf, which takes the first session off the
+     screen; splitting right then leaves an empty focused leaf, and clicking the first session's row
+     opens it there. The result is a two-way row split with both rows on screen — the layout the glyph
+     is for, reached through the same gestures rather than by writing a layout into the store. */
+  await evalIn(c, `(() => { document.querySelector('.sb-header button[aria-label="New session"]').click(); return true; })()`);
   await until(() => evalIn(c, `document.querySelectorAll('.item-list .item').length >= 2`), 15000, "a second session");
   // Split right. The bar collapses its actions into a ⋯ menu below a threshold width and offers them
   // inline above it, so take whichever this pane is showing rather than assuming one.
@@ -201,8 +201,8 @@ async function main() {
     if (it) it.click();
     return true; })()`);
   await until(() => evalIn(c, `document.querySelectorAll('.panehost .panel').length === 2`), 15000, "two panes");
-  // Sessions are auto-titled alike, so the first one is found by its ROLE in the sidebar — the only
-  // row in the SPACE group, i.e. the one row with no glyph — not by its text.
+  // Sessions are auto-titled alike, so the first one is found by its ROLE in the sidebar — the one
+  // row off the screen, i.e. the one with no glyph — not by its text.
   await evalIn(c, `(() => {
     const row = [...document.querySelectorAll('.item-list .item-row')].find((r) => !r.querySelector('.item-glyph'));
     row.click(); return true; })()`);

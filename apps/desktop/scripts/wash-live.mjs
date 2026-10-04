@@ -87,12 +87,20 @@ window.__live = window.__live ?? {
     el.dispatchEvent(new Event("input", { bubbles: true }));
   },
   async menu(label) {
-    document.querySelector('[aria-label="Space menu"]').click();
-    for (let i = 0; i < 40 && !document.querySelector('[role="menu"]'); i++) await new Promise((r) => setTimeout(r, 25));
-    const hit = [...document.querySelectorAll('[role="menu"] button')].find((b) => b.textContent.trim() === label);
-    if (!hit) { document.querySelector('[role="menu"]')?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); throw new Error("no menu item: " + label); }
-    hit.click();
-    return true;
+    // The Theme and Palette rows left the header's ⋯ with Plan 27 (Settings ▸ Appearance holds them);
+    // the command palette carries the same rows under the same names.
+    if (!document.querySelector(".palette input")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+    for (let i = 0; i < 40 && !document.querySelector(".palette input"); i++) await new Promise((r) => setTimeout(r, 25));
+    const input = document.querySelector(".palette input");
+    if (!input) throw new Error("the palette did not open");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, label);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    for (let i = 0; i < 80; i++) {
+      const hit = [...document.querySelectorAll(".palette-list [role=option]")].find((o) => o.querySelector(".palette-label")?.textContent.trim() === label);
+      if (hit) { hit.click(); return true; }
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    throw new Error("no palette row: " + label);
   },
   /** Open a page pane by its command-palette entry. */
   async openPage(re) {

@@ -334,13 +334,24 @@ const stripClip = (c) => evalIn(c, `(() => {
   return { x: Math.max(0, bar.x - 8), y: Math.max(0, bar.y - 8), width: Math.min(bar.width + 16, ${WINDOW.width}), height: bar.height + 16 };
 })()`);
 
+/** The face, from the palette's Theme rows — the header's ⋯ that used to carry them went with Plan 27,
+ *  which moved the theme to Settings ▸ Appearance; the palette keeps the same rows under the same names. */
 async function setTheme(c, label) {
   await evalIn(c, `(async () => {
-    document.querySelector('[aria-label="Space menu"]').click();
-    for (let i = 0; i < 40 && !document.querySelector('[role="menu"]'); i++) await new Promise((r) => setTimeout(r, 25));
-    const hit = [...document.querySelectorAll('[role="menu"] button')].find((b) => b.textContent.trim() === ${JSON.stringify(label)});
-    if (!hit) throw new Error("no menu item: " + ${JSON.stringify(label)});
-    hit.click(); return true; })()`);
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    if (!document.querySelector(".palette input")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+    for (let i = 0; i < 40 && !document.querySelector(".palette input"); i++) await wait(25);
+    const input = document.querySelector(".palette input");
+    if (!input) throw new Error("the palette did not open");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(label)});
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    for (let i = 0; i < 80; i++) {
+      const hit = [...document.querySelectorAll(".palette-list [role=option]")].find((o) => o.querySelector(".palette-label")?.textContent === ${JSON.stringify(label)});
+      if (hit) { hit.click(); return true; }
+      await wait(25);
+    }
+    throw new Error("no palette row: " + ${JSON.stringify(label)});
+  })()`);
   await sleep(400);
 }
 
