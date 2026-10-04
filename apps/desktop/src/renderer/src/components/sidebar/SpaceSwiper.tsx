@@ -379,7 +379,7 @@ function GroupSection({ group, items, active, sole }: { group: PaneGroup; items:
           <button className="group-head-name" aria-label={`Show ${group.name}`} aria-current={active || undefined}
             onClick={() => run(() => activatePaneGroup(group.id))}>{group.name}</button>
         )}
-        {group.zoomedLeafId && <span className="group-head-badge" title="A pane in this group is focused">focused</span>}
+        {group.zoomedLeafId && <span className="group-head-badge" title="A pane in this group is focused">Focused</span>}
       </div>
       <ItemList items={items} variant="open" layout={group.layout} />
     </>

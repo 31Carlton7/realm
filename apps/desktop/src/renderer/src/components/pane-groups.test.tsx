@@ -80,8 +80,9 @@ describe("GroupBar", () => {
     await act(async () => { await store.getState().focusPaneFull(findLeafOfItem(store.getState().layout!, "i2")!.id); });
     expect(store.getState().zoomedLeafId()).not.toBeNull();
     expect(screen.queryByRole("toolbar", { name: "Splits" })).not.toBeInTheDocument();
-    // …and nothing anywhere still draws the banner's copy.
-    expect(screen.queryByText(/^Focused/)).not.toBeInTheDocument();
+    // …and nothing anywhere still draws the banner's copy ("Focused: <title> | Unfocus"). The colon is
+    // the banner's: the sidebar's group badge legitimately reads "Focused" on its own.
+    expect(screen.queryByText(/^Focused:/)).not.toBeInTheDocument();
   });
 
   it("dropping a sidebar row on a tab moves that pane into the group", async () => {
