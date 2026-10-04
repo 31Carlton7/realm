@@ -40,6 +40,7 @@ describe("rpc methods", () => {
     const space = (await c.call("spaces.create", { profileId: work.id, name: "Versed" })).result;
     const keep = (await c.call("spaces.create", { profileId: personal.id, name: "Notes" })).result;
     const { terminalId } = (await c.call("terminals.create", { spaceId: space.id })).result;
+    const kept = (await c.call("terminals.create", { spaceId: keep.id })).result.terminalId as string;
     const { session } = (await c.call("sessions.create", { spaceId: space.id, agentKind: "claude" })).result;
     expect(app.terminals.has(terminalId)).toBe(true);
     expect((await c.call("profiles.usage", { id: work.id })).result).toEqual({ spaces: 1, sessions: 1 });
@@ -51,10 +52,12 @@ describe("rpc methods", () => {
     expect((await c.call("spaces.list", {})).result.map((sp: { id: string }) => sp.id)).toEqual([keep.id]);
     await waitFor(() => ["profiles.changed", "spaces.changed"].every((e) => c.events.some((x) => x.event === e)));
 
-    // The last profile is refused before anything of it is stopped.
+    // The last profile is refused BEFORE anything of it is stopped — a refusal that had already closed
+    // its terminals would have taken the work and kept the profile.
     const refused = await c.call("profiles.delete", { id: personal.id });
     expect(refused.error.code).toBe("LAST_PROFILE");
     expect((await c.call("spaces.list", {})).result).toHaveLength(1);
+    expect(app.terminals.has(kept)).toBe(true);
     c.close();
   });
 
