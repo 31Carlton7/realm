@@ -88,9 +88,6 @@ export function appCommands(store: StoreApi<AppState>): Readonly<Record<string, 
     "pane.rename": () => { const s = get(); const item = focusedItem(s); if (item) s.requestRename(item.id); },
     "pane.newTab": () => { const s = get(); s.run(() => s.newTab()); },
     "pane.newTabFullView": () => { const s = get(); s.run(() => s.newTab(null, { full: true })); },
-    "paneGroup.next": () => { const s = get(); s.run(() => s.stepPaneGroup(1)); },
-    "paneGroup.previous": () => { const s = get(); s.run(() => s.stepPaneGroup(-1)); },
-    "paneGroup.new": () => { const s = get(); s.run(() => s.newPaneGroup()); },
 
     "space.next": () => { const s = get(); s.run(() => s.nextSpace()); },
     "space.previous": () => { const s = get(); s.run(() => s.prevSpace()); },
@@ -136,7 +133,7 @@ export function appCommands(store: StoreApi<AppState>): Readonly<Record<string, 
 }
 
 /** The item in the focused leaf, or null when the leaf is empty. A peek's is its own row, which may
- *  be another space's and so in no list of this one's. */
+ *  be another profile's and so in no list of this window's. */
 function focusedItem(s: AppState): Item | null {
   const id = itemIdOfLeaf(s.layout, s.focusedLeafId);
   if (id && s.peek?.item.id === id) return s.peek.item;

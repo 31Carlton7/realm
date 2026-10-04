@@ -225,18 +225,14 @@ describe("CommandPalette", () => {
     await waitFor(() => expect(store.getState().themePref).toBe("dark"));
   });
 
-  it("space switching and layout presets still work", async () => {
+  it("makes another space current, and offers no grid layouts — the window shows one view", async () => {
     const { store } = await mount();
     fireEvent.change(input(), { target: { value: "switch to home" } });
     fireEvent.keyDown(input(), { key: "Enter" });
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
     act(() => store.setState({ paletteOpen: true }));
-    fireEvent.change(input(), { target: { value: "layout: 3 col" } });
-    fireEvent.keyDown(input(), { key: "Enter" });
-    await waitFor(() => {
-      const l = store.getState().layout;
-      expect(l?.type === "split" && l.dir === "row" && l.children.length).toBe(3);
-    });
+    fireEvent.change(input(), { target: { value: "layout" } });
+    expect(screen.queryByText(/^Layout: /)).toBeNull();
   });
 
   it("⌘K toggles the palette (still guarded by sheets)", () => {

@@ -11,17 +11,24 @@ const boot = async (overrides: FakeData = {}) => {
   return { api, store };
 };
 
-/** A session in the room you are NOT in, which `sessions` never holds. */
+/** A session in a space that is not the current one — loaded all the same, since every space of
+ *  the profile is — and one in another profile's space, which `sessions` never holds. */
 const elsewhere = () => ({
-  items: { s1: [item("i1", "s1", { title: "Terminal" })], s2: [item("i2", "s2", { kind: "session", refId: "se2", title: "Port the picker" })] },
-  sessions: [session("se2", "s2", { title: "Port the picker", status: "running", seenSeq: 4, lastEventSeq: 4 })],
+  spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework"), space("s3", "p2", "Thesis")],
+  items: { s1: [item("i1", "s1", { title: "Terminal" })], s2: [item("i2", "s2", { kind: "session", refId: "se2", title: "Port the picker" })],
+    s3: [item("i3", "s3", { kind: "session", refId: "se3", title: "Draft chapter two" })] },
+  sessions: [session("se2", "s2", { title: "Port the picker", status: "running", seenSeq: 4, lastEventSeq: 4 }), session("se3", "s3", { title: "Draft chapter two" })],
 });
 
-describe("allSessions — a row for every session, in every room", () => {
-  it("is seeded at boot from the same list that seeds the cross-room maps", async () => {
+describe("allSessions — a row for every session, in every profile", () => {
+  it("is seeded at boot from the same list that seeds the cross-space maps", async () => {
     const { store } = await boot(elsewhere());
-    expect(store.getState().sessions["se2"]).toBeUndefined(); // not the room you are in
+    // Another space of the profile is loaded as fully as the current one…
+    expect(store.getState().sessions["se2"]).toMatchObject({ spaceId: "s2" });
+    // …another profile's is not, and is still a row here.
+    expect(store.getState().sessions["se3"]).toBeUndefined();
     expect(store.getState().allSessions["se2"]).toMatchObject({ title: "Port the picker", spaceId: "s2" });
+    expect(store.getState().allSessions["se3"]).toMatchObject({ title: "Draft chapter two", spaceId: "s3" });
   });
 
   it("a persisted event in another room moves its log on, so a finished turn reads as unread there", async () => {

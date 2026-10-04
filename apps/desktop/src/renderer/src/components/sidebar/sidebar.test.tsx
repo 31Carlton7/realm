@@ -756,18 +756,20 @@ describe("Arc sidebar", () => {
   });
 
   it("a three-column layout gets three bars — the case the old 2x2 could only answer wrongly", async () => {
-    // gridPreset("three-col") builds exactly this, and the command palette offers it. The old glyph
-    // had no third column to light, so it lit the bottom-left quadrant of a grid with no bottom row.
+    // The window's view holds two panes at most now, so this layout is set directly: the glyph draws
+    // whatever tree it is handed. The old glyph had no third column to light, so it lit the
+    // bottom-left quadrant of a grid with no bottom row.
     const layout: Layout = { type: "split", id: "root", dir: "row", sizes: [34, 33, 33], children: [
       { type: "leaf", id: "L1", itemId: "i1" },
       { type: "leaf", id: "L2", itemId: "i2" },
       { type: "leaf", id: "L3", itemId: "i3" },
     ] };
     const api = fakeApi({
-      spaces: [space("s1", "p1", "Versed", { layout })],
+      spaces: [space("s1", "p1", "Versed")],
       items: { s1: [item("i1", "s1", { title: "Alpha" }), item("i2", "s1", { title: "Beta" }), item("i3", "s1", { title: "Gamma" })] },
     });
-    await mount(api);
+    const { store } = await mount(api);
+    act(() => store.setState({ layout }));
     expect(glyphOf("Gamma").querySelectorAll("rect")).toHaveLength(3);
     expect(onCells(glyphOf("Gamma"))).toEqual([2]);
   });

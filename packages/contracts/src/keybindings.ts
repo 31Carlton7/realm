@@ -448,9 +448,6 @@ export const KEY_COMMANDS: readonly KeyCommand[] = [
   { id: "pane.rename", label: "Rename the focused pane", group: "Panes" },
   { id: "pane.newTab", label: "New tab in the side pane", group: "Panes" },
   { id: "pane.newTabFullView", label: "New tab in full view", group: "Panes" },
-  { id: "paneGroup.next", label: "Next split", group: "Panes" },
-  { id: "paneGroup.previous", label: "Previous split", group: "Panes" },
-  { id: "paneGroup.new", label: "New split", group: "Panes" },
 
   { id: "space.next", label: "Next space", group: "Spaces" },
   { id: "space.previous", label: "Previous space", group: "Spaces" },
@@ -541,9 +538,6 @@ export const DEFAULT_KEYBINDINGS: readonly Keybinding[] = [
   { key: "mod+alt+down", command: "pane.focusDown", when: WHEN_IDLE },
   { key: "mod+[", command: "pane.navBack", when: WHEN_IDLE },
   { key: "mod+]", command: "pane.navForward", when: WHEN_IDLE },
-  { key: "mod+shift+[", command: "paneGroup.previous", when: WHEN_IDLE },
-  { key: "mod+shift+]", command: "paneGroup.next", when: WHEN_IDLE },
-  { key: "mod+shift+g", command: "paneGroup.new", when: WHEN_IDLE },
   /* A side pane's new tab. ⌘⇧B is Codex's own chord for it and nothing here holds it; Codex's ⇧⌘F
      for the full-view variant is `pane.toggleFocus` above, so that one moves to ⌥⌘B — the same
      letter, one modifier along, which is what makes the pair read as one control. */

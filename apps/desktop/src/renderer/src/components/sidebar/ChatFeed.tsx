@@ -32,7 +32,7 @@ export function ChatFeed() {
   const spaces = useApp((s) => s.spaces);
   const environments = useApp((s) => s.environments);
   const activeSpaceId = useApp((s) => s.activeSpaceId);
-  const activeProfileId = useApp((s) => s.activeProfileId());
+  const activeProfileId = useApp((s) => s.activeProfileId);
   const listAllSessions = useApp((s) => s.listAllSessions);
   const revealSession = useApp((s) => s.revealSession);
   const run = useApp((s) => s.run);

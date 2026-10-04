@@ -1,20 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { allGroupItems, allItems, findLeafOfItem, findSidePane, type Layout } from "@realm/contracts";
+import { allItems, findLeafOfItem, findSidePane, type Layout, type StoredView } from "@realm/contracts";
 import { createAppStore } from "./store";
-import { fakeApi, item, session, space } from "./store.test-fakes";
+import { fakeApi, item, profile, session, space } from "./store.test-fakes";
 
 /**
  * Peek (W11b): a session looked at without being opened — a transient tab of the focused session's
- * side pane, from any space. Never written into the space's saved groups, gone on a space switch, one
- * at a time. Every test names the one-line change that would make it fail.
+ * side pane, from any space. Never written into the saved view, ended by opening its session, one at
+ * a time. Every test names the one-line change that would make it fail.
  */
 
 type Store = ReturnType<typeof createAppStore>;
 const side = (store: Store) => findSidePane(store.getState().layout!, "i-lead");
-/** Every item the fake server holds in s1's saved groups — what a relaunch would restore. */
+/** The window's saved view — what a relaunch would restore. */
+const stored = (api: ReturnType<typeof fakeApi>) => api.data.settings["ui.view:p1"] as StoredView | undefined;
+/** Every item in it: on screen, and kept in a side pane off screen. */
 const saved = (api: ReturnType<typeof fakeApi>) => {
-  const g = api.data.spaces.find((x) => x.id === "s1")!.groups;
-  return g ? allGroupItems(g) : [];
+  const v = stored(api);
+  return v ? [...allItems(v.layout), ...Object.values(v.sidePanes).flatMap((sp) => sp.tabs)] : [];
 };
 
 /** The lead focused in s1; "Other" is a session in s2, and "Idle" an unopened one in s1. */
@@ -46,18 +48,18 @@ describe("peeking at a session", () => {
     expect(store.getState().sessions["other"]?.title).toBe("Other");
   });
 
-  it("is never written into the space's saved groups, and never saved as its focus", async () => {
-    // THE MUTANTS: persist the groups as they stand, and a relaunch restores another space's session
-    // into this one's layout; save the focused item, and it restores focus to a tab that is not there.
+  it("is never written into the saved view, and never saved as its focus", async () => {
+    // THE MUTANTS: persist the view as it stands, and a relaunch restores a session nobody opened as a
+    // tab of the lead's side pane; save the focused item, and it restores focus to a tab that is not there.
     const { api, store } = await mount();
     await store.getState().peekSession("other", "s2");
     await store.getState().newTab(side(store)!.id); // a write that persists, with the peek on screen
-    store.getState().focusLeaf(side(store)!.id);
-    await store.getState().openItem("i-other"); // focus back on the peek, then a persist with it focused
-    await store.getState().focusPaneFull(side(store)!.id);
+    await store.getState().peekSession("other", "s2"); // its tab in front again, with the keyboard
+    expect(store.getState().focusedLeafId).toBe(side(store)!.id);
+    await store.getState().focusPaneFull(side(store)!.id); // a persist with the peek focused
     expect(saved(api)).not.toContain("i-other");
     expect(saved(api)).toContain("i-lead");
-    expect(api.data.spaces.find((x) => x.id === "s1")!.activeItemId).toBe("i-lead");
+    expect(stored(api)!.focusedItemId).toBe("i-lead");
   });
 
   it("outlives a refresh of this space's items, in whose list it is not", async () => {
@@ -78,14 +80,15 @@ describe("peeking at a session", () => {
     expect(store.getState().sessions["other"]).toBeDefined();
   });
 
-  it("is taken away by a space switch, even into the space whose session it was", async () => {
-    // "Other" is a pane of s2's own layout. THE MUTANT: leave the peek to the layout check alone — in
-    // s2 its item IS in the layout, so the pane there would stay a peek: italic, and no prompter.
-    const { store } = await mount({ s2Layout: { type: "leaf", id: "L2", itemId: "i-other" } });
+  it("ends when its session is opened, from its own space — it becomes a pane, not a peek", async () => {
+    // THE MUTANT: "go there" to the peek's tab. Its item IS on screen, so the open would only focus
+    // it, and the pane would stay a peek: italic, and no prompter.
+    const { store } = await mount();
     await store.getState().peekSession("other", "s2");
     await store.getState().selectSpace("s2");
     expect(store.getState().peek).toBeNull();
     expect(allItems(store.getState().layout!)).toEqual(["i-other"]);
+    expect(side(store)).toBeNull();
     await store.getState().selectSpace("s1");
     expect(allItems(store.getState().layout!)).toEqual(["i-lead"]);
   });
@@ -150,25 +153,37 @@ describe("peeking at a session", () => {
 });
 
 describe("opening a peek for real", () => {
-  it("another space's: the peek goes, and the session opens in its own space as its row would", async () => {
-    // THE MUTANT: keep the tab. The session would be open in two rooms at once, one of them a peek.
+  it("opens the session in the main view, in place of the one it was peeked beside", async () => {
+    // THE MUTANT: keep the tab. The session would be open twice, once as a peek.
     const { api, store } = await mount();
     await store.getState().peekSession("other", "s2");
     await store.getState().openPeek();
-    expect(store.getState().activeSpaceId).toBe("s2");
     expect(store.getState().peek).toBeNull();
+    expect(allItems(store.getState().layout!)).toEqual(["i-other"]);
     expect(store.getState().focusedLeafId).toBe(findLeafOfItem(store.getState().layout!, "i-other")!.id);
-    expect(saved(api)).not.toContain("i-other");
+    expect(store.getState().activeSpaceId).toBe("s2");
+    expect(store.getState().keyboardFor?.sessionId).toBe("other");
+    // Saved as a pane now, and the lead's side pane is gone with the peek.
+    expect(saved(api)).toContain("i-other");
   });
 
-  it("this space's: the tab stays where it is, and from now on is saved with the layout", async () => {
-    // THE MUTANT: close it and open it the ordinary way — in the focused pane, which is the side pane
-    // the peek was in, or the lead itself when that one goes with the tab.
-    const { api, store } = await mount();
-    await store.getState().peekSession("idle", "s1");
+  it("another profile's: the window switches to that profile, and the session opens there", async () => {
+    const api = fakeApi({
+      profiles: [profile("p1", "Work"), profile("p2", "School")],
+      spaces: [space("s1", "p1", "Versed"), space("s3", "p2", "Thesis")],
+      items: { s1: [item("i-lead", "s1", { kind: "session", refId: "lead" })], s3: [item("i-far", "s3", { kind: "session", refId: "far" })] },
+      sessions: [session("lead", "s1"), session("far", "s3")],
+    });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openItem("i-lead");
+    expect(await store.getState().peekSession("far", "s3")).toBe(true);
+    expect(side(store)?.tabs).toEqual(["i-far"]);
     await store.getState().openPeek();
+    expect(store.getState().activeProfileId).toBe("p2");
     expect(store.getState().peek).toBeNull();
-    expect(side(store)?.tabs).toEqual(["i-idle"]);
-    expect(saved(api)).toContain("i-idle");
+    expect(allItems(store.getState().layout!)).toEqual(["i-far"]);
+    // It never went into Work's saved view.
+    expect(saved(api)).not.toContain("i-far");
   });
 });

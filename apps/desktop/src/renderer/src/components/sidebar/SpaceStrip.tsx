@@ -183,7 +183,7 @@ function useScrollTo(rail: RefObject<HTMLDivElement | null>, active: RefObject<H
 function ProfileChip() {
   const profiles = useApp((s) => s.profiles);
   const spaces = useApp((s) => s.spaces);
-  const activeProfileId = useApp((s) => s.activeProfileId());
+  const activeProfileId = useApp((s) => s.activeProfileId);
   const selectProfile = useApp((s) => s.selectProfile);
   const setSpacesOpen = useApp((s) => s.setSpacesOpen);
   const openDestinationPage = useApp((s) => s.openDestinationPage);

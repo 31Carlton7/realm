@@ -269,13 +269,15 @@ export function viewFromGroups(groups: SpaceGroups, focusItemId: string | null):
 export const SidePaneSchema: z.ZodType<SidePane> = z.object({ tabs: z.array(z.string()).min(1), itemId: z.string() })
   .transform((sp) => ({ tabs: [...new Set(sp.tabs)], itemId: sp.tabs.includes(sp.itemId) ? sp.itemId : sp.tabs[0]! }));
 
-/** How a window's view is stored (the `ui.view:<profileId>` setting), with the item that had focus. */
+/** How a window's view is stored (the `ui.view:<profileId>` setting), with what had focus: the item,
+ *  which survives the pane being rebuilt, and the leaf, for a focused pane with nothing in it. */
 export const StoredViewSchema = z.object({
   v: z.literal(1),
   layout: LayoutSchema,
   zoomedLeafId: z.string().nullable(),
   sidePanes: z.record(SidePaneSchema),
   focusedItemId: z.string().nullable(),
+  focusedLeafId: z.string().nullable().optional(),
 });
 export type StoredView = z.infer<typeof StoredViewSchema>;
 

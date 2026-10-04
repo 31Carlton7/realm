@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { activeLayout, allItems, findLeafOfItem, findSidePane, sessionEvent, type DelegationOutcome } from "@realm/contracts";
+import { allItems, findLeafOfItem, findSidePane, sessionEvent, type DelegationOutcome } from "@realm/contracts";
 import { createAppStore } from "./store";
 import { fakeApi, item, notification, session, type FakeApi } from "./store.test-fakes";
 
@@ -74,8 +74,8 @@ describe("a delegated agent gets no pane of its own", () => {
     expect(store.getState().focusedLeafId).toBe(leafOf(store, "i-worker"));
   });
 
-  it("does not open a worker into another space's layout when the user switches mid-open", async () => {
-    // THE MUTANT: drop the second space check, and the pane lands in the space the user switched TO.
+  it("does not open a worker into the window when the user switches profile mid-open", async () => {
+    // THE MUTANT: drop the second profile check, and the pane lands in the profile switched TO.
     api.data.items.s1 = [item("i-lead", "s1", { kind: "session", refId: "lead" }), item("i-worker", "s1", { kind: "session", refId: "worker" })];
     api.data.sessions = [session("lead", "s1"), session("worker", "s1", { dispatchedBy: { sessionId: null, kind: "run" } })];
     const store = createAppStore(api);
@@ -83,10 +83,23 @@ describe("a delegated agent gets no pane of its own", () => {
     await store.getState().openItem("i-lead");
     api.delays["listItems:s1"] = 40;
     const opening = store.getState().applyAgentOpened({ spaceId: "s1", sessionId: "worker", itemId: "i-worker" });
-    await store.getState().selectSpace("s2");
+    await store.getState().selectProfile("p2");
     await opening;
-    expect(store.getState().activeSpaceId).toBe("s2");
-    expect(allItems(activeLayout(store.getState().groups!))).not.toContain("i-worker");
+    expect(store.getState().activeProfileId).toBe("p2");
+    expect(allItems(store.getState().layout!)).not.toContain("i-worker");
+  });
+
+  it("a worker of a space that is not current opens beside you all the same — every space is the window's", async () => {
+    // THE MUTANT: keep the old "is it the active space" gate, and a run in another space of the
+    // profile starts with nothing on screen.
+    api.data.items.s1 = [item("i-lead", "s1", { kind: "session", refId: "lead" })];
+    api.data.items.s2 = [item("i-worker", "s2", { kind: "session", refId: "worker" })];
+    api.data.sessions = [session("lead", "s1"), session("worker", "s2", { dispatchedBy: { sessionId: null, kind: "run" } })];
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openItem("i-lead");
+    await store.getState().applyAgentOpened({ spaceId: "s2", sessionId: "worker", itemId: "i-worker" });
+    expect(open(store)).toEqual(["i-lead", "i-worker"]);
   });
 
   it("a click on the child previews it as a tab of the lead's side pane, keyboard left with the lead", async () => {
@@ -214,9 +227,9 @@ describe("what agents open goes into the side pane of the session that asked", (
     expect(findSidePane(store.getState().layout!, "i-a")?.tabs).toEqual(["i-br1"]);
   });
 
-  it("falls back to beside the focused pane when no session in the chain is on screen — the page must be live", async () => {
-    // THE MUTANT: open nothing. A browser that never had a pane has no view, and the agent that just
-    // opened it is refused with "the pane is not open in the app".
+  it("with none of its chain on screen, keeps it in the side pane its session will have — never a column beside you", async () => {
+    // THE MUTANT: open it beside the focused pane, as before — another session's browser in the middle
+    // of the view, and a third column the moment the view already shows two.
     api.data.items.s1 = [item("i-a", "s1", { kind: "session", refId: "a" }), item("i-z", "s1", { kind: "session", refId: "z" })];
     api.data.sessions = [session("a", "s1"), session("z", "s1")];
     const store = createAppStore(api);
@@ -224,8 +237,24 @@ describe("what agents open goes into the side pane of the session that asked", (
     await store.getState().openItem("i-a");
     browser("i-br1");
     await store.getState().applyAgentPaneOpened({ spaceId: "s1", itemId: "i-br1", openedBy: "z" });
-    expect(open(store)).toEqual(["i-a", "i-br1"]);
+    expect(open(store)).toEqual(["i-a"]);
     expect(store.getState().focusedLeafId).toBe(leafOf(store, "i-a"));
+    expect(store.getState().view!.sidePanes["i-z"]).toEqual({ tabs: ["i-br1"], itemId: "i-br1" });
+    // Showing the session shows what its agent opened, beside it.
+    await store.getState().openItem("i-z");
+    expect(findSidePane(store.getState().layout!, "i-z")).toMatchObject({ itemId: "i-br1", tabs: ["i-br1"] });
+  });
+
+  it("a sub-agent's open with no one on screen is kept for the session the user opens — the top of its chain", async () => {
+    api.data.items.s1 = [item("i-a", "s1", { kind: "session", refId: "a" }), item("i-lead", "s1", { kind: "session", refId: "lead" }),
+      item("i-kid", "s1", { kind: "session", refId: "kid" })];
+    api.data.sessions = [session("a", "s1"), session("lead", "s1"), session("kid", "s1", { dispatchedBy: { sessionId: "lead", kind: "agent_run" } })];
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openItem("i-a");
+    browser("i-br2");
+    await store.getState().applyAgentPaneOpened({ spaceId: "s1", itemId: "i-br2", openedBy: "kid" });
+    expect(Object.keys(store.getState().view!.sidePanes)).toEqual(["i-lead"]);
   });
 
   it("an agent's document goes to the same side pane; one a person opened still arrives beside", async () => {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { PAGE_REF_IDS, sessionEvent, type Session, type StoredSessionEvent } from "@realm/contracts";
+import { PAGE_REF_IDS, sessionEvent, type Item, type Session, type StoredSessionEvent } from "@realm/contracts";
 import { AgentsPage } from "./AgentsPage";
 import { createAppStore, StoreContext } from "../../state/store";
 import { fakeApi, item, session, space } from "../../state/store.test-fakes";
@@ -12,7 +12,10 @@ const row = (id: string, spaceId: string, over: Partial<Session> = {}) =>
   session(id, spaceId, { title: `Session ${id}`, ...over });
 
 async function onTheWall(sessions: Session[], sessionEvents: Record<string, StoredSessionEvent[]> = {}) {
-  const api = fakeApi({ spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Plynn")], sessions, sessionEvents });
+  // Each session's row in its space's list — what a tile opens.
+  const items: Record<string, Item[]> = {};
+  for (const s of sessions) (items[s.spaceId] ??= []).push(item(`i-${s.id}`, s.spaceId, { kind: "session", refId: s.id }));
+  const api = fakeApi({ spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Plynn")], items, sessions, sessionEvents });
   const store = createAppStore(api); await store.getState().boot();
   const { container } = render(<StoreContext.Provider value={store}>
     <AgentsPage item={item("pg", "s1", { kind: "agents-page", refId: PAGE_REF_IDS["agents-page"], title: "Agents" })} visible />

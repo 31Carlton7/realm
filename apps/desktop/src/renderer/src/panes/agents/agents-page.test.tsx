@@ -44,6 +44,8 @@ describe("the Agents page", () => {
   async function mount() {
     const api = fakeApi({
       spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Plynn")],
+      // Each session's row in its space's list — what a click on it opens.
+      items: { s1: [item("i-se1", "s1", { kind: "session", refId: "se1" })], s2: [item("i-se2", "s2", { kind: "session", refId: "se2" })] },
       sessions: [
         row("se1", "s1", { status: "waiting_permission", cwd: "/Users/me/versed", model: "claude-opus-5", updatedAt: 9 }),
         row("se2", "s2", { status: "running", cwd: "/Users/me/plynn", agentKind: "codex", updatedAt: 5 }),
@@ -88,10 +90,11 @@ describe("the Agents page", () => {
     expect(within(endedGroup).getAllByRole("button", { name: /Session e/ })).toHaveLength(2);
   });
 
-  it("a row goes to its session, switching space when it has to", async () => {
+  it("a row goes to its session, in whichever space it works — which becomes the current one", async () => {
     const { store } = await mount();
     fireEvent.click(await screen.findByRole("button", { name: /^Session se2/ }));
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
+    expect(store.getState().items.find((i) => i.id === "i-se2")).toBeDefined();
   });
 
   it("re-reads the list when a status changes, so a finished agent moves groups without a reload", async () => {

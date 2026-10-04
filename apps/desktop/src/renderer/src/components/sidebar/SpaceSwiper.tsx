@@ -1,6 +1,6 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState, type DragEvent as ReactDragEvent, type WheelEvent } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type WheelEvent } from "react";
 import { Icon } from "@realm/ui";
-import { allItems, type Item, type PaneGroup, type SpaceGroups } from "@realm/contracts";
+import { allItems, type Item, type Layout } from "@realm/contracts";
 import { useApp, useAppStore, useProfileSpaces } from "../../state/store";
 import { createDragSwipe, type SwipePhase, type SwipeUpdate } from "../../state/gesture";
 import { createSpring } from "../../state/spring";
@@ -87,11 +87,12 @@ export function SpaceSwiper() {
   // `items` synchronously and refills them a round trip later — so a commit slid a blank page out
   // and a blank page in, and the rows popped in after it landed. Arc slides real content. The
   // snapshot is render-only: the page is `inert` for the 300ms it is on screen.
-  const [leaving, setLeaving] = useState<{ id: string; items: Item[]; groups: SpaceGroups | null } | null>(null);
+  const [leaving, setLeaving] = useState<{ id: string; items: Item[]; layout: Layout | null } | null>(null);
   const freeze = () => {
     const st = store.getState();
     if (!st.activeSpaceId) return;
-    setLeaving({ id: st.activeSpaceId, items: st.items, groups: st.groups });
+    const spaceId = st.activeSpaceId;
+    setLeaving({ id: spaceId, items: st.items.filter((i) => i.spaceId === spaceId), layout: st.layout });
     if (leaveTimer.current) clearTimeout(leaveTimer.current);
     leaveTimer.current = setTimeout(() => setLeaving(null), LEAVE_MS);
   };
@@ -243,7 +244,7 @@ export function SpaceSwiper() {
             page was one "Space menu" button per space, all with the same accessible name. */}
         {spaces.map((sp) => (
           <div key={sp.id} className="space-page" data-space-page={sp.id} aria-hidden={sp.id !== activeSpaceId || undefined} inert={sp.id !== activeSpaceId || undefined}>
-            {sp.id === activeSpaceId ? <ActiveSpaceBody spaceId={sp.id} /> : leaving?.id === sp.id ? <SpaceBody spaceId={sp.id} items={leaving.items} groups={leaving.groups} /> : null}
+            {sp.id === activeSpaceId ? <ActiveSpaceBody spaceId={sp.id} /> : leaving?.id === sp.id ? <SpaceBody spaceId={sp.id} items={leaving.items} layout={leaving.layout} /> : null}
           </div>
         ))}
       </div>
@@ -251,55 +252,41 @@ export function SpaceSwiper() {
   );
 }
 
-const REALM_ITEM_TYPE = "application/x-realm-item";
-
 /**
- * One sidebar section per PANE GROUP, then SESSIONS for everything open in no group at all.
- *
- * This is where the old single "Open" list went. The list was never wrong, only flat: a space had one
- * arrangement, so "open" was unambiguous. With groups the same rows still say "these are open", but
- * now also WHERE — and clicking a row in a group that is not on screen switches to it (openItem's
- * "go there"), which is the cheap arrangement-switching the whole feature exists for.
+ * The space's rows: what of it is on screen in the window's one view, then SESSIONS for the rest.
+ * Every space of the profile is loaded at once, so `items` holds them all and this page shows its own.
  */
 const ActiveSpaceBody = memo(function ActiveSpaceBody({ spaceId }: { spaceId: string }) {
-  const items = useApp((s) => s.items);
-  const groups = useApp((s) => s.groups);
-  return <SpaceBody spaceId={spaceId} items={items} groups={groups} />;
+  const all = useApp((s) => s.items);
+  const items = useMemo(() => all.filter((i) => i.spaceId === spaceId), [all, spaceId]);
+  const layout = useApp((s) => s.layout);
+  return <SpaceBody spaceId={spaceId} items={items} layout={layout} />;
 });
 
-/** The rows themselves, from whatever items/groups they are handed — the live set for the active
+/** The rows themselves, from whatever items and view they are handed — the live set for the active
  *  page, a commit-time snapshot for the page sliding away — and, after them, the profile's other
- *  rooms, seen from this one. */
-const SpaceBody = memo(function SpaceBody({ spaceId, items, groups }: { spaceId: string; items: Item[]; groups: SpaceGroups | null }) {
-  const newPaneGroup = useApp((s) => s.newPaneGroup);
-  const run = useApp((s) => s.run);
+ *  spaces, seen from this one. */
+const SpaceBody = memo(function SpaceBody({ spaceId, items, layout }: { spaceId: string; items: Item[]; layout: Layout | null }) {
   // Archived rows are split off FIRST, ahead of open/pinned/unopened, and `byId` is built from the
-  // live half alone — so a row still sitting in some group's layout when it is archived (another
-  // window did it; this one has not reconciled yet) is listed on the shelf and nowhere else, never in
-  // two sections at once.
+  // live half alone — so a row still on screen when it is archived (another window did it; this one
+  // has not reconciled yet) is listed on the shelf and nowhere else, never in two sections at once.
   const archived = items.filter((i) => i.archived);
   const live = items.filter((i) => !i.archived);
   const byId = new Map(live.map((i) => [i.id, i]));
-  const paneGroups = groups?.groups ?? [];
-  const openSet = new Set(paneGroups.flatMap((g) => allItems(g.layout)));
+  const onScreen = layout ? allItems(layout) : [];
+  const openSet = new Set(onScreen);
+  // In the view's own order (allItems is depth-first), not the items array's.
+  const open = onScreen.map((id) => byId.get(id)).filter((i): i is Item => !!i);
   const unopened = live.filter((i) => !openSet.has(i.id));
   const pinned = unopened.filter((i) => i.pinned), rest = unopened.filter((i) => !i.pinned);
-  // A lone group keeps the old heading exactly: someone who never makes a second group should not
-  // have to learn a new word for the list they already had.
-  const soleGroup = paneGroups.length < 2;
   return (
     <>
       <div className="space-body">
-        {paneGroups.map((g) => {
-          // Follows the group's own open order (allItems is depth-first), not the items array's.
-          const open = allItems(g.layout).map((id) => byId.get(id)).filter((i): i is Item => !!i);
-          if (soleGroup && open.length === 0) return null;
-          return <GroupSection key={g.id} group={g} items={open} active={g.id === groups!.activeGroupId} sole={soleGroup} />;
-        })}
-        {groups && (
-          <button className="group-new" onClick={() => run(() => newPaneGroup())}>
-            <Icon name="add" size={12} /><span>New split</span>
-          </button>
+        {open.length > 0 && (
+          <>
+            <div className="group-label group-head"><span>Open</span></div>
+            <ItemList items={open} variant="open" layout={layout ?? undefined} />
+          </>
         )}
         <div className="group-label">Sessions</div>
         {live.length === 0 && <div className="space-empty">Nothing here yet — start one with New session above</div>}
@@ -348,43 +335,6 @@ function ArchivedSection({ items }: { items: Item[] }) {
           </div>
         </div>
       )}
-    </>
-  );
-}
-
-/** One group's heading and rows. The heading is a drop target: dragging a row onto it moves that pane
- *  into the group, the sidebar twin of dropping onto a tab in the GroupBar. */
-function GroupSection({ group, items, active, sole }: { group: PaneGroup; items: Item[]; active: boolean; sole: boolean }) {
-  const activatePaneGroup = useApp((s) => s.activatePaneGroup);
-  const moveItemToPaneGroup = useApp((s) => s.moveItemToPaneGroup);
-  const run = useApp((s) => s.run);
-  const [hot, setHot] = useState(false);
-  /* No rename editor here, deliberately. The only gesture that arms one is the tab strip's own
-     context menu, and this used to answer it too — so BOTH surfaces mounted an autoFocus input for
-     the same group, the second stole focus from the first, the first's blur committed an unchanged
-     name and cleared the request, and the field vanished in the same tick it appeared. Renaming a
-     group was impossible for as long as the two existed together, which is whenever the strip is on
-     screen at all. The editor belongs where the gesture happened. */
-  return (
-    <>
-      <div className="group-label group-head" data-active={active || undefined} data-drop={hot || undefined}
-        onDragOver={(e: ReactDragEvent) => {
-          if (!Array.from(e.dataTransfer.types).includes(REALM_ITEM_TYPE)) return;
-          e.preventDefault(); setHot(true);
-        }}
-        onDragLeave={() => setHot(false)}
-        onDrop={(e: ReactDragEvent) => {
-          e.preventDefault(); setHot(false);
-          const id = e.dataTransfer.getData(REALM_ITEM_TYPE);
-          if (id) run(() => moveItemToPaneGroup(id, group.id));
-        }}>
-        {sole ? <span>Open</span> : (
-          <button className="group-head-name" aria-label={`Show ${group.name}`} aria-current={active || undefined}
-            onClick={() => run(() => activatePaneGroup(group.id))}>{group.name}</button>
-        )}
-        {group.zoomedLeafId && <span className="group-head-badge" title="A pane in this group is focused">focused</span>}
-      </div>
-      <ItemList items={items} variant="open" layout={group.layout} />
     </>
   );
 }

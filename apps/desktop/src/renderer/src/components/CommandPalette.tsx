@@ -1,5 +1,5 @@
 import { Icon, THEMES, themeModes } from "@realm/ui";
-import { AGENT_META, PRESETS, SELECTABLE_AGENT_KINDS, chordsForCommand, displayKeyChord, emptyLayout, itemIdOfLeaf, allItems as openItemIds, type DestinationPageKind, type Item, type PresetName, type SearchResults, type SearchSnippet } from "@realm/contracts";
+import { AGENT_META, SELECTABLE_AGENT_KINDS, chordsForCommand, displayKeyChord, emptyLayout, itemIdOfLeaf, allItems as openItemIds, type DestinationPageKind, type Item, type SearchResults, type SearchSnippet } from "@realm/contracts";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import type { StoreApi } from "zustand";
 import { centerOverComplement } from "../state/no-overlay";
@@ -90,9 +90,6 @@ const MODES: ThemePref[] = ["system", "light", "dark"];
 /** The palette's CSS width (styles.css `.palette`); the no-overlay path needs the number. */
 const PALETTE_WIDTH = 560;
 
-/** Layout presets moved here from the retired topbar LayoutMenu (spec amendment §A1). */
-const PRESET_LABELS: Record<PresetName, string> = { one: "1-up", "two-col": "2 columns", "three-col": "3 columns", "grid-2x2": "2×2 grid", "grid-3x3": "3×3 grid" };
-
 /** The sidebar destinations, in the nav's own order, paired with the noun their entries read as
  *  ("Open library"). The kind doubles as the icon name — these pages own the icon of their kind. */
 const DESTINATIONS: [DestinationPageKind, string][] = [
@@ -136,7 +133,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
   const mode = useResolvedMode(themePref);
   const setThemeName = useApp((s) => s.setThemeName);
   const selectSpace = useApp((s) => s.selectSpace);
-  const openItem = useApp((s) => s.openItem);
+  const revealItem = useApp((s) => s.revealItem);
   const newTerminal = useApp((s) => s.newTerminal);
   const newBrowser = useApp((s) => s.newBrowser);
   const newMachine = useApp((s) => s.newMachine);
@@ -165,11 +162,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
   const requestRename = useApp((s) => s.requestRename);
   const interruptSession = useApp((s) => s.interruptSession);
   const jumpToPermission = useApp((s) => s.jumpToPermission);
-  const applyPreset = useApp((s) => s.applyPreset);
-  const groups = useApp((s) => s.groups);
-  const zoomedLeaf = useApp((s) => s.groups?.groups.find((g) => g.id === s.groups!.activeGroupId)?.zoomedLeafId ?? null);
-  const activatePaneGroup = useApp((s) => s.activatePaneGroup);
-  const newPaneGroup = useApp((s) => s.newPaneGroup);
+  const zoomedLeaf = useApp((s) => s.view?.zoomedLeafId ?? null);
   const toggleFocusPane = useApp((s) => s.toggleFocusPane);
   const setThemePref = useApp((s) => s.setThemePref);
   const openSheet = useApp((s) => s.openSheet);
@@ -266,23 +259,22 @@ function PaletteBody({ closing }: { closing: boolean }) {
 
     const itemEntry = (it: Item, section: string, hint: ReactNode): Entry => ({
       id: `item:${it.id}`, label: it.title, hint, icon: <ItemIcon item={it} size={16} />, section,
-      run: () => run(async () => {
-        if (it.spaceId !== activeSpaceId) await selectSpace(it.spaceId);
-        await openItem(it.id);
-      }),
+      // From any space — and another profile's switches the window to it first.
+      run: () => run(() => revealItem(it.id, it.spaceId)),
     });
 
-    // Open panes of the active space, in layout order — the quadrant glyph tells duplicates apart (V-F4).
+    // What is on screen, in layout order — the quadrant glyph tells duplicates apart (V-F4).
     const open = openIds.map((id) => byId.get(id)).filter((it): it is Item => !!it)
       .map((it) => itemEntry(it, "Open", <ItemGlyph layout={l} itemId={it.id} />));
-    // The active space's remaining items, newest first. Archived ones are left out — `items` carries
+    // The current space's remaining items, newest first. Archived ones are left out — `items` carries
     // them (the sidebar's Archived section needs them) where `allItems` already does not, so the
     // filter belongs here to keep both halves of this list answering the same question.
-    const activeRest = items.filter((it) => !openIds.includes(it.id) && !it.archived).sort(byRecency)
+    const activeRest = items.filter((it) => it.spaceId === activeSpaceId && !openIds.includes(it.id) && !it.archived).sort(byRecency)
       .map((it) => itemEntry(it, spaceName(it.spaceId), <span>{relTime(it.updatedAt)}</span>));
-    // Other spaces' items, grouped per space (strip order), newest first within each.
+    // Other spaces' items, grouped per space (strip order), newest first within each — minus what is
+    // on screen, which the view may now hold from any of them.
     const others = spaces.filter((sp) => sp.id !== activeSpaceId).flatMap((sp) =>
-      allItems.filter((it) => it.spaceId === sp.id).sort(byRecency)
+      allItems.filter((it) => it.spaceId === sp.id && !openIds.includes(it.id)).sort(byRecency)
         .map((it) => itemEntry(it, sp.name, <span>{sp.name} · {relTime(it.updatedAt)}</span>)));
 
     const anyWaiting = Object.values(sessionStatus).includes("waiting_permission");
@@ -301,13 +293,6 @@ function PaletteBody({ closing }: { closing: boolean }) {
         id: `act:space-${sp.id}`, label: `Switch to ${sp.name}`, icon: <SpaceIcon icon={sp.icon} size={16} />,
         run: () => run(() => selectSpace(sp.id)), section: "Actions", hint: sp.id === activeSpaceId ? "current" : undefined,
       })),
-      // Splits sit right beside the space switches: they are the same gesture one level in —
-      // "put a different arrangement on screen" — and the reason the feature exists is cheap switching.
-      // Only offered once there is more than one, like the GroupBar itself.
-      ...((groups?.groups.length ?? 0) > 1 ? groups!.groups.map((g): Entry =>
-        act(`group-${g.id}`, `Split: ${g.name}`, "group", () => run(() => activatePaneGroup(g.id)),
-          g.id === groups!.activeGroupId ? "current" : undefined)) : []),
-      ...(activeSpaceId ? [act("new-group", "New split", "group", () => run(() => newPaneGroup()))] : []),
       act("new-terminal", "New terminal", "terminal", () => run(() => newTerminal()), kbd("terminal.new")),
       act("new-browser", "New browser", "browser", () => run(() => newBrowser())),
       /* "Connect", not "New machine": what this makes is a pane with a connect flow in it, and a
@@ -356,14 +341,13 @@ function PaletteBody({ closing }: { closing: boolean }) {
       act("split-down", "Split down", "layout", () => run(() => splitFocused("col")), kbd("pane.splitDown")),
       ...(focusedItem ? [
         act("close-pane", "Close pane", "close", () => run(() => closeFromLayout(focusedItem.id)), kbd("pane.close")),
-        // The pane keeps its place in the group either way — this only changes how much room it gets.
+        // The pane keeps its place in the view either way — this only changes how much room it gets.
         zoomedLeaf
           ? act("unfocus-pane", "Unfocus pane", "unfocusPane", () => run(() => toggleFocusPane()), kbd("pane.toggleFocus"))
           : act("focus-pane", `Focus “${focusedItem.title}”`, "focusPane", () => run(() => toggleFocusPane()), kbd("pane.toggleFocus")),
         act("rename", `Rename “${focusedItem.title}”`, "edit", () => requestRename(focusedItem.id)),
       ] : []),
       ...(focusedRunning ? [act("interrupt", "Interrupt running session", "stop", () => run(() => interruptSession(focusedSession!)), kbd("session.interrupt"))] : []),
-      ...(activeSpaceId ? PRESETS.map((p) => act(`layout-${p}`, `Layout: ${PRESET_LABELS[p]}`, "layout", () => run(() => applyPreset(p)))) : []),
     ];
 
     const themes = MODES.map<Entry>((t) => ({
@@ -383,9 +367,9 @@ function PaletteBody({ closing }: { closing: boolean }) {
 
     return [...open, ...activeRest, ...others, ...actions, ...themes, ...palettes];
   }, [kbd, spaces, activeSpaceId, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref, themeNames, mode, drafts, dispatchDraft,
-      selectSpace, openItem, newTerminal, newBrowser, newMachine, openDocuments, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeFromLayout, requestRename,
-      interruptSession, jumpToPermission, applyPreset, setThemePref, setThemeName, openSheet, openSpacePage, openDestinationPage, openProfilePage, openActivity, setSpacesOpen, run,
-      groups, zoomedLeaf, activatePaneGroup, newPaneGroup, toggleFocusPane]);
+      selectSpace, revealItem, newTerminal, newBrowser, newMachine, openDocuments, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeFromLayout, requestRename,
+      interruptSession, jumpToPermission, setThemePref, setThemeName, openSheet, openSpacePage, openDestinationPage, openProfilePage, openActivity, setSpacesOpen, run,
+      zoomedLeaf, toggleFocusPane]);
 
   // Empty query: everything, grouped under faint section headers. With a query: a flat list ranked
   // by match score (ties keep the sectioned order, so recency still breaks ties).
@@ -414,10 +398,9 @@ function PaletteBody({ closing }: { closing: boolean }) {
         // Jump = open the session (scroll-to-event is not cheap today: transcript block keys are
         // index-based, not seq-based — the hit's `seq` is on the wire for the day it becomes so).
         run: () => run(async () => {
-          const it = allItems.find((x) => x.kind === "session" && x.refId === h.sessionId)
-            ?? items.find((x) => x.kind === "session" && x.refId === h.sessionId);
-          if (h.spaceId !== activeSpaceId) await selectSpace(h.spaceId);
-          if (it) await openItem(it.id);
+          const it = items.find((x) => x.kind === "session" && x.refId === h.sessionId)
+            ?? allItems.find((x) => x.kind === "session" && x.refId === h.sessionId);
+          if (it) await revealItem(it.id, h.spaceId);
         }),
       });
     }
@@ -435,7 +418,6 @@ function PaletteBody({ closing }: { closing: boolean }) {
         run: () => run(async () => {
           if (h.scope === "profile") { openProfilePage("memory"); return; }
           if (!h.spaceId) return;
-          if (h.spaceId !== activeSpaceId) await selectSpace(h.spaceId);
           openSpacePage(h.spaceId, "memory");
         }),
       });
@@ -445,14 +427,11 @@ function PaletteBody({ closing }: { closing: boolean }) {
       out.push({
         id: `deep-item:${h.itemId}`, deep: true, section: "Items", label: h.title,
         icon: <Icon name={h.itemKind} size={16} />, hint: <Snippet parts={h.snippet} />,
-        run: () => run(async () => {
-          if (h.spaceId !== activeSpaceId) await selectSpace(h.spaceId);
-          await openItem(h.itemId);
-        }),
+        run: () => run(() => revealItem(h.itemId, h.spaceId)),
       });
     }
     return out;
-  }, [q, deep, filtered, allItems, items, activeSpaceId, selectSpace, openItem, openDestinationPage, openProfilePage, openSpacePage, run]);
+  }, [q, deep, filtered, allItems, items, revealItem, openDestinationPage, openProfilePage, openSpacePage, run]);
 
   /* A narrowed palette shows ONLY the checkout's answer: the instant rows are Realm's own objects and
      mixing them into "open a file" would make the top of the list mean something different from the

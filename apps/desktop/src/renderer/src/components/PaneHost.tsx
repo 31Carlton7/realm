@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type DragEvent as ReactDragEvent, type JSX } from "react";
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelGroupHandle } from "react-resizable-panels";
-import { findLeaf, firstLeaf, type Item, type Layout, type LayoutSplit } from "@realm/contracts";
+import { VIEW_MAX_PANES, findLeaf, firstLeaf, primaryLeaves, type Item, type Layout, type LayoutSplit } from "@realm/contracts";
 import type { DropEdge } from "../state/store";
 import { Icon } from "@realm/ui";
 import { PanelBar } from "./PanelBar";
@@ -9,7 +9,7 @@ import { isRealmPaneDrag, REALM_ITEM_TYPE, REALM_NEW_SESSION_TYPE } from "./drag
 
 export type PaneHostProps = {
   layout: Layout; items: Item[]; focusedLeafId: string | null;
-  /** The group's FOCUSED pane (Plan: pane groups). When set — and still present in `layout` — only that
+  /** The view's FOCUSED pane (⌘⇧F). When set — and still present in `layout` — only that
    *  leaf renders, filling the host. The tree itself is untouched: this is a view state, and clearing
    *  it puts every pane back exactly where it was. A stale id renders the ordinary split. */
   zoomedLeafId?: string | null;
@@ -18,7 +18,7 @@ export type PaneHostProps = {
   onZoom?: (leafId: string) => void;
   /** Called by the zoomed pane's own "Unfocus" control. */
   onUnzoom?: () => void;
-  /** Layout-only close: the item leaves the layout but keeps existing (SPACE group). */
+  /** Layout-only close: the item leaves the screen but keeps existing in its space. */
   onClose: (itemId: string) => void;
   /** Drop an EMPTY pane out of the layout. Keyed by leaf, because there is no item to key on. */
   onCloseEmpty?: (leafId: string) => void;
@@ -119,12 +119,15 @@ export function PaneHost(p: PaneHostProps) {
   // With the sidebar collapsed its bar is what sits under the macOS traffic lights, and it is the
   // only pane that has to leave room for them — a fact about where a pane IS, which CSS cannot ask.
   const firstLeafId = firstLeaf(root).id;
-  /* A group with ONE leaf looks identical focused and unfocused, so its bar takes no focus toggle —
+  /* A view with ONE leaf looks identical focused and unfocused, so its bar takes no focus toggle —
      a control whose entire effect is invisible is the dead chrome the pane bar bans, and it would be
      on screen for the app's most common shape (one pane, full width). Still offered while a zoom is
      live, because closing a sibling can leave a focused solo pane and a toggle that vanished would
      strand it lit-with-no-off. */
   const canFocus = p.layout.type !== "leaf" || !!zoomed;
+  /* The window shows one view of at most two panes (Plan 27), so a split it would refuse is not
+     offered: a control whose only outcome is nothing happening is dead chrome. */
+  const canSplit = primaryLeaves(p.layout).length < VIEW_MAX_PANES;
   return <div className="panehost" data-zoomed={zoomed ? true : undefined}>{renderNode(root)}</div>;
 
   function renderNode(n: Layout): JSX.Element {
@@ -136,7 +139,7 @@ export function PaneHost(p: PaneHostProps) {
           data-tabbed={tabs ? true : undefined}
           data-first-leaf={n.id === firstLeafId || undefined}
           data-empty={!item || undefined} onPointerDownCapture={() => p.onFocus(n.id)}>
-          {item && <PanelBar item={item} leafId={n.id} tabs={tabs} onSplit={(dir) => p.onSplit(n.id, dir)} onClose={() => p.onClose(item.id)}
+          {item && <PanelBar item={item} leafId={n.id} tabs={tabs} onSplit={canSplit ? (dir) => p.onSplit(n.id, dir) : undefined} onClose={() => p.onClose(item.id)}
             zoomed={n.id === p.zoomedLeafId}
             onZoom={canFocus && p.onZoom ? () => p.onZoom!(n.id) : undefined} onUnzoom={canFocus ? p.onUnzoom : undefined} />}
           {/* An empty pane gets a bar of its own — a title-less strip whose only control is the trash

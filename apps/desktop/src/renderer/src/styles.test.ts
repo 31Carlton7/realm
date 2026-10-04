@@ -1084,16 +1084,15 @@ describe("Plan 9 W1 — the BUI bridge", () => {
   });
 
   it("exactly one strip reserves the lights — whichever is at the top of the main column", () => {
-    // :first-child on each candidate is what keeps the three mutually exclusive: an error bar pushes
-    // the others down, and only the strip actually under the lights may be indented.
+    // :first-child on each candidate is what keeps the two mutually exclusive: an error bar pushes
+    // the panes down, and only the strip actually under the lights may be indented.
     const owners = RULES.filter((r) => r.body.includes("padding-left: var(--corner-w)")).flatMap((r) => r.selectors);
     expect(owners).toEqual([
       ".app[data-sidebar-collapsed] .main > .error-bar:first-child",
-      ".app[data-sidebar-collapsed] .main > .group-bar:first-child",
       ".app[data-sidebar-collapsed] .main > .panehost:first-child .panel[data-first-leaf] > .panel-bar",
-      /* A fourth candidate, and the only one outside the shell: an app-level page covers the whole
+      /* A third candidate, and the only one outside the shell: an app-level page covers the whole
          window while the sidebar is collapsed, so ITS bar is the strip under the lights then. It is
-         portalled to <body>, which is why it cannot be a fourth selector on the rule above and why
+         portalled to <body>, which is why it cannot be a third selector on the rule above and why
          the width has to be a root token rather than one declared on `.app`. */
       ".page-overlay[data-sidebar-collapsed] .page-overlay-bar",
     ]);
@@ -1103,22 +1102,11 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     // which only works while that is true of all of them (see the comment on trafficLightPosition).
     expect(bodiesFor(".sb-head").join(" ")).toContain("height: 40px");
     expect(bodiesFor(".panel-bar").join(" ")).toContain("height: 40px");
-    expect(bodiesFor(".app[data-sidebar-collapsed] .main > .group-bar:first-child").join(" ")).toContain("min-height: 40px");
   });
 
-  it("insets the split strip further than a tab's own padding, so no tab sits flush with the window", () => {
-    /* The strip runs to both edges of the window and its tabs are the only thing in it, so the bar's
-       inset is the entire gap between a tab's text and the frame. THE MUTANT: put either number back
-       under the tab's own 14px and the first tab's label lands within a couple of pixels of the
-       traffic lights on one side, or of the window edge on the other. */
-    const bar = bodiesFor(".group-bar").join(" ");
-    expect(bar).toContain("padding: 0 14px 0 16px");
-    expect(bar).toContain("min-height: 38px");
-    expect(bodiesFor(".group-tab").join(" ")).toContain("padding: 6px 14px");
-    // The ring's padding is paid back exactly, or the bar grows by it — see the rule's own comment.
-    const tabs = bodiesFor(".group-tabs").join(" ");
-    expect(tabs).toContain("padding-block: 4px");
-    expect(tabs).toContain("margin-block: -4px");
+  it("draws no strip of named splits above the panes — the window shows one view", () => {
+    // Plan 27: a split is a way of looking at two things, and needs no bar of its own.
+    expect(RULES.some((r) => r.selectors.some((sel) => /\.group-(bar|tab)/.test(sel)))).toBe(false);
   });
 
   it("the sidebar's right edge is a BORDER on .main, and only while the sidebar is there", () => {
@@ -2121,11 +2109,11 @@ describe("dividers", () => {
        them. What the lines actually drew was a horizontal stripe across the top of every pane in
        every split.
        What separates a pane from what is AROUND it is untouched, and is asserted below. */
-    for (const sel of [".panel-bar", ".group-bar", ".browser-chrome"])
+    for (const sel of [".panel-bar", ".browser-chrome"])
       expect(bodiesFor(sel).join(" "), sel).not.toMatch(/border-bottom: *1px/);
     // The claim is falsifiable, so it is checked: none of the three is sticky, which is the only way
     // content could pass under one.
-    for (const sel of [".panel-bar", ".group-bar", ".browser-chrome"])
+    for (const sel of [".panel-bar", ".browser-chrome"])
       expect(bodiesFor(sel).join(" "), sel).not.toContain("position: sticky");
   });
 

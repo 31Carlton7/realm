@@ -163,11 +163,11 @@ describe("store — per-pane back/forward", () => {
 });
 
 /**
- * A page is opened OVER a space and carries that space's id. Across a switch it was left pointing at
- * the space you just left — an Overview describing the wrong space, and every other page a screen
- * between you and the work you switched to, with nothing on it to say anything had moved.
+ * A page is opened OVER a space and carries that space's id. Making another space current used to
+ * leave it pointing at the one you left — an Overview describing the wrong space, and every other page
+ * a screen between you and the work, with nothing on it to say anything had moved.
  */
-describe("a page overlay across a space switch", () => {
+describe("a page overlay when another space is made current", () => {
   const TWO_SPACE_ITEMS = {
     s1: [item("i1", "s1", { kind: "session", title: "one", refId: "se1" })],
     /* The newest session is deliberately FIRST in the list and the oldest last: ordered the other way
@@ -222,34 +222,37 @@ describe("a page overlay across a space switch", () => {
     expect(allItems(store.getState().layout!)).not.toContain("i2");
   });
 
-  it("does not rearrange a space that already has panes open", async () => {
-    /* A space with a saved arrangement is already showing its work. Forcing the newest session into
-       it would rearrange — and persist — a layout the user never touched. THE MUTANT: open the
-       newest session unconditionally. */
+  it("goes to a session of the space already on screen rather than moving another pane", async () => {
+    /* The view already shows the older session of s2 beside s1's. Opening the newest one over the
+       focused pane would rearrange — and persist — a view the user never touched. THE MUTANT: open
+       the newest session unconditionally. */
     const { store } = await boot({
       items: TWO_SPACE_ITEMS,
       sessions: SESSIONS,
-      spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework", { layout: { type: "leaf", id: "L2", itemId: "i2" } })],
+      spaces: [space("s1", "p1", "Versed", { layout: { type: "split", id: "R", dir: "row", sizes: [50, 50], children: [
+        { type: "leaf", id: "L1", itemId: "i1" }, { type: "leaf", id: "L2", itemId: "i2" }] } }), space("s2", "p1", "Homework")],
     });
+    store.getState().focusLeaf("L1");
     store.getState().openDestinationPage("notifications-page");
 
     await store.getState().selectSpace("s2");
     expect(store.getState().pageOverlay).toBeNull();
-    // The saved layout, untouched: the older session it was left on, and not the newest one.
-    expect(allItems(store.getState().layout!)).toEqual(["i2"]);
+    expect(allItems(store.getState().layout!)).toEqual(["i1", "i2"]);
+    expect(focused(store)).toBe("L2");
+    expect(store.getState().activeSpaceId).toBe("s2");
   });
 
-  it("leaves the workspace alone when no page is open", async () => {
+  it("with no page open, the newest session takes the focused pane's place", async () => {
     const { store } = await boot({ items: TWO_SPACE_ITEMS, sessions: SESSIONS });
     await store.getState().selectSpace("s2");
     expect(store.getState().pageOverlay).toBeNull();
-    expect(allItems(store.getState().layout ?? emptyLayout())).toEqual([]);
+    expect(allItems(store.getState().layout ?? emptyLayout())).toEqual(["i3"]);
   });
 
   it("opens ONE pane when a chat in another space is revealed from behind a page", async () => {
-    /* `revealSession` switches the space and then opens the pane it was asked for. If the switch also
-       landed on the newest session, clicking a chat row from behind Settings would open two panes —
-       the one you asked for and one you did not. THE MUTANT: drop `{ land: false }`. */
+    /* `revealSession` opens the pane it was asked for, and nothing on the way: every space is loaded,
+       so there is no switch that could land on the newest session first and open a pane nobody asked
+       for. THE MUTANT: route it through selectSpace. */
     const { store } = await boot({ items: TWO_SPACE_ITEMS, sessions: SESSIONS });
     store.getState().openDestinationPage("notifications-page");
 
