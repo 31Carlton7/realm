@@ -368,12 +368,13 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
     () => Object.values(environments).filter((e) => session && e.spaceId === session.spaceId),
     [environments, session],
   );
-  // The environments map loads on space activation, BEFORE this session (and its lazily-created
-  // primary row) may exist — so a session whose own environment is missing from the map re-fetches
-  // once. Also what makes the diff button above appear without a space switch.
+  // The environments map loads with the profile, which may be BEFORE this session (and its
+  // lazily-created primary row) exists — so a session whose own environment is missing from the map
+  // re-fetches its space's once. Also what makes the diff button above appear.
   const refreshEnvironments = useApp((s) => s.refreshEnvironments);
   const missingOwnEnv = session !== undefined && !environments[session.environmentId];
-  useEffect(() => { if (missingOwnEnv) run(() => refreshEnvironments()); }, [missingOwnEnv, refreshEnvironments, run]);
+  const ownSpace = session?.spaceId ?? null;
+  useEffect(() => { if (missingOwnEnv) run(() => refreshEnvironments(ownSpace)); }, [missingOwnEnv, ownSpace, refreshEnvironments, run]);
   /* Once per mounted session: the pane catching up on a queue that filled while it was closed. */
   useEffect(() => { run(() => refreshSessionQueue(id)); }, [id, refreshSessionQueue, run]);
   const gitInfo = useApp((s) => { const cwd = s.sessions[id]?.cwd; return cwd ? s.gitInfo[cwd] ?? null : null; });
@@ -607,7 +608,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onOpenInTerminal={(command) => run(() => prefillTerminal(id, command))}
             offer={cliOffer} job={cliJob ?? null}
             onInstall={() => run(() => runCliAction(session.agentKind, "install"))}
-            onSignIn={() => run(() => startSignIn(session.agentKind))}
+            onSignIn={() => run(() => startSignIn(session.agentKind, session.spaceId))}
             onDismissJob={() => dismissCliJob(session.agentKind)} />
         : <Composer session={session} status={status} gitInfo={gitInfo} todos={todos} quote={quote}
             onOpenDiff={() => run(() => openDiff(session.environmentId))} draft={draft} onDraftChange={(t) => setDraft(id, t)}
@@ -655,7 +656,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onSelectEnvironment={(envId) => run(() => setSessionEnvironment(id, envId))}
             onNewWorktree={() => run(() => moveSessionToNewWorktree(id))}
             connectors={connectors} onConnectorsOpened={() => run(() => refreshConnectors(session.spaceId))}
-            onAddFolder={() => run(() => pickAndLinkProject())}
+            onAddFolder={() => run(() => pickAndLinkProject(session.spaceId))}
             onManageConnections={() => openSpacePage(session.spaceId, "connections")}
             submitKey={submitKey}
             eggs={easterEggs}

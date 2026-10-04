@@ -39,7 +39,7 @@ export function NeedsYou() {
 function NeedsYouItem({ row }: { row: NeedsYouRow }) {
   const spaces = useApp((s) => s.spaces);
   const profiles = useApp((s) => s.profiles);
-  const activeProfileId = useApp((s) => s.activeProfileId());
+  const activeProfileId = useApp((s) => s.activeProfileId);
   const revealSession = useApp((s) => s.revealSession);
   const run = useApp((s) => s.run);
   const [answering, setAnswering] = useState(false);

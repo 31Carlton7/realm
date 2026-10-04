@@ -41,6 +41,8 @@ export type SignInStart =
   | {
       ok: true;
       terminalId: string;
+      /** The terminal's item — what a client opens as a pane. */
+      terminalItemId: string;
       command: string;
       /**
        * The rest of it: waiting for the URL and opening the pane, which together take as long as the
@@ -65,6 +67,8 @@ export type SignInSettled = {
    *  still running, and the screen says what it is doing instead. */
   url: string | null;
   browserId: string | null;
+  /** The consent page's item, beside `browserId`; null when no page was opened. */
+  browserItemId: string | null;
   /** True when a ticket was minted, i.e. this space lets Realm press Authorize itself. */
   mayAuthorize: boolean;
   screen: TerminalScreen;
@@ -97,25 +101,25 @@ export class SignInFlow {
 
     // Wider and taller than the 80×24 default: what runs here lays itself out against the size it
     // finds, and a menu that fits on screen is one that can be read in a single look.
-    const { terminalId } = this.d.terminals.open({ spaceId, cols: 100, rows: 30 });
+    const { terminalId, itemId } = this.d.terminals.open({ spaceId, cols: 100, rows: 30 });
     await this.d.terminals.quiet(terminalId, 300, 4_000);
     await this.d.terminals.manager.writeWhenQuiet(terminalId, `${command}\r`);
-    return { ok: true, terminalId, command, settled: this.settle(spaceId, terminalId) };
+    return { ok: true, terminalId, terminalItemId: itemId, command, settled: this.settle(spaceId, terminalId) };
   }
 
   /** The waiting half. Every failure becomes an outcome, for the reason `settled` gives. */
   private async settle(spaceId: string, terminalId: string): Promise<SignInSettled> {
     try {
       const found = await this.waitForUrl(terminalId);
-      if (!found.url) return { url: null, browserId: null, mayAuthorize: false, screen: found.screen };
+      if (!found.url) return { url: null, browserId: null, browserItemId: null, mayAuthorize: false, screen: found.screen };
       const opened = this.d.browsers.open({ spaceId, url: found.url });
       this.d.tickets.mint(spaceId, opened.browserId, found.url);
       return {
-        url: found.url, browserId: opened.browserId,
+        url: found.url, browserId: opened.browserId, browserItemId: opened.itemId,
         mayAuthorize: this.d.tickets.enabled(spaceId), screen: found.screen,
       };
     } catch {
-      return { url: null, browserId: null, mayAuthorize: false, screen: EMPTY_SCREEN };
+      return { url: null, browserId: null, browserItemId: null, mayAuthorize: false, screen: EMPTY_SCREEN };
     }
   }
 

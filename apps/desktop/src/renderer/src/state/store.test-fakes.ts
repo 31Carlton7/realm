@@ -1,5 +1,5 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import { activeLayout, setActiveLayout, COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_KEYBINDINGS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack } from "@realm/contracts";
+import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_KEYBINDINGS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack } from "@realm/contracts";
 import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { basenameOf, expandCommand, mimeForPath, nextFireOf } from "@realm/contracts";
@@ -332,7 +332,7 @@ export type FakeData = {
 };
 
 export type FakeApi = Api & {
-  /** Method-call log, e.g. `listItems:s1`, `setLayout:s1`, `setSetting:ui.theme=dark`. */
+  /** Method-call log, e.g. `listItems:s1`, `setSetting:ui.theme=dark`. */
   calls: string[];
   disposed: string[];
   /** Browser ids whose native view the store asked main to destroy. */
@@ -744,29 +744,6 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     createProject: async (spaceId, name, rootPath) => {
       const pr: Project = { id: `pr${++n}`, spaceId, name, rootPath, defaultBranch: "main", createdAt: 0, updatedAt: 0 };
       (data.projects[spaceId] ??= []).push(pr); return pr;
-    },
-    setLayout: async (sid, layout) => {
-      calls.push(`setLayout:${sid}`);
-      const i = data.spaces.findIndex((x) => x.id === sid);
-      const cur = i >= 0 ? data.spaces[i]! : findSpace(sid);
-      const groups = cur.groups ? setActiveLayout(cur.groups, layout) : null;
-      const s = { ...cur, groups, layout };
-      if (i >= 0) data.spaces[i] = s;
-      return s;
-    },
-    // Mirrors the server (apps/server/src/store/spaces.ts): `groups` is stored, `layout` is DERIVED
-    // from the active group — a test that reads the returned space's `layout` gets what the real one
-    // would return, so a store bug that persists the wrong active group shows up here rather than
-    // silently round-tripping.
-    setGroups: async (sid, groups, activeItemId) => {
-      calls.push(`setGroups:${sid}`);
-      const i = data.spaces.findIndex((x) => x.id === sid);
-      // Focus is stored in the same write as the layout, exactly as the server does — a fake that
-      // dropped it would let a store bug that never sends focus round-trip silently.
-      const s = { ...(i >= 0 ? data.spaces[i]! : findSpace(sid)), groups, layout: activeLayout(groups),
-        activeItemId: activeItemId === undefined ? (i >= 0 ? data.spaces[i]!.activeItemId : null) : activeItemId };
-      if (i >= 0) data.spaces[i] = s;
-      return s;
     },
     createTerminal: async (sid, cwd) => {
       calls.push(`createTerminal:${sid}${cwd ? `:${cwd}` : ""}`);
@@ -1211,7 +1188,15 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       // rewired to the destination and the server tears the terminal trio down (null column).
       const cur = data.sessions[i]!;
       const s = { ...cur, spaceId, projectId: null, terminalItemId: cur.lastEventSeq > 0 ? cur.terminalItemId : null };
-      data.sessions[i] = s; return s;
+      data.sessions[i] = s;
+      // …and its item moves with it, keeping its id (ItemsStore.moveToSpace).
+      for (const [sid, list] of Object.entries(data.items)) {
+        const at = list.findIndex((it) => it.kind === "session" && it.refId === id);
+        if (at < 0 || sid === spaceId) continue;
+        const [moved] = list.splice(at, 1);
+        (data.items[spaceId] ??= []).push({ ...moved!, spaceId });
+      }
+      return s;
     },
     sessionEvents: async (id, afterSeq, limit) => { calls.push(`sessionEvents:${id}:${afterSeq}`); await wait(`sessionEvents:${id}`); return (data.sessionEvents[id] ?? []).filter((e) => e.seq > afterSeq).slice(0, limit); },
     // Mirrors the server: get-or-create, so a second call for the same session returns the same trio —

@@ -257,16 +257,18 @@ describe("store — the desktop (OS) hop", () => {
     expect(allItems(store.getState().layout!)).toEqual(layout);
   });
 
-  it("a session row whose pane no longer exists falls back to the feed rather than a space switch that opens nothing", async () => {
+  it("a session row whose pane no longer exists falls back to the feed, and moves nothing else", async () => {
     const { store } = await boot({
       items: { s1: [item("i1", "s1", { kind: "session", refId: "se1", title: "S" })], s2: [] },
       sessions: [session("se1", "s1"), session("se2", "s2")],
       notifications: [notification("d1", { category: "session_done", sessionId: "se2", spaceId: "s2" })],
     });
     await store.getState().refreshAllSessions();
+    const layout = store.getState().layout;
     await store.getState().activateDesktopNotification("d1");
-    expect(store.getState().activeSpaceId).toBe("s2");
+    expect(store.getState().pageOverlay?.kind).toBe("notifications-page");
     expect(store.getState().notificationsSelectedId).toBe("d1");
+    expect(store.getState().layout).toBe(layout);
   });
 
   it("THE read-after-the-jump mutant: the row is stamped read BEFORE the app goes anywhere", async () => {

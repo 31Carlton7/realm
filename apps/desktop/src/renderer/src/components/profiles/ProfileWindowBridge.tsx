@@ -13,7 +13,7 @@ import { useApp } from "../../state/store";
  *     server says so with `profiles.changed`, and every window's lists read the same rows.
  */
 export function ProfileWindowBridge() {
-  const profileId = useApp((s) => s.activeProfileId());
+  const profileId = useApp((s) => s.activeProfileId);
   const refreshProfiles = useApp((s) => s.refreshProfiles);
   const run = useApp((s) => s.run);
   useEffect(() => { window.realm?.windows?.setProfile(profileId); }, [profileId]);

@@ -52,13 +52,11 @@ export const MENU_LAYOUT = {
     null,
     row("pane.navBack", "Back"), row("pane.navForward", "Forward"),
     null,
-    row("paneGroup.previous", "Previous Split"), row("paneGroup.next", "Next Split"),
-    null,
     row("space.previous", "Previous Space"), row("space.next", "Next Space"),
     null,
     row("palette.files", "Open File…"), row("palette.grep", "Find in Files…"),
   ],
-  window: [row("pane.splitRight", "Split Right"), row("pane.splitDown", "Split Down"), row("paneGroup.new", "New Split")],
+  window: [row("pane.splitRight", "Split Right"), row("pane.splitDown", "Split Down")],
 } satisfies Record<string, readonly (CommandRow | null)[]>;
 
 /** A canonical chord (`mod+shift+\`) as an Electron accelerator (`Command+Shift+\`), or undefined

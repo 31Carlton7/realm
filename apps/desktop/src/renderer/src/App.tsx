@@ -22,13 +22,13 @@ import { useKeybindings, useMenuBar } from "./keys";
 import { PaneHost } from "./components/PaneHost";
 import { getTerminalHub } from "./panes/terminal-hub";
 import { getBrowserBridges } from "./panes/browser/browser-client";
-import { GroupBar } from "./components/GroupBar";
 import { Onboarding } from "./components/Onboarding";
-import { StoreContext, createAppStore, useApp } from "./state/store";
-import { useStore } from "zustand";
+import { StoreContext, createAppStore, useApp, type AppState } from "./state/store";
+import { useStore, type StoreApi } from "zustand";
 import { liveApi } from "./state/live-api";
 import { rpc } from "./rpc/client";
-import { emptyLayout } from "@realm/contracts";
+import { allItems, emptyLayout, type EventName, type EventPayload, type Item, type Layout } from "@realm/contracts";
+import { PaneFor } from "./panes/registry";
 import { useApplyTheme } from "./theme/useTheme";
 import { useZoom } from "./theme/zoom";
 import { installRubberBand } from "./rubber-band";
@@ -296,14 +296,13 @@ function SheetHost() {
   return null;
 }
 
-/** Full-bleed PaneHost for the active space, under the GroupBar — which renders NOTHING unless the
- *  space has more than one pane group or a pane is focused full-screen, so the no-topbar posture
- *  (spec amendment §A1) is unchanged for anyone not using groups. Layout presets stay in the command
- *  palette. Exported for the app-shell tests. */
+/** Full-bleed PaneHost for the window's one view: a pane, or a split of two, each with its own side
+ *  pane — no bar of named splits above it. Exported for the app-shell tests. */
 export function Main() {
   const layout = useApp((s) => s.layout);
   const spaceItems = useApp((s) => s.items);
-  /* A peek may be another space's session, whose row is in no list of this space's — and the host
+  const offscreenBrowsers = useApp((s) => s.offscreenBrowsers);
+  /* A peek may be another profile's session, whose row is in no list of this window's — and the host
      draws a tab only from a row it was handed. */
   const peek = useApp((s) => s.peek?.item ?? null);
   const items = useMemo(() => (peek && !spaceItems.some((i) => i.id === peek.id) ? [...spaceItems, peek] : spaceItems), [spaceItems, peek]);
@@ -319,7 +318,7 @@ export function Main() {
   const newSessionInstant = useApp((s) => s.newSessionInstant);
   const resizeSplit = useApp((s) => s.resizeSplit);
   const equalizeSplit = useApp((s) => s.equalizeSplit);
-  const zoomedLeafId = useApp((s) => s.groups?.groups.find((g) => g.id === s.groups!.activeGroupId)?.zoomedLeafId ?? null);
+  const zoomedLeafId = useApp((s) => s.view?.zoomedLeafId ?? null);
   const focusPaneFull = useApp((s) => s.focusPaneFull);
   const unfocusPane = useApp((s) => s.unfocusPane);
   const run = useApp((s) => s.run);
@@ -335,7 +334,6 @@ export function Main() {
   return (
     <>
       <ErrorBar />
-      <GroupBar />
       <PaneHost layout={layout ?? emptyLayout()} items={items} focusedLeafId={focusedLeafId}
         zoomedLeafId={zoomedLeafId}
         onZoom={(leafId) => run(() => focusPaneFull(leafId))}
@@ -349,8 +347,78 @@ export function Main() {
         onEqualize={equalizeSplit}
         onDropItem={(id, leafId, edge) => run(() => openItemAt(id, leafId, edge))}
         onDropNewSession={(leafId, edge) => run(() => newSessionInstant(leafId, edge))} />
+      <OffscreenBrowsers ids={offscreenBrowsers} layout={layout} items={items} />
     </>
   );
+}
+
+/**
+ * The browsers an agent opened for a session that is not on screen, mounted hidden so the agent can
+ * drive them (`offscreenBrowsers`). A browser's native view exists only while a pane holds it; these
+ * are in that session's side pane off screen, and come into view with it — at which point the pane
+ * host mounts them instead, and the hidden mount here steps aside in the same render.
+ */
+function OffscreenBrowsers({ ids, layout, items }: { ids: string[]; layout: Layout | null; items: Item[] }) {
+  const onScreen = new Set(layout ? allItems(layout) : []);
+  const hidden = ids.filter((id) => !onScreen.has(id)).map((id) => items.find((i) => i.id === id)).filter((i): i is Item => i?.kind === "browser");
+  if (hidden.length === 0) return null;
+  return (
+    <div className="offscreen-panes" hidden aria-hidden="true">
+      {hidden.map((it) => <div key={it.id} className="pane-slot"><PaneFor item={it} visible={false} focused={false} /></div>)}
+    </div>
+  );
+}
+
+/** `rpc().on`, as the subscriptions below take it — a seam, so their tests hand in a recorder. */
+type Subscribe = <E extends EventName>(event: E, fn: (payload: EventPayload<E>) => void) => () => void;
+
+/**
+ * The broadcasts that say one space's lists changed — its items (and with them its sessions), its
+ * checkouts, its scripts — heard for EVERY space of the window's profile, not just the current one.
+ * Every space of the profile is loaded at once, so a list left stale because its space was not the one
+ * in focus would be a sidebar showing a session that was deleted, or missing one an agent just made.
+ * `spaceScripts` is what `ownsScriptCommand` consults synchronously on a keystroke, so a stale copy is
+ * a bound key that runs a script the user just deleted. Exported for its test.
+ */
+export function subscribeSpaceLists(store: StoreApi<AppState>, on: Subscribe): () => void {
+  const mine = (spaceId: string) => {
+    const st = store.getState();
+    return st.spaces.some((sp) => sp.id === spaceId && sp.profileId === st.activeProfileId);
+  };
+  const offs = [
+    on("items.changed", ({ spaceId }) => {
+      if (!mine(spaceId)) return;
+      const st = store.getState();
+      st.run(() => st.refreshItems(spaceId));
+      st.run(() => st.refreshSessions(spaceId));
+    }),
+    on("environments.changed", ({ spaceId }) => {
+      if (!mine(spaceId)) return;
+      const st = store.getState();
+      st.run(() => st.refreshEnvironments(spaceId));
+    }),
+    on("scripts.changed", ({ spaceId }) => {
+      if (!mine(spaceId)) return;
+      const st = store.getState();
+      st.run(() => st.refreshScripts(spaceId));
+    }),
+  ];
+  return () => { for (const off of offs) off(); };
+}
+
+/** The broadcasts that bring an agent-opened pane into the layout. Exported for its test. */
+export const AGENT_PANE_EVENTS = ["browser.agentOpened", "simulator.agentOpened", "terminal.agentOpened"] as const;
+
+/**
+ * An agent opened a browser (`browser_open`), a device (`simulator_open`) or a shell (`terminal_open`):
+ * bring it into the layout as a tab of the side pane of the session that opened it, not as a column
+ * beside whatever has focus. The user WATCHES what an agent drives, and a browser's native view only
+ * exists once its pane mounts. The terminal was the one missing here, so an agent's shell was a row in
+ * the sidebar and nowhere on screen.
+ */
+export function subscribeAgentPanes(store: StoreApi<AppState>, on: Subscribe): () => void {
+  const offs = AGENT_PANE_EVENTS.map((event) => on(event, (p) => { const st = store.getState(); st.run(() => st.applyAgentPaneOpened(p)); }));
+  return () => { for (const off of offs) off(); };
 }
 
 export function App() {
@@ -375,21 +443,7 @@ export function App() {
     const s = store.getState();
     s.run(() => s.boot());
     const offS = rpc().on("spaces.changed", () => store.getState().run(() => store.getState().refreshSpaces()));
-    /* A space's scripts changed — from this window's Scripts panel or another's. Re-read rather than
-       patch: `spaceScripts` is what `ownsScriptCommand` consults synchronously on a keystroke, and a
-       stale copy is a bound key that runs a script the user just deleted. */
-    const offSc = rpc().on("scripts.changed", ({ spaceId }) => {
-      const st = store.getState();
-      if (spaceId === st.activeSpaceId) st.run(() => st.refreshScripts(spaceId));
-    });
-    const offI = rpc().on("items.changed", ({ spaceId }) => {
-      const st = store.getState();
-      if (spaceId === st.activeSpaceId) { st.run(() => st.refreshItems()); st.run(() => st.refreshSessions()); }
-    });
-    const offV = rpc().on("environments.changed", ({ spaceId }) => {
-      const st = store.getState();
-      if (spaceId === st.activeSpaceId) st.run(() => st.refreshEnvironments());
-    });
+    const offI = subscribeSpaceLists(store, (event, fn) => rpc().on(event, fn));
     // Realm's own write to a working tree. Every held diff is refreshed, not just the one named:
     // two panes may look at one repository through two different cwds, and only the server knows.
     const offW = rpc().on("workspace.changed", () => {
@@ -450,21 +504,15 @@ export function App() {
       const st = store.getState();
       if (st.spaceMemory[spaceId]) st.run(() => st.refreshMemory(spaceId));
     });
-    // An agent opened a browser pane (Plan 11 W3): bring it into the layout — the whole point of the
-    // architecture is that the user WATCHES agent-driven browsing, and the native view only exists
-    // once the pane mounts. It goes in as a tab of the side pane of the session that opened it, not as
-    // a column beside whatever has focus. Other spaces just gain the sidebar item via items.changed.
-    const offB = rpc().on("browser.agentOpened", (p) => { const st = store.getState(); st.run(() => st.applyAgentPaneOpened(p)); });
-    // An agent opened a device with `simulator_open`: the same idiom, for the same reason — the user
-    // watches the app the agent is running, and the pane's own "Booting…" is the progress worth seeing.
-    const offSO = rpc().on("simulator.agentOpened", (p) => { const st = store.getState(); st.run(() => st.applyAgentPaneOpened(p)); });
+    const offB = subscribeAgentPanes(store, (event, fn) => rpc().on(event, fn));
     // A session delegated a browsing goal to a browser-agent session (Plan 11 W5): same idiom — the
     // child is a real session, and the point of it being one is that the user watches its whole
     // trace, so it comes into the layout the moment it exists. Other spaces gain the sidebar item
     // via items.changed as usual.
     // A file was surfaced in the documents pane (Plan 22) — by the user, or by an agent's `docs_open`.
-    // Same idiom as the browser and session openings: into the layout if this is the active space,
-    // and quietly, so a guide an agent just wrote appears beside the session without stealing focus.
+    // Same idiom as the browser and session openings: into the layout for any space of the window's
+    // profile, and quietly, so a guide an agent just wrote appears beside the session without
+    // stealing focus.
     const offDO = rpc().on("documents.openRequested", (p) => { const st = store.getState(); st.run(() => st.applyDocumentOpenRequested(p)); });
     const offSA = rpc().on("session.agentOpened", (p) => { const st = store.getState(); st.run(() => st.applyAgentOpened(p)); });
     // The same child's run settled. A clean finish reads its "Finished a turn" row (`applyAgentSettled`).
@@ -552,7 +600,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offSc(); offI(); offV(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offSO(); offDO(); offSA(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offI(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offDO(); offSA(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

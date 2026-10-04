@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, within, renderHook, act } from "@testing-library/react";
-import { sessionEvent, type Item, type Layout } from "@realm/contracts";
+import { allItems, sessionEvent, type Item, type Layout } from "@realm/contracts";
 import { PaneHost, zoneAt, type PaneHostProps } from "./PaneHost";
 import { PanelBar } from "./PanelBar";
 import { Main } from "../App";
@@ -236,13 +236,20 @@ describe("PaneHost", () => {
   /** W2.3 (Plan 11): NOTHING may ever open "over" a browser pane from its own header — the native
    *  view paints over any dropdown. The ⋯ menu is gone for browser panes; its actions are inline. */
   it("browser pane header has NO dropdown: no ⋯, no aria-haspopup — inline split buttons instead", () => {
-    const { props } = renderHost();
+    const { props } = renderHost({ layout: { type: "leaf", id: "L1", itemId: "A" } });
     expect(within(panel("L1")).queryByRole("button", { name: "Pane menu for Tab A" })).toBeNull();
     expect(panel("L1").querySelector(".panel-bar [aria-haspopup]")).toBeNull();
     fireEvent.click(within(panel("L1")).getByRole("button", { name: "Split Tab A right" }));
     expect(props.onSplit).toHaveBeenCalledExactlyOnceWith("L1", "row");
     fireEvent.click(within(panel("L1")).getByRole("button", { name: "Split Tab A down" }));
     expect(props.onSplit).toHaveBeenLastCalledWith("L1", "col");
+  });
+
+  it("at two panes, no bar offers a split — the window shows two at most", () => {
+    // THE MUTANT: keep the split buttons on, and a click asks for a third pane the store refuses.
+    renderHost();
+    expect(within(panel("L1")).queryByRole("button", { name: "Split Tab A right" })).toBeNull();
+    expect(within(panel("L1")).queryByRole("button", { name: "Split Tab A down" })).toBeNull();
     // The non-browser pane keeps its ⋯ menu — the rework is scoped to browser panes.
     expect(within(panel("L2")).getByRole("button", { name: "Pane menu for Tab B" })).toBeInTheDocument();
   });
@@ -600,7 +607,7 @@ async function mountMain(focusedLeafId: string) {
 }
 
 describe("App shell", () => {
-  it("dropping New session on a pane edge creates it in a new split", async () => {
+  it("dropping New session on a pane's edge opens it beside that pane — in the other side's place, never a third", async () => {
     const { store, api } = await mountMain("L1");
     fireDrag(window, "dragstart", newSessionDt());
     const overlay = panel("L2").querySelector(".drop-overlay")!;
@@ -608,33 +615,34 @@ describe("App shell", () => {
     fireDrag(overlay, "drop", newSessionDt(), { clientX: 390, clientY: 150 });
 
     await waitFor(() => expect(api.calls).toContain("createSession:claude"));
-    await waitFor(() => {
-      const current = store.getState().layout;
-      expect(current?.type).toBe("split");
-      if (current?.type !== "split") throw new Error();
-      expect(current.children).toHaveLength(3);
+    const created = await waitFor(() => {
+      const it = store.getState().items.find((i) => i.kind === "session");
+      if (!it || !allItems(store.getState().layout!).includes(it.id)) throw new Error("not on screen yet");
+      return it;
     });
     const layout = store.getState().layout!;
     expect(layout.type).toBe("split"); if (layout.type !== "split") throw new Error();
-    const created = store.getState().items.find((i) => i.kind === "session")!;
-    expect(layout.children.map((c) => c.type === "leaf" ? c.itemId : null)).toEqual(["A", "B", created.id]);
-    expect(store.getState().focusedLeafId).toBe(layout.children[2]!.id);
+    // B was dropped on, so it stays; the new session takes A's side, to B's right as the edge said.
+    expect(layout.children.map((c) => c.type === "leaf" ? c.itemId : null)).toEqual(["B", created.id]);
+    expect(store.getState().focusedLeafId).toBe(layout.children[1]!.id);
   });
 
-  it("PanelBar split targets its own leaf: focusLeaf runs before splitFocused", async () => {
+  it("a pane bar offers Split only while the view can take a second pane", async () => {
+    // THE MUTANT: offer the rows at two panes, where the store refuses the split — a control whose
+    // only outcome is nothing happening.
     const { store } = await mountMain("L1");
-    // L1 is focused; splitting from L2's PanelBar menu must split L2, not the previously focused leaf.
     fireEvent.click(within(panel("L2")).getByRole("button", { name: "Pane menu for Tab B" }));
+    expect(screen.queryByRole("menuitem", { name: /Split right/ })).toBeNull();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    await act(async () => { await store.getState().closeFromLayout("A"); });
+    const solo = store.getState().layout!;
+    fireEvent.click(within(panel(solo.id)).getByRole("button", { name: "Pane menu for Tab B" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /Split right/ }));
-    await waitFor(() => expect(findEmptySiblingOf(store.getState().layout!, "L2")).toBeTruthy());
+    await waitFor(() => expect(findEmptySiblingOf(store.getState().layout!, solo.id)).toBeTruthy());
     const l = store.getState().layout!; if (l.type !== "split") throw new Error();
-    // The row GREW rather than nesting, so "which leaf was split" is now a question of position: the
-    // fresh empty leaf sits right after L2, with L1 and L2 still the untouched first two columns.
-    expect(l.children).toHaveLength(3);
-    expect(l.children.map((c) => c.id).slice(0, 2)).toEqual(["L1", "L2"]);
-    expect(l.children[2]).toMatchObject({ type: "leaf", itemId: null });
-    expect(store.getState().focusedLeafId).toBe(l.children[2]!.id);
-    expect(findEmptySiblingOf(l, "L2")).toBe(l.children[2]!.id);
+    expect(l.children).toHaveLength(2);
+    expect(l.children[1]).toMatchObject({ type: "leaf", itemId: null });
+    expect(store.getState().focusedLeafId).toBe(l.children[1]!.id);
   });
 
   it("the global topbar is retired: no breadcrumb or topbar chrome, panes render full-bleed (layout presets live in the command palette)", async () => {

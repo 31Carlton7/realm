@@ -294,10 +294,13 @@ const HANDLERS: Record<string, Handler> = {
     // than the 80×24 `terminals.create` defaults to, because nothing is looking at this one yet and
     // the programs it exists to run — full-screen logins — lay themselves out against the size they
     // find. A menu that fits is a menu an agent can read in one go.
-    const { terminalId } = d.terminals.open({ spaceId: ctx.spaceId, cwd: args.value.cwd, cols: 100, rows: 30 });
+    const { terminalId, itemId } = d.terminals.open({ spaceId: ctx.spaceId, cwd: args.value.cwd, cols: 100, rows: 30 });
     let mine = opened.get(ctx.sessionId);
     if (!mine) opened.set(ctx.sessionId, (mine = new Set()));
     mine.add(terminalId);
+    // Before the settle wait, so the pane is mounting while the shell prints its startup. Without
+    // it the terminal was a row in the sidebar and nowhere on screen.
+    d.rpc.broadcast("terminal.agentOpened", { spaceId: ctx.spaceId, terminalId, itemId, openedBy: ctx.sessionId });
     // Give the login shell a moment to finish printing its own startup, so the first read is a
     // prompt rather than half a motd.
     await d.terminals.quiet(terminalId, SETTLE_QUIET_MS, SETTLE_MS);
@@ -406,9 +409,15 @@ const HANDLERS: Record<string, Handler> = {
 
     const started = await d.signIn.start(ctx.spaceId, args.value.kind);
     if (!started.ok) return err(started.reason);
+    // Both panes the flow makes are this session's, as ones it opened itself are: a tab each of its
+    // side pane. Unannounced, the app learns of them only as items — a sidebar row, nothing on screen.
+    d.rpc.broadcast("terminal.agentOpened", { spaceId: ctx.spaceId, terminalId: started.terminalId, itemId: started.terminalItemId, openedBy: ctx.sessionId });
     // A tool call wants the whole outcome, so it waits for the half a button does not — see
     // `SignInStart.settled`.
     const settled = await started.settled;
+    if (settled.browserId && settled.browserItemId) {
+      d.rpc.broadcast("browser.agentOpened", { spaceId: ctx.spaceId, browserId: settled.browserId, itemId: settled.browserItemId, openedBy: ctx.sessionId });
+    }
 
     // The terminal this flow made belongs to this session, on the same terms one it opened itself
     // does: the code typed back at the end goes into THIS pty, and having to re-approve a terminal

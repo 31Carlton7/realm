@@ -17,7 +17,7 @@ import { useSidebarState } from "./use-sidebar-model";
  */
 export function ProfileSwitcher() {
   const state = useSidebarState();
-  const activeProfileId = useApp((s) => s.activeProfileId());
+  const activeProfileId = useApp((s) => s.activeProfileId);
   // Switching brings forward a window already showing that profile, else turns this one to it.
   const switchProfile = useApp((s) => s.switchProfile);
   const openProfileWindow = useApp((s) => s.openProfileWindow);

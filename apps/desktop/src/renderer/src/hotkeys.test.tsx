@@ -188,20 +188,19 @@ describe("useGlobalHotkeys", () => {
 
   it("a focused terminal (xterm helper textarea) does NOT swallow global bindings: ⌘W closes, ⌘\\ splits", async () => {
     const { store } = await mount();
-    act(() => store.setState({ layout: grid, focusedLeafId: "L1", items: [item("A", "s1"), item("B", "s1")] }));
+    const two: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
+      { type: "leaf", id: "L1", itemId: "A" }, { type: "leaf", id: "L2", itemId: "B" }] };
+    act(() => store.setState({ layout: two, focusedLeafId: "L1", items: [item("A", "s1"), item("B", "s1")] }));
     // xterm's real focus target: a helper <textarea> nested inside the .xterm root element.
     const host = document.createElement("div"); host.className = "xterm";
     const ta = document.createElement("textarea"); ta.className = "xterm-helper-textarea";
     host.appendChild(ta); document.body.appendChild(host); ta.focus();
     key({ key: "w", metaKey: true }, ta);
-    await waitFor(() => {
-      const l = store.getState().layout!;
-      expect(l.type === "split" && l.children[0]).toEqual({ type: "leaf", id: "L2", itemId: "B" }); // pane closed
-    });
+    await waitFor(() => expect(store.getState().layout).toEqual({ type: "leaf", id: "L2", itemId: "B" })); // pane closed
     key({ key: "\\", metaKey: true }, ta);
     await waitFor(() => {
       const l = store.getState().layout!;
-      expect(l.type === "split" && l.children.some((c) => c.type === "split" && c.dir === "row")).toBe(true); // split fired
+      expect(l.type === "split" && l.dir === "row" && l.children.length).toBe(2); // split fired
     });
     host.remove();
   });

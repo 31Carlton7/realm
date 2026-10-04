@@ -71,12 +71,14 @@ async function mountPeek() {
 
 describe("a peek's tab and pane", () => {
   it("marks the tab as a peek, which does not drag into the person's own layout", async () => {
-    // THE MUTANT: draw it as any tab — nothing on screen says it goes with the space, and a drag to an
-    // edge would make another space's session part of this one's saved arrangement.
+    // THE MUTANT: draw it as any tab — nothing on screen says it is only a look, and a drag to an edge
+    // would keep another space's session in the view the window saves.
     const { panel } = await mountPeek();
     const tab = within(panel()).getByRole("tab", { name: "Peek: Other" });
     expect(tab.closest(".pane-tab")).toHaveAttribute("data-peek");
     expect(tab).toHaveAttribute("draggable", "false");
+    // In the window's words: there is one view now, not a layout per space.
+    expect(tab).toHaveAttribute("title", "Other — a peek, not kept in the view");
   });
 
   it("shows the transcript and answers its card, with no prompter", async () => {

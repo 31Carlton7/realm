@@ -252,7 +252,7 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
    fields — keeps selection because nothing here names it. The images and glyphs chrome is drawn
    with do not lift off as drag ghosts either. */
 :is(button, [role="button"], [role="tab"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"],
-  [role="option"], [role="switch"], label, summary, .sidebar, .panel-bar, .group-bar, .menu, .settings-tabs) {
+  [role="option"], [role="switch"], label, summary, .sidebar, .panel-bar, .menu, .settings-tabs) {
   -webkit-user-select: none; user-select: none; }
 /* A field inside one of those (a label wrapping its input, the sidebar's rename) is still a field. */
 :is(input, textarea, [contenteditable="true"]) { -webkit-user-select: text; user-select: text; }
@@ -260,7 +260,7 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
    piece of chrome text a person reaches for to copy, the way a selectable NSTextField in an inspector
    is. Not inside a control, where a drag is a press. */
 :is(code, pre):not(:is(button, [role="button"], [role^="menuitem"], [role="tab"]) *) { -webkit-user-select: text; user-select: text; }
-:is(button, [role="button"], [role="menuitem"], .sidebar, .panel-bar, .group-bar, .menu) :is(img, svg) { -webkit-user-drag: none; }
+:is(button, [role="button"], [role="menuitem"], .sidebar, .panel-bar, .menu) :is(img, svg) { -webkit-user-drag: none; }
 button:disabled { cursor: default; opacity: .45; }
 input, select, textarea { font: inherit; color: inherit; }
 kbd { font: 11px var(--font-mono); }
@@ -1669,52 +1669,6 @@ kbd { font: 11px var(--font-mono); }
   background: var(--rl-panel); color: var(--rl-text-bright); font: inherit; font-size: 12.5px; }
 .ip-generate .ip-grid { padding: 0; border-top: var(--hairline-w) solid var(--rl-hairline); padding-top: 10px; }
 .ip-error { color: var(--rl-warning); font-size: 11.5px; }
-
-/* ── Pane groups: the conditional strip above the host (GroupBar.tsx) ──
-   The app has no topbar by design; this appears only when a space has more than one group or a pane
-   is focused full-screen, so a space that uses neither is pixel-identical to before. It carries the
-   window drag the top edge would otherwise lose, with its own controls opted back out. */
-/* Seamless for the same reason the pane bar is: a `flex: none` row above the host, with nothing
-   passing under it. Two stacked hairlines at the top of the window was the worst case of it. */
-.group-bar { flex: none; display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 0 14px 0 16px;
-  background: var(--rl-panel); -webkit-app-region: drag; }
-.group-bar button, .group-bar input { -webkit-app-region: no-drag; }
-/* The padding is for the FOCUS RING, and the negative margin is so paying for it costs no height.
-   `overflow-x: auto` makes this a scrollport, and a scrollport clips both axes however only one of
-   them scrolls — so the global `:focus-visible` outline (2px at +1px offset) was being sliced off
-   the top and bottom of a focused tab, which is what made the highlight look cut into. The padding
-   gives the ring room inside the clip box; the margin takes the same amount back out of the layout,
-   so the bar keeps its 38px and nothing below it moves. */
-.group-tabs { display: flex; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none;
-  padding-block: 4px; margin-block: -4px; }
-.group-tab { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: var(--r-ctl); corner-shape: squircle;
-  font-size: 12.5px; color: var(--rl-text-dim); white-space: nowrap; }
-.group-tab:hover { background: var(--rl-hover); }
-.group-tab[data-active] { background: var(--rl-active); color: var(--rl-text-bright); }
-/* Drop target while a sidebar row is dragged over the tab (moves that pane into the group). */
-.group-tab[data-drop] { outline: 1.5px solid var(--rl-accent); outline-offset: -1.5px; }
-/* Reordering the strip itself. The two gestures share these tabs, so they must not share a mark:
-   dropping a PANE onto a tab targets the tab (an outline around it), dropping a TAB targets the gap
-   between two (a rule in the gap). One says "into this", the other "here". */
-.group-tab, .group-tab-end { position: relative; }
-.group-tab[data-insert]::after, .group-tab-end[data-insert]::after {
-  content: ""; position: absolute; top: 3px; bottom: 3px; width: 2px; border-radius: 1px;
-  background: var(--rl-accent); pointer-events: none;
-}
-/* In the 2px gap between tabs, not inside either of them — the gap is what is being named. */
-.group-tab[data-insert="before"]::after, .group-tab-end[data-insert="before"]::after { left: -2px; }
-.group-tab[data-insert="after"]::after { right: -2px; }
-/* The tab in flight stays legible but plainly lifted out of the row. */
-.group-tab[data-dragging] { opacity: .4; }
-/* The run past the last tab: a drop target with no appearance of its own, so "the end" is reachable
-   without landing on the right half of a short tab. Zero width at rest — it must cost the strip
-   nothing when nobody is dragging — and it opens into a landing strip only for the gesture. */
-.group-tab-end { flex: none; width: 0; align-self: stretch; }
-.group-tabs[data-reordering] .group-tab-end { width: 28px; }
-.group-tab-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
-.group-tab-renaming { padding: 2px 4px; }
-.group-tab-renaming .rename { width: 120px; }
-.group-add { color: var(--rl-text-faint); }
 
 .group-new { display: flex; align-items: center; gap: 6px; margin: 6px 0 0; padding: 4px 8px; border-radius: var(--r-ctl);
   font-size: 12px; color: var(--rl-text-faint); }

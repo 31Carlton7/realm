@@ -4,15 +4,16 @@ import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sour
 import { createStore, useStore, type StoreApi } from "zustand";
 import { EMPTY_TRAIL, pushStop, settleStop, stepTarget, type WindowStop, type WindowTrail } from "./window-trail";
 import {
-  allItems, closeItem as layoutClose, closeLeaf as layoutCloseLeaf, emptyLayout, moveTab as layoutMoveTab, openInSidePane as layoutOpenInSidePane, equalizeSplit as layoutEqualize, findLeaf, findLeafOfItem, findSidePane, firstLeaf, gridPreset, itemIdOfLeaf, openItem as layoutOpen, splitLeaf, updateSizes, AgentKindSchema, LayoutSchema, modeWireValue, sessionModeOf,
+  allItems, closeItem as layoutClose, closeLeaf as layoutCloseLeaf, emptyLayout, moveTab as layoutMoveTab, openInSidePane as layoutOpenInSidePane, equalizeSplit as layoutEqualize, findLeaf, findLeafOfItem, findSidePane, firstLeaf, itemIdOfLeaf, openItem as layoutOpen, updateSizes, AgentKindSchema, LayoutSchema, modeWireValue, sessionModeOf,
   lectureWrapUpPrompt, localDateStamp, sessionEvent,
-  activeGroup, activeLayout, addGroup as groupsAdd, mapGroup, reconcileGroups, allGroupItems, detachItemFrom, groupAtOffset, groupOfItem, groupsFromLayout, moveGroup as groupsMove, moveItemToGroup as groupsMoveItem, removeGroup as groupsRemove, renameGroup as groupsRename, setActiveGroup as groupsSetActive, setActiveLayout, SpaceGroupsSchema, toggleZoom as groupsToggleZoom, unzoom as groupsUnzoom, zoomLeaf as groupsZoom,
+  groupsFromLayout, SpaceGroupsSchema,
+  columnOf, firstPaneLeaf, normalizeView, openBesideInView, parseStoredView, pruneView, rememberSidePane, showInView, splitEmptyInView, viewFromGroups, withoutItem, type BesideEdge, type StoredView, type WindowView,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, annotationChipLabel, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_FAST_SUPPORT_KEY, readFastSupport, EDITOR_CURSOR_BLINK_DEFAULT, EDITOR_CURSOR_BLINK_KEY, isTerminalCursorStyle, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, type TerminalCursorStyle, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
-  type AgentKind, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PaneGroup, type PresetName, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
+  type AgentKind, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -51,7 +52,9 @@ export const FAN_OUT_MAX = 12;
 /** One brief, several agents. `worktrees` off runs them all in the space folder, where they will
  *  edit each other's files — true of any two sessions sharing a checkout, and the reason it defaults
  *  on for a fan-out, where the collision is the expected case rather than the unlucky one. */
-export type FanOutInput = { brief: string; count: number; agentKind: AgentKind; worktrees: boolean };
+export type FanOutInput = { brief: string; count: number; agentKind: AgentKind; worktrees: boolean;
+  /** The space they run in. Omitted, the current space — the one the session in focus works in. */
+  spaceId?: string | null };
 
 export type AgentsView = "list" | "wall" | "office";
 
@@ -162,7 +165,7 @@ export type Api = {
   /** Global list across all profiles, in user sort order. */
   listSpaces(): Promise<Space[]>;
   listItems(spaceId: string): Promise<Item[]>;
-  /** Every item across every space, newest-updated first (command palette search). */
+  /** Every item across every space, newest-updated first, archived rows left out (palette search). */
   listAllItems(): Promise<Item[]>;
   /** `search.query` — deep search over ONE profile's transcripts, item titles, skills and memory
    *  (Plan 16 W2). Profile scoping is the server's; the client only names which profile it is in. */
@@ -180,11 +183,6 @@ export type Api = {
   reorderSpaces(ids: string[]): Promise<void>;
   deleteSpace(id: string): Promise<void>;
   createProject(spaceId: string, name: string, rootPath: string): Promise<Project>;
-  setLayout(spaceId: string, layout: Layout): Promise<Space>;
-  /** `spaces.setGroups` — the whole group set (membership, names, active pointer, per-group zoom) in
-   *  one write. Every layout persist goes through this now; `setLayout` survives only for the fakes
-   *  and for callers that genuinely mean "just the active group's tree". */
-  setGroups(spaceId: string, groups: SpaceGroups, activeItemId: string | null): Promise<Space>;
   /** `cwd`: the checkout the shell starts in — the server's primary one when absent. */
   createTerminal(spaceId: string, cwd?: string): Promise<{ terminalId: string; itemId: string }>;
   /** `browsers.create` — row + item; the native view is the pane's own business (Plan 11 W1). */
@@ -653,8 +651,7 @@ export const DESTINATION_PAGE_TITLES: Record<DestinationPageKind, string> = {
  * Where an activated destination page lands.
  *
  * `reuse` is the plain click: one page per space, so a second activation goes to the pane that already
- * holds it — including one in a pane group that is not on screen, which the plain click will switch to.
- * `here` overrides that homing and moves the page into the focused pane instead.
+ * holds it. `here` overrides that homing and moves the page into the focused pane instead.
  *
  * They only differ once the page is open somewhere else. A page that does not exist yet is created in
  * the focused pane under either placement, which is why the surfaces offering `here` gate on
@@ -701,7 +698,14 @@ export type PaletteMode = "all" | "files" | "grep";
  *  beside itself. */
 export type NewTabTool = "files" | "terminal" | "documents" | "simulator" | "machine";
 
+/** The space last made current — where a new session goes when no session has focus. Before Plan 27
+ *  it was the room the window was in, which is why a home upgraded from rooms migrates from it. */
 export const SETTING_ACTIVE_SPACE = "ui.activeSpaceId";
+/** The profile the window was last on: what a window main bound to no profile opens on. */
+export const SETTING_ACTIVE_PROFILE = "ui.activeProfileId";
+/** The window's one view, per profile — its panes, their side panes, and the side panes of the
+ *  sessions not on screen. Keyed by profile because a profile's spaces are the only ones it shows. */
+export const viewSettingKey = (profileId: string): string => `ui.view:${profileId}`;
 export const SETTING_THEME = "ui.theme";
 /** The palette, one key per face — a second axis from `ui.theme`'s light/dark: that says which mode,
  *  these say what the colours are in it. A key each rather than one compound value so the two faces
@@ -836,8 +840,8 @@ export type Sheet =
    *  the revision, not the snapshot that was taken when the row was clicked. */
   | { kind: "session-plan"; sessionId: string; planId: string }
   /** The Agents page's fan-out: one brief, several agents, a worktree each. Carries nothing — the
-   *  space it starts them in is the active one, which is the only space the page can act on, and a
-   *  copy of that id in the sheet slot could outlive a space switch made behind the sheet. */
+   *  space it starts them in is the current one when it is sent (`fanOutAgents` takes a space for a
+   *  caller that names one). */
   | { kind: "fan-out" };
 
 export type AppState = {
@@ -845,8 +849,20 @@ export type AppState = {
    *  what an unbooted store looks like, so without this the sheet would flash on every launch. */
   booted: boolean;
   profiles: Profile[];
-  /** All spaces across profiles, in user sort order. Exactly one is active at a time. */
-  spaces: Space[]; activeSpaceId: string | null;
+  /** The profile this window shows (Plan 27). Every space of it is loaded at once — its items,
+   *  sessions, checkouts and projects — and nothing unloads as the focus moves between them. Switching
+   *  it (`selectProfile`) is the one switch left, and a deliberate one. Persisted; a window main bound
+   *  to a profile opens on that one (`Api.boundProfileId`). */
+  activeProfileId: string | null;
+  /** All spaces across profiles, in user sort order. */
+  spaces: Space[];
+  /**
+   * The current space, DERIVED: the space of the session in focus — the pane with the keyboard, or
+   * the session whose side pane has it — else the one last made current in this profile, else its
+   * first. It is where a new session or terminal goes when none was named, and nothing loads or
+   * unloads when it changes. Never set directly; `selectSpace` changes it by opening something.
+   */
+  activeSpaceId: string | null;
   themePref: ThemePref;
   /** The palette each face wears. Orthogonal to `themePref`, which says only WHEN to switch faces:
    *  a palette cannot move the mode, because each slot is offered only palettes that have its face
@@ -949,7 +965,7 @@ export type AppState = {
   /**
    * The other spaces whose live sessions are unfolded under their row in the sidebar, by space id.
    *
-   * Remembered per space and across launches (`SETTING_SIDEBAR_OPEN_SPACES`): a room you opened to
+   * Remembered per space and across launches (`SETTING_SIDEBAR_OPEN_SPACES`): a space you opened to
    * keep an eye on is one you want to find open again. A space with nothing live draws no disclosure
    * at all, but keeps its entry, so it unfolds again the next time it has something to show.
    */
@@ -986,14 +1002,25 @@ export type AppState = {
    *  while watching something, like the archived shelf's disclosure, and one that survived a restart
    *  would be a preference nobody asked for. */
   sidebarView: "space" | "activity";
+  /** The items of every space of the active profile, archived ones included (the space's own lists
+   *  show those apart). Each space's slice is refreshed on its own `items.changed`. */
   items: Item[];
-  /** The active space's pane groups — several named split arrangements, exactly one of them active.
-   *  Null only before a space is selected. This is the source of truth; `layout` mirrors it. */
-  groups: SpaceGroups | null;
-  /** The ACTIVE group's layout, mirrored out of `groups` on every write (see `writeGroups`). Kept as
-   *  its own field so every reader that only ever wanted "what is on screen" — the pane host, the
-   *  sidebar glyph, `focusIn`, the hotkeys — is untouched by groups existing. Never set alone. */
+  /** The window's one view (contracts/view.ts): a pane or a split of two, each with its own side
+   *  pane, and the side panes of the sessions not on screen. Null before boot. The source of truth;
+   *  `layout` mirrors it. Persisted per profile (`ui.view:<profileId>`). */
+  view: WindowView | null;
+  /** The view's layout, mirrored on every write (see `writeView`). Its own field so every reader that
+   *  only ever wanted "what is on screen" — the pane host, the sidebar glyph, focus, the hotkeys —
+   *  reads one tree. Never set alone. */
   layout: Layout | null;
+  /**
+   * Browsers an agent opened this run while none of its session's chain was on screen — kept in that
+   * session's side pane off screen (`view.sidePanes`) and MOUNTED hidden all the same, by the shell.
+   * A browser's native view exists only while a pane holds it, and one that never had a pane is a page
+   * the agent that just opened it cannot drive. In memory only: after a relaunch the agent's turn is
+   * over, and the tab comes back with its session.
+   */
+  offscreenBrowsers: string[];
   /** Items across every space (palette search); refreshed when the palette opens. */
   allItems: Item[];
   /** Agent of the last session created or switched to, persisted across launches; null until one exists
@@ -1001,9 +1028,6 @@ export type AppState = {
   lastAgentKind: AgentKind | null;
   /** Arms the inline rename of the pane showing this item (palette → PanelBar seam). */
   renamingItemId: string | null;
-  /** Arms the inline rename of a pane group's tab and sidebar header (group menu → header seam) —
-   *  the same idiom as `renamingItemId`, for the one piece of a space's structure that is not an Item. */
-  renamingGroupId: string | null;
   /** The leaf pane that has focus (pane clicks, open/split target). Reset to the first leaf whenever the
    *  layout no longer contains it. */
   focusedLeafId: string | null;
@@ -1020,15 +1044,15 @@ export type AppState = {
    */
   newSinceSeq: Record<string, number>;
   /** Per-pane back/forward trails, keyed by leaf id (see `PaneHistory`). Written in exactly one place —
-   *  `writeGroups`, which reconciles it against the layout on every structural write — plus the two
+   *  `writeView`, which reconciles it against the layout on every structural write — plus the two
    *  explicit actions (`navigateInPane`, `stepPaneNav`) and the item prune in `refreshItems`. */
   paneHistory: PaneHistory;
   /**
-   * Where the window has been, rooms included — what Go back and Go forward step through (see
+   * Where the window has been, across spaces — what Go back and Go forward step through (see
    * `WindowTrail`). Recorded from one place, a subscription to every write, so no path that moves the
-   * keyboard has to remember to: a compound move (a room switch, opening a session in another room)
-   * holds the recording until it lands and is one stop, not its halfway points. NOT persisted, for the
-   * reason the pane trails are not: it is the trail you walked in this sitting.
+   * keyboard has to remember to: a compound move (a profile switch, opening a session of another
+   * profile) holds the recording until it lands and is one stop, not its halfway points. NOT persisted,
+   * for the reason the pane trails are not: it is the trail you walked in this sitting.
    */
   windowTrail: WindowTrail;
   /**
@@ -1046,9 +1070,11 @@ export type AppState = {
    *  Notifications from any space lands on the row you were reading. Panes record moves into their own
    *  leaf's trail, so Back retraces them; the selection itself has no other home. */
   notificationsSelectedId: string | null;
+  /** The projects of every space of the active profile. */
   projects: Project[];
-  /** The active space's environments, by id — what tells the prompter a session is in a worktree.
-   *  Sparse by design: a space that has never run anything has none until one is created. */
+  /** The checkouts of every space of the active profile, by id — what tells the prompter a session
+   *  is in a worktree. Sparse by design: a space that has never run anything has none until one is
+   *  created. Filter by `spaceId` for one space's. */
   environments: Record<string, Environment>;
   error: string | null;
   /** Socket health, mirrored from RpcClient.onStatusChange. "reconnecting" shows the banner. */
@@ -1062,8 +1088,8 @@ export type AppState = {
    *  than a `Sheet`, for the same reason `paletteOpen` is — it must toggle from its own hotkey while
    *  open, which the sheet guard in hotkeys.ts forbids. */
   spacesOpen: boolean;
-  /** profileId → the space that profile was last on, THIS RUN. Not persisted: it is the memory of a
-   *  session's back-and-forth, and a restart legitimately starts from the saved active space. */
+  /** profileId → the space last current in that profile, THIS RUN: the current space's fallback when
+   *  no session has focus. A restart starts from the saved one (`SETTING_ACTIVE_SPACE`). */
   lastSpaceByProfile: Record<string, string>;
   sheet: Sheet | null;
   /** Every visible browser view's rect, reference-stable between real changes (W2). */
@@ -1101,8 +1127,9 @@ export type AppState = {
   machineScale: Record<string, "fit" | "actual">;
   /** W2.4: the pre-snap layout while a sheet forced the browser leaf to a ≤50% split. Non-null
    *  exactly while a snap is active; the layout to restore when the sheet actually closes. */
-  sheetSnap: { saved: Layout; spaceId: string | null } | null;
-  /** Sessions of the active space, by id. */
+  sheetSnap: { saved: Layout } | null;
+  /** The sessions of every space of the active profile, by id — plus the quick chat's and a peek's,
+   *  which may be another profile's. */
   sessions: Record<string, Session>;
   /** Statuses across spaces: seeded by refreshAllSessions, kept current by session.status broadcasts
    *  (which fire for every space) — entries survive space switches. */
@@ -1138,10 +1165,10 @@ export type AppState = {
    */
   sessionUpdatedAt: Record<string, number>;
   /**
-   * Every session in the home, as a row — what the sidebar draws a session in ANOTHER room from.
+   * Every session in the home, as a row — what the sidebar draws a session of ANOTHER profile from.
    *
-   * `sessions` holds only the active space's rows, and the maps above hold one fact apiece; a row
-   * for a session in another room needs its title and its read mark as well. Seeded by the same
+   * `sessions` holds only the window's profile's rows, and the maps above hold one fact apiece; a row
+   * for a session elsewhere needs its title and its read mark as well. Seeded by the same
    * `listAllSessions` that seeds those maps, and kept current by what this window already hears for
    * every space: a persisted `session.event` moves `lastEventSeq` on (`applySessionEvent`), and every
    * row the server answers a write with lands here too (`mergeSession`).
@@ -1392,12 +1419,12 @@ export type AppState = {
   quickChat: { sessionId: string } | null;
   /**
    * A session looked at without being opened (W11b): a tab of the focused session's side pane, from
-   * this space or any other, beside `owner` (the session item it was opened beside). TRANSIENT, which
-   * is the whole of what makes it a peek: it is never written into the space's saved groups, and a
-   * space switch takes it away. One at a time — the next replaces it, as a preview tab does.
+   * any space, beside `owner` (the session item it was opened beside). TRANSIENT, which is the whole of
+   * what makes it a peek: it is never written into the saved view, and opening its session (or a
+   * profile switch) takes it away. One at a time — the next replaces it, as a preview tab does.
    *
-   * `item` is the session's own row, from whichever space holds it: `items` is this space's alone,
-   * and the pane host needs the row to draw the tab.
+   * `item` is the session's own row, from whichever space holds it: another profile's is in no list
+   * of this window's, and the pane host needs the row to draw the tab.
    */
   peek: { item: Item; owner: string } | null;
   /** The session item a peek would open beside right now — the focused session, the session whose
@@ -1504,19 +1531,20 @@ export type AppState = {
   mcpCallsHasMore: boolean;
   activeSpace(): Space | undefined;
   activeIndex(): number;
-  /** The active space's profile — the only thing that decides which spaces the strip and the swiper
-   *  show. Null before boot (and only then): every space has a profile. */
-  activeProfileId(): string | null;
   /** The ACTIVE PROFILE's spaces, in the global sort order. `spaces` stays the whole list — the
    *  palette, the overview and cross-space badges all still want it — but the sidebar is scoped:
-   *  a profile is the separator, so a strip of one profile's spaces is a strip that fits. */
+   *  a profile is the separator, so a list of one profile's spaces is a list that fits. */
   profileSpaces(): Space[];
   boot(): Promise<void>;
-  /** `land: false` when the caller will open its own item next — `revealSession` does, and a landing
-   *  chosen here would open a pane beside the one it is about to ask for. */
-  selectSpace(id: string, opts?: { land?: boolean }): Promise<void>;
-  /** Switch profiles: land on the space that profile was last on this run, else its first. The
-   *  strip's profile chip and the overview's cross-profile rows both come through here. */
+  /**
+   * Make a space current: its most recent session opens in the main view, in the focused pane's
+   * place. Nothing unloads and nothing slides — every space of the profile is already loaded. A space
+   * with no session shows its Overview, which says how to start one. A space in another profile
+   * switches the window to that profile first.
+   */
+  selectSpace(id: string): Promise<void>;
+  /** Switch the window to another profile: its spaces load, and its own view comes back. The one
+   *  switch left, and a rare, deliberate one. A no-op for the profile already showing. */
   selectProfile(profileId: string): Promise<void>;
   /** Step within the ACTIVE PROFILE, never across it — the swiper, ⌃Tab and ⌘1…9 all page over the
    *  same bounded set the strip shows. Crossing profiles is a deliberate act (chip, or overview). */
@@ -1600,20 +1628,25 @@ export type AppState = {
   setSidebarWidth(px: number): Promise<void>;
   setSubmitKey(v: SubmitKey): Promise<void>;
   refreshSpaces(): Promise<void>;
-  refreshItems(): Promise<void>;
+  /** Re-read one space's items — or, with no space named, every space of the active profile's — and
+   *  take whatever was deleted off the screen. */
+  refreshItems(spaceId?: string | null): Promise<void>;
   refreshAllItems(): Promise<void>;
-  /** Deep search scoped to the ACTIVE space's profile (Plan 16 W2). Returns results for the palette
-   *  to append below its instant rows — deliberately not stored in state: the palette owns the
-   *  debounce and the stale-response guard, and nothing else reads these. Null with no active space
-   *  (no profile to scope by — an unscoped search would be the leak W1 exists to prevent). */
+  /** Deep search scoped to the ACTIVE profile (Plan 16 W2). Returns results for the palette to append
+   *  below its instant rows — deliberately not stored in state: the palette owns the debounce and the
+   *  stale-response guard, and nothing else reads these. Null with no profile (an unscoped search
+   *  would be the leak W1 exists to prevent). */
   searchDeep(query: string): Promise<SearchResults | null>;
   /** One page of the Library's file index. Not cached in the store: the page owns its own cursor,
    *  filter and query, and those belong to one component's scroll position rather than to the app. */
   libraryArtifacts(query: LibraryQuery): Promise<{ entries: LibraryEntry[]; total: number }>;
-  refreshProjects(): Promise<void>;
-  refreshEnvironments(): Promise<void>;
-  linkProject(rootPath: string): Promise<void>;
-  pickAndLinkProject(): Promise<void>;
+  /** Re-read one space's projects, or every space of the active profile's. */
+  refreshProjects(spaceId?: string | null): Promise<void>;
+  /** Re-read one space's checkouts, or every space of the active profile's. */
+  refreshEnvironments(spaceId?: string | null): Promise<void>;
+  /** Link a folder into `spaceId` — the current space when none is named. */
+  linkProject(rootPath: string, spaceId?: string | null): Promise<void>;
+  pickAndLinkProject(spaceId?: string | null): Promise<void>;
   /** The OS folder dialog, bare: the path or null when cancelled. Onboarding asks before a space
    *  exists, so it cannot go through `pickAndLinkProject`, which links into the active one. */
   pickFolder(): Promise<string | null>;
@@ -1631,18 +1664,21 @@ export type AppState = {
    *  assigned. Both are required by the caller because both have a real default there — a form that
    *  cannot say what it picked would be a form that picked nothing. */
   completeOnboarding(input: { name: string; agentKind: AgentKind; folder: string | null; icon: string; color: string }): Promise<void>;
-  newTerminal(targetLeafId?: string | null): Promise<void>;
-  /** New browser pane in the active space (opens into the target/focused leaf). */
-  /** `beside` opens it in a split next to the focused pane instead of replacing it. */
-  newBrowser(targetLeafId?: string | null, beside?: Beside): Promise<void>;
+  /** A terminal in `spaceId` — the current space when none is named — opened into the target or
+   *  focused pane. */
+  newTerminal(targetLeafId?: string | null, spaceId?: string | null): Promise<void>;
+  /** A browser pane, opened into the target or focused pane. `beside` opens it next to the focused
+   *  pane instead, or in a session's side pane. Its space: `spaceId`, else the session it is beside's,
+   *  else the current one. */
+  newBrowser(targetLeafId?: string | null, beside?: Beside, spaceId?: string | null): Promise<void>;
   /** Opens a machine pane BESIDE the caller, with the connect flow ready — see `newBrowser`. */
-  newMachine(targetLeafId?: string | null, beside?: Beside): Promise<void>;
+  newMachine(targetLeafId?: string | null, beside?: Beside, spaceId?: string | null): Promise<void>;
   /** A simulator pane, opened beside. Which device it shows is chosen inside the pane. */
-  newSimulator(targetLeafId?: string | null, beside?: Beside): Promise<void>;
+  newSimulator(targetLeafId?: string | null, beside?: Beside, spaceId?: string | null): Promise<void>;
   updateItem(input: UpdateItemInput): Promise<void>;
   /** Shelve (or restore) a row. Archiving closes the pane first — a hidden row whose pane is still on
    *  screen is the one state the sidebar could not explain — so this is `updateItem` plus that close,
-   *  in that order; unarchiving only clears the flag and leaves the item unopened in the SPACE group. */
+   *  in that order; unarchiving only clears the flag and leaves the item unopened in its space. */
   archiveItem(itemId: string, archived: boolean): Promise<void>;
   /** Settings ▸ Archived: every space's archived sessions, the most recently active first. Null
    *  until the page has read them. */
@@ -1652,11 +1688,20 @@ export type AppState = {
   restoreArchivedSession(itemId: string): Promise<void>;
   /** The session itself, and its transcript, as the sidebar's own Delete does. */
   deleteArchivedSession(itemId: string): Promise<void>;
-  /** Open an item into `leafId` ?? the focused leaf ?? the first leaf, replacing what it held (the
-   *  replaced item returns to the SPACE group); focuses that leaf. With no explicit `leafId`, an
-   *  already-open item is only focused (click = go there) — layout untouched, nothing persisted. */
+  /**
+   * Open an item in the main view, in the focused pane's place (that pane's item and its side pane
+   * leave the screen; the item stays in its space), and focus it. An explicit `leafId` targets that
+   * pane instead — a side pane's takes the item as a tab. With no `leafId`, an item already on screen
+   * is only focused (click = go there): layout untouched, nothing persisted. A tool opened while the
+   * keyboard is in a side pane joins that side pane as a tab; a session always takes a main pane.
+   */
   openItem(itemId: string, leafId?: string | null): Promise<void>;
-  /** Agent-opened panes: open beside the focused pane (split right), never replacing it. */
+  /** Open an item from any space, any profile — the palette's and the feed's way in. A space of
+   *  another profile switches the window to it first. */
+  revealItem(itemId: string, spaceId: string): Promise<void>;
+  /** Open an item beside the focused pane (⌘-click, a drop on an edge, a diff from a session's bar):
+   *  a second pane when the view shows one, in place of the OTHER side when it shows two — never a
+   *  third. Focuses it; an item already on screen is gone to instead. */
   openItemBeside(itemId: string): Promise<void>;
   /** `openItemBeside` minus the focus move (Plan 13 W2's dispatch): the pane appears beside — or
    *  fills the focused-but-empty leaf — and `focusedLeafId` is NOT touched, because the whole point
@@ -1667,7 +1712,7 @@ export type AppState = {
    * Open an item in the side pane of the session that asked for it: a tab of the pane it has, or a
    * new one to its right. A sub-agent's request walks up to the nearest session in its delegation
    * chain that is on screen, so a browser a child opens lands beside the session the user is
-   * watching. False when none of them is in any group — the item is in the sidebar and nowhere else.
+   * watching. False when none of them is on screen.
    *
    * `focus` moves the keyboard to it, for a person who asked; an agent's open leaves the keyboard
    * where it is, and its tab comes to the front of the strip without taking anything else.
@@ -1682,34 +1727,36 @@ export type AppState = {
    * strip gives it ("full view").
    */
   newTab(leafId?: string | null, opts?: { full?: boolean }): Promise<void>;
-  /** `browser.agentOpened` / `simulator.agentOpened`: into the side pane of the session that opened it,
-   *  or beside the focused pane when none of its chain is on screen. */
+  /** `browser.agentOpened` / `simulator.agentOpened` / `terminal.agentOpened`, from any space of the
+   *  profile: into the side pane of the session that opened it — on screen, or kept for when that
+   *  session is next shown. Never a column of its own beside whatever has focus. */
   applyAgentPaneOpened(p: { spaceId: string; itemId: string; openedBy: string }): Promise<void>;
-  /** Layout-only close: the item leaves the layout but keeps existing (SPACE group). Never deletes. */
+  /** Layout-only close: the item leaves the screen but keeps existing in its space. Never deletes.
+   *  A session's side pane is kept for when it is shown again. */
   closeFromLayout(itemId: string): Promise<void>;
   /** Drop an empty pane out of the layout. Keyed by LEAF, because an empty pane has no item. */
   closeEmptyPane(leafId: string): Promise<void>;
   /** Destructive: closes from the layout, deletes the item server-side (kills ptys), and drops local
    *  terminal/session state. */
   deleteItem(itemId: string): Promise<void>;
-  /** Split the focused leaf (or first leaf) with an empty sibling and focus the new leaf. */
+  /** An empty pane beside the view, focused — refused when the view already shows two. */
   splitFocused(dir: "row" | "col"): Promise<void>;
-  /** Drag-to-split: center replaces the leaf's item; an edge splits in that direction, the dropped item
-   *  landing on the near side. */
+  /** Drag-to-split: center replaces the leaf's item; an edge opens it beside, on that side — a second
+   *  pane, or in place of the other side when there are two. */
   openItemAt(itemId: string, leafId: string, edge: DropEdge): Promise<void>;
   focusLeaf(leafId: string): void;
 
   // ——— Per-pane back/forward (the PanelBar arrows) ———
   /** Record a move WITHIN a pane — a notification selected, a page tab switched — on the trail of the
-   *  leaf currently showing `itemId`. Item swaps record themselves (see writeGroups); this is for the
+   *  leaf currently showing `itemId`. Item swaps record themselves (see writeView); this is for the
    *  second coordinate a pane navigates on, which no layout write can see. A no-op when the item is
    *  not on screen: there is no pane, so there is no trail to write to. */
   navigateInPane(itemId: string, view: string | null): void;
   /** Step one pane `delta` stops along its own trail (`-1` back, `+1` forward) and put it back exactly
    *  as it stood — item AND in-pane view. No-op at either end. */
   stepPaneNav(leafId: string, delta: number): Promise<void>;
-  /** Step the window `delta` stops along `windowTrail` (`-1` back, `+1` forward): into the room, onto
-   *  the pane that had the keyboard there. No-op at either end. */
+  /** Step the window `delta` stops along `windowTrail` (`-1` back, `+1` forward): back onto the pane
+   *  that had the keyboard there, opening it again if it has left the screen. No-op at either end. */
   stepWindow(delta: number): Promise<void>;
   /** Is there somewhere to go `delta` steps along the window's trail? */
   canStepWindow(delta: number): boolean;
@@ -1717,39 +1764,21 @@ export type AppState = {
   canPaneNav(leafId: string | null, delta: number): boolean;
   /** Move pane focus to the structural neighbor in that direction (see neighborLeafId); no-op without one. */
   focusNeighbor(dir: FocusDir): void;
-  applyPreset(name: PresetName): Promise<void>;
   /** Functional sizes update for one split; persisted with a trailing debounce. No-op if unchanged.
-   *  Until the active space's items have loaded, sizes apply locally but never persist — PanelGroup
-   *  fires onLayout at mount with normalized sizes, and that echo is not a user action. */
+   *  Until the view has been restored, sizes apply locally but never persist — PanelGroup fires
+   *  onLayout at mount with normalized sizes, and that echo is not a user action. */
   resizeSplit(splitId: string, sizes: number[]): void;
   /** Double-click-a-divider: give every child of one split the same share again. No-op (nothing set,
    *  nothing persisted) when the split was never dragged off its equal shares. */
   equalizeSplit(splitId: string): void;
 
-  // ——— Pane groups (several named split arrangements per space, one on screen) ———
-  /** The group currently on screen, or null before a space is selected. */
-  activePaneGroup(): PaneGroup | null;
-  /** The active group's zoomed leaf, or null when the group is showing its full split. */
+  // ——— Pane focus (⌘⇧F): one pane fills the window, the view behind it untouched ———
+  /** The view's focused-full-screen leaf, or null when it shows its whole split. */
   zoomedLeafId(): string | null;
-  /** Add an empty group and switch to it. */
-  newPaneGroup(name?: string): Promise<void>;
-  /** Rename a group; a blank name is ignored. */
-  renamePaneGroup(groupId: string, name: string): Promise<void>;
-  /** Remove a group. Its panes are NOT deleted — they return to the SPACE list, exactly as closing
-   *  each one would have done. Refused for the last remaining group. */
-  removePaneGroup(groupId: string): Promise<void>;
-  /** Put a group on screen. Pane focus moves to a leaf of that group's layout. */
-  activatePaneGroup(groupId: string): Promise<void>;
-  /** The group `delta` steps along, clamped at the ends — ⌘⇧] / ⌘⇧[ and the group bar's arrows. */
-  stepPaneGroup(delta: number): Promise<void>;
-  /** Move an item into `groupId` (opening it there), out of whatever group held it before. */
-  moveItemToPaneGroup(itemId: string, groupId: string): Promise<void>;
-  /** Move a group to a new index in the strip — the tab drag. `to` is the index it ends AT. */
-  movePaneGroup(groupId: string, to: number): Promise<void>;
-  /** Focus a pane: `leafId` fills the whole pane host while the rest of the group stays exactly as it
-   *  is — nothing is closed, moved, or removed from the group, and `unfocusPane` puts it all back. */
+  /** Focus a pane: `leafId` fills the whole pane host while the rest of the view stays exactly as it
+   *  is — nothing is closed, moved, or removed, and `unfocusPane` puts it all back. */
   focusPaneFull(leafId: string): Promise<void>;
-  /** Clear the active group's focus, restoring the split. No-op when nothing is focused. */
+  /** Clear the pane focus, restoring the split. No-op when nothing is focused. */
   unfocusPane(): Promise<void>;
   /** Focus `leafId` (default: the focused leaf) unless it already is, in which case unfocus. */
   toggleFocusPane(leafId?: string | null): Promise<void>;
@@ -1784,7 +1813,8 @@ export type AppState = {
   setMachineGrab(machineId: string, on: boolean): void;
   applyMachineImageProgress(p: MachineImageProgress): void;
   setMachineScale(machineId: string, mode: "fit" | "actual"): void;
-  refreshSessions(): Promise<void>;
+  /** Re-read one space's sessions, or every space of the active profile's. */
+  refreshSessions(spaceId?: string | null): Promise<void>;
   /** Seed sessionSpace + statuses for every space (boot, reconnect, unknown-session broadcasts). */
   refreshAllSessions(): Promise<void>;
   /** Every session in the profile, as rows — what the Agents page lists. Fetched on demand rather
@@ -1796,12 +1826,12 @@ export type AppState = {
    *  pane. With no argument it chooses one (the active space first); a permission notification passes
    *  the session its own row names. False when there was nothing to land on. */
   jumpToPermission(sessionId?: string | null): Promise<boolean>;
-  /** Load (or catch up) a session's transcript: fetch events after the last known seq and reduce them. */
-  /** Bring a session's pane to the front, switching space first when it lives in another one.
-   *  Shared by the notifications feed and the Usage tab's leaderboard so "go to session" means the
-   *  same thing from both — including the space switch, which is the half that is easy to forget.
-   *  False when the space holds no item for that session, so a caller with a fallback can take it. */
+  /** Bring a session to the main view from any list — the notifications feed, the Usage tab's
+   *  leaderboard, the sidebar — and hand it the keyboard. A session of another profile switches the
+   *  window to that profile first. False when its space holds no item for that session, so a caller
+   *  with a fallback can take it. */
   revealSession(sessionId: string, spaceId: string | null): Promise<boolean>;
+  /** Load (or catch up) a session's transcript: fetch events after the last known seq and reduce them. */
   openSession(id: string): Promise<void>;
   /** Persisted events apply at once; ephemeral `assistant_delta`s are buffered and land on the next
    *  painted frame — see `pendingDeltas` for why that is where the app's power goes. */
@@ -1816,25 +1846,25 @@ export type AppState = {
   refreshSessionQueue(sessionId: string): Promise<void>;
   dequeuePrompt(sessionId: string, queuedId: string): Promise<void>;
   releaseQueuedPrompt(sessionId: string, queuedId: string): Promise<void>;
-  /** Create a session in the active space, open its item, and open its transcript. When `edge` is
-   *  supplied with a target leaf, use the same split placement as an existing-item drag. */
-  newSession(input: Omit<CreateSessionInput, "spaceId">, targetLeafId?: string | null, edge?: DropEdge): Promise<void>;
+  /** Create a session, open its item in the main view, and open its transcript. It goes to
+   *  `input.spaceId`, else the current space — the space of the session in focus. When `edge` is
+   *  supplied with a target leaf, it opens there the way a dragged row would. */
+  newSession(input: Omit<CreateSessionInput, "spaceId"> & { spaceId?: string | null }, targetLeafId?: string | null, edge?: DropEdge): Promise<void>;
   /** The one instant-create path behind "+", ⌘N and the palette's plain "New session" (W3): no
    *  questions — last-used agent (else FALLBACK_AGENT), the space's own folder, adapter-default model
-   *  and permission mode. Everything else is changed on the prompter's chips afterwards. */
-  newSessionInstant(targetLeafId?: string | null, edge?: DropEdge): Promise<void>;
+   *  and permission mode. Everything else is changed on the prompter's chips afterwards. `spaceId`
+   *  names the space (a space section's own +); omitted, the current space. */
+  newSessionInstant(targetLeafId?: string | null, edge?: DropEdge, spaceId?: string | null): Promise<void>;
   /** Make a fresh `git worktree` and open a session in it (W2), rather than in the space folder.
    *  Fails loudly when the space is not a git repository — there is no worktree to fall back to,
    *  and silently landing in the space folder would be the collision the user asked to avoid. */
-  newSessionInWorktree(targetLeafId?: string | null): Promise<void>;
+  newSessionInWorktree(targetLeafId?: string | null, spaceId?: string | null): Promise<void>;
   /** Set several agents going on one brief at once — the Agents page's fan-out. Returns the sessions
    *  it actually started, which on a failure part-way through is the ones already working. */
   fanOutAgents(input: FanOutInput): Promise<Session[]>;
   setAgentsView(v: AgentsView): void;
   /** Arm (or with null, disarm) inline rename for the pane holding this item. */
   requestRename(itemId: string | null): void;
-  /** Arm (or clear, with null) the inline rename of a pane group. */
-  requestGroupRename(groupId: string | null): void;
   sendMessage(id: string, text: string): Promise<void>;
   /** ⌘⇧↩ "dispatch" (Plan 13 W2): ONE gesture = create a session that inherits the composer's whole
    *  setup (agent, model, effort, permission mode, and the environment the under-strip currently
@@ -1924,8 +1954,9 @@ export type AppState = {
    *  refresh after an install finishes. */
   refreshCliStatus(force?: boolean): Promise<void>;
   runCliAction(kind: AgentKind, action: "install" | "update"): Promise<void>;
-  /** Start signing this agent in, in the active space. The panes it opens are the feedback. */
-  startSignIn(kind: AgentKind): Promise<void>;
+  /** Start signing this agent in, in `spaceId` (else the current space). The panes it opens are the
+   *  feedback. */
+  startSignIn(kind: AgentKind, spaceId?: string | null): Promise<void>;
   /**
    * Whether this SPACE lets Realm finish a sign-in itself, including the click on Authorize.
    *
@@ -2154,15 +2185,16 @@ export type AppState = {
   setCommitMessage(cwd: string, text: string): void;
   /** Commit, push and open a PR as one action; stores the outcome for the pane to explain. */
   ship(input: ShipInput): Promise<void>;
-  /** Open (or focus) the diff pane for an environment. The pane's item has the ENVIRONMENT's id as
-   *  its refId, so it survives the session that opened it and cannot show another checkout's tree. */
+  /** Open (or focus) the diff pane for an environment, in the environment's own space. The pane's
+   *  item has the ENVIRONMENT's id as its refId, so it survives the session that opened it and cannot
+   *  show another checkout's tree. */
   openDiff(environmentId: string, targetLeafId?: string | null): Promise<void>;
   /** Open (or focus) the document workspace for an environment — the `openDiff` gesture, for files.
-   *  `environmentId` omitted uses the space's primary checkout, which is the sidebar's "Documents". */
-  /** `beside` splits right and opens there instead of taking over the focused pane — the same
+   *  `environmentId` omitted uses the primary checkout of `spaceId`, else of the current space.
+   *  `beside` splits right and opens there instead of taking over the focused pane — the same
    *  argument `newBrowser` takes, and for the same reason: a pane opened FROM another pane is a
    *  second view, not a replacement for the one you asked from. */
-  openDocuments(environmentId?: string | null, targetLeafId?: string | null, beside?: Beside): Promise<void>;
+  openDocuments(environmentId?: string | null, targetLeafId?: string | null, beside?: Beside, spaceId?: string | null): Promise<void>;
   /**
    * Plan 22. Put one file on screen: the server adds it to the workspace's tab strip (creating the
    * workspace when needed) and the item comes into the layout. `documents.openRequested` — which
@@ -2170,21 +2202,23 @@ export type AppState = {
    * the tab on; `applyDocumentOpenRequested` is the store's half, and it leaves an item that is
    * already on screen alone.
    */
-  openDocumentPath(path: string, environmentId?: string | null): Promise<void>;
+  openDocumentPath(path: string, environmentId?: string | null, spaceId?: string | null): Promise<void>;
   applyDocumentOpenRequested(p: { spaceId: string; environmentId: string; documentsId: string; itemId: string; path: string; openedBy?: string }): Promise<void>;
-  /** Start a lecture: a fresh pane group named for today, the dated notes file open in the documents
-   *  pane, and a session beside it to ask things during class. Nothing is sent to the session. */
-  startLecture(title: string): Promise<void>;
+  /** Start a lecture in `spaceId` (else the current space): the dated notes file open in the documents
+   *  pane as the main view, and a session beside it to ask things during class. Nothing is sent to
+   *  the session. */
+  startLecture(title: string, spaceId?: string | null): Promise<void>;
   /** Wrap a lecture up: a new session beside the focused pane, sent the wrap-up prompt. */
-  wrapUpLecture(lecture: Lecture): Promise<void>;
-  listLectures(): Promise<Lecture[]>;
+  wrapUpLecture(lecture: Lecture, spaceId?: string | null): Promise<void>;
+  listLectures(spaceId?: string | null): Promise<Lecture[]>;
   /** The preview frame's ingredients and the guide progress bridge (PreviewFrame). Passthroughs. */
   previewInfo(): Promise<{ port: number; token: string }>;
   readGuideProgress(documentsId: string, path: string): Promise<GuideProgress>;
   recordGuideAttempt(documentsId: string, path: string, topic: string, correct: number, total: number): Promise<GuideProgress>;
   plynnList(): Promise<{ available: boolean; folder: string; meetings: PlynnMeeting[] }>;
-  /** Import into the ACTIVE space; the server opens the first imported file, so the pane follows. */
-  plynnImport(files: string[]): Promise<PlynnImportResult>;
+  /** Import into `spaceId`, else the current space; the server opens the first imported file, so
+   *  the pane follows. */
+  plynnImport(files: string[], spaceId?: string | null): Promise<PlynnImportResult>;
   /** Thin pass-throughs to the document RPCs. Panes never hold `api` themselves (it is the store's
    *  test seam), so every server call a document pane makes arrives here. */
   getDocuments(documentsId: string): Promise<DocumentWorkspace>;
@@ -2220,9 +2254,9 @@ export type AppState = {
   /** The `session.agentSettled` handler: a delegated child that finished cleanly has its "Finished a
    *  turn" row read — its report is already in the lead's transcript. */
   applyAgentSettled(payload: { spaceId: string; sessionId: string; itemId: string; outcome: DelegationOutcome }): void;
-  /** Open the space's PAGE (Plan 12 W3) — a `space-page` item whose refId is the space id, one per
-   *  space (the diff pane's dedup precedent). `tab` lands the page on a section — the plus-menu's
-   *  "Manage connections…" passes "connections"; omitted keeps whatever tab the page last showed. */
+  /** Show a space's Overview over the workspace — any space of the active profile. `tab` lands the
+   *  page on a section — the plus-menu's "Manage connections…" passes "connections"; omitted keeps
+   *  whatever tab the page last showed. While it is up, that space is the current one. */
   openSpacePage(spaceId: string, tab?: SpacePageTab): void;
   /** The page's tab, per space — see `spacePageTab`. */
   setSpacePageTab(spaceId: string, tab: SpacePageTab): void;
@@ -2510,7 +2544,7 @@ export function worktreeTitleFrom(draft: string): string | null {
   return words ? words.slice(0, 40) : null;
 }
 
-/** Prune-only: drop ids that no longer exist. Never adds — unopened items live in the SPACE group. */
+/** Prune-only: drop ids that no longer exist. Never adds — an unopened item is simply an item of its space. */
 export function reconcileLayout(layout: Layout | null, items: Item[]): Layout {
   let l: Layout = layout ?? emptyLayout();
   const ids = new Set(items.map((i) => i.id));
@@ -2646,18 +2680,17 @@ function seedLayout(layout: Layout | null): Layout | null {
 }
 
 /**
- * The group set to activate a space with. Same version-skew posture as `seedLayout`: a server that
- * predates groups sends `groups: undefined` and only a `layout`, which becomes the single "Main" group
- * — the identical arrangement the user last saw, just addressed as a group. Corrupt group JSON falls
- * back the same way rather than blanking the space.
+ * A space's named splits as a home last run with rooms stored them — read once, for the migration to
+ * the window's one view (`viewFromGroups`), and never written again. Same version-skew posture as
+ * `seedLayout`: a server that predates groups sends `groups: undefined` and only a `layout`, which
+ * becomes the single "Main" group. Corrupt group JSON falls back the same way rather than to nothing.
  */
 export function seedGroups(space: { id?: string; groups?: SpaceGroups | null; layout?: Layout | null } | undefined): SpaceGroups {
   if (space?.groups) {
     const p = SpaceGroupsSchema.safeParse(space.groups);
     if (p.success) return p.data;
   }
-  // Same deterministic default id the server derives (spaces.ts): re-selecting a space that has never
-  // persisted groups must land on the same group id, not mint a new one each visit.
+  // Same deterministic default id the server derives (spaces.ts), so two reads agree.
   return groupsFromLayout(seedLayout(space?.layout ?? null), space?.id);
 }
 
@@ -2721,12 +2754,14 @@ const scheduleFrame = (fn: () => void): number =>
 export function createAppStore(api: Api): StoreApi<AppState> {
   return createStore<AppState>((set, get, storeApi) => {
     let persistTimer: ReturnType<typeof setTimeout> | null = null;
-    /** Monotonic id for fetches of the active space's items. Reconcile is destructive (it prunes open
-     *  items missing from the list), so only the newest-started fetch may apply: the Api makes no
-     *  ordering promise, and a response snapshotted before a concurrent item creation would otherwise
-     *  prune the just-opened item and collapse its splits. Bumped by selectSpace so responses from a
-     *  previous activation die even when the same space is re-selected. */
-    let itemsFetchSeq = 0;
+    /** Per space, the newest-started fetch of its items. Reconcile is destructive (it takes off the
+     *  screen whatever a list no longer holds), so only the newest fetch of a space may apply: the Api
+     *  makes no ordering promise, and a response snapshotted before a concurrent item creation would
+     *  otherwise close the just-opened item. */
+    const itemsFetchSeq = new Map<string, number>();
+    const nextItemsSeq = (sid: string): number => { const n = (itemsFetchSeq.get(sid) ?? 0) + 1; itemsFetchSeq.set(sid, n); return n; };
+    /** Bumped by every profile switch, so a response for the profile being left can never land. */
+    let profileEpoch = 0;
     /** The ONE place the unread count is written — and therefore the one place the dock badge is
      *  pushed. Five paths change the count (boot, refresh, page, markRead, broadcast); a badge each
      *  of them had to remember separately is a badge that drifts from the pill beside it. Switched
@@ -2762,31 +2797,29 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     const markIconAssetMutation = (profileId: string) => {
       iconAssetMutationSeq.set(profileId, (iconAssetMutationSeq.get(profileId) ?? 0) + 1);
     };
-    /** False from selectSpace until the space's items have loaded and reconciled once. While false,
-     *  resizeSplit applies sizes locally but must not persist: react-resizable-panels fires onLayout at
-     *  mount with normalized sizes, and that echo is not a user action — persisting it would write the
-     *  layout mid-boot (and cement whatever transient state the layout is in). */
+    /** False until the window's view has been restored (boot, a profile switch). While false nothing
+     *  persists — resizeSplit applies sizes locally, because react-resizable-panels fires onLayout at
+     *  mount with normalized sizes and that echo is not a user action, and no write may replace the
+     *  stored view with the half-built one on screen. */
     let layoutHydrated = false;
     const persist = async () => {
       if (persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
-      const { activeSpaceId, groups, sheetSnap } = get();
-      if (!activeSpaceId || !groups) return;
+      const { activeProfileId: pid, view, sheetSnap, peek } = get();
+      if (!pid || !view || !layoutHydrated) return;
       // While W2.4's sheet-snap is active the on-screen layout is temporary by definition; what
-      // persists is the layout the user actually built (restored on close anyway — a crash or
-      // space switch mid-sheet must not cement the snap). Only the ACTIVE group is ever snapped, so
-      // substituting the saved tree back into it leaves every other group's arrangement alone.
-      // A peek is never saved: what persists is the arrangement without its tab, and the focus it had
-      // goes to the session it was opened beside.
-      const persistable = withoutPeek(sheetSnap && sheetSnap.spaceId === activeSpaceId ? setActiveLayout(groups, sheetSnap.saved) : groups);
-      // Focus rides along in the SAME call as the layout it was captured against. The ITEM, not the
-      // leaf: a leaf id is a fact about one arrangement, and the same pane rebuilt into a new split
-      // gets a new leaf, so a stored leaf id would restore focus to nothing the first time anybody
-      // moved a divider.
+      // persists is the layout the user actually built (restored on close anyway — a crash mid-sheet
+      // must not cement the snap). A peek is never saved: what persists is the view without its tab,
+      // and the focus it had goes to the session it was opened beside.
+      const built = sheetSnap ? { ...view, layout: sheetSnap.saved } : view;
+      const kept = peek ? withoutItem(built, peek.item.id) : built;
+      // Focus rides along as the ITEM, not the leaf: the same pane rebuilt into a new split gets a new
+      // leaf, so a stored leaf id would restore focus to nothing the first time a divider moved.
       const focusedItem = itemIdOfLeaf(get().layout, get().focusedLeafId);
-      const peek = get().peek;
-      const saved = await api.setGroups(activeSpaceId, persistable, peek && focusedItem === peek.item.id ? peek.owner : focusedItem);
-      // Keep the cached Space current so a later selectSpace seeds from the newest groups.
-      set({ spaces: get().spaces.map((x) => (x.id === saved.id ? saved : x)) });
+      const focusedLeaf = get().focusedLeafId;
+      const stored: StoredView = { v: 1, layout: kept.layout, zoomedLeafId: kept.zoomedLeafId, sidePanes: kept.sidePanes,
+        focusedItemId: peek && focusedItem === peek.item.id ? peek.owner : focusedItem,
+        focusedLeafId: focusedLeaf && findLeaf(kept.layout, focusedLeaf) ? focusedLeaf : null };
+      await api.setSetting(viewSettingKey(pid), stored);
     };
     const schedulePersist = () => {
       if (persistTimer) clearTimeout(persistTimer);
@@ -2838,15 +2871,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         sessionSpace: { ...get().sessionSpace, [session.id]: session.spaceId }, quickChat: { sessionId: session.id } });
       await get().openSession(session.id);
     };
-    /** `refreshSessions` REBUILDS `sessions` from the active space's list, so the quick chat's row —
-     *  which may belong to another space entirely — has to be put back afterwards or the window loses
-     *  the session it is showing on every space switch. */
+    /** `refreshSessions` REBUILDS each refreshed space's slice of `sessions`, and a profile switch
+     *  empties it, so the quick chat's row — which may belong to another profile's space entirely —
+     *  has to be put back afterwards or the window loses the session it is showing. */
     const keepQuickChatSession = (next: Record<string, Session>): Record<string, Session> => {
       const id = get().quickChat?.sessionId;
       const held = id ? get().sessions[id] : undefined;
       return id && held && !next[id] ? { ...next, [id]: held } : next;
     };
-    /** The quick chat's row, and the peek's for the same reason: a peek may be another space's. */
+    /** The quick chat's row, and the peek's for the same reason: a peek may be another profile's. */
     const keepHeldSessions = (next: Record<string, Session>): Record<string, Session> => {
       const kept = keepQuickChatSession(next);
       const id = get().peek?.item.refId;
@@ -2867,13 +2900,25 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     // The catalog's in-flight read, collapsed the same way the probe's is — one round trip per tick
     // however many panes mounted at once.
     const catalogPending: { plain: Promise<void> | null; forced: Promise<void> | null } = { plain: null, forced: null };
-    /** Flush a pending debounced persist before the active space changes (persist reads the current space). */
+    /** Flush a pending debounced persist — before the profile changes (persist writes the active
+     *  profile's view), and on `pagehide`. */
     const flushPersist = async () => {
       if (panelTimer) await persistPanels();
       if (quickTimer) await persistQuickChat();
       if (persistTimer) await persist();
     };
-    const isSpace = (sid: string) => get().activeSpaceId === sid;
+    /** The active profile's spaces' ids. */
+    const profileSpaceIds = (): string[] => get().spaces.filter((sp) => sp.profileId === get().activeProfileId).map((sp) => sp.id);
+    /** Whether a space is one of the window's — the test every space-scoped write and broadcast answers
+     *  to now, where it used to be "is it the space the window is showing". */
+    const inProfile = (sid: string | null | undefined): boolean =>
+      !!sid && get().activeProfileId !== null && get().spaces.some((sp) => sp.id === sid && sp.profileId === get().activeProfileId);
+    /** The space a create goes to: the one named, else the current one. */
+    const spaceFor = (sid?: string | null): string | null => sid ?? get().activeSpaceId;
+    /** The space of the session a pane is opened beside — a tool from a session's bar is that
+     *  session's, whichever space the other pane on screen is from. */
+    const besideSpace = (beside: Beside): string | null =>
+      typeof beside === "object" ? get().sessions[beside.sessionId]?.spaceId ?? get().items.find((i) => i.kind === "session" && i.refId === beside.sessionId)?.spaceId ?? null : null;
     /** Whether anything is looking at the gateway's call log — the sheet, or the sidebar's feed.
      *
      *  Four readers ask: both fetches' supersession guards, and the live-call gate. It is one
@@ -2883,7 +2928,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     const watchingCalls = () => get().sheet?.kind === "activity" || get().sidebarView === "activity";
     const mergeSpace = (s: Space) => set({ spaces: get().spaces.map((x) => (x.id === s.id ? s : x)) });
     const mergeSession = (s: Session) => set({ sessions: { ...get().sessions, [s.id]: s }, sessionStatus: { ...get().sessionStatus, [s.id]: s.status },
-      allSessions: { ...get().allSessions, [s.id]: s } });
+      sessionSpace: { ...get().sessionSpace, [s.id]: s.spaceId }, allSessions: { ...get().allSessions, [s.id]: s } });
     /**
      * The write a persisted event owes the rows that describe its session: their `lastEventSeq`, which
      * is how far the log has been WRITTEN and so half of what the unread ring reads. Undefined when
@@ -3015,23 +3060,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (profileId) get().setProfilePageTab(profileId, (entry.view ?? "general") as ProfilePageTab);
       }
     };
-    /** The leaf holding the item this space had focused when it was last written, or null when there
-     *  is none, the item is gone, or it is not in the active group's layout. Null falls through to
-     *  `focusIn`, which is what the app did before focus was restorable at all. */
-    const leafForActiveItem = (layout: Layout): string | null => {
-      const itemId = get().spaces.find((sp) => sp.id === get().activeSpaceId)?.activeItemId;
-      return itemId ? findLeafOfItem(layout, itemId)?.id ?? null : null;
-    };
     /** Whether this session is the pane with the keyboard. The one thing the renderer knows about
      *  attention, and the same test the notifications feed's auto-read already makes. */
     const isFocusedSession = (sessionId: string): boolean => {
       const focused = get().items.find((i) => i.id === itemIdOfLeaf(get().layout, get().focusedLeafId));
       return focused?.kind === "session" && focused.refId === sessionId;
     };
-    /** Focus keeps its leaf while the layout still has it; otherwise it resets to the first leaf. */
+    /** Focus keeps its leaf while the layout still has it; otherwise it resets to the first main pane. */
     const focusIn = (layout: Layout) => {
       const f = get().focusedLeafId;
-      return f && hasLeafIn(layout, f) ? f : firstLeaf(layout).id;
+      return f && hasLeafIn(layout, f) ? f : firstPaneLeaf(layout).id;
     };
     /**
      * The delegated children this window saw start (`applyAgentOpened`), keyed by session id, with the
@@ -3045,75 +3083,67 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * row nobody is tracking simply stays, which is the safe direction.
      */
     const delegatedChildren = new Map<string, { doneRow?: string }>();
-    /** The ONE way `groups` is written: `layout` is re-mirrored off the active group in the same set,
-     *  so the two fields can never be observed disagreeing — not even for one render. */
-    /** Also THE recording site for per-pane history: every structural change — open, split, drop,
-     *  preset, group switch — ends here, so reconciling once covers all of them (see reconcileNav).
-     *  `extra` still wins, which is what lets `stepPaneNav` seat its own cursor: the reconcile that
-     *  runs first then sees the stepped entry already current and records nothing. */
-    const writeGroups = (groups: SpaceGroups, extra: Partial<AppState> = {}): Partial<AppState> => {
+    /**
+     * The ONE way the view is written. It is brought to its one shape here (`normalizeView`: two panes
+     * at most, each side pane with the session it serves, a side pane leaving with its session), and
+     * `layout` is re-mirrored in the same set, so the two can never be observed disagreeing.
+     *
+     * Also THE recording site for per-pane history: every structural change — open, split, drop,
+     * close — ends here, so reconciling once covers all of them (see reconcileNav). `extra` still
+     * wins, which is what lets `stepPaneNav` seat its own cursor: the reconcile that runs first then
+     * sees the stepped entry already current and records nothing.
+     */
+    const writeView = (view: WindowView, extra: Partial<AppState> = {}): Partial<AppState> => {
       // A peek lives exactly as long as its tab does, and is checked HERE because this is where every
       // close, prune and rebuild of a layout lands: closed, pruned or rebuilt out, it is over.
       const was = get().peek;
       const next = "peek" in extra ? extra.peek ?? null : was;
-      const held = new Set(allGroupItems(groups));
+      const keep = "focusedLeafId" in extra ? extra.focusedLeafId ?? null : get().focusedLeafId;
+      const shaped = normalizeView(view, { keep, transient: next ? new Set([next.item.id]) : undefined });
+      const held = new Set(allItems(shaped.layout));
       const peek = next && held.has(next.item.id) ? next : null;
       // A peek that has left takes its stops in the back/forward trails with it: it was never this
-      // arrangement's, and Back would put it there for good — another space's session included.
+      // view's, and Back would put it there for good — another profile's session included.
       const history = was && !held.has(was.item.id) ? forgetNavItem(get().paneHistory, was.item.id) : get().paneHistory;
-      return { groups, layout: activeLayout(groups), paneHistory: reconcileNav(history, groups), ...extra, peek };
+      // Focus keeps its leaf while the view still has it — and only then: a leaf that went with this
+      // write (a pane closed, a side pane taken off screen with its session) hands it to the first pane.
+      const focusedLeafId = keep && findLeaf(shaped.layout, keep) ? keep : firstPaneLeaf(shaped.layout).id;
+      return { view: shaped, layout: shaped.layout, paneHistory: reconcileNav(history, shaped.layout), ...extra, focusedLeafId, peek };
     };
-    /** The groups as they are saved: with the peek's tab taken out, wherever it is. */
-    const withoutPeek = (gs: SpaceGroups): SpaceGroups => {
-      const id = get().peek?.item.id;
-      if (!id) return gs;
-      const all = allGroupItems(gs);
-      return all.includes(id) ? reconcileGroups(gs, new Set(all.filter((x) => x !== id))) : gs;
+    /** The view as it stands, or an empty one before boot has restored any. Its layout is read from
+     *  the `layout` mirror, which is the same tree — and the one a test sets directly. */
+    const viewNow = (): WindowView => {
+      const v = get().view;
+      return { layout: get().layout ?? v?.layout ?? emptyLayout(), zoomedLeafId: v?.zoomedLeafId ?? null, sidePanes: v?.sidePanes ?? {} };
     };
-    /** The ONE way the active group's layout is written — every split/open/close/resize goes through
-     *  here rather than `set({ layout })`, which would leave `groups` holding the pre-edit tree. */
-    const writeLayout = (layout: Layout, extra: Partial<AppState> = {}): Partial<AppState> => {
-      const gs = get().groups ?? groupsFromLayout(null);
-      return writeGroups(setActiveLayout(gs, layout), extra);
-    };
+    /** A new layout for the view, everything else about it kept. */
+    const writeLayout = (layout: Layout, extra: Partial<AppState> = {}): Partial<AppState> => writeView({ ...viewNow(), layout }, extra);
     /**
-     * Drop a zoom that is standing in front of the pane we are about to send the user to.
+     * Drop a pane focus that is standing in front of the pane we are about to send the user to.
      *
-     * A zoomed group renders ONLY its zoomed leaf (PaneHost), so activating an item in any other leaf
-     * would move the focus somewhere invisible: the click lands, the keyboard moves, and the screen
-     * does not change. Returning `gs` untouched whenever the zoom is already correct (or absent) is
-     * what keeps this off the persist path for the overwhelming majority of opens — the caller's
-     * `writeGroups` sees the same object and the layout write is the only change.
-     *
-     * `null` means "we do not know which leaf yet", which is not a reason to disturb anything.
+     * A focused pane renders ALONE (PaneHost), so activating an item in any other leaf would move the
+     * keyboard somewhere invisible: the click lands, the keyboard moves, and the screen does not change.
+     * Returns `view` untouched whenever the focus is already right (or absent). `null` means "we do not
+     * know which leaf yet", which is not a reason to disturb anything.
      */
-    const revealing = (gs: SpaceGroups, leafId: string | null): SpaceGroups => {
-      if (!leafId) return gs;
-      const z = activeGroup(gs).zoomedLeafId;
-      return z === null || z === leafId ? gs : groupsUnzoom(gs);
+    const revealing = (view: WindowView, leafId: string | null): WindowView => {
+      if (!leafId) return view;
+      const z = view.zoomedLeafId;
+      return z === null || z === leafId ? view : { ...view, zoomedLeafId: null };
     };
-    /** Cross-group uniqueness, applied BEFORE any active-group op that opens `itemId`: the layout ops
-     *  only ever see one tree, so without this an item open in another group would end up claimed by
-     *  two arrangements at once. Returns the group set to build the op on top of. */
-    const detached = (itemId: string): SpaceGroups => {
-      const gs = get().groups ?? groupsFromLayout(null);
-      const next = detachItemFrom(gs, itemId, gs.activeGroupId);
-      if (next !== gs) set(writeGroups(next));
-      return next;
-    };
-    /** The session item a side pane opened for `sessionId` belongs to: its own item when it is on
-     *  screen, else the nearest one up its delegation chain that is. A session that is itself a tab
-     *  (a previewed sub-agent) is passed over for its parent, and used only when none is found —
+    /** The session item a side pane opened for `sessionId` belongs to: its own item when it is a main
+     *  pane on screen, else the nearest one up its delegation chain that is. A session that is itself
+     *  a tab (a previewed sub-agent) is passed over for its parent, and used only when none is found —
      *  `openInSidePane` then puts the item in that same strip. */
-    const sideOwnerOf = async (gs: SpaceGroups, sessionId: string): Promise<string | null> => {
+    const sideOwnerOf = async (sessionId: string): Promise<string | null> => {
       let id: string | null = sessionId;
       let asTab: string | null = null;
       for (let hops = 0; id && hops < 8; hops++) {
         const sid: string = id;
         const item = get().items.find((i) => i.kind === "session" && i.refId === sid);
-        const group = item ? groupOfItem(gs, item.id) : null;
-        if (item && group) {
-          if (!findLeafOfItem(group.layout, item.id)?.tabs) return item.id;
+        const leaf = item ? findLeafOfItem(get().layout ?? emptyLayout(), item.id) : null;
+        if (item && leaf) {
+          if (!leaf.tabs) return item.id;
           asTab ??= item.id;
         }
         const session: Session | null = get().sessions[sid] ?? await api.getSession(sid).catch(() => null);
@@ -3121,11 +3151,22 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       }
       return asTab;
     };
-    /** Apply a group-set edit and persist it, unless nothing actually changed. */
-    const commitGroups = async (next: SpaceGroups) => {
-      if (next === get().groups) return;
-      set(writeGroups(next, { focusedLeafId: focusIn(activeLayout(next)) }));
-      await persist();
+    /**
+     * The session item whose side pane should keep `sessionId`'s open while none of its chain is on
+     * screen: the session the user opens to see that work — the top of its delegation chain, since a
+     * sub-agent is not a row of its own (Plan 26). Null when no session of the chain has an item.
+     */
+    const keeperOf = async (sessionId: string): Promise<string | null> => {
+      let id: string | null = sessionId;
+      let keeper: string | null = null;
+      for (let hops = 0; id && hops < 8; hops++) {
+        const sid: string = id;
+        const item = get().items.find((i) => i.kind === "session" && i.refId === sid);
+        if (item) keeper = item.id;
+        const session: Session | null = get().sessions[sid] ?? await api.getSession(sid).catch(() => null);
+        id = session?.dispatchedBy?.sessionId ?? null;
+      }
+      return keeper;
     };
     /** Adopt a freshly created item: refresh items, then open it into targetLeafId ?? the focused leaf.
      *  (A concurrent items.changed refresh can't have opened it — reconcile is prune-only.) Takes an
@@ -3161,26 +3202,25 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const browserIds = new Set(get().items.filter((i) => i.kind === "browser").map((i) => i.id));
       const snapped = snapBrowserLeaves(layout, browserIds);
       if (snapped === layout) return {};
-      return writeLayout(snapped, { sheetSnap: { saved: layout, spaceId: get().activeSpaceId } });
+      // Written as it is, not through `writeView`: the snap may add an empty pane beside a browser,
+      // and a temporary arrangement is not something to hold to the view's two-pane shape.
+      return { view: { ...viewNow(), layout: snapped }, layout: snapped, sheetSnap: { saved: layout } };
     };
     /** W2.4, exit side: restore EXACTLY the pre-snap layout — keyed to the sheet actually closing
      *  in the STORE (closeSheet / palette takeover / confirm flows), never to a Sheet component
-     *  unmounting (remounts race). Items deleted while the sheet was open are re-pruned; a snap
-     *  from a space that is no longer active is simply dropped (its true layout was what persisted). */
+     *  unmounting (remounts race). Items deleted while the sheet was open are re-pruned. */
     const restoreSnap = (): Partial<AppState> => {
       const snap = get().sheetSnap;
       if (!snap) return {};
-      if (snap.spaceId !== get().activeSpaceId) return { sheetSnap: null };
-      return writeLayout(reconcileLayout(snap.saved, get().items), { sheetSnap: null });
+      return writeLayout(reconcileLayout(snap.saved, [...get().items, ...(get().peek ? [get().peek!.item] : [])]), { sheetSnap: null });
     };
     /**
-     * Zoom the active group onto whichever leaf now holds this item.
+     * Focus the pane holding this item full-screen.
      *
-     * Skipped when the item is the ONLY pane: a group with one leaf looks identical zoomed and
-     * unzoomed, so the zoom would buy nothing and cost an "Unfocus" control offering to return the
-     * user to the arrangement they are already looking at. A no-op too when the item ended up in a
-     * group that is not on screen, and when the group is already zoomed onto it (`focusPaneFull`
-     * returns the same groups object and skips the write).
+     * Skipped when the item is the ONLY pane: a view with one leaf looks identical focused and not,
+     * so the focus would buy nothing and cost an "Unfocus" control offering to return the user to the
+     * arrangement they are already looking at. A no-op too when it is already focused (`focusPaneFull`
+     * returns without a write).
      */
     const zoomItemPane = async (itemId: string) => {
       const layout = get().layout ?? emptyLayout();
@@ -3188,6 +3228,22 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       if (layout.type === "leaf") return;
       const leaf = findLeafOfItem(layout, itemId);
       if (leaf) await get().focusPaneFull(leaf.id);
+    };
+    /** One space's slice of `items` replaced, keeping the profile's spaces in their own order. */
+    const withSpaceItems = (sid: string, fresh: Item[]): Item[] => {
+      const ids = profileSpaceIds();
+      const order = ids.includes(sid) ? ids : [...ids, sid];
+      return order.flatMap((id) => (id === sid ? fresh : get().items.filter((i) => i.spaceId === id)));
+    };
+    /** Fetch one space's items into `items` — unless a newer fetch of that space started since, or the
+     *  window has left that space's profile. Answers whether this fetch's list is the one applied. */
+    const loadSpaceItems = async (sid: string): Promise<boolean> => {
+      const seq = nextItemsSeq(sid);
+      const epoch = profileEpoch;
+      const fresh = await api.listItems(sid);
+      if (epoch !== profileEpoch || !inProfile(sid) || seq !== itemsFetchSeq.get(sid)) return false;
+      set({ items: withSpaceItems(sid, fresh) });
+      return true;
     };
     /** File picks for a new tab still waiting on the server — see `applyDocumentOpenRequested`. */
     let newTabPicks = 0;
@@ -3200,13 +3256,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * user's own arrangement is not rearranged to fill a new tab.
      */
     const replaceNewTab = async (sid: string, blankId: string, itemId: string) => {
-      const seq = ++itemsFetchSeq;
-      const items = await api.listItems(sid);
-      if (!isSpace(sid)) return;
-      if (seq === itemsFetchSeq) set({ items });
-      const gs = get().groups ?? groupsFromLayout(get().layout);
-      const leaf = findLeafOfItem(get().layout ?? emptyLayout(), blankId);
-      if (groupOfItem(gs, itemId) || !leaf) await get().openItem(itemId);
+      await loadSpaceItems(sid);
+      if (!inProfile(sid)) return;
+      const layout = get().layout ?? emptyLayout();
+      const leaf = findLeafOfItem(layout, blankId);
+      if (findLeafOfItem(layout, itemId) || !leaf) await get().openItem(itemId);
       else await get().openItem(itemId, leaf.id);
       if (itemId !== blankId) await get().deleteItem(blankId);
     };
@@ -3226,56 +3280,27 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      */
     const revealPanes = () => { if (get().pageOverlay) set({ pageOverlay: null }); };
 
-    /** The newest session in the ACTIVE space that has a pane to open — by the session's own
-     *  `updatedAt`, which is what "most recent" means to the person who last worked on it. */
-    const newestSessionItem = (): Item | null => {
+    /** The newest session of a space that has a pane to open — by the session's own `updatedAt`,
+     *  which is what "most recent" means to the person who last worked on it. */
+    const newestSessionItem = (spaceId: string): Item | null => {
       const sessions = get().sessions;
       let best: Item | null = null;
       let bestAt = -1;
       for (const item of get().items) {
-        if (item.kind !== "session" || item.archived) continue;
-        const session = sessions[item.refId];
-        if (!session || session.updatedAt <= bestAt) continue;
+        if (item.spaceId !== spaceId || item.kind !== "session" || item.archived) continue;
+        const at = sessions[item.refId]?.updatedAt ?? item.updatedAt;
+        if (at <= bestAt) continue;
         best = item;
-        bestAt = session.updatedAt;
+        bestAt = at;
       }
       return best;
     };
 
-    /**
-     * The page overlay, after a space switch.
-     *
-     * A page is opened OVER a space and carries that space's id — the vantage its scope groups
-     * ("This space" / "From <profile>") are computed from. Left alone across a switch it keeps
-     * describing the space you just left: for a space's own Overview that is visibly the wrong
-     * space, and for every other page it is a screen standing between you and the work you switched
-     * to, with no way to tell from looking that anything moved.
-     *
-     * Overview and the profile page FOLLOW the switch — each is about a space (or its profile), and
-     * the answer for the new one is the same page re-pointed. Everything else is a detour, and
-     * switching spaces is a request to be back in the work, so the page gives way.
-     *
-     * Giving way opens the space's newest session only when the workspace has nothing in it. A space
-     * that already has panes open has its own saved arrangement, and forcing a session into it would
-     * rearrange — and persist — a layout the user did not touch. `openItem` reveals the panes itself,
-     * so a landing closes the page as part of arriving rather than as a second step.
-     */
-    const followSpaceSwitch = async (spaceId: string, land: boolean): Promise<void> => {
-      const page = get().pageOverlay;
-      if (!page) return;
-      if (page.kind === "space-page") { set({ pageOverlay: { kind: "space-page", refId: spaceId, spaceId } }); return; }
-      if (page.kind === "profile-page") { set({ pageOverlay: { ...page, spaceId } }); return; }
-      const empty = allItems(get().layout ?? emptyLayout()).length === 0;
-      const newest = land && empty ? newestSessionItem() : null;
-      if (newest) await get().openItem(newest.id);
-      else set({ pageOverlay: null });
-    };
-
     const adoptItem = async (sid: string, itemId: string, targetLeafId: string | null, beside: Beside = false, edge?: DropEdge) => {
-      const seq = ++itemsFetchSeq;
-      const items = await api.listItems(sid);
-      if (!isSpace(sid)) return;
-      if (seq === itemsFetchSeq) set({ items }); // superseded by a newer fetch? its list is newer — keep it
+      // Superseded by a newer fetch of the space? That one started after this item existed, so its
+      // list has it too — the open below goes ahead either way.
+      await loadSpaceItems(sid);
+      if (!inProfile(sid)) return;
       if (edge && targetLeafId) { await get().openItemAt(itemId, targetLeafId, edge); return; }
       // Opened from a session's own bar: a tab of that session's side pane, with the keyboard, since
       // a person asked to look at it.
@@ -3305,16 +3330,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * The session's terminal on screen, as a tab of its side pane with the keyboard, answering its
      * terminal id. One it has is gone to — left where it is if the user made it a pane of their own —
      * and only a session with none gets a new shell, started in its checkout the way the new-tab
-     * page's Terminal starts one.
+     * page's Terminal starts one, in the session's own space.
      */
     const showTerminalTab = (sessionId: string): Promise<string | null> => {
       const pending = showingTerminal.get(sessionId);
       if (pending) return pending;
       const p = (async () => {
-        const sid = get().activeSpaceId; if (!sid) return null;
+        const sid = get().sessions[sessionId]?.spaceId ?? get().activeSpaceId; if (!sid) return null;
         const tab = terminalTabOf(sessionId);
         if (tab) {
-          if (groupOfItem(get().groups ?? groupsFromLayout(get().layout), tab.id)) await get().openItem(tab.id);
+          if (findLeafOfItem(get().layout ?? emptyLayout(), tab.id)) await get().openItem(tab.id);
           else if (!(await get().openInSidePane(sessionId, tab.id, { focus: true }))) await get().openItemBeside(tab.id);
           return tab.refId;
         }
@@ -3327,19 +3352,191 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       return p;
     };
 
+    /* ── One profile's work, loaded at once ───────────────────────────────────────────────────────
+       Every space of the window's profile is held: its items, sessions, checkouts and projects. The
+       focus moving between spaces loads nothing and unloads nothing; only a profile switch does. */
+
+    /** What may be on screen: every live item of the profile, and a peek from another profile. */
+    const liveIds = (): Set<string> => {
+      const live = new Set(get().items.filter((i) => !i.archived).map((i) => i.id));
+      const peek = get().peek;
+      if (peek && !inProfile(peek.item.spaceId)) live.add(peek.item.id);
+      return live;
+    };
+    /** What may be remembered: every item of the profile, archived ones too — a session put away
+     *  keeps its side pane for when it comes back. */
+    const existIds = (): Set<string> => {
+      const all = new Set(get().items.map((i) => i.id));
+      for (const id of liveIds()) all.add(id);
+      return all;
+    };
+    /** Take off the screen — and out of every remembered side pane — what no longer exists. */
+    const pruneOnScreen = () => {
+      const view = get().view;
+      if (!view || !layoutHydrated) return;
+      const peek = get().peek;
+      const live = liveIds();
+      const next = pruneView(view, live, existIds(), { keep: get().focusedLeafId, transient: peek ? new Set([peek.item.id]) : undefined });
+      if (next !== view) set(writeView(next));
+      const kept = get().offscreenBrowsers.filter((id) => live.has(id));
+      if (kept.length !== get().offscreenBrowsers.length) set({ offscreenBrowsers: kept });
+    };
+    /** After `spaces` changed: load the spaces that joined the profile and drop the ones that left it,
+     *  with whatever they had on screen. */
+    const syncProfileSpaces = async (before: string[]) => {
+      const now = profileSpaceIds();
+      const gone = new Set(before.filter((id) => !now.includes(id)));
+      const added = now.filter((id) => !before.includes(id));
+      if (gone.size > 0) {
+        // A page over the workspace about a space that has gone is about nothing.
+        if (get().pageOverlay && gone.has(get().pageOverlay!.spaceId)) set({ pageOverlay: null });
+        const held = new Set([get().quickChat?.sessionId, get().peek?.item.refId].filter(Boolean));
+        set({
+          items: get().items.filter((i) => !gone.has(i.spaceId)),
+          projects: get().projects.filter((pr) => !gone.has(pr.spaceId)),
+          environments: Object.fromEntries(Object.entries(get().environments).filter(([, e]) => !gone.has(e.spaceId))),
+          sessions: Object.fromEntries(Object.entries(get().sessions).filter(([id, se]) => !gone.has(se.spaceId) || held.has(id))),
+        });
+        pruneOnScreen();
+      }
+      if (added.length > 0) {
+        await Promise.all(added.flatMap((sid) => [get().refreshItems(sid), get().refreshSessions(sid), get().refreshEnvironments(sid), get().refreshProjects(sid)]));
+      }
+    };
+    /**
+     * The window's view for the active profile, from what was saved — or, the first time a profile is
+     * opened by a build without rooms, from the active split of the space it was last in, so the user
+     * sees what they last saw. That migration is written straight back, so it happens once; the
+     * spaces' own `groups_json` and `layout_json` are read for it and never written again.
+     */
+    const restoreView = async (lastSpaceId: string | null) => {
+      const pid = get().activeProfileId;
+      if (!pid) return;
+      const epoch = profileEpoch;
+      const stored = parseStoredView(await api.getSetting(viewSettingKey(pid)).catch(() => null));
+      if (epoch !== profileEpoch) return;
+      let view: WindowView;
+      let focusItem: string | null;
+      let focusLeaf: string | null = null;
+      if (stored) {
+        view = { layout: stored.layout, zoomedLeafId: stored.zoomedLeafId, sidePanes: stored.sidePanes };
+        focusItem = stored.focusedItemId;
+        focusLeaf = stored.focusedLeafId ?? null;
+      } else {
+        const mine = get().spaces.filter((sp) => sp.profileId === pid);
+        const from = mine.find((sp) => sp.id === lastSpaceId)
+          ?? mine.find((sp) => allItems(viewFromGroups(seedGroups(sp), null).layout).length > 0) ?? null;
+        view = from ? viewFromGroups(seedGroups(from), from.activeItemId) : { layout: emptyLayout(), zoomedLeafId: null, sidePanes: {} };
+        focusItem = from?.activeItemId ?? null;
+      }
+      view = pruneView(view, liveIds(), existIds());
+      const focus = (focusItem ? findLeafOfItem(view.layout, focusItem)?.id : undefined)
+        ?? (focusLeaf && findLeaf(view.layout, focusLeaf) ? focusLeaf : undefined) ?? firstPaneLeaf(view.layout).id;
+      set(writeView(view, { focusedLeafId: focus, peek: null }));
+      layoutHydrated = true;
+      if (!stored) await persist();
+    };
+    /**
+     * Make `pid` the window's profile: the last one's work is dropped, every space of this one loads,
+     * and its own view comes back. `lastSpaceId` is where a new session goes until something has focus.
+     */
+    const enterProfile = async (pid: string, lastSpaceId: string | null) => {
+      profileEpoch++;
+      layoutHydrated = false;
+      const last = lastSpaceId && get().spaces.some((sp) => sp.id === lastSpaceId && sp.profileId === pid) ? lastSpaceId : null;
+      set({
+        activeProfileId: pid, items: [], projects: [], environments: {}, sessions: keepQuickChatSession({}),
+        view: null, layout: null, focusedLeafId: null, peek: null, sheetSnap: null, error: null, offscreenBrowsers: [],
+        // Diffs and patches are keyed by checkout path, and every pane that could show one belongs to
+        // the profile being left.
+        diffs: {}, diffLoading: {}, patches: {},
+        ...(last ? { lastSpaceByProfile: { ...get().lastSpaceByProfile, [pid]: last } } : {}),
+      });
+      const epoch = profileEpoch;
+      const ids = profileSpaceIds();
+      await Promise.all([
+        // `refreshItems`, not a bare load: it also clears the page items an older build left behind.
+        ...ids.map((sid) => get().refreshItems(sid)),
+        get().refreshSessions(), get().refreshEnvironments(), get().refreshProjects(),
+      ]);
+      if (epoch !== profileEpoch) return;
+      await restoreView(last);
+      // The session with the keyboard gets its checkout's git context, as an open does.
+      const focused = get().items.find((i) => i.id === itemIdOfLeaf(get().layout, get().focusedLeafId));
+      if (focused?.kind === "session") refreshGitFor(focused.refId);
+    };
+    /**
+     * An item a session's agent opened while none of that session's chain is on screen: kept in the
+     * side pane its session will have when it is next shown. Never a pane of its own beside whatever
+     * has focus (design.md: what an agent opens arrives in ONE side pane beside its session).
+     */
+    const keepInSidePane = async (sessionId: string, itemId: string): Promise<boolean> => {
+      const keeper = await keeperOf(sessionId);
+      if (!keeper) return false;
+      const view = viewNow();
+      if (findLeafOfItem(view.layout, itemId)) return true;
+      const next = rememberSidePane(view, keeper, itemId);
+      const isBrowser = get().items.find((i) => i.id === itemId)?.kind === "browser";
+      if (isBrowser && !get().offscreenBrowsers.includes(itemId)) set({ offscreenBrowsers: [...get().offscreenBrowsers, itemId] });
+      if (next === view) return true;
+      set(writeView(next));
+      await persist();
+      return true;
+    };
+
+    /* ── The current space ────────────────────────────────────────────────────────────────────────
+       DERIVED, never chosen: the space of the session in focus, else the one last current in this
+       profile, else its first. Kept in `activeSpaceId` because thirty readers already ask that field
+       which space they are in; what changed is that nothing loads or unloads when it moves. Recorded
+       from one place, a subscription to every write, registered ahead of the trail's so a stop is
+       never written against the space the focus just left. */
+    const currentSpaceOf = (s: AppState): string | null => {
+      const pid = s.activeProfileId;
+      if (!pid) return null;
+      const mine = (sid: string | null | undefined): sid is string => !!sid && s.spaces.some((sp) => sp.id === sid && sp.profileId === pid);
+      // A space's own Overview, while it is up, is about that space — and its New session button
+      // means that space.
+      if (s.pageOverlay?.kind === "space-page" && mine(s.pageOverlay.refId)) return s.pageOverlay.refId;
+      const leaf = s.layout && s.focusedLeafId ? findLeaf(s.layout, s.focusedLeafId) : null;
+      // In a side pane, the session it serves is the one in focus.
+      const id = leaf?.tabs ? leaf.owner ?? leaf.itemId : leaf?.itemId ?? null;
+      const item = id ? s.items.find((i) => i.id === id) ?? (s.peek?.item.id === id ? s.peek.item : undefined) : undefined;
+      if (item && mine(item.spaceId)) return item.spaceId;
+      const last = s.lastSpaceByProfile[pid];
+      if (mine(last)) return last;
+      return s.spaces.find((sp) => sp.profileId === pid)?.id ?? null;
+    };
+    storeApi.subscribe(() => {
+      const s = get();
+      // Nothing to derive it from until a profile is the window's.
+      if (!s.activeProfileId) return;
+      const cur = currentSpaceOf(s);
+      if (cur === s.activeSpaceId) return;
+      const pid = s.activeProfileId;
+      set({ activeSpaceId: cur, ...(pid && cur && s.lastSpaceByProfile[pid] !== cur ? { lastSpaceByProfile: { ...s.lastSpaceByProfile, [pid]: cur } } : {}) });
+      if (cur && layoutHydrated) void api.setSetting(SETTING_ACTIVE_SPACE, cur).catch(() => {});
+    });
+    /* A focus move on its own is saved too, on the debounce: where the keyboard is belongs to the view
+       a relaunch brings back, and with it the current space — where a new session goes. A write that
+       moves the focus WITH the layout persists straight through, which clears this timer. */
+    storeApi.subscribe((s, prev) => {
+      if (s.focusedLeafId !== prev.focusedLeafId && s.focusedLeafId && s.view && layoutHydrated) schedulePersist();
+    });
+
     /* ── The window's trail ──────────────────────────────────────────────────────────────────────
        Recorded from ONE place: a subscription to every write. Every way the keyboard moves — a row
-       clicked, a pane clicked, a group switched, a room switched, a pane closed under you — ends in a
-       write, so offering each one to `pushStop` catches them all, and `pushStop` itself ignores the
-       writes that land where the window already stands. A compound move holds the recording
-       (`holdTrail`) and is recorded once when it lands: a room switch passes through an empty room and
-       a restored pane on its way to the one you asked for, and neither of those is somewhere you were. */
+       clicked, a pane clicked, a space made current, a pane closed under you — ends in a write, so
+       offering each one to `pushStop` catches them all, and `pushStop` itself ignores the writes that
+       land where the window already stands. A compound move holds the recording (`holdTrail`) and is
+       recorded once when it lands: a profile switch passes through an empty view and a restored one on
+       its way to the pane you asked for, and neither of those is somewhere you were. */
     let trailHeld = 0;
-    /** Where the window stands now — null while a room is still loading, which is nowhere yet. */
+    /** Where the window stands now — null while the view is still loading, which is nowhere yet. */
     const here = (): WindowStop | null => {
       const s = get();
-      if (!s.activeSpaceId || !layoutHydrated) return null;
-      return { spaceId: s.activeSpaceId, itemId: itemIdOfLeaf(s.layout, s.focusedLeafId) };
+      const spaceId = currentSpaceOf(s);
+      if (!spaceId || !layoutHydrated) return null;
+      return { spaceId, itemId: itemIdOfLeaf(s.layout, s.focusedLeafId) };
     };
     const noteStop = () => {
       const stop = here(); if (!stop) return;
@@ -3360,8 +3557,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], groups: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
-      allItems: [], archivedSessions: null, lastAgentKind: null, renamingItemId: null, renamingGroupId: null,
+      sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
+      allItems: [], archivedSessions: null, lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", paletteReplaces: null, peek: null, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
       failover: null,
@@ -3379,13 +3576,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, openFilesIn: null, editors: [], editorCursorBlink: EDITOR_CURSOR_BLINK_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, notificationsSelectedId: null, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null,
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
-      activeProfileId() { return get().activeSpace()?.profileId ?? null; },
-      profileSpaces() { const pid = get().activeProfileId(); return pid === null ? [] : get().spaces.filter((s) => s.profileId === pid); },
+      profileSpaces() { const pid = get().activeProfileId; return pid === null ? [] : get().spaces.filter((s) => s.profileId === pid); },
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, swipeInvert, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, openSpaces, askDelete, lastAgent, eggs, konami, panels, quick, filesView, system, avatarPath] = await Promise.all([
-          api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_THEME),
+        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, swipeInvert, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, openSpaces, askDelete, lastAgent, eggs, konami, panels, quick, filesView, system, avatarPath] = await Promise.all([
+          api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_ACTIVE_PROFILE), api.getSetting(SETTING_THEME),
           api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_PANE_ALPHA), api.getSetting(REDUCED_MOTION_KEY), api.getSetting(SETTING_SWIPE_INVERT), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_SIDEBAR_OPEN_SPACES), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
           api.getSetting(SETTING_TERMINAL_PANEL),
@@ -3440,15 +3636,15 @@ await get().refreshCustomThemes().catch(() => {});
         await get().refreshFonts().catch(() => {});
         await hydrateSpaceIcons(spaces);
         set({ spaces });
-        // A window opened for one profile (Plan 27 Phase 2) lands in that profile — its saved space if
-        // the saved space is that profile's, else its first. The first window has no profile of its
-        // own and lands where the app was last left.
-        const bound = api.boundProfileId();
-        const target = bound !== null
-          ? spaces.find((s) => s.id === saved && s.profileId === bound) ?? spaces.find((s) => s.profileId === bound)
-          : spaces.find((s) => s.id === saved) ?? spaces[0];
-        if (target) await get().selectSpace(target.id);
-        // Cross-space badges need every session's space + status, not just the active space's.
+        /* Which profile this window shows. The bound one first — a window opened for a profile is that
+           profile's — then the one it was last on, then (a home last run with rooms) the profile of the
+           space it was in, then the first profile that has any space, then the first at all. */
+        const savedSpace = typeof saved === "string" ? spaces.find((sp) => sp.id === saved) : undefined;
+        const known = (id: unknown): id is string => typeof id === "string" && profiles.some((p) => p.id === id);
+        const pid = [api.boundProfileId(), savedProfile, savedSpace?.profileId].find(known)
+          ?? profiles.find((p) => spaces.some((sp) => sp.profileId === p.id))?.id ?? profiles[0]?.id ?? null;
+        if (pid) await enterProfile(pid, savedSpace?.id ?? null);
+        // Cross-space badges need every session's space + status, not just the profile's.
         await get().refreshAllSessions();
         await restoreQuickChat(quick);
         // The desktop switch, read BEFORE the count lands because the badge push honors it — and read
@@ -3502,30 +3698,27 @@ await get().refreshCustomThemes().catch(() => {});
         // asking a registry on every launch. It only ever LOOKS; applying an update stays a click.
         void get().refreshCliStatus().catch(() => {});
       },
-      selectSpace(id, opts) { return holdTrail(async () => {
-        await flushPersist();
-        itemsFetchSeq++; // in-flight item fetches from the previous activation are now stale
-        layoutHydrated = false;
+      selectSpace(id) { return holdTrail(async () => {
         const space = get().spaces.find((s) => s.id === id);
-        // Diffs and patches go with the space: they are keyed by checkout path, and every pane that
-        // could show one belongs to the space being left. Keeping them would mean a diff pane opening
-        // on stale hunks from before the switch.
-        // `sessions` is emptied because it holds the space being LEFT — except for the quick chat's
-        // row, which belongs to no space's list and whose window stays up across the switch.
-        set(writeGroups(seedGroups(space), { activeSpaceId: id, focusedLeafId: null, items: [], projects: [], environments: {}, sessions: keepQuickChatSession({}), error: null,
-          peek: null, // a peek belongs to the room it was opened in, and never went into its saved layout
-          sheetSnap: null, // a snap belongs to the layout being left; that layout persisted UNsnapped
-          diffs: {}, diffLoading: {}, patches: {} }));
-        get().run(() => api.setSetting(SETTING_ACTIVE_SPACE, id));
-        // Remembered BEFORE the awaits below: the profile chip's "go back to where I was" must be
-        // true the moment the switch is committed, not a round trip later.
-        if (space) set({ lastSpaceByProfile: { ...get().lastSpaceByProfile, [space.profileId]: id } });
-        await Promise.all([get().refreshProjects(), get().refreshEnvironments(), get().refreshItems(), get().refreshSessions()]);
-        // After the items and sessions land, so a page that gives way has something to give way TO.
-        await followSpaceSwitch(id, opts?.land ?? true);
-        // Space activation refreshes git context for the focused pane's session, if any.
-        const focusedItem = get().items.find((i) => i.id === itemIdOfLeaf(get().layout, get().focusedLeafId));
-        if (focusedItem?.kind === "session") refreshGitFor(focusedItem.refId);
+        if (!space) return;
+        if (space.profileId !== get().activeProfileId) await get().selectProfile(space.profileId);
+        if (get().activeProfileId !== space.profileId) return;
+        // Remembered first: with nothing focused, this is the space a new session goes to.
+        set({ lastSpaceByProfile: { ...get().lastSpaceByProfile, [space.profileId]: id } });
+        // A page about a space follows: its Overview re-pointed is the same question asked of this one.
+        const page = get().pageOverlay;
+        if (page?.kind === "space-page") { set({ pageOverlay: { kind: "space-page", refId: id, spaceId: id } }); return; }
+        if (page?.kind === "profile-page") { set({ pageOverlay: { ...page, spaceId: id } }); return; }
+        // One of its sessions already on screen: going there makes it current without moving a pane.
+        const layout = get().layout ?? emptyLayout();
+        const shown = allItems(layout).map((itemId) => get().items.find((i) => i.id === itemId))
+          .filter((i): i is Item => !!i && i.kind === "session" && i.spaceId === id && !findLeafOfItem(layout, i.id)?.tabs);
+        const newest = shown.sort((a, b) => (get().sessions[b.refId]?.updatedAt ?? 0) - (get().sessions[a.refId]?.updatedAt ?? 0))[0]
+          ?? newestSessionItem(id);
+        // Its most recent session, in the main view — focus moving there is what makes it current.
+        if (newest) { await get().openItem(newest.id); return; }
+        // Nothing to open: the space's Overview, which says how to start.
+        get().openSpacePage(id);
       }); },
       async nextSpace() {
         const list = get().profileSpaces(); const i = list.findIndex((s) => s.id === get().activeSpaceId);
@@ -3535,71 +3728,43 @@ await get().refreshCustomThemes().catch(() => {});
         const list = get().profileSpaces(); const i = list.findIndex((s) => s.id === get().activeSpaceId);
         const p = list[i - 1]; if (i > 0 && p) await get().selectSpace(p.id);
       },
-      async selectProfile(profileId) {
-        if (get().activeProfileId() === profileId) return;
-        const remembered = get().lastSpaceByProfile[profileId];
-        const target = get().spaces.find((s) => s.id === remembered && s.profileId === profileId)
-          ?? get().spaces.find((s) => s.profileId === profileId);
-        // A profile with no spaces at all is not switchable-to: there would be nothing to land on,
-        // and an activeSpaceId of null is the no-space posture, not a profile.
-        if (target) await get().selectSpace(target.id);
-      },
+      selectProfile(profileId) { return holdTrail(async () => {
+        if (get().activeProfileId === profileId) return;
+        if (!get().profiles.some((p) => p.id === profileId) && !get().spaces.some((sp) => sp.profileId === profileId)) return;
+        await flushPersist();
+        // A page over the workspace is about a space of the profile being left.
+        set({ pageOverlay: null });
+        await enterProfile(profileId, get().lastSpaceByProfile[profileId] ?? null);
+        get().run(() => api.setSetting(SETTING_ACTIVE_PROFILE, profileId));
+      }); },
       async refreshSpaces() {
+        const before = profileSpaceIds();
         const spaces = await api.listSpaces();
         await hydrateSpaceIcons(spaces);
         set({ spaces });
-        const active = get().activeSpaceId;
-        // The active space vanished (deleted elsewhere): fall back to the first one, if any.
-        if (active && !spaces.some((s) => s.id === active)) {
-          const first = spaces[0];
-          if (first) await get().selectSpace(first.id);
-          else set({ activeSpaceId: null, items: [], groups: null, layout: null, focusedLeafId: null, projects: [] });
-        }
+        await syncProfileSpaces(before);
       },
-      async refreshItems() {
-        const sid = get().activeSpaceId; if (!sid) return;
-        const seq = ++itemsFetchSeq;
-        const items = await api.listItems(sid);
-        if (!isSpace(sid) || seq !== itemsFetchSeq) return; // space changed, or a newer fetch owns the truth
-        /* App-level pages used to be layout ITEMS, and a home upgraded from that version still holds
-           one per page it ever opened. They are pruned HERE rather than once at boot because `items`
-           only ever holds the ACTIVE space's — a boot-time sweep would clear one space and leave
-           every other one carrying its own until someone visited it. Their refIds are sentinels with
-           nothing behind them, so this costs nothing (design.md: "there is nothing behind the item to
-           lose"). */
-        const stalePages = items.filter((i) => PAGE_ITEM_KINDS.has(i.kind));
-        if (stalePages.length > 0) {
+      async refreshItems(spaceId = null) {
+        const ids = spaceId ? (inProfile(spaceId) ? [spaceId] : []) : profileSpaceIds();
+        await Promise.all(ids.map(async (sid) => {
+          if (!(await loadSpaceItems(sid))) return; // the profile changed, or a newer fetch owns the truth
+          /* App-level pages used to be layout ITEMS, and a home upgraded from that version still holds
+             one per page it ever opened. They are pruned as each space's list arrives; their refIds
+             are sentinels with nothing behind them, so this costs nothing (design.md: "there is
+             nothing behind the item to lose"). */
+          const stalePages = get().items.filter((i) => i.spaceId === sid && PAGE_ITEM_KINDS.has(i.kind));
+          if (stalePages.length === 0) return;
           for (const it of stalePages) await api.deleteItem(it.id).catch(() => {});
-          if (!isSpace(sid) || seq !== itemsFetchSeq) return;
-          return void await get().refreshItems();
-        }
-        // Prune across every group, not just the one on screen: a deleted item must stop being open
-        // in the arrangements the user is not currently looking at too, or switching to one would
-        // render a pane for something that no longer exists.
-        //
-        // Archived items are pruned by the same set even though they still exist. `archiveItem` already
-        // closes the pane it can see; this is what carries the close to the groups it cannot — another
-        // window's archive, or one taken while a different group was on screen. `items` itself keeps
-        // them: the sidebar's Archived section is drawn from the full list.
-        const live = new Set(items.filter((i) => !i.archived).map((i) => i.id));
-        // Another space's peek is in no list of this space's, and is not stale for it.
-        const peek = get().peek;
-        if (peek && peek.item.spaceId !== sid) live.add(peek.item.id);
-        const groups = reconcileGroups(get().groups ?? groupsFromLayout(get().layout), live);
-        const layout = activeLayout(groups);
-        const firstHydrate = !layoutHydrated;
-        layoutHydrated = true;
-        // The same prune has to reach the back/forward trails, or Back would offer to return a pane to
-        // an item deleted here or in another window. Applied BEFORE writeGroups' reconcile so the
-        // layout's own occupants are re-seeded on top of the pruned trails, never the other way round.
-        set({ paneHistory: forgetNavItems(get().paneHistory, live) });
-        // Focus is restored on the FIRST hydrate of a space and never again. `spaces.active_item_id`
-        // has had a writer and no reader since it was added; this is the reader. A later
-        // `items.changed` must not move focus — another window opening a pane would otherwise pull
-        // the keyboard out of whatever this one is typing into — which is also why `focusIn` keeps
-        // the current leaf whenever the layout still has it.
-        const restored = firstHydrate ? leafForActiveItem(layout) : null;
-        set(writeGroups(groups, { items, focusedLeafId: restored ?? focusIn(layout) }));
+          await loadSpaceItems(sid);
+        }));
+        // Boot restores the view once every space has loaded; until then nothing is pruned, because a
+        // list that has not arrived yet is not a list that lost its items.
+        if (!layoutHydrated) return;
+        // The prune has to reach the back/forward trails too, or Back would offer to return a pane to an
+        // item deleted here or in another window — before the view's own reconcile, so the layout's
+        // occupants are re-seeded on top of the pruned trails, never the other way round.
+        set({ paneHistory: forgetNavItems(get().paneHistory, liveIds()) });
+        pruneOnScreen();
       },
       async refreshAllItems() {
         set({ allItems: await api.listAllItems() });
@@ -3609,20 +3774,28 @@ await get().refreshCustomThemes().catch(() => {});
          that belong to a single component's scroll position. */
       libraryArtifacts: (q) => api.libraryArtifacts(q),
       async searchDeep(query) {
-        const sid = get().activeSpaceId; if (!sid) return null;
-        const profileId = get().spaces.find((sp) => sp.id === sid)?.profileId;
+        const profileId = get().activeProfileId;
         if (!profileId) return null;
         return api.search(profileId, query);
       },
-      async refreshProjects() {
-        const sid = get().activeSpaceId; if (!sid) return;
-        const projects = await api.listProjects(sid);
-        if (isSpace(sid)) set({ projects });
+      async refreshProjects(spaceId = null) {
+        const ids = spaceId ? (inProfile(spaceId) ? [spaceId] : []) : profileSpaceIds();
+        const epoch = profileEpoch;
+        const lists = await Promise.all(ids.map(async (sid) => [sid, await api.listProjects(sid)] as const));
+        if (epoch !== profileEpoch) return;
+        const fresh = lists.filter(([sid]) => inProfile(sid));
+        const replaced = new Set(fresh.map(([sid]) => sid));
+        set({ projects: [...get().projects.filter((pr) => !replaced.has(pr.spaceId)), ...fresh.flatMap(([, list]) => list)] });
       },
-      async refreshEnvironments() {
-        const sid = get().activeSpaceId; if (!sid) return;
-        const list = await api.listEnvironments(sid);
-        if (isSpace(sid)) set({ environments: Object.fromEntries(list.map((e) => [e.id, e])) });
+      async refreshEnvironments(spaceId = null) {
+        const ids = spaceId ? (inProfile(spaceId) ? [spaceId] : []) : profileSpaceIds();
+        const epoch = profileEpoch;
+        const lists = await Promise.all(ids.map(async (sid) => [sid, await api.listEnvironments(sid)] as const));
+        if (epoch !== profileEpoch) return;
+        const fresh = lists.filter(([sid]) => inProfile(sid));
+        const replaced = new Set(fresh.map(([sid]) => sid));
+        const kept = Object.entries(get().environments).filter(([, e]) => !replaced.has(e.spaceId));
+        set({ environments: Object.fromEntries([...kept, ...fresh.flatMap(([, list]) => list.map((e) => [e.id, e] as const))]) });
       },
       async createProfile(input) {
         const p = await api.createProfile(typeof input === "string" ? { name: input } : input);
@@ -3651,28 +3824,34 @@ await get().refreshCustomThemes().catch(() => {});
         await get().selectProfile(profileId);
       },
       async createSpace(input) {
+        const before = profileSpaceIds();
         const s = await api.createSpace(input);
         set({ spaces: [...get().spaces.filter((x) => x.id !== s.id), s] });
+        await syncProfileSpaces(before);
+        // There, as a click on it would go: another profile's switches the window, and a space with
+        // nothing in it yet opens on its Overview.
         await get().selectSpace(s.id);
       },
       async updateSpace(input) {
+        const before = profileSpaceIds();
         mergeSpace(await api.updateSpace(input));
+        // Moved to another profile, or into this one: the window's set of spaces changed.
+        await syncProfileSpaces(before);
       },
       async deleteSpace(id) {
+        const before = profileSpaceIds();
+        const wasCurrent = get().activeSpaceId === id;
         // Decide the successor before awaiting so a concurrent spaces.changed refresh can't move the goalposts.
-        const before = get().spaces; const idx = before.findIndex((s) => s.id === id);
-        const wasActive = get().activeSpaceId === id;
-        const neighbor = before.filter((s) => s.id !== id)[Math.max(0, idx - 1)] ?? null;
-        // A pending debounced persist would setLayout on a space that is about to be gone.
-        if (wasActive && persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
+        const list = get().profileSpaces(); const idx = list.findIndex((s) => s.id === id);
+        const neighbor = list.filter((s) => s.id !== id)[Math.max(0, idx - 1)] ?? null;
         await api.deleteSpace(id);
         set({ spaces: get().spaces.filter((s) => s.id !== id) });
-        if (!wasActive) return;
-        // refreshSpaces (spaces.changed) may already have moved the selection; keep its choice.
-        if (get().activeSpaceId !== id) return;
-        if (neighbor && get().spaces.some((s) => s.id === neighbor.id)) await get().selectSpace(neighbor.id);
-        else if (get().spaces[0]) await get().selectSpace(get().spaces[0]!.id);
-        else set({ activeSpaceId: null, items: [], groups: null, layout: null, focusedLeafId: null, projects: [] });
+        await syncProfileSpaces(before);
+        // What the window showed of it has gone with it. Only an empty window lands somewhere else:
+        // the panes of other spaces on screen are still exactly what the user was looking at.
+        if (wasCurrent && allItems(get().layout ?? emptyLayout()).length === 0 && neighbor && get().spaces.some((s) => s.id === neighbor.id)) {
+          await get().selectSpace(neighbor.id);
+        }
       },
       async reorderSpaces(ids) {
         const prev = get().spaces;
@@ -3921,34 +4100,38 @@ await get().refreshCustomThemes().catch(() => {});
         set({ submitKey: v });
         await api.setSetting(SETTING_SUBMIT_KEY, v);
       },
-      async linkProject(rootPath) {
-        const sid = get().activeSpaceId; if (!sid) return;
+      async linkProject(rootPath, spaceId = null) {
+        const sid = spaceFor(spaceId); if (!sid) return;
         await api.createProject(sid, folderName(rootPath), rootPath);
-        await get().refreshProjects();
+        await get().refreshProjects(sid);
       },
       pickFolder() { return api.pickFolder(); },
       pathForFile(file) { return api.pathForFile(file); },
       async completeOnboarding({ name, agentKind, folder, icon, color }) {
         // app.ts seeds a "Personal" profile on first boot; creating one here is belt-and-braces so
         // the very first screen can never be a dead end.
-        const profileId = get().profiles[0]?.id ?? (await get().createProfile("Personal")).id;
+        const profileId = get().activeProfileId ?? get().profiles[0]?.id ?? (await get().createProfile("Personal")).id;
         await get().setDefaultAgent(agentKind);
-        await get().createSpace({ name, icon, profileId, color });
-        const sid = get().activeSpaceId;
-        if (!sid) return;
+        // Made here rather than through `createSpace`, which lands on the new space's Overview: the
+        // screen after onboarding is a prompter, opened below.
+        const before = profileSpaceIds();
+        const space = await api.createSpace({ name, icon, profileId, color });
+        set({ spaces: [...get().spaces.filter((x) => x.id !== space.id), space] });
+        if (get().activeProfileId !== profileId) await get().selectProfile(profileId);
+        else await syncProfileSpaces(before);
         // The folder becomes the space's first project, and the session opens IN it — not in the
         // empty space folder Realm allocates, which is where a first session used to land even when
         // the user had a repo in mind.
-        const project = folder ? await api.createProject(sid, folderName(folder), folder) : null;
-        if (project) await get().refreshProjects();
-        await get().newSession({ agentKind, projectId: project?.id ?? null });
+        const project = folder ? await api.createProject(space.id, folderName(folder), folder) : null;
+        if (project) await get().refreshProjects(space.id);
+        await get().newSession({ agentKind, projectId: project?.id ?? null, spaceId: space.id });
       },
-      async pickAndLinkProject() {
+      async pickAndLinkProject(spaceId = null) {
         const path = await api.pickFolder();
-        if (path) await get().linkProject(path);
+        if (path) await get().linkProject(path, spaceId);
       },
-      async newTerminal(targetLeafId = null) {
-        const sid = get().activeSpaceId; if (!sid) return;
+      async newTerminal(targetLeafId = null, spaceId = null) {
+        const sid = spaceFor(spaceId); if (!sid) return;
         const { itemId } = await api.createTerminal(sid);
         await adoptItem(sid, itemId, targetLeafId);
       },
@@ -3970,36 +4153,35 @@ await get().refreshCustomThemes().catch(() => {});
        * opposite of what the button is for. Explicit rather than always-on: the sidebar's own "new
        * browser" is a navigation, and that one should land where you are looking.
        */
-      async newBrowser(targetLeafId = null, beside = false) {
-        const sid = get().activeSpaceId; if (!sid) return;
+      async newBrowser(targetLeafId = null, beside = false, spaceId = null) {
+        const sid = spaceFor(spaceId ?? besideSpace(beside)); if (!sid) return;
         const { itemId } = await api.createBrowser(sid);
         await adoptItem(sid, itemId, targetLeafId, beside);
       },
       /** Beside, never instead — a machine opened from a session's bar is a place to look at
        *  something WHILE the session works, exactly like the browser button next to it. */
-      async newMachine(targetLeafId = null, beside = false) {
-        const sid = get().activeSpaceId; if (!sid) return;
+      async newMachine(targetLeafId = null, beside = false, spaceId = null) {
+        const sid = spaceFor(spaceId ?? besideSpace(beside)); if (!sid) return;
         const { itemId } = await api.createMachine(sid, "New machine");
         await adoptItem(sid, itemId, targetLeafId, beside);
       },
       /** Beside, for `newMachine`'s reason: a simulator is something to watch WHILE the session
        *  works on the app running inside it. */
-      async newSimulator(targetLeafId = null, beside = false) {
-        const sid = get().activeSpaceId; if (!sid) return;
+      async newSimulator(targetLeafId = null, beside = false, spaceId = null) {
+        const sid = spaceFor(spaceId ?? besideSpace(beside)); if (!sid) return;
         const { itemId } = await api.createSimulator(sid, "Simulator");
         await adoptItem(sid, itemId, targetLeafId, beside);
       },
       async updateItem(input) {
-        const sid = get().activeSpaceId;
         const it = await api.updateItem(input);
-        if (sid && isSpace(sid)) set({ items: get().items.map((x) => (x.id === it.id ? it : x)) });
+        if (get().items.some((x) => x.id === it.id)) set({ items: get().items.map((x) => (x.id === it.id ? it : x)) });
       },
       async archiveItem(itemId, archived) {
         // Close FIRST, then flip the flag — deleteItem's ordering, for deleteItem's reason: a row the
         // sidebar has hidden whose pane is still on screen is the one state neither surface can
         // explain, and doing it in this order means a failure in between leaves the item visible
-        // rather than invisible-but-open. Unarchiving touches no layout: the row comes back to the
-        // SPACE group unopened, exactly where closing would have left it.
+        // rather than invisible-but-open. Unarchiving touches no layout: the row comes back to its
+        // space unopened, exactly where closing would have left it.
         if (archived) await get().closeFromLayout(itemId);
         await get().updateItem({ id: itemId, archived });
         // Back/forward must not walk into a shelved pane. Same prune deleteItem owes the trails, for
@@ -4027,41 +4209,36 @@ await get().refreshCustomThemes().catch(() => {});
       /** Agent-opened panes arrive BESIDE the user's focused pane, never replacing it. Replacing was a
        *  live-found deadlock: the browser evicted the very session whose permission card the user had to
        *  answer — and eviction destroys an agent's browser view mid-task (close is final for browsers).
-       *  If the focused leaf is empty, filling it is fine; otherwise split right and open there. */
+       *  If the focused pane is empty, filling it is fine; a view showing two gives up its OTHER side. */
       async openItemBeside(itemId) {
         revealPanes();
-        detached(itemId); // the pane may be open in another group; it moves here rather than duplicating
-        const current = get().layout ?? emptyLayout();
-        const focused = get().focusedLeafId;
-        const occupant = focused ? itemIdOfLeaf(current, focused) : null;
-        if (focused && occupant !== null && occupant !== itemId && !findLeafOfItem(current, itemId)) {
-          const layout = splitLeaf(current, focused, "row", itemId);
-          const leaf = findLeafOfItem(layout, itemId);
-          // A split made under a live zoom would put the new pane behind the zoomed one, invisible.
-          const gs2 = setActiveLayout(get().groups ?? groupsFromLayout(null), layout);
-          set(writeGroups(revealing(gs2, leaf?.id ?? null), { focusedLeafId: leaf?.id ?? get().focusedLeafId }));
-          await persist();
-          return;
-        }
+        const view = viewNow();
+        if (findLeafOfItem(view.layout, itemId)) { await get().openItem(itemId); return; }
+        const layout = openBesideInView(view.layout, get().focusedLeafId, itemId);
+        const leaf = findLeafOfItem(layout, itemId);
+        // Opened under a live pane focus, the new pane would be behind the focused one, invisible.
+        set(writeView(revealing({ ...view, layout }, leaf?.id ?? null), { focusedLeafId: leaf?.id ?? get().focusedLeafId }));
+        await persist();
+      },
+      async revealItem(itemId, spaceId) {
+        const space = get().spaces.find((sp) => sp.id === spaceId);
+        if (space && space.profileId !== get().activeProfileId) await get().selectProfile(space.profileId);
+        if (!get().items.some((i) => i.id === itemId)) return;
         await get().openItem(itemId);
       },
       async openInSidePane(sessionId, itemId, opts = {}) {
-        const owner = await sideOwnerOf(get().groups ?? groupsFromLayout(get().layout), sessionId);
-        // Read after the walk: it may have fetched, and the groups are whatever they are now.
-        const gs = get().groups ?? groupsFromLayout(get().layout);
-        const holder = owner ? groupOfItem(gs, owner) : null;
-        if (!owner || !holder) return false;
-        // The item may be open in another group; it moves to the side pane rather than duplicating.
-        const base = detachItemFrom(gs, itemId, holder.id);
-        const layout = layoutOpenInSidePane(base.groups.find((g) => g.id === holder.id)!.layout, owner, itemId);
+        const owner = await sideOwnerOf(sessionId);
+        if (!owner) return false;
+        // Read after the walk: it may have fetched, and the view is whatever it is now.
+        const view = viewNow();
+        const layout = layoutOpenInSidePane(view.layout, owner, itemId);
         if (!layout) return false;
-        const placed = mapGroup(base, holder.id, (g) => ({ ...g, layout }));
         const leaf = findLeafOfItem(layout, itemId)!;
         if (opts.focus) {
           revealPanes();
-          set(writeGroups(revealing(groupsSetActive(placed, holder.id), leaf.id), { focusedLeafId: leaf.id }));
+          set(writeView(revealing({ ...view, layout }, leaf.id), { focusedLeafId: leaf.id }));
         } else {
-          set(writeGroups(placed));
+          set(writeView({ ...view, layout }));
         }
         await persist();
         return true;
@@ -4073,7 +4250,6 @@ await get().refreshCustomThemes().catch(() => {});
         await persist();
       },
       async newTab(leafId = null, opts = {}) {
-        const sid = get().activeSpaceId; if (!sid) return;
         const layout = get().layout ?? emptyLayout();
         // Which strip: the one named, else the one the focused pane is in — read before the awaits,
         // since the click or the key was about the panes as they stood when it landed.
@@ -4081,11 +4257,13 @@ await get().refreshCustomThemes().catch(() => {});
         const focused = get().focusedLeafId ? findLeaf(layout, get().focusedLeafId!) : null;
         const strip = named?.tabs ? named : focused?.tabs ? focused : null;
         const focusedItem = focused?.itemId ? get().items.find((i) => i.id === focused.itemId) : undefined;
+        // Made in the space of the session the strip serves — or of the focused pane — whichever
+        // space the other side of the view is showing.
+        const ownerItem = strip?.owner ? get().items.find((i) => i.id === strip.owner) : focusedItem;
+        const sid = ownerItem?.spaceId ?? get().activeSpaceId; if (!sid) return;
         const { itemId } = await api.createBrowser(sid);
-        const seq = ++itemsFetchSeq;
-        const items = await api.listItems(sid);
-        if (!isSpace(sid)) return;
-        if (seq === itemsFetchSeq) set({ items });
+        await loadSpaceItems(sid);
+        if (!inProfile(sid)) return;
         if (strip) await get().openItem(itemId, strip.id);
         // No strip on screen: the focused session's side pane, made beside it if it has none — and with
         // no session to be beside, an ordinary browser beside the focused pane, as the bar's own
@@ -4107,150 +4285,137 @@ await get().refreshCustomThemes().catch(() => {});
         return allItems(layout).find((id) => isSession(id) && !findLeafOfItem(layout, id)!.tabs) ?? null;
       },
       async peekSession(sessionId, spaceId = null) {
-        const active = get().activeSpaceId; if (!active) return false;
-        const where = get().sessionSpace[sessionId] ?? spaceId ?? active;
-        const item = where === active
+        if (!get().activeProfileId) return false;
+        const where = get().sessionSpace[sessionId] ?? spaceId ?? get().activeSpaceId;
+        if (!where) return false;
+        const epoch = profileEpoch;
+        // A session of this profile has its row loaded already; another profile's is asked for.
+        const item = inProfile(where)
           ? get().items.find((i) => i.kind === "session" && i.refId === sessionId)
           : (await api.listItems(where)).find((i) => i.kind === "session" && i.refId === sessionId);
-        if (!item || get().activeSpaceId !== active) return false;
-        // Open in one of this space's arrangements already: looking at it is going there.
-        const gs0 = get().groups ?? groupsFromLayout(get().layout);
-        if (item.spaceId === active && groupOfItem(gs0, item.id) && get().peek?.item.id !== item.id) { await get().openItem(item.id); return true; }
+        if (!item || epoch !== profileEpoch) return false;
+        // On screen already: looking at it is going there.
+        if (findLeafOfItem(get().layout ?? emptyLayout(), item.id) && get().peek?.item.id !== item.id) { await get().openItem(item.id); return true; }
         const owner = get().peekOwner();
         if (!owner) return false;
-        // The row, held so the pane can draw it: another space's is not in `sessions`.
+        // The row, held so the pane can draw it: another profile's is not in `sessions`.
         if (!get().sessions[sessionId]) {
           const row = await api.getSession(sessionId).catch(() => null);
-          if (!row || get().activeSpaceId !== active) return false;
+          if (!row || epoch !== profileEpoch) return false;
           set({ sessions: { ...get().sessions, [row.id]: row }, sessionStatus: { ...get().sessionStatus, [row.id]: get().sessionStatus[row.id] ?? row.status },
             sessionSpace: { ...get().sessionSpace, [row.id]: row.spaceId } });
         }
         // One at a time: the last peek leaves first. Not persisted — there is nothing to save.
-        const gs = withoutPeek(get().groups ?? groupsFromLayout(get().layout));
-        const layout = layoutOpenInSidePane(activeLayout(gs), owner, item.id);
+        const prior = get().peek;
+        const view = prior ? withoutItem(viewNow(), prior.item.id) : viewNow();
+        const layout = layoutOpenInSidePane(view.layout, owner, item.id);
         if (!layout) return false;
         const leaf = findLeafOfItem(layout, item.id)!;
         revealPanes();
-        set(writeGroups(revealing(setActiveLayout(gs, layout), leaf.id), { focusedLeafId: leaf.id, peek: { item, owner } }));
+        set(writeView(revealing({ ...view, layout }, leaf.id), { focusedLeafId: leaf.id, peek: { item, owner } }));
         return true;
       },
       async openPeek() {
         const peek = get().peek; if (!peek) return;
-        if (peek.item.spaceId === get().activeSpaceId) {
-          // A row of this space already: the tab stays where it is and becomes part of the layout.
-          set({ peek: null });
-          await persist();
-          return;
-        }
-        // Another space's: there, the way its row opens it. The switch is what takes the peek away.
+        // The normal way in, as its row would open it: in the main view, in the place of the session
+        // it was peeked beside — or, another profile's, with the window switched to that profile.
         await get().revealSession(peek.item.refId, peek.item.spaceId);
       },
       async applyAgentPaneOpened({ spaceId, itemId, openedBy }) {
-        if (spaceId !== get().activeSpaceId) return;
-        await get().refreshItems();
-        if (spaceId !== get().activeSpaceId) return;
+        if (!inProfile(spaceId)) return;
+        await get().refreshItems(spaceId);
+        if (!inProfile(spaceId)) return;
         if (await get().openInSidePane(openedBy, itemId)) return;
-        // No session of its chain on screen, so no side pane to join. It still has to be MOUNTED: a
-        // browser's view exists only while a pane holds it, and one that never had a pane is a page
-        // the agent cannot drive. Beside the focused pane, quietly, as every agent open used to be.
-        await get().openItemBesideQuiet(itemId);
+        // None of its chain is on screen: kept in the side pane its session will have when it is
+        // shown, never a column of its own beside whatever has focus.
+        await keepInSidePane(openedBy, itemId);
       },
       async openItemBesideQuiet(itemId) {
-        // Already open in ANOTHER group: leave it there. Yanking a pane out of an arrangement the user
-        // is not looking at is a bigger surprise than the focus steal this variant exists to avoid.
-        const gs = get().groups;
-        if (gs && groupOfItem(gs, itemId) && groupOfItem(gs, itemId)!.id !== gs.activeGroupId) return;
-        const current = get().layout ?? emptyLayout();
-        // Already visible: leave it — and the focus — entirely alone. openItem's "go there" focus
+        const view = viewNow();
+        // Already on screen: leave it — and the focus — entirely alone. openItem's "go there" focus
         // move is exactly the steal this variant exists to not perform.
-        if (findLeafOfItem(current, itemId)) return;
-        const focused = get().focusedLeafId;
-        const occupant = focused ? itemIdOfLeaf(current, focused) : null;
-        if (focused && occupant !== null && occupant !== itemId) {
-          // openItemBeside's split, minus its focus move: the pane appears at the side while
-          // focusedLeafId — and with it the composer the user is typing in — stays put.
-          const layout = splitLeaf(current, focused, "row", itemId);
-          set(writeLayout(layout));
-          await persist();
-          return;
-        }
-        // The focused leaf is empty (or nothing is focused): fill in place, focus untouched.
-        const layout = layoutOpen(current, focused, itemId);
-        set(writeLayout(layout));
+        if (findLeafOfItem(view.layout, itemId)) return;
+        // openItemBeside's placement, minus its focus move: the pane appears at the side while
+        // focusedLeafId — and with it the composer the user is typing in — stays put.
+        set(writeView({ ...view, layout: openBesideInView(view.layout, get().focusedLeafId, itemId) }));
         await persist();
       },
       async openItem(itemId, leafId = null) {
         revealPanes(); // the row was clicked to be looked at — see `revealPanes`
-        // Activation without an explicit target (sidebar row, palette, pinned grid) of an item that is
-        // already open means "go there": focus its pane, touch nothing, persist nothing. When the pane
-        // lives in ANOTHER group, "go there" means going to that group — switching the arrangement and
-        // focusing the pane, still without moving anything. That is the cheap switch the whole feature
-        // is for: a click on any row takes you to it, wherever it is.
+        let view = viewNow();
+        // Opening a session that is only being peeked at is the ordinary way in: the peek ends, and
+        // it takes the main pane of the column it was peeked beside.
+        let peekColumn: string | null = null;
+        if (leafId === null && get().peek?.item.id === itemId) {
+          const at = findLeafOfItem(view.layout, itemId);
+          peekColumn = at ? columnOf(view.layout, at.id)?.id ?? null : null;
+          view = withoutItem(view, itemId);
+          set({ peek: null });
+        }
+        const current = view.layout;
+        // Activation without an explicit target (a sidebar row, the palette, the pinned grid) of an item
+        // already on screen means "go there": focus its pane, touch nothing, persist nothing.
         if (leafId === null) {
-          const gs = get().groups;
-          let holder = gs ? groupOfItem(gs, itemId) : null;
-          if (holder) {
-            const leaf = findLeafOfItem(holder.layout, itemId)!;
+          const at = findLeafOfItem(current, itemId);
+          if (at) {
             // A tab behind another: "go there" means bringing it to the front of its strip too.
-            if (leaf.itemId !== itemId) {
-              const fronted = mapGroup(gs!, holder.id, (g) => ({ ...g, layout: layoutOpen(g.layout, leaf.id, itemId) }));
-              set(writeGroups(fronted));
-              holder = fronted.groups.find((g) => g.id === holder!.id)!;
-            }
-            const gsNow = get().groups!;
-            if (holder.id !== gsNow.activeGroupId) {
-              set(writeGroups(revealing(groupsSetActive(gsNow, holder.id), leaf.id), { focusedLeafId: leaf.id }));
-              await persist();
-            } else {
-              // Same group: the focus move is free, but a zoom parked on ANOTHER leaf would swallow
-              // it — the pane the user just asked for is not the one on screen. Only then is this a
-              // write at all (or when a tab came to the front above).
-              const revealed = revealing(gsNow, leaf.id);
-              if (revealed === gsNow) set({ focusedLeafId: leaf.id });
-              else set(writeGroups(revealed, { focusedLeafId: leaf.id }));
-              if (revealed !== gsNow || gsNow !== gs) await persist();
-            }
+            const fronted = at.itemId === itemId ? view : { ...view, layout: layoutOpen(current, at.id, itemId) };
+            // …and a pane focus parked on ANOTHER leaf would swallow the move: the pane asked for is
+            // not the one on screen. Only then is this a write at all.
+            const revealed = revealing(fronted, at.id);
+            if (revealed === view) { set({ focusedLeafId: at.id }); return; }
+            set(writeView(revealed, { focusedLeafId: at.id }));
+            await persist();
             return;
           }
-        } else detached(itemId); // an explicit target moves the pane INTO the active group
-        const current = get().layout ?? emptyLayout();
-        const target = leafId ?? get().focusedLeafId;
-        const layout = layoutOpen(current, target, itemId);
+        }
+        const target = leafId ? findLeaf(current, leafId) : null;
+        const focused = get().focusedLeafId ? findLeaf(current, get().focusedLeafId!) : null;
+        const item = get().items.find((i) => i.id === itemId);
+        let layout: Layout;
+        // Into a side pane, as a tab, when that is where it was dropped.
+        if (target?.tabs) layout = layoutOpen(current, target.id, itemId);
+        else if (target) layout = showInView(current, target.id, itemId);
+        // A tool opened with the keyboard in a side pane joins it; a session always takes a main pane.
+        else if (focused?.tabs && item?.kind !== "session") layout = layoutOpen(current, focused.id, itemId);
+        else layout = showInView(current, peekColumn ?? get().focusedLeafId, itemId);
         const leaf = findLeafOfItem(layout, itemId);
-        const gs2 = setActiveLayout(get().groups ?? groupsFromLayout(null), layout);
-        set(writeGroups(revealing(gs2, leaf?.id ?? null), { focusedLeafId: leaf?.id ?? null }));
+        set(writeView(revealing({ ...view, layout }, leaf?.id ?? null), { focusedLeafId: leaf?.id ?? null }));
         await persist();
       },
       async closeFromLayout(itemId) {
         // Closing is the one thing that ends a browser's view. An unmounting pane only releases it
-        // (it may just be a space switch), and this runs for every close path there is — the panel
-        // bar's ×, ⌘W, the sidebar row, archive and delete — including the other-group branch below,
-        // where the view is already off screen and alive.
+        // (another pane may be about to show it), and this runs for every close path there is — the
+        // panel bar's ×, ⌘W, the sidebar row, archive and delete.
         const closing = get().items.find((i) => i.id === itemId);
         if (closing?.kind === "browser") api.destroyBrowserView(closing.refId);
-        // The pane may be open in a group other than the one on screen (the sidebar lists every
-        // group's rows): close it where it actually is, and leave the active arrangement alone.
-        const gs = get().groups;
-        const holder = gs ? groupOfItem(gs, itemId) : null;
-        if (gs && holder && holder.id !== gs.activeGroupId) {
-          set(writeGroups(detachItemFrom(gs, itemId, gs.activeGroupId)));
+        const view = viewNow();
+        if (!findLeafOfItem(view.layout, itemId)) {
+          // Only a tab of a side pane kept off screen: it leaves that, and the screen is untouched.
+          if (get().offscreenBrowsers.includes(itemId)) set({ offscreenBrowsers: get().offscreenBrowsers.filter((id) => id !== itemId) });
+          if (!Object.values(view.sidePanes).some((sp) => sp.tabs.includes(itemId))) return;
+          const sidePanes: WindowView["sidePanes"] = {};
+          for (const [owner, sp] of Object.entries(view.sidePanes)) {
+            const tabs = sp.tabs.filter((t) => t !== itemId);
+            if (tabs.length > 0) sidePanes[owner] = { tabs, itemId: tabs.includes(sp.itemId) ? sp.itemId : tabs[0]! };
+          }
+          set(writeView({ ...view, sidePanes }));
           await persist();
           return;
         }
-        const layout = layoutClose(get().layout ?? emptyLayout(), itemId);
-        set(writeLayout(layout, { focusedLeafId: focusIn(layout) }));
+        set(writeLayout(layoutClose(view.layout, itemId)));
         await persist();
         // Closing the last pane lands in a fresh prompter, never the empty-state placeholder.
-        // Deliberately scoped to this path: reconcileLayout also empties the layout while pruning
-        // stale items, and a server hiccup there must not manufacture sessions.
-        if (allItems(layout).length === 0) await get().newSessionInstant();
+        // Deliberately scoped to this path: a prune also empties the view while taking deleted items
+        // off it, and a server hiccup there must not manufacture sessions.
+        if (allItems(get().layout ?? emptyLayout()).length === 0) await get().newSessionInstant();
       },
       /**
        * Drop a deliberately-empty pane out of the layout.
        *
        * Separate from `closeFromLayout`, which is keyed by ITEM: an empty leaf has no item to look it
-       * up by, and every branch of that function — the browser view, the other-group detach, the
-       * fresh-prompter rescue — is about an item that was open. None of it applies to an empty box.
+       * up by, and every branch of that function — the browser view, the side pane kept off screen,
+       * the fresh-prompter rescue — is about an item that was open. None of it applies to an empty box.
        *
        * No `newSessionInstant` rescue either, and that asymmetry is deliberate: closing the last
        * pane with something IN it lands you in a fresh prompter, because you were working. Dropping
@@ -4272,6 +4437,8 @@ await get().refreshCustomThemes().catch(() => {});
         // This path prunes `items` itself rather than going through refreshItems, so it owes the
         // back/forward trails the same prune: an item deleted here must leave no way back to it.
         set({ items, paneHistory: forgetNavItems(get().paneHistory, new Set(items.map((i) => i.id))) });
+        // A session deleted takes the side pane it was keeping off screen with it.
+        pruneOnScreen();
         if (it?.kind === "terminal") {
           api.disposeTerminal(it.refId);
           // The flag dies with the terminal, for the browser's reason: a reused id must start blank
@@ -4318,11 +4485,10 @@ await get().refreshCustomThemes().catch(() => {});
         }
       },
       async splitFocused(dir) {
-        const l = get().layout ?? emptyLayout();
-        const target = focusIn(l);
-        const layout = splitLeaf(l, target, dir, null);
-        const fresh = findEmptySiblingOf(layout, target);
-        set(writeLayout(layout, { focusedLeafId: fresh ?? target }));
+        const { layout, leafId } = splitEmptyInView(get().layout ?? emptyLayout(), dir);
+        // A view already showing two takes no third: the pane to replace is one the user names.
+        if (!leafId) return;
+        set(writeLayout(layout, { focusedLeafId: leafId }));
         await persist();
       },
       async openItemAt(itemId, leafId, edge) {
@@ -4331,9 +4497,8 @@ await get().refreshCustomThemes().catch(() => {});
         if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)?.id === leafId) return;
         revealPanes(); // after the self-drop check: that one moves nothing, so it reveals nothing
         if (edge === "center") return get().openItem(itemId, leafId);
-        detached(itemId); // dropped from another group: it moves here rather than being open twice
-        const dir = edge === "left" || edge === "right" ? "row" : "col";
-        const layout = splitLeaf(get().layout ?? emptyLayout(), leafId, dir, itemId, edge === "left" || edge === "top");
+        // An edge opens it beside the pane it was dropped on: a second pane, or the other side's place.
+        const layout = openBesideInView(get().layout ?? emptyLayout(), leafId, itemId, edge as BesideEdge);
         const leaf = findLeafOfItem(layout, itemId);
         set(writeLayout(layout, { focusedLeafId: leaf?.id ?? null }));
         await persist();
@@ -4349,7 +4514,7 @@ await get().refreshCustomThemes().catch(() => {});
         const stepped = stepNav(get().paneHistory, leafId, delta);
         if (stepped === get().paneHistory) return; // nowhere to go — no layout write, nothing persisted
         const entry = navEntry(stepped, leafId)!;
-        // Seat the cursor FIRST: writeGroups reconciles against whatever `paneHistory` holds, and with
+        // Seat the cursor FIRST: writeView reconciles against whatever `paneHistory` holds, and with
         // the cursor already on `entry` it sees the leaf's new occupant as the stop it is standing on
         // and records nothing. Without this the step would push a duplicate and Back would stall.
         set({ paneHistory: stepped });
@@ -4372,11 +4537,13 @@ await get().refreshCustomThemes().catch(() => {});
         trailHeld++;
         try {
           set({ windowTrail: { stops: t.stops, index: i } });
-          if (stop.spaceId !== get().activeSpaceId) await get().selectSpace(stop.spaceId, { land: false });
-          // "Go there": the item's pane gets the keyboard, in whichever group holds it. An item since
-          // deleted or put away leaves the room as it stands.
+          const space = get().spaces.find((sp) => sp.id === stop.spaceId);
+          if (space && space.profileId !== get().activeProfileId) await get().selectProfile(space.profileId);
+          // "Go there": the item's pane gets the keyboard, opened again if it has left the screen.
           const item = stop.itemId ? get().items.find((it) => it.id === stop.itemId && !it.archived) : undefined;
           if (item) await get().openItem(item.id);
+          // An item since deleted or put away leaves its space to stand in for it.
+          else if (stop.spaceId !== get().activeSpaceId) await get().selectSpace(stop.spaceId);
           // …and the keyboard with it, as an open from a list hands it over: coming back to a session
           // is coming back to typing in it.
           if (item?.kind === "session") set({ keyboardFor: { sessionId: item.refId, n: (get().keyboardFor?.n ?? 0) + 1 } });
@@ -4393,15 +4560,6 @@ await get().refreshCustomThemes().catch(() => {});
         const next = neighborLeafId(layout, focusedLeafId, dir);
         if (next) set({ focusedLeafId: next });
       },
-      async applyPreset(name) {
-        // A preset lays out the items of the ACTIVE group, not every item in the space: the other
-        // groups' arrangements are not the user's business when they pick a grid for this one.
-        const gs = get().groups;
-        const mine = gs ? allItems(activeLayout(gs)) : allItems(get().layout ?? emptyLayout());
-        const layout = gridPreset(name, mine);
-        set(writeLayout(layout, { focusedLeafId: firstLeaf(layout).id }));
-        await persist();
-      },
       resizeSplit(splitId, sizes) {
         const l = get().layout; if (!l) return;
         const current = findSplitSizes(l, splitId);
@@ -4417,65 +4575,29 @@ await get().refreshCustomThemes().catch(() => {});
         schedulePersist();
       },
 
-      // ——— Pane groups ———
-      activePaneGroup() { const gs = get().groups; return gs ? activeGroup(gs) : null; },
-      zoomedLeafId() { const gs = get().groups; return gs ? activeGroup(gs).zoomedLeafId : null; },
-      async newPaneGroup(name) {
-        const gs = get().groups; if (!gs) return;
-        // The new group is empty and active, so focus lands on its one empty leaf — the same state a
-        // space with nothing open has, which is exactly what an empty arrangement should feel like.
-        await commitGroups(groupsAdd(gs, name));
-      },
-      async renamePaneGroup(groupId, name) {
-        const gs = get().groups; if (!gs) return;
-        await commitGroups(groupsRename(gs, groupId, name));
-      },
-      async removePaneGroup(groupId) {
-        const gs = get().groups; if (!gs) return;
-        await commitGroups(groupsRemove(gs, groupId));
-      },
-      async activatePaneGroup(groupId) {
-        const gs = get().groups; if (!gs) return;
-        await commitGroups(groupsSetActive(gs, groupId));
-      },
-      async stepPaneGroup(delta) {
-        const gs = get().groups; if (!gs) return;
-        const next = groupAtOffset(gs, delta);
-        if (next) await commitGroups(groupsSetActive(gs, next.id));
-      },
-      async moveItemToPaneGroup(itemId, groupId) {
-        const gs = get().groups; if (!gs) return;
-        await commitGroups(groupsMoveItem(gs, itemId, groupId));
-      },
-      async movePaneGroup(groupId, to) {
-        const gs = get().groups; if (!gs) return;
-        await commitGroups(groupsMove(gs, groupId, to));
-      },
-      /** Focus/unfocus never touch the layout — see groups.ts. They still persist: a focused pane that
-       *  came back split after a restart would read as the app forgetting, not as a transient view. */
+      // ——— Pane focus ———
+      zoomedLeafId() { return get().view?.zoomedLeafId ?? null; },
+      /** Focus/unfocus never touch the layout — see contracts/view.ts. They still persist: a focused
+       *  pane that came back split after a restart would read as the app forgetting, not as a
+       *  transient view. */
       async focusPaneFull(leafId) {
-        const gs = get().groups; if (!gs) return;
-        const next = groupsZoom(gs, leafId);
-        if (next === gs) return;
-        // Focus follows the zoom: the pane filling the screen is the one the keyboard should be in.
-        set(writeGroups(next, { focusedLeafId: leafId }));
+        const view = get().view; if (!view) return;
+        if (view.zoomedLeafId === leafId || !findLeaf(view.layout, leafId)) return;
+        // Focus follows: the pane filling the screen is the one the keyboard should be in.
+        set(writeView({ ...view, zoomedLeafId: leafId }, { focusedLeafId: leafId }));
         await persist();
       },
       async unfocusPane() {
-        const gs = get().groups; if (!gs) return;
-        const next = groupsUnzoom(gs);
-        if (next === gs) return;
-        set(writeGroups(next));
+        const view = get().view; if (!view || view.zoomedLeafId === null) return;
+        set(writeView({ ...view, zoomedLeafId: null }));
         await persist();
       },
       async toggleFocusPane(leafId = null) {
-        const gs = get().groups; if (!gs) return;
+        const view = get().view; if (!view) return;
         const target = leafId ?? get().focusedLeafId;
         if (!target) return;
-        const next = groupsToggleZoom(gs, target);
-        if (next === gs) return;
-        set(writeGroups(next, { focusedLeafId: activeGroup(next).zoomedLeafId ? target : get().focusedLeafId }));
-        await persist();
+        if (view.zoomedLeafId === target) await get().unfocusPane();
+        else await get().focusPaneFull(target);
       },
 
       flushPersist: () => flushPersist(),
@@ -4510,7 +4632,8 @@ await get().refreshCustomThemes().catch(() => {});
         set(open ? { paletteOpen: true, paletteMode: mode, paletteReplaces: replaces, spacesOpen: false, sheet: null, ...restoreSnap() } : { paletteOpen: false, paletteMode: "all", paletteReplaces: null });
       },
       async openFromNewTab(itemId, tool) {
-        const sid = get().activeSpaceId; if (!sid) return;
+        // The blank tab's own space: what opens in its place belongs where the tab did.
+        const sid = get().items.find((i) => i.id === itemId)?.spaceId ?? get().activeSpaceId; if (!sid) return;
         if (tool === "files") {
           get().setPaletteOpen(true, "files");
           set({ paletteReplaces: itemId });
@@ -4644,17 +4767,28 @@ await get().refreshCustomThemes().catch(() => {});
         const { [terminalId]: _gone, ...rest } = cur;
         set({ terminalDriving: rest });
       },
-      async refreshSessions() {
-        const sid = get().activeSpaceId; if (!sid) return;
-        const list = await api.listSessions(sid);
-        if (!isSpace(sid)) return;
-        // Statuses are rebuilt from the list: entries for other spaces are kept only if still known there.
-        const sessions: Record<string, Session> = {}; const sessionStatus: Record<string, SessionStatus> = {};
+      async refreshSessions(spaceId = null) {
+        const ids = spaceId ? (inProfile(spaceId) ? [spaceId] : []) : profileSpaceIds();
+        const epoch = profileEpoch;
+        const lists = await Promise.all(ids.map(async (sid) => [sid, await api.listSessions(sid)] as const));
+        if (epoch !== profileEpoch) return;
+        const fresh = lists.filter(([sid]) => inProfile(sid));
+        const replaced = new Set(fresh.map(([sid]) => sid));
+        // Each refreshed space's rows are rebuilt from its list, and its statuses with them — a deleted
+        // session's disappears. Every other space's rows, and their statuses, stay as they were.
+        const sessions: Record<string, Session> = {};
+        const sessionStatus = { ...get().sessionStatus };
+        for (const [id, se] of Object.entries(get().sessions)) {
+          if (replaced.has(se.spaceId)) delete sessionStatus[id];
+          else sessions[id] = se;
+        }
         const sessionSpace = { ...get().sessionSpace };
-        for (const [id, st] of Object.entries(get().sessionStatus)) if (!(id in get().sessions)) sessionStatus[id] = st;
         const sessionUpdatedAt = { ...get().sessionUpdatedAt };
-        for (const s of list) { sessions[s.id] = s; sessionStatus[s.id] = s.status; sessionSpace[s.id] = s.spaceId; sessionUpdatedAt[s.id] = s.updatedAt; }
-        set({ sessions: keepHeldSessions(sessions), sessionStatus, sessionSpace, sessionUpdatedAt, allSessions: { ...get().allSessions, ...sessions } });
+        const rows: Record<string, Session> = {};
+        for (const [, list] of fresh) {
+          for (const se of list) { rows[se.id] = se; sessions[se.id] = se; sessionStatus[se.id] = se.status; sessionSpace[se.id] = se.spaceId; sessionUpdatedAt[se.id] = se.updatedAt; }
+        }
+        set({ sessions: keepHeldSessions(sessions), sessionStatus, sessionSpace, sessionUpdatedAt, allSessions: { ...get().allSessions, ...rows } });
       },
       listAllSessions(profileId = null) { return api.listAllSessions(profileId); },
       async refreshAllSessions() {
@@ -4669,14 +4803,15 @@ await get().refreshCustomThemes().catch(() => {});
       async jumpToPermission(sessionId = null) {
         const spaceOf = (id: string) => get().sessionSpace[id] ?? get().sessions[id]?.spaceId ?? null;
         // Two callers with two different amounts of knowledge. The palette's "Respond to pending
-        // permission" names nothing and has to CHOOSE: one in the active space first, so answering a
+        // permission" names nothing and has to CHOOSE: one in the current space first, so answering a
         // question does not drag the user out of the space they are working in. A permission
         // notification names its own session and skips the choice entirely — including when that
         // session is no longer waiting, because a row whose question was answered in another window
         // still belongs on its own pane rather than on whichever session happens to be waiting now.
         const waiting = Object.entries(get().sessionStatus).filter(([, st]) => st === "waiting_permission").map(([id]) => id);
         const active = get().activeSpaceId;
-        const sid = sessionId ?? waiting.find((id) => spaceOf(id) === active) ?? waiting[0] ?? null;
+        // The current space first, then the window's profile, and only then another profile's.
+        const sid = sessionId ?? waiting.find((id) => spaceOf(id) === active) ?? waiting.find((id) => inProfile(spaceOf(id))) ?? waiting[0] ?? null;
         if (!sid) return false;
         // Landing the pane in the FOCUSED leaf is what surfaces the card: Transcript autofocuses the
         // first pending permission of a focused pane (U-H4). There is nothing further to open.
@@ -4746,8 +4881,8 @@ await get().refreshCustomThemes().catch(() => {});
            so the streaming path stays exactly as cheap as it was. */
         const doing = activityOf(ev.event);
         const activity = doing ? { sessionActivity: { ...get().sessionActivity, [ev.sessionId]: doing } } : undefined;
-        /* …and the log's new length, for the rows that describe this session — in another room as
-           much as in this one (`logGrew`). Carried the same way, for the same reason. */
+        /* …and the log's new length, for the rows that describe this session — another profile's as
+           much as this one's (`logGrew`). Carried the same way, for the same reason. */
         const grew = !ev.ephemeral && ev.seq > 0 ? logGrew(ev.sessionId, ev.seq) : undefined;
         const also = activity || grew ? { ...grew, ...activity } : undefined;
         /* An auth failure the server has already re-probed and given up on. Re-read the agents here
@@ -4839,23 +4974,24 @@ await get().refreshCustomThemes().catch(() => {});
         await api.releaseQueuedPrompt(sessionId, queuedId);
       },
       async newSession(input, targetLeafId = null, edge) {
-        const sid = get().activeSpaceId; if (!sid) return;
-        const { session, itemId } = await api.createSession({ ...input, spaceId: sid });
-        rememberAgent(input.agentKind);
-        if (isSpace(sid)) mergeSession(session);
+        const { spaceId, ...rest } = input;
+        const sid = spaceFor(spaceId); if (!sid) return;
+        const { session, itemId } = await api.createSession({ ...rest, spaceId: sid });
+        rememberAgent(rest.agentKind);
+        if (inProfile(sid)) mergeSession(session);
         await adoptItem(sid, itemId, targetLeafId, false, edge);
         await get().openSession(session.id);
       },
-      async newSessionInstant(targetLeafId = null, edge) {
-        await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT }, targetLeafId, edge);
+      async newSessionInstant(targetLeafId = null, edge, spaceId = null) {
+        await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT, spaceId }, targetLeafId, edge);
       },
-      async newSessionInWorktree(targetLeafId = null) {
-        const sid = get().activeSpaceId; if (!sid) return;
+      async newSessionInWorktree(targetLeafId = null, spaceId = null) {
+        const sid = spaceFor(spaceId); if (!sid) return;
         // The worktree is created FIRST and the session pinned to it. If creating it throws (not a
         // repository, no commits yet) no session is made at all — `run` surfaces the reason.
         const env = await api.createWorktree(sid, null);
-        if (isSpace(sid)) set({ environments: { ...get().environments, [env.id]: env } });
-        await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT, environmentId: env.id }, targetLeafId);
+        if (inProfile(sid)) set({ environments: { ...get().environments, [env.id]: env } });
+        await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT, environmentId: env.id, spaceId: sid }, targetLeafId);
       },
       /**
        * One brief, `count` agents, each sent the brief and left to work.
@@ -4878,8 +5014,8 @@ await get().refreshCustomThemes().catch(() => {});
        * are told apart by where they RUN — one worktree each, which the tile shows — and a name like
        * "Agent 3" invented at this moment would outlive its usefulness by sticking to the row.
        */
-      async fanOutAgents({ brief, count, agentKind, worktrees }) {
-        const sid = get().activeSpaceId; if (!sid) return [];
+      async fanOutAgents({ brief, count, agentKind, worktrees, spaceId }) {
+        const sid = spaceFor(spaceId); if (!sid) return [];
         const text = brief.trim(); if (!text) return [];
         const n = Math.max(1, Math.min(FAN_OUT_MAX, Math.trunc(count)));
         const started: Session[] = [];
@@ -4888,11 +5024,11 @@ await get().refreshCustomThemes().catch(() => {});
             // Named from the brief, like "New worktree…" does, so the branches say what they are for
             // and the server's slugifier settles the collision between N of the same name.
             const env = worktrees ? await api.createWorktree(sid, worktreeTitleFrom(text)) : null;
-            if (env && isSpace(sid)) set({ environments: { ...get().environments, [env.id]: env } });
+            if (env && inProfile(sid)) set({ environments: { ...get().environments, [env.id]: env } });
             const { session } = await api.createSession({
               spaceId: sid, agentKind, ...(env ? { environmentId: env.id } : {}), userDispatched: true,
             });
-            if (isSpace(sid)) mergeSession(session);
+            if (inProfile(sid)) mergeSession(session);
             await api.sendMessage(session.id, text, [], [], [], undefined, []);
             started.push(session);
           }
@@ -4902,16 +5038,13 @@ await get().refreshCustomThemes().catch(() => {});
           // see the half that is working.
           if (started.length > 0) {
             rememberAgent(agentKind);
-            const seq = ++itemsFetchSeq;
-            const items = await api.listItems(sid);
-            if (isSpace(sid) && seq === itemsFetchSeq) set({ items });
+            await loadSpaceItems(sid);
           }
         }
         return started;
       },
       setAgentsView(v) { set({ agentsView: v }); },
       requestRename(itemId) { set({ renamingItemId: itemId }); },
-      requestGroupRename(groupId) { set({ renamingGroupId: groupId }); },
       /**
        * The one path attachments travel. The prompter never passes them in — it cannot forget to, and
        * cannot pass a chip the user already removed, because the list is read here from the same state
@@ -4969,7 +5102,7 @@ await get().refreshCustomThemes().catch(() => {});
           model: source.model, effort: source.effort, permissionMode: source.permissionMode,
           userDispatched: true,
         });
-        if (isSpace(source.spaceId)) mergeSession(session);
+        if (inProfile(source.spaceId)) mergeSession(session);
         // Send FIRST, clear after: a rejected send must leave the draft in the composer (run
         // surfaces the reason), exactly as a failed normal send would.
         await api.sendMessage(session.id, text, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, get().draftSessionRefs[sessionId] ?? []);
@@ -4984,9 +5117,8 @@ await get().refreshCustomThemes().catch(() => {});
         });
         // The new pane arrives beside, quietly. Items are refetched first (the server created the
         // sidebar item) with the same supersession guard adoptItem uses.
-        const seq = ++itemsFetchSeq;
-        const items = await api.listItems(source.spaceId);
-        if (isSpace(source.spaceId) && seq === itemsFetchSeq) set({ items });
+        await loadSpaceItems(source.spaceId);
+        if (!inProfile(source.spaceId)) return;
         await get().openItemBesideQuiet(itemId);
       },
       /**
@@ -5162,10 +5294,11 @@ await get().refreshCustomThemes().catch(() => {});
       async deleteLayaRecordings() { set({ laya: await api.layaDeleteRecordings() }); },
       applyLaya(status) { set({ laya: status }); },
       async setSessionAgent(id, agentKind) {
-        mergeSession(await api.setSessionAgent(id, agentKind));
+        const row = await api.setSessionAgent(id, agentKind);
+        mergeSession(row);
         rememberAgent(agentKind);
         // The server renames an untouched default title to match the new agent; the sidebar row shows it.
-        await get().refreshItems();
+        await get().refreshItems(row.spaceId);
       },
       async setSessionEnvironment(id, environmentId) {
         // The id travels verbatim and the merged session is the server's answer — the chip renders
@@ -5178,19 +5311,22 @@ await get().refreshCustomThemes().catch(() => {});
         // Create FIRST; if it throws (not a repo, no commits) the session stays where it was and `run`
         // surfaces the reason — same shape as newSessionInWorktree.
         const env = await api.createWorktree(s.spaceId, worktreeTitleFrom(get().drafts[sessionId] ?? ""));
-        if (get().activeSpaceId === s.spaceId) set({ environments: { ...get().environments, [env.id]: env } });
+        if (inProfile(s.spaceId)) set({ environments: { ...get().environments, [env.id]: env } });
         // …then select it. Creating without selecting is the named mutant this line kills.
         await get().setSessionEnvironment(sessionId, env.id);
       },
       async moveSessionToSpace(sessionId, spaceId) {
         const item = get().items.find((i) => i.kind === "session" && i.refId === sessionId);
-        // Drop it from the CURRENT space's layout/persist FIRST, same ordering deleteItem uses.
-        if (item) await get().closeFromLayout(item.id);
+        // Into another profile's space, it leaves this window: off the screen FIRST, the ordering
+        // deleteItem uses. Within the profile it stays exactly where it is — only its space changes.
+        const leaving = !inProfile(spaceId);
+        if (item && leaving) await get().closeFromLayout(item.id);
         const moved = await api.moveSessionToSpace(sessionId, spaceId);
         mergeSession(moved);
-        // It now belongs to `spaceId`'s item list, not this one's.
-        if (item) set({ items: get().items.filter((i) => i.id !== item.id) });
         set({ sessionSpace: { ...get().sessionSpace, [sessionId]: spaceId } });
+        // Its item moved with it (same id), so both spaces' lists are read again.
+        if (item && leaving) set({ items: get().items.filter((i) => i.id !== item.id) });
+        await Promise.all([item && inProfile(item.spaceId) ? loadSpaceItems(item.spaceId) : null, inProfile(spaceId) ? loadSpaceItems(spaceId) : null]);
         // A session that had RUN carried its checkout across, so its terminal's cwd is unchanged and
         // the server kept the pty — the moved row still names the terminal item. A null column is the
         // server saying it tore the trio down (the cwd moved), and only then does the renderer drop
@@ -5214,15 +5350,13 @@ await get().refreshCustomThemes().catch(() => {});
       async setBrowserAllowlist(spaceId, allowlist) {
         await api.setSetting(allowlistKey(spaceId), allowlist);
         set({ browserAllowlists: { ...get().browserAllowlists, [spaceId]: allowlist } });
-        // The live half of the write (Plan 14 W4): every open browser view of THIS space is re-fenced
-        // now — new panes read the setting at create, but a pane already open would otherwise keep
-        // enforcing the old list until it was closed and reopened. Open panes always belong to the
-        // active space's layout, so another space's rows have no views to re-point (and this space's
-        // items would be the wrong list to consult).
-        if (get().activeSpaceId !== spaceId) return;
+        // The live half of the write (Plan 14 W4): every browser view of THIS space is re-fenced now —
+        // new panes read the setting at create, but a pane already open would otherwise keep enforcing
+        // the old list until it was closed and reopened. Every space of the profile is loaded, so its
+        // browsers are in `items` whichever space the session in focus belongs to.
         const { host } = getBrowserBridges();
         for (const it of get().items) {
-          if (it.kind === "browser") void host.setAllowlist(it.refId, allowlist);
+          if (it.kind === "browser" && it.spaceId === spaceId) void host.setAllowlist(it.refId, allowlist);
         }
       },
       async refreshComputerAllowedApps(spaceId) {
@@ -5311,10 +5445,10 @@ await get().refreshCustomThemes().catch(() => {});
       async setSpaceSignInEnabled(spaceId, enabled) {
         await api.setSetting(`${AGENT_SIGNIN_KEY}:${spaceId}`, enabled);
       },
-      async startSignIn(kind) {
-        const spaceId = get().activeSpaceId;
-        if (!spaceId) return;
-        await api.startSignIn(spaceId, kind);
+      async startSignIn(kind, spaceId = null) {
+        const sid = spaceFor(spaceId);
+        if (!sid) return;
+        await api.startSignIn(sid, kind);
         /* Nothing is stored. What the user gets back is the terminal pane, which arrives through
            `items.changed` like any other, and the card they clicked from stays where it is until the
            agent really is signed in — which only a re-probe can say, and which "Check again" and the
@@ -5743,15 +5877,16 @@ await get().refreshCustomThemes().catch(() => {});
         await get().refreshDiff(input.cwd);
       },
       async openDiff(environmentId, targetLeafId = null) {
-        const sid = get().activeSpaceId; if (!sid) return;
         const env = get().environments[environmentId];
         if (!env) return;
+        // The checkout's own space: a diff of another space's worktree is that space's item.
+        const sid = env.spaceId;
         // One diff pane per environment: a second "show changes" on the same checkout goes to the
         // pane that already exists rather than accumulating identical panes.
         const existing = get().items.find((i) => i.kind === "diff" && i.refId === environmentId);
         // Same eviction bug openItemBeside exists to fix, just triggered by the user instead of an
-        // agent: replacing the focused leaf in place stranded the session with no way back. Split
-        // beside it instead — unless the caller named an explicit target leaf.
+        // agent: replacing the focused leaf in place stranded the session with no way back. Open it
+        // beside instead — unless the caller named an explicit target leaf.
         if (existing) {
           if (targetLeafId === null) { await get().openItemBeside(existing.id); return; }
           await get().openItem(existing.id, targetLeafId);
@@ -5761,8 +5896,11 @@ await get().refreshCustomThemes().catch(() => {});
         const created = await api.createItem(sid, "diff", `Changes · ${title}`, environmentId);
         await adoptItem(sid, created.id, targetLeafId, true);
       },
-      async openDocuments(environmentId = null, targetLeafId = null, beside = false) {
-        const sid = get().activeSpaceId; if (!sid) return;
+      async openDocuments(environmentId = null, targetLeafId = null, beside = false, spaceId = null) {
+        // The checkout's space when one is named; else the session's it is opened beside; else the
+        // named or current space, whose primary checkout the server resolves.
+        const sid = (environmentId ? get().environments[environmentId]?.spaceId : undefined) ?? spaceFor(spaceId ?? besideSpace(beside));
+        if (!sid) return;
         // No local "is it already open?" check, unlike openDiff: the SERVER enforces one workspace per
         // environment and returns the existing pair, so this call is idempotent and already answers
         // the question. Doing it here as well would need the environment id the caller may not have
@@ -5773,8 +5911,9 @@ await get().refreshCustomThemes().catch(() => {});
         if (layout && findLeafOfItem(layout, itemId)) { await get().openItem(itemId, targetLeafId); return; }
         await adoptItem(sid, itemId, targetLeafId, beside);
       },
-      async openDocumentPath(path, environmentId = null) {
-        const sid = get().activeSpaceId; if (!sid) return;
+      async openDocumentPath(path, environmentId = null, spaceId = null) {
+        const sid = (environmentId ? get().environments[environmentId]?.spaceId : undefined) ?? spaceFor(spaceId);
+        if (!sid) return;
         // Read before the round trip: the palette closes as the pick is made, and its close clears it.
         // Only while it is open — a sheet or the spaces overview can take the palette down without
         // clearing it, and a file opened from anywhere else then is not the new tab's pick.
@@ -5792,7 +5931,7 @@ await get().refreshCustomThemes().catch(() => {});
         }
       },
       async applyDocumentOpenRequested({ spaceId, itemId, openedBy }) {
-        if (spaceId !== get().activeSpaceId) return;
+        if (!inProfile(spaceId)) return;
         // This window's own pick for a new tab, still on its way back: `openDocumentPath` puts the
         // file in the tab's place once its call returns, and this broadcast arrives first. Opened
         // quietly beside the focused pane here, it would already be somewhere, and be gone to.
@@ -5802,51 +5941,52 @@ await get().refreshCustomThemes().catch(() => {});
         if (leaf && !leaf.tabs) return;
         // On screen as the tab showing, likewise. A tab behind another comes to the front below.
         if (leaf && leaf.itemId === itemId) return;
-        await get().refreshItems();
-        // An agent's document goes where its browsers go: the side pane of the session that asked.
+        await get().refreshItems(spaceId);
+        // An agent's document goes where its browsers go: the side pane of the session that asked —
+        // kept for when that session is shown, if none of its chain is on screen now.
         if (openedBy && await get().openInSidePane(openedBy, itemId)) return;
         if (leaf) return;
+        if (openedBy && await keepInSidePane(openedBy, itemId)) return;
         await get().openItemBesideQuiet(itemId);
       },
-      async startLecture(title) {
-        const sid = get().activeSpaceId; if (!sid) return;
+      async startLecture(title, spaceId = null) {
+        const sid = spaceFor(spaceId); if (!sid) return;
         const clean = title.trim();
         const stamp = localDateStamp(new Date());
-        // The group first, so the lecture pane lands in its empty leaf rather than replacing whatever
-        // the user had focused; a failure after this leaves an empty named group, which is harmless.
-        await get().newPaneGroup(clean ? `${clean} · ${stamp}` : `Lecture · ${stamp}`);
+        // The notes take the main view, in the focused pane's place — what was there stays in its
+        // space — and the session to ask things during class opens beside them.
         const r = await api.startLecture(sid, clean);
         await adoptItem(sid, r.itemId, null);
         const agentKind = get().lastAgentKind ?? FALLBACK_AGENT;
         const { session, itemId } = await api.createSession({ spaceId: sid, agentKind, title: `Lecture assistant · ${clean || stamp}` });
         rememberAgent(agentKind);
-        if (isSpace(sid)) mergeSession(session);
+        if (inProfile(sid)) mergeSession(session);
         await adoptItem(sid, itemId, null, true);
         await get().openSession(session.id);
       },
-      async wrapUpLecture(lecture) {
-        const sid = get().activeSpaceId; if (!sid) return;
+      async wrapUpLecture(lecture, spaceId = null) {
+        const sid = spaceFor(spaceId); if (!sid) return;
         const space = get().spaces.find((sp) => sp.id === sid);
         const agentKind = get().lastAgentKind ?? FALLBACK_AGENT;
         const { session, itemId } = await api.createSession({ spaceId: sid, agentKind, title: `Wrap up · ${lecture.title}` });
         rememberAgent(agentKind);
-        if (isSpace(sid)) mergeSession(session);
+        if (inProfile(sid)) mergeSession(session);
         await adoptItem(sid, itemId, null, true);
         await get().openSession(session.id);
         await get().sendMessage(session.id, lectureWrapUpPrompt(lecture, { course: space?.name ?? "this course" }));
       },
-      async listLectures() {
-        const sid = get().activeSpaceId; if (!sid) return [];
+      async listLectures(spaceId = null) {
+        const sid = spaceFor(spaceId); if (!sid) return [];
         return api.listLectures(sid);
       },
       previewInfo: () => api.previewInfo(),
       readGuideProgress: (documentsId, path) => api.readGuideProgress(documentsId, path),
       recordGuideAttempt: (documentsId, path, topic, correct, total) => api.recordGuideAttempt(documentsId, path, topic, correct, total),
       plynnList: () => api.plynnList(),
-      async plynnImport(files) {
-        const sid = get().activeSpaceId; if (!sid) throw new Error("no active space");
+      async plynnImport(files, spaceId = null) {
+        const sid = spaceFor(spaceId); if (!sid) throw new Error("no space to import into");
         const r = await api.plynnImport(sid, files);
-        await get().refreshItems();
+        await get().refreshItems(sid);
         return r;
       },
       getDocuments: (documentsId) => api.getDocuments(documentsId),
@@ -5890,16 +6030,16 @@ await get().refreshCustomThemes().catch(() => {});
         set({ delegatedRuns: running.length === 0 ? rest : { ...rest, [sessionId]: running } });
       },
       async applyAgentOpened({ spaceId, sessionId, itemId }) {
-        if (spaceId !== get().activeSpaceId) return;
+        if (!inProfile(spaceId)) return;
         // Who opened the session decides whether it gets a pane, and the row is where that is written.
         // It is usually held already — `items.changed` refetched the list — and fetched when this
         // broadcast won that race.
         const [session] = await Promise.all([
           get().sessions[sessionId] ?? api.getSession(sessionId).catch(() => null),
-          get().refreshItems(),
+          get().refreshItems(spaceId),
         ]);
-        // Asked again: the user may have switched spaces while those were fetched.
-        if (spaceId !== get().activeSpaceId) return;
+        // Asked again: the user may have switched profiles while those were fetched.
+        if (!inProfile(spaceId)) return;
         // A durable run's worker keeps the focusing open it has always had: it is nobody's sub-agent,
         // and the run is the thing the user started.
         if (session?.dispatchedBy?.kind === "run") { await get().openItemBeside(itemId); return; }
@@ -5926,10 +6066,10 @@ await get().refreshCustomThemes().catch(() => {});
         // The tab lands even when the page is already up — "Manage connections…" on an open page
         // must still end up on Connections.
         if (tab) get().setSpacePageTab(spaceId, tab);
-        /* A space's Overview describes ONE space, so it opens over that space and only while it is
-           active: every opener is active-space scoped (gear, header, palette, session pane), and a
-           mismatch means the space changed under the click. */
-        if (get().activeSpaceId !== spaceId) return;
+        /* A space's Overview describes ONE space, and any of the window's spaces can be asked about —
+           every space of the profile is loaded. While it is up, that space is the current one. A space
+           of another profile is not this window's to show. */
+        if (!inProfile(spaceId)) return;
         set({ pageOverlay: { kind: "space-page", refId: spaceId, spaceId } });
       },
       openDestinationPage(kind) {
@@ -6205,11 +6345,12 @@ await get().refreshCustomThemes().catch(() => {});
         // spaces leaves the caller's remembered id stale, and switching to the old space would open
         // nothing and look like a dead button.
         const target = get().sessionSpace[sessionId] ?? spaceId;
-        if (target && target !== get().activeSpaceId) await get().selectSpace(target, { land: false });
+        const space = target ? get().spaces.find((sp) => sp.id === target) : undefined;
+        // Every space of the profile is already loaded; only another profile's means a switch.
+        if (space && space.profileId !== get().activeProfileId) await get().selectProfile(space.profileId);
         const item = get().items.find((i) => i.kind === "session" && i.refId === sessionId);
-        // A session with no item in the space it claims has no pane to be brought forward — the space
-        // switch above already happened, so callers need to hear that the jump did NOT land rather
-        // than leave the user somewhere new with nothing opened.
+        // A session with no item in the space it claims has no pane to be brought forward, so callers
+        // need to hear that the jump did NOT land.
         if (!item) return false;
         await get().openItem(item.id);
         // Opened from a list of sessions, so the keyboard follows: the hand that clicked can type.
@@ -6440,7 +6581,7 @@ await get().refreshCustomThemes().catch(() => {});
       },
       async forkFromCheckpoint(checkpointId, agentKind) {
         const { session, itemId, environment } = await api.forkSession(checkpointId, agentKind);
-        if (isSpace(session.spaceId)) {
+        if (inProfile(session.spaceId)) {
           mergeSession(session);
           set({ environments: { ...get().environments, [environment.id]: environment } });
         }
@@ -6645,11 +6786,8 @@ export function useApp<T>(sel: (s: AppState) => T): T {
  *  write; the two inputs it actually depends on are stable. */
 export function useProfileSpaces(): Space[] {
   const spaces = useApp((s) => s.spaces);
-  const activeSpaceId = useApp((s) => s.activeSpaceId);
-  return useMemo(() => {
-    const profileId = spaces.find((s) => s.id === activeSpaceId)?.profileId;
-    return profileId === undefined ? [] : spaces.filter((s) => s.profileId === profileId);
-  }, [spaces, activeSpaceId]);
+  const profileId = useApp((s) => s.activeProfileId);
+  return useMemo(() => (profileId === null ? [] : spaces.filter((s) => s.profileId === profileId)), [spaces, profileId]);
 }
 /** The raw store, for imperative access (hotkeys, event subscriptions). */
 export function useAppStore(): StoreApi<AppState> {

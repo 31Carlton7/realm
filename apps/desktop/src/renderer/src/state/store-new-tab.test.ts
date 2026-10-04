@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeGroup, allItems, findLeafOfItem, findSidePane } from "@realm/contracts";
+import { allItems, findLeafOfItem, findSidePane } from "@realm/contracts";
 import { createAppStore } from "./store";
 import { fakeApi, item, session } from "./store.test-fakes";
 
@@ -44,7 +44,7 @@ describe("a new tab in a side pane", () => {
     // THE MUTANT: drop the zoom, and "full view" is the same tab in the same half of the window.
     const { store } = await mount();
     await store.getState().newTab(side(store).id, { full: true });
-    expect(activeGroup(store.getState().groups!).zoomedLeafId).toBe(side(store).id);
+    expect(store.getState().view!.zoomedLeafId).toBe(side(store).id);
     expect(side(store).itemId).toBe(newest(store));
   });
 

@@ -1693,7 +1693,7 @@ const PRESENCE_TTL_LABELS: Record<number, string> = { 0: "Every time", 60_000: "
  * profile.
  */
 function SignInsTab() {
-  const profileId = useApp((s) => s.activeProfileId());
+  const profileId = useApp((s) => s.activeProfileId);
   const profile = useApp((s) => s.profiles.find((p) => p.id === profileId) ?? null);
   // A list read for another profile is never shown as this one's — a profile switch with this tab
   // open would otherwise show the last profile's rows under this profile's name.

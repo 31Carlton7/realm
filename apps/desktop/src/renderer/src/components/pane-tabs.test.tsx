@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { activeGroup, findLeafOfItem, findSidePane, type Layout } from "@realm/contracts";
+import { findLeafOfItem, findSidePane, type Layout } from "@realm/contracts";
 import { PaneHost } from "./PaneHost";
 import { StoreContext, createAppStore } from "../state/store";
 import { fakeApi, item, session } from "../state/store.test-fakes";
@@ -191,7 +191,7 @@ describe("the strip's +", () => {
     const { store } = await mount();
     fireEvent.click(screen.getByRole("button", { name: "New tab" }));
     fireEvent.click(within(await screen.findByRole("menu", { name: "New tab" })).getAllByRole("menuitem")[1]!);
-    await waitFor(() => expect(activeGroup(store.getState().groups!).zoomedLeafId).toBe(side(store).id));
+    await waitFor(() => expect(store.getState().view!.zoomedLeafId).toBe(side(store).id));
   });
 });
 

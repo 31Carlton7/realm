@@ -1108,19 +1108,9 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(bodiesFor(".panel-bar").join(" ")).toContain("height: 40px");
   });
 
-  it("insets the split strip further than a tab's own padding, so no tab sits flush with the window", () => {
-    /* The strip runs to both edges of the window and its tabs are the only thing in it, so the bar's
-       inset is the entire gap between a tab's text and the frame. THE MUTANT: put either number back
-       under the tab's own 14px and the first tab's label lands within a couple of pixels of the
-       traffic lights on one side, or of the window edge on the other. */
-    const bar = bodiesFor(".group-bar").join(" ");
-    expect(bar).toContain("padding: 0 14px 0 16px");
-    expect(bar).toContain("min-height: 38px");
-    expect(bodiesFor(".group-tab").join(" ")).toContain("padding: 6px 14px");
-    // The ring's padding is paid back exactly, or the bar grows by it — see the rule's own comment.
-    const tabs = bodiesFor(".group-tabs").join(" ");
-    expect(tabs).toContain("padding-block: 4px");
-    expect(tabs).toContain("margin-block: -4px");
+  it("draws no strip of named splits above the panes — the window shows one view", () => {
+    // Plan 27: a split is a way of looking at two things, and needs no bar of its own.
+    expect(RULES.some((r) => r.selectors.some((sel) => /\.group-(bar|tab)/.test(sel)))).toBe(false);
   });
 
   it("the left chrome's edge is a BORDER on .main, in both states", () => {
@@ -2127,11 +2117,11 @@ describe("dividers", () => {
        them. What the lines actually drew was a horizontal stripe across the top of every pane in
        every split.
        What separates a pane from what is AROUND it is untouched, and is asserted below. */
-    for (const sel of [".panel-bar", ".group-bar", ".browser-chrome"])
+    for (const sel of [".panel-bar", ".browser-chrome"])
       expect(bodiesFor(sel).join(" "), sel).not.toMatch(/border-bottom: *1px/);
     // The claim is falsifiable, so it is checked: none of the three is sticky, which is the only way
     // content could pass under one.
-    for (const sel of [".panel-bar", ".group-bar", ".browser-chrome"])
+    for (const sel of [".panel-bar", ".browser-chrome"])
       expect(bodiesFor(sel).join(" "), sel).not.toContain("position: sticky");
   });
 

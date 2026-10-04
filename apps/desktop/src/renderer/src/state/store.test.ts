@@ -81,13 +81,43 @@ describe("app store", () => {
     await b.getState().boot(); expect(b.getState().themePref).toBe("system");
   });
 
-  it("selectSpace persists the choice under ui.activeSpaceId", async () => {
+  it("selectSpace makes a space current without unloading anything, and remembers it", async () => {
     const store = createAppStore(api);
     await store.getState().boot();
     await store.getState().selectSpace("s2");
     expect(store.getState().activeSpaceId).toBe("s2");
-    expect(store.getState().items).toEqual([]);
+    // THE MUTANT: a room switch that empties `items`. Every space of the profile stays loaded.
+    expect(store.getState().items.map((i) => i.id)).toEqual(["i1"]);
     expect(api.calls).toContain("setSetting:ui.activeSpaceId=s2");
+  });
+
+  it("selectSpace opens the space's most recent session in the main view, in the focused pane's place", async () => {
+    const store = createAppStore(fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout: leaf("L1", "a") }), space("s2", "p1", "Homework")],
+      items: { s1: [item("a", "s1", { kind: "session", refId: "sa" })],
+        s2: [item("old", "s2", { kind: "session", refId: "so" }), item("new", "s2", { kind: "session", refId: "sn" }), item("t", "s2")] },
+      sessions: [session("sa", "s1", { updatedAt: 5 }), session("so", "s2", { updatedAt: 1 }), session("sn", "s2", { updatedAt: 9 })],
+    }));
+    await store.getState().boot();
+    await store.getState().selectSpace("s2");
+    expect(allItems(store.getState().layout!)).toEqual(["new"]);
+    expect(itemIdOfLeaf(store.getState().layout, store.getState().focusedLeafId)).toBe("new");
+    expect(store.getState().activeSpaceId).toBe("s2");
+    expect(store.getState().pageOverlay).toBeNull();
+    // Going back is the same gesture, and the session left on screen comes back to it.
+    await store.getState().selectSpace("s1");
+    expect(allItems(store.getState().layout!)).toEqual(["a"]);
+  });
+
+  it("selectSpace on a space with no session shows its Overview, which makes it current", async () => {
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().selectSpace("s2");
+    expect(store.getState().pageOverlay).toEqual({ kind: "space-page", refId: "s2", spaceId: "s2" });
+    expect(store.getState().activeSpaceId).toBe("s2");
+    // …and a new session made from there goes to it.
+    await store.getState().newSessionInstant();
+    expect(api.data.sessions.at(-1)!.spaceId).toBe("s2");
   });
 
   it("nextSpace/prevSpace cycle with clamping and persist the choice", async () => {
@@ -116,25 +146,59 @@ describe("app store", () => {
     await store.getState().prevSpace(); expect(store.getState().activeSpaceId).toBe("s3");
   });
 
-  it("selectProfile lands on where that profile was left, and an empty profile is a no-op", async () => {
-    const store = createAppStore(fakeApi({
+  it("selectProfile switches the window: that profile's spaces load, this one's go, and it lands where it was left", async () => {
+    const api = fakeApi({
       spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework"), space("s3", "p2", "Thesis")],
-      items: { s1: [], s2: [], s3: [] },
+      items: { s1: [item("i1", "s1")], s2: [item("i2", "s2")], s3: [item("i3", "s3")] },
       profiles: [profile("p1", "Work"), profile("p2", "School"), profile("p3", "Personal")],
-    }));
+    });
+    const store = createAppStore(api);
     await store.getState().boot();
-    await store.getState().selectSpace("s2");      // Work's remembered space is now s2, not s1
+    expect(store.getState().activeProfileId).toBe("p1");
+    // ONE profile's work, all of it: both of Work's spaces, none of School's.
+    expect(store.getState().items.map((i) => i.id)).toEqual(["i1", "i2"]);
+    await store.getState().selectSpace("s2");      // Work's current space is now s2, not s1
     await store.getState().selectProfile("p2");
+    expect(store.getState().activeProfileId).toBe("p2");
     expect(store.getState().activeSpaceId).toBe("s3");
+    expect(store.getState().items.map((i) => i.id)).toEqual(["i3"]);
+    expect(api.calls).toContain("setSetting:ui.activeProfileId=p2");
     await store.getState().selectProfile("p1");
     expect(store.getState().activeSpaceId).toBe("s2"); // mutant: falling back to the profile's first
-    // Nothing to land on, so nothing happens — never an activeSpaceId of null, which is the
-    // no-space-at-all posture rather than "a profile".
+    // A profile with no spaces yet is somewhere to be (its first space comes next) — showing nothing
+    // of the profile that was left.
     await store.getState().selectProfile("p3");
-    expect(store.getState().activeSpaceId).toBe("s2");
-    // Already there: no re-entry, so the space's items are not torn down and refetched.
-    await store.getState().selectProfile("p1");
-    expect(store.getState().activeSpaceId).toBe("s2");
+    expect(store.getState().activeProfileId).toBe("p3");
+    expect(store.getState().activeSpaceId).toBeNull();
+    expect(store.getState().items).toEqual([]);
+    // Already there: no re-entry, so nothing is torn down and refetched.
+    const reads = api.calls.length;
+    await store.getState().selectProfile("p3");
+    expect(api.calls.length).toBe(reads);
+  });
+
+  it("a window opens on the profile main bound it to, then on the one it was last on", async () => {
+    const data = () => ({
+      spaces: [space("s1", "p1", "Versed"), space("s3", "p2", "Thesis")],
+      items: { s1: [item("i1", "s1")], s3: [item("i3", "s3")] },
+      settings: { "ui.activeProfileId": "p1" } as Record<string, unknown>,
+    });
+    // THE MUTANT: read the saved profile first. A window opened for School would open on Work.
+    const bound = createAppStore(fakeApi({ ...data(), boundProfileId: "p2" }));
+    await bound.getState().boot();
+    expect(bound.getState().activeProfileId).toBe("p2");
+    expect(bound.getState().items.map((i) => i.id)).toEqual(["i3"]);
+    const saved = createAppStore(fakeApi(data()));
+    await saved.getState().boot();
+    expect(saved.getState().activeProfileId).toBe("p1");
+    // A bound profile that no longer exists is no binding at all.
+    const stale = createAppStore(fakeApi({ ...data(), boundProfileId: "gone" }));
+    await stale.getState().boot();
+    expect(stale.getState().activeProfileId).toBe("p1");
+    // A home last run with rooms has no saved profile: the profile of the space it was in.
+    const upgraded = createAppStore(fakeApi({ ...data(), settings: { "ui.activeSpaceId": "s3" } }));
+    await upgraded.getState().boot();
+    expect(upgraded.getState().activeProfileId).toBe("p2");
   });
 
   it("createSpace appends and activates; updateSpace merges; deleteSpace moves to neighbor", async () => {
@@ -213,13 +277,28 @@ describe("app store", () => {
     expect(store.getState().iconAssets.p1).toEqual([]);
   });
 
-  it("deleteSpace of the first (active) space selects the new first; deleting a non-active space keeps selection", async () => {
+  it("deleteSpace of a space not current keeps the current one; deleting the last space leaves none", async () => {
     const store = createAppStore(api); await store.getState().boot();
     await store.getState().deleteSpace("s2");
     expect(store.getState().activeSpaceId).toBe("s1");
     await store.getState().deleteSpace("s1");
     expect(store.getState().activeSpaceId).toBeNull();
-    expect(store.getState().layout).toBeNull();
+    expect(store.getState().items).toEqual([]);
+    expect(allItems(store.getState().layout!)).toEqual([]);
+  });
+
+  it("deleteSpace takes what the window showed of it off the screen, and leaves the other space's panes alone", async () => {
+    const store = createAppStore(fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout: split("R", "row", [leaf("L1", "a"), leaf("L2", "b")]) }), space("s2", "p1", "Homework")],
+      items: { s1: [item("a", "s1", { kind: "session", refId: "sa" })], s2: [item("b", "s2", { kind: "session", refId: "sb" })] },
+      sessions: [session("sa", "s1"), session("sb", "s2")],
+    }));
+    await store.getState().boot();
+    expect(allItems(store.getState().layout!)).toEqual(["a", "b"]);
+    await store.getState().deleteSpace("s2");
+    expect(allItems(store.getState().layout!)).toEqual(["a"]);
+    expect(store.getState().items.map((i) => i.id)).toEqual(["a"]);
+    expect(store.getState().activeSpaceId).toBe("s1");
   });
 
   it("reorderSpaces reorders optimistically and calls the api", async () => {
@@ -250,29 +329,29 @@ describe("app store", () => {
     await store.getState().deleteSpace("s3");
     await new Promise((r) => setTimeout(r, 30));
     expect(store.getState().spaces.map((s) => s.id)).toEqual(["s1", "s2"]);
-    expect(["s1", "s2"]).toContain(store.getState().activeSpaceId);
-    expect(store.getState().activeSpaceId).toBe("s1"); // refreshSpaces fell back to the first; deleteSpace keeps that choice
-  });
-
-  it("deleteSpace of the active space drops a pending debounced persist instead of saving a deleted layout", async () => {
-    const store = createAppStore(api); await store.getState().boot();
-    await store.getState().newTerminal(); await store.getState().applyPreset("two-col");
-    const splitId = store.getState().layout!.id;
-    const before = api.calls.filter((c) => c.startsWith("setGroups:s1")).length;
-    store.getState().resizeSplit(splitId, [10, 90]); // schedules a persist
-    await store.getState().deleteSpace("s1");
-    await new Promise((r) => setTimeout(r, PERSIST_DEBOUNCE_MS + 50));
-    expect(api.calls.filter((c) => c.startsWith("setGroups:s1")).length).toBe(before);
+    // Nothing of it was on screen, so the window lands on its neighbour, as a click on it would.
     expect(store.getState().activeSpaceId).toBe("s2");
   });
 
-  it("refreshSpaces falls back to the first space when the active one disappeared", async () => {
+  it("refreshSpaces drops a space deleted elsewhere — its items with it — and the current space falls back", async () => {
+    api.data.items.s2 = [item("i2", "s2")];
     const store = createAppStore(api); await store.getState().boot();
+    expect(store.getState().items.map((i) => i.id)).toEqual(["i1", "i2"]);
     await store.getState().selectSpace("s2");
     api.data.spaces = api.data.spaces.filter((s) => s.id !== "s2");
     await store.getState().refreshSpaces();
     expect(store.getState().activeSpaceId).toBe("s1");
     expect(store.getState().items.map((i) => i.id)).toEqual(["i1"]);
+  });
+
+  it("refreshSpaces loads a space that joined the profile, without reloading the rest", async () => {
+    const store = createAppStore(api); await store.getState().boot();
+    api.data.spaces.push(space("s3", "p1", "Thesis"));
+    api.data.items.s3 = [item("i3", "s3")];
+    api.calls.length = 0;
+    await store.getState().refreshSpaces();
+    expect(store.getState().items.map((i) => i.id)).toEqual(["i1", "i3"]);
+    expect(api.calls.filter((c) => c.startsWith("listItems:"))).toEqual(["listItems:s3"]);
   });
 
   it("refreshSpaces hydrates a newly referenced custom icon before publishing the spaces", async () => {
@@ -452,7 +531,7 @@ describe("app store", () => {
     await store.getState().newTerminal();
     const s = store.getState();
     expect(s.items).toHaveLength(2);
-    expect(api.calls.some((c) => c.startsWith("setGroups:s1"))).toBe(true);
+    expect(api.calls.some((c) => c.startsWith("setSetting:ui.view:p1"))).toBe(true);
     const created = s.items.find((i) => i.id !== "i1")!.id;
     expect(allItems(s.layout!)).toEqual([created]); // opened once; i1 stays unopened
     expect(s.focusedLeafId).toBe(findLeafOfItem(s.layout!, created)!.id);
@@ -470,12 +549,44 @@ describe("app store", () => {
     expect(s.focusedLeafId).toBe(findLeafOfItem(s.layout!, created.id)!.id);
   });
 
-  it("persist merges the returned Space so a later selectSpace seeds from the newest layout", async () => {
+  it("the view is saved per profile — never into a space's groups or layout — and a relaunch brings it back", async () => {
     const store = createAppStore(api);
     await store.getState().boot();
     await store.getState().newTerminal();
-    const { activeSpaceId, layout, spaces } = store.getState();
-    expect(spaces.find((s) => s.id === activeSpaceId)!.layout).toEqual(layout);
+    await store.getState().splitFocused("row");
+    const { layout, focusedLeafId } = store.getState();
+    const saved = api.data.settings["ui.view:p1"] as { layout: Layout; focusedItemId: string | null };
+    expect(saved.layout).toEqual(layout);
+    expect(api.data.spaces.every((sp) => sp.groups === null && sp.layout === null)).toBe(true);
+    const relaunched = createAppStore(api);
+    await relaunched.getState().boot();
+    expect(relaunched.getState().layout).toEqual(layout);
+    expect(relaunched.getState().focusedLeafId).toBe(focusedLeafId);
+  });
+
+  it("a home upgraded from rooms opens on the active split of the space it was in, focus and all", async () => {
+    // Two named splits in Homework, the second on screen with the terminal focused; Versed has its own.
+    const groups = { activeGroupId: "01ARZ3NDEKTSV4RRFFQ69G5F02", groups: [
+      { id: "01ARZ3NDEKTSV4RRFFQ69G5F01", name: "Main", layout: leaf("La", "a"), zoomedLeafId: null },
+      { id: "01ARZ3NDEKTSV4RRFFQ69G5F02", name: "Split 2", layout: split("R", "row", [leaf("Lb", "b"), leaf("Lt", "t")]), zoomedLeafId: null },
+    ] };
+    const api = fakeApi({
+      spaces: [space("s1", "p1", "Versed", { layout: leaf("Lv", "v") }), space("s2", "p1", "Homework", { groups, activeItemId: "t" })],
+      items: { s1: [item("v", "s1", { kind: "session", refId: "sv" })],
+        s2: [item("a", "s2", { kind: "session", refId: "sa" }), item("b", "s2", { kind: "session", refId: "sb" }), item("t", "s2")] },
+      sessions: [session("sv", "s1"), session("sa", "s2"), session("sb", "s2")],
+      settings: { "ui.activeSpaceId": "s2" },
+    });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    expect(allItems(store.getState().layout!)).toEqual(["b", "t"]);
+    expect(itemIdOfLeaf(store.getState().layout, store.getState().focusedLeafId)).toBe("t");
+    expect(store.getState().activeSpaceId).toBe("s2");
+    // The other split's pane is simply an item of its space again.
+    expect(store.getState().items.map((i) => i.id)).toContain("a");
+    // Written straight back, so the migration happens once — and the groups are only ever read.
+    expect((api.data.settings["ui.view:p1"] as { layout: Layout }).layout).toEqual(store.getState().layout);
+    expect(api.data.spaces[1]!.groups).toBe(groups);
   });
 
   it("deleteItem deletes the item (server closes the pty), removes it from the layout, disposes the local terminal", async () => {
@@ -484,14 +595,14 @@ describe("app store", () => {
     await store.getState().openItem("i1");
     await store.getState().splitFocused("row");
     await store.getState().newTerminal(); // a second pane, so this delete is not a close-to-empty
-    const before = api.calls.filter((c) => c.startsWith("setGroups:s1")).length;
+    const before = api.calls.filter((c) => c.startsWith("setSetting:ui.view:p1")).length;
     await store.getState().deleteItem("i1");
     expect(store.getState().items.map((i) => i.id)).not.toContain("i1");
     expect(allItems(store.getState().layout!)).not.toContain("i1");
     expect(api.calls).toContain("deleteItem:i1");
     expect(api.disposed).toEqual(["i1"]);
     // deleteItem delegates the layout write entirely to closeFromLayout — exactly one persist, not two.
-    expect(api.calls.filter((c) => c.startsWith("setGroups:s1")).length).toBe(before + 1);
+    expect(api.calls.filter((c) => c.startsWith("setSetting:ui.view:p1")).length).toBe(before + 1);
   });
 
   it("closeFromLayout removes the item from the layout only — no server delete, no dispose, item kept", async () => {
@@ -501,13 +612,13 @@ describe("app store", () => {
     await store.getState().splitFocused("row");
     await store.getState().newTerminal(); // a second pane, so this close is not a close-to-empty
     expect(allItems(store.getState().layout!)).toContain("i1");
-    const persists = api.calls.filter((c) => c.startsWith("setGroups:s1")).length;
+    const persists = api.calls.filter((c) => c.startsWith("setSetting:ui.view:p1")).length;
     await store.getState().closeFromLayout("i1");
     expect(allItems(store.getState().layout!)).not.toContain("i1");
     expect(store.getState().items.map((i) => i.id)).toContain("i1"); // back in the SPACE group
     expect(api.calls.filter((c) => c.startsWith("deleteItem"))).toEqual([]);
     expect(api.disposed).toEqual([]);
-    expect(api.calls.filter((c) => c.startsWith("setGroups:s1")).length).toBe(persists + 1); // the close itself persisted
+    expect(api.calls.filter((c) => c.startsWith("setSetting:ui.view:p1")).length).toBe(persists + 1); // the close itself persisted
   });
 
   /**
@@ -768,15 +879,18 @@ describe("app store", () => {
     });
   });
 
-  it("applyPreset rebuilds layout, refocuses the first leaf, and persists", async () => {
+  it("the view shows two panes at most: a split of two refuses a third", async () => {
     const store = createAppStore(api);
     await store.getState().boot();
     await store.getState().newTerminal();
-    const staleFocus = store.getState().focusedLeafId; // leaf id from the pre-preset layout
-    await store.getState().applyPreset("two-col");
-    expect(store.getState().layout?.type).toBe("split");
-    expect(store.getState().focusedLeafId).toBe(firstLeaf(store.getState().layout!).id);
-    expect(store.getState().focusedLeafId).not.toBe(staleFocus); // gridPreset mints fresh leaf ids
+    await store.getState().splitFocused("row");
+    const two = store.getState().layout;
+    const focus = store.getState().focusedLeafId;
+    // THE MUTANT: let the split grow — a third column is the window holding more than one view.
+    await store.getState().splitFocused("row");
+    await store.getState().splitFocused("col");
+    expect(store.getState().layout).toBe(two);
+    expect(store.getState().focusedLeafId).toBe(focus);
   });
 
   it("linkProject adds a project to the active space", async () => {
@@ -820,7 +934,7 @@ describe("app store", () => {
       const store = createAppStore(api);
       await store.getState().boot();
       await store.getState().newTerminal();
-      await store.getState().applyPreset("two-col");
+      await store.getState().splitFocused("row");
       const l0 = store.getState().layout!; if (l0.type !== "split") throw new Error();
       const secondLeaf = l0.children[1]!.id;
       api.delays["createTerminal"] = 20;
@@ -835,34 +949,35 @@ describe("app store", () => {
   });
 
   describe("staleness guards", () => {
-    it("select A then B quickly: final state is B's data only (items, projects)", async () => {
+    it("selecting spaces reads nothing — every space of the profile is already held", async () => {
       api.data.items["s2"] = [item("i2", "s2")];
       const store = createAppStore(api);
       await store.getState().boot();
-      api.delays["listItems:s1"] = 30; api.delays["listProjects:s1"] = 30;
-      const a = store.getState().selectSpace("s1");
-      const b = store.getState().selectSpace("s2");
-      await Promise.all([a, b]);
-      await new Promise((r) => setTimeout(r, 60));
-      const s = store.getState();
-      expect(s.activeSpaceId).toBe("s2");
-      expect(s.items.map((i) => i.id)).toEqual(["i2"]);
-      expect(allItems(s.layout!)).toEqual([]); // nothing force-opened
+      api.calls.length = 0;
+      // THE MUTANT: a selectSpace that reloads, as a room switch did.
+      await Promise.all([store.getState().selectSpace("s1"), store.getState().selectSpace("s2")]);
+      expect(api.calls.filter((c) => /^list(Items|Projects|Environments|Sessions):/.test(c))).toEqual([]);
+      expect(store.getState().items.map((i) => i.id)).toEqual(["i1", "i2"]);
+      expect(allItems(store.getState().layout!)).toEqual([]); // nothing force-opened
     });
 
-    it("selectSpace A then B: slow A responses are dropped", async () => {
+    it("switching profile twice quickly ends on the second's work only: slow answers for the first are dropped", async () => {
+      const api = fakeApi({
+        profiles: [profile("p1", "A"), profile("p2", "B"), profile("p3", "C")],
+        spaces: [space("s1", "p1", "A"), space("s2", "p2", "B"), space("s3", "p3", "C")],
+        items: { s1: [item("i1", "s1")], s2: [item("i2", "s2")], s3: [item("i3", "s3")] },
+        projects: { s2: [{ id: "pr2", spaceId: "s2", name: "b", rootPath: "/b", defaultBranch: "main", createdAt: 0, updatedAt: 0 }] },
+      });
       const store = createAppStore(api);
       await store.getState().boot();
-      await store.getState().createSpace({ name: "Second", icon: "folder", profileId: "p1" });
-      const s2id = store.getState().activeSpaceId!;
-      api.delays["listItems:s1"] = 30; api.delays["listProjects:s1"] = 30;
-      const a = store.getState().selectSpace("s1");
-      const b = store.getState().selectSpace(s2id);
+      api.delays["listItems:s2"] = 30; api.delays["listProjects:s2"] = 30;
+      const a = store.getState().selectProfile("p2");
+      const b = store.getState().selectProfile("p3");
       await Promise.all([a, b]);
       await new Promise((r) => setTimeout(r, 60));
-      expect(store.getState().activeSpaceId).toBe(s2id);
-      expect(store.getState().items).toEqual([]);
-      expect(allItems(store.getState().layout!)).toEqual([]);
+      expect(store.getState().activeProfileId).toBe("p3");
+      expect(store.getState().items.map((i) => i.id)).toEqual(["i3"]);
+      expect(store.getState().projects).toEqual([]);
     });
   });
 
@@ -917,35 +1032,34 @@ describe("app store", () => {
       expect(allItems(store.getState().layout!)).toEqual(["i2"]); // not pruned by the stale response
     });
 
-    it("a mount-time onLayout size echo before the space's items load never persists", async () => {
-      // The space's persisted layout has stored sizes that react-resizable-panels will normalize at
-      // mount, firing onLayout → resizeSplit with different sizes before any user action.
-      api.data.spaces[0]!.layout = {
-        type: "split", id: "sp", dir: "col", sizes: [40, 80],
-        children: [leaf("l1", "i1"), leaf("l2", null)],
-      };
+    it("nothing is written while the view is still loading — and a stored view is read, not rewritten", async () => {
+      api.data.settings["ui.view:p1"] = { v: 1, layout: { type: "split", id: "sp", dir: "col", sizes: [40, 60], children: [leaf("l1", "i1"), leaf("l2", null)] },
+        zoomedLeafId: null, sidePanes: {}, focusedItemId: "i1" };
       api.delays["listItems:s1"] = 30;
       const store = createAppStore(api);
       const booting = store.getState().boot();
-      while (!store.getState().layout) await tick(); // selectSpace seeded; items still loading
-      store.getState().resizeSplit("sp", [33.33, 66.67]); // the mount echo
+      await tick();
+      store.getState().resizeSplit("sp", [33.33, 66.67]); // an echo with nothing under it yet
       await booting;
       await new Promise((r) => setTimeout(r, PERSIST_DEBOUNCE_MS + 50));
-      expect(api.calls.filter((c) => c.startsWith("setGroups"))).toEqual([]); // no action → no write
+      expect(api.calls.filter((c) => c.startsWith("setSetting:ui.view:"))).toEqual([]); // no action → no write
       const l = store.getState().layout!; if (l.type !== "split") throw new Error("expected split");
-      expect(l.sizes).toEqual([33.33, 66.67]); // echo still applied locally
+      expect(l.sizes).toEqual([40, 60]);
     });
 
-    it("a user resize after the space's items have loaded still persists", async () => {
+    it("a user resize after the view has loaded persists, once per gesture", async () => {
       api.data.spaces[0]!.layout = {
-        type: "split", id: "sp", dir: "col", sizes: [40, 80],
+        type: "split", id: "sp", dir: "col", sizes: [40, 60],
         children: [leaf("l1", "i1"), leaf("l2", null)],
       };
       const store = createAppStore(api);
       await store.getState().boot();
+      const before = api.calls.filter((c) => c.startsWith("setSetting:ui.view:p1")).length;
       store.getState().resizeSplit("sp", [25, 75]);
+      store.getState().resizeSplit("sp", [20, 80]);
       await new Promise((r) => setTimeout(r, PERSIST_DEBOUNCE_MS + 50));
-      expect(api.calls.filter((c) => c.startsWith("setGroups:s1"))).toHaveLength(1);
+      expect(api.calls.filter((c) => c.startsWith("setSetting:ui.view:p1")).length).toBe(before + 1);
+      expect((api.data.settings["ui.view:p1"] as { layout: { sizes: number[] } }).layout.sizes).toEqual([20, 80]);
     });
   });
 
@@ -954,41 +1068,42 @@ describe("app store", () => {
       const store = createAppStore(api);
       await store.getState().boot();
       await store.getState().newTerminal();
-      await store.getState().applyPreset("two-col");
+      await store.getState().splitFocused("row");
       const splitId = store.getState().layout!.id;
-      const before = api.calls.filter((c) => c.startsWith("setGroups")).length;
+      const before = api.calls.filter((c) => c.startsWith("setSetting:ui.view:")).length;
       vi.useFakeTimers();
       store.getState().resizeSplit(splitId, [50, 50]); // initial onLayout with unchanged sizes → no-op
-      expect(api.calls.filter((c) => c.startsWith("setGroups")).length).toBe(before);
+      expect(api.calls.filter((c) => c.startsWith("setSetting:ui.view:")).length).toBe(before);
       store.getState().resizeSplit(splitId, [40, 60]);
       store.getState().resizeSplit(splitId, [30, 70]);
       store.getState().resizeSplit(splitId, [20, 80]);
       const l = store.getState().layout!; if (l.type !== "split") throw new Error();
       expect(l.sizes).toEqual([20, 80]);
-      expect(api.calls.filter((c) => c.startsWith("setGroups")).length).toBe(before); // not yet
+      expect(api.calls.filter((c) => c.startsWith("setSetting:ui.view:")).length).toBe(before); // not yet
       await vi.advanceTimersByTimeAsync(PERSIST_DEBOUNCE_MS + 10);
-      expect(api.calls.filter((c) => c.startsWith("setGroups")).length).toBe(before + 1);
+      expect(api.calls.filter((c) => c.startsWith("setSetting:ui.view:")).length).toBe(before + 1);
     });
 
-    it("a pending debounced persist is flushed before switching space", async () => {
+    it("a pending debounced persist is flushed into the profile it belongs to before switching profile", async () => {
       const store = createAppStore(api);
       await store.getState().boot();
       await store.getState().newTerminal();
-      await store.getState().applyPreset("two-col");
+      await store.getState().splitFocused("row");
       const splitId = store.getState().layout!.id;
-      const before = api.calls.filter((c) => c.startsWith("setGroups:s1")).length;
+      const before = api.calls.filter((c) => c.startsWith("setSetting:ui.view:p1")).length;
       store.getState().resizeSplit(splitId, [10, 90]);
-      await store.getState().selectSpace("s2");
-      expect(api.calls.filter((c) => c.startsWith("setGroups:s1")).length).toBe(before + 1);
+      await store.getState().selectProfile("p2");
+      expect(api.calls.filter((c) => c.startsWith("setSetting:ui.view:p1")).length).toBe(before + 1);
+      expect((api.data.settings["ui.view:p1"] as { layout: { sizes: number[] } }).layout.sizes).toEqual([10, 90]);
     });
 
     it("flushPersist writes a pending debounced persist immediately (pagehide seam, A-M4) and no-ops when idle", async () => {
       const store = createAppStore(api);
       await store.getState().boot();
       await store.getState().newTerminal();
-      await store.getState().applyPreset("two-col");
+      await store.getState().splitFocused("row");
       const splitId = store.getState().layout!.id;
-      const count = () => api.calls.filter((c) => c.startsWith("setGroups:s1")).length;
+      const count = () => api.calls.filter((c) => c.startsWith("setSetting:ui.view:p1")).length;
       const before = count();
       await store.getState().flushPersist(); // nothing pending → no write
       expect(count()).toBe(before);
@@ -1006,7 +1121,7 @@ describe("app store", () => {
       const store = createAppStore(api);
       await store.getState().boot();
       await store.getState().newTerminal();
-      await store.getState().applyPreset("two-col");
+      await store.getState().splitFocused("row");
       return store;
     };
 
@@ -1014,12 +1129,12 @@ describe("app store", () => {
       const store = await twoCol();
       const splitId = store.getState().layout!.id;
       store.getState().resizeSplit(splitId, [80, 20]);
-      const before = api.calls.filter((c) => c.startsWith("setGroups:s1")).length;
+      const before = api.calls.filter((c) => c.startsWith("setSetting:ui.view:p1")).length;
       store.getState().equalizeSplit(splitId);
       const l = store.getState().layout!; if (l.type !== "split") throw new Error();
       expect(l.sizes).toEqual([50, 50]);
       await store.getState().flushPersist();
-      expect(api.calls.filter((c) => c.startsWith("setGroups:s1")).length).toBe(before + 1);
+      expect(api.calls.filter((c) => c.startsWith("setSetting:ui.view:p1")).length).toBe(before + 1);
     });
 
     it("is a genuine no-op on an unmodified split: same layout object, nothing persisted", async () => {
@@ -1027,11 +1142,11 @@ describe("app store", () => {
       const splitId = store.getState().layout!.id;
       await store.getState().flushPersist();
       const before = store.getState().layout!;
-      const writes = api.calls.filter((c) => c.startsWith("setGroups:s1")).length;
+      const writes = api.calls.filter((c) => c.startsWith("setSetting:ui.view:p1")).length;
       store.getState().equalizeSplit(splitId);
       expect(store.getState().layout).toBe(before); // byte-identical
       await store.getState().flushPersist();
-      expect(api.calls.filter((c) => c.startsWith("setGroups:s1")).length).toBe(writes);
+      expect(api.calls.filter((c) => c.startsWith("setSetting:ui.view:p1")).length).toBe(writes);
     });
 
     it("an unknown split id changes nothing", async () => {
@@ -1066,13 +1181,16 @@ describe("app store", () => {
       ] },
     });
 
-    it("selectSpace loads the space's sessions and their statuses", async () => {
+    it("boot loads every space's sessions, and making another space current unloads none of them", async () => {
       api = seed(); const store = createAppStore(api); await store.getState().boot();
-      expect(Object.keys(store.getState().sessions)).toEqual(["se1"]);
+      expect(Object.keys(store.getState().sessions).sort()).toEqual(["se1", "se9"]);
       expect(store.getState().sessionStatus.se1).toBe("running");
       await store.getState().selectSpace("s2");
-      expect(Object.keys(store.getState().sessions)).toEqual(["se9"]);
-      expect(store.getState().sessionStatus.se1).toBe("running"); // statuses are global (sidebar dots survive switching)
+      expect(Object.keys(store.getState().sessions).sort()).toEqual(["se1", "se9"]);
+      expect(store.getState().sessionStatus.se1).toBe("running");
+      // A session of any space of the profile opens without a second read of its row.
+      await store.getState().openSession("se9");
+      expect(api.calls).not.toContain("getSession:se9");
     });
 
     it("openSession fetches events after the known seq and reduces them; a second open only fetches the tail", async () => {
@@ -1100,12 +1218,14 @@ describe("app store", () => {
       expect(api.calls.filter((c) => c.startsWith("sessionEvents:se1:"))).toEqual(["sessionEvents:se1:0", "sessionEvents:se1:1000", "sessionEvents:se1:2000"]);
     });
 
-    it("openSession for a session outside the loaded space fetches the session too", async () => {
-      api = seed(); const store = createAppStore(api); await store.getState().boot();
-      await store.getState().openSession("se9");
-      expect(api.calls).toContain("getSession:se9");
-      expect(store.getState().sessions.se9?.id).toBe("se9");
-      expect(store.getState().sessionStatus.se9).toBe("idle");
+    it("openSession for a session of another profile fetches the session too", async () => {
+      api = fakeApi({ spaces: [space("s1", "p1", "Versed"), space("s3", "p2", "Thesis")], sessions: [session("se7", "s3")] });
+      const store = createAppStore(api); await store.getState().boot();
+      expect(store.getState().sessions.se7).toBeUndefined();
+      await store.getState().openSession("se7");
+      expect(api.calls).toContain("getSession:se7");
+      expect(store.getState().sessions.se7?.id).toBe("se7");
+      expect(store.getState().sessionStatus.se7).toBe("idle");
     });
 
     it("applySessionEvent appends persisted events once (by seq), applies ephemeral deltas, ignores unopened sessions", async () => {
@@ -1284,13 +1404,14 @@ describe("app store", () => {
       await store.getState().newSession({ agentKind: "fake", model: "fake" });
       const s = store.getState();
       expect(api.calls).toContain("createSession:fake");
-      const created = Object.values(s.sessions).find((x) => x.id !== "se1")!;
+      const created = s.sessions[api.data.sessions.at(-1)!.id]!;
       expect(created.model).toBe("fake");
+      expect(created.spaceId).toBe("s1");
       expect(s.items.some((i) => i.kind === "session" && i.refId === created.id)).toBe(true);
       const createdItemId = s.items.find((i) => i.refId === created.id)!.id;
       expect(allItems(s.layout!)).toContain(createdItemId);
       expect(s.focusedLeafId).toBe(findLeafOfItem(s.layout!, createdItemId)!.id);
-      expect(api.calls.some((c) => c.startsWith("setGroups:s1"))).toBe(true);
+      expect(api.calls.some((c) => c.startsWith("setSetting:ui.view:p1"))).toBe(true);
       expect(s.transcripts[created.id]).toEqual({ lastSeq: 0, t: expect.objectContaining({ blocks: [] }) });
     });
 
@@ -1952,7 +2073,7 @@ describe("app store", () => {
       store.getState().openSheet({ kind: "new-space" });
       store.getState().resizeSplit("root", [50.5, 49.5]); // the PanelGroup onLayout echo of the snap
       await store.getState().flushPersist();
-      const persisted = store.getState().spaces.find((sp) => sp.id === "s1")!.layout as Extract<Layout, { type: "split" }>;
+      const persisted = (localApi.data.settings["ui.view:p1"] as { layout: Layout }).layout as Extract<Layout, { type: "split" }>;
       expect(persisted.sizes).toEqual([80, 20]); // the user's layout, not the snap
     });
   });
@@ -2047,7 +2168,7 @@ describe("app store", () => {
       await store.getState().openItem("i2");
       expect(findLeafOfItem(store.getState().layout!, "i2")!.id).toBe(fresh);
       expect(allItems(store.getState().layout!)).toEqual(["i1", "i2"]);
-      expect(api.calls.some((c) => c.startsWith("setGroups:s1"))).toBe(true);
+      expect(api.calls.some((c) => c.startsWith("setSetting:ui.view:p1"))).toBe(true);
     });
 
     it("openItem on an already-open item focuses its pane instead of moving it (sidebar/palette click)", async () => {
@@ -2059,12 +2180,12 @@ describe("app store", () => {
       const layoutBefore = store.getState().layout!;
       const i1Leaf = findLeafOfItem(layoutBefore, "i1")!.id;
       expect(store.getState().focusedLeafId).not.toBe(i1Leaf);
-      const persists = api.calls.filter((c) => c.startsWith("setGroups")).length;
+      const persists = api.calls.filter((c) => c.startsWith("setSetting:ui.view:")).length;
       await store.getState().openItem("i1"); // OPEN row / palette: "go there", not "move it here"
       const s = store.getState();
       expect(s.focusedLeafId).toBe(i1Leaf);
       expect(s.layout).toBe(layoutBefore); // same reference: no layout change
-      expect(api.calls.filter((c) => c.startsWith("setGroups")).length).toBe(persists); // no persist
+      expect(api.calls.filter((c) => c.startsWith("setSetting:ui.view:")).length).toBe(persists); // no persist
     });
 
     it("openItemAt center still moves an already-open item to the target leaf (drag keeps move semantics)", async () => {
@@ -2111,60 +2232,47 @@ describe("app store", () => {
         expect(l.children.map((c) => (c.type === "leaf" ? c.itemId : null)))
           .toEqual(droppedFirst ? ["i2", "i1"] : ["i1", "i2"]);
         expect(store.getState().focusedLeafId).toBe(findLeafOfItem(l, "i2")!.id);
-        expect(api.calls.some((c) => c.startsWith("setGroups:s1"))).toBe(true);
+        expect(api.calls.some((c) => c.startsWith("setSetting:ui.view:p1"))).toBe(true);
       });
     }
 
-    it("a third item dropped beside two makes three EQUAL columns, not 50/25/25", async () => {
+    it("a third dropped on an edge takes the OTHER side's place — never a third column", async () => {
       api.data.items.s1 = [item("i1", "s1"), item("i2", "s1"), item("i3", "s1")];
       const store = createAppStore(api); await store.getState().boot();
       await store.getState().openItem("i1");
       await store.getState().openItemAt("i2", store.getState().focusedLeafId!, "right");
-      const i2Leaf = findLeafOfItem(store.getState().layout!, "i2")!.id;
-      await store.getState().openItemAt("i3", i2Leaf, "right");
+      const i1Leaf = findLeafOfItem(store.getState().layout!, "i1")!.id;
+      await store.getState().openItemAt("i3", i1Leaf, "right");
       const l = store.getState().layout!; if (l.type !== "split") throw new Error();
-      expect(l.children).toHaveLength(3); // one flat row, no nested split hiding inside a pane
-      expect(l.children.every((c) => c.type === "leaf")).toBe(true);
-      expect(l.children.map((c) => (c as { itemId: string | null }).itemId)).toEqual(["i1", "i2", "i3"]);
-      l.sizes.forEach((sz) => expect(sz).toBeCloseTo(100 / 3, 5));
-    });
-
-    it("dropping onto the LEFT edge of the middle pane inserts before it, still all equal", async () => {
-      api.data.items.s1 = [item("i1", "s1"), item("i2", "s1"), item("i3", "s1")];
-      const store = createAppStore(api); await store.getState().boot();
-      await store.getState().openItem("i1");
-      await store.getState().openItemAt("i2", store.getState().focusedLeafId!, "right");
-      const i2Leaf = findLeafOfItem(store.getState().layout!, "i2")!.id;
-      await store.getState().openItemAt("i3", i2Leaf, "left");
-      const l = store.getState().layout!; if (l.type !== "split") throw new Error();
-      expect(l.children.map((c) => (c as { itemId: string | null }).itemId)).toEqual(["i1", "i3", "i2"]);
-      l.sizes.forEach((sz) => expect(sz).toBeCloseTo(100 / 3, 5));
+      expect(l.children).toHaveLength(2);
+      expect(l.children.map((c) => (c as { itemId: string | null }).itemId)).toEqual(["i1", "i3"]);
       expect(store.getState().focusedLeafId).toBe(findLeafOfItem(l, "i3")!.id);
+      // i2 left the screen and nothing else: it is an item of its space, as it was.
+      expect(store.getState().items.map((i) => i.id)).toContain("i2");
     });
 
-    it("a drop that already re-balanced survives an earlier drag: sizes come out equal, not proportional", async () => {
+    it("a drop on the pane's own top edge stacks the two instead", async () => {
       api.data.items.s1 = [item("i1", "s1"), item("i2", "s1"), item("i3", "s1")];
       const store = createAppStore(api); await store.getState().boot();
       await store.getState().openItem("i1");
       await store.getState().openItemAt("i2", store.getState().focusedLeafId!, "right");
-      store.getState().resizeSplit(store.getState().layout!.id, [85, 15]); // user dragged it lopsided
       const i2Leaf = findLeafOfItem(store.getState().layout!, "i2")!.id;
-      await store.getState().openItemAt("i3", i2Leaf, "right");
+      await store.getState().openItemAt("i3", i2Leaf, "top");
       const l = store.getState().layout!; if (l.type !== "split") throw new Error();
-      l.sizes.forEach((sz) => expect(sz).toBeCloseTo(100 / 3, 5));
+      expect(l.dir).toBe("col");
+      expect(l.children.map((c) => (c as { itemId: string | null }).itemId)).toEqual(["i3", "i2"]);
     });
 
-    it("splitFocused into a same-direction split grows it equally too", async () => {
-      api.data.items.s1 = [item("i1", "s1"), item("i2", "s1")];
+    it("a dragged divider keeps its place when a pane in the split is swapped", async () => {
+      api.data.items.s1 = [item("i1", "s1"), item("i2", "s1"), item("i3", "s1")];
       const store = createAppStore(api); await store.getState().boot();
       await store.getState().openItem("i1");
       await store.getState().openItemAt("i2", store.getState().focusedLeafId!, "right");
-      await store.getState().splitFocused("row"); // focus is on i2's leaf
+      store.getState().resizeSplit(store.getState().layout!.id, [70, 30]);
+      await store.getState().openItem("i3"); // replaces i2, the focused pane
       const l = store.getState().layout!; if (l.type !== "split") throw new Error();
-      expect(l.children).toHaveLength(3);
-      expect(l.children.map((c) => (c as { itemId: string | null }).itemId)).toEqual(["i1", "i2", null]);
-      l.sizes.forEach((sz) => expect(sz).toBeCloseTo(100 / 3, 5));
-      expect(store.getState().focusedLeafId).toBe((l.children[2] as { id: string }).id); // the fresh empty leaf
+      expect(l.sizes).toEqual([70, 30]);
+      expect(allItems(l)).toEqual(["i1", "i3"]);
     });
 
     it("focusedLeafId falls back to the first leaf when its leaf is closed away", async () => {
@@ -2202,14 +2310,14 @@ describe("app store", () => {
       await store.getState().openItemAt("i2", store.getState().focusedLeafId!, "right"); // row[i1, i2]
       const before = store.getState().layout!;
       const focusBefore = store.getState().focusedLeafId;
-      const persists = api.calls.filter((c) => c.startsWith("setGroups:s1")).length;
+      const persists = api.calls.filter((c) => c.startsWith("setSetting:ui.view:p1")).length;
       const i1Leaf = findLeafOfItem(before, "i1")!.id;
       for (const edge of ["left", "center", "right", "top", "bottom"] as const) {
         await store.getState().openItemAt("i1", i1Leaf, edge);
       }
       expect(store.getState().layout).toBe(before); // byte-identical: the very same object, untouched
       expect(store.getState().focusedLeafId).toBe(focusBefore);
-      expect(api.calls.filter((c) => c.startsWith("setGroups:s1")).length).toBe(persists); // nothing persisted
+      expect(api.calls.filter((c) => c.startsWith("setSetting:ui.view:p1")).length).toBe(persists); // nothing persisted
     });
 
     it("focusLeaf sets focusedLeafId", async () => {
@@ -2219,25 +2327,24 @@ describe("app store", () => {
     });
   });
 
-  describe("selectSpace layout seeding", () => {
-    it("a legacy {tabs, activeTab} layout from the Space row seeds migrated (client-side skew defense)", async () => {
+  describe("the view a home upgraded from rooms opens on", () => {
+    it("a legacy {tabs, activeTab} layout from the Space row is migrated (client-side skew defense)", async () => {
       const legacy = { type: "leaf", id: "L", tabs: ["L1", "L2"], activeTab: "L2" } as unknown as Layout;
       api.data.spaces.push(space("s3", "p1", "Legacy", { layout: legacy }));
       api.data.items.s3 = [item("L1", "s3"), item("L2", "s3")];
+      api.data.settings["ui.activeSpaceId"] = "s3";
       const store = createAppStore(api); await store.getState().boot();
-      await store.getState().selectSpace("s3");
       expect(store.getState().layout).toEqual({ type: "leaf", id: "L", itemId: "L2" }); // collapsed to activeTab
-      expect(allItems(store.getState().layout!)).toEqual(["L2"]); // L1 displaced to the SPACE group
-      expect(store.getState().items.map((i) => i.id)).toEqual(["L1", "L2"]);
+      expect(store.getState().items.map((i) => i.id)).toEqual(["i1", "L1", "L2"]); // every space's, L1 unopened
     });
 
-    it("a corrupt layout seeds as null and reconciles to an empty leaf, items intact and unopened", async () => {
+    it("a corrupt layout migrates to an empty pane, items intact and unopened", async () => {
       api.data.spaces.push(space("s4", "p1", "Corrupt", { layout: { bogus: true } as unknown as Layout }));
       api.data.items.s4 = [item("C1", "s4")];
+      api.data.settings["ui.activeSpaceId"] = "s4";
       const store = createAppStore(api); await store.getState().boot();
-      await store.getState().selectSpace("s4");
       expect(store.getState().layout).toMatchObject({ type: "leaf", itemId: null });
-      expect(store.getState().items.map((i) => i.id)).toEqual(["C1"]);
+      expect(store.getState().items.map((i) => i.id)).toEqual(["i1", "C1"]);
     });
   });
 
@@ -2278,18 +2385,15 @@ describe("app store", () => {
       expect(findEmptySiblingOf(far, "a")).toBeNull();
     });
 
-    it("splitFocused focuses the leaf it just made, even when the row already had an empty pane", async () => {
+    it("splitFocused focuses the pane it just made", async () => {
       api.data.items.s1 = [item("i1", "s1")];
       const store = createAppStore(api); await store.getState().boot();
       await store.getState().openItem("i1");
       await store.getState().splitFocused("row"); // row[i1, empty]; focus on the empty one
-      const firstEmpty = store.getState().focusedLeafId!;
-      store.getState().focusLeaf(findLeafOfItem(store.getState().layout!, "i1")!.id);
-      await store.getState().splitFocused("row"); // grows the row: [i1, fresh, firstEmpty]
       const l = store.getState().layout!; if (l.type !== "split") throw new Error();
-      expect(l.children).toHaveLength(3);
-      expect(store.getState().focusedLeafId).not.toBe(firstEmpty); // the NEW pane, not the old empty
+      expect(l.children).toHaveLength(2);
       expect(store.getState().focusedLeafId).toBe(l.children[1]!.id);
+      expect(itemIdOfLeaf(l, store.getState().focusedLeafId)).toBeNull();
     });
 
   });
@@ -2602,13 +2706,16 @@ describe("diff panes", () => {
     expect(store.getState().patches).toEqual({});
   });
 
-  it("clears diffs when the space changes, so a pane never opens on the previous space's tree", async () => {
+  it("keeps diffs as the focus moves between spaces, and clears them when the profile changes", async () => {
     const a = withEnv();
     const store = createAppStore(a);
     await store.getState().boot();
     await store.getState().refreshDiff("/tmp/wt");
     expect(store.getState().diffs["/tmp/wt"]).not.toBeUndefined();
+    // Every pane that could show one is still loaded: nothing to throw away.
     await store.getState().selectSpace("s2");
+    expect(store.getState().diffs["/tmp/wt"]).not.toBeUndefined();
+    await store.getState().selectProfile("p2");
     expect(store.getState().diffs).toEqual({});
     expect(store.getState().patches).toEqual({});
   });
@@ -2952,14 +3059,28 @@ describe("under-strip: environment rebinding + the '+' menu's connectors cache (
     expect(a.data.environments.s1!.at(-1)!.branch).toBe("realm/session");
   });
 
-  it("moveSessionToSpace drops the item from the current space and re-homes the session", async () => {
+  it("moveSessionToSpace re-homes the session and its item, and leaves it on screen", async () => {
     const a = seed(); const store = createAppStore(a); await store.getState().boot();
-    expect(store.getState().items.map((i) => i.id)).toContain("i2");
+    await store.getState().openItem("i2");
     await store.getState().moveSessionToSpace("se1", "s2");
     expect(a.calls).toContain("moveSessionToSpace:se1=s2");
-    expect(store.getState().items.map((i) => i.id)).not.toContain("i2");
+    // Both spaces are this window's: the row is the same item, now in the other space's list.
+    expect(store.getState().items.find((i) => i.id === "i2")?.spaceId).toBe("s2");
+    expect(allItems(store.getState().layout!)).toEqual(["i2"]);
     expect(store.getState().sessions.se1?.spaceId).toBe("s2");
     expect(store.getState().sessionSpace.se1).toBe("s2");
+    // …and the space it works in is now the current one.
+    expect(store.getState().activeSpaceId).toBe("s2");
+  });
+
+  it("moveSessionToSpace into another profile's space takes it out of this window", async () => {
+    const a = seed();
+    a.data.spaces.push(space("s3", "p2", "Thesis"));
+    const store = createAppStore(a); await store.getState().boot();
+    await store.getState().openItem("i2");
+    await store.getState().moveSessionToSpace("se1", "s3");
+    expect(store.getState().items.map((i) => i.id)).not.toContain("i2");
+    expect(allItems(store.getState().layout!)).not.toContain("i2");
   });
 
   it("moveSessionToSpace disposes the renderer's terminal panel for an UNSTARTED session — the server tore its pty down", async () => {
@@ -2994,7 +3115,7 @@ describe("under-strip: environment rebinding + the '+' menu's connectors cache (
     expect(a.calls).toContain("moveSessionToSpace:se1=s2");
     expect(store.getState().sessions.se1?.spaceId).toBe("s2");
     expect(store.getState().sessionSpace.se1).toBe("s2");
-    expect(store.getState().items.map((i) => i.id)).not.toContain("i2");
+    expect(store.getState().items.find((i) => i.id === "i2")?.spaceId).toBe("s2");
   });
 
   it("worktreeTitleFrom: first four words, clipped; whitespace-only is null", () => {
@@ -3048,15 +3169,20 @@ describe("openSpacePage", () => {
     expect(store.getState().spacePageTab.s1).toBe("connections");
   });
 
-  it("never shows a page for the WRONG space — a stale spaceId is a no-op", async () => {
-    const api = fakeApi();
+  it("shows any space of the window's profile, and never another profile's", async () => {
+    const api = fakeApi({ spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework"), space("s3", "p2", "Thesis")] });
     const store = createAppStore(api);
-    await store.getState().boot(); // active: s1
+    await store.getState().boot(); // current: s1
     store.getState().openSpacePage("s2", "skills");
+    expect(store.getState().pageOverlay).toEqual({ kind: "space-page", refId: "s2", spaceId: "s2" });
+    // While it is up, that space is the current one.
+    expect(store.getState().activeSpaceId).toBe("s2");
+    store.getState().closePageOverlay();
+    store.getState().openSpacePage("s3", "skills");
     expect(store.getState().pageOverlay).toBeNull();
     expect(api.calls.some((c) => c.startsWith("createItem:"))).toBe(false);
-    // The tab preference still lands, so opening s2's page later starts where the caller asked.
-    expect(store.getState().spacePageTab.s2).toBe("skills");
+    // The tab preference still lands, so opening s3's page later starts where the caller asked.
+    expect(store.getState().spacePageTab.s3).toBe("skills");
   });
 
   it("the tab selection is per space — one space's rail never leaks onto another's page", async () => {

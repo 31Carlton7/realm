@@ -83,25 +83,13 @@ const BINDINGS: Binding[] = [
     alwaysPrevent: true,
     run: (s) => { const it = focusedItem(s); if (it) s.run(() => s.closeFromLayout(it.id)); },
   },
-  // ⌘⇧F → focus the focused pane full-screen, or unfocus if it already is. The pane stays in its
-  // group either way — this only changes how much of the space it gets (see groups.ts).
+  // ⌘⇧F → focus the focused pane full-screen, or unfocus if it already is. The pane stays in the
+  // view either way — this only changes how much of the window it gets (see contracts/view.ts).
   {
     match: (e) => e.key.toLowerCase() === "f" && mod(e, { meta: true, shift: true }),
     run: (s) => s.run(() => s.toggleFocusPane()),
   },
-  // ⌘⇧[ / ⌘⇧] → previous / next pane group. A US layout reports "{" and "}" with shift held, so both
-  // the shifted and unshifted keys are accepted, exactly as ⌘⇧\ does above.
-  {
-    match: (e) => (e.key === "]" || e.key === "}") && mod(e, { meta: true, shift: true }),
-    run: (s) => s.run(() => s.stepPaneGroup(1)),
-  },
-  {
-    match: (e) => (e.key === "[" || e.key === "{") && mod(e, { meta: true, shift: true }),
-    run: (s) => s.run(() => s.stepPaneGroup(-1)),
-  },
-  // ⌘[ / ⌘] → back / forward along the FOCUSED pane's own trail. Deliberately the same bracket pair
-  // as group stepping one shift away: both are "move along a sequence", and the unshifted (smaller)
-  // gesture is the smaller move — within one pane rather than between arrangements.
+  // ⌘[ / ⌘] → back / forward along the FOCUSED pane's own trail.
   {
     match: (e) => e.key === "[" && mod(e, { meta: true }),
     run: (s) => { const l = s.focusedLeafId; if (l) s.run(() => s.stepPaneNav(l, -1)); },

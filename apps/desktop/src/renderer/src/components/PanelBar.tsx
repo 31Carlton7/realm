@@ -22,7 +22,8 @@ export function PanelBar({ item, leafId, tabs, onSplit, onClose, zoomed = false,
   tabs?: Item[];
   /** The leaf this bar heads — the key its back/forward trail is kept under. */
   leafId: string;
-  onSplit: (dir: "row" | "col") => void; onClose: () => void;
+  /** Absent when the view already shows two panes: a split it would refuse is not offered. */
+  onSplit?: (dir: "row" | "col") => void; onClose: () => void;
   /** This pane is the one filling the host — the state its bar's focus toggle reads as ON. */
   zoomed?: boolean;
   onZoom?: () => void; onUnzoom?: () => void;
@@ -144,10 +145,14 @@ export function PanelBar({ item, leafId, tabs, onSplit, onClose, zoomed = false,
           // delete is the bar's own trailing control, two-step (U-H2) there like everywhere else.
           <>
             {focusToggle}
-            <button className="icon-btn" aria-label={`Split ${item.title} right`} title="Split right (⌘\)"
-              onClick={() => onSplit("row")}><Icon name="splitRight" size={14} /></button>
-            <button className="icon-btn" aria-label={`Split ${item.title} down`} title="Split down (⌘⇧\)"
-              onClick={() => onSplit("col")}><Icon name="splitDown" size={14} /></button>
+            {onSplit && (
+              <>
+                <button className="icon-btn" aria-label={`Split ${item.title} right`} title="Split right (⌘\)"
+                  onClick={() => onSplit("row")}><Icon name="splitRight" size={14} /></button>
+                <button className="icon-btn" aria-label={`Split ${item.title} down`} title="Split down (⌘⇧\)"
+                  onClick={() => onSplit("col")}><Icon name="splitDown" size={14} /></button>
+              </>
+            )}
           </>
         ) : (
           <>
@@ -185,8 +190,10 @@ export function PanelBar({ item, leafId, tabs, onSplit, onClose, zoomed = false,
             ...kindItems,
             { kind: "separator" as const },
           ]),
-          { label: "Split right", icon: <Icon name="splitRight" size={14} />, kbd: "⌘\\", onSelect: () => onSplit("row") },
-          { label: "Split down", icon: <Icon name="splitDown" size={14} />, kbd: "⌘⇧\\", onSelect: () => onSplit("col") },
+          ...(onSplit ? [
+            { label: "Split right", icon: <Icon name="splitRight" size={14} />, kbd: "⌘\\", onSelect: () => onSplit("row") },
+            { label: "Split down", icon: <Icon name="splitDown" size={14} />, kbd: "⌘⇧\\", onSelect: () => onSplit("col") },
+          ] : []),
           /* The bar no longer carries a focus glyph, so this row is the whole control: the word, the
              shortcut, and a name that flips with the state rather than a pressed flag beside it. */
           ...(zoomed

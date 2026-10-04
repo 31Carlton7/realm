@@ -271,6 +271,23 @@ describe("whose terminal it is", () => {
     expect(calls.gates.map((g) => g.toolKey)).toEqual(["terminal_write:t1", "terminal_open", `terminal_write:${id}`]);
   });
 
+  /**
+   * THE MUTANT: open the pty and say nothing. The terminal then exists only as a sidebar row — the
+   * app is never told to put it beside the session that asked, so the user cannot watch it.
+   */
+  it("tells the app which session opened it, so it lands in that session's side pane", async () => {
+    const { call, calls } = setup();
+    const id = text(await call("terminal_open", {})).match(/Opened terminal (\w+)/)![1]!;
+    expect(calls.broadcasts.filter((b) => b.event === "terminal.agentOpened"))
+      .toEqual([{ event: "terminal.agentOpened", payload: { spaceId: SPACE, terminalId: id, itemId: `item-${id}`, openedBy: SESSION } }]);
+  });
+
+  it("says nothing when the open was refused", async () => {
+    const { call, calls } = setup({ gate: { allowed: false, reason: "no" } });
+    await call("terminal_open", {});
+    expect(calls.broadcasts.filter((b) => b.event === "terminal.agentOpened")).toEqual([]);
+  });
+
   it("stops calling a terminal its own once it has closed it", async () => {
     const { call, calls } = setup();
     const id = text(await call("terminal_open", {})).match(/Opened terminal (\w+)/)![1]!;
@@ -364,7 +381,7 @@ describe("starting a sign-in", () => {
 
   it("tells the agent the click is not its to make", async () => {
     const { call } = setup({
-      signIn: async () => ({ ok: true, terminalId: "t9", command: "claude auth login", settled: Promise.resolve({ url: "https://claude.ai/oauth/authorize?client_id=a&redirect_uri=b", browserId: "b9", mayAuthorize: false, screen }) }),
+      signIn: async () => ({ ok: true, terminalId: "t9", terminalItemId: "it9", command: "claude auth login", settled: Promise.resolve({ url: "https://claude.ai/oauth/authorize?client_id=a&redirect_uri=b", browserId: "b9", browserItemId: "ib9", mayAuthorize: false, screen }) }),
     });
     const r = await call("signin_start", { kind: "claude" });
     expect(r.isError).toBe(false);
@@ -377,19 +394,42 @@ describe("starting a sign-in", () => {
 
   it("says so when the space has let Realm finish it", async () => {
     const { call } = setup({
-      signIn: async () => ({ ok: true, terminalId: "t9", command: "claude auth login", settled: Promise.resolve({ url: "https://claude.ai/oauth/authorize?client_id=a&redirect_uri=b", browserId: "b9", mayAuthorize: true, screen }) }),
+      signIn: async () => ({ ok: true, terminalId: "t9", terminalItemId: "it9", command: "claude auth login", settled: Promise.resolve({ url: "https://claude.ai/oauth/authorize?client_id=a&redirect_uri=b", browserId: "b9", browserItemId: "ib9", mayAuthorize: true, screen }) }),
     });
     expect(text(await call("signin_start", { kind: "claude" }))).toContain("may drive that pane");
   });
 
   it("adopts the terminal it made, so typing the code back needs no second card", async () => {
     const { call, calls } = setup({
-      signIn: async () => ({ ok: true, terminalId: "t1", command: "claude auth login", settled: Promise.resolve({ url: "https://x/authorize?client_id=a&redirect_uri=b", browserId: "b9", mayAuthorize: false, screen }) }),
+      signIn: async () => ({ ok: true, terminalId: "t1", terminalItemId: "item-t1", command: "claude auth login", settled: Promise.resolve({ url: "https://x/authorize?client_id=a&redirect_uri=b", browserId: "b9", browserItemId: "ib9", mayAuthorize: false, screen }) }),
     });
     await call("signin_start", { kind: "claude" });
     calls.gates.length = 0;
     await call("terminal_write", { terminalId: "t1", text: "code-123", submit: true });
     expect(calls.gates[0]!.promptUnderBypass).toBe(false);
+  });
+
+  it("opens its terminal, then its consent page, beside the session that asked", async () => {
+    // THE MUTANTS: announce either one not at all. The flow's terminal and its browser would reach the
+    // app only as items — a sidebar row each, and nothing on screen beside the session signing in.
+    const { call, calls } = setup({
+      signIn: async () => ({ ok: true, terminalId: "t9", terminalItemId: "it9", command: "claude auth login",
+        settled: Promise.resolve({ url: "https://x/authorize?client_id=a&redirect_uri=b", browserId: "b9", browserItemId: "ib9", mayAuthorize: false, screen }) }),
+    });
+    await call("signin_start", { kind: "claude" });
+    expect(calls.broadcasts.filter((b) => b.event.endsWith(".agentOpened"))).toEqual([
+      { event: "terminal.agentOpened", payload: { spaceId: SPACE, terminalId: "t9", itemId: "it9", openedBy: SESSION } },
+      { event: "browser.agentOpened", payload: { spaceId: SPACE, browserId: "b9", itemId: "ib9", openedBy: SESSION } },
+    ]);
+  });
+
+  it("announces no page when the login command printed no URL — only its terminal", async () => {
+    const { call, calls } = setup({
+      signIn: async () => ({ ok: true, terminalId: "t9", terminalItemId: "it9", command: "claude auth login",
+        settled: Promise.resolve({ url: null, browserId: null, browserItemId: null, mayAuthorize: false, screen }) }),
+    });
+    await call("signin_start", { kind: "claude" });
+    expect(calls.broadcasts.filter((b) => b.event.endsWith(".agentOpened")).map((b) => b.event)).toEqual(["terminal.agentOpened"]);
   });
 
   it("passes the flow's refusal straight through", async () => {

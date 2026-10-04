@@ -11,7 +11,12 @@ export const liveApi = (): Api => ({
   updateProfile: (input) => rpc().call("profiles.update", input),
   deleteProfile: async (id) => { await rpc().call("profiles.delete", { id }); },
   profileUsage: (id) => rpc().call("profiles.usage", { id }),
-  boundProfileId: () => window.realm.profileId ?? null,
+  // Main binds a window to a profile through the preload; read loosely so a preload that predates
+  // window profiles (or a renderer outside Electron) is simply a window bound to none.
+  boundProfileId: () => {
+    const id = (window.realm as { profileId?: unknown } | undefined)?.profileId;
+    return typeof id === "string" && id !== "" ? id : null;
+  },
   openProfileWindow: async (profileId) => { await window.realm.windows?.openProfile(profileId); },
   focusProfileWindow: async (profileId) => (await window.realm.windows?.focusProfile(profileId)) ?? false,
   listSpaces: () => rpc().call("spaces.list", {}),
@@ -27,8 +32,6 @@ export const liveApi = (): Api => ({
   reorderSpaces: async (ids) => { await rpc().call("spaces.reorder", { ids }); },
   deleteSpace: async (id) => { await rpc().call("spaces.delete", { id }); },
   createProject: (spaceId, name, rootPath) => rpc().call("projects.create", { spaceId, name, rootPath }),
-  setLayout: (id, layout) => rpc().call("spaces.setLayout", { id, layout }),
-  setGroups: (id, groups, activeItemId) => rpc().call("spaces.setGroups", { id, groups, activeItemId }),
   createTerminal: (spaceId, cwd) => rpc().call("terminals.create", cwd ? { spaceId, cwd } : { spaceId }),
   createBrowser: (spaceId) => rpc().call("browsers.create", { spaceId }),
   createMachine: (spaceId, name) => rpc().call("machines.create", { spaceId, name }),

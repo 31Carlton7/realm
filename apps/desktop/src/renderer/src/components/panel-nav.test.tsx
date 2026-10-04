@@ -82,18 +82,17 @@ describe("the PanelBar's back/forward arrows", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Rename two" })).toBeInTheDocument());
   });
 
-  it("⌘⇧[ / ⌘⇧] still mean pane GROUPS, not the pane's own trail", async () => {
+  it("⌘⇧[ / ⌘⇧] no longer step anything — the pane's own trail is left exactly as it was", async () => {
+    // The chords stepped named splits, which are gone. THE MUTANT: read the shifted bracket as the
+    // pane's own trail, and ⌘⇧[ walks Back when nobody asked it to.
     const { store } = await mount();
     const leaf = store.getState().focusedLeafId!;
     await store.getState().openItem("i1", leaf);
     await store.getState().openItem("i2", leaf);
-    await store.getState().newPaneGroup("Second");
-    const groupCount = store.getState().groups!.groups.length;
-    expect(groupCount).toBe(2);
-
     fireEvent.keyDown(window, { key: "{", metaKey: true, shiftKey: true });
-    // The group moved; the trail of the pane in the group we left did NOT.
-    await waitFor(() => expect(store.getState().groups!.activeGroupId).toBe(store.getState().groups!.groups[0]!.id));
+    fireEvent.keyDown(window, { key: "}", metaKey: true, shiftKey: true });
+    await new Promise((r) => setTimeout(r, 0));
     expect(store.getState().paneHistory[leaf]!.entries.map((e) => e.itemId)).toEqual(["i1", "i2"]);
+    expect(screen.getByRole("button", { name: "Rename two" })).toBeInTheDocument();
   });
 });

@@ -33,7 +33,9 @@ describe("SpacePage · General", () => {
     fireEvent.change(hex, { target: { value: "#123ABC" } });
     await waitFor(() => expect(store.getState().activeSpace()?.color).toBe("#123abc"));
     fireEvent.change(screen.getByRole("combobox", { name: "Profile" }), { target: { value: "p2" } });
-    await waitFor(() => expect(store.getState().activeSpace()?.profileId).toBe("p2"));
+    await waitFor(() => expect(store.getState().spaces.find((sp) => sp.id === "s1")?.profileId).toBe("p2"));
+    // A space moved to another profile leaves this window's list with it.
+    await waitFor(() => expect(store.getState().profileSpaces().map((sp) => sp.id)).not.toContain("s1"));
   });
 
   describe("an image dropped on the icon control", () => {
