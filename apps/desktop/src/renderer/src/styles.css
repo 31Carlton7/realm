@@ -5486,6 +5486,9 @@ select { appearance: none; padding-right: 22px;
 .tcc-app-icon { flex: none; width: 22px; height: 22px; margin-top: 1px; }
 .tcc-row { display: flex; align-items: flex-start; }
 .creds-list .settings-row { display: flex; align-items: flex-start; }
+/* Share with ▸'s receipt: the copy went elsewhere, so nothing in this list changes — the line beside
+   the button is the only place that says it happened. Quiet, and on the button's own baseline. */
+.share-note { align-self: center; font-size: 12px; color: var(--rl-text-dim); white-space: nowrap; }
 /* The empty state carries the ONE thing a person needs before saving a secret in an app: what
    happens to it. It was a lede at the top of the page, read once and never again; here it is read
    by exactly the person about to add their first. */

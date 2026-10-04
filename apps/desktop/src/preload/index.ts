@@ -232,19 +232,25 @@ contextBridge.exposeInMainWorld("realm", {
    * it, and never makes the return trip — not here, not over RPC, not through the MCP gateway.
    */
   credentials: {
-    list: (): Promise<BrowserCredential[]> => ipcRenderer.invoke("credentials:list"),
+    /** Every door names the PROFILE: sign-ins are a profile's own (Plan 27 Phase 2). */
+    list: (profileId: string): Promise<BrowserCredential[]> => ipcRenderer.invoke("credentials:list", profileId),
     /** `available`: the OS will encrypt. `canPromptTouchID`: this Mac can actually satisfy a fill. */
     status: (): Promise<{ available: boolean; canPromptTouchID: boolean; presenceTtlMs: number }> => ipcRenderer.invoke("credentials:status"),
-    add: (input: BrowserCredentialInput): Promise<BrowserCredential> => ipcRenderer.invoke("credentials:add", input),
-    remove: (id: string): Promise<boolean> => ipcRenderer.invoke("credentials:remove", id),
+    add: (profileId: string, input: BrowserCredentialInput): Promise<BrowserCredential> => ipcRenderer.invoke("credentials:add", profileId, input),
+    remove: (profileId: string, id: string): Promise<boolean> => ipcRenderer.invoke("credentials:remove", profileId, id),
+    /** COPY one into another profile; the original stays. Answers with the profile's name. */
+    share: (profileId: string, id: string, toProfileId: string): Promise<{ ok: true; profileName: string } | { ok: false; error: string }> =>
+      ipcRenderer.invoke("credentials:share", profileId, id, toProfileId),
     /** Resolves the value main actually stored — clamped, so a stale renderer learns the truth. */
     setPresenceTtl: (ms: number): Promise<number> => ipcRenderer.invoke("credentials:set-presence-ttl", ms),
   },
-  /** Settings → Sign-ins, the passkey half. Read and forget only: there is no `add`, because a
+  /** Settings → Sign-ins, the passkey half. Read, forget and share only: there is no `add`, because a
    *  passkey is created by a site asking for one and the user answering Touch ID. */
   passkeys: {
-    list: (): Promise<Passkey[]> => ipcRenderer.invoke("passkeys:list"),
-    remove: (id: string): Promise<boolean> => ipcRenderer.invoke("passkeys:remove", id),
+    list: (profileId: string): Promise<Passkey[]> => ipcRenderer.invoke("passkeys:list", profileId),
+    remove: (profileId: string, id: string): Promise<boolean> => ipcRenderer.invoke("passkeys:remove", profileId, id),
+    share: (profileId: string, id: string, toProfileId: string): Promise<{ ok: true; profileName: string } | { ok: false; error: string }> =>
+      ipcRenderer.invoke("passkeys:share", profileId, id, toProfileId),
   },
   /**
    * The system clipboard, read only, for the machine pane's Paste row (Plan 25 W7).

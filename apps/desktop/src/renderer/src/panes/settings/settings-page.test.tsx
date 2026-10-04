@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { AGENT_CLI_COMMANDS, DEFAULT_PERMISSION_MODE_KEY, EDITOR_CURSOR_BLINK_COPY, MID_TURN_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_HISTORY_COPY, TERMINALS_HISTORY_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, PAGE_REF_IDS } from "@realm/contracts";
 import { engineVersionLabel, SettingsPage } from "./SettingsPage";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item, macRow, notification, type FakeData } from "../../state/store.test-fakes";
+import { fakeApi, item, macRow, notification, profile, space, type FakeData } from "../../state/store.test-fakes";
 import type { AgentProbe } from "../../state/store";
 
 /** The pane as PaneHost mounts it: kind is the identity, refId the sentinel. */
@@ -1109,6 +1109,61 @@ describe("Sign-ins tab", () => {
   it("states plainly that the passkeys in iCloud Keychain are out of reach, rather than letting a user wonder", async () => {
     await signIns();
     expect(await screen.findByText(/iCloud Keychain/)).toBeInTheDocument();
+  });
+
+  /* Plan 27 Phase 2: sign-ins and passkeys are a profile's own. The window is on s1, a Work (p1)
+     space; School (p2) is the other profile. */
+  it("lists ONLY the window's profile's sign-ins and passkeys, and says whose they are", async () => {
+    // THE mutant: ask main for "the" sign-ins with no profile, and School's would be listed here.
+    await signIns({
+      credentials: [cred, { ...cred, id: "cred-school", origin: "https://school.example", profileId: "p2" }],
+      passkeys: [pk, { ...pk, id: "pk-school", rpId: "school.example", profileId: "p2" }],
+    });
+    expect(await screen.findByRole("listitem", { name: "https://example.com: ada" })).toBeInTheDocument();
+    expect(screen.queryByRole("listitem", { name: /school\.example/ })).toBeNull();
+    expect(screen.getByRole("listitem", { name: "github.com: ada@example.com" })).toBeInTheDocument();
+    expect(screen.getByText(/These are Work's\. Each profile keeps its own sign-ins and passkeys/)).toBeInTheDocument();
+  });
+
+  it("a sign-in saved here is saved into the window's profile, and nobody else's", async () => {
+    const { api } = await signIns();
+    await screen.findByText("No saved sign-ins yet.");
+    fireEvent.click(screen.getByRole("button", { name: "Add a sign-in" }));
+    fireEvent.change(screen.getByLabelText("Site address"), { target: { value: "https://example.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "hunter2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save sign-in" }));
+    await waitFor(() => expect(api.data.credentials).toHaveLength(1));
+    expect(api.data.credentials[0]!.profileId).toBe("p1");
+  });
+
+  it("Share with ▸ School COPIES the sign-in — the row stays, and the receipt says where it went", async () => {
+    const { api } = await signIns({ credentials: [cred] });
+    const row = await screen.findByRole("listitem", { name: "https://example.com: ada" });
+    fireEvent.click(within(row).getByRole("button", { name: "Share with…" }));
+    // The menu offers the OTHER profiles — never the one it is already in.
+    const menu = screen.getByRole("menu", { name: "Share the sign-in for https://example.com with" });
+    expect(within(menu).queryByRole("menuitem", { name: /Work/ })).toBeNull();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: /School/ }));
+    await waitFor(() => expect(api.calls).toContain("credentialShare:p1:cred-1:p2"));
+    expect(await within(row).findByRole("status")).toHaveTextContent("Shared with School.");
+    // A copy: Work still has it, and School now has its own.
+    expect(screen.getByRole("listitem", { name: "https://example.com: ada" })).toBeInTheDocument();
+    expect(api.data.credentials.filter((c) => c.profileId === "p2")).toHaveLength(1);
+  });
+
+  it("Share with ▸ School copies a passkey too", async () => {
+    const { api } = await signIns({ passkeys: [pk] });
+    const row = await screen.findByRole("listitem", { name: "github.com: ada@example.com" });
+    fireEvent.click(within(row).getByRole("button", { name: "Share with…" }));
+    fireEvent.click(within(screen.getByRole("menu", { name: "Share the passkey for github.com with" })).getByRole("menuitem", { name: /School/ }));
+    await waitFor(() => expect(api.calls).toContain("passkeyShare:p1:pk-1:p2"));
+    expect(await within(row).findByRole("status")).toHaveTextContent("Shared with School.");
+  });
+
+  it("offers no Share button at all with one profile — there is nowhere to share into", async () => {
+    await signIns({ credentials: [cred], profiles: [profile("p1", "Work")], spaces: [space("s1", "p1", "Versed")] });
+    const row = await screen.findByRole("listitem", { name: "https://example.com: ada" });
+    expect(within(row).queryByRole("button", { name: "Share with…" })).toBeNull();
   });
 });
 

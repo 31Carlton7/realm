@@ -152,18 +152,22 @@ interface Window {
       onActivate(cb: (id: string) => void): () => void;
     };
     /** Settings → Sign-ins. One-way by construction: `add` takes a value, nothing gives one back. */
+    /** Every door names the PROFILE whose sign-ins it is: they are a profile's own (Plan 27 Phase 2). */
     credentials: {
-      list(): Promise<import("@realm/contracts").BrowserCredential[]>;
+      list(profileId: string): Promise<import("@realm/contracts").BrowserCredential[]>;
       status(): Promise<{ available: boolean; canPromptTouchID: boolean; presenceTtlMs: number }>;
-      add(input: import("@realm/contracts").BrowserCredentialInput): Promise<import("@realm/contracts").BrowserCredential>;
-      remove(id: string): Promise<boolean>;
+      add(profileId: string, input: import("@realm/contracts").BrowserCredentialInput): Promise<import("@realm/contracts").BrowserCredential>;
+      remove(profileId: string, id: string): Promise<boolean>;
+      /** COPY one into another profile; the original stays. */
+      share(profileId: string, id: string, toProfileId: string): Promise<{ ok: true; profileName: string } | { ok: false; error: string }>;
       setPresenceTtl(ms: number): Promise<number>;
     };
     /** Settings → Sign-ins, the passkey half. No `add`: a passkey is created by a site asking for one
      *  in a pane and the user answering Touch ID, so there is nothing for a person to type. */
     passkeys: {
-      list(): Promise<import("@realm/contracts").Passkey[]>;
-      remove(id: string): Promise<boolean>;
+      list(profileId: string): Promise<import("@realm/contracts").Passkey[]>;
+      remove(profileId: string, id: string): Promise<boolean>;
+      share(profileId: string, id: string, toProfileId: string): Promise<{ ok: true; profileName: string } | { ok: false; error: string }>;
     };
     /** Browser pane (Plan 11 W1): drives the native WebContentsView main owns for a browser item. */
     clipboard: { readText(): Promise<string> };

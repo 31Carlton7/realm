@@ -253,11 +253,13 @@ export type FakeData = {
   /** What the main-process TCC probe answers (W6's Permissions tab). Defaults to the two honest
    *  can't-check rows plus three probed ones, mirroring main/tcc.ts's shape. */
   tccRows?: TccRow[];
-  credentials?: BrowserCredential[];
+  /** Saved sign-ins. Each is profile p1's unless it names another `profileId` — sign-ins are a
+   *  profile's own, and the fake answers each profile with its rows alone, as main does. */
+  credentials?: (BrowserCredential & { profileId?: string })[];
   credentialStatus?: CredentialStatus;
   /** Passkeys Realm holds. Like `credentials`, the fixture carries NO private key field — a fake
-   *  that kept one would be a fake that could pass a test main fails. */
-  passkeys?: Passkey[];
+   *  that kept one would be a fake that could pass a test main fails. p1's unless named. */
+  passkeys?: (Passkey & { profileId?: string })[];
   /** Toasts main actually posted, in order — an OUTPUT, read as `api.data.shownNotifications`. */
   shownNotifications?: { id: string; title: string; body: string | null }[];
   /** The dock badge's last pushed value — also an output. Starts at 0, like a fresh dock. */
@@ -1199,27 +1201,49 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     // The fake store mirrors main's asymmetry exactly: `credentials` holds no value field, and
     // `credentialAdd` DISCARDS the value it is handed rather than stashing it somewhere a test could
     // read it back. A fake that kept the password would be a fake that could pass a test main fails.
-    credentialList: async () => { calls.push("credentialList"); return [...data.credentials]; },
+    credentialList: async (profileId) => {
+      calls.push("credentialList");
+      return data.credentials.filter((c) => (c.profileId ?? "p1") === profileId).map(({ profileId: _p, ...c }) => c);
+    },
     credentialStatus: async () => { calls.push("credentialStatus"); return { ...data.credentialStatus }; },
-    credentialAdd: async (input) => {
+    credentialAdd: async (profileId, input) => {
       calls.push(`credentialAdd:${input.origin}`);
       const row = { id: `cred-${data.credentials.length + 1}`, origin: input.origin, username: input.username, label: input.label, createdAt: 0 };
-      data.credentials.push(row);
+      data.credentials.push({ ...row, profileId });
       return row;
     },
-    credentialRemove: async (id) => {
+    credentialRemove: async (profileId, id) => {
       calls.push(`credentialRemove:${id}`);
       const before = data.credentials.length;
-      data.credentials = data.credentials.filter((c) => c.id !== id);
+      data.credentials = data.credentials.filter((c) => !(c.id === id && (c.profileId ?? "p1") === profileId));
       return data.credentials.length !== before;
     },
+    credentialShare: async (profileId, id, toProfileId) => {
+      calls.push(`credentialShare:${profileId}:${id}:${toProfileId}`);
+      const row = data.credentials.find((c) => c.id === id && (c.profileId ?? "p1") === profileId);
+      const target = data.profiles.find((p) => p.id === toProfileId);
+      if (!row || !target) return { ok: false, error: "That sign-in is no longer saved here." };
+      data.credentials.push({ ...row, id: `${row.id}-shared-${toProfileId}`, profileId: toProfileId });
+      return { ok: true, profileName: target.name };
+    },
     credentialSetPresenceTtl: async (ms) => { calls.push(`credentialSetPresenceTtl:${ms}`); data.credentialStatus.presenceTtlMs = ms; return ms; },
-    passkeyList: async () => { calls.push("passkeyList"); return [...data.passkeys]; },
-    passkeyRemove: async (id) => {
+    passkeyList: async (profileId) => {
+      calls.push("passkeyList");
+      return data.passkeys.filter((p) => (p.profileId ?? "p1") === profileId).map(({ profileId: _p, ...p }) => p);
+    },
+    passkeyRemove: async (profileId, id) => {
       calls.push(`passkeyRemove:${id}`);
       const before = data.passkeys.length;
-      data.passkeys = data.passkeys.filter((p) => p.id !== id);
+      data.passkeys = data.passkeys.filter((p) => !(p.id === id && (p.profileId ?? "p1") === profileId));
       return data.passkeys.length !== before;
+    },
+    passkeyShare: async (profileId, id, toProfileId) => {
+      calls.push(`passkeyShare:${profileId}:${id}:${toProfileId}`);
+      const row = data.passkeys.find((p) => p.id === id && (p.profileId ?? "p1") === profileId);
+      const target = data.profiles.find((p) => p.id === toProfileId);
+      if (!row || !target) return { ok: false, error: "That passkey is no longer saved here." };
+      data.passkeys.push({ ...row, id: `${row.id}-shared-${toProfileId}`, profileId: toProfileId });
+      return { ok: true, profileName: target.name };
     },
     openTccPane: async (pane) => { calls.push(`openTccPane:${pane}`); },
     macAccessStatus: async () => { calls.push("macAccessStatus"); return structuredClone(data.macAccess); },

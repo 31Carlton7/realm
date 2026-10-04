@@ -113,14 +113,18 @@ export type PasskeyBrokerDeps = {
   /** The pane's real URL, straight off the webContents. Trustworthy page identity is the whole
    *  anti-phishing gate here: every decision below is made on this and never on `rp.id`. */
   pageUrl(paneId: string): string | null;
-  hasPasskeyFor(rpId: string): boolean;
+  /* The store's four doors each name the PANE asking, because the keys behind them are a profile's
+     own (Plan 27 Phase 2) and only main knows whose pane this is: a Work pane's request finds Work's
+     passkeys and registers into Work, and never sees Personal's. */
+  hasPasskeyFor(paneId: string, rpId: string): boolean;
   withPasskeysFor(
+    paneId: string,
     rpId: string,
     kind: "create" | "get",
     use: (keys: PasskeyKeyMaterial[]) => Promise<void>,
   ): Promise<{ ok: true } | { ok: false; refused: "no_passkey" | "no_presence" }>;
-  recordPasskey(input: PasskeyInput): void;
-  notePasskeyUse(credentialId: string, signCount: number): void;
+  recordPasskey(paneId: string, input: PasskeyInput): void;
+  notePasskeyUse(paneId: string, credentialId: string, signCount: number): void;
   /** Whether this Mac can run the presence check at all. False means no Touch ID sensor, and the
    *  user is told that instead of being shown a prompt that could only fail. */
   canPromptPresence(): boolean;
@@ -325,7 +329,7 @@ export class PasskeyBroker {
       await this.refuse(paneId, ask, reply, ask.rpId ?? "another site", "rp_mismatch", "rp_mismatch");
       return;
     }
-    if (ask.kind === "get" && !this.d.hasPasskeyFor(rpId)) {
+    if (ask.kind === "get" && !this.d.hasPasskeyFor(paneId, rpId)) {
       await this.refuse(paneId, ask, reply, rpId, "none", "no_passkey");
       return;
     }
@@ -336,7 +340,7 @@ export class PasskeyBroker {
 
     const known = new Set<string>();
     let released = false;
-    const result = await this.d.withPasskeysFor(rpId, ask.kind, async (keys) => {
+    const result = await this.d.withPasskeysFor(paneId, rpId, ask.kind, async (keys) => {
       for (const key of keys) {
         known.add(key.credentialId);
         await state.cdp.send("WebAuthn.addCredential", {
@@ -374,7 +378,7 @@ export class PasskeyBroker {
     }
     // Everything past release reconciles, INCLUDING a failure that happened after it — that branch is
     // the one where keys are already in the authenticator, so it is the one that most needs clearing.
-    await this.reconcile(state, ask, rpId, known);
+    await this.reconcile(paneId, state, ask, rpId, known);
   }
 
   /** Let the page's promise settle, tell the pane why, and write the audit line — in that order, so
@@ -399,7 +403,7 @@ export class PasskeyBroker {
   }
 
   /** Read what the request left behind, persist it, then clear the authenticator out. */
-  private async reconcile(state: PaneState, ask: PasskeyAsk, rpId: string, known: Set<string>): Promise<void> {
+  private async reconcile(paneId: string, state: PaneState, ask: PasskeyAsk, rpId: string, known: Set<string>): Promise<void> {
     let credentials: Array<Record<string, unknown>> = [];
     try {
       const got = (await state.cdp.send("WebAuthn.getCredentials", { authenticatorId: state.authenticatorId })) as
@@ -415,14 +419,14 @@ export class PasskeyBroker {
         // An assertion happened (or did not — the counter only moves when it did). Written back
         // because a relying party that sees a counter go backwards may treat the authenticator as
         // cloned, and the pane's copy dies with the pane.
-        this.d.notePasskeyUse(credentialId, signCount);
+        this.d.notePasskeyUse(paneId, credentialId, signCount);
         continue;
       }
       // Not one Realm loaded, so the page just registered it. The private key is only readable here,
       // between the authenticator minting it and this function clearing it out.
       const privateKey = typeof c.privateKey === "string" ? c.privateKey : null;
       if (!privateKey) continue;
-      this.d.recordPasskey({
+      this.d.recordPasskey(paneId, {
         rpId,
         userName: ask.userName,
         userDisplayName: ask.userDisplayName,

@@ -25,6 +25,7 @@ import { LayaSection } from "./LayaSection";
 import { Signature } from "./Signature";
 import { KeybindingsPanel } from "../../components/settings/KeybindingsPanel";
 import { SpaceIcon } from "../../components/SpaceIcon";
+import { ShareWith } from "../../components/profiles/ShareWith";
 import { CATEGORY_COPY, SETTINGS_GROUPS, searchSettings, settingPlace, type SettingEntry, type SettingsTab } from "./settings-index";
 
 /**
@@ -1688,18 +1689,29 @@ const PRESENCE_TTL_LABELS: Record<number, string> = { 0: "Every time", 60_000: "
  * The list is metadata: origin, username, label. There is no reveal button and no edit-in-place for
  * the value, because main has no method that would answer one. Changing a password means saving a new
  * sign-in and removing the old.
+ *
+ * Everything here is the window's PROFILE's (Plan 27 Phase 2), as its browser cookies are: a sign-in
+ * saved here is offered only to that profile's agents and panes. Share with ▸ copies one into another
+ * profile.
  */
 function SignInsTab() {
-  const credentials = useApp((s) => s.credentials);
-  const passkeys = useApp((s) => s.passkeys);
+  const profileId = useApp((s) => s.activeProfileId());
+  const profile = useApp((s) => s.profiles.find((p) => p.id === profileId) ?? null);
+  // A list read for another profile is never shown as this one's — a profile switch with this tab
+  // open would otherwise show the last profile's rows under this profile's name.
+  const loaded = useApp((s) => s.credentialsProfileId !== null && s.credentialsProfileId === profileId);
+  const credentials = useApp((s) => (loaded ? s.credentials : null));
+  const passkeys = useApp((s) => (loaded ? s.passkeys : null));
   const status = useApp((s) => s.credentialStatus);
   const refreshCredentials = useApp((s) => s.refreshCredentials);
   const addCredential = useApp((s) => s.addCredential);
   const removeCredential = useApp((s) => s.removeCredential);
   const removePasskey = useApp((s) => s.removePasskey);
+  const shareCredential = useApp((s) => s.shareCredential);
+  const sharePasskey = useApp((s) => s.sharePasskey);
   const setCredentialPresenceTtl = useApp((s) => s.setCredentialPresenceTtl);
   const run = useApp((s) => s.run);
-  useEffect(() => { void run(() => refreshCredentials()); }, [run, refreshCredentials]);
+  useEffect(() => { if (profileId) void run(() => refreshCredentials(profileId)); }, [run, refreshCredentials, profileId]);
 
   const [origin, setOrigin] = useState("");
   const [username, setUsername] = useState("");
@@ -1712,13 +1724,14 @@ function SignInsTab() {
    *  work?" of someone who can see that it did. */
   const [adding, setAdding] = useState(false);
 
-  const canSave = origin.trim() !== "" && value !== "" && !saving;
+  const canSave = origin.trim() !== "" && value !== "" && !saving && profileId !== null;
 
   async function save() {
+    if (!profileId) return;
     setError(null);
     setSaving(true);
     try {
-      await addCredential({ origin: origin.trim(), username: username.trim(), label: label.trim(), value });
+      await addCredential(profileId, { origin: origin.trim(), username: username.trim(), label: label.trim(), value });
       // Cleared on success AND only on success: a rejected save keeps what the user typed so they can
       // fix the address without retyping the password.
       setOrigin(""); setUsername(""); setLabel(""); setValue("");
@@ -1745,6 +1758,12 @@ function SignInsTab() {
         <p className="settings-hint" role="alert">
           This Mac has no Touch ID sensor. Sign-ins can be saved, but filling one always needs Touch ID,
           so fills will be refused here.
+        </p>
+      )}
+      {profile && (
+        <p className="settings-hint" data-setting="signins-profile">
+          These are {profile.name}'s. Each profile keeps its own sign-ins and passkeys, as it keeps its own
+          browser cookies, and only {profile.name}'s agents and browser panes can use them.
         </p>
       )}
 
@@ -1778,7 +1797,8 @@ function SignInsTab() {
                   <span className="settings-row-name">{c.origin}</span>
                   <span className="settings-row-desc">{[c.username, c.label].filter(Boolean).join(" · ") || "No username or label"}</span>
                 </div>
-                <button type="button" className="btn-quiet" onClick={() => run(() => removeCredential(c.id))}>Remove</button>
+                {profileId && <ShareWith fromProfileId={profileId} what={`the sign-in for ${c.origin}`} share={(to) => shareCredential(profileId, c.id, to)} />}
+                <button type="button" className="btn-quiet" onClick={() => { if (profileId) run(() => removeCredential(profileId, c.id)); }}>Remove</button>
               </li>
             ))}
           </ul>
@@ -1810,7 +1830,8 @@ function SignInsTab() {
                       .filter(Boolean).join(" · ")}
                   </span>
                 </div>
-                <button type="button" className="btn-quiet" onClick={() => run(() => removePasskey(p.id))}>Remove</button>
+                {profileId && <ShareWith fromProfileId={profileId} what={`the passkey for ${p.rpId}`} share={(to) => sharePasskey(profileId, p.id, to)} />}
+                <button type="button" className="btn-quiet" onClick={() => { if (profileId) run(() => removePasskey(profileId, p.id)); }}>Remove</button>
               </li>
             ))}
           </ul>

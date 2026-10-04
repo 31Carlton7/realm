@@ -9,6 +9,7 @@ import { basename, join } from "node:path";
 import { serverEntry, spawnDaemon, startServer } from "./server-process";
 import { daemonStatePath, readDaemonState, readStateForPort, realmHomePath } from "./daemon-state";
 import { callDaemon, daemonModeEnabled, ensureDaemon, probeDaemon, type HandoffResult } from "./daemon";
+import { ProfileDirectory, isBrowserPartition, type ProfileFacts } from "./profile-directory";
 import { decideHandoff, handoffCopy, type DaemonWork } from "./handoff-policy";
 import { bundleIdOf, DAEMON_HANDOFF_MODE_DEFAULT, DAEMON_HANDOFF_MODE_KEY, resolveHandoffMode, type DaemonState } from "@realm/contracts";
 import { closeDaemonLog, daemonLogPath, openDaemonLog } from "./daemon-log";
@@ -86,6 +87,44 @@ let serverInfo: { port: number; home: string; token: string } | null = null;
 /** RPC over the bridge's socket, for the questions main asks on its own behalf: the tray's counts,
  *  and the window flag the server refuses browser ops by. Null while the bridge is down. */
 let bridgeClient: BridgeClient | null = null;
+
+/** Ask realm-server something: on the bridge when it is up, and on a socket of its own before then —
+ *  the window's first browser panes ask whose they are before the bridge has connected. */
+async function askServer(method: string, params: unknown): Promise<unknown> {
+  if (bridgeClient) return bridgeClient.call(method, params);
+  if (!serverInfo) throw new Error("Realm is still starting up");
+  return callDaemon({ port: serverInfo.port, token: serverInfo.token }, method, params, 5_000);
+}
+
+/**
+ * Profiles as main needs them (profile-directory.ts): each one's browser partition and name, and which
+ * one kept the jar every pane used to share. Asked at launch, again on `profiles.changed`, and on a
+ * miss. A profile that disappears was deleted, and what main holds for it goes with it.
+ */
+const profileDirectory = new ProfileDirectory({
+  fetch: () => askServer("profiles.list", {}),
+  onRemoved: (profile) => forgetProfile(profile),
+});
+
+/** Which profile each browser pane belongs to — its space's, as realm-server said when the view was
+ *  made. Keyed by browser id, which is unique across windows. What the passkey broker and the fill op
+ *  read to find a pane's keys and sign-ins: a pane's secrets are its profile's. */
+const paneProfiles = new Map<string, string>();
+
+/** Whose browser this is, asked of the server (`browsers.profile`). Null for a pane, space or profile
+ *  that is gone — such a pane gets no view rather than a guess at whose cookies to give it. */
+async function browserOwner(browserId: string): Promise<{ profileId: string; partition: string } | null> {
+  try {
+    const r = (await askServer("browsers.profile", { browserId })) as { profileId?: unknown; partition?: unknown } | null;
+    return typeof r?.profileId === "string" && isBrowserPartition(r.partition) ? { profileId: r.profileId, partition: r.partition } : null;
+  } catch { return null; }
+}
+
+/** A deleted profile: its saved sign-ins and passkeys go with it. Copies it shared stay with the
+ *  profiles they were shared into. */
+function forgetProfile(profile: ProfileFacts): void {
+  secrets()?.forgetProfile(profile.id);
+}
 
 /**
  * The menu-bar item, up whenever the window is not.
@@ -360,11 +399,23 @@ async function createWindow(info: { port: number; home: string; token: string })
    */
   const passkeys = new PasskeyBroker({
     pageUrl: (paneId) => browserPane?.pageState(paneId)?.url ?? null,
-    hasPasskeyFor: (rpId) => secrets()?.hasPasskeyFor(rpId) ?? false,
-    withPasskeysFor: async (rpId, kind, use) =>
-      secrets()?.withPasskeysFor(rpId, kind, use) ?? { ok: false, refused: "no_passkey" },
-    recordPasskey: (input) => { secrets()?.recordPasskey(input); },
-    notePasskeyUse: (credentialId, signCount) => { secrets()?.notePasskeyUse(credentialId, signCount); },
+    // A pane's passkeys are its profile's. A pane main has no profile for has none.
+    hasPasskeyFor: (paneId, rpId) => {
+      const profileId = paneProfiles.get(paneId);
+      return profileId ? secrets()?.hasPasskeyFor(profileId, rpId) ?? false : false;
+    },
+    withPasskeysFor: async (paneId, rpId, kind, use) => {
+      const profileId = paneProfiles.get(paneId);
+      return (profileId ? await secrets()?.withPasskeysFor(profileId, rpId, kind, use) : null) ?? { ok: false, refused: "no_passkey" };
+    },
+    recordPasskey: (paneId, input) => {
+      const profileId = paneProfiles.get(paneId);
+      if (profileId) secrets()?.recordPasskey(profileId, input);
+    },
+    notePasskeyUse: (paneId, credentialId, signCount) => {
+      const profileId = paneProfiles.get(paneId);
+      if (profileId) secrets()?.notePasskeyUse(profileId, credentialId, signCount);
+    },
     // Biometrics only, like every other presence check here: `promptTouchID` has no password
     // fallback, so a Mac without a sensor is told so rather than shown a prompt that cannot pass.
     canPromptPresence: () => process.platform === "darwin" && systemPreferences.canPromptTouchID(),
@@ -388,18 +439,19 @@ async function createWindow(info: { port: number; home: string; token: string })
     // The fill op's only reach into the store. Passed as an object of bound methods rather than the
     // store itself, so the executor host cannot reach `exportOauthKey` or anything added later.
     secrets: {
-      listCredentials: () => secrets()?.listCredentials() ?? [],
-      getCredential: (id) => secrets()?.getCredential(id) ?? null,
-      withCredentialValue: async (id, use) => secrets()?.withCredentialValue(id, use) ?? { ok: false, refused: "no_credential" },
+      listCredentials: (profileId) => secrets()?.listCredentials(profileId) ?? [],
+      getCredential: (profileId, id) => secrets()?.getCredential(profileId, id) ?? null,
+      withCredentialValue: async (profileId, id, use) => secrets()?.withCredentialValue(profileId, id, use) ?? { ok: false, refused: "no_credential" },
       audit: (entry) => secrets()?.audit(entry),
     },
+    profileOf: (id) => (pane.hasView(id) ? paneProfiles.get(id) ?? null : null),
     downloads: downloadGovernor,
     // The `upload` op's drop route, and nothing else. The path is already resolved, symlink-checked,
     // confined and user-approved by the time it reaches here — realm-server did all of that before
     // it raised the permission card — so this reads exactly what it was handed and decides nothing.
     readFile: async (path) => new Uint8Array(await readFile(path)),
   });
-  pane.onViewDestroyed((id) => { host.release(id); passkeys.release(id); });
+  pane.onViewDestroyed((id) => { host.release(id); passkeys.release(id); paneProfiles.delete(id); });
   agentHost = host;
   // Downloads on the browser partition are DEFAULT-DENY (Plan 11 W3), narrowed by Plan 23 to let
   // through exactly those covered by a live one-shot grant from an approved `browser_download`.
@@ -425,7 +477,12 @@ async function createWindow(info: { port: number; home: string; token: string })
 
 // Browser pane (Plan 11 W1): the renderer drives the native WebContentsViews over this surface.
 // Mutations are invokes; the per-frame bounds sync is a plain send (no reply to wait on).
-ipcMain.handle("browser:create", (_e, id: string, url: string, allowlist: string[] | null) => { browserHost?.create(id, url, allowlist); });
+ipcMain.handle("browser:create", async (_e, id: string, url: string, allowlist: string[] | null) => {
+  const owner = await browserOwner(String(id));
+  if (!owner) throw new Error("This browser's space or profile is gone, so it has nowhere to open.");
+  paneProfiles.set(String(id), owner.profileId);
+  browserHost?.create(id, url, allowlist);
+});
 ipcMain.handle("browser:destroy", (_e, id: string) => { browserHost?.destroy(id); });
 // The pane went away without the browser being closed — a space or pane-group switch. The view
 // keeps running, hidden, until the pane comes back or the off-screen budget evicts it.
@@ -638,6 +695,9 @@ function secrets(): SecretStore | null {
         : Promise.resolve(false),
     now: () => Date.now(),
     newId,
+    // Sign-ins saved before they were a profile's own belong to the profile that kept the shared
+    // browser partition — the one their cookies stayed with.
+    defaultProfileId: () => profileDirectory.defaultProfileId(),
   });
   return secretStore;
 }
@@ -676,7 +736,14 @@ ipcMain.handle("browser:save-download", async (_e, browserId: string, id: string
   });
 });
 
-ipcMain.handle("credentials:list", (): BrowserCredential[] => secrets()?.listCredentials() ?? []);
+/** A profile id as the renderer names one. Not a lookup — the store answers an unknown profile with
+ *  nothing — only a guard against a value that is not an id at all. */
+const profileArg = (v: unknown): string => (typeof v === "string" && /^[0-9A-Za-z]{1,64}$/.test(v) ? v : "");
+
+ipcMain.handle("credentials:list", (_e, profileId: unknown): BrowserCredential[] => {
+  const pid = profileArg(profileId);
+  return pid ? secrets()?.listCredentials(pid) ?? [] : [];
+});
 ipcMain.handle("credentials:status", () => ({
   available: secrets()?.available ?? false,
   // Surfaced so Settings can say plainly that this Mac cannot fill, rather than letting the user
@@ -684,21 +751,36 @@ ipcMain.handle("credentials:status", () => ({
   canPromptTouchID: process.platform === "darwin" && systemPreferences.canPromptTouchID(),
   presenceTtlMs: secrets()?.presenceTtlMs ?? 0,
 }));
-ipcMain.handle("credentials:add", (_e, input: unknown): BrowserCredential => {
+ipcMain.handle("credentials:add", async (_e, profileId: unknown, input: unknown): Promise<BrowserCredential> => {
   const store = secrets();
   if (!store) throw new Error("Realm is still starting up; try saving the sign-in again in a moment");
+  // Saved into a profile that exists, or not at all: a sign-in under an id nobody holds is one no
+  // pane will ever be offered.
+  const owner = await profileDirectory.resolve(profileArg(profileId));
+  if (!owner) throw new Error("That profile no longer exists, so the sign-in was not saved.");
   const parsed = BrowserCredentialInputSchema.safeParse(input);
   // The zod error is NOT forwarded: it echoes the parsed input, and the parsed input is the password.
   if (!parsed.success) throw new Error("That sign-in is missing something — check the address and password fields.");
   try {
-    return store.addCredential(parsed.data);
+    return store.addCredential(owner.id, parsed.data);
   } catch (e) {
     // Same reason. `SecretStoreError` messages are written for a person and carry no input; anything
     // else is replaced wholesale rather than stringified.
     throw new Error(e instanceof SecretStoreError ? e.message : "That sign-in could not be saved.");
   }
 });
-ipcMain.handle("credentials:remove", (_e, id: string): boolean => secrets()?.removeCredential(String(id)) ?? false);
+ipcMain.handle("credentials:remove", (_e, profileId: unknown, id: string): boolean => secrets()?.removeCredential(profileArg(profileId), String(id)) ?? false);
+/**
+ * Settings ▸ Sign-ins' Share with ▸ <profile>: COPY one of this profile's sign-ins into another. The
+ * original stays. Main answers with the profile's name, so the row can say what happened in words the
+ * person chose. Nothing here returns a value — the copy is ciphertext moved inside the store.
+ */
+ipcMain.handle("credentials:share", async (_e, profileId: unknown, id: unknown, toProfileId: unknown) => {
+  const target = await profileDirectory.resolve(profileArg(toProfileId));
+  if (!target) return { ok: false as const, error: "That profile no longer exists." };
+  const copy = secrets()?.shareCredential(profileArg(profileId), String(id), target.id) ?? null;
+  return copy ? { ok: true as const, profileName: target.name } : { ok: false as const, error: "That sign-in is no longer saved here." };
+});
 
 /**
  * Settings → Sign-ins also lists the passkeys Realm holds, and this is the only way to remove one.
@@ -707,8 +789,19 @@ ipcMain.handle("credentials:remove", (_e, id: string): boolean => secrets()?.rem
  * created by a site asking for one in a pane and the user answering Touch ID — there is nothing for a
  * person to type, and nothing an agent could call to mint one.
  */
-ipcMain.handle("passkeys:list", (): Passkey[] => secrets()?.listPasskeys() ?? []);
-ipcMain.handle("passkeys:remove", (_e, id: string): boolean => secrets()?.removePasskey(String(id)) ?? false);
+ipcMain.handle("passkeys:list", (_e, profileId: unknown): Passkey[] => {
+  const pid = profileArg(profileId);
+  return pid ? secrets()?.listPasskeys(pid) ?? [] : [];
+});
+ipcMain.handle("passkeys:remove", (_e, profileId: unknown, id: string): boolean => secrets()?.removePasskey(profileArg(profileId), String(id)) ?? false);
+/** The passkey half of Share with ▸ <profile>: the key is copied into the other profile's store, and
+ *  both copies count signatures together from then on (`SecretStore.notePasskeyUse`). */
+ipcMain.handle("passkeys:share", async (_e, profileId: unknown, id: unknown, toProfileId: unknown) => {
+  const target = await profileDirectory.resolve(profileArg(toProfileId));
+  if (!target) return { ok: false as const, error: "That profile no longer exists." };
+  const copy = secrets()?.sharePasskey(profileArg(profileId), String(id), target.id) ?? null;
+  return copy ? { ok: true as const, profileName: target.name } : { ok: false as const, error: "That passkey is no longer saved here." };
+});
 ipcMain.handle("credentials:set-presence-ttl", (_e, ms: number): number => secrets()?.setPresenceTtlMs(Number(ms)) ?? 0);
 
 ipcMain.handle("pick-folder", async () => {
@@ -1337,6 +1430,8 @@ app.whenReady().then(async () => {
     const info = await startRealmServer();
     serverInfo = info;
     realmHome = info.home;
+    // Before the first window, so its first browser panes and the sign-ins page find every profile.
+    await profileDirectory.refresh();
     // Media streaming opens only once home is known: `media:poster` writes QuickLook scratch under it.
     handleMediaProtocol();
     // Sweep once at launch; saveTempAttachment sweeps again on every paste, so a session that never
@@ -1367,11 +1462,13 @@ app.whenReady().then(async () => {
     agentBridge = startBrowserAgentBridge({
       port: info.port, token: info.token,
       hasWindow: () => mainWindow !== null && !mainWindow.isDestroyed(),
-      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); },
+      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); void profileDirectory.refresh(); },
       // Both on the same event: the bridge redials every two seconds, which is exactly the cadence a
       // supervisor watching for a dead pid wants, so it needs no clock of its own.
       onDisconnected: () => { bridgeClient = null; sleepGuard.setWorking(0); daemonSupervisor?.onDisconnected(); daemonSupervisor?.tick(); },
       onEvent: (event, payload) => {
+        // A profile made, renamed or deleted: main's partitions, names and sign-ins follow.
+        if (event === "profiles.changed") { void profileDirectory.refresh(); return; }
         // The counts the tray shows change on exactly one event.
         if (event === "session.status") { void refreshTray(); void refreshSleepGuard(); return; }
         // And the resident's own toasts, for the case the renderer used to own alone: with no window

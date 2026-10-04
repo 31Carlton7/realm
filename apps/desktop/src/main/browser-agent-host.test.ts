@@ -9,8 +9,11 @@ const SECRET = "correct horse battery staple";
 function setup(opts: {
   responses?: Record<string, unknown>;
   attachFails?: boolean;
-  /** Omitted = no secret store at all (safeStorage unavailable, or the app still starting). */
-  credentials?: { id: string; origin: string; username: string; label: string; createdAt: number }[];
+  /** Omitted = no secret store at all (safeStorage unavailable, or the app still starting). Each row
+   *  is Work's unless it names another profile. */
+  credentials?: { id: string; origin: string; username: string; label: string; createdAt: number; profileId?: string }[];
+  /** Whose pane b1 is. Omitted = no `profileOf` dep, which is a harness built before profiles. */
+  paneProfile?: string | null;
   presence?: boolean;
   /** Plan 23: a stand-in governor. Omitted = no download support, which must refuse rather than
    *  fall back to writing files. */
@@ -57,10 +60,15 @@ function setup(opts: {
     pageState: (id) => (liveViews.has(id) ? { url: "https://example.com/x", title: "Example", ...(opts.loading ? { loading: opts.loading() } : {}) } : null),
     ...(opts.now ? { now: opts.now } : {}),
     secrets: opts.credentials === undefined ? undefined : {
-      listCredentials: () => [...opts.credentials!],
-      getCredential: (id) => opts.credentials!.find((c) => c.id === id) ?? null,
-      withCredentialValue: async (id, use) => {
-        if (!opts.credentials!.some((c) => c.id === id)) return { ok: false, refused: "no_credential" };
+      listCredentials: (profileId) => opts.credentials!.filter((c) => (c.profileId ?? "pWork") === profileId).map(({ profileId: _p, ...c }) => c),
+      getCredential: (profileId, id) => {
+        const row = opts.credentials!.find((c) => c.id === id && (c.profileId ?? "pWork") === profileId);
+        if (!row) return null;
+        const { profileId: _p, ...c } = row;
+        return c;
+      },
+      withCredentialValue: async (profileId, id, use) => {
+        if (!opts.credentials!.some((c) => c.id === id && (c.profileId ?? "pWork") === profileId)) return { ok: false, refused: "no_credential" };
         if (opts.presence === false) return { ok: false, refused: "no_presence" };
         await use(SECRET);
         return { ok: true };
@@ -77,6 +85,7 @@ function setup(opts: {
       },
     } : undefined,
     readFile: opts.readFile === false ? undefined : async () => new Uint8Array([1, 2, 3]),
+    ...(opts.paneProfile !== undefined ? { profileOf: (id: string) => (liveViews.has(id) ? opts.paneProfile ?? null : null) } : {}),
   });
   return { host, calls, liveViews, audit, grants, touched, emitEvent: (method: string, params: unknown) => emit?.(method, params) };
 }
@@ -296,7 +305,7 @@ describe("BrowserAgentHost — fillCredential", () => {
 
   it("fills on a matching origin and logs exactly timestamp/origin/credentialId/outcome", async () => {
     const { host, calls, audit } = setup({ credentials: [cred] });
-    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork" });
 
     expect(result).toEqual({ ok: true, detail: "filled saved credential for https://example.com" });
     expect(audit).toHaveLength(1);
@@ -310,7 +319,7 @@ describe("BrowserAgentHost — fillCredential", () => {
 
   it("draws NO mark at all, unlike act — no ring, no cursor, no frame, in the one op that does the least in the page", async () => {
     const { host, calls } = setup({ credentials: [cred] });
-    await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
+    await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork" });
     expect(calls.some((c) => c.method === "Runtime.evaluate")).toBe(false);
   });
 
@@ -319,7 +328,7 @@ describe("BrowserAgentHost — fillCredential", () => {
       credentials: [cred],
       responses: { "Page.getNavigationHistory": { currentIndex: 0, entries: [{ url: "https://examp1e.com/x" }] } },
     });
-    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1" }) as { ok: boolean; refused?: string };
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork" }) as { ok: boolean; refused?: string };
 
     expect(result.ok).toBe(false);
     expect(result.refused).toBe("origin_mismatch");
@@ -329,14 +338,14 @@ describe("BrowserAgentHost — fillCredential", () => {
 
   it("a cancelled Touch ID is logged as no_presence", async () => {
     const { host, audit } = setup({ credentials: [cred], presence: false });
-    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1" }) as { ok: boolean; refused?: string };
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork" }) as { ok: boolean; refused?: string };
     expect(result.refused).toBe("no_presence");
     expect(audit[0]).toMatchObject({ outcome: "no_presence" });
   });
 
   it("an unknown id refuses BEFORE touching CDP, and is still logged", async () => {
     const { host, calls, audit } = setup({ credentials: [cred] });
-    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "ghost" }) as { ok: boolean; refused?: string };
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "ghost", profileId: "pWork" }) as { ok: boolean; refused?: string };
 
     expect(result.refused).toBe("no_credential");
     expect(audit[0]).toMatchObject({ outcome: "no_credential", credentialId: "ghost" });
@@ -346,14 +355,38 @@ describe("BrowserAgentHost — fillCredential", () => {
   it("with NO store (safeStorage unavailable) it behaves as if nothing is enrolled — never as a fallback", async () => {
     const { host } = setup();
     expect(await host.handleOp("credentials", {})).toEqual({ credentials: [] });
-    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1" }) as { ok: boolean; refused?: string };
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork" }) as { ok: boolean; refused?: string };
     expect(result.refused).toBe("no_credential");
   });
 
   it("the credentials op returns metadata only — there is no value field to strip", async () => {
     const { host } = setup({ credentials: [cred] });
-    const r = await host.handleOp("credentials", {}) as { credentials: Record<string, unknown>[] };
+    const r = await host.handleOp("credentials", { profileId: "pWork" }) as { credentials: Record<string, unknown>[] };
     expect(Object.keys(r.credentials[0]!).sort()).toEqual(["createdAt", "id", "label", "origin", "username"]);
+  });
+
+  it("lists and fills only the NAMED profile's sign-ins — a call naming none gets none", async () => {
+    /* THE mutants: list every profile's sign-ins, or fill one of another profile's because the id
+       matched. Each is a Personal secret typed into a page by an agent working in Work. */
+    const mine = { ...cred, id: "cred-w" };
+    const theirs = { ...cred, id: "cred-p", profileId: "pPersonal" };
+    const { host, calls, audit } = setup({ credentials: [mine, theirs] });
+    expect(await host.handleOp("credentials", { profileId: "pWork" })).toEqual({ credentials: [{ ...cred, id: "cred-w" }] });
+    expect(await host.handleOp("credentials", {})).toEqual({ credentials: [] });
+    const r = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-p", profileId: "pWork" }) as { ok: boolean; refused?: string };
+    expect(r.refused).toBe("no_credential");
+    expect(audit[0]).toMatchObject({ outcome: "no_credential", credentialId: "cred-p" });
+    expect(calls.some((c) => c.method === "Input.dispatchKeyEvent")).toBe(false);
+  });
+
+  it("refuses to fill a profile's sign-in into a pane of ANOTHER profile, before touching the page", async () => {
+    const { host, calls } = setup({ credentials: [cred], paneProfile: "pPersonal" });
+    const r = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork" }) as { ok: boolean; refused?: string };
+    expect(r.refused).toBe("no_credential");
+    expect(calls).toEqual([]);
+    // The same fill into Work's own pane goes through.
+    const ok = setup({ credentials: [cred], paneProfile: "pWork" });
+    expect(await ok.host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork" })).toMatchObject({ ok: true });
   });
 });
 
