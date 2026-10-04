@@ -566,12 +566,13 @@ ipcMain.handle("browser:create", async (e, id: string, url: string, allowlist: s
   const pane = senderPane(e.sender);
   if (!pane) return;
   // A view composites into ONE window. The same browser asked for in another window — its profile
-  // moved windows — is closed where it was before it opens here, and before its profile is noted,
-  // since closing a view forgets whose it was.
+  // moved windows — is closed where it was before it opens here.
   for (const other of windowPanes.values()) if (other.pane !== pane) other.pane.host.destroy(browserId);
-  paneProfiles.set(browserId, owner.profileId);
   governBrowserDownloads(owner.partition, downloadPolicy);
   pane.host.create(browserId, url, allowlist, owner.partition);
+  // Noted AFTER the view is made: a view rebuilt in a new profile's jar destroys the old one first,
+  // and destroying a view forgets whose it was.
+  paneProfiles.set(browserId, owner.profileId);
 });
 /* The browser was closed or deleted: no window keeps a view of it. */
 ipcMain.handle("browser:destroy", (_e, id: string) => { for (const { pane } of windowPanes.values()) pane.host.destroy(String(id)); });
@@ -1553,8 +1554,10 @@ app.whenReady().then(async () => {
     const info = await startRealmServer();
     serverInfo = info;
     realmHome = info.home;
-    // Before the first window, so its first browser panes and the sign-ins page find every profile.
+    // Before the first window, so its first browser panes and the sign-ins page find every profile —
+    // and so sign-ins saved before profiles had their own are handed to their profile at launch.
     await profileDirectory.refresh();
+    secrets()?.adoptUnownedRows();
     // Media streaming opens only once home is known: `media:poster` writes QuickLook scratch under it.
     handleMediaProtocol();
     // Sweep once at launch; saveTempAttachment sweeps again on every paste, so a session that never

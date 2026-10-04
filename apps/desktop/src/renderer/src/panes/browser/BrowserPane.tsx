@@ -422,6 +422,14 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
   );
   const overlayRef = useRef(pageOverlay);
   overlayRef.current = pageOverlay;
+  /* Whose browser this is (Plan 27 Phase 2): the space's profile, whose cookie jar the view lives in.
+     A space moved to another profile has to take its browser with it, and a view cannot change jars —
+     so the effect below asks main for the view again, and main, finding the jar changed, makes a new
+     one there rather than showing the new profile a page signed in as the old one. Null with no store. */
+  const profileId = useSyncExternalStore(
+    useCallback((cb: () => void) => store?.subscribe(cb) ?? (() => {}), [store]),
+    useCallback(() => store?.getState().spaces.find((sp) => sp.id === item.spaceId)?.profileId ?? null, [store, item.spaceId]),
+  );
   /** The live bounds-sync, published by the effect below so a visibility change can poke it. */
   const syncRef = useRef<(() => void) | null>(null);
 
@@ -567,7 +575,7 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
         void host.retain(browserId);
       });
     };
-  }, [browserId, item.id, item.spaceId, store]);
+  }, [browserId, item.id, item.spaceId, store, profileId]);
 
   /**
    * Push a changed visibility verdict to main.

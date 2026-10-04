@@ -496,6 +496,16 @@ export class SecretStore {
     return true;
   }
 
+  /**
+   * Give rows from before profiles to their profile NOW, rather than at the first read that needs
+   * them. Main calls this whenever it learns the profiles, so the hand-over happens at launch — before
+   * anyone could delete the profile that inherits them, which would otherwise leave them owned by
+   * nobody for good. A no-op once they are placed, and while the profile cannot be named yet.
+   */
+  adoptUnownedRows(): void {
+    this.rows();
+  }
+
   /** A deleted profile's sign-ins and passkeys go with it. Copies shared into other profiles are
    *  theirs, and stay. */
   forgetProfile(profileId: string): void {

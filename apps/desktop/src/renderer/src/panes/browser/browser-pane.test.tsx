@@ -5,7 +5,7 @@ import { BrowserPane, PICK_NOTE_MS, SUGGEST_DEBOUNCE_MS } from "./BrowserPane";
 import { setBrowserBridgesForTests, type BrowserBridges, type BrowserHostBridge, type BrowserServerBridge } from "./browser-client";
 import { SETTLE_MS, shouldShowView, isRealmItemDrag } from "./view-sync";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item } from "../../state/store.test-fakes";
+import { fakeApi, item, space } from "../../state/store.test-fakes";
 import { gridPreset } from "@realm/contracts";
 
 type StateMsg = BrowserViewState;
@@ -295,6 +295,25 @@ describe("BrowserPane", () => {
         <StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible /></StoreContext.Provider>);
       return { store, ...view };
     };
+
+    it("a space moved to another profile asks main for its view again — the view has to change cookie jars", async () => {
+      /* THE mutant: leave the profile out of what the pane's view depends on, and a space moved from
+         Personal to Work keeps showing Personal's signed-in page until something happens to remount it. */
+      const f = fakeBridges({ url: "https://example.com" });
+      const { store } = mountWithStore(f);
+      act(() => store.setState({ spaces: [space("s1", "p1", "Versed")] }));
+      await settle();
+      const creates = () => f.calls.filter((c) => c.startsWith("create:b1:")).length;
+      const before = creates();
+      expect(before).toBeGreaterThan(0);
+      // Something unrelated changes in the store: no new view.
+      act(() => store.setState({ sidebarCollapsed: true }));
+      await settle();
+      expect(creates()).toBe(before);
+      act(() => store.setState({ spaces: store.getState().spaces.map((sp) => (sp.id === "s1" ? { ...sp, profileId: "p2" } : sp)) }));
+      await settle();
+      expect(creates()).toBe(before + 1);
+    });
 
     it("a pane with a page registers the rect its view paints, keyed by the ITEM id", async () => {
       const { store } = mountWithStore(fakeBridges({ url: "https://example.com" }));

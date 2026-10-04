@@ -681,6 +681,20 @@ describe("SecretStore — rows from before profiles (file version 1)", () => {
     expect(later.listCredentials(WORK)).toEqual([]);
   });
 
+  it("adoptUnownedRows places them as soon as main can name the profile, with no read needed", () => {
+    /* THE mutant: adopt only on a read. A profile deleted before anyone opened Settings would leave
+       its old sign-ins owned by nobody, on disk, forever — `forgetProfile` cannot find rows with no
+       profile. */
+    const { text, deps } = v1File();
+    const disk = { file: text as string | null };
+    const store = new SecretStore({ ...deps, readFile: () => disk.file, writeFile: (t) => { disk.file = t; }, defaultProfileId: () => P });
+    store.adoptUnownedRows();
+    const written = JSON.parse(disk.file!) as { credentials: { profileId?: string }[]; passkeys: { profileId?: string }[] };
+    expect([...written.credentials, ...written.passkeys].map((r) => r.profileId)).toEqual([P, P]);
+    store.forgetProfile(P);
+    expect((JSON.parse(disk.file!) as { credentials: unknown[] }).credentials).toEqual([]);
+  });
+
   it("waits, offered to nobody and untouched on disk, while main cannot yet say which profile", () => {
     const { text, deps } = v1File();
     const disk = { file: text as string | null };
