@@ -178,8 +178,7 @@ export function PaneHost(p: PaneHostProps) {
                 tab never mounted is a page an agent cannot drive ("the pane is not open in the
                 app"), and one unmounted is a view the fourth retain evicts. Mounted with
                 `visible={false}`, the view is hidden and kept — what a column per browser bought,
-                without the columns. Every other kind mounts only on screen, as a pane in another
-                group does. */}
+                without the columns. Every other kind mounts only while it is the tab showing. */}
             {item && tabs && tabs.filter((t) => t.id === item.id || t.kind === "browser").map((t) => (
               <div key={t.id} className="pane-slot" hidden={t.id !== item.id || undefined}>
                 <PaneFor item={t} visible={t.id === item.id} focused={t.id === item.id && n.id === p.focusedLeafId} />

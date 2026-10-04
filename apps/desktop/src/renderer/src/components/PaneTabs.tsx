@@ -93,7 +93,7 @@ export function PaneTabs({ leafId, tabs, activeId, onRename }: {
               }}>
               <button type="button" role="tab" className="pane-tab-label" aria-selected={active}
                 aria-label={peek ? `Peek: ${t.title}` : undefined}
-                title={peek ? `${t.title} — a peek, not kept in this space's layout` : t.title}
+                title={peek ? `${t.title} — a peek, not kept in the view` : t.title}
                 draggable={!peek} onDragStart={peek ? undefined : (e) => { e.dataTransfer.setData(REALM_ITEM_TYPE, t.id); e.dataTransfer.effectAllowed = "move"; }}
                 onClick={() => { if (!active) run(() => openItem(t.id, leafId)); }}
                 onDoubleClick={active && !peek ? onRename : undefined}>
