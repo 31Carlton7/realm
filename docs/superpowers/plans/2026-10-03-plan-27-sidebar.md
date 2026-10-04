@@ -257,11 +257,14 @@ still switches rooms underneath, instantly and without the slide (W4).
   spaces.
 - The space row's `groups_json` / `layout_json` retire.
 
-## Decisions for the user
+## Decisions (answered 2026-10-03)
 
-1. Spaces stay as sections of one list, not rooms (B), under the name *spaces*?
-2. Profiles become real isolation (their own cookies, sign-ins and passkeys), switched from the
-   header, with per-profile windows?
-3. Splits become one view at a time, with no named splits — and Views later only if missed?
-4. Needs you is the one list of what waits on you, and the head-band pill and Active go?
-5. Start with Phase 1 now?
+1. **Spaces stay as sections of one list, not rooms, named *spaces*.** Yes.
+2. **Profiles become real isolation, switched from the header, with per-profile windows.** Yes —
+   "with a button for each to share it to another session": each thing a profile keeps to itself
+   (a saved sign-in, a passkey, a site's browser sign-in) gets a button that copies it into another
+   profile.
+3. **Splits become one view at a time, with no named splits.** Yes.
+4. **Needs you is the one list of what waits on you; the pill and Active go.** Yes.
+5. **Build all three phases.** Phase 1 (`feat/sidebar-rail`), Phase 2 (`feat/profiles-real`) and
+   Phase 3 (`feat/one-list-no-rooms`) are built in parallel and merged on `integration/plan-26`.
