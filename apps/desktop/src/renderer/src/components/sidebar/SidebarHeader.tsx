@@ -15,7 +15,7 @@ import { useChord } from "./use-sidebar-model";
  * The profile's name is the one thing here of unbounded length, so it is what gives way to the two
  * glyphs; neither of them ever shrinks.
  */
-export function SidebarHeader() {
+export function SidebarHeader({ hidden = false }: { hidden?: boolean } = {}) {
   const setPaletteOpen = useApp((s) => s.setPaletteOpen);
   const newSessionInstant = useApp((s) => s.newSessionInstant);
   // The tooltip names the agent you will actually get: the last one used, else Realm's fallback.
@@ -25,7 +25,7 @@ export function SidebarHeader() {
   const newSession = useChord("session.new");
   const [dragging, setDragging] = useState(false);
   return (
-    <div className="sb-header">
+    <div className="sb-header" hidden={hidden || undefined}>
       <ProfileSwitcher />
       <span className="sb-header-actions">
         <button type="button" className="icon-btn" aria-label="Search" title={search ? `Search (${search})` : "Search"}

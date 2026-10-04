@@ -12,6 +12,7 @@ import { SpaceIcon } from "../../components/SpaceIcon";
 import { SkillsPanel } from "../../components/settings/SkillsPanel";
 import { MemoryPanel } from "../../components/settings/MemoryPanel";
 import type { PaneProps } from "../registry";
+import { PageRail } from "../../components/page-nav";
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -632,7 +633,9 @@ export function SpacePage({ item }: PaneProps) {
         </button>
       </header>
       <div className="page-body">
-        {/* The sheet's native-radio tab idiom, stood upright: arrow keys move, one tab stop. */}
+        {/* The sheet's native-radio tab idiom, stood upright: arrow keys move, one tab stop. Over the
+            panes it takes the sidebar's column (page-nav.tsx). */}
+        <PageRail label="Overview">
         <fieldset className="page-rail">
           <legend className="visually-hidden">Space page section</legend>
           {PAGE_TABS.map((t) => (
@@ -642,6 +645,7 @@ export function SpacePage({ item }: PaneProps) {
             </label>
           ))}
         </fieldset>
+        </PageRail>
         <div className="page-content" data-wide={tab === "tasks" || undefined}>
           {tab === "general" && <GeneralTab spaceId={spaceId} />}
           {tab === "memory" && <MemoryTab spaceId={spaceId} />}

@@ -1,6 +1,7 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo } from "react";
 import { useApp, useProfileSpaces } from "../../state/store";
+import { usePageNavHost } from "../page-nav";
 import { NeedsYou } from "./NeedsYou";
 import { PinnedGrid } from "./PinnedGrid";
 import { RecentList } from "./RecentList";
@@ -25,6 +26,10 @@ import { useAllItemsFresh, useOpenAnywhere, useProfileRows, useSidebarState } fr
  */
 export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const lens = useApp((s) => s.sidebarLens);
+  // A page over the panes whose own rail has this column (components/page-nav.tsx). Its spaces stay
+  // mounted underneath, hidden, so coming Back finds them as they were left.
+  const pageNav = usePageNavHost();
+  const page = collapsed ? null : pageNav?.claimed ?? null;
   const hydrateSidebarPrefs = useApp((s) => s.hydrateSidebarPrefs);
   const run = useApp((s) => s.run);
   useEffect(() => { run(() => hydrateSidebarPrefs()); }, [hydrateSidebarPrefs, run]);
@@ -32,9 +37,11 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const rows = useProfileRows(state);
   const refresh = useAllItemsFresh();
   return (
-    <aside id="app-sidebar" className="sidebar" data-collapsed={collapsed || undefined} inert={collapsed || undefined}>
-      <SidebarHeader />
-      <div className="sb-list">
+    <aside id="app-sidebar" className="sidebar" data-collapsed={collapsed || undefined} inert={collapsed || undefined}
+      data-page-nav={page !== null || undefined}>
+      <SidebarHeader hidden={page !== null} />
+      {page !== null && pageNav && <PageNavColumn label={page} setSlot={pageNav.setSlot} />}
+      <div className="sb-list" hidden={page !== null || undefined}>
         <div className="space-body">
           <NeedsYou />
           <Pinned onChanged={refresh} />
@@ -49,6 +56,26 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
           answer the keyboard. */}
       <SidebarResizer />
     </aside>
+  );
+}
+
+/**
+ * The column while a page's rail has it: Back, which closes the page and gives the spaces back, and
+ * the slot the page draws its rail into. Back is the column's own way out — the page's bar keeps its
+ * close, and Escape still closes from anywhere — because a sidebar that changed what it lists needs to
+ * say, where it changed, how to change it back.
+ */
+function PageNavColumn({ label, setSlot }: { label: string; setSlot: (el: HTMLElement | null) => void }) {
+  const close = useApp((s) => s.closePageOverlay);
+  return (
+    <div className="sb-page">
+      <div className="sb-page-head">
+        <button type="button" className="sb-page-back" title={`Close ${label} and go back to your spaces (Esc)`} onClick={close}>
+          <Icon name="chevronLeft" size={14} /><span>Back</span>
+        </button>
+      </div>
+      <div className="sb-page-nav" ref={setSlot} />
+    </div>
   );
 }
 

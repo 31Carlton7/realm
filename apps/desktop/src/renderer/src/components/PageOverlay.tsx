@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { PaneFor } from "../panes/registry";
 import { PAGE_LABEL, pageItemOf } from "../state/page-item";
+import { InPageOverlay } from "./page-nav";
 import { useApp } from "../state/store";
 
 /**
@@ -49,7 +50,9 @@ export function PageOverlay() {
   if (!page || !item) return null;
 
   return createPortal(
-    <div className="page-overlay" role="dialog" aria-modal="true" aria-label={PAGE_LABEL[page.kind] ?? "Page"}
+    // Not `aria-modal`: the rail and the sidebar stay live beside it, and a page's own sections may be
+    // drawn in the sidebar's column (page-nav.tsx) — a modal claim would hide them from a screen reader.
+    <div className="page-overlay" role="dialog" aria-label={PAGE_LABEL[page.kind] ?? "Page"}
       data-sidebar-collapsed={sidebarCollapsed || undefined} ref={ref} tabIndex={-1}
       style={{ "--sidebar-w": `${sidebarWidth}px` } as CSSProperties}>
       <header className="page-overlay-bar">
@@ -63,7 +66,7 @@ export function PageOverlay() {
         </button>
       </header>
       <div className="page-overlay-body">
-        <PaneFor item={item} visible focused />
+        <InPageOverlay value={true}><PaneFor item={item} visible focused /></InPageOverlay>
       </div>
     </div>,
     document.body,

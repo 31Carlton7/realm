@@ -7,6 +7,7 @@ import { McpServerForm } from "../../components/sidebar/McpSection";
 import { IconPicker } from "../../components/IconPicker";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import type { PaneProps } from "../registry";
+import { PageRail } from "../../components/page-nav";
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -61,6 +62,7 @@ export function ProfilePage({ item }: PaneProps) {
             read as decoration over the title rather than as navigation beside it. Separate columns
             rather than one, so the gap between them can say "different kind of thing" while the rows
             inside each keep the rail's own rhythm. */}
+        <PageRail label="Profile">
         <div className="page-rail">
           <fieldset className="page-rail-list">
             <legend className="visually-hidden">Profile page section</legend>
@@ -86,6 +88,7 @@ export function ProfilePage({ item }: PaneProps) {
             </nav>
           )}
         </div>
+        </PageRail>
         <div className="page-content">
           {tab === "general" && <ProfileGeneralTab profile={profile} />}
           {tab === "skills" && <ProfileSkillsTab spaceId={spaceId} profileId={profile.id} profileName={profile.name} spaceName={space.name} />}

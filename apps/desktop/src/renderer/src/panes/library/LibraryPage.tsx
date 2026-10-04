@@ -9,6 +9,7 @@ import { ScopeGroups } from "../../components/scoped/ScopeGroups";
 import { LibraryFiles } from "./LibraryFiles";
 import { SkillViewer } from "./SkillViewer";
 import type { PaneProps } from "../registry";
+import { PageRail } from "../../components/page-nav";
 
 /* Files leads. Skills and memory are what you INSTALL into a space and change rarely; files are
    what the work produced, and they are the reason someone opens a Library at all. */
@@ -49,6 +50,24 @@ export function LibraryPage({ item }: PaneProps) {
      from — and a skill opened from the space page would otherwise close onto Files, a tab the user
      never chose. */
   const closeSkill = () => { setLibrarySkill(spaceId, null); setTab("skills"); };
+  /* A section picked from the rail — which, over the panes, is in the sidebar and still showing while
+     a skill is read, Skills lit — goes to that section, out of the skill if one is open. */
+  const shown: LibraryTab = openSkill !== null ? "skills" : tab;
+  const pick = (next: LibraryTab) => { if (openSkill !== null) setLibrarySkill(spaceId, null); setTab(next); };
+  const rail = (
+    <fieldset className="page-rail">
+      <legend className="visually-hidden">Library section</legend>
+      {LIBRARY_TABS.map((t) => (
+        <label key={t.id} className="settings-tab page-rail-tab" data-selected={shown === t.id || undefined}>
+          {/* onClick as well as onChange: a radio that is already checked fires no change, and Skills
+              is checked while a skill is open — clicking it is how the list comes back. */}
+          <input type="radio" name={`library-tab-${item.id}`} value={t.id} checked={shown === t.id}
+            onChange={() => pick(t.id)} onClick={() => { if (openSkill !== null) pick(t.id); }} />
+          {t.label}
+        </label>
+      ))}
+    </fieldset>
+  );
 
   if (!space) return <div className="pane-placeholder muted">This page's space no longer exists.</div>;
 
@@ -70,18 +89,15 @@ export function LibraryPage({ item }: PaneProps) {
         <span className="page-vantage">{space.name}</span>
       </header>
       {openSkill !== null ? (
-        <SkillViewer spaceId={spaceId} id={openSkill} onBack={closeSkill} />
+        <>
+          {/* Reading a skill, the Library's sections stay in the sidebar, so the column does not change
+              under it; in the page there is only the skill, with its own way back beside its name. */}
+          <PageRail label="Library" inline={false}>{rail}</PageRail>
+          <SkillViewer spaceId={spaceId} id={openSkill} onBack={closeSkill} />
+        </>
       ) : (
       <div className="page-body">
-        <fieldset className="page-rail">
-          <legend className="visually-hidden">Library section</legend>
-          {LIBRARY_TABS.map((t) => (
-            <label key={t.id} className="settings-tab page-rail-tab" data-selected={tab === t.id || undefined}>
-              <input type="radio" name={`library-tab-${item.id}`} value={t.id} checked={tab === t.id} onChange={() => setTab(t.id)} />
-              {t.label}
-            </label>
-          ))}
-        </fieldset>
+        <PageRail label="Library">{rail}</PageRail>
         {/* Both ends dissolve, but only when there is something under them — and only over the
             column: a band on the body would be drawn over the rail above it. */}
         <PageScroll>

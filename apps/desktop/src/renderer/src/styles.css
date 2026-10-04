@@ -406,6 +406,33 @@ kbd { font: 11px var(--font-mono); }
 .sb-profile-caret { flex: none; color: var(--rl-text-faint); }
 .sb-header-actions { flex: none; margin-left: auto; display: flex; align-items: center; gap: 2px; }
 .sb-header .icon-btn[data-dragging] { opacity: .45; }
+
+/* ── A page's rail in this column (components/page-nav.tsx) ─────────────────────────────────────
+   While Settings, the Library, a profile's or a space's page is over the panes, the page's own
+   sections take the column rather than standing beside it as a second sidebar. They wear the column's
+   row anatomy — 32px rows, text 8px in from the column's 16px, nothing lit under a passing pointer,
+   the active fill once chosen, the column's own group labels — so it reads as the same sidebar listing
+   something else, under a Back where the profile switcher was. The spaces stay mounted, hidden. */
+.sb-header[hidden], .sb-list[hidden] { display: none; }
+.sb-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.sb-page-head { flex: none; height: 40px; display: flex; align-items: center; padding: 0 10px 0 12px; }
+.sb-page-back { flex: none; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px;
+  border-radius: var(--r-ctl); corner-shape: squircle; font-size: 14px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
+.sb-page-back:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+/* `no-drag` for the whole slot: the column is a window-drag region, and a rail's rows are LABELS,
+   which the button-and-input opt-out above does not reach — a click on one would move the window. */
+.sb-page-nav { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0 16px 16px; overflow-y: auto;
+  -webkit-app-region: no-drag; }
+.sb-page-nav .page-rail { width: auto; align-self: stretch; }
+.sb-page-nav .page-rail:has(.page-rail-list), .sb-page-nav .settings-rail-lists { gap: 4px; }
+.sb-page-nav .page-rail .settings-tab { display: flex; align-items: center; min-height: 32px; padding: 5px 8px;
+  font-size: 14px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
+.sb-page-nav .page-rail .settings-tab:hover { color: var(--rl-text-dim); }
+.sb-page-nav .page-rail .settings-tab[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); }
+.sb-page-nav .page-rail-head { padding: 12px 8px 4px; font-size: 12.5px; }
+/* Settings keeps its search where it is while the pages scroll under it, as it does in the page. */
+.sb-page-nav:has(.settings-rail) { overflow: hidden; }
+.sb-page-nav .page-rail.settings-rail { flex: 1; min-height: 0; max-height: none; gap: 8px; }
 /* The lens: the shared segmented control, across the column, its two readings sharing the width. It
    sits on the column's translucent ground, not on a pane, where the control's opaque track read as a
    hole in the sidebar and the loudest thing in it. So it takes the column's own fills — the track a
@@ -4690,7 +4717,7 @@ select { appearance: none; padding-right: 22px;
 :where(:root:not([data-overlay-scrollbars])) :where(
   /* chrome and navigation. `.space-body` is NOT here — see the carve-out below. */
   .menu, .mention-picker, .skill-picker-list, .mp-list, .mp-detail-body, .ip-grid,
-  .palette-list, .spaces-list, .sheet, .onboarding-stage, .onboarding-body, .page-content, .settings-rail-lists, .summary-scroll, .ql-view,
+  .palette-list, .spaces-list, .sheet, .onboarding-stage, .onboarding-body, .page-content, .settings-rail-lists, .sb-page-nav, .summary-scroll, .ql-view,
   /* the transcript and everything it draws inside itself */
   .transcript, .md pre, .msg-error pre, .tool-well, .tool-body pre, .permission-details pre,
   .code-block, .code-body, .fd-file, .fd-body, .term-out, .md-scroll, .math-display,

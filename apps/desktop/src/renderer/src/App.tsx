@@ -16,6 +16,7 @@ import { ActivitySheet } from "./components/ActivitySheet";
 import { CommandPalette } from "./components/CommandPalette";
 import { QuickChat } from "./components/QuickChat";
 import { PageOverlay } from "./components/PageOverlay";
+import { PageNavProvider } from "./components/page-nav";
 import { SpaceOverview } from "./components/sidebar/SpaceOverview";
 import { useKonami } from "./use-konami";
 import { useKeybindings, useMenuBar } from "./keys";
@@ -616,11 +617,15 @@ export function App() {
       <ScrollbarStyleBridge />
       <RubberBandBridge />
       <PressTrackingBridge />
+      {/* Shared by the sidebar and the page over the panes, whose own rail can take the sidebar's
+          column (components/page-nav.tsx). */}
+      <PageNavProvider>
       <AppShell />
       <ConnectionBanner />
       {/* App-level pages, over the workspace and never inside it. Before the sheets so a sheet opened
           from a page still lands on top of it. */}
       <PageOverlay />
+      </PageNavProvider>
       <SheetHost />
       {/* Over everything and outside the layout: it takes no pane, so it belongs to the window
           rather than to any one space's arrangement of it. */}

@@ -26,6 +26,7 @@ import { Signature } from "./Signature";
 import { KeybindingsPanel } from "../../components/settings/KeybindingsPanel";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import { ShareWith } from "../../components/profiles/ShareWith";
+import { PageRail } from "../../components/page-nav";
 import { CATEGORY_COPY, SETTINGS_GROUPS, searchSettings, settingPlace, type SettingEntry, type SettingsTab } from "./settings-index";
 
 /**
@@ -72,6 +73,7 @@ export function SettingsPage(_props: PaneProps) {
         <div className="page-title"><h1>Settings</h1></div>
       </header>
       <div className="page-body">
+        <PageRail label="Settings">
         <div className="page-rail settings-rail">
           {/* Above the pages it searches, because it answers the question the rail cannot: which page
               is that switch on. Enter takes the first result; Escape gives the page back. */}
@@ -103,6 +105,7 @@ export function SettingsPage(_props: PaneProps) {
             ))}
           </div>
         </div>
+        </PageRail>
         {/* Both ends dissolve, but only when there is something under them — and only over the
             column. The rail is a sibling of the wrapper rather than a thing under a band: a blurred
             tab row reads as a rendering fault, and it is the one row that has to stay legible while
