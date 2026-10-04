@@ -27,7 +27,12 @@ const GUARDED = [
   "components/settings/ScriptsPanel.tsx",
   "components/settings/KeybindingsPanel.tsx",
   "panes/documents/CodeEditor.tsx",
-  "components/sidebar/ChatFeed.tsx",
+  "components/sidebar/RecentList.tsx",
+  "components/sidebar/Rail.tsx",
+  "components/sidebar/SidebarHeader.tsx",
+  "components/sidebar/NeedsYou.tsx",
+  "components/sidebar/SpaceSections.tsx",
+  "components/sidebar/SessionRows.tsx",
 ];
 
 /** Static `className="…"` only. A computed class is out of this parser's reach and is not claimed. */

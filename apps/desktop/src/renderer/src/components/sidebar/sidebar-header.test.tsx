@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { DEFAULT_KEYBINDINGS } from "@realm/contracts";
 import { Sidebar } from "./Sidebar";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, profile, session, space, type FakeData } from "../../state/store.test-fakes";
+import { fakeApi, item, profile, session, space, type FakeData } from "../../state/store.test-fakes";
 import { REALM_NEW_SESSION_TYPE } from "../drag-types";
 import { exited } from "../popover-exit.test-fakes";
 
@@ -146,13 +146,17 @@ describe("the profile switcher", () => {
 
 describe("the lens", () => {
   it("reads Spaces until Recent is picked, and remembers the pick", async () => {
-    const { api, store, container } = await mount({ sessions: [session("se1", "s1", { title: "Fix the login form", updatedAt: Date.now() })] });
+    const { api, store, container } = await mount({
+      sessions: [session("se1", "s1", { title: "Fix the login form", updatedAt: Date.now() })],
+      items: { s1: [item("i-se1", "s1", { kind: "session", refId: "se1", title: "Fix the login form" })] },
+    });
     const lens = within(screen.getByRole("group", { name: "List" }));
     expect(lens.getByRole("radio", { name: "Spaces" })).toBeChecked();
     fireEvent.click(lens.getByRole("radio", { name: "Recent" }));
     await waitFor(() => expect(store.getState().sidebarLens).toBe("recent"));
     expect(api.calls).toContain("setSetting:ui.sidebarLens=recent");
-    await waitFor(() => expect(container.querySelector(".sb-recent, .sb-activity")).not.toBeNull());
+    await waitFor(() => expect(container.querySelector(".sb-recent")).toHaveTextContent("Fix the login form"));
+    expect(container.querySelector(".sb-sections")).toBeNull();
     expect(store.getState().sheet).toBeNull(); // a lens, not a sheet over the work
   });
 

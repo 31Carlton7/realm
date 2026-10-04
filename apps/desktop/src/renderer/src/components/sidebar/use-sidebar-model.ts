@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { chordsForCommand, displayKeyChord, type Item } from "@realm/contracts";
 import { spaceColor } from "@realm/ui";
-import { useApp, useAppStore, useProfileSpaces } from "../../state/store";
+import { useApp, useAppStore, useProfileSpaces, type SpacePageTab } from "../../state/store";
 import { useResolvedMode } from "../../theme/useTheme";
 import { listedSessions, orderSpaces, type SessionRow, type SidebarState } from "./model";
 
@@ -123,6 +123,20 @@ export function useNewSessionIn(): (spaceId: string, worktree?: boolean) => void
     if (store.getState().activeSpaceId !== spaceId) await selectSpace(spaceId);
     await (worktree ? newSessionInWorktree() : newSessionInstant());
   }), [store, selectSpace, newSessionInstant, newSessionInWorktree, run]);
+}
+
+/** A space's own page — "Show more", and the section's ⋯ — on a given tab. */
+export function useOpenSpacePage(): (spaceId: string, tab: SpacePageTab) => void {
+  const store = useAppStore();
+  const selectSpace = useApp((s) => s.selectSpace);
+  const openSpacePage = useApp((s) => s.openSpacePage);
+  const run = useApp((s) => s.run);
+  return useCallback((spaceId: string, tab: SpacePageTab) => run(async () => {
+    // Plan 27: open any space's page in place once rooms retire — today `openSpacePage` opens a page
+    // only over its own room, so the room is switched to that space first.
+    if (store.getState().activeSpaceId !== spaceId) await selectSpace(spaceId);
+    openSpacePage(spaceId, tab);
+  }), [store, selectSpace, openSpacePage, run]);
 }
 
 /** Put a session row away, from whichever space it is in. */

@@ -54,7 +54,7 @@ function NeedsYouItem({ row }: { row: NeedsYouRow }) {
   const answerId = `needs-you-answer-${row.session.id}`;
   return (
     <>
-      <div className="item sb-need" data-actions={waiting ? 1 : 0}>
+      <div className="item" data-actions={waiting ? 1 : 0}>
         <button type="button" className="item-row" aria-label={`${row.title}${where ? ` in ${where}` : ""} — ${said}`}
           title={`${row.title}${where ? ` — ${where}` : ""}`} onClick={() => run(() => revealSession(row.session.id, row.spaceId))}>
           <Icon name={row.scheduled ? "clock" : "session"} size={16} />

@@ -102,7 +102,7 @@ function RailYou() {
   const name = userName.trim() || "You";
   return (
     <>
-      <button ref={anchor} type="button" className="rail-btn rail-you" aria-label={name} aria-haspopup="menu" aria-expanded={open}
+      <button ref={anchor} type="button" className="rail-btn" aria-label={name} aria-haspopup="menu" aria-expanded={open}
         title="Your page and Settings" onClick={() => setOpen((o) => !o)}>
         <Avatar size={24} />
       </button>

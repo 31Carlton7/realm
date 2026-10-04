@@ -1,5 +1,3 @@
-import type { Session } from "@realm/contracts";
-
 /**
  * The Recent lens's arithmetic: which day a session belongs to, and in what order the days come.
  *
@@ -65,9 +63,4 @@ export function groupByDay<T>(rows: readonly T[], at: (row: T) => number, now: n
   return [...byDay.entries()]
     .sort((a, b) => b[0] - a[0])
     .map(([key, grouped]) => ({ key, label: dayLabel(key, now), rows: grouped }));
-}
-
-/** The chat feed's reading — sessions by their own `updatedAt` — until the Recent lens replaces it. */
-export function groupSessionsByDay(sessions: readonly Session[], now: number): { key: number; label: string; sessions: Session[] }[] {
-  return groupByDay(sessions, (s) => s.updatedAt, now).map((d) => ({ key: d.key, label: d.label, sessions: d.rows }));
 }

@@ -324,15 +324,15 @@ describe("§6 motion table", () => {
   });
 
   it("every disclosure in the app opens the same way — one rule, never a second guess at max-height", () => {
-    // The sidebar's archived shelf rides the tool row's declaration rather than carrying a copy.
+    // The sidebar's space sections ride the tool row's declaration rather than carrying a copy.
     // max-height is the alternative, and it is the wrong one twice over: the number has to be
     // guessed, and the easing then runs against a height the content does not have, so a short list
     // snaps and a long one is clipped.
-    for (const sel of [".archived-wrap", ".tool-body-wrap"])
+    for (const sel of [".sb-section-wrap", ".tool-body-wrap"])
       expect(bodiesFor(sel).join(" "), sel).toContain(`transition: grid-template-rows ${dur("--dur-base")} var(--ease-in-out-strong)`);
-    expect(bodiesFor(".archived-wrap[data-open]").join(" ")).toContain("grid-template-rows: 1fr");
+    expect(bodiesFor(".sb-section-wrap[data-open]").join(" ")).toContain("grid-template-rows: 1fr");
     // 0fr only clips against an overflow container; without it the folded rows spill up the sidebar.
-    expect(bodiesFor(".archived-clip").join(" ")).toContain("overflow: hidden");
+    expect(bodiesFor(".sb-section-clip").join(" ")).toContain("overflow: hidden");
     expect(css, "no disclosure may animate max-height").not.toMatch(/transition:[^;]*max-height/);
   });
 
@@ -478,11 +478,14 @@ describe("§6 motion table", () => {
       expect(bodiesFor(`.status-dot[data-status="${s}"]`).join(" "), s).not.toContain("rl-pulse");
   });
 
-  it("the space strip's badge stays still — presence, not a summons", () => {
-    // Deliberately NOT the status dot's ping: this is a rollup for a space nobody is looking at, and
-    // only "waiting on you" asks anyone to go there. A running agent elsewhere needs no attention.
-    expect(bodiesFor('.strip-badge[data-status="running"]').join(" ")).not.toContain("animation");
-    expect(bodiesFor('.strip-badge[data-status="waiting_permission"]').join(" ")).toContain("rl-pulse 0.9s ease-in-out infinite");
+  it("a space's state is the rows' own marks with a count, not a badge with a vocabulary of its own", () => {
+    /* The strip's corner badge is gone with the strip (Plan 27). A section's head says what is going on
+       in its space with the same `.status-dot` its rows wear, a count beside each — one fact, one mark,
+       whether it is about a session or about the space it works in. THE mutant is a second badge style
+       coming back for the head. */
+    expect(RULES.filter((r) => r.selectors.some((sel) => sel.includes(".strip-badge")))).toEqual([]);
+    expect(bodiesFor(".item-tally").join(" ")).toContain("display: flex");
+    expect(bodiesFor(".item-count").join(" ")).toContain("font-variant-numeric: tabular-nums");
   });
 
   it("the greeting's nod is on the ladder like everything else, and the preference takes it away", () => {
@@ -494,9 +497,12 @@ describe("§6 motion table", () => {
     expect(RULES.some((r) => r.selectors.some((sel) => sel.includes("::") && sel.includes("hero-greeting")))).toBe(false);
   });
 
-  it("`will-change` is reserved for the swiper track (§6 performance note)", () => {
+  it("nothing asks for `will-change` now the swiper is gone (§6 performance note)", () => {
+    // The swiper's track was the one surface that earned a promoted layer — it moved under the fingers
+    // every frame. With the spaces as sections nothing slides, and a hint with no motion behind it is a
+    // layer held for nothing.
     const owners = RULES.filter((r) => r.body.includes("will-change")).flatMap((r) => r.selectors);
-    expect(owners).toEqual([".swiper-track"]);
+    expect(owners).toEqual([]);
   });
 });
 
@@ -1522,7 +1528,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     // you can see and cannot confidently click.
     expect(body).toContain("padding-top: calc(var(--fade-top-h) + 4px)");
 
-    expect(bodiesFor(".space-page").join(" ")).toContain("--fade-h: 44px");
+    expect(bodiesFor(".sb-list").join(" ")).toContain("--fade-h: 44px");
     expect(body).not.toContain("--fade-h:");
     // The ramp is the scroller's own mask, reading the same --fade-h, and it runs to TRANSPARENT: the
     // rows' alpha goes to zero and whatever ground was behind them shows — the vibrancy material, or
