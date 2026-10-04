@@ -31,6 +31,10 @@ import { SIDEBAR_WIDTH, clampSidebarWidth } from "../components/sidebar/sidebar-
 import type { SettingsTab } from "../panes/settings/settings-index";
 
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
+export type NewProfileInput = { name: string; icon?: string; color?: string };
+export type UpdateProfileInput = { id: string; name?: string; icon?: string; color?: string };
+/** What deleting a profile takes with it. */
+export type ProfileUsage = { spaces: number; sessions: number };
 export type UpdateSpaceInput = { id: string; name?: string; icon?: string; color?: string; profileId?: string };
 export type UpdateItemInput = { id: string; title?: string; pinned?: boolean; archived?: boolean };
 export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId?: string | null; environmentId?: string | null; model?: string | null; effort?: string | null; permissionMode?: string; title?: string;
@@ -139,8 +143,18 @@ export type ShareResult = { ok: true; profileName: string } | { ok: false; error
 
 export type Api = {
   listProfiles(): Promise<Profile[]>;
-  /** Icon/color are server defaults (`user` / grey) — the sheet only asks for a name. */
-  createProfile(name: string): Promise<Profile>;
+  /** Icon/color left out are the server's defaults (`user` / grey) — the New space sheet's inline
+   *  add asks only for a name; the New profile sheet asks for all three. */
+  createProfile(input: NewProfileInput): Promise<Profile>;
+  /** Plan 27 Phase 2: rename, recolour and re-icon a profile — never its browser partition. */
+  updateProfile(input: UpdateProfileInput): Promise<Profile>;
+  /** Delete a profile with its spaces and their sessions. The server refuses the last profile. */
+  deleteProfile(id: string): Promise<void>;
+  /** What a delete would take with it, for the confirm that says so. */
+  profileUsage(id: string): Promise<ProfileUsage>;
+  /** The profile this WINDOW was opened for (`window.realm.profileId`), or null for the first window,
+   *  which shows whichever profile its saved space is in. */
+  boundProfileId(): string | null;
   /** Global list across all profiles, in user sort order. */
   listSpaces(): Promise<Space[]>;
   listItems(spaceId: string): Promise<Item[]>;
@@ -781,7 +795,7 @@ export type SessionDock = { kind: "summary" } | { kind: "files" } | { kind: "sub
 
 export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "scripts" | "sandbox" | "sessions" | "tasks" | "history";
 /** The profile page's rail (Plan 14 W2). */
-export type ProfilePageTab = "skills" | "connections" | "memory";
+export type ProfilePageTab = "general" | "skills" | "connections" | "memory";
 /** The Settings page's tabs, in rail order — the store holds which one is showing so an opener can land
  *  on one (the browser pane's "Browser settings" opens Sign-ins). */
 /** The Settings rail's pages (`settings-index.ts` owns their order and headings). */
@@ -793,6 +807,8 @@ export type Sheet =
   /** Space settings retired from this union (Plan 12 W3): a space is a PAGE now — a `space-page` item
    *  in the layout, opened via `openSpacePage` — not a modal. */
   | { kind: "new-space" }
+  /** Plan 27 Phase 2: a profile of its own — name, icon, colour. */
+  | { kind: "new-profile" }
   /** Removing a worktree: the one destructive confirm in Plan 7, which must name what would be lost
    *  and pass an acknowledgement it re-read at the moment of confirming (W3). */
   | { kind: "remove-worktree"; environmentId: string }
@@ -1490,8 +1506,21 @@ export type AppState = {
    *  same bounded set the strip shows. Crossing profiles is a deliberate act (chip, or overview). */
   nextSpace(): Promise<void>;
   prevSpace(): Promise<void>;
-  /** Create a profile and merge it into `profiles`; returns it so callers can select it. */
-  createProfile(name: string): Promise<Profile>;
+  /** Create a profile and merge it into `profiles`; returns it so callers can select it. A bare name
+   *  takes the server's default icon and colour (the New space sheet's inline add). */
+  createProfile(input: string | NewProfileInput): Promise<Profile>;
+  /** Plan 27 Phase 2 — profiles made real. Each answers with the server's row, merged into `profiles`. */
+  updateProfile(input: UpdateProfileInput): Promise<Profile>;
+  renameProfile(id: string, name: string): Promise<Profile>;
+  recolourProfile(id: string, color: string): Promise<Profile>;
+  /** Delete a profile with its spaces and sessions (the server stops them as deleting each space
+   *  would, and refuses the last profile). The window falls back to another profile's space. */
+  deleteProfile(id: string): Promise<void>;
+  profileUsage(id: string): Promise<ProfileUsage>;
+  /** Re-read `profiles` — `profiles.changed`, from this window or another. */
+  refreshProfiles(): Promise<void>;
+  /** The New profile sheet (name, icon, colour). */
+  openNewProfileSheet(): void;
   createSpace(input: CreateSpaceInput): Promise<void>;
   updateSpace(input: UpdateSpaceInput): Promise<void>;
   deleteSpace(id: string): Promise<void>;
@@ -2961,7 +2990,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       if (item.kind === "profile-page") {
         // The profile is derived live from the vantage space, exactly as the page itself derives it.
         const profileId = get().spaces.find((sp) => sp.id === item.spaceId)?.profileId;
-        if (profileId) get().setProfilePageTab(profileId, (entry.view ?? "skills") as ProfilePageTab);
+        if (profileId) get().setProfilePageTab(profileId, (entry.view ?? "general") as ProfilePageTab);
       }
     };
     /** The leaf holding the item this space had focused when it was last written, or null when there
@@ -3389,7 +3418,13 @@ await get().refreshCustomThemes().catch(() => {});
         await get().refreshFonts().catch(() => {});
         await hydrateSpaceIcons(spaces);
         set({ spaces });
-        const target = spaces.find((s) => s.id === saved) ?? spaces[0];
+        // A window opened for one profile (Plan 27 Phase 2) lands in that profile — its saved space if
+        // the saved space is that profile's, else its first. The first window has no profile of its
+        // own and lands where the app was last left.
+        const bound = api.boundProfileId();
+        const target = bound !== null
+          ? spaces.find((s) => s.id === saved && s.profileId === bound) ?? spaces.find((s) => s.profileId === bound)
+          : spaces.find((s) => s.id === saved) ?? spaces[0];
         if (target) await get().selectSpace(target.id);
         // Cross-space badges need every session's space + status, not just the active space's.
         await get().refreshAllSessions();
@@ -3567,11 +3602,27 @@ await get().refreshCustomThemes().catch(() => {});
         const list = await api.listEnvironments(sid);
         if (isSpace(sid)) set({ environments: Object.fromEntries(list.map((e) => [e.id, e])) });
       },
-      async createProfile(name) {
-        const p = await api.createProfile(name);
+      async createProfile(input) {
+        const p = await api.createProfile(typeof input === "string" ? { name: input } : input);
         set({ profiles: [...get().profiles.filter((x) => x.id !== p.id), p] });
         return p;
       },
+      async updateProfile(input) {
+        const p = await api.updateProfile(input);
+        set({ profiles: get().profiles.map((x) => (x.id === p.id ? p : x)) });
+        return p;
+      },
+      renameProfile(id, name) { return get().updateProfile({ id, name }); },
+      recolourProfile(id, color) { return get().updateProfile({ id, color }); },
+      profileUsage(id) { return api.profileUsage(id); },
+      async deleteProfile(id) {
+        await api.deleteProfile(id);
+        set({ profiles: get().profiles.filter((p) => p.id !== id) });
+        // Its spaces are gone with it; `refreshSpaces` moves a window that was showing one of them.
+        await get().refreshSpaces();
+      },
+      async refreshProfiles() { set({ profiles: await api.listProfiles() }); },
+      openNewProfileSheet() { get().openSheet({ kind: "new-profile" }); },
       async createSpace(input) {
         const s = await api.createSpace(input);
         set({ spaces: [...get().spaces.filter((x) => x.id !== s.id), s] });

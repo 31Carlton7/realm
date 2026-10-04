@@ -7,7 +7,11 @@ import type { Api } from "./store";
  *  Kept out of store.ts so the store (and its tests) never pull in xterm or the rpc singleton. */
 export const liveApi = (): Api => ({
   listProfiles: () => rpc().call("profiles.list", {}),
-  createProfile: (name) => rpc().call("profiles.create", { name }),
+  createProfile: (input) => rpc().call("profiles.create", input),
+  updateProfile: (input) => rpc().call("profiles.update", input),
+  deleteProfile: async (id) => { await rpc().call("profiles.delete", { id }); },
+  profileUsage: (id) => rpc().call("profiles.usage", { id }),
+  boundProfileId: () => window.realm.profileId ?? null,
   listSpaces: () => rpc().call("spaces.list", {}),
   listItems: (spaceId) => rpc().call("items.list", { spaceId }),
   listAllItems: () => rpc().call("items.listAll", {}),

@@ -1,13 +1,17 @@
-import { MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type McpServer, type Skill } from "@realm/contracts";
+import { MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, SPACE_COLORS, type McpServer, type Profile, type Skill } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useState } from "react";
-import { useApp, type ProfilePageTab } from "../../state/store";
+import { useApp, type ProfilePageTab, type ProfileUsage } from "../../state/store";
 import { MoveScopeConfirm } from "../../components/scoped/ScopeGroups";
 import { McpServerForm } from "../../components/sidebar/McpSection";
+import { IconPicker } from "../../components/IconPicker";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import type { PaneProps } from "../registry";
 
+const HEX = /^#[0-9a-f]{6}$/i;
+
 const PROFILE_TABS: { id: ProfilePageTab; label: string }[] = [
+  { id: "general", label: "General" },
   { id: "skills", label: "Skills" },
   { id: "connections", label: "Connections" },
   { id: "memory", label: "Memory" },
@@ -36,7 +40,7 @@ export function ProfilePage({ item }: PaneProps) {
   const profile = useApp((s) => s.profiles.find((p) => p.id === space?.profileId));
   const spaces = useApp((s) => s.spaces);
   const selectSpace = useApp((s) => s.selectSpace);
-  const tab = useApp((s) => (profile ? s.profilePageTab[profile.id] : undefined) ?? "skills");
+  const tab = useApp((s) => (profile ? s.profilePageTab[profile.id] : undefined) ?? "general");
   const setProfilePageTab = useApp((s) => s.setProfilePageTab);
   const navigateInPane = useApp((s) => s.navigateInPane); // tabs are stops on the pane's trail
 
@@ -83,10 +87,119 @@ export function ProfilePage({ item }: PaneProps) {
           )}
         </div>
         <div className="page-content">
+          {tab === "general" && <ProfileGeneralTab profile={profile} />}
           {tab === "skills" && <ProfileSkillsTab spaceId={spaceId} profileId={profile.id} profileName={profile.name} spaceName={space.name} />}
           {tab === "connections" && <ProfileConnectionsTab spaceId={spaceId} profileId={profile.id} profileName={profile.name} spaceName={space.name} />}
           {tab === "memory" && <ProfileMemoryTab profileId={profile.id} profileName={profile.name} />}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The General tab (Plan 27 Phase 2): the profile's name, icon and colour, and deleting it. A profile is
+ * an identity now — its own spaces, browser cookies, saved sign-ins and passkeys — so this is where it
+ * is edited, as a space is on its own page.
+ */
+function ProfileGeneralTab({ profile }: { profile: Profile }) {
+  const renameProfile = useApp((s) => s.renameProfile);
+  const updateProfile = useApp((s) => s.updateProfile);
+  const recolourProfile = useApp((s) => s.recolourProfile);
+  const run = useApp((s) => s.run);
+  const [name, setName] = useState(profile.name);
+  const [hex, setHex] = useState(profile.color);
+  useEffect(() => { setName(profile.name); }, [profile.name]);
+  useEffect(() => { setHex(profile.color); }, [profile.color]);
+  const commitName = () => {
+    const n = name.trim();
+    if (n && n !== profile.name) run(() => renameProfile(profile.id, n));
+    else setName(profile.name);
+  };
+  const commitHex = (v: string) => {
+    const h = v.trim().toLowerCase();
+    setHex(h);
+    if (HEX.test(h) && h !== profile.color) run(() => recolourProfile(profile.id, h));
+  };
+  return (
+    <div className="form">
+      <label className="field"><span>Name</span>
+        <input aria-label="Profile name" value={name} onChange={(e) => setName(e.target.value)} onBlur={commitName}
+          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
+      </label>
+      <div className="field"><span>Icon</span>
+        <IconPicker icon={profile.icon} profileId={profile.id} onPick={(icon) => run(() => updateProfile({ id: profile.id, icon }))} />
+      </div>
+      <div className="field"><span>Colour</span>
+        <div className="swatches" role="radiogroup" aria-label="Colour">
+          {SPACE_COLORS.map((c) => (
+            <button key={c} type="button" role="radio" aria-checked={profile.color === c} aria-label={`Colour ${c}`} className="swatch"
+              data-selected={profile.color === c || undefined} style={{ background: c }} onClick={() => commitHex(c)} />
+          ))}
+          <input aria-label="Custom colour" className="hex" value={hex} onChange={(e) => commitHex(e.target.value)} placeholder="#rrggbb" spellCheck={false} />
+        </div>
+      </div>
+      <DeleteProfile profile={profile} />
+    </div>
+  );
+}
+
+/** "3 spaces and 12 sessions" — what the delete takes, counted, in words. */
+export function usageWords(u: ProfileUsage): string {
+  const spaces = u.spaces === 1 ? "1 space" : `${u.spaces} spaces`;
+  const sessions = u.sessions === 1 ? "1 session" : `${u.sessions} sessions`;
+  return `${spaces} and ${sessions}`;
+}
+
+/**
+ * Deleting a profile, guarded the way the thing it destroys deserves. It takes the profile's spaces and
+ * every session in them — running agents are stopped — and its browser cookies, saved sign-ins and
+ * passkeys. So the confirm says how much, in counts read from the server at the moment it opens, and
+ * asks for the profile's name to be typed: a stray click on the second button of a two-step confirm is
+ * exactly the accident this cannot afford. The last profile is never offered — every space needs one —
+ * and the button says why rather than vanishing.
+ */
+function DeleteProfile({ profile }: { profile: Profile }) {
+  const last = useApp((s) => s.profiles.length <= 1);
+  const profileUsage = useApp((s) => s.profileUsage);
+  const deleteProfile = useApp((s) => s.deleteProfile);
+  const run = useApp((s) => s.run);
+  const [usage, setUsage] = useState<ProfileUsage | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [typed, setTyped] = useState("");
+  const open = () => { setTyped(""); setUsage(null); setAsking(true); void profileUsage(profile.id).then(setUsage, () => setUsage(null)); };
+  if (last) {
+    return (
+      <div className="form-actions danger-zone">
+        <button type="button" className="btn danger" disabled>Delete profile…</button>
+        <span className="muted">This is the only profile, so it can't be deleted. Make another profile first.</span>
+      </div>
+    );
+  }
+  if (!asking) {
+    return (
+      <div className="form-actions danger-zone">
+        <button type="button" className="btn danger" onClick={open}>Delete profile…</button>
+      </div>
+    );
+  }
+  const matches = typed.trim() === profile.name;
+  return (
+    <div className="field danger-zone profile-delete" role="group" aria-label={`Delete ${profile.name}`}>
+      <p className="settings-hint">
+        {usage === null
+          ? `Deleting ${profile.name} deletes its spaces and every session in them.`
+          : `Deleting ${profile.name} deletes its ${usageWords(usage)}.`}{" "}
+        Running agents in them are stopped, and its browser sign-ins, saved sign-ins and passkeys are
+        deleted. Folders on disk are kept.
+      </p>
+      <label className="settings-input-label">Type {profile.name} to confirm
+        <input aria-label={`Type ${profile.name} to confirm`} value={typed} autoComplete="off" spellCheck={false}
+          onChange={(e) => setTyped(e.target.value)} />
+      </label>
+      <div className="form-actions">
+        <button type="button" className="btn" onClick={() => setAsking(false)}>Cancel</button>
+        <button type="button" className="btn danger" disabled={!matches} onClick={() => run(() => deleteProfile(profile.id))}>Delete {profile.name}</button>
       </div>
     </div>
   );

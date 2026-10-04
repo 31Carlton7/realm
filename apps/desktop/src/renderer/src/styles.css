@@ -2600,6 +2600,12 @@ button.panel-title:hover { background: var(--rl-hover); }
 .swatches { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .swatch { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; }
 .swatch[data-selected] { border-color: var(--rl-text-bright); }
+/* A new profile's icon choices sit in the colour row's grammar — same size, same selected ring — on
+   the inset ground, since an icon is not a colour to show. */
+.profile-icon-choice { width: 30px; height: 30px; display: inline-grid; place-items: center; background: var(--inset); color: var(--rl-text-dim); }
+.profile-icon-choice[data-selected] { color: var(--rl-text-bright); }
+/* Deleting a profile is a section, not a row: the counts, the name to type, then the two buttons. */
+.profile-delete { flex-direction: column; align-items: stretch; gap: 10px; }
 .hex { width: 90px; height: 26px; padding: 0 8px; border-radius: var(--r-chip); border: var(--hairline-w) solid var(--rl-line); background: var(--rl-panel); font: 12px var(--font-mono); }
 /* The gap is what sets it apart, not a rule across the form. What makes this section dangerous is
    the colour of the button in it. */

@@ -16,6 +16,10 @@ contextBridge.exposeInMainWorld("realm", {
    *  loopback, which a WebSocket dial from any web page can reach — CORS does not apply to it — so
    *  without this the renderer is not the only thing that can call `sessions.create`. */
   token: arg("realm-token") ?? "",
+  /** The profile this window was opened for — a window per profile (Plan 27 Phase 2) — or undefined
+   *  for the first window. Main passes it on the command line it builds the window with; the store's
+   *  boot lands in that profile. */
+  profileId: arg("realm-profile") || undefined,
   /** The window's page zoom (⌘+/⌘−/⌘0, Chromium's own through the View menu). 1 at 100%.
    *
    *  A getter rather than a subscription because Chromium fires no zoom event, and a value rather

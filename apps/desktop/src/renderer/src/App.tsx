@@ -4,6 +4,7 @@ import { bannerFor, type DaemonUiState } from "./components/daemon-banner";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { SidebarToggle } from "./components/sidebar/SidebarToggle";
 import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
+import { NewProfileSheet } from "./components/profiles/NewProfileSheet";
 import { NewLectureSheet, WrapUpLectureSheet } from "./components/LectureSheets";
 import { ArtifactSheet, SessionPlanSheet } from "./panes/session/SessionSummary";
 import { PlynnImportSheet } from "./components/PlynnImportSheet";
@@ -289,6 +290,7 @@ function SheetHost() {
   const sheet = useApp((s) => s.sheet);
   if (!sheet) return null;
   if (sheet.kind === "new-space") return <NewSpaceSheet />;
+  if (sheet.kind === "new-profile") return <NewProfileSheet />;
   if (sheet.kind === "remove-worktree") return <RemoveWorktreeSheet environmentId={sheet.environmentId} />;
   if (sheet.kind === "checkpoints") return <CheckpointsSheet environmentId={sheet.environmentId} sessionId={sheet.sessionId} />;
   if (sheet.kind === "activity") return <ActivitySheet />;

@@ -255,6 +255,8 @@ export type FakeData = {
   tccRows?: TccRow[];
   /** Saved sign-ins. Each is profile p1's unless it names another `profileId` — sign-ins are a
    *  profile's own, and the fake answers each profile with its rows alone, as main does. */
+  /** The profile this fake window was opened for (`window.realm.profileId`); absent = the first window. */
+  boundProfileId?: string | null;
   credentials?: (BrowserCredential & { profileId?: string })[];
   credentialStatus?: CredentialStatus;
   /** Passkeys Realm holds. Like `credentials`, the fixture carries NO private key field — a fake
@@ -377,6 +379,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
   const data: Required<FakeData> = {
     detachedSince: overrides.detachedSince ?? null,
     profiles: overrides.profiles ?? [profile("p1", "Work"), profile("p2", "School")],
+    boundProfileId: overrides.boundProfileId ?? null,
     spaces: overrides.spaces ?? [space("s1", "p1", "Versed", { color: "#7c6cff" }), space("s2", "p1", "Homework", { color: "#3ddc97" })],
     items: overrides.items ?? { s1: [item("i1", "s1", { title: "Terminal" })] },
     projects: overrides.projects ?? {},
@@ -653,11 +656,31 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return { path: to };
     },
     listProfiles: async () => { calls.push("listProfiles"); return data.profiles; },
-    createProfile: async (name) => {
-      calls.push(`createProfile:${name}`);
-      const p = profile(`p${++n}`, name, { icon: "user", color: "#6b7280", sortOrder: data.profiles.length });
+    createProfile: async (input) => {
+      calls.push(`createProfile:${input.name}`);
+      const p = profile(`p${++n}`, input.name, { icon: input.icon ?? "user", color: input.color ?? "#6b7280", sortOrder: data.profiles.length });
       data.profiles.push(p); return p;
     },
+    updateProfile: async (input) => {
+      calls.push(`updateProfile:${input.id}:${JSON.stringify({ name: input.name, icon: input.icon, color: input.color })}`);
+      const p = data.profiles.find((x) => x.id === input.id);
+      if (!p) throw new Error(`profile ${input.id} not found`);
+      Object.assign(p, { ...(input.name !== undefined ? { name: input.name } : {}), ...(input.icon !== undefined ? { icon: input.icon } : {}), ...(input.color !== undefined ? { color: input.color } : {}) });
+      return { ...p };
+    },
+    deleteProfile: async (id) => {
+      calls.push(`deleteProfile:${id}`);
+      // The server's own rule: the last profile cannot go.
+      if (data.profiles.length <= 1) throw new Error("This is the only profile, so it can't be deleted. Make another profile first.");
+      data.profiles = data.profiles.filter((p) => p.id !== id);
+      data.spaces = data.spaces.filter((sp) => sp.profileId !== id);
+    },
+    profileUsage: async (id) => {
+      calls.push(`profileUsage:${id}`);
+      const spaces = data.spaces.filter((sp) => sp.profileId === id);
+      return { spaces: spaces.length, sessions: data.sessions.filter((se) => spaces.some((sp) => sp.id === se.spaceId)).length };
+    },
+    boundProfileId: () => data.boundProfileId ?? null,
     listSpaces: async () => { calls.push("listSpaces"); await wait("listSpaces"); return [...data.spaces]; },
     listItems: async (sid) => { calls.push(`listItems:${sid}`); await wait(`listItems:${sid}`); return data.items[sid] ?? []; },
     listAllItems: async () => {
