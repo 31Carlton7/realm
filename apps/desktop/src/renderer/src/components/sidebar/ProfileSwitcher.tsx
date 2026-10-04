@@ -18,9 +18,11 @@ import { useSidebarState } from "./use-sidebar-model";
 export function ProfileSwitcher() {
   const state = useSidebarState();
   const activeProfileId = useApp((s) => s.activeProfileId());
-  const selectProfile = useApp((s) => s.selectProfile);
+  // Switching brings forward a window already showing that profile, else turns this one to it.
+  const switchProfile = useApp((s) => s.switchProfile);
+  const openProfileWindow = useApp((s) => s.openProfileWindow);
+  const openNewProfileSheet = useApp((s) => s.openNewProfileSheet);
   const openProfilePage = useApp((s) => s.openProfilePage);
-  const openSheet = useApp((s) => s.openSheet);
   const setSpacesOpen = useApp((s) => s.setSpacesOpen);
   const run = useApp((s) => s.run);
   const [open, setOpen] = useState(false);
@@ -53,14 +55,21 @@ export function ProfileSwitcher() {
             icon: <span className="sb-profile-mark" style={{ color: p.color }}><Icon name={p.icon || "user"} size={16} /></span>,
             checked: p.id === activeProfileId,
             disabled: spaceCount(p.id) === 0,
-            onSelect: () => run(() => selectProfile(p.id)),
+            onSelect: () => run(() => switchProfile(p.id)),
+          })),
+          // A profile can have a window of its own, side by side with this one — no switching at all.
+          ...(profiles.length > 1 ? [{ kind: "separator" as const }] : []),
+          ...profiles.filter((p) => p.id !== activeProfileId).map((p) => ({
+            label: `Open ${p.name} in a new window`,
+            icon: <Icon name="layout" size={16} />,
+            disabled: spaceCount(p.id) === 0,
+            onSelect: () => run(() => openProfileWindow(p.id)),
           })),
           { kind: "separator" as const },
           { label: "All spaces…", icon: <Icon name="layout" size={16} />, kbd: "⌘⇧Space", onSelect: () => setSpacesOpen(true) },
           { kind: "separator" as const },
-          { label: "Profile settings…", icon: <Icon name="profile-page" size={16} />, onSelect: () => openProfilePage() },
-          // Plan 27: the profiles helper's own sheet once it lands — today a profile is made in New space.
-          { label: "New profile…", icon: <Icon name="add" size={16} />, onSelect: () => openSheet({ kind: "new-space" }) },
+          { label: "Profile settings…", icon: <Icon name="profile-page" size={16} />, onSelect: () => openProfilePage("general") },
+          { label: "New profile…", icon: <Icon name="add" size={16} />, onSelect: () => openNewProfileSheet() },
         ]} />
       )}
     </>

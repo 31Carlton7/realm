@@ -124,10 +124,22 @@ describe("the profile switcher", () => {
     await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("profile-page"));
     await exited();
     fireEvent.click((await open()).getByRole("menuitem", { name: "New profile…" }));
-    await waitFor(() => expect(store.getState().sheet).toEqual({ kind: "new-space" }));
+    // The profile's own sheet: a profile is not made by way of a space any more.
+    await waitFor(() => expect(store.getState().sheet).toEqual({ kind: "new-profile" }));
     await exited();
     fireEvent.click((await open()).getByRole("menuitem", { name: /All spaces/ }));
     await waitFor(() => expect(store.getState().spacesOpen).toBe(true));
+  });
+
+  it("opens another profile in a window of its own, and not the one on screen", async () => {
+    // THE MUTANT: offer the active profile too — a profile has at most one window, so that row would
+    // only bring this window forward.
+    const { api } = await mount(data());
+    const menu = await open();
+    expect(menu.queryByRole("menuitem", { name: "Open Work in a new window" })).toBeNull();
+    expect(menu.getByRole("menuitem", { name: "Open Empty in a new window" })).toBeDisabled();
+    fireEvent.click(menu.getByRole("menuitem", { name: "Open School in a new window" }));
+    await waitFor(() => expect(api.calls).toContain("openProfileWindow:p2"));
   });
 
   it("renders its menu in a portal, out of reach of the column's overflow", async () => {
