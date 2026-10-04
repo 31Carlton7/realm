@@ -31,7 +31,7 @@ export const emptyUsageRecords = (extra: Partial<UsageRecords> = {}): UsageRecor
 });
 
 export const profile = (id: string, name: string, extra: Partial<Profile> = {}): Profile =>
-  ({ id, name, icon: "user", color: "#000000", sortOrder: 0, createdAt: 0, updatedAt: 0, ...extra });
+  ({ id, name, icon: "user", color: "#000000", sortOrder: 0, browserPartition: `persist:browser-${id}`, createdAt: 0, updatedAt: 0, ...extra });
 export const space = (id: string, profileId: string, name: string, extra: Partial<Space> = {}): Space =>
   ({ id, profileId, name, icon: "folder", color: "#7c6cff", sortOrder: 0, folderPath: "/tmp", groups: null, layout: null, activeItemId: null, createdAt: 0, updatedAt: 0, ...extra });
 export const item = (id: string, spaceId: string, extra: Partial<Item> = {}): Item =>
@@ -253,11 +253,17 @@ export type FakeData = {
   /** What the main-process TCC probe answers (W6's Permissions tab). Defaults to the two honest
    *  can't-check rows plus three probed ones, mirroring main/tcc.ts's shape. */
   tccRows?: TccRow[];
-  credentials?: BrowserCredential[];
+  /** Saved sign-ins. Each is profile p1's unless it names another `profileId` — sign-ins are a
+   *  profile's own, and the fake answers each profile with its rows alone, as main does. */
+  /** The profile this fake window was opened for (`window.realm.profileId`); absent = the first window. */
+  boundProfileId?: string | null;
+  /** Profiles another (fake) window is showing — what `focusProfileWindow` answers yes for. */
+  profilesInOtherWindows?: string[];
+  credentials?: (BrowserCredential & { profileId?: string })[];
   credentialStatus?: CredentialStatus;
   /** Passkeys Realm holds. Like `credentials`, the fixture carries NO private key field — a fake
-   *  that kept one would be a fake that could pass a test main fails. */
-  passkeys?: Passkey[];
+   *  that kept one would be a fake that could pass a test main fails. p1's unless named. */
+  passkeys?: (Passkey & { profileId?: string })[];
   /** Toasts main actually posted, in order — an OUTPUT, read as `api.data.shownNotifications`. */
   shownNotifications?: { id: string; title: string; body: string | null }[];
   /** The dock badge's last pushed value — also an output. Starts at 0, like a fresh dock. */
@@ -375,6 +381,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
   const data: Required<FakeData> = {
     detachedSince: overrides.detachedSince ?? null,
     profiles: overrides.profiles ?? [profile("p1", "Work"), profile("p2", "School")],
+    boundProfileId: overrides.boundProfileId ?? null,
+    profilesInOtherWindows: overrides.profilesInOtherWindows ?? [],
     spaces: overrides.spaces ?? [space("s1", "p1", "Versed", { color: "#7c6cff" }), space("s2", "p1", "Homework", { color: "#3ddc97" })],
     items: overrides.items ?? { s1: [item("i1", "s1", { title: "Terminal" })] },
     projects: overrides.projects ?? {},
@@ -651,10 +659,36 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return { path: to };
     },
     listProfiles: async () => { calls.push("listProfiles"); return data.profiles; },
-    createProfile: async (name) => {
-      calls.push(`createProfile:${name}`);
-      const p = profile(`p${++n}`, name, { icon: "user", color: "#6b7280", sortOrder: data.profiles.length });
+    createProfile: async (input) => {
+      calls.push(`createProfile:${input.name}`);
+      const p = profile(`p${++n}`, input.name, { icon: input.icon ?? "user", color: input.color ?? "#6b7280", sortOrder: data.profiles.length });
       data.profiles.push(p); return p;
+    },
+    updateProfile: async (input) => {
+      calls.push(`updateProfile:${input.id}:${JSON.stringify({ name: input.name, icon: input.icon, color: input.color })}`);
+      const p = data.profiles.find((x) => x.id === input.id);
+      if (!p) throw new Error(`profile ${input.id} not found`);
+      Object.assign(p, { ...(input.name !== undefined ? { name: input.name } : {}), ...(input.icon !== undefined ? { icon: input.icon } : {}), ...(input.color !== undefined ? { color: input.color } : {}) });
+      return { ...p };
+    },
+    deleteProfile: async (id) => {
+      calls.push(`deleteProfile:${id}`);
+      // The server's own rule: the last profile cannot go.
+      if (data.profiles.length <= 1) throw new Error("This is the only profile, so it can't be deleted. Make another profile first.");
+      data.profiles = data.profiles.filter((p) => p.id !== id);
+      data.spaces = data.spaces.filter((sp) => sp.profileId !== id);
+    },
+    profileUsage: async (id) => {
+      calls.push(`profileUsage:${id}`);
+      const spaces = data.spaces.filter((sp) => sp.profileId === id);
+      return { spaces: spaces.length, sessions: data.sessions.filter((se) => spaces.some((sp) => sp.id === se.spaceId)).length };
+    },
+    boundProfileId: () => data.boundProfileId ?? null,
+    openProfileWindow: async (profileId) => { calls.push(`openProfileWindow:${profileId}`); },
+    /** Another window shows the profile when the test says one does (`profilesInOtherWindows`). */
+    focusProfileWindow: async (profileId) => {
+      calls.push(`focusProfileWindow:${profileId}`);
+      return data.profilesInOtherWindows.includes(profileId);
     },
     listSpaces: async () => { calls.push("listSpaces"); await wait("listSpaces"); return [...data.spaces]; },
     listItems: async (sid) => { calls.push(`listItems:${sid}`); await wait(`listItems:${sid}`); return data.items[sid] ?? []; },
@@ -1199,27 +1233,49 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     // The fake store mirrors main's asymmetry exactly: `credentials` holds no value field, and
     // `credentialAdd` DISCARDS the value it is handed rather than stashing it somewhere a test could
     // read it back. A fake that kept the password would be a fake that could pass a test main fails.
-    credentialList: async () => { calls.push("credentialList"); return [...data.credentials]; },
+    credentialList: async (profileId) => {
+      calls.push("credentialList");
+      return data.credentials.filter((c) => (c.profileId ?? "p1") === profileId).map(({ profileId: _p, ...c }) => c);
+    },
     credentialStatus: async () => { calls.push("credentialStatus"); return { ...data.credentialStatus }; },
-    credentialAdd: async (input) => {
+    credentialAdd: async (profileId, input) => {
       calls.push(`credentialAdd:${input.origin}`);
       const row = { id: `cred-${data.credentials.length + 1}`, origin: input.origin, username: input.username, label: input.label, createdAt: 0 };
-      data.credentials.push(row);
+      data.credentials.push({ ...row, profileId });
       return row;
     },
-    credentialRemove: async (id) => {
+    credentialRemove: async (profileId, id) => {
       calls.push(`credentialRemove:${id}`);
       const before = data.credentials.length;
-      data.credentials = data.credentials.filter((c) => c.id !== id);
+      data.credentials = data.credentials.filter((c) => !(c.id === id && (c.profileId ?? "p1") === profileId));
       return data.credentials.length !== before;
     },
+    credentialShare: async (profileId, id, toProfileId) => {
+      calls.push(`credentialShare:${profileId}:${id}:${toProfileId}`);
+      const row = data.credentials.find((c) => c.id === id && (c.profileId ?? "p1") === profileId);
+      const target = data.profiles.find((p) => p.id === toProfileId);
+      if (!row || !target) return { ok: false, error: "That sign-in is no longer saved here." };
+      data.credentials.push({ ...row, id: `${row.id}-shared-${toProfileId}`, profileId: toProfileId });
+      return { ok: true, profileName: target.name };
+    },
     credentialSetPresenceTtl: async (ms) => { calls.push(`credentialSetPresenceTtl:${ms}`); data.credentialStatus.presenceTtlMs = ms; return ms; },
-    passkeyList: async () => { calls.push("passkeyList"); return [...data.passkeys]; },
-    passkeyRemove: async (id) => {
+    passkeyList: async (profileId) => {
+      calls.push("passkeyList");
+      return data.passkeys.filter((p) => (p.profileId ?? "p1") === profileId).map(({ profileId: _p, ...p }) => p);
+    },
+    passkeyRemove: async (profileId, id) => {
       calls.push(`passkeyRemove:${id}`);
       const before = data.passkeys.length;
-      data.passkeys = data.passkeys.filter((p) => p.id !== id);
+      data.passkeys = data.passkeys.filter((p) => !(p.id === id && (p.profileId ?? "p1") === profileId));
       return data.passkeys.length !== before;
+    },
+    passkeyShare: async (profileId, id, toProfileId) => {
+      calls.push(`passkeyShare:${profileId}:${id}:${toProfileId}`);
+      const row = data.passkeys.find((p) => p.id === id && (p.profileId ?? "p1") === profileId);
+      const target = data.profiles.find((p) => p.id === toProfileId);
+      if (!row || !target) return { ok: false, error: "That passkey is no longer saved here." };
+      data.passkeys.push({ ...row, id: `${row.id}-shared-${toProfileId}`, profileId: toProfileId });
+      return { ok: true, profileName: target.name };
     },
     openTccPane: async (pane) => { calls.push(`openTccPane:${pane}`); },
     macAccessStatus: async () => { calls.push("macAccessStatus"); return structuredClone(data.macAccess); },

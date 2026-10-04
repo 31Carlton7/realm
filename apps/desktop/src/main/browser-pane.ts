@@ -5,11 +5,17 @@ import { attachTextContextMenu } from "./text-context-menu";
 import type { CdpBinding } from "./browser-agent-host";
 import { asDownloadItem, type DownloadDecision, type DownloadItemLike } from "./downloads";
 import type { PasskeyCdp } from "./passkeys";
+import { cookieToSet, siteCookies, siteOf } from "./cookie-share";
 
-/** The browser views' session partition. Persistent and Realm's own: never the user's daily Chrome
- *  profile — they log in once inside Realm, and the isolation is structural (capability research §5:
- *  no shared cookies/autofill/OAuth grants with any real browser). */
-export const BROWSER_PARTITION = "persist:browser";
+/*
+ * The browser views' session partitions. Persistent and Realm's own: never the user's daily Chrome
+ * profile — they log in once inside Realm, and the isolation is structural (capability research §5: no
+ * shared cookies/autofill/OAuth grants with any real browser).
+ *
+ * One per PROFILE (Plan 27 Phase 2), named by realm-server (`Profile.browserPartition`): the first
+ * profile kept `persist:browser`, the jar every pane shared before, and every other profile has
+ * `persist:browser-<id>`. Everything below that reads or writes a partition takes the one it means.
+ */
 
 /** Installs the pane's virtual authenticator and the passkey shim (passkeys.ts). Injected rather
  *  than imported so the factory stays testable and a build without it simply has no passkeys. */
@@ -49,16 +55,26 @@ async function installPasskeys(id: string, wc: WebContents, install: PasskeyInst
 }
 
 /**
- * An icon's bytes, fetched on the panes' own partition — the one session that has ever talked to the
- * site — with no cookies (`credentials: "omit"`) and no referrer (main's requests carry none), and given
- * up past `FAVICON_FETCH_MS` or `FAVICON_MAX_BYTES`. A server error is no answer rather than "no icon":
- * the next page of the site asks again.
+ * An icon's bytes, fetched on the pane's own partition — its profile's, the one session that has ever
+ * talked to the site for this profile — with no cookies (`credentials: "omit"`) and no referrer (main's
+ * requests carry none), and given up past `FAVICON_FETCH_MS` or `FAVICON_MAX_BYTES`. A server error is
+ * no answer rather than "no icon": the next page of the site asks again.
  */
-const fetchFavicon: FaviconFetch = async (url) => {
-  const res = await session.fromPartition(BROWSER_PARTITION).fetch(url, { credentials: "omit", signal: AbortSignal.timeout(FAVICON_FETCH_MS) });
+const fetchFaviconIn = (partition: string): FaviconFetch => async (url) => {
+  const res = await session.fromPartition(partition).fetch(url, { credentials: "omit", signal: AbortSignal.timeout(FAVICON_FETCH_MS) });
   if (res.status >= 500) throw new Error(`favicon ${res.status}`);
   if (!res.ok || !res.body) return null;
   return readCapped(res.body, FAVICON_MAX_BYTES);
+};
+
+/** The icons resolved so far, one memory per partition: a list of icons is a list of the sites they
+ *  came from, so one profile's is not another's to reuse, and a clear forgets it (`clearBrowserPartition`).
+ *  Shared by every window, as the partitions are. */
+const faviconResolvers = new Map<string, ReturnType<typeof createFaviconResolver>>();
+const faviconResolverFor = (partition: string) => {
+  let resolve = faviconResolvers.get(partition);
+  if (!resolve) { resolve = createFaviconResolver(fetchFaviconIn(partition)); faviconResolvers.set(partition, resolve); }
+  return resolve;
 };
 
 /**
@@ -76,11 +92,11 @@ export function electronViewFactory(
   onView?: (id: string, wc: WebContents | null) => void,
   installPasskeysFor?: PasskeyInstaller,
 ): ViewFactory {
-  const resolveFavicon = createFaviconResolver(fetchFavicon);
-  return (id, hooks) => {
+  return (id, hooks, partition) => {
+    applyBrowserUserAgent(partition);
     const view = new WebContentsView({
       webPreferences: {
-        partition: BROWSER_PARTITION,
+        partition,
         // Untrusted web content: full Chromium sandbox, no node, no preload, isolated world.
         sandbox: true, contextIsolation: true, nodeIntegration: false,
         // A browser pane keeps working while its space is off screen, and Chromium's default
@@ -147,7 +163,9 @@ export function electronViewFactory(
     wc.on("did-navigate", () => { asked++; favicon = null; });
     wc.on("page-favicon-updated", (_e, candidates) => {
       const n = ++asked;
-      void resolveFavicon(candidates).then((icon) => {
+      // Looked up at each use rather than kept: a clear forgets the partition's icons, and a view
+      // already open must not go on answering from the memory that was just cleared.
+      void faviconResolverFor(partition)(candidates).then((icon) => {
         if (n !== asked || wc.isDestroyed() || icon === favicon) return;
         favicon = icon;
         hooks.emitState();
@@ -245,6 +263,8 @@ export type BrowserPane = {
    *  The VIEW's own capture: the window's `capturePage` composites no child view and comes back blank
    *  over the whole of the page. */
   capture(id: string): Promise<Uint8Array | null>;
+  /** The partition the view lives in — its profile's — or null when there is no view. */
+  partitionOf(id: string): string | null;
 };
 
 export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: PasskeyInstaller): BrowserPane {
@@ -276,7 +296,6 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
         : wc.debugger.sendCommand("Emulation.clearDeviceMetricsOverride")).catch(() => {});
     },
   });
-  applyBrowserUserAgent();
   // The views composite into this window; they must never outlive it.
   win.on("closed", () => host.destroyAll());
   return {
@@ -295,6 +314,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
       if (wc && !wc.isDestroyed()) wc.downloadURL(url);
     },
     onViewDestroyed: (cb) => destroyedCbs.push(cb),
+    partitionOf: (id) => host.partitionOf(id),
     capture: async (id) => {
       const wc = views.get(id);
       if (!wc || wc.isDestroyed()) return null;
@@ -321,7 +341,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
 }
 
 /**
- * Put the pane user agent on the partition's session. Once per process, like
+ * Put the pane user agent on a partition's session. Once per partition per process, like
  * `governBrowserDownloads` and for the same reason: the session outlives any window, and a second
  * window must not re-derive a string from a UA its own views have already been given.
  *
@@ -329,11 +349,11 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
  * whatever Chromium the app ships without anyone remembering to update it — which is the failure
  * mode a hardcoded UA has, and it fails by claiming an engine version that no longer exists.
  */
-let userAgentApplied = false;
-export function applyBrowserUserAgent(): void {
-  if (userAgentApplied) return;
-  userAgentApplied = true;
-  const ses = session.fromPartition(BROWSER_PARTITION);
+const userAgentApplied = new Set<string>();
+export function applyBrowserUserAgent(partition: string): void {
+  if (userAgentApplied.has(partition)) return;
+  userAgentApplied.add(partition);
+  const ses = session.fromPartition(partition);
   ses.setUserAgent(browserUserAgent(ses.getUserAgent()));
 }
 
@@ -346,18 +366,20 @@ export function applyBrowserUserAgent(): void {
  * why "permit the user, keep blocking the agent" is not implementable at this layer (CDP input is
  * indistinguishable from a real click, so any rule loose enough for a human is loose for the agent).
  *
- * Registered once per partition. `decide` is the governor's; this function only translates its answer
- * into Electron's event API and routes the notice to the pane's console buffer via the wc→browser map.
+ * Registered once per partition — every profile's jar is governed the same way, from the first view
+ * made in it. `decide` is the governor's; this function only translates its answer into Electron's
+ * event API and routes the notice to the pane's console buffer via the wc→browser map.
  */
-let downloadsGoverned = false;
-export function governBrowserDownloads(d: {
+const downloadsGoverned = new Set<string>();
+export type DownloadPolicy = {
   browserIdFor(webContentsId: number): string | null;
   decide(browserId: string | null, item: DownloadItemLike): DownloadDecision;
   onBlocked(webContentsId: number, url: string, reason: string, filename: string): void;
-}): void {
-  if (downloadsGoverned) return;
-  downloadsGoverned = true;
-  session.fromPartition(BROWSER_PARTITION).on("will-download", (event, item, wc) => {
+};
+export function governBrowserDownloads(partition: string, d: DownloadPolicy): void {
+  if (downloadsGoverned.has(partition)) return;
+  downloadsGoverned.add(partition);
+  session.fromPartition(partition).on("will-download", (event, item, wc) => {
     const wcId = wc?.id ?? -1;
     const decision = d.decide(d.browserIdFor(wcId), asDownloadItem(item));
     if (decision.allow) return; // the governor already called setSavePath and wired the item
@@ -369,14 +391,38 @@ export function governBrowserDownloads(d: {
 }
 
 /**
- * Cookies, site storage and the HTTP cache of the browser partition (Plan 26 W7b's Clear browsing
- * data). Every pane's at once, and not as a side effect: the panes share this one partition, which is
- * what keeps a sign-in made in one pane good in the next — and so what one clear takes from all of them.
- * Realm's saved sign-ins and passkeys are not in the partition (they are in the Keychain-sealed secret
- * store), so they are untouched by this.
+ * Cookies, site storage and the HTTP cache of ONE profile's partition (Plan 26 W7b's Clear browsing
+ * data, and a deleted profile's jar). Every pane of that profile at once, and not as a side effect: a
+ * profile's panes share its partition, which is what keeps a sign-in made in one pane good in the next
+ * — and so what one clear takes from all of them. Another profile's jar is another partition, and is
+ * untouched. Realm's saved sign-ins and passkeys are not in any partition (they are in the
+ * Keychain-sealed secret store), so they are untouched too.
  */
-export async function clearBrowserPartition(): Promise<void> {
-  const ses = session.fromPartition(BROWSER_PARTITION);
+export async function clearBrowserPartition(partition: string): Promise<void> {
+  faviconResolvers.delete(partition);
+  const ses = session.fromPartition(partition);
   await ses.clearStorageData();
   await ses.clearCache();
+}
+
+/**
+ * Share this site's sign-in: copy the cookies the page at `pageUrl` signs in with from one profile's
+ * partition into another's (cookie-share.ts decides which, and how each is written). Answers how many
+ * were copied and for which host, or null for a page with no site. The source keeps every cookie.
+ */
+export async function shareSiteCookies(fromPartition: string, toPartition: string, pageUrl: string): Promise<{ host: string; copied: number } | null> {
+  const site = siteOf(pageUrl);
+  if (!site) return null;
+  const from = session.fromPartition(fromPartition);
+  const to = session.fromPartition(toPartition);
+  const [sent, onHost] = await Promise.all([from.cookies.get({ url: site.url }), from.cookies.get({ domain: site.host })]);
+  const nowSeconds = Date.now() / 1000;
+  let copied = 0;
+  for (const c of siteCookies(sent, onHost)) {
+    const details = cookieToSet(c, nowSeconds);
+    if (!details) continue;
+    try { await to.cookies.set(details); copied++; } catch { /* Chromium refused this one; the rest still go */ }
+  }
+  await to.cookies.flushStore();
+  return { host: site.host, copied };
 }

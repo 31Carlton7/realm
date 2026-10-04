@@ -101,16 +101,26 @@ export type BrowserAgentHostDeps = {
    *
    * Note the shape: `withCredentialValue` takes a callback and returns no value. This dependency
    * cannot hand the host a password even if the host asked.
+   *
+   * Every door names a PROFILE (Plan 27 Phase 2): saved sign-ins are a profile's own, and the op
+   * carries the profile of the calling session's space, which realm-server resolved.
    */
   secrets?: {
-    listCredentials(): BrowserCredential[];
-    getCredential(id: string): BrowserCredential | null;
+    listCredentials(profileId: string): BrowserCredential[];
+    getCredential(profileId: string, id: string): BrowserCredential | null;
     withCredentialValue(
+      profileId: string,
       id: string,
       use: (value: string) => Promise<void>,
     ): Promise<{ ok: true } | { ok: false; refused: "no_credential" | "no_presence" }>;
     audit(entry: CredentialAuditEntry): void;
   };
+  /**
+   * Whose pane this is: the profile main gave the view's partition to, or null when there is no
+   * view. A fill puts a profile's secret into a page, so the page must be that profile's — the
+   * session's space and the pane are checked against each other here rather than trusted to agree.
+   */
+  profileOf?(browserId: string): string | null;
   /**
    * The download governor (`downloads.ts`), for the `download` op alone. Optional for the same reason
    * `secrets` is: absent means every download stays blocked, which is the resting state anyway.
@@ -580,7 +590,10 @@ export class BrowserAgentHost {
        * permission card shows the user, and the user typed all three themselves in Settings.
        */
       case "credentials": {
-        return { credentials: this.d.secrets?.listCredentials() ?? [] };
+        // No profile named, no sign-ins: a call that cannot say whose it is asking for is answered as
+        // a profile with nothing saved, never as somebody's.
+        const profileId = typeof params.profileId === "string" ? params.profileId : "";
+        return { credentials: profileId ? this.d.secrets?.listCredentials(profileId) ?? [] : [] };
       }
       /**
        * Fill one enrolled credential into `ref`. Every outcome writes an audit line — including the
@@ -593,9 +606,13 @@ export class BrowserAgentHost {
       case "fillCredential": {
         const credentialId = String(params.credentialId ?? "");
         const ref = Number(params.ref);
+        const profileId = typeof params.profileId === "string" ? params.profileId : "";
         const store = this.d.secrets;
-        const credential = store?.getCredential(credentialId) ?? null;
-        if (!store || !credential) {
+        const credential = profileId ? store?.getCredential(profileId, credentialId) ?? null : null;
+        // A pane of another profile is refused as a sign-in that does not exist, before anything
+        // reaches the page: its cookie jar is not the profile's whose secret this is.
+        const paneProfile = this.d.profileOf?.(browserId);
+        if (!store || !credential || (paneProfile !== undefined && paneProfile !== profileId)) {
           this.auditFill(credentialId, "", "no_credential");
           return { ok: false, refused: "no_credential", error: "no saved sign-in is enrolled under that id — the user adds them in Realm's Settings, under Sign-ins" } satisfies BrowserActResult;
         }
@@ -608,7 +625,7 @@ export class BrowserAgentHost {
         try {
           result = await performFillCredential(entry.binding.send, ref, {
             credential: { id: credential.id, origin: credential.origin },
-            reveal: (type) => store.withCredentialValue(credential.id, type),
+            reveal: (type) => store.withCredentialValue(profileId, credential.id, type),
           });
         } catch {
           // Bare, like the executor's own: a thrown CDP error can carry the characters it was

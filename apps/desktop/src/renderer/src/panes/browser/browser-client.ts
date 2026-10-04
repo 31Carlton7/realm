@@ -1,4 +1,4 @@
-import type { BlockedDownload, PasskeyNotice, Browser, BrowserAnnotateResult, BrowserDownloadResult, BrowserFindResult, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved } from "@realm/contracts";
+import type { BlockedDownload, PasskeyNotice, Browser, BrowserAnnotateResult, BrowserDownloadResult, BrowserFindResult, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare } from "@realm/contracts";
 import { rpc } from "../../rpc/client";
 
 /** The per-space origin allowlist's settings key — stored like MCP enablement (`mcp.enabled:<spaceId>`),
@@ -97,8 +97,11 @@ export type BrowserHostBridge = {
   /** Plan 26 W7e: the page at a device preset's width, or (null) fitting the pane again. */
   setDevice(id: string, preset: "phone" | "tablet" | "desktop" | null): Promise<void>;
   screenshot(id: string, dir: string): Promise<BrowserScreenshotSaved>;
-  /** Confirms in main first; resolves whether the partition was cleared. */
-  clearData(): Promise<{ cleared: boolean }>;
+  /** Confirms in main first; clears the pane's PROFILE's partition and resolves whether it did, and
+   *  whose — the history to forget is that profile's. */
+  clearData(id: string): Promise<{ cleared: boolean; profileId: string | null }>;
+  /** Plan 27 Phase 2: copy the page's site's sign-in (its cookies) into another profile's browser. */
+  shareSignIn(id: string, toProfileId: string): Promise<BrowserSignInShare>;
   /** Show a file this pane saved in the Finder — `files.reveal`, which only ever selects a file.
    *  False when nothing is at the path any more (moved or deleted since it was saved). */
   reveal(path: string): Promise<boolean>;
@@ -120,8 +123,8 @@ export type BrowserServerBridge = {
   /** Plan 26 W6: the handful of pages this space's profile went to last, newest first — what a blank
    *  tab lists under its tools. */
   recent(spaceId: string): Promise<BrowserHistoryPage[]>;
-  /** Forget every visited page — Clear browsing data's other half. */
-  clearHistory(): Promise<void>;
+  /** Forget the pages ONE profile's panes visited — Clear browsing data's other half. */
+  clearHistory(profileId: string): Promise<void>;
 };
 
 export type BrowserBridges = { host: BrowserHostBridge; server: BrowserServerBridge };
@@ -145,7 +148,7 @@ export function getBrowserBridges(): BrowserBridges {
       screenshotDir: async (spaceId) => (await rpc().call("browsers.screenshotDir", { spaceId })).dir,
       suggest: async (spaceId, query) => (await rpc().call("browsers.suggest", { spaceId, query })).pages,
       recent: async (spaceId) => (await rpc().call("browsers.recent", { spaceId })).pages,
-      clearHistory: async () => { await rpc().call("browsers.clearHistory", {}); },
+      clearHistory: async (profileId) => { await rpc().call("browsers.clearHistory", { profileId }); },
     },
   });
 }

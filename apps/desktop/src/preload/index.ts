@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
-import type { BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, MediaFile, Passkey, PasskeyNotice, ReducedMotionPref, EditorId, InstalledEditor } from "@realm/contracts";
+import type { BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, ReducedMotionPref, EditorId, InstalledEditor } from "@realm/contracts";
 import type { NativeMenuItem } from "../main/native-menu";
 import type { TccRow } from "../main/tcc";
 import type { MacAccessStatus } from "../main/mac-access";
@@ -16,6 +16,10 @@ contextBridge.exposeInMainWorld("realm", {
    *  loopback, which a WebSocket dial from any web page can reach — CORS does not apply to it — so
    *  without this the renderer is not the only thing that can call `sessions.create`. */
   token: arg("realm-token") ?? "",
+  /** The profile this window was opened for — a window per profile (Plan 27 Phase 2) — or undefined
+   *  for the first window. Main passes it on the command line it builds the window with; the store's
+   *  boot lands in that profile. */
+  profileId: arg("realm-profile") || undefined,
   /** The window's page zoom (⌘+/⌘−/⌘0, Chromium's own through the View menu). 1 at 100%.
    *
    *  A getter rather than a subscription because Chromium fires no zoom event, and a value rather
@@ -207,6 +211,14 @@ contextBridge.exposeInMainWorld("realm", {
   },
   /** The same state, asked for — what a window that opened behind another app learns on mount. */
   isWindowKey: (): Promise<boolean> => ipcRenderer.invoke("window:is-key"),
+  /** A window per profile (Plan 27 Phase 2). `openProfile` opens the profile in a window of its own,
+   *  or brings forward the window already showing it; `focusProfile` answers whether ANOTHER window
+   *  shows it (and brings that one forward); `setProfile` tells main which profile this window shows. */
+  windows: {
+    openProfile: (profileId: string): Promise<void> => ipcRenderer.invoke("window:open-profile", profileId),
+    focusProfile: (profileId: string): Promise<boolean> => ipcRenderer.invoke("window:focus-profile", profileId),
+    setProfile: (profileId: string | null): void => ipcRenderer.send("window:set-profile", profileId),
+  },
   /** The person's keybindings, for the menu bar to show and for main to hand their chords to the
    *  page rather than to the menu (main/app-menu.ts). */
   setMenuKeybindings: (rules: unknown[]): void => ipcRenderer.send("menu:keybindings", rules),
@@ -232,19 +244,25 @@ contextBridge.exposeInMainWorld("realm", {
    * it, and never makes the return trip — not here, not over RPC, not through the MCP gateway.
    */
   credentials: {
-    list: (): Promise<BrowserCredential[]> => ipcRenderer.invoke("credentials:list"),
+    /** Every door names the PROFILE: sign-ins are a profile's own (Plan 27 Phase 2). */
+    list: (profileId: string): Promise<BrowserCredential[]> => ipcRenderer.invoke("credentials:list", profileId),
     /** `available`: the OS will encrypt. `canPromptTouchID`: this Mac can actually satisfy a fill. */
     status: (): Promise<{ available: boolean; canPromptTouchID: boolean; presenceTtlMs: number }> => ipcRenderer.invoke("credentials:status"),
-    add: (input: BrowserCredentialInput): Promise<BrowserCredential> => ipcRenderer.invoke("credentials:add", input),
-    remove: (id: string): Promise<boolean> => ipcRenderer.invoke("credentials:remove", id),
+    add: (profileId: string, input: BrowserCredentialInput): Promise<BrowserCredential> => ipcRenderer.invoke("credentials:add", profileId, input),
+    remove: (profileId: string, id: string): Promise<boolean> => ipcRenderer.invoke("credentials:remove", profileId, id),
+    /** COPY one into another profile; the original stays. Answers with the profile's name. */
+    share: (profileId: string, id: string, toProfileId: string): Promise<{ ok: true; profileName: string } | { ok: false; error: string }> =>
+      ipcRenderer.invoke("credentials:share", profileId, id, toProfileId),
     /** Resolves the value main actually stored — clamped, so a stale renderer learns the truth. */
     setPresenceTtl: (ms: number): Promise<number> => ipcRenderer.invoke("credentials:set-presence-ttl", ms),
   },
-  /** Settings → Sign-ins, the passkey half. Read and forget only: there is no `add`, because a
+  /** Settings → Sign-ins, the passkey half. Read, forget and share only: there is no `add`, because a
    *  passkey is created by a site asking for one and the user answering Touch ID. */
   passkeys: {
-    list: (): Promise<Passkey[]> => ipcRenderer.invoke("passkeys:list"),
-    remove: (id: string): Promise<boolean> => ipcRenderer.invoke("passkeys:remove", id),
+    list: (profileId: string): Promise<Passkey[]> => ipcRenderer.invoke("passkeys:list", profileId),
+    remove: (profileId: string, id: string): Promise<boolean> => ipcRenderer.invoke("passkeys:remove", profileId, id),
+    share: (profileId: string, id: string, toProfileId: string): Promise<{ ok: true; profileName: string } | { ok: false; error: string }> =>
+      ipcRenderer.invoke("passkeys:share", profileId, id, toProfileId),
   },
   /**
    * The system clipboard, read only, for the machine pane's Paste row (Plan 25 W7).
@@ -343,7 +361,10 @@ contextBridge.exposeInMainWorld("realm", {
     setDevice: (id: string, preset: "phone" | "tablet" | "desktop" | null): Promise<void> => ipcRenderer.invoke("browser:set-device", id, preset),
     /** Capture the view into `dir` — the server's `browsers.screenshotDir`, never a path made here. */
     screenshot: (id: string, dir: string): Promise<BrowserScreenshotSaved> => ipcRenderer.invoke("browser:screenshot", id, dir),
-    /** Asks first, in main, with the OS's own dialog; resolves whether anything was cleared. */
-    clearData: (): Promise<{ cleared: boolean }> => ipcRenderer.invoke("browser:clear-data"),
+    /** Asks first, in main, with the OS's own dialog; clears the PANE's profile's partition and
+     *  resolves whether anything was cleared, and whose. */
+    clearData: (id: string): Promise<{ cleared: boolean; profileId: string | null }> => ipcRenderer.invoke("browser:clear-data", id),
+    /** Copy the page's site's cookies into another profile's partition — that profile's own copy. */
+    shareSignIn: (id: string, toProfileId: string): Promise<BrowserSignInShare> => ipcRenderer.invoke("browser:share-signin", id, toProfileId),
   },
 });

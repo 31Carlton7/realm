@@ -177,6 +177,10 @@ function PaletteBody({ closing }: { closing: boolean }) {
   const setSpacesOpen = useApp((s) => s.setSpacesOpen);
   const openDestinationPage = useApp((s) => s.openDestinationPage);
   const openProfilePage = useApp((s) => s.openProfilePage);
+  const profiles = useApp((s) => s.profiles);
+  const activeProfileId = useApp((s) => s.activeProfileId());
+  const openProfileWindow = useApp((s) => s.openProfileWindow);
+  const openNewProfileSheet = useApp((s) => s.openNewProfileSheet);
   const openActivity = useApp((s) => s.openActivity);
   const setPaletteOpen = useApp((s) => s.setPaletteOpen);
   const refreshAllItems = useApp((s) => s.refreshAllItems);
@@ -344,6 +348,11 @@ function PaletteBody({ closing }: { closing: boolean }) {
       ...(activeSpaceId ? [act("open-space", "Open space", "settings", () => openSpacePage(activeSpaceId))] : []),
       // The active space's PROFILE page (Plan 14 W2) — same gate: the page reads from a space.
       ...(activeSpaceId ? [act("open-profile", "Open profile", "profile-page", () => openProfilePage())] : []),
+      // Plan 27 Phase 2: a profile is an identity with its own window. Every OTHER profile can open
+      // beside this one — the window's own profile is already on screen, here.
+      act("new-profile", "New profile…", "user", () => openNewProfileSheet()),
+      ...profiles.filter((p) => p.id !== activeProfileId).map((p) =>
+        act(`open-profile-window-${p.id}`, `Open ${p.name} in a new window`, "user", () => run(() => openProfileWindow(p.id)))),
       /* The sidebar destinations (W4), one entry each. They used to carry a second — "in this pane" —
          because a page was a layout item and where it landed was a real choice. A page is an overlay
          now: there is one, it is over everything, and a placement to choose would be a choice with
@@ -385,6 +394,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
   }, [kbd, spaces, activeSpaceId, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref, themeNames, mode, drafts, dispatchDraft,
       selectSpace, openItem, newTerminal, newBrowser, newMachine, openDocuments, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeFromLayout, requestRename,
       interruptSession, jumpToPermission, applyPreset, setThemePref, setThemeName, openSheet, openSpacePage, openDestinationPage, openProfilePage, openActivity, setSpacesOpen, run,
+      profiles, activeProfileId, openProfileWindow, openNewProfileSheet,
       groups, zoomedLeaf, activatePaneGroup, newPaneGroup, toggleFocusPane]);
 
   // Empty query: everything, grouped under faint section headers. With a query: a flat list ranked

@@ -31,6 +31,10 @@ import { SIDEBAR_WIDTH, clampSidebarWidth } from "../components/sidebar/sidebar-
 import type { SettingsTab } from "../panes/settings/settings-index";
 
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
+export type NewProfileInput = { name: string; icon?: string; color?: string };
+export type UpdateProfileInput = { id: string; name?: string; icon?: string; color?: string };
+/** What deleting a profile takes with it. */
+export type ProfileUsage = { spaces: number; sessions: number };
 export type UpdateSpaceInput = { id: string; name?: string; icon?: string; color?: string; profileId?: string };
 export type UpdateItemInput = { id: string; title?: string; pinned?: boolean; archived?: boolean };
 export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId?: string | null; environmentId?: string | null; model?: string | null; effort?: string | null; permissionMode?: string; title?: string;
@@ -134,11 +138,27 @@ export type TranscriptEntry = { lastSeq: number; t: Transcript };
  *  without it). `canPromptTouchID`: this Mac can satisfy a fill — Settings says so plainly rather
  *  than letting the user enroll a password and find out at a sign-in prompt. */
 export type CredentialStatus = { available: boolean; canPromptTouchID: boolean; presenceTtlMs: number };
+/** What a Share with ▸ <profile> did: copied, into the profile named, or why not. */
+export type ShareResult = { ok: true; profileName: string } | { ok: false; error: string };
 
 export type Api = {
   listProfiles(): Promise<Profile[]>;
-  /** Icon/color are server defaults (`user` / grey) — the sheet only asks for a name. */
-  createProfile(name: string): Promise<Profile>;
+  /** Icon/color left out are the server's defaults (`user` / grey) — the New space sheet's inline
+   *  add asks only for a name; the New profile sheet asks for all three. */
+  createProfile(input: NewProfileInput): Promise<Profile>;
+  /** Plan 27 Phase 2: rename, recolour and re-icon a profile — never its browser partition. */
+  updateProfile(input: UpdateProfileInput): Promise<Profile>;
+  /** Delete a profile with its spaces and their sessions. The server refuses the last profile. */
+  deleteProfile(id: string): Promise<void>;
+  /** What a delete would take with it, for the confirm that says so. */
+  profileUsage(id: string): Promise<ProfileUsage>;
+  /** The profile this WINDOW was opened for (`window.realm.profileId`), or null for the first window,
+   *  which shows whichever profile its saved space is in. */
+  boundProfileId(): string | null;
+  /** Open a profile in a window of its own, or bring forward the window already showing it. */
+  openProfileWindow(profileId: string): Promise<void>;
+  /** Whether ANOTHER window shows this profile — which, if so, main has just brought forward. */
+  focusProfileWindow(profileId: string): Promise<boolean>;
   /** Global list across all profiles, in user sort order. */
   listSpaces(): Promise<Space[]>;
   listItems(spaceId: string): Promise<Item[]>;
@@ -433,16 +453,21 @@ export type Api = {
    * Settings → Sign-ins (main's `secret-store.ts`). Note the absence of a read: `credentialAdd`
    * takes a value and answers with `BrowserCredential`, which has no field for one. The renderer
    * cannot read a saved credential back and neither can anything it talks to.
+   *
+   * Every call names a PROFILE (Plan 27 Phase 2): sign-ins and passkeys are a profile's own, and a
+   * share copies one into another profile, answering with that profile's name.
    */
-  credentialList(): Promise<BrowserCredential[]>;
+  credentialList(profileId: string): Promise<BrowserCredential[]>;
   credentialStatus(): Promise<CredentialStatus>;
-  credentialAdd(input: BrowserCredentialInput): Promise<BrowserCredential>;
-  credentialRemove(id: string): Promise<boolean>;
+  credentialAdd(profileId: string, input: BrowserCredentialInput): Promise<BrowserCredential>;
+  credentialRemove(profileId: string, id: string): Promise<boolean>;
+  credentialShare(profileId: string, id: string, toProfileId: string): Promise<ShareResult>;
   credentialSetPresenceTtl(ms: number): Promise<number>;
   /** The passkeys Realm holds, and the one way to forget one. No `add`: a passkey is created by a
    *  site asking for one in a pane and the user answering Touch ID. */
-  passkeyList(): Promise<Passkey[]>;
-  passkeyRemove(id: string): Promise<boolean>;
+  passkeyList(profileId: string): Promise<Passkey[]>;
+  passkeyRemove(profileId: string, id: string): Promise<boolean>;
+  passkeyShare(profileId: string, id: string, toProfileId: string): Promise<ShareResult>;
   /** Deep-link one permission row's System Settings pane. Takes the ROW id; main owns the URLs. */
   openTccPane(pane: string): Promise<void>;
   /** `mac doctor` through main — the prompt-free audit behind the "Apps on this Mac" rows. */
@@ -774,7 +799,7 @@ export type SessionDock = { kind: "summary" } | { kind: "files" } | { kind: "sub
 
 export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "scripts" | "sandbox" | "sessions" | "tasks" | "history";
 /** The profile page's rail (Plan 14 W2). */
-export type ProfilePageTab = "skills" | "connections" | "memory";
+export type ProfilePageTab = "general" | "skills" | "connections" | "memory";
 /** The Settings page's tabs, in rail order — the store holds which one is showing so an opener can land
  *  on one (the browser pane's "Browser settings" opens Sign-ins). */
 /** The Settings rail's pages (`settings-index.ts` owns their order and headings). */
@@ -786,6 +811,8 @@ export type Sheet =
   /** Space settings retired from this union (Plan 12 W3): a space is a PAGE now — a `space-page` item
    *  in the layout, opened via `openSpacePage` — not a modal. */
   | { kind: "new-space" }
+  /** Plan 27 Phase 2: a profile of its own — name, icon, colour. */
+  | { kind: "new-profile" }
   /** Removing a worktree: the one destructive confirm in Plan 7, which must name what would be lost
    *  and pass an acknowledgement it re-read at the moment of confirming (W3). */
   | { kind: "remove-worktree"; environmentId: string }
@@ -1164,12 +1191,16 @@ export type AppState = {
   /** The Permissions tab's TCC rows, exactly as main's prompt-free probe reported them; null until
    *  the tab first probes. Never synthesised client-side — a row with no probe basis says so. */
   tccRows: TccRow[] | null;
-  /** Enrolled sign-ins; null until first load. Metadata only — see `credentialList`. */
+  /** Enrolled sign-ins of `credentialsProfileId`; null until first load. Metadata only — see
+   *  `credentialList`. */
   credentials: BrowserCredential[] | null;
   credentialStatus: CredentialStatus | null;
-  /** Passkeys Realm holds; null until first load. Metadata only — the private key has no field to
-   *  travel in, here or anywhere the renderer can reach. */
+  /** Passkeys Realm holds for `credentialsProfileId`; null until first load. Metadata only — the
+   *  private key has no field to travel in, here or anywhere the renderer can reach. */
   passkeys: Passkey[] | null;
+  /** Whose sign-ins and passkeys `credentials` and `passkeys` are — they are a profile's own, and a
+   *  list read for one profile must never be shown as another's. */
+  credentialsProfileId: string | null;
   /** The `mac` CLI's access, exactly as `mac doctor` reported it through main; null until the
    *  Permissions tab first asks. Never synthesised client-side: an audit that could not run comes
    *  back with every row `unknown`, which is what "we don't know" looks like. */
@@ -1479,8 +1510,27 @@ export type AppState = {
    *  same bounded set the strip shows. Crossing profiles is a deliberate act (chip, or overview). */
   nextSpace(): Promise<void>;
   prevSpace(): Promise<void>;
-  /** Create a profile and merge it into `profiles`; returns it so callers can select it. */
-  createProfile(name: string): Promise<Profile>;
+  /** Create a profile and merge it into `profiles`; returns it so callers can select it. A bare name
+   *  takes the server's default icon and colour (the New space sheet's inline add). */
+  createProfile(input: string | NewProfileInput): Promise<Profile>;
+  /** Plan 27 Phase 2 — profiles made real. Each answers with the server's row, merged into `profiles`. */
+  updateProfile(input: UpdateProfileInput): Promise<Profile>;
+  renameProfile(id: string, name: string): Promise<Profile>;
+  recolourProfile(id: string, color: string): Promise<Profile>;
+  /** Delete a profile with its spaces and sessions (the server stops them as deleting each space
+   *  would, and refuses the last profile). The window falls back to another profile's space. */
+  deleteProfile(id: string): Promise<void>;
+  profileUsage(id: string): Promise<ProfileUsage>;
+  /** Re-read `profiles` — `profiles.changed`, from this window or another. */
+  refreshProfiles(): Promise<void>;
+  /** The New profile sheet (name, icon, colour). */
+  openNewProfileSheet(): void;
+  /** "Open in new window": the profile in a window of its own — or the window already showing it,
+   *  brought forward, since a profile is open in at most one window. */
+  openProfileWindow(profileId: string): Promise<void>;
+  /** The profile switcher's choice. A profile already open in another window brings THAT window
+   *  forward and this one stays as it is; otherwise this window switches to it (`selectProfile`). */
+  switchProfile(profileId: string): Promise<void>;
   createSpace(input: CreateSpaceInput): Promise<void>;
   updateSpace(input: UpdateSpaceInput): Promise<void>;
   deleteSpace(id: string): Promise<void>;
@@ -2220,12 +2270,17 @@ export type AppState = {
   setMidTurnMode(mode: MidTurnMode): Promise<void>;
   /** Re-run the main-process TCC probe (prompt-free by construction) into `tccRows`. */
   refreshTcc(): Promise<void>;
-  /** Load the enrolled sign-ins and the store's own state (encryption available, Touch ID usable). */
-  refreshCredentials(): Promise<void>;
-  addCredential(input: BrowserCredentialInput): Promise<void>;
-  removeCredential(id: string): Promise<void>;
+  /** Load one profile's sign-ins and passkeys, and the store's own state (encryption available,
+   *  Touch ID usable). */
+  refreshCredentials(profileId: string): Promise<void>;
+  addCredential(profileId: string, input: BrowserCredentialInput): Promise<void>;
+  removeCredential(profileId: string, id: string): Promise<void>;
   setCredentialPresenceTtl(ms: number): Promise<void>;
-  removePasskey(id: string): Promise<void>;
+  removePasskey(profileId: string, id: string): Promise<void>;
+  /** Share with ▸ <profile>: COPY one of `profileId`'s sign-ins (or passkeys) into `toProfileId`. The
+   *  original stays, and the list shown does not change; the answer says what happened. */
+  shareCredential(profileId: string, id: string, toProfileId: string): Promise<ShareResult>;
+  sharePasskey(profileId: string, id: string, toProfileId: string): Promise<ShareResult>;
   /** Deep-link a permission row's System Settings pane (by row id; main owns the URLs). */
   openTccPane(pane: string): Promise<void>;
   /** Re-run `mac doctor` into `macAccess`. Prompt-free, so the tab may call it freely. */
@@ -2945,7 +3000,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       if (item.kind === "profile-page") {
         // The profile is derived live from the vantage space, exactly as the page itself derives it.
         const profileId = get().spaces.find((sp) => sp.id === item.spaceId)?.profileId;
-        if (profileId) get().setProfilePageTab(profileId, (entry.view ?? "skills") as ProfilePageTab);
+        if (profileId) get().setProfilePageTab(profileId, (entry.view ?? "general") as ProfilePageTab);
       }
     };
     /** The leaf holding the item this space had focused when it was last written, or null when there
@@ -3300,7 +3355,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       failover: null,
       laya: null,
       spacePageTab: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null, agentsView: "list", officeWorld: null,
-      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, modelInfo: {}, spaceSkillSources: {},
+      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -3373,7 +3428,13 @@ await get().refreshCustomThemes().catch(() => {});
         await get().refreshFonts().catch(() => {});
         await hydrateSpaceIcons(spaces);
         set({ spaces });
-        const target = spaces.find((s) => s.id === saved) ?? spaces[0];
+        // A window opened for one profile (Plan 27 Phase 2) lands in that profile — its saved space if
+        // the saved space is that profile's, else its first. The first window has no profile of its
+        // own and lands where the app was last left.
+        const bound = api.boundProfileId();
+        const target = bound !== null
+          ? spaces.find((s) => s.id === saved && s.profileId === bound) ?? spaces.find((s) => s.profileId === bound)
+          : spaces.find((s) => s.id === saved) ?? spaces[0];
         if (target) await get().selectSpace(target.id);
         // Cross-space badges need every session's space + status, not just the active space's.
         await get().refreshAllSessions();
@@ -3551,10 +3612,31 @@ await get().refreshCustomThemes().catch(() => {});
         const list = await api.listEnvironments(sid);
         if (isSpace(sid)) set({ environments: Object.fromEntries(list.map((e) => [e.id, e])) });
       },
-      async createProfile(name) {
-        const p = await api.createProfile(name);
+      async createProfile(input) {
+        const p = await api.createProfile(typeof input === "string" ? { name: input } : input);
         set({ profiles: [...get().profiles.filter((x) => x.id !== p.id), p] });
         return p;
+      },
+      async updateProfile(input) {
+        const p = await api.updateProfile(input);
+        set({ profiles: get().profiles.map((x) => (x.id === p.id ? p : x)) });
+        return p;
+      },
+      renameProfile(id, name) { return get().updateProfile({ id, name }); },
+      recolourProfile(id, color) { return get().updateProfile({ id, color }); },
+      profileUsage(id) { return api.profileUsage(id); },
+      async deleteProfile(id) {
+        await api.deleteProfile(id);
+        set({ profiles: get().profiles.filter((p) => p.id !== id) });
+        // Its spaces are gone with it; `refreshSpaces` moves a window that was showing one of them.
+        await get().refreshSpaces();
+      },
+      async refreshProfiles() { set({ profiles: await api.listProfiles() }); },
+      openNewProfileSheet() { get().openSheet({ kind: "new-profile" }); },
+      openProfileWindow(profileId) { return api.openProfileWindow(profileId); },
+      async switchProfile(profileId) {
+        if (await api.focusProfileWindow(profileId)) return;
+        await get().selectProfile(profileId);
       },
       async createSpace(input) {
         const s = await api.createSpace(input);
@@ -5931,18 +6013,20 @@ await get().refreshCustomThemes().catch(() => {});
         set({ midTurnMode: mode });
       },
       async refreshTcc() { set({ tccRows: await api.tccProbe() }); },
-      async refreshCredentials() {
+      async refreshCredentials(profileId) {
         const [credentials, credentialStatus, passkeys] = await Promise.all([
-          api.credentialList(), api.credentialStatus(), api.passkeyList(),
+          api.credentialList(profileId), api.credentialStatus(), api.passkeyList(profileId),
         ]);
-        set({ credentials, credentialStatus, passkeys });
+        set({ credentials, credentialStatus, passkeys, credentialsProfileId: profileId });
       },
       // Each of these re-reads rather than patching local state: main clamps the TTL and mints the
       // id, so what it returns is the truth and a locally-patched list would be a guess at it.
-      async addCredential(input) { await api.credentialAdd(input); await get().refreshCredentials(); },
-      async removeCredential(id) { await api.credentialRemove(id); await get().refreshCredentials(); },
-      async setCredentialPresenceTtl(ms) { await api.credentialSetPresenceTtl(ms); await get().refreshCredentials(); },
-      async removePasskey(id) { await api.passkeyRemove(id); await get().refreshCredentials(); },
+      async addCredential(profileId, input) { await api.credentialAdd(profileId, input); await get().refreshCredentials(profileId); },
+      async removeCredential(profileId, id) { await api.credentialRemove(profileId, id); await get().refreshCredentials(profileId); },
+      async setCredentialPresenceTtl(ms) { await api.credentialSetPresenceTtl(ms); set({ credentialStatus: await api.credentialStatus() }); },
+      async removePasskey(profileId, id) { await api.passkeyRemove(profileId, id); await get().refreshCredentials(profileId); },
+      shareCredential(profileId, id, toProfileId) { return api.credentialShare(profileId, id, toProfileId); },
+      sharePasskey(profileId, id, toProfileId) { return api.passkeyShare(profileId, id, toProfileId); },
       async openTccPane(pane) { await api.openTccPane(pane); },
       /** Straight through: an icon is a fact about the machine, with nothing in the store to keep in
        *  step. The caller memoises what it gets (`APP_ICONS`). */

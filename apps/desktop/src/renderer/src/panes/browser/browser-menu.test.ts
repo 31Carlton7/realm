@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { browserMenuItems, parseBrowserMenuChoice, type BrowserMenuInput } from "./browser-menu";
 
 const input = (over: Partial<BrowserMenuInput> = {}): BrowserMenuInput => ({
-  zoom: 1, canZoomIn: true, canZoomOut: true, back: [], forward: [], blocked: [], saved: [],
+  zoom: 1, canZoomIn: true, canZoomOut: true, back: [], forward: [], blocked: [], saved: [], shareTargets: [],
   hasPage: true, current: "Sign in", device: null, ...over,
 });
 
@@ -29,12 +29,30 @@ describe("browserMenuItems", () => {
     const all = ids(browserMenuItems(input({
       back: [{ index: 0, label: "Home" }], forward: [{ index: 2, label: "Docs" }],
       blocked: [{ id: "bd_1", name: "week-3.pdf", ts: 1 }], saved: [{ id: "sd_1", name: "report.pdf", path: "/p/report.pdf", ts: 2 }],
+      shareTargets: [{ id: "pSchool", name: "School" }],
     })));
     expect(all.length).toBeGreaterThan(10);
     for (const id of all) expect(parseBrowserMenuChoice(id), id).not.toBeNull();
     expect(all.map((id) => parseBrowserMenuChoice(id)!.kind)).toEqual(expect.arrayContaining([
-      "find", "print", "zoom", "device", "screenshot", "save-download", "show-download", "history", "clear-data", "settings",
+      "find", "print", "zoom", "device", "screenshot", "save-download", "show-download", "history", "clear-data", "share-signin", "settings",
     ]));
+  });
+
+  it("offers to share this site's sign-in with each OTHER profile — the profile is what the row answers with", () => {
+    const items = browserMenuItems(input({ shareTargets: [{ id: "pWork", name: "Work" }, { id: "pSchool", name: "School" }] }));
+    const share = byLabel(items, "Share this site's sign-in with");
+    expect(share.enabled).toBe(true);
+    expect(share.submenu!.map((r) => [r.label, r.id])).toEqual([["Work", "share-signin:pWork"], ["School", "share-signin:pSchool"]]);
+    expect(parseBrowserMenuChoice("share-signin:pSchool")).toEqual({ kind: "share-signin", profileId: "pSchool" });
+    // It sits with the other things about the browser's data, just above Clear browsing data.
+    const labels = rows(items).map((r) => r.label ?? "—");
+    expect(labels.indexOf("Share this site's sign-in with")).toBe(labels.indexOf("Clear browsing data…") - 1);
+    // A blank tab has no site whose sign-in could be shared.
+    expect(byLabel(browserMenuItems(input({ hasPage: false, shareTargets: [{ id: "pWork", name: "Work" }] })), "Share this site's sign-in with").enabled).toBe(false);
+  });
+
+  it("with one profile there is no other to share with, and the row is not drawn at all", () => {
+    expect(rows(browserMenuItems(input())).some((r) => r.label === "Share this site's sign-in with")).toBe(false);
   });
 
   it("with no page, only what is not about a page stays live", () => {

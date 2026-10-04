@@ -15,8 +15,20 @@
  * user's login). Nothing on disk is readable without that Keychain item, and Realm holds no
  * passphrase of its own.
  *
- *     { version, keyring: "<safeStorage blob>", credentials: [ { id, origin, username, label,
- *                                                                createdAt, sealed } ], presenceTtlMs }
+ *     { version, keyring: "<safeStorage blob>", credentials: [ { id, profileId, origin, username,
+ *                                                     label, createdAt, sealed } ], passkeys, presenceTtlMs }
+ *
+ * ## A profile's own
+ *
+ * Every saved sign-in and passkey belongs to ONE profile (Plan 27 Phase 2), as its browser cookie jar
+ * does: an agent in a Work space is offered Work's sign-ins, and a Personal pane's passkey prompt finds
+ * Personal's keys. Every read and write below names the profile it is for, and a row of another
+ * profile is answered exactly as a row that does not exist. Sharing COPIES a row into another profile;
+ * the original stays where it was.
+ *
+ * Rows from before that (file version 1) carry no profile. They were made while every profile shared
+ * one cookie jar, so they go to the profile that kept that jar (`SecretStoreDeps.defaultProfileId`) —
+ * once, written back, so the answer can never move later.
  *
  * ## Why two keys and not one
  *
@@ -100,9 +112,18 @@ export type SecretStoreDeps = {
   promptPresence(reason: string): Promise<boolean>;
   now(): number;
   newId(): string;
+  /**
+   * The profile that inherits rows written before sign-ins were a profile's own — the one that kept
+   * the browser partition every pane used to share. Null while main cannot say yet (realm-server has
+   * not answered): those rows then belong to nobody, visible to no profile and kept on disk untouched,
+   * until it can.
+   */
+  defaultProfileId(): string | null;
 };
 
-type StoredCredential = BrowserCredential & { sealed: string };
+/** `profileId` is absent only on a row written before profiles had their own (file version 1) that
+ *  has not been adopted yet — see `adopt`. */
+type StoredCredential = BrowserCredential & { sealed: string; profileId?: string };
 
 /** A passkey as it sits on disk. `sealed` is the PKCS#8 private key under the `passkey` domain;
  *  everything beside it is what the virtual authenticator needs handed back to reconstitute the
@@ -114,6 +135,7 @@ type StoredPasskey = Passkey & {
   userHandle: string | null;
   signCount: number;
   sealed: string;
+  profileId?: string;
 };
 
 /** What `withPasskeysFor` hands its callback: the door the private key leaves by, and the only one.
@@ -147,7 +169,8 @@ type StoreFile = {
   presenceTtlMs: number;
 };
 
-const FILE_VERSION = 1;
+/** 2: every row names its profile. 1 had none — see `adopt`. */
+const FILE_VERSION = 2;
 
 /** Enrollment refused, in the user's words. Thrown to the IPC caller (the Settings UI), which is the
  *  only thing that can enroll — so these strings are read by a person, not an agent. */
@@ -159,6 +182,8 @@ export class SecretStore {
   /** When the last successful presence check happened. In memory only: a TTL that survived a restart
    *  would be a TTL the user never granted in this run of the app. */
   private presenceUntil = 0;
+  /** Rows without a profile are on disk and still waiting for `defaultProfileId` to name one. */
+  private unadopted = false;
 
   constructor(private readonly d: SecretStoreDeps) {}
 
@@ -171,14 +196,14 @@ export class SecretStore {
 
   /* --------------------------------- credentials --------------------------------- */
 
-  /** Metadata for every enrolled credential. The `sealed` column is stripped HERE, at the boundary,
-   *  rather than trusted to every caller to omit. */
-  listCredentials(): BrowserCredential[] {
-    return this.load().credentials.map(strip);
+  /** Metadata for every credential this profile holds. The `sealed` column is stripped HERE, at the
+   *  boundary, rather than trusted to every caller to omit. */
+  listCredentials(profileId: string): BrowserCredential[] {
+    return this.rows().credentials.filter((c) => c.profileId === profileId).map(strip);
   }
 
-  getCredential(id: string): BrowserCredential | null {
-    const row = this.load().credentials.find((c) => c.id === id);
+  getCredential(profileId: string, id: string): BrowserCredential | null {
+    const row = this.credentialOf(profileId, id);
     return row ? strip(row) : null;
   }
 
@@ -189,7 +214,7 @@ export class SecretStore {
    * anti-phishing gate would be a formality: it could enroll a credential for the origin it is
    * standing on and then "fill" it.
    */
-  addCredential(input: BrowserCredentialInput): BrowserCredential {
+  addCredential(profileId: string, input: BrowserCredentialInput): BrowserCredential {
     if (!this.available) {
       throw new SecretStoreError("macOS is not offering Realm an encryption key right now (Keychain unavailable), so Realm will not save a sign-in. Nothing was stored.");
     }
@@ -197,9 +222,10 @@ export class SecretStore {
     if (!origin) {
       throw new SecretStoreError(`"${input.origin}" is not an http(s) address Realm can pin a sign-in to. Enter the site's address, for example https://example.com.`);
     }
-    const file = this.load();
+    const file = this.rows();
     const row: StoredCredential = {
       id: this.d.newId(),
+      profileId,
       origin,
       username: input.username.trim(),
       label: input.label.trim(),
@@ -211,15 +237,44 @@ export class SecretStore {
     return strip(row);
   }
 
-  /** Forget one. Returns whether anything was there — the UI reports honestly rather than claiming a
-   *  deletion that removed nothing. */
-  removeCredential(id: string): boolean {
-    const file = this.load();
+  /** Forget one of this profile's. Returns whether anything was there — the UI reports honestly rather
+   *  than claiming a deletion that removed nothing. Another profile's copy of a shared sign-in stays. */
+  removeCredential(profileId: string, id: string): boolean {
+    const file = this.rows();
     const before = file.credentials.length;
-    file.credentials = file.credentials.filter((c) => c.id !== id);
+    file.credentials = file.credentials.filter((c) => !(c.id === id && c.profileId === profileId));
     if (file.credentials.length === before) return false;
     this.save();
     return true;
+  }
+
+  /**
+   * Copy one of this profile's sign-ins into another profile. The original stays; the copy is the
+   * target profile's own from then on — removing either leaves the other.
+   *
+   * A target that already holds a sign-in for the same address and username has THAT row brought up
+   * to date rather than a second one added beside it: two rows for one account is a choice the fill
+   * tool would put to an agent, and the newer secret is the one being shared. The sealed value is
+   * copied as it is — it never leaves its ciphertext on the way, and nothing here returns it.
+   */
+  shareCredential(fromProfileId: string, id: string, toProfileId: string): BrowserCredential | null {
+    const file = this.rows();
+    const source = this.credentialOf(fromProfileId, id);
+    if (!source || toProfileId === "" || toProfileId === fromProfileId) return null;
+    const same = file.credentials.find((c) => c.profileId === toProfileId && c.origin === source.origin && c.username === source.username);
+    if (same) {
+      same.sealed = source.sealed;
+      same.label = source.label;
+      this.save();
+      return strip(same);
+    }
+    const row: StoredCredential = {
+      id: this.d.newId(), profileId: toProfileId, origin: source.origin, username: source.username,
+      label: source.label, createdAt: this.d.now(), sealed: source.sealed,
+    };
+    file.credentials.push(row);
+    this.save();
+    return strip(row);
   }
 
   /* ------------------------------- the one door out ------------------------------- */
@@ -239,10 +294,13 @@ export class SecretStore {
    * exists to protect.
    */
   async withCredentialValue(
+    profileId: string,
     id: string,
     use: (value: string) => Promise<void>,
   ): Promise<{ ok: true } | { ok: false; refused: "no_credential" | "no_presence" }> {
-    const row = this.load().credentials.find((c) => c.id === id);
+    // Another profile's sign-in is refused exactly as one that does not exist — and before the
+    // prompt, so a Touch ID sheet is never raised for a fill that could not have been allowed.
+    const row = this.credentialOf(profileId, id);
     if (!row) return { ok: false, refused: "no_credential" };
 
     const who = row.username ? `${row.username} on ${row.origin}` : row.origin;
@@ -281,10 +339,10 @@ export class SecretStore {
 
   /* ---------------------------------- passkeys ---------------------------------- */
 
-  /** Metadata for every passkey Realm holds. `sealed` is stripped HERE, at the boundary, for the
-   *  same reason it is for credentials. */
-  listPasskeys(): Passkey[] {
-    return this.load().passkeys.map(stripPasskey);
+  /** Metadata for every passkey this profile holds. `sealed` is stripped HERE, at the boundary, for
+   *  the same reason it is for credentials. */
+  listPasskeys(profileId: string): Passkey[] {
+    return this.rows().passkeys.filter((p) => p.profileId === profileId).map(stripPasskey);
   }
 
   /**
@@ -296,8 +354,8 @@ export class SecretStore {
    * could only ever fail. A prompt a user cannot satisfy teaches them to dismiss prompts, which is
    * the reflex the whole gate depends on them not having.
    */
-  hasPasskeyFor(rpId: string): boolean {
-    return this.load().passkeys.some((p) => p.rpId === rpId);
+  hasPasskeyFor(profileId: string, rpId: string): boolean {
+    return this.rows().passkeys.some((p) => p.profileId === profileId && p.rpId === rpId);
   }
 
   /**
@@ -310,13 +368,14 @@ export class SecretStore {
    * Realm derived from the pane's own URL. A page that is never approved never reaches this method,
    * and one that is approved has been told exactly which site it is registering with.
    */
-  recordPasskey(input: PasskeyInput): Passkey {
+  recordPasskey(profileId: string, input: PasskeyInput): Passkey {
     if (!this.available) {
       throw new SecretStoreError("macOS is not offering Realm an encryption key right now (Keychain unavailable), so Realm will not save a passkey.");
     }
-    const file = this.load();
+    const file = this.rows();
     const row: StoredPasskey = {
       id: this.d.newId(),
+      profileId,
       rpId: input.rpId,
       userName: clipName(input.userName),
       userDisplayName: clipName(input.userDisplayName),
@@ -329,8 +388,9 @@ export class SecretStore {
     };
     // A site that re-registers replaces rather than accumulates: the relying party has just been
     // told the OLD credential id is gone, and keeping it would offer the user a key the site will
-    // refuse. Matched on the credential id the authenticator minted, which is unique per key.
-    file.passkeys = file.passkeys.filter((p) => p.credentialId !== row.credentialId);
+    // refuse. Matched on the credential id the authenticator minted, which is unique per key — within
+    // this profile, since a shared copy in another profile is that profile's to keep or remove.
+    file.passkeys = file.passkeys.filter((p) => !(p.profileId === profileId && p.credentialId === row.credentialId));
     file.passkeys.push(row);
     this.save();
     return stripPasskey(row);
@@ -349,11 +409,12 @@ export class SecretStore {
    * without the user ever seeing a fingerprint prompt.
    */
   async withPasskeysFor(
+    profileId: string,
     rpId: string,
     kind: "create" | "get",
     use: (keys: PasskeyKeyMaterial[]) => Promise<void>,
   ): Promise<{ ok: true } | { ok: false; refused: "no_passkey" | "no_presence" }> {
-    const rows = this.load().passkeys.filter((p) => p.rpId === rpId);
+    const rows = this.rows().passkeys.filter((p) => p.profileId === profileId && p.rpId === rpId);
     // A `get` with nothing to assert is refused before the prompt — see `hasPasskeyFor`. A `create`
     // with nothing is the ordinary case: that is what registering a first passkey looks like.
     if (kind === "get" && rows.length === 0) return { ok: false, refused: "no_passkey" };
@@ -384,28 +445,75 @@ export class SecretStore {
    * that sees one go backwards is entitled to treat the authenticator as cloned and lock the
    * account, so a counter that only lived in the pane would break the passkey on the pane's next
    * restart rather than at the moment the bug was written.
+   *
+   * The counter belongs to the KEY, not to a profile's row. A shared passkey is one key in two
+   * profiles, and the site sees one authenticator: if Work's copy signs at 7 and Personal's copy then
+   * signs at 4, that is the counter going backwards. So every copy moves together, and only the
+   * profile that used it is told it was used.
    */
-  notePasskeyUse(credentialId: string, signCount: number): void {
-    const file = this.load();
-    const row = file.passkeys.find((p) => p.credentialId === credentialId);
-    if (!row) return;
+  notePasskeyUse(profileId: string, credentialId: string, signCount: number): void {
+    const file = this.rows();
+    const copies = file.passkeys.filter((p) => p.credentialId === credentialId);
+    const mine = copies.find((p) => p.profileId === profileId);
+    if (!mine) return;
     // Never backwards: a stale report from a pane whose keys were cleared mid-request must not undo
     // a later assertion's count.
-    row.signCount = Math.max(row.signCount, signCount);
-    row.lastUsedAt = this.d.now();
+    for (const row of copies) row.signCount = Math.max(row.signCount, signCount);
+    mine.lastUsedAt = this.d.now();
     this.save();
+  }
+
+  /**
+   * Copy one of this profile's passkeys into another profile. The original stays. A target that holds
+   * the same key already (an earlier share) is left as it is: there is nothing newer to copy, since
+   * the counter moves on every copy at once (`notePasskeyUse`).
+   */
+  sharePasskey(fromProfileId: string, id: string, toProfileId: string): Passkey | null {
+    const file = this.rows();
+    const source = file.passkeys.find((p) => p.id === id && p.profileId === fromProfileId);
+    if (!source || toProfileId === "" || toProfileId === fromProfileId) return null;
+    const same = file.passkeys.find((p) => p.profileId === toProfileId && p.credentialId === source.credentialId);
+    if (same) return stripPasskey(same);
+    const row: StoredPasskey = {
+      id: this.d.newId(), profileId: toProfileId, rpId: source.rpId, userName: source.userName,
+      userDisplayName: source.userDisplayName, createdAt: this.d.now(), lastUsedAt: null,
+      credentialId: source.credentialId, userHandle: source.userHandle, signCount: source.signCount, sealed: source.sealed,
+    };
+    file.passkeys.push(row);
+    this.save();
+    return stripPasskey(row);
   }
 
   /** Forget one. Returns whether anything was there, so Settings reports honestly rather than
    *  claiming a deletion that removed nothing. Note what this cannot do: the relying party still
    *  lists the passkey, and only the user can remove it there. */
-  removePasskey(id: string): boolean {
-    const file = this.load();
+  removePasskey(profileId: string, id: string): boolean {
+    const file = this.rows();
     const before = file.passkeys.length;
-    file.passkeys = file.passkeys.filter((p) => p.id !== id);
+    file.passkeys = file.passkeys.filter((p) => !(p.id === id && p.profileId === profileId));
     if (file.passkeys.length === before) return false;
     this.save();
     return true;
+  }
+
+  /**
+   * Give rows from before profiles to their profile NOW, rather than at the first read that needs
+   * them. Main calls this whenever it learns the profiles, so the hand-over happens at launch — before
+   * anyone could delete the profile that inherits them, which would otherwise leave them owned by
+   * nobody for good. A no-op once they are placed, and while the profile cannot be named yet.
+   */
+  adoptUnownedRows(): void {
+    this.rows();
+  }
+
+  /** A deleted profile's sign-ins and passkeys go with it. Copies shared into other profiles are
+   *  theirs, and stay. */
+  forgetProfile(profileId: string): void {
+    const file = this.rows();
+    const before = file.credentials.length + file.passkeys.length;
+    file.credentials = file.credentials.filter((c) => c.profileId !== profileId);
+    file.passkeys = file.passkeys.filter((p) => p.profileId !== profileId);
+    if (file.credentials.length + file.passkeys.length !== before) this.save();
   }
 
   /* ---------------------------------- settings ---------------------------------- */
@@ -486,6 +594,34 @@ export class SecretStore {
     return this.keys[domain];
   }
 
+  /** The file, with any rows from before profiles adopted first — what every profile-scoped read and
+   *  write goes through, so no reader can see a row the adoption has not placed yet. */
+  private rows(): StoreFile {
+    const file = this.load();
+    if (this.unadopted) this.adopt(file);
+    return file;
+  }
+
+  private credentialOf(profileId: string, id: string): StoredCredential | undefined {
+    return this.rows().credentials.find((c) => c.id === id && c.profileId === profileId);
+  }
+
+  /**
+   * Give every row from before profiles (no `profileId`) to the profile that kept the shared browser
+   * partition, and write the file back. Idempotent by construction: a row that names a profile is
+   * never touched again, so a later answer to `defaultProfileId` — the user reordered, or deleted the
+   * profile that inherited them — cannot move a sign-in. Until main can name the profile, the rows
+   * wait on disk exactly as they were, offered to nobody.
+   */
+  private adopt(file: StoreFile): void {
+    const owner = this.d.defaultProfileId();
+    if (!owner) return;
+    for (const c of file.credentials) c.profileId ??= owner;
+    for (const p of file.passkeys) p.profileId ??= owner;
+    this.unadopted = false;
+    this.save();
+  }
+
   private load(): StoreFile {
     if (this.file) return this.file;
     const raw = this.d.readFile();
@@ -503,6 +639,7 @@ export class SecretStore {
     };
     this.file = file;
     this.keys = this.unlockKeyring(file);
+    this.unadopted = file.credentials.some((c) => c.profileId === undefined) || file.passkeys.some((p) => p.profileId === undefined);
     return file;
   }
 
@@ -608,7 +745,8 @@ function clipName(v: string): string {
 function isStoredCredential(v: unknown): v is StoredCredential {
   if (typeof v !== "object" || v === null) return false;
   const c = v as Record<string, unknown>;
-  return typeof c.id === "string" && typeof c.origin === "string" && typeof c.username === "string"
+  return (c.profileId === undefined || typeof c.profileId === "string")
+    && typeof c.id === "string" && typeof c.origin === "string" && typeof c.username === "string"
     && typeof c.label === "string" && typeof c.createdAt === "number"
     && typeof c.sealed === "string" && isSealed(c.sealed);
 }
@@ -616,7 +754,8 @@ function isStoredCredential(v: unknown): v is StoredCredential {
 function isStoredPasskey(v: unknown): v is StoredPasskey {
   if (typeof v !== "object" || v === null) return false;
   const p = v as Record<string, unknown>;
-  return typeof p.id === "string" && typeof p.rpId === "string" && typeof p.userName === "string"
+  return (p.profileId === undefined || typeof p.profileId === "string")
+    && typeof p.id === "string" && typeof p.rpId === "string" && typeof p.userName === "string"
     && typeof p.userDisplayName === "string" && typeof p.createdAt === "number"
     && (p.lastUsedAt === null || typeof p.lastUsedAt === "number")
     && typeof p.credentialId === "string" && (p.userHandle === null || typeof p.userHandle === "string")

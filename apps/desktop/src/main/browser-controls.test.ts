@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { CLEAR_BROWSING_DATA_COPY, clearBrowsingData, saveBrowserScreenshot, screenshotFileName, type ScreenshotDeps } from "./browser-controls";
+import { clearBrowsingData, clearBrowsingDataCopy, saveBrowserScreenshot, screenshotFileName, type ScreenshotDeps } from "./browser-controls";
 
 const NOW = new Date("2026-10-01T19:30:05.123Z");
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
@@ -79,7 +79,7 @@ describe("saveBrowserScreenshot", () => {
 describe("clearBrowsingData", () => {
   it("clears only on a yes", async () => {
     const clear = vi.fn(async () => {});
-    expect(await clearBrowsingData({ confirm: async () => 0, clear })).toEqual({ cleared: true });
+    expect(await clearBrowsingData({ profileName: "Work", confirm: async () => 0, clear })).toEqual({ cleared: true });
     expect(clear).toHaveBeenCalledOnce();
   });
 
@@ -87,14 +87,24 @@ describe("clearBrowsingData", () => {
     /* THE mutant: treat anything but an explicit Cancel as a yes. Escape answers the cancel index,
        and a dialog that throws answers nothing at all — neither may sign every pane out. */
     const clear = vi.fn(async () => {});
-    expect(await clearBrowsingData({ confirm: async () => 1, clear })).toEqual({ cleared: false });
-    expect(await clearBrowsingData({ confirm: async () => { throw new Error("no window"); }, clear })).toEqual({ cleared: false });
+    expect(await clearBrowsingData({ profileName: "Work", confirm: async () => 1, clear })).toEqual({ cleared: false });
+    expect(await clearBrowsingData({ profileName: "Work", confirm: async () => { throw new Error("no window"); }, clear })).toEqual({ cleared: false });
     expect(clear).not.toHaveBeenCalled();
   });
 
-  it("the confirm names its consequence — every pane is signed out — and what it keeps", () => {
-    expect(CLEAR_BROWSING_DATA_COPY.message).toMatch(/every browser pane/);
-    expect(CLEAR_BROWSING_DATA_COPY.detail).toMatch(/signed out/);
-    expect(CLEAR_BROWSING_DATA_COPY.detail).toMatch(/Saved sign-ins and passkeys in Settings are kept/);
+  it("the confirm names whose browser — the profile — its consequence, and what it keeps", () => {
+    /* THE mutant: the old copy, "for every browser pane". Each profile has its own jar now, so a clear
+       signs out one profile's panes, and a confirm that said "every" would be a false consequence. */
+    const copy = clearBrowsingDataCopy("Work");
+    expect(copy.message).toBe("Clear browsing data for Work?");
+    expect(copy.detail).toMatch(/Work's browser panes/);
+    expect(copy.detail).toMatch(/signed out/);
+    expect(copy.detail).toMatch(/Other profiles' browser panes, and saved sign-ins and passkeys in Settings, are kept/);
+  });
+
+  it("asks with the copy for the profile it was given", async () => {
+    const asked: string[] = [];
+    await clearBrowsingData({ profileName: "School", confirm: async (copy) => { asked.push(copy.message); return 1; }, clear: async () => {} });
+    expect(asked).toEqual(["Clear browsing data for School?"]);
   });
 });

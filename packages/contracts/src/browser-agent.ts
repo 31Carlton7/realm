@@ -391,7 +391,16 @@ export type BrowserMenuState = {
   forward: BrowserTrailRow[];
   blocked: BlockedDownload[];
   saved: SavedDownload[];
+  /** The profiles this pane's site sign-in can be shared with: every profile but the pane's own, in
+   *  the user's order. Empty with one profile, and the menu then offers no share at all. */
+  shareTargets: { id: string; name: string }[];
 };
+
+/** What "Share this site's sign-in with ▸ <profile>" did: how many of the site's cookies were copied
+ *  into that profile's browser, for which host — zero is a real answer, a site with nothing to share. */
+export type BrowserSignInShare =
+  | { ok: true; profileName: string; host: string; copied: number }
+  | { ok: false; error: string };
 
 /** A find's answer, for the pane's find strip (`found-in-page`). `activeMatchOrdinal` counts from 1. */
 export type BrowserFindResult = { browserId: string; activeMatchOrdinal: number; matches: number; finalUpdate: boolean };

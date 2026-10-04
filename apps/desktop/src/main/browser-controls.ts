@@ -72,16 +72,20 @@ function uniquePath(dir: string, name: string, exists: (p: string) => boolean): 
 
 /**
  * The confirm, word for word. It names the consequence before it asks (design.md, Language): every pane
- * shares the one partition, so this is not "clear this tab" — it signs every browser pane out. It also
- * says what is KEPT, because the Settings page holds sign-ins too, and a person deciding whether to
- * press this needs to know those survive.
+ * of a profile shares that profile's partition, so this is not "clear this tab" — it signs every one of
+ * the profile's browser panes out. It names the PROFILE, because since each profile has its own jar the
+ * question is whose browser, and it says what is KEPT: other profiles' panes, and the sign-ins and
+ * passkeys in Settings, which a person deciding whether to press this needs to know survive.
  */
-export const CLEAR_BROWSING_DATA_COPY = {
-  message: "Clear browsing data for every browser pane?",
-  detail: "This removes the cookies, site data, cache and history of Realm's browser. Every browser pane is signed out of the sites it was signed in to. Saved sign-ins and passkeys in Settings are kept.",
-  clear: "Clear browsing data",
-  cancel: "Cancel",
-} as const;
+export function clearBrowsingDataCopy(profileName: string) {
+  return {
+    message: `Clear browsing data for ${profileName}?`,
+    detail: `This removes the cookies, site data, cache and history of ${profileName}'s browser panes. Every one of them is signed out of the sites it was signed in to. Other profiles' browser panes, and saved sign-ins and passkeys in Settings, are kept.`,
+    clear: "Clear browsing data",
+    cancel: "Cancel",
+  } as const;
+}
+export type ClearBrowsingDataCopy = ReturnType<typeof clearBrowsingDataCopy>;
 
 /**
  * Ask, then clear. Answers whether anything was cleared, so the pane can say so.
@@ -90,10 +94,11 @@ export const CLEAR_BROWSING_DATA_COPY = {
  * the dialog closing — is no. That default is the point: the only path to `clear` is a yes.
  */
 export async function clearBrowsingData(d: {
-  confirm(copy: typeof CLEAR_BROWSING_DATA_COPY): Promise<number>;
+  profileName: string;
+  confirm(copy: ClearBrowsingDataCopy): Promise<number>;
   clear(): Promise<void>;
 }): Promise<{ cleared: boolean }> {
-  const answer = await d.confirm(CLEAR_BROWSING_DATA_COPY).catch(() => -1);
+  const answer = await d.confirm(clearBrowsingDataCopy(d.profileName)).catch(() => -1);
   if (answer !== 0) return { cleared: false };
   await d.clear();
   return { cleared: true };

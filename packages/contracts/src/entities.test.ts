@@ -15,9 +15,14 @@ describe("entities", () => {
   it("ProfileSchema accepts a valid profile", () => {
     const p = ProfileSchema.parse({
       id: newId(), name: "Work", icon: "briefcase", color: "#3366ff", sortOrder: 0,
-      createdAt: 1, updatedAt: 1,
+      browserPartition: "persist:browser", createdAt: 1, updatedAt: 1,
     });
     expect(p.name).toBe("Work");
+  });
+  it("ProfileSchema requires the profile's browser partition — main cannot place a pane without it", () => {
+    const base = { id: newId(), name: "Work", icon: "briefcase", color: "#3366ff", sortOrder: 0, createdAt: 1, updatedAt: 1 };
+    expect(ProfileSchema.safeParse(base).success).toBe(false);
+    expect(ProfileSchema.safeParse({ ...base, browserPartition: "persist:browser-x" }).success).toBe(true);
   });
   it("SpaceSchema accepts null layout", () => {
     const s = SpaceSchema.parse({

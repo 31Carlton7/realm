@@ -366,6 +366,10 @@ function v8McpFixture(path: string): { serverId: string } {
   // v33 ALTERs `checkpoints`, which a v8 home has had since v7 — the same under-specification the
   // `session_events` stub above ran into, found by the first migration to touch this table.
   db.exec("CREATE TABLE IF NOT EXISTS checkpoints (id TEXT PRIMARY KEY)");
+  // v37 ALTERs `profiles` and orders it, which a v8 home has had since v1 — the same
+  // under-specification again, found by the first migration to touch that table. Its real shape.
+  db.exec(`CREATE TABLE IF NOT EXISTS profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT NOT NULL, color TEXT NOT NULL,
+    sort_order INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`);
   for (const v of [1, 2, 3, 4, 5, 6, 7, 8]) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   db.prepare("INSERT INTO mcp_servers (id, name, transport, command, args_json, url, secrets_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .run("srv1", "airtable", "stdio", "/usr/bin/node", '["/abs/s.mjs"]', "", '{"AIRTABLE_API_KEY":"pat-x"}', 1, 1);
@@ -679,9 +683,12 @@ describe("migration v25 — the Library's file index", () => {
  * any of them, but `sessions`' foreign keys have to point at something for a row to be insertable, and
  * their real shapes are exercised by the v4/v5 fixtures above. `browsers` is one too, for the reason
  * V8's `checkpoints` stub is: v36 ALTERs it, a real v32 home has had it since v10, and the first
- * migration to touch it after this fixture was written is what found it missing.
+ * migration to touch it after this fixture was written is what found it missing. `profiles` is in its
+ * real shape for the same reason: v37 ALTERs and orders it, and a v32 home has had it since v1.
  */
 const V32_REWIND_SCHEMA = `
+CREATE TABLE profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT NOT NULL, color TEXT NOT NULL,
+  sort_order INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
 CREATE TABLE spaces (id TEXT PRIMARY KEY);
 CREATE TABLE environments (id TEXT PRIMARY KEY);
 CREATE TABLE items (id TEXT PRIMARY KEY);
@@ -996,5 +1003,97 @@ describe("migration v36 — favicons", () => {
     expect(again.prepare("SELECT digest FROM browser_favicons").all()).toEqual([{ digest: "d1" }]);
     expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
     again.close();
+  });
+});
+
+/**
+ * The v36 shape of what v37 touches, hand-written for the reason every fixture above is. `profiles` is
+ * its real v36 shape; `spaces` is a stub that only has to hold a foreign key. The rows are inserted in
+ * an order that is NOT the app's order — the profile listed first is the second one written, and two
+ * share a sort position — because "first" is the whole question the backfill answers.
+ */
+const V36_PROFILES_SCHEMA = `
+CREATE TABLE profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT NOT NULL, color TEXT NOT NULL,
+  sort_order INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE spaces (id TEXT PRIMARY KEY, profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE);
+`;
+
+/** A v36 home with three profiles: School (sort 1), Work (sort 0, the app's first), Home (sort 1, younger). */
+function v36Fixture(path: string): void {
+  const db = new DatabaseSync(path);
+  db.exec("PRAGMA foreign_keys = ON;");
+  db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+  db.exec(V36_PROFILES_SCHEMA);
+  for (let v = 1; v <= 36; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  const profile = db.prepare("INSERT INTO profiles VALUES (?, ?, 'user', '#000000', ?, ?, 1)");
+  profile.run("pSchool", "School", 1, 5);
+  profile.run("pWork", "Work", 0, 9);
+  profile.run("pHome", "Home", 1, 7);
+  db.prepare("INSERT INTO spaces (id, profile_id) VALUES ('sp1', 'pWork')").run();
+  db.close();
+}
+
+describe("migration v37 — a browser partition per profile", () => {
+  const migrated = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    v36Fixture(p);
+    return { p, db: openDatabase(p) };
+  };
+  const partitions = (db: DatabaseSync) =>
+    Object.fromEntries((db.prepare("SELECT id, browser_partition FROM profiles").all() as { id: string; browser_partition: string }[])
+      .map((r) => [r.id, r.browser_partition]));
+
+  it("is appended, not folded into v36: a v36 home reaches the end of the chain and gains the column", () => {
+    const { db } = migrated();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBeGreaterThan(36);
+    const cols = (db.prepare("PRAGMA table_info(profiles)").all() as { name: string }[]).map((c) => c.name);
+    expect(cols).toContain("browser_partition");
+    db.close();
+  });
+
+  it("gives the shared jar to the profile the app lists FIRST, and every other profile one of its own", () => {
+    /* THE mutants: hand `persist:browser` to the first row WRITTEN (School), or to none — either way the
+       user opens the profile they always used and every site has signed them out. */
+    const { db } = migrated();
+    expect(partitions(db)).toEqual({
+      pWork: "persist:browser",
+      pSchool: "persist:browser-pSchool",
+      pHome: "persist:browser-pHome",
+    });
+    db.close();
+  });
+
+  it("changes nothing else about a profile, and keeps its spaces", () => {
+    const { db } = migrated();
+    expect(db.prepare("SELECT name, icon, color, sort_order, created_at FROM profiles WHERE id = 'pHome'").get())
+      .toEqual({ name: "Home", icon: "user", color: "#000000", sort_order: 1, created_at: 7 });
+    expect(db.prepare("SELECT profile_id FROM spaces").all()).toEqual([{ profile_id: "pWork" }]);
+    db.close();
+  });
+
+  it("is idempotent: a reopen after the user reorders profiles moves nobody's cookies", () => {
+    const { p, db } = migrated();
+    // School moves to the top. The jar stays with Work — it is the user's sign-ins, not a rank.
+    db.prepare("UPDATE profiles SET sort_order = -1 WHERE id = 'pSchool'").run();
+    db.close();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    const again = openDatabase(p);
+    expect(partitions(again).pWork).toBe("persist:browser");
+    expect(partitions(again).pSchool).toBe("persist:browser-pSchool");
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    again.close();
+  });
+
+  it("a home with no profiles yet backfills nothing — the first profile made takes the shared jar", () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    const db = new DatabaseSync(p);
+    db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+    db.exec(V36_PROFILES_SCHEMA);
+    for (let v = 1; v <= 36; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+    db.close();
+    const fresh = openDatabase(p);
+    expect(fresh.prepare("SELECT COUNT(*) AS n FROM profiles").get()).toEqual({ n: 0 });
+    fresh.close();
   });
 });

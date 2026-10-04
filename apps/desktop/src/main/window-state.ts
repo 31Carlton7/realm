@@ -9,6 +9,17 @@ import { readFileSync, writeFileSync } from "node:fs";
  * this Mac's displays, not about the person's work, and it has to be known before the server is up.
  */
 export type Rect = { x: number; y: number; width: number; height: number };
+
+/**
+ * Which file a window's place is kept in. The first window keeps `window-state.json`, as it always
+ * has; a window opened for a profile (Plan 27 Phase 2) keeps its own, under that profile, so Work's
+ * window comes back where Work's window was and does not land on top of the first.
+ */
+export function windowStateFileName(profileId: string | null): string {
+  if (profileId === null) return "window-state.json";
+  // An id is ULID-shaped; anything else is reduced to what a file name can hold rather than trusted.
+  return `window-state-${profileId.replace(/[^0-9A-Za-z]/g, "").slice(0, 64) || "profile"}.json`;
+}
 export type SavedWindow = Rect & { maximized?: boolean; fullScreen?: boolean };
 
 /** The smallest share of the window that must land on a display for the saved place to be kept. A

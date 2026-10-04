@@ -184,7 +184,22 @@ export function registerMethods(d: Deps): void {
   reg("profiles.list", () => d.profiles.list());
   reg("profiles.create", (p) => { const r = d.profiles.create(p); rpc.broadcast("profiles.changed", {}); return r; });
   reg("profiles.update", (p) => { const r = d.profiles.update(p); rpc.broadcast("profiles.changed", {}); return r; });
-  reg("profiles.delete", (p) => { d.profiles.delete(p.id); rpc.broadcast("profiles.changed", {}); return { ok: true as const }; });
+  reg("profiles.delete", async (p) => {
+    // Refused up front for the last profile, before anything below is stopped: a delete that fails
+    // halfway must not have killed the sessions of a profile it then kept.
+    if (d.profiles.get(p.id) && d.profiles.list().length <= 1) d.profiles.delete(p.id);
+    // Each space goes the way `spaces.delete` takes it — live sockets, ptys and agent turns stopped —
+    // rather than leaving the cascade to drop rows out from under running processes.
+    for (const sp of d.spaces.list(p.id)) {
+      d.machines.closeAllInSpace(sp.id); d.simulators.closeAllInSpace(sp.id); d.terminals.closeAllInSpace(sp.id);
+      await d.sessions.deleteAllInSpace(sp.id);
+    }
+    d.profiles.delete(p.id);
+    rpc.broadcast("spaces.changed", {});
+    rpc.broadcast("profiles.changed", {});
+    return { ok: true as const };
+  });
+  reg("profiles.usage", (p) => d.profiles.usage(p.id));
 
   reg("spaces.list", () => d.spaces.listAll());
   reg("spaces.create", (p) => { const r = d.spaces.create(p); rpc.broadcast("spaces.changed", {}); return r; });
@@ -646,13 +661,14 @@ export function registerMethods(d: Deps): void {
 
   reg("browsers.create", (p) => d.browsers.open(p));
   reg("browsers.get", (p) => d.browsers.get(p.browserId));
+  reg("browsers.profile", (p) => d.browsers.profileOf(p.browserId, d.profiles));
   reg("browsers.update", (p) => { d.browsers.update(p.browserId, p); return { ok: true as const }; });
   reg("browsers.close", (p) => { d.browsers.close(p.browserId); return { ok: true as const }; });
   reg("browsers.downloadDir", (p) => ({ dir: spaceDownloadDir(d.projects, p.spaceId) }));
   reg("browsers.screenshotDir", (p) => ({ dir: spaceScreenshotDir(d.spaces, p.spaceId) }));
   reg("browsers.suggest", (p) => ({ pages: d.browsers.suggest(p.spaceId, p.query, p.limit) }));
   reg("browsers.recent", (p) => ({ pages: d.browsers.recent(p.spaceId, p.limit) }));
-  reg("browsers.clearHistory", () => { d.browsers.clearHistory(); return { ok: true as const }; });
+  reg("browsers.clearHistory", (p) => { d.browsers.clearHistory(p.profileId); return { ok: true as const }; });
 
   /* Machines (Plan 25 W3). `create` and `update` are the only two that take a password, and neither
      hands one back: `passwordStored` is a boolean about what happened, because with no encryption

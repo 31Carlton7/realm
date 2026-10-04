@@ -117,13 +117,15 @@ describe("BrowserHistoryStore", () => {
     expect(history.recent("nobody", 10)).toEqual([]);
   });
 
-  it("clearAll forgets every profile's pages", () => {
+  it("clearProfile forgets ONE profile's pages — another profile's browser is not the one cleared", () => {
+    /* THE mutant: clear every profile's history, which is what a clear meant while every profile
+       shared one cookie jar. Each profile has its own partition now, so its history is its own too. */
     const { history } = store();
     history.recordVisit("p1", "https://a.example/", "A", 1);
     history.recordVisit("p2", "https://b.example/", "B", 1);
-    history.clearAll();
+    history.clearProfile("p1");
     expect(history.search("p1", "example", 10)).toEqual([]);
-    expect(history.search("p2", "example", 10)).toEqual([]);
+    expect(history.search("p2", "example", 10).map((p) => p.title)).toEqual(["B"]);
   });
 });
 
@@ -192,8 +194,11 @@ describe("BrowserHistoryStore — the icons pages showed (v36)", () => {
     expect(pictures(db)).toEqual([]);
     history.recordVisit("p2", "https://home.example/", "Home", 1);
     history.setFavicon("p2", "https://home.example/", G);
-    history.clearAll();
-    expect(pictures(db)).toEqual([]);
+    history.recordVisit("p1", "https://work.example/", "Work", 1);
+    history.setFavicon("p1", "https://work.example/", H);
+    history.clearProfile("p1");
+    // The cleared profile's pictures go with its pages; the other profile keeps its own.
+    expect(pictures(db)).toEqual([{ profile_id: "p2", data: G }]);
   });
 });
 
