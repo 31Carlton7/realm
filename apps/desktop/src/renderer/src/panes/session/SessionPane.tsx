@@ -271,6 +271,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const status = useApp((s) => s.sessionStatus[id] ?? s.sessions[id]?.status ?? "idle");
   const entry = useApp((s) => s.transcripts[id]);
   const spaces = useApp((s) => s.spaces);
+  const moveSessionToSpace = useApp((s) => s.moveSessionToSpace);
   const openSession = useApp((s) => s.openSession);
   const sendMessage = useApp((s) => s.sendMessage);
   const interruptSession = useApp((s) => s.interruptSession);
@@ -473,6 +474,12 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const packGreetings = useMemo(() => eggPacks.flatMap((p) => p.greetings), [eggPacks]);
   // The space's colour on the composer's space chip — one of the three places it marks (Plan 27).
   const spaceTint = useSpaceTint(spaces.find((s) => s.id === session?.spaceId)?.color);
+  // Where else the chip may move it: the profile's other spaces. Another profile's would take the
+  // session out of this window, which is the sidebar menu's deliberate act, not a composer guess.
+  const otherSpaces = useMemo(() => {
+    const here = spaces.find((s) => s.id === session?.spaceId);
+    return here ? spaces.filter((s) => s.profileId === here.profileId && s.id !== here.id) : [];
+  }, [spaces, session?.spaceId]);
 
   /* EVERY hook is above this line, and that is load-bearing rather than tidy: an early return with
      hooks below it renders a different NUMBER of hooks depending on whether the session row has
@@ -655,6 +662,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             machineName={machineName} userName={userName} environments={spaceEnvironments}
             onSelectEnvironment={(envId) => run(() => setSessionEnvironment(id, envId))}
             onNewWorktree={() => run(() => moveSessionToNewWorktree(id))}
+            otherSpaces={otherSpaces} onMoveToSpace={(spaceId) => run(() => moveSessionToSpace(id, spaceId))}
             connectors={connectors} onConnectorsOpened={() => run(() => refreshConnectors(session.spaceId))}
             onAddFolder={() => run(() => pickAndLinkProject(session.spaceId))}
             onManageConnections={() => openSpacePage(session.spaceId, "connections")}

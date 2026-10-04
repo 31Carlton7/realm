@@ -3,6 +3,7 @@ import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, D
 import { Icon, type IconName } from "@realm/ui";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
+import { SpaceIcon } from "../../components/SpaceIcon";
 import { useFileDrop } from "../../components/use-file-drop";
 import { useItemDrop } from "../../components/use-item-drop";
 import type { AgentProbe, PickedAttachment, SessionOptions, SubmitKey } from "../../state/store";
@@ -177,6 +178,7 @@ function QueueRow({ kind, queued, onRelease, onDrop }: { kind: AgentKind; queued
  */
 /** Stable, so a Composer with no references does not get a new array on every render. */
 const NO_SESSION_REFS: readonly SessionRef[] = [];
+const NO_SPACES: readonly { id: string; name: string; icon: string }[] = [];
 
 function SessionRefRow({ refs, onRemove }: { refs: readonly SessionRef[]; onRemove: (sessionId: string) => void }) {
   if (refs.length === 0) return null;
@@ -422,7 +424,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, supportsFastMode, links, onLinkPaste, quote = null, compact = false }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, supportsFastMode, links, onLinkPaste, quote = null, compact = false }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /**
    * The quick chat's prompter: the card, and only the card.
@@ -524,6 +526,11 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
    *  (no events yet — the same guard as the agent switch; the server enforces it regardless). */
   onSelectEnvironment?: (environmentId: string) => void;
   onNewWorktree?: () => void;
+  /** The profile's other spaces, for the chip's "Move to …" rows (Plan 27). A new session goes to the
+   *  space of the session in focus; this is where that guess is corrected, on the same before-the-
+   *  first-message terms as the checkout — and the server's guard is the enforcement, as there. */
+  otherSpaces?: readonly { id: string; name: string; icon: string }[];
+  onMoveToSpace?: (spaceId: string) => void;
   /** The "+" menu's Connectors source: the space's servers as last fetched, or null = never fetched. */
   connectors?: McpServer[] | null;
   /** The "+" menu opened — refresh the connectors cache (a row read, never a probe). */
@@ -898,6 +905,8 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     ...environments.map((e): MenuItem => ({ label: environmentLabel(e, spaceName), checked: e.id === session.environmentId, onSelect: () => onSelectEnvironment?.(e.id) })),
     ...(environments.length > 0 ? [{ kind: "separator" } as MenuItem] : []),
     { label: "New worktree…", onSelect: () => onNewWorktree?.() },
+    ...(otherSpaces.length > 0 ? [{ kind: "separator" } as MenuItem] : []),
+    ...otherSpaces.map((sp): MenuItem => ({ label: `Move to ${sp.name}`, icon: <SpaceIcon icon={sp.icon} size={16} />, onSelect: () => onMoveToSpace?.(sp.id) })),
   ];
 
   // Attachment-only messages (Plan 14 W5): a send needs text OR at least one attachment this agent

@@ -3,7 +3,7 @@ import { render, screen, fireEvent, createEvent, waitFor, act, within, cleanup }
 import { AGENT_CLI_COMMANDS, AGENT_NOTES, MODEL_NOTES, canonicalModelKey, sessionEvent, type CliStatus, type Environment } from "@realm/contracts";
 import { spaceColor } from "@realm/ui";
 import { StoreContext, createAppStore, type AgentProbe } from "../../state/store";
-import { fakeApi, item, mcpServer, session, skillRow, externalSkillRow } from "../../state/store.test-fakes";
+import { fakeApi, item, mcpServer, session, skillRow, externalSkillRow, space } from "../../state/store.test-fakes";
 import { PanelBar } from "../../components/PanelBar";
 import { TerminalHub, setTerminalHubForTests, type HubTransport, type TerminalLike } from "../terminal-hub";
 import { SessionMeta, SessionPane } from "./SessionPane";
@@ -2507,11 +2507,12 @@ describe("under-strip (Plan 12 W1)", () => {
     envA: env("envA", { kind: "primary", path: "/tmp" }),
     envB: env("envB", { kind: "worktree", branch: "realm/fix-tests", path: "/tmp/wt" }),
   });
-  async function mountStrip(extra: { lastEventSeq?: number; lastSeq?: number } = {}) {
+  async function mountStrip(extra: { lastEventSeq?: number; lastSeq?: number; spaces?: ReturnType<typeof space>[] } = {}) {
     const { envA, envB } = twoEnvs();
     const api = fakeApi({
       sessions: [session("se1", "s1", { status: "idle", environmentId: "envA", cwd: "/tmp", lastEventSeq: extra.lastEventSeq ?? 0 })],
       environments: { s1: [envA, envB] },
+      ...(extra.spaces ? { spaces: extra.spaces } : {}),
     });
     const store = createAppStore(api); await store.getState().boot();
     store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: extra.lastSeq ?? 0, t: reduceAll([]) } } });
@@ -2569,6 +2570,20 @@ describe("under-strip (Plan 12 W1)", () => {
     await waitFor(() => expect(store.getState().sessions.se1?.environmentId).toBe(made.id));
     expect(api.calls).toContain(`setSessionEnvironment:se1=${made.id}`);
     await waitFor(() => expect(screen.getByRole("button", { name: "Workspace" })).toHaveTextContent(made.branch!));
+  });
+
+  it("moves a session that has not started to another space of its profile, from the same chip (Plan 27)", async () => {
+    // THE MUTANTS: leave the move off the chip, send the wrong space, offer the space it is already in,
+    // or offer another profile's — which would take the session out of this window from a composer.
+    const { api } = await mountStrip({ spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework"), space("s4", "p1", "Lectures"), space("s3", "p2", "Thesis")] });
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+    const menu = screen.getByRole("menu", { name: "Workspace" });
+    expect(within(menu).queryByRole("menuitem", { name: "Move to Versed" })).toBeNull();
+    expect(within(menu).queryByRole("menuitem", { name: "Move to Thesis" })).toBeNull();
+    expect(within(menu).getByRole("menuitem", { name: "Move to Homework" })).toBeInTheDocument();
+    // The second of two, so a row that sent the first space's id whichever was picked would fail here.
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Move to Lectures" }));
+    await waitFor(() => expect(api.calls).toContain("moveSessionToSpace:se1=s4"));
   });
 
   it("after the first event the selector is display-only — a label, not a button (named mutant)", async () => {
