@@ -94,7 +94,9 @@ describe("the rail", () => {
   });
 
   it("shows the update control only once an update is downloaded, and it restarts into it", async () => {
-    await mount();
+    const first = await mount();
+    // Asked for when the window is at the front — and only then is "nothing to show" an answer.
+    await waitFor(() => expect(first.store.getState().updateStatus?.state.kind).toBe("disabled"));
     expect(within(rail()).queryByRole("button", { name: /Restart to update/ })).toBeNull();
     cleanup();
     const { api } = await mount({ updateStatus: { version: "1.0.0", state: { kind: "downloaded", version: "1.1.0" } } });
