@@ -474,7 +474,10 @@ kbd { font: 11px var(--font-mono); }
 .sb-page-back:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* `no-drag` for the whole slot: the column is a window-drag region, and a rail's rows are LABELS,
    which the button-and-input opt-out above does not reach — a click on one would move the window. */
-.sb-page-nav { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0 16px 16px; overflow-y: auto;
+/* 16px above the first thing in it — the search, or a section — which is where the spaces list starts
+   its first row (`.space-body`: the top band's 12px and 4 to breathe). Flush, the search sat on the
+   frame's rim under Back. */
+.sb-page-nav { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px 16px 16px; overflow-y: auto;
   -webkit-app-region: no-drag; }
 .sb-page-nav .page-rail { width: auto; align-self: stretch; }
 .sb-page-nav .page-rail:has(.page-rail-list), .sb-page-nav .settings-rail-lists { gap: 4px; }

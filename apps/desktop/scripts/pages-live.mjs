@@ -202,6 +202,10 @@ async function main() {
   // The sidebar's row text edge, from the column itself before any page is up: 8px in from its padding.
   const rowEdge = await evalIn(c, `(() => { const l = document.querySelector('.sb-list'); const cs = getComputedStyle(l);
     return Math.round(l.getBoundingClientRect().left + parseFloat(cs.paddingLeft) + 8); })()`);
+  // …and where it starts its content under the head row: the list's padding edge, whatever comes first
+  // in it (the lens nudges itself 2px further; Needs you, when something waits, does not).
+  const listTop = await evalIn(c, `(() => { const b = document.querySelector('.space-body'); const cs = getComputedStyle(b);
+    return Math.round(b.getBoundingClientRect().top + parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop)); })()`);
   await evalIn(c, `__live.dest("Settings")`);
   await until(() => evalIn(c, `!!document.querySelector('.sb-page-nav .settings-rail')`), 10000, "Settings' sections in the sidebar");
   await sleep(400);
@@ -222,6 +226,9 @@ async function main() {
   check("…their text on the sidebar's own row edge, at the sidebar's row height",
     nav.text.every((x) => x !== null && Math.abs(x - rowEdge) <= 1) && nav.h >= 32, { rowEdge, text: nav.text, h: nav.h });
   check("…under a Back in the header band", nav.back.t >= 0 && nav.back.b <= 40, nav.back);
+  // THE BUG: the search sat flush on the frame's rim, under Back, with nothing between them.
+  const searchTop = await evalIn(c, `Math.round(document.querySelector('.sb-page-nav .settings-search').getBoundingClientRect().top)`);
+  check("…and the search starts where the spaces list starts its content, clear of the head row", Math.abs(searchTop - listTop) <= 1 && searchTop - 40 >= 12, { searchTop, listTop });
   // The column is a window-drag region, and these rows are labels; drag would take the click.
   if (nav.region !== null) check("…and the rows answer clicks rather than dragging the window", nav.region === "no-drag", { region: nav.region });
   await shot(c, "takeover-settings", { x: 0, y: 0, width: 760, height: 520 });
