@@ -150,7 +150,7 @@ Rules:
 - Let large work areas rest on `canvas`. Do not wrap every section in a surface.
 - Use surface contrast before adding a border.
 - Edges are quiet. The ordinary line (`--line`, `--line-strong`, `--btn-ring`, `--card-ring`) sits one
-  rung below where tembo puts it — 5.1% and 7.1% of full range on the dark panel, 3.7% and 5.5% on the
+  rung below where tembo puts it — 5.1% and 7.1% of full range on the dark panel, 3.9% and 5.6% on the
   light one, measured by `border-softness-live.mjs` — because nearly every one of them runs beside a
   change of surface that already carries the boundary. A window of controls each wearing a bright
   ring reads as outlined rather than as surfaces. A FILL is not an edge: a switch's track, a progress
@@ -234,6 +234,19 @@ Rules:
   feed. A page of controls someone sits on all day stays plain.
 
 The light theme is an equal mode, not an inverted dark screenshot. Use its authored token values.
+
+Both faces keep ONE depth order: the frame (sidebar, wells) under the canvas, the surface (cards, the
+composer, floating things) over it, about one perceptible step each way. Light mode once had its frame
+LIGHTER than its canvas, which made the sidebar the brightest region in the window and drew every
+well — a tool's output, a settings group — as a bright patch where dark mode draws a recess. The
+order is the light ramp in `packages/ui/src/themes.ts`, so every light theme takes it; a light theme's
+background is its paper, and the window ground sits a shade under it, which is a Mac sidebar beside
+light work and grey grouped boxes on light paper, the way System Settings is built.
+
+Quiet text is text. Every ink tier — hints and timestamps included — and link ink clear 4.5:1 on every
+ground they appear on, in both faces. The light hint tier once measured 2.4:1, which was below the
+floor this file sets and well under its own dark counterpart; a light face may need different values
+from dark to reach the same contrast, and that is a reason to author them, not to accept less.
 
 ## Shape
 

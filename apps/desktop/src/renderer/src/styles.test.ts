@@ -3050,8 +3050,10 @@ describe("custom themes", () => {
       const block = modeBlock(mode);
       // The seeds are read back out of the palette rather than written here, so this cannot drift
       // by someone updating tokens.css and the copy in the test to match each other.
+      // A light theme's seed background is its paper (themes.ts, `Ramp.page`), a dark one's its ground.
+      const anchor = mode === "dark" ? "--page" : "--canvas";
       const derived = deriveVars({
-        bg: hexIn("--page", block), ink: hexIn("--ink", block), accent: hexIn("--accent", block),
+        bg: hexIn(anchor, block), ink: hexIn("--ink", block), accent: hexIn("--accent", block),
         green: hexIn("--green", block), orange: hexIn("--orange", block), red: hexIn("--red", block),
         // The same role mapping the base --syn-* block states, so the seeds are Realm's own.
         syntax: { comment: hexIn("--ink-3", block), keyword: hexIn("--accent", block), string: hexIn("--green", block),
@@ -3060,7 +3062,7 @@ describe("custom themes", () => {
 
       // The surface ladder and the tooltip chip are pure geometry off the seed: they have to land on
       // the shipped lightness to finer than a display can resolve.
-      for (const token of ["--canvas", "--surface", "--inset", "--hover", "--hover-2", "--field",
+      for (const token of ["--page", "--canvas", "--surface", "--inset", "--hover", "--hover-2", "--field",
         "--stripe-bg", "--tooltip-bg", "--tooltip-border", "--tooltip-fg"]) {
         expect(derivedL(derived[token]!), `${mode} ${token}`).toBeCloseTo(L(token, block), 3);
       }
@@ -3081,7 +3083,7 @@ describe("custom themes", () => {
     for (const mode of ["dark", "light"] as const) {
       const block = modeBlock(mode);
       const want = REALM_SEED[mode];
-      for (const [role, token] of [["bg", "--page"], ["ink", "--ink"], ["accent", "--accent"],
+      for (const [role, token] of [["bg", mode === "dark" ? "--page" : "--canvas"], ["ink", "--ink"], ["accent", "--accent"],
         ["green", "--green"], ["orange", "--orange"], ["red", "--red"]] as const) {
         expect(want[role], `${mode} ${role}`).toBe(hexIn(token, block));
       }

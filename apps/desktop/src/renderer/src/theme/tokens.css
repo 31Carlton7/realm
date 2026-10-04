@@ -108,41 +108,65 @@
    * The stacks themselves are restated in the TEMBO ALIGNMENT block at the foot of this file. */
 }
 
-/* BUI's light-first `:root` values — Realm's secondary mode. */
+/* BUI's light-first `:root` values — Realm's secondary mode.
+ *
+ * Redrawn so the light face keeps the dark face's DEPTH ORDER, which it had inverted. Dark mode reads
+ * because its three grounds step one way: the frame (sidebar, wells) below the canvas, the surface
+ * (cards, the composer, floating things) above it, each about one perceptible step apart. The light
+ * values had the frame LIGHTER than the canvas — so the sidebar was the brightest, loudest region in
+ * the window (design.md: navigation is never the loudest surface) and every well (tool output, a
+ * command, a settings group) rendered as a bright patch where dark mode draws a recess. Now:
+ * frame 0.949 < canvas 0.973 < surface 1.0, steps of 1.07:1 and 1.08:1 against dark's 1.05 and 1.08,
+ * which is a sidebar a shade under the work like every Mac sidebar, and grey grouped boxes on light
+ * paper like System Settings — by the same rule, not by a light-only exception. The ramp is the
+ * LIGHT table in packages/ui/src/themes.ts, so every light theme takes the same order; a test
+ * derives this block from its seeds and requires that it comes back.
+ *
+ * The ink was the other half. `--ink-3` measured 2.4–2.7:1 on every light ground and `--accent-ink`
+ * 4.3:1 on the canvas: quiet text and links under the AA floor design.md sets ("quiet text is still
+ * readable text"), and far weaker than the same tiers in dark. Every text tier here now clears 4.5:1
+ * on every ground it sits on, the darkest (the frame) included; the semantic colours are stepped
+ * down to do the same, since they are read as text ("Signed out", a failed run) as often as fills. */
 :root[data-mode="light"] {
   color-scheme: light;
 
-  /* surfaces — cool, blue-tinted neutrals */
-  --page: oklch(0.985 0.001 286.376);
-  --canvas: oklch(0.961 0.002 247.84);
+  /* surfaces — cool neutrals on the hue the dark face uses, in the dark face's order */
+  --page: oklch(0.949 0.004 264);
+  --canvas: oklch(0.973 0.002 264);
   --surface: oklch(1 0 0);
-  --inset: oklch(0.979 0.002 247.839);
-  --hover: oklch(0.97 0.002 247.839);
-  --hover-2: oklch(0.933 0.003 247.86);
+  --inset: oklch(0.986 0.002 264);
+  --hover: oklch(0.959 0.003 264);
+  --hover-2: oklch(0.926 0.004 264);
 
-  --ink: oklch(0.247 0.006 258.361);
-  --ink-2: oklch(0.506 0.01 264.477);
-  --ink-3: oklch(0.695 0.009 264.505);
+  /* ink: 15.4 / 6.7 / 5.0 : 1 on the canvas; the quiet tier still 4.6 : 1 on the frame */
+  --ink: oklch(0.235 0.006 264);
+  --ink-2: oklch(0.455 0.01 264);
+  --ink-3: oklch(0.525 0.01 264);
 
-  --field: oklch(0.961 0.001 286.375);
+  --field: oklch(0.963 0.002 264);
   --stripe: oklch(0.405 0 0 / 0.075);
-  --stripe-bg: oklch(0.97 0 0);
+  --stripe-bg: oklch(0.971 0 0);
 
-  --accent: oklch(0.626 0.205 254.947);
-  --accent-ink: oklch(0.556 0.187 255.617);
-  --accent-tint: oklch(0.96 0.019 252.878);
+  /* The fill is Apple's own blue's weight — a white label on it reads 4.0 : 1, where the brighter
+     blue it replaces read 3.6. The ink is the link and prose colour, at 4.8 : 1 on the frame. */
+  --accent: oklch(0.6 0.2 256);
+  --accent-ink: oklch(0.52 0.19 257);
+  --accent-tint: oklch(0.959 0.021 256);
 
-  --green: oklch(0.603 0.155 150.883);
-  --green-tint: oklch(0.958 0.017 159.118);
-  --orange: oklch(0.689 0.179 49.902);
-  --orange-tint: oklch(0.964 0.021 67.581);
-  --red: oklch(0.621 0.192 23.042);
-  --red-tint: oklch(0.956 0.017 17.462);
+  /* Tints are the hue at paper lightness with a tenth of its chroma — the rule packages/ui/src/themes.ts
+     derives every light theme's tints by, now a step under the canvas rather than level with it. */
+  --green: oklch(0.51 0.14 152);
+  --green-tint: oklch(0.959 0.015 151);
+  --orange: oklch(0.535 0.155 52);
+  --orange-tint: oklch(0.959 0.016 47);
+  --red: oklch(0.545 0.19 25);
+  --red-tint: oklch(0.959 0.02 25);
 
-  --tooltip-bg: oklch(0.272 0.008 264.435);
-  --tooltip-fg: oklch(0.976 0.002 247.839);
-  --tooltip-muted: oklch(0.731 0.008 260.731);
-  --tooltip-border: oklch(0.356 0.007 264.474);
+  /* The inverted chip, built off the ink as every light theme's is (themes.ts LIGHT.tooltip). */
+  --tooltip-bg: oklch(0.26 0.008 271);
+  --tooltip-fg: oklch(0.94 0.003 264);
+  --tooltip-muted: oklch(0.731 0.006 271);
+  --tooltip-border: oklch(0.344 0.007 271);
 
   /* The same eight hues, stepped for the light surface (#ffffff) and validated as a set there — a
    * selected palette, not an automatic flip of the dark one. Worst adjacent CVD ΔE 9.1, worst
@@ -688,22 +712,23 @@ a {
    * take the same number: the sidebar holds short labels and the panes hold the reading, and a
    * pane's ground is whatever the desktop behind the window happens to be.
    *
-   * 86 is measured, not chosen (`pane-ground.test.ts` walks it). Composite each face's `--canvas`
+   * 84 is measured, not chosen (`pane-ground.test.ts` walks it). Composite each face's `--canvas`
    * over a WHITE desktop and over a BLACK one — the two extremes every wallpaper sits between — and
-   * 86% opacity is the thinnest at which `--ink` still clears WCAG AA on all eighteen faces. Below
+   * 84% opacity is the thinnest at which `--ink` still clears WCAG AA on all eighteen faces (it was 86
+   * until the light ramp stopped sinking its canvas below the page; Rosé Pine's light face binds). Below
    * that, body text on a light face over a dark desktop goes under 4.5:1, and body text is the one
    * thing here that may never be a judgement call.
    *
-   * So the slider's own range maps onto the pane's: 55 → 86 at the thin end, 100 → 100 at the other.
+   * So the slider's own range maps onto the pane's: 55 → 84 at the thin end, 100 → 100 at the other.
    * Every position still moves both surfaces, the sidebar still goes as thin as it ever did, and the
    * pane goes as thin as it can without putting the reading below the floor the palettes are
-   * derived against. The multiplier is (100 - 86) / (100 - 55).
+   * derived against. The multiplier is (100 - 84) / (100 - 55).
    *
    * What this does NOT cover is the two quiet tiers: `--ink-2` and `--ink-3` ship with almost no
    * headroom on some vendored palettes (one/light's hint tier is 2.41 against a 2.4 floor), so any
    * translucency at all can cost them a fraction over a hostile desktop. The test names that set
    * rather than hiding it, and it is a hint tier on a borrowed palette, not the reading. */
-  --pane-alpha: calc(86% + (var(--ground-alpha) - 55%) * 0.3111);
+  --pane-alpha: calc(84% + (var(--ground-alpha) - 55%) * 0.3556);
   --pane-ground: color-mix(in srgb, var(--canvas) var(--pane-alpha), transparent);
 }
 
@@ -726,8 +751,10 @@ a {
  * light faces. So the two layers are built to spend none.
  *
  * `--grain-wash-l` is the whole reason the colour is free. Pinned just BELOW every dark ground (the
- * darkest is L .176) and INSIDE the light grounds' own band (.932–1.000), the wash moves hue without
- * moving luminance, and hue is not what contrast is computed from. Chroma is where the colour comes
+ * darkest is L .176) and just ABOVE every light paper (which themes.ts caps at .976), the wash moves
+ * hue and can only ever lighten, and hue is not what contrast is computed from. The margin matters:
+ * a colour this light with this much chroma sits outside sRGB, and clipping it back costs luminance,
+ * so a wash only a hair above the paper measured DARKER than it on four vendored faces. Chroma is where the colour comes
  * from and it costs nothing, so it is spent freely; the alphas differ by six times between the modes
  * for the same reason, since on a light face the wash is already almost exactly the ground's
  * lightness and more of it changes almost nothing.
