@@ -927,6 +927,18 @@ export type AppState = {
    * at all, but keeps its entry, so it unfolds again the next time it has something to show.
    */
   sidebarOpenSpaces: string[];
+  // ——— Plan 27: the sidebar's own remembered choices (one block; nothing else in this file is the
+  //     sidebar's). Read by `hydrateSidebarPrefs` when the sidebar mounts, so boot is untouched. ———
+  /** Which lens the sidebar's list wears: the profile's spaces as sections, or every session by time
+   *  (`ui.sidebarLens`). */
+  sidebarLens: "spaces" | "recent";
+  /** The space sections folded shut, by space id (`ui.sidebarCollapsedSpaces`). A section is open
+   *  unless listed, so a new space arrives with its sessions showing. */
+  sidebarCollapsedSpaces: string[];
+  hydrateSidebarPrefs(): Promise<void>;
+  setSidebarLens(lens: "spaces" | "recent"): Promise<void>;
+  setSpaceSectionCollapsed(spaceId: string, collapsed: boolean): Promise<void>;
+  // ——— end Plan 27 ———
   /**
    * Whether deleting something asks first.
    *
@@ -3729,6 +3741,28 @@ await get().refreshCustomThemes().catch(() => {});
         set({ sidebarOpenSpaces: next });
         await api.setSetting(SETTING_SIDEBAR_OPEN_SPACES, next);
       },
+      // ——— Plan 27: the sidebar's remembered choices (see `sidebarLens`) ———
+      sidebarLens: "spaces",
+      sidebarCollapsedSpaces: [],
+      async hydrateSidebarPrefs() {
+        const [lens, folded] = await Promise.all([api.getSetting("ui.sidebarLens"), api.getSetting("ui.sidebarCollapsedSpaces")]);
+        // Anything but the two words, or a list of ids, reads as the resting state: Spaces, all open.
+        set({ sidebarLens: lens === "recent" ? "recent" : "spaces",
+          sidebarCollapsedSpaces: Array.isArray(folded) ? folded.filter((id): id is string => typeof id === "string") : [] });
+      },
+      async setSidebarLens(lens) {
+        set({ sidebarLens: lens });
+        await api.setSetting("ui.sidebarLens", lens);
+      },
+      async setSpaceSectionCollapsed(spaceId, collapsed) {
+        const known = new Set(get().spaces.map((s) => s.id));
+        // A deleted space's id is dropped on the way past, so the key never outgrows the home.
+        const kept = get().sidebarCollapsedSpaces.filter((id) => id !== spaceId && known.has(id));
+        const next = collapsed ? [...kept, spaceId] : kept;
+        set({ sidebarCollapsedSpaces: next });
+        await api.setSetting("ui.sidebarCollapsedSpaces", next);
+      },
+      // ——— end Plan 27 ———
       async setConfirmDelete(v) {
         set({ confirmDelete: v });
         await api.setSetting(SETTING_CONFIRM_DELETE, v);
