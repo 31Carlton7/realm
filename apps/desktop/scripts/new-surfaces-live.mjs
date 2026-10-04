@@ -361,8 +361,8 @@ async function main() {
              handles: document.querySelectorAll('.resize-handle').length };
   })()`);
   check("a pane's bar rules no line across the top of its body", seams.panelBar === "0px", seams);
-  check("…and the boundaries that separate SURFACES are untouched",
-    seams.sidebar !== "0px", seams);
+  // The sidebar's own seam went with the floating, translucent sidebar (c74d386c, 34d97309): it sits
+  // on the window's material, so there is no line between it and the panes left to keep.
 
   check("no renderer console errors", c.events.length === 0, c.events.slice(0, 5));
   api.close();

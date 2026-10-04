@@ -271,7 +271,9 @@ async function main() {
              overflows: sc ? sc.scrollHeight - sc.clientHeight : null,
              inset: Math.round(parseFloat(getComputedStyle(p).marginTop)) };
   })()`);
-  check("the panel docks to the session pane's right edge", Math.abs(panel.panel.r - panel.pane.r) <= 1, panel);
+  // Docked as a card since the summary learned to float (85fb3312): its right edge sits in from the
+  // pane's by the same margin as its top, not flush against it.
+  check("the panel docks to the session pane's right edge, in by its own margin", Math.abs((panel.pane.r - panel.panel.r) - panel.inset) <= 1, panel);
   /* The pane BODY, not the leaf. Docking to the leaf would put the panel over the bar that holds
      its own toggle — a mistake only a real window shows, since every jsdom rect is zero. */
   check("…and starts at the pane body's top edge, clearing the bar its toggle lives in",

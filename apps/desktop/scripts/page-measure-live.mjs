@@ -548,12 +548,11 @@ async function main() {
   await until(() => evalIn(c, `!!document.querySelector('.profile-page-pane')`), 10000, "the profile page");
   await sleep(500);
   const profile = await sweep(c, "Profile", "wide-profile");
-  /* Within the column's 4px focus-ring bleed: narrow, the band's leftmost child IS the scrolling
-     column, whose border box starts 4px early. The tolerance is still an order of magnitude under
-     the gutter this catches — chips at the pane's edge are 24px out. */
-  check("profile: the space chips share the column, rather than starting at the pane's edge",
-    profile.every((r) => Math.abs(r.chips.l - r.bodySpan.l) <= BLEED),
-    profile.map((r) => ({ pane: r.page.w, chips: r.chips?.l, body: r.bodySpan?.l })));
+  /* The profile's spaces were a band of chips over the column, and this measured that they shared
+     it. They are a list in the page's rail now (480b2e56), where the rail's own measures above reach
+     them; what is left to say here is that the band is gone and the list is in the rail. */
+  const spacesAt = await evalIn(c, `({ inRail: !!document.querySelector('.profile-page-pane .page-rail [aria-label^="Spaces of"]'), band: !!document.querySelector('.profile-page-pane .profile-spaces') })`);
+  check("profile: its spaces are a list in the rail, not a band of chips over the column", spacesAt.inRail && !spacesAt.band, { ...spacesAt, widths: profile.length });
 
   await evalIn(c, `__live.palette('Open space')`);
   await until(() => evalIn(c, `!!document.querySelector('.space-page-pane')`), 10000, "the space page");
