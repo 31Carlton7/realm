@@ -132,6 +132,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "usage-budget", tab: "usage", label: "Monthly budget", terms: "spend limit threshold cost" },
 
   // Sign-ins
+  { id: "signins-profile", tab: "signins", label: "Sign-ins for this profile", terms: "profile share copy cookies isolate separate" },
   { id: "saved-signins", tab: "signins", label: "Saved sign-ins", terms: "password credential login account" },
   { id: "passkeys", tab: "signins", label: "Passkeys", terms: "webauthn" },
   { id: "touch-id", tab: "signins", label: "Touch ID", terms: "fingerprint presence biometric" },
