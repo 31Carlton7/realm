@@ -512,6 +512,15 @@ describe("a phone's picture", () => {
     expect(api.phoneScreen.showLive).toHaveBeenCalledTimes(1);
   });
 
+  it("takes the note away when the picture goes live under it", async () => {
+    realm();
+    const { container, store } = await mount({ ...PHONE, stills: "camera" });
+    await screen.findByRole("button", { name: "Show live" });
+    // THE MUTANT: a store that thinks a state differing only in this is the same state, and keeps the old.
+    act(() => store.getState().applySimulatorState({ ...PHONE, stills: null }));
+    await waitFor(() => expect(container.querySelector(".sim-live")).toBeNull());
+  });
+
   it("sends a refused camera to its pane in System Settings, since macOS will not ask twice", async () => {
     const api = realm();
     await mount({ ...PHONE, stills: "camera-denied" });

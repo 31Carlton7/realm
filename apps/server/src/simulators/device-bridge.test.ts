@@ -293,8 +293,13 @@ describe("the picture, as live video", () => {
     await until(() => p.shots() > shots + 2);
     // THE MUTANT: give up on video for good. A camera allowed a moment later never goes live.
     await until(() => v.feeds.length === 2);
-    v.feeds[1]!.frame(1);
-    v.feeds[1]!.ready();
+    // Still not allowed: the same reason, which is not news. THE MUTANT: tell it every time — every
+    // pane on the phone repaints its note each time the feed is tried.
+    v.feeds[1]!.end("camera");
+    await until(() => v.feeds.length === 3);
+    expect(told).toEqual(["camera"]);
+    v.feeds[2]!.frame(1);
+    v.feeds[2]!.ready();
     await until(() => told.length === 2);
     expect(told).toEqual(["camera", null]);
     w.stop();
