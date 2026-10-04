@@ -225,6 +225,17 @@ async function main() {
   // The column is a window-drag region, and these rows are labels; drag would take the click.
   if (nav.region !== null) check("…and the rows answer clicks rather than dragging the window", nav.region === "no-drag", { region: nav.region });
   await shot(c, "takeover-settings", { x: 0, y: 0, width: 760, height: 520 });
+  // The light face too, through Appearance's own switch picked from the column: the rows take the
+  // face's tokens, not new ones.
+  const theme = (mode) => evalIn(c, `(() => { [...document.querySelectorAll('.sb-page-nav .settings-tab')].find((t) => t.textContent.trim() === 'Appearance').click();
+    return true; })()`).then(() => until(() => evalIn(c, `(() => { const r = document.querySelector('input[name="settings-theme"][value="${mode}"]'); if (!r) return false; r.click(); return document.documentElement.dataset.mode === '${mode}'; })()`), 10000, `the ${mode} face`));
+  await theme("light");
+  await sleep(500);
+  await shot(c, "takeover-settings-light", { x: 0, y: 0, width: 760, height: 520 });
+  await theme("dark");
+  await sleep(300);
+  await evalIn(c, `(() => { [...document.querySelectorAll('.sb-page-nav .settings-tab')].find((t) => t.textContent.trim() === 'General').click(); return true; })()`);
+  await sleep(300);
   await evalIn(c, `(() => { [...document.querySelectorAll('.sb-page-nav .settings-tab')].find((t) => t.textContent.trim() === 'Usage').click(); return true; })()`);
   const usage = await until(() => evalIn(c, `document.querySelector('.sb-page-nav .settings-tab[data-selected]')?.textContent.trim() === 'Usage' && !!document.querySelector('.page-overlay .checkbox')`), 10000, "Usage from the sidebar").catch(() => false);
   check("a section picked in the sidebar is the one the page shows", usage === true);
