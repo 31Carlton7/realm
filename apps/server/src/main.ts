@@ -5,6 +5,7 @@
 delete process.env.ELECTRON_RUN_AS_NODE;
 
 import { billedGenerators } from "./billed-calls";
+import { homedir } from "node:os";
 import { createApp } from "./app";
 import { toolchainAvailable } from "./simulators/service";
 import { PhysicalDevices } from "./simulators/physical";
@@ -44,6 +45,9 @@ try {
     onDraining: () => markDraining?.(),
     // The title and recap calls are billed, and a harness booting this entry must not make them.
     ...billedGenerators(),
+    // The machine's own home, where `~/.agents`, `~/.claude`, `~/.codex` and `~/.cursor` live. Realm's
+    // home is not it, and scanning there found nothing: this is the only caller that may name it.
+    userHome: homedir(), codexHome: process.env.CODEX_HOME || undefined,
     // Plan 22: where Plynn's meeting exports are read from. Unset in production (the app's own
     // Application Support folder); live checks point it at a fixture so no real recording is read.
     plynnMeetingsDir: process.env.REALM_PLYNN_MEETINGS_DIR || undefined,

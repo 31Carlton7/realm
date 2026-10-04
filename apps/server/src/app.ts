@@ -320,6 +320,23 @@ export function defaultAdapters(): AdapterRegistry {
     // special case — a space with a chain hands over, one without says why it could not.
     on: "hit the limit", emit: [{ kind: "throw", message: "Claude AI usage limit reached|1788555903" }],
   }, {
+    // The question card, for the same reason as the plan card: it renders for one tool only, and the
+    // three shapes a question can take are not reachable from a real agent on demand. One card,
+    // paged: options with free text, options without it, and a free-text answer meant to stay unread.
+    on: "ask me", emit: [{ kind: "tool", name: "AskUserQuestion", needsPermission: true, result: "Answered", input: { questions: [
+      { question: "Which database should this use?", header: "Database", multiSelect: false,
+        options: [{ label: "Postgres", description: "Relational, boring, correct" }, { label: "SQLite", description: "Local, zero-ops" }] },
+      { question: "Which region should it deploy to?", header: "Region", multiSelect: false, allowOther: false,
+        options: [{ label: "us-east-1" }, { label: "eu-west-1" }] },
+      { question: "Paste the deploy token.", header: "Token", multiSelect: false, secret: true, options: [] },
+    ] } }],
+  }, {
+    // The fallback, which is the half of the gate worth being able to see: a question offering
+    // neither an option nor free text cannot be answered, so it must arrive as an ordinary
+    // permission rather than as a card with no row on it.
+    on: "unanswerable", emit: [{ kind: "tool", name: "AskUserQuestion", needsPermission: true, result: "Answered",
+      input: { questions: [{ question: "Unanswerable?", header: "None", multiSelect: false, allowOther: false, options: [] }] } }],
+  }, {
     // Its milder sibling, for the retry line: a dropped socket, which never moves the session.
     on: "drop the socket", emit: [{ kind: "throw", message: "read ECONNRESET" }],
   }, {
@@ -354,8 +371,11 @@ export function defaultAdapters(): AdapterRegistry {
 }
 
 /** `claudeDir` overrides where MemoryService reads user-level Claude files (`~/.claude` otherwise) —
- *  for tests and live checks, which must never depend on (or expose) the real user's memory files. */
-export async function createApp(opts: { home: string; port: number; adapters?: AdapterRegistry; claudeDir?: string;
+ *  for tests and live checks, which must never depend on (or expose) the real user's memory files.
+ *  `userHome` and `codexHome` are the same seam for SkillsService's user-level skill directories.
+ *  Both default to `home`, so a test or live check that does not name them scans its own scratch
+ *  home and never the machine's — `main.ts` is the only caller that passes the real one. */
+export async function createApp(opts: { home: string; port: number; adapters?: AdapterRegistry; claudeDir?: string; userHome?: string; codexHome?: string;
   /** Called when a drain is accepted, so the caller can record it outside this process — `main.ts`
    *  rewrites the state file, which is what makes a mid-drain launcher wait rather than adopt. */
   onDraining?: () => void;
@@ -536,7 +556,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   };
   // Repo-shipped skills reach the user's library here, once each, before any session can be started.
   const skills = new SkillsService({
-    home: opts.home, settings, scopes: scopeSeam,
+    home: opts.home, userHome: opts.userHome, codexHome: opts.codexHome, settings, scopes: scopeSeam,
     // The space's own folder, for its project-level skill directories. A space whose folder is gone
     // reads as project-less rather than failing the scan — the rest of the roots are still valid.
     spaces: { folderPathOf: (spaceId: string): string | null => spaces.get(spaceId)?.folderPath ?? null },

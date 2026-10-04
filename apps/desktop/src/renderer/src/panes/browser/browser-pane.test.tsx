@@ -3,6 +3,10 @@ import { act, cleanup, createEvent, fireEvent, render, screen, within } from "@t
 import type { BlockedDownload, Browser, BrowserAnnotateResult, BrowserDownloadResult, BrowserFindResult, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, PasskeyNotice } from "@realm/contracts";
 import { BrowserPane, PICK_NOTE_MS, SUGGEST_DEBOUNCE_MS } from "./BrowserPane";
 import { setBrowserBridgesForTests, type BrowserBridges, type BrowserHostBridge, type BrowserServerBridge } from "./browser-client";
+import { persistBrowserPages } from "./persist-pages";
+
+/** Savers started by the tests that check what a page saves; stopped after each test. */
+const pageSavers: (() => void)[] = [];
 import { SETTLE_MS, shouldShowView, isRealmItemDrag } from "./view-sync";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, space } from "../../state/store.test-fakes";
@@ -150,6 +154,7 @@ function paneTestEnv(): void {
       { x: 10, y: 40, width: 600, height: 400, top: 40, left: 10, right: 610, bottom: 440, toJSON: () => ({}) } as DOMRect);
   });
   afterEach(() => {
+    for (const stop of pageSavers.splice(0)) stop();
     setBrowserBridgesForTests(null);
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -432,6 +437,8 @@ describe("BrowserPane", () => {
   it("persists committed url/title to the server, debounced, and not while loading", async () => {
     const f = fakeBridges({ url: "" });
     setBrowserBridgesForTests(f.bridges);
+    // The page is saved by the app-wide saver, which App starts beside every pane (persist-pages.ts).
+    pageSavers.push(persistBrowserPages(f.bridges));
     render(<BrowserPane item={browserItem()} visible />);
     await settle();
     act(() => f.emit(state({ url: "https://example.com", title: "Example", loading: true })));
@@ -448,6 +455,8 @@ describe("BrowserPane", () => {
     // The row would be renamed "Browser" during every relaunch, and for good if the page never came.
     const f = fakeBridges({ url: "" });
     setBrowserBridgesForTests(f.bridges);
+    // The page is saved by the app-wide saver, which App starts beside every pane (persist-pages.ts).
+    pageSavers.push(persistBrowserPages(f.bridges));
     render(<BrowserPane item={browserItem()} visible />);
     await settle();
     act(() => f.emit(state({ url: "https://example.com/", title: "", loading: false })));
@@ -462,6 +471,8 @@ describe("BrowserPane", () => {
     // THE mutant: persist url and title alone. The icon main resolved would never reach the item.
     const f = fakeBridges({ url: "" });
     setBrowserBridgesForTests(f.bridges);
+    // The page is saved by the app-wide saver, which App starts beside every pane (persist-pages.ts).
+    pageSavers.push(persistBrowserPages(f.bridges));
     render(<BrowserPane item={browserItem()} visible />);
     await settle();
     act(() => f.emit(state({ url: "https://www.google.com/search?q=hi", title: "hi - Google Search" })));
@@ -475,6 +486,8 @@ describe("BrowserPane", () => {
        for the glyph while its page loads and the icon is fetched again — undoing the reason it is kept. */
     const f = fakeBridges({ url: "https://www.google.com/", title: "Google", favicon: ICON });
     setBrowserBridgesForTests(f.bridges);
+    // The page is saved by the app-wide saver, which App starts beside every pane (persist-pages.ts).
+    pageSavers.push(persistBrowserPages(f.bridges));
     render(<BrowserPane item={browserItem()} visible />);
     await settle();
     act(() => f.emit(state({ url: "https://www.google.com/", title: "Google", favicon: null })));

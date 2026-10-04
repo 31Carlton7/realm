@@ -12,9 +12,6 @@ import { browserMenuItems, parseBrowserMenuChoice, type BrowserMenuChoice } from
 import { sessionForPick } from "./pick-target";
 import { SETTLE_MS, isRealmItemDrag, shouldShowView } from "./view-sync";
 
-/** How long after the last main→renderer state change the url/title persist to the server. Debounced:
- *  a redirect chain writes once, and a restart restores the last committed page. */
-const PERSIST_MS = 500;
 
 const NO_ACTIONS: BrowserActionTick[] = [];
 
@@ -489,30 +486,14 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
     const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; sync(); }); };
     syncRef.current = schedule;
 
-    // Persist last committed url/title/icon, debounced; the item's title and mark track the page
-    // server-side. A page that has not offered its icon YET keeps the one it had at this address: a
-    // relaunched tab reloading its page must not trade the icon it was restored with for the glyph
-    // while the icon is fetched again. A new address with none is a page with none. A state with no
-    // title is a view with no page yet (main names its bootstrap nothing — `shownPage`): saved, it
-    // would rename a restored tab "Browser" while its page is still on the way.
-    let persistTimer: ReturnType<typeof setTimeout> | undefined;
-    let persisted = { url: "", title: "", favicon: "" };
-    const persist = (s: BrowserViewState) => {
-      const favicon = s.favicon ?? (s.url === persisted.url ? persisted.favicon : "");
-      if (s.loading || s.url === "" || s.title === "" || (s.url === persisted.url && s.title === persisted.title && favicon === persisted.favicon)) return;
-      clearTimeout(persistTimer);
-      persistTimer = setTimeout(() => {
-        persisted = { url: s.url, title: s.title, favicon };
-        void server.update(browserId, persisted).catch(() => { /* row may be mid-delete */ });
-      }, PERSIST_MS);
-    };
+    // The page's address, title and icon are saved by `persistBrowserPages` (persist-pages.ts), for
+    // every browser whether or not a pane shows it — this pane only draws it.
 
     const offState = host.onState((s) => {
       if (s.id !== browserId || disposed) return;
       setState(s);
       flags.hasUrl = s.url !== "";
       schedule();
-      persist(s);
     });
 
     // Pane/sidebar item drags: hide NOW (synchronously, before the drag image renders), show on end.
@@ -542,7 +523,6 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
         // `||`: the live state channel may already have spoken (an adopted view emits state during
         // create) and its url is truer than a row whose debounced persist never landed.
         flags.hasUrl = flags.hasUrl || row.url !== "";
-        persisted = { url: row.url, title: row.title, favicon: row.favicon };
         schedule();
       } catch (e) {
         // The pane shows its DOM empty state; an unhandled rejection here would kill the whole
@@ -558,7 +538,6 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
       syncRef.current = null;
       cancelAnimationFrame(raf);
       clearTimeout(settleTimer);
-      clearTimeout(persistTimer);
       window.removeEventListener("dragstart", onDragStart);
       window.removeEventListener("dragend", onDragEnd);
       window.removeEventListener("drop", onDragEnd);
