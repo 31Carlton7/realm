@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { app } from "electron";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
+import { phoneScreenEnv } from "./phone-screen";
 
 export type ServerInfo = { port: number; home: string };
 export type ServerLine = { type: "ready"; port: number; home: string } | { type: "error"; message: string };
@@ -78,7 +79,7 @@ export function serverEntry(): string {
  */
 export function spawnDaemon(d: { home: string; logFd: number }): ChildProcess {
   const entry = serverEntry();
-  const env = { ...process.env, REALM_HOME: d.home };
+  const env = { ...process.env, ...phoneScreenEnv(), REALM_HOME: d.home };
   const stdio: ["ignore", number, number] = ["ignore", d.logFd, d.logFd];
   const nodeBin = process.env.REALM_NODE;
   const child = nodeBin
@@ -98,7 +99,7 @@ export function startServer(opts: { home?: string } = {}): { child: ChildProcess
   // agent CLIs spawned downstream never inherit it. REALM_NODE stays as an escape hatch: point it at
   // a specific node binary and the old spawn shape is used unchanged.
   const nodeBin = process.env.REALM_NODE;
-  const env = { ...process.env, ...(opts.home ? { REALM_HOME: opts.home } : {}) };
+  const env = { ...process.env, ...phoneScreenEnv(), ...(opts.home ? { REALM_HOME: opts.home } : {}) };
   const child = nodeBin
     ? spawn(nodeBin, [entry], { env, stdio: ["ignore", "pipe", "inherit"] })
     : spawn(process.execPath, [entry], { env: { ...env, ELECTRON_RUN_AS_NODE: "1" }, stdio: ["ignore", "pipe", "inherit"] });

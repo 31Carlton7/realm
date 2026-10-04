@@ -10,6 +10,7 @@ import { SimulatorsStore } from "../store/simulators";
 import { RpcError } from "../store/rows";
 import { RunnerError } from "./device-runner";
 import { PhysicalDevices } from "./physical";
+import type { VideoStop } from "./phone-video";
 import { FakePhone, PHONE_DEVICE, PHONE_UDID } from "./phone.test-fakes";
 import { SimulatorService } from "./service";
 import type { Simctl } from "./simctl";
@@ -30,7 +31,7 @@ afterEach(async () => {
 
 const SIM: SimulatorDevice = { udid: "SIM-17E", platform: "ios", name: "iPhone 17e", runtime: "iOS 27.0", state: "Shutdown", serial: null, physical: false };
 
-async function setup(o: { locked?: boolean; ensure?: () => Promise<never>; rehearsal?: string[]; timing?: { readMs?: number; patientReadMs?: number } } = {}) {
+async function setup(o: { locked?: boolean; ensure?: () => Promise<never>; rehearsal?: string[]; timing?: { readMs?: number; patientReadMs?: number }; video?: boolean } = {}) {
   const phone = await new FakePhone().listen();
   phones.push(phone);
   const home = tempDir("realm-phone-");
@@ -45,6 +46,10 @@ async function setup(o: { locked?: boolean; ensure?: () => Promise<never>; rehea
   const runners = phone.runners(log);
   if (o.ensure) (runners as unknown as { ensure: () => Promise<never> }).ensure = o.ensure;
   const bridges: string[] = [];
+  /** What each bridge was handed for live video — the phone's name it was made for, or nothing. */
+  const videos: (string | null)[] = [];
+  const told: ((why: VideoStop | null) => void)[] = [];
+  let late: SimulatorService | null = null;
   const simctl = {
     devices: async () => [SIM], boot: async (udid: string) => { log.push(`boot:${udid}`); return { ok: true, detail: "" }; },
     apps: async () => [{ bundleId: "com.apple.Preferences", name: "Settings" }],
@@ -52,8 +57,12 @@ async function setup(o: { locked?: boolean; ensure?: () => Promise<never>; rehea
   } as unknown as Simctl;
   const physical = new PhysicalDevices({
     home, devicectl: dc, runners, simctl, rehearsal: o.rehearsal ?? [], ...(o.timing ? { timing: o.timing } : {}),
+    ...(o.video ? { video: (name: string) => Object.assign(() => ({ ready: new Promise<void>(() => {}), ended: new Promise<VideoStop | null>(() => {}), stop: () => {} }), { madeFor: name }) } : {}),
+    onPicture: (udid, stills) => late?.pictureChanged(udid, stills),
     bridge: async (b) => {
       bridges.push(`start:${b.screen.width}x${b.screen.height}`);
+      videos.push((b.video as { madeFor?: string } | undefined)?.madeFor ?? null);
+      if (b.onStills) told.push(b.onStills);
       return { streamUrl: "http://127.0.0.1:47001/stream.mjpeg", wsUrl: "ws://127.0.0.1:47001/ws", port: 47001, close: async () => { bridges.push("close"); } };
     },
   });
@@ -72,13 +81,14 @@ async function setup(o: { locked?: boolean; ensure?: () => Promise<never>; rehea
     android: { available: async () => false, devices: async () => [] } as never,
     physical,
   });
+  late = service;
   const open = async (udid = PHONE_UDID) => {
     const { simulatorId } = service.create({ spaceId: space.id, name: PHONE_DEVICE.name, udid });
     service.start(simulatorId, udid, "ios", true);
     for (let i = 0; i < 400 && !["running", "failed"].includes(service.stateOf(simulatorId).status); i++) await new Promise((r) => setTimeout(r, 5));
     return simulatorId;
   };
-  return { phone, service, physical, dc, log, bridges, broadcasts, open, space };
+  return { phone, service, physical, dc, log, bridges, broadcasts, open, space, videos, told };
 }
 
 describe("listing", () => {
@@ -113,6 +123,31 @@ describe("starting", () => {
     expect(broadcasts.map((b) => b.status)).toEqual(["booting", "running"]);
     // The row remembers what it is pointed at.
     expect(service.get(id)).toMatchObject({ udid: PHONE_UDID, platform: "ios", physical: true });
+  });
+
+  it("hands a real phone's bridge live video made for it by name, and a rehearsal's none", async () => {
+    const real = await setup({ video: true });
+    await real.open();
+    // THE MUTANT: no video for anyone. A phone on a cable stays a screenshot a second.
+    expect(real.videos).toEqual([PHONE_DEVICE.name]);
+    const rehearsal = await setup({ video: true, rehearsal: ["SIM-17E"] });
+    await rehearsal.open("SIM-17E");
+    // THE MUTANT: video for the rehearsal too. A simulator is on no cable; it would only ever fail.
+    expect(rehearsal.videos).toEqual([null]);
+  });
+
+  it("puts the picture's kind on every pane showing the phone, and on a pane opened after", async () => {
+    const { service, told, open, broadcasts } = await setup({ video: true });
+    const first = await open();
+    expect(service.stateOf(first).stills ?? null).toBeNull();
+    told[0]!("camera");
+    expect(service.stateOf(first).stills).toBe("camera");
+    expect(broadcasts.at(-1)).toMatchObject({ simulatorId: first, stills: "camera" });
+    // The bridge tells a change once; a pane opened later must still know. THE MUTANT: no memory.
+    const second = await open();
+    expect(service.stateOf(second).stills).toBe("camera");
+    told[0]!(null);
+    expect([service.stateOf(first).stills, service.stateOf(second).stills]).toEqual([null, null]);
   });
 
   it("refuses a locked phone before anything is installed or run on it", async () => {

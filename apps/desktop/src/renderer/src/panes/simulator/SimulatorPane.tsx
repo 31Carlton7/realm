@@ -415,8 +415,37 @@ function Screen({ state, visible, simulatorId, platform }: {
       {drop.dropping && <div className="session-drop" aria-hidden="true" />}
       {/* The device's own buttons, under the device. The pane bar is for what the PANE does. */}
       <SimulatorHardware item={{ refId: simulatorId } as never} />
+      {state.physical && (state.stills === "camera" || state.stills === "camera-denied") && <LiveOffer stills={state.stills} />}
       <FrameBar choice={frame} shownAs={art?.name ?? null} />
     </div>
+  );
+}
+
+/**
+ * Under a real iPhone whose picture is screenshots — about one a second, and every tap waiting behind
+ * one — for a reason the person can change: Realm not yet allowed the camera, or refused it. macOS
+ * reaches an iPhone's screen over the cable as a camera, and with the grant the picture is live video.
+ *
+ * Nothing at all while the picture is live, and nothing for the reasons nobody here can fix — a phone
+ * on Wi-Fi, a build without the helper: a note that cannot lead anywhere is a note nobody reads twice.
+ * Asking is a click, never a prompt that arrives on its own: the camera is not what anyone opened a
+ * phone pane to give away, so the sentence and the tooltip say why before macOS asks.
+ */
+function LiveOffer({ stills }: { stills: "camera" | "camera-denied" }) {
+  const [asking, setAsking] = useState(false);
+  const show = () => {
+    setAsking(true);
+    void (window.realm?.phoneScreen?.showLive() ?? Promise.resolve("")).finally(() => setAsking(false));
+  };
+  return (
+    <p className="sim-live">
+      <span>Screenshots, not live video.</span>
+      {stills === "camera"
+        ? <button type="button" className="btn sim-live-btn" disabled={asking} onClick={show}
+            title="macOS asks whether Realm may use the camera: it reaches a connected iPhone's screen as one. Realm never turns on this Mac's camera.">Show live</button>
+        : <button type="button" className="btn sim-live-btn" onClick={() => void window.realm?.permissions.openSettings("camera")}
+            title="Realm isn't allowed the camera, which is how macOS reaches a connected iPhone's screen. Turn Realm on under Camera and the picture goes live.">Open Camera settings</button>}
+    </p>
   );
 }
 

@@ -102,6 +102,11 @@ export const SimulatorStateSchema = z.object({
    *  before anything else has loaded: a real iPhone has no side button Realm presses, no rotation and
    *  none of the simulator's menus, and a control offered for one is a control that refuses. */
   physical: z.boolean().default(false),
+  /** Why a real iPhone's picture is the runner's screenshots — about one a second — rather than live
+   *  video over the cable: Realm not yet asked for the camera (macOS reaches an iPhone's screen as
+   *  one), refused it, no such phone on a cable, or anything else. Absent or null while the picture is
+   *  live, and on every simulator. The pane speaks only of the reasons a person can act on. */
+  stills: z.enum(["camera", "camera-denied", "no-cable", "failed"]).nullable().optional(),
 });
 export type SimulatorState = z.infer<typeof SimulatorStateSchema>;
 

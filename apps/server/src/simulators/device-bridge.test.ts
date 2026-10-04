@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { buttonFrame, gestureFrame, keystrokeFrames, orientationFrame } from "@realm/contracts";
 import { characterOf, DeviceBridge, type BridgeRunner } from "./device-bridge";
+import type { StartVideo, VideoStop } from "./phone-video";
 
 /**
  * The pane's view of a real phone: an MJPEG stream made of the runner's screenshots, and serve-sim's
@@ -175,5 +176,178 @@ describe("characterOf", () => {
     expect([characterOf(4, false), characterOf(29, true), characterOf(30, false), characterOf(39, false), characterOf(30, true), characterOf(44, false), characterOf(56, true), characterOf(52, true)])
       .toEqual(["a", "Z", "1", "0", "!", " ", "?", "\""]);
     expect(characterOf(40, false)).toBeNull();
+  });
+});
+
+/* ── live video ──────────────────────────────────────────────────────────────────────────────────── */
+
+const VID = (n: number) => Buffer.from([0xff, 0xd8, 0x80 + n, 0xff, 0xd9]);
+const RETRY = { camera: 40, "camera-denied": 40, "no-cable": 40, failed: 40 };
+
+/** A feed the test drives: it hands frames over, goes ready and ends when told. */
+function video() {
+  const feeds: { frame(n: number): void; ready(): void; end(why: VideoStop | null): void; stopped: boolean }[] = [];
+  const start: StartVideo = (onFrame) => {
+    let ready!: () => void;
+    let end!: (why: VideoStop | null) => void;
+    const ended = new Promise<VideoStop | null>((r) => { end = r; });
+    const feed = { frame: (n: number) => onFrame(VID(n)), ready: () => ready(), end: (why: VideoStop | null) => end(why), stopped: false };
+    feeds.push(feed);
+    return { ready: new Promise<void>((r) => { ready = r; }), ended, stop: () => { feed.stopped = true; end(null); } };
+  };
+  return { start, feeds };
+}
+
+async function liveBridge(o: { runner?: ReturnType<typeof phone>; warmMs?: number } = {}) {
+  const p = o.runner ?? phone();
+  const v = video();
+  const told: (VideoStop | null)[] = [];
+  const b = await DeviceBridge.start({
+    runner: p.runner, screen: { width: 400, height: 800 }, frameMs: 20, typeAfterMs: 30,
+    video: v.start, onStills: (why) => told.push(why), retryMs: RETRY, warmMs: o.warmMs ?? 10_000,
+  });
+  bridges.push(b);
+  return { b, p, v, told };
+}
+
+/** Every frame on the stream, as it comes, until `stop`. */
+function watch(url: string): { got: Buffer[]; stop(): void } {
+  const got: Buffer[] = [];
+  let buf = Buffer.alloc(0);
+  const req = request(url, (res) => {
+    res.on("data", (d: Buffer) => {
+      buf = Buffer.concat([buf, d]);
+      for (;;) {
+        const head = buf.indexOf("\r\n\r\n");
+        if (head < 0) break;
+        const length = Number(/Content-Length: (\d+)/.exec(buf.subarray(0, head).toString())?.[1]);
+        if (buf.length < head + 4 + length + 2) break;
+        got.push(buf.subarray(head + 4, head + 4 + length));
+        buf = buf.subarray(head + 4 + length + 2);
+      }
+    });
+  });
+  req.on("error", () => {});
+  req.end();
+  return { got, stop: () => req.destroy() };
+}
+
+const until = async (ok: () => boolean, ms = 2_000) => {
+  const t0 = Date.now();
+  while (!ok()) { if (Date.now() - t0 > ms) throw new Error("timed out"); await sleep(5); }
+};
+const isVideo = (f: Buffer) => f[2]! >= 0x80;
+
+describe("the picture, as live video", () => {
+  it("is the feed's frames once its first is out, and the runner takes no more screenshots", async () => {
+    const { b, p, v, told } = await liveBridge();
+    const w = watch(b.streamUrl);
+    await until(() => v.feeds.length === 1 && w.got.length > 0);
+    // Screenshots while the feed starts: a pane is never dark waiting for video.
+    expect(isVideo(w.got[0]!)).toBe(false);
+    v.feeds[0]!.frame(1);
+    v.feeds[0]!.ready();
+    await until(() => told.length === 1);
+    const shots = p.shots();
+    v.feeds[0]!.frame(2);
+    v.feeds[0]!.frame(3);
+    await until(() => w.got.filter(isVideo).length === 3);
+    await sleep(100);
+    // THE MUTANT: keep taking screenshots under the video — the runner stays busy, and every tap still
+    // waits 773 ms behind one. One already in flight may finish; none may start.
+    expect(p.shots()).toBeLessThanOrEqual(shots + 1);
+    expect(w.got.filter(isVideo).map((f) => f[2])).toEqual([0x81, 0x82, 0x83]);
+    expect(told).toEqual([null]);
+    w.stop();
+  });
+
+  it("never shows a screenshot taken before the video went live after the video", async () => {
+    const p = phone();
+    let release!: () => void;
+    let slow = true;
+    p.runner.screenshot = async () => {
+      if (slow) { slow = false; await new Promise<void>((r) => { release = r; }); return JPEG(99); }
+      return JPEG(1);
+    };
+    const { b, v } = await liveBridge({ runner: p });
+    const w = watch(b.streamUrl);
+    await until(() => v.feeds.length === 1 && release !== undefined);
+    v.feeds[0]!.frame(1);
+    v.feeds[0]!.ready();
+    await sleep(20);
+    release();
+    await sleep(60);
+    // THE MUTANT: publish whatever screenshot comes back. The old picture lands over the live one.
+    expect(w.got.map((f) => f[2])).not.toContain(99);
+    w.stop();
+  });
+
+  it("stays screenshots when there is no video, says why, and tries again later", async () => {
+    const { b, p, v, told } = await liveBridge();
+    const w = watch(b.streamUrl);
+    await until(() => v.feeds.length === 1);
+    v.feeds[0]!.end("camera");
+    await until(() => told.length === 1);
+    expect(told).toEqual(["camera"]);
+    const shots = p.shots();
+    await until(() => p.shots() > shots + 2);
+    // THE MUTANT: give up on video for good. A camera allowed a moment later never goes live.
+    await until(() => v.feeds.length === 2);
+    // Still not allowed: the same reason, which is not news. THE MUTANT: tell it every time — every
+    // pane on the phone repaints its note each time the feed is tried.
+    v.feeds[1]!.end("camera");
+    await until(() => v.feeds.length === 3);
+    expect(told).toEqual(["camera"]);
+    v.feeds[2]!.frame(1);
+    v.feeds[2]!.ready();
+    await until(() => told.length === 2);
+    expect(told).toEqual(["camera", null]);
+    w.stop();
+  });
+
+  it("goes back to screenshots at once when the feed dies, and says so once", async () => {
+    const { b, p, v, told } = await liveBridge();
+    const w = watch(b.streamUrl);
+    await until(() => v.feeds.length === 1);
+    v.feeds[0]!.frame(1);
+    v.feeds[0]!.ready();
+    await until(() => told.length === 1);
+    // Parked on the feed: no screenshot for a while, so nothing but the feed's end can wake it.
+    await sleep(100);
+    const shots = p.shots();
+    v.feeds[0]!.end("failed");
+    // THE MUTANT: wait on a feed that is gone. The picture freezes on its last frame.
+    await until(() => p.shots() > shots + 1, 500);
+    expect(told).toEqual([null, "failed"]);
+    w.stop();
+  });
+
+  it("runs on a while after the last watcher leaves, for whoever comes back, then stops", async () => {
+    const { b, v } = await liveBridge({ warmMs: 150 });
+    const first = watch(b.streamUrl);
+    await until(() => v.feeds.length === 1);
+    v.feeds[0]!.frame(1);
+    v.feeds[0]!.ready();
+    await until(() => first.got.some(isVideo));
+    first.stop();
+    await sleep(60);
+    // Back within the wait: the same feed, no second start, and its latest frame at once.
+    const again = watch(b.streamUrl);
+    await until(() => again.got.length > 0);
+    expect(isVideo(again.got[0]!)).toBe(true);
+    expect(v.feeds).toHaveLength(1);
+    again.stop();
+    expect(v.feeds[0]!.stopped).toBe(false);
+    // THE MUTANT: never stop it. A phone nobody looks at would be captured until Realm quits.
+    await until(() => v.feeds[0]!.stopped, 1_000);
+  });
+
+  it("stops the feed when the bridge closes", async () => {
+    const { b, v } = await liveBridge();
+    const w = watch(b.streamUrl);
+    await until(() => v.feeds.length === 1);
+    w.stop();
+    await b.close();
+    expect(v.feeds[0]!.stopped).toBe(true);
   });
 });

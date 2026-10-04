@@ -5,6 +5,7 @@ import { FULL_DISK_PROBE_PATH, TCC_SETTINGS_URLS, isTccPermissionId, probeTcc, t
  *  is an injected function — nothing in this suite can touch real TCC, so nothing can prompt. */
 const deps = (over: Partial<TccProbeDeps> = {}): TccProbeDeps => ({
   screenStatus: () => "granted",
+  cameraStatus: () => "granted",
   accessibilityTrusted: () => true,
   openForRead: () => {},
   ...over,
@@ -34,6 +35,22 @@ describe("probeTcc (Plan 12 W6 — TCC honesty)", () => {
     expect(notAsked.detail).toMatch(/Not asked yet/);
     // An unrecognised status (a future Electron) degrades to unknown, not to either claim.
     expect(row(probeTcc(deps({ screenStatus: () => "unknown" })), "screenRecording").state).toBe("unknown");
+  });
+
+  it("Camera maps its own status read — never Screen Recording's — and says what it is for", () => {
+    // THE MUTANT: read the screen's status for the camera row. Each leg answers differently here, so
+    // a row reading the wrong one shows the wrong state.
+    const mixed = probeTcc(deps({ screenStatus: () => "denied", cameraStatus: () => "granted" }));
+    expect(row(mixed, "camera").state).toBe("granted");
+    expect(row(mixed, "camera").detail).toMatch(/connected iPhone's screen reaches Realm live/);
+    expect(row(probeTcc(deps({ cameraStatus: () => "denied" })), "camera").state).toBe("denied");
+    expect(row(probeTcc(deps({ cameraStatus: () => "restricted" })), "camera").state).toBe("denied");
+    const notAsked = row(probeTcc(deps({ cameraStatus: () => "not-determined" })), "camera");
+    expect(notAsked.state).toBe("unknown");
+    expect(notAsked.detail).toMatch(/Show live under a connected iPhone/);
+    expect(row(probeTcc(deps({ cameraStatus: () => { throw new Error("no Electron"); } })), "camera").state).toBe("unknown");
+    expect(TCC_SETTINGS_URLS.camera).toBe("x-apple.systempreferences:com.apple.preference.security?Privacy_Camera");
+    expect(isTccPermissionId("camera")).toBe(true);
   });
 
   it("Accessibility: trusted → granted; untrusted → denied, with the denied-vs-never-asked caveat stated", () => {

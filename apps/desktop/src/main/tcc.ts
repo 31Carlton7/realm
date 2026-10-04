@@ -16,6 +16,9 @@
  *  - **Screen Recording** — `granted`/`denied`/`unknown`, from Electron's
  *    `systemPreferences.getMediaAccessStatus("screen")`: a pure status read, documented never to
  *    prompt. `not-determined` (never asked) reports as `unknown`, not as a denial that never happened.
+ *  - **Camera** — `granted`/`denied`/`unknown`, from `getMediaAccessStatus("camera")`, the same pure
+ *    status read as Screen Recording's. macOS reaches a connected iPhone's screen as a camera, so this
+ *    is the grant that makes a real phone's picture live video rather than a screenshot a second.
  *  - **Accessibility** — `granted`/`denied`, from `isTrustedAccessibilityClient(false)` (the false
  *    IS the no-prompt contract). The API cannot tell "denied" from "never asked", so the row's
  *    detail says so instead of pretending.
@@ -30,7 +33,7 @@
  * macOS only reveals these grants by asking" spent its first half saying the chip out loud.
  */
 
-export type TccPermissionId = "filesAndFolders" | "automation" | "screenRecording" | "accessibility" | "fullDisk";
+export type TccPermissionId = "filesAndFolders" | "automation" | "screenRecording" | "camera" | "accessibility" | "fullDisk";
 
 /** `unknown` = no prompt-free probe exists (or it could not answer): "Can't be checked until used". */
 export type TccState = "granted" | "denied" | "unknown";
@@ -56,6 +59,7 @@ export const TCC_SETTINGS_URLS: Record<TccPermissionId, string> = {
   filesAndFolders: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders",
   automation: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation",
   screenRecording: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+  camera: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
   accessibility: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
   fullDisk: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
 };
@@ -67,6 +71,8 @@ export function isTccPermissionId(x: unknown): x is TccPermissionId {
 export type TccProbeDeps = {
   /** `systemPreferences.getMediaAccessStatus("screen")` — status values per Electron. */
   screenStatus(): "not-determined" | "granted" | "denied" | "restricted" | "unknown";
+  /** `systemPreferences.getMediaAccessStatus("camera")` — a status read that never prompts. */
+  cameraStatus(): "not-determined" | "granted" | "denied" | "restricted" | "unknown";
   /** `systemPreferences.isTrustedAccessibilityClient(false)` — false = never prompt. */
   accessibilityTrusted(): boolean;
   /** Open-for-read the given path (then close). Throws with `code` EPERM/EACCES when TCC refuses. */
@@ -86,6 +92,7 @@ export function probeTcc(deps: TccProbeDeps): TccRow[] {
       detail: "Grants are per-app-pair, and macOS offers Realm no way to ask without asking you.",
     },
     screenRecordingRow(deps),
+    cameraRow(deps),
     accessibilityRow(deps),
     fullDiskRow(deps),
   ];
@@ -101,6 +108,17 @@ function screenRecordingRow(deps: TccProbeDeps): TccRow {
   if (status === "denied" || status === "restricted") return { id, label, state: "denied", detail: "macOS reports the grant as refused." };
   // "not-determined" (never asked) and anything unrecognised: not a denial that never happened.
   return { id, label, state: "unknown", detail: "Not asked yet — macOS decides when Realm first tries to record the screen." };
+}
+
+function cameraRow(deps: TccProbeDeps): TccRow {
+  const id = "camera" as const, label = "Camera";
+  let status: string;
+  try { status = deps.cameraStatus(); } catch (e) {
+    return { id, label, state: "unknown", detail: `The status query failed (${(e as Error).message}).` };
+  }
+  if (status === "granted") return { id, label, state: "granted", detail: "macOS reports the grant directly. It is how a connected iPhone's screen reaches Realm live." };
+  if (status === "denied" || status === "restricted") return { id, label, state: "denied", detail: "macOS reports the grant as refused, so a connected iPhone shows a screenshot about once a second." };
+  return { id, label, state: "unknown", detail: "Not asked yet. Realm asks when you choose Show live under a connected iPhone." };
 }
 
 function accessibilityRow(deps: TccProbeDeps): TccRow {

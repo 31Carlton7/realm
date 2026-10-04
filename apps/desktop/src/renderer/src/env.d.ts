@@ -79,6 +79,11 @@ interface Window {
     pathForFile(file: File): string;
     /** Native trackpad scroll phases (macOS helper); optional — may never fire. */
     onScrollPhase?(cb: (m: ScrollPhaseMessage) => void): () => void;
+    /** A real iPhone's picture, live (the phone pane's Show live). Raises macOS's camera prompt — it
+     *  reaches a connected iPhone's screen as a camera — and answers the camera's status after. */
+    phoneScreen?: {
+      showLive(): Promise<string>;
+    };
     /** macOS Permissions tab (Plan 12 W6): TCC rows with honest states; probe never prompts. */
     permissions: {
       probe(): Promise<TccRow[]>;

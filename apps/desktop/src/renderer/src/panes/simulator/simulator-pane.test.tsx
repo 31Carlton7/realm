@@ -475,6 +475,61 @@ describe("the device frame", () => {
   });
 });
 
+describe("a phone's picture", () => {
+  const PHONE = { ...RUNNING, udid: "00008150-PHONE", physical: true } as SimulatorState;
+  const realm = () => {
+    const api = { phoneScreen: { showLive: vi.fn(async () => "granted") }, permissions: { openSettings: vi.fn(async () => {}) } };
+    vi.stubGlobal("realm", api);
+    return api;
+  };
+
+  it("says nothing while the picture is live, nor for a reason nobody here can fix", async () => {
+    realm();
+    // THE MUTANT: a note whenever the picture is screenshots. "Show live" offered to a phone on Wi-Fi
+    // is a button whose only outcome is the same picture.
+    for (const stills of [null, undefined, "no-cable", "failed"] as const) {
+      const { container, unmount } = await mount({ ...PHONE, stills });
+      await act(async () => {});
+      expect(container.querySelector(".sim-live")).toBeNull();
+      unmount();
+    }
+    // Nor on a simulator, whose picture is always live.
+    const { container } = await mount({ ...RUNNING, stills: "camera" });
+    await act(async () => {});
+    expect(container.querySelector(".sim-live")).toBeNull();
+  });
+
+  it("offers Show live when Realm was never asked for the camera, and asks only on the click", async () => {
+    const api = realm();
+    await mount({ ...PHONE, stills: "camera" });
+    const button = await screen.findByRole("button", { name: "Show live" });
+    expect(button.closest(".sim-live")?.textContent).toMatch(/^Screenshots, not live video\./);
+    // Why macOS will ask about a camera is said before it asks, on the control that asks.
+    expect(button.getAttribute("title")).toMatch(/reaches a connected iPhone's screen as one/);
+    // THE MUTANT: ask on sight. A camera prompt nobody clicked for is the one way to get a no.
+    expect(api.phoneScreen.showLive).not.toHaveBeenCalled();
+    fireEvent.click(button);
+    expect(api.phoneScreen.showLive).toHaveBeenCalledTimes(1);
+  });
+
+  it("takes the note away when the picture goes live under it", async () => {
+    realm();
+    const { container, store } = await mount({ ...PHONE, stills: "camera" });
+    await screen.findByRole("button", { name: "Show live" });
+    // THE MUTANT: a store that thinks a state differing only in this is the same state, and keeps the old.
+    act(() => store.getState().applySimulatorState({ ...PHONE, stills: null }));
+    await waitFor(() => expect(container.querySelector(".sim-live")).toBeNull());
+  });
+
+  it("sends a refused camera to its pane in System Settings, since macOS will not ask twice", async () => {
+    const api = realm();
+    await mount({ ...PHONE, stills: "camera-denied" });
+    fireEvent.click(await screen.findByRole("button", { name: "Open Camera settings" }));
+    expect(api.permissions.openSettings).toHaveBeenCalledWith("camera");
+    expect(api.phoneScreen.showLive).not.toHaveBeenCalled();
+  });
+});
+
 describe("the pane bar on a phone", () => {
   async function bar(state: SimulatorState) {
     const store = createAppStore(fakeApi());

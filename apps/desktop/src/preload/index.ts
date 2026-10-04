@@ -112,6 +112,13 @@ contextBridge.exposeInMainWorld("realm", {
     probe: (): Promise<TccRow[]> => ipcRenderer.invoke("tcc:probe"),
     openSettings: (pane: string): Promise<void> => ipcRenderer.invoke("tcc:open-settings", pane),
   },
+  /** A real iPhone's picture, live (the phone pane's Show live). `showLive` DOES prompt — macOS's camera
+   *  prompt, since it reaches a connected iPhone's screen as a camera — and answers the camera's status
+   *  once the person has answered. Refused once, macOS never asks again: the pane then offers the
+   *  Camera pane of System Settings through `permissions.openSettings("camera")`. */
+  phoneScreen: {
+    showLive: (): Promise<string> => ipcRenderer.invoke("phone:show-live"),
+  },
   /** The `mac` CLI's access (Permissions tab, "Apps on this Mac"). `status` is a `mac doctor` read —
    *  documented never to prompt. `grant` DOES prompt, on purpose: it runs the one read-only command
    *  that raises that capability's macOS dialog and resolves the re-read audit once the user answers,
