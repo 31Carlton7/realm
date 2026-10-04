@@ -262,8 +262,8 @@ describe("command palette", () => {
     expect(screen.queryByText(/^Split: /)).toBeNull();
     expect(screen.queryByText("New split")).toBeNull();
     expect(screen.queryByText(/^Layout: /)).toBeNull();
-    // Split right stays: it is how a second pane is made from the keyboard.
-    expect(screen.getByText("Split right")).toBeInTheDocument();
+    // Split right is how a second pane is made from the keyboard — so at two it is not offered.
+    expect(screen.queryByText("Split right")).toBeNull();
   });
 
   it("offers Focus for the focused pane, then Unfocus, and the pick toggles it", async () => {

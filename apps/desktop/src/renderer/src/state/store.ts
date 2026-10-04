@@ -3454,6 +3454,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       set({ activeSpaceId: cur, ...(pid && cur && s.lastSpaceByProfile[pid] !== cur ? { lastSpaceByProfile: { ...s.lastSpaceByProfile, [pid]: cur } } : {}) });
       if (cur && layoutHydrated) void api.setSetting(SETTING_ACTIVE_SPACE, cur).catch(() => {});
     });
+    /* A focus move on its own is saved too, on the debounce: where the keyboard is belongs to the view
+       a relaunch brings back, and with it the current space — where a new session goes. A write that
+       moves the focus WITH the layout persists straight through, which clears this timer. */
+    storeApi.subscribe((s, prev) => {
+      if (s.focusedLeafId !== prev.focusedLeafId && s.focusedLeafId && s.view && layoutHydrated) schedulePersist();
+    });
 
     /* ── The window's trail ──────────────────────────────────────────────────────────────────────
        Recorded from ONE place: a subscription to every write. Every way the keyboard moves — a row

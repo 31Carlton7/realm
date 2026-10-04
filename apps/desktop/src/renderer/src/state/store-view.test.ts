@@ -261,6 +261,21 @@ describe("the view across a relaunch", () => {
     expect(stored(api).layout).toEqual(store.getState().layout);
   });
 
+  it("saves a focus move on its own — a relaunch finds the keyboard, and the current space, where they were left", async () => {
+    // THE MUTANT: save the focus only with a layout write. A click from one side of the view to the
+    // other would write nothing, and a relaunch would put the keyboard — and the current space, where
+    // a new session goes — back where the last layout change left them. Found by one-list-live.
+    const store = await sideBySide(api);
+    await store.getState().flushPersist();
+    expect(stored(api).focusedItemId).toBe("i-b");
+    store.getState().focusLeaf(leafOf(store, "i-a"));
+    await store.getState().flushPersist();
+    expect(stored(api).focusedItemId).toBe("i-a");
+    const next = await booted(api);
+    expect(focusedItem(next)).toBe("i-a");
+    expect(next.getState().activeSpaceId).toBe("s1");
+  });
+
   it("is NOT moved by a later items change — another window must not take the keyboard", async () => {
     const store = await sideBySide(api);
     store.getState().focusLeaf(leafOf(store, "i-a"));
