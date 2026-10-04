@@ -36,6 +36,9 @@ import {
   ViewIcon,
   // The page about you (YouPage.tsx).
   UserCircleIcon,
+  // Settings' pages, each beside its glyph in the column (settings-index.ts), and the Library's toolbar.
+  CpuIcon, DashboardSpeed02Icon, Cursor01Icon, CommandIcon, InboxDownloadIcon, FilterHorizontalIcon, LeftToRightListBulletIcon,
+  SquareLockPasswordIcon,
 } from "@hugeicons-pro/core-stroke-rounded";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
 
@@ -125,6 +128,19 @@ export const icons = {
   /* A monitor on a stand, and deliberately not `laptop`, which is taken and means THIS Mac — the one
      Realm is running on, in the computer-use surfaces. A machine is a screen somewhere else. */
   machine: ComputerIcon,
+  /* Settings' pages, as the column lists them. An engine is the CLI a session runs on, so a chip; what
+     it costs is a gauge, the meter Codex puts beside its own usage page; an agent driving this Mac's
+     apps is the plain arrow it moves (the pack's `CursorPointer` rings the arrow with a filled ripple
+     that is a blob at 16px) — named `pointer`, because `cursor` is the Cursor editor's brand mark and a
+     brand name wins the lookup; shortcuts are the ⌘ every Mac menu prints beside them — the pack's
+     `Keyboard` is a face at row size; and an import is the tray things arrive in. */
+  cpu: CpuIcon, gauge: DashboardSpeed02Icon, pointer: Cursor01Icon, command: CommandIcon, inboxDownload: InboxDownloadIcon,
+  /* A saved password's mark: a padlock. `lock` is the pack's round keyhole, which at 16px is a circle
+     with a dot — and it stays as it is, because it is a space icon people have already picked. */
+  padlock: SquareLockPasswordIcon,
+  /* The Library's toolbar: the narrowing a filter menu does, and the view as rows beside `grid`'s
+     view as tiles — the pair every file browser draws. */
+  filter: FilterHorizontalIcon, list: LeftToRightListBulletIcon,
 } as const;
 /** Hugeicons names plus the vendored provider marks — one namespace, so callers (and `AGENT_META`)
  *  never have to know which pack a glyph came from. */

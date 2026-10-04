@@ -1,5 +1,5 @@
 import { AGENT_META, SPACE_COLORS, isRunTerminal, type Checkpoint, type Environment, type Run, type RunAttemptOutcome, type RunState, type Session, type Ship } from "@realm/contracts";
-import { Icon } from "@realm/ui";
+import { Icon, type IconName } from "@realm/ui";
 import { useEffect, useRef, useState } from "react";
 import { useApp, type SpacePageTab } from "../../state/store";
 import { relativeTime } from "../../components/CheckpointsSheet";
@@ -576,16 +576,16 @@ function HistoryTab({ spaceId }: { spaceId: string }) {
 import { ScriptsPanel } from "../../components/settings/ScriptsPanel";
 import { SandboxPanel } from "../../components/settings/SandboxPanel";
 
-const PAGE_TABS: { id: SpacePageTab; label: string }[] = [
-  { id: "general", label: "General" },
-  { id: "memory", label: "Memory" },
-  { id: "skills", label: "Skills" },
-  { id: "connections", label: "Connections" },
-  { id: "scripts", label: "Scripts" },
-  { id: "sandbox", label: "Sandbox" },
-  { id: "sessions", label: "Sessions" },
-  { id: "tasks", label: "Tasks" },
-  { id: "history", label: "History" },
+const PAGE_TABS: { id: SpacePageTab; label: string; icon: IconName }[] = [
+  { id: "general", label: "General", icon: "settings" },
+  { id: "memory", label: "Memory", icon: "context" },
+  { id: "skills", label: "Skills", icon: "sparkles" },
+  { id: "connections", label: "Connections", icon: "plug" },
+  { id: "scripts", label: "Scripts", icon: "terminal" },
+  { id: "sandbox", label: "Sandbox", icon: "shield" },
+  { id: "sessions", label: "Sessions", icon: "session" },
+  { id: "tasks", label: "Tasks", icon: "plan" },
+  { id: "history", label: "History", icon: "clock" },
 ];
 
 /**
@@ -641,6 +641,7 @@ export function SpacePage({ item }: PaneProps) {
           {PAGE_TABS.map((t) => (
             <label key={t.id} className="settings-tab page-rail-tab" data-selected={tab === t.id || undefined}>
               <input type="radio" name={`space-page-tab-${spaceId}`} value={t.id} checked={tab === t.id} onChange={() => { setSpacePageTab(spaceId, t.id); navigateInPane(item.id, t.id); }} />
+              <Icon name={t.icon} size={16} className="page-rail-glyph" />
               {t.label}
             </label>
           ))}

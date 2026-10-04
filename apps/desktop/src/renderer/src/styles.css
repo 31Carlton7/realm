@@ -95,6 +95,14 @@
      already reads there; light's does not, so the light face sets its own pair below. */
   --rl-frame-raised: var(--page);
   --rl-frame-raised-hover: var(--rl-hover);
+  /* A card in Codex's grammar, measured off its window: a step ABOVE the ground it stands on — where
+     --rl-frame is a well below it — under a rim the rung lighter than both sides (Codex: page 41,
+     card 47, rim 57). An overlay rather than a colour, because the ground under a page is the pane's
+     translucent canvas: the card has to lift whatever that came to, on any desktop. The light face
+     sets its own pair below — a white card on the grey ground, ringed a rung darker. */
+  --rl-card: var(--overlay-lighten-100);
+  --rl-card-hover: var(--overlay-lighten-200);
+  --rl-card-rim: var(--line);
   /* borders: BUI hairlines are solid and crisp, not alpha — hairline = line now */
   --rl-line: var(--line);                        /* BUI --line */
   --rl-line-strong: var(--line-strong);          /* BUI --line-strong */
@@ -226,6 +234,8 @@
      still answers the pointer at least as clearly as it did on the paler fill. */
   --rl-frame-raised: oklch(0.95 0.002 247.85);
   --rl-frame-raised-hover: oklch(0.915 0.003 247.86);
+  --rl-card: var(--surface);
+  --rl-card-hover: oklch(0.975 0.002 247.85);
   --rl-shadow: var(--shadow-lg);                 /* shadow-plugin's smooth lg stack (BUI light --shadow-overlay, shadow half) */
   /* Dark on the light face too: a guest machine's desktop is arbitrary, and a near-white surround
      would fight it. */
@@ -481,7 +491,7 @@ kbd { font: 11px var(--font-mono); }
   -webkit-app-region: no-drag; }
 .sb-page-nav .page-rail { width: auto; align-self: stretch; }
 .sb-page-nav .page-rail:has(.page-rail-list), .sb-page-nav .settings-rail-lists { gap: 4px; }
-.sb-page-nav .page-rail .settings-tab { display: flex; align-items: center; min-height: 32px; padding: 5px 8px;
+.sb-page-nav .page-rail .settings-tab { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 5px 8px;
   font-size: 14px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
 .sb-page-nav .page-rail .settings-tab:hover { color: var(--rl-text-dim); }
 .sb-page-nav .page-rail .settings-tab[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); }
@@ -2463,6 +2473,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .form { display: flex; flex-direction: column; gap: 12px; }
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field > span { font-size: 12px; color: var(--rl-text-dim); }
+.page .field > span { font-size: 13px; }
 /* `:not(.switch):not(.checkbox):not(.search-field)` is load-bearing, not tidiness. This rule is
    about the PLAIN text field a form is built out of — height, padding, a hairline and a field fill —
    and `.field input` (0,1,1) out-specifies every one-class control (0,1,0), so an input that is
@@ -5158,6 +5169,9 @@ select { appearance: none; padding-right: 22px;
 .diff-row:hover .diff-actions, .diff-row:focus-within .diff-actions { opacity: 1; }
 /* Quiet inline action: a text button, not a control with a box (§3 ghost tier). */
 .btn-quiet { --btn-h: 22px; height: var(--btn-h); padding: 0 7px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; font-size: 11.5px; color: var(--rl-text-dim); background: transparent; }
+/* On a page the quiet button is a row's own action — Remove, Ask macOS, Restore — read beside a 14px
+   label, so it takes the page's scale rather than a toolbar's. */
+.page .btn-quiet { --btn-h: 28px; padding: 0 10px; font-size: 13px; }
 .btn-quiet:hover:not(:disabled) { background: var(--rl-hover); color: var(--rl-text-bright); }
 .btn-quiet.danger { color: var(--rl-danger); }
 .diff-body { padding: 0 0 6px 26px; }
@@ -5289,7 +5303,7 @@ select { appearance: none; padding-right: 22px;
 .btn.primary:disabled[aria-busy="true"] { --fill: var(--rl-accent); color: var(--rl-accent-contrast); }
 
 /* ── Space settings: the space's checkouts (W1/W2 made visible in W3) ───── */
-.env-empty { margin: 0; font-size: 11.5px; color: var(--rl-text-faint); }
+.env-empty { margin: 0; font-size: 13px; color: var(--rl-text-dim); }
 /* A GRID of cards, not a column of rows. A connections page is a set of things you scan for one you
    want, and a stack of flush rows makes that a wall — the same problem the engines page had. Two
    columns where there is room; one where there is not, so a narrow pane degrades to the list it
@@ -5312,6 +5326,7 @@ select { appearance: none; padding-right: 22px;
 .env-kind { flex: none; white-space: nowrap; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--rl-text-faint); }
 .env-meta { grid-column: 1; display: flex; flex-wrap: wrap; gap: 8px; font-size: 11px; color: var(--rl-text-faint); }
 .env-path { font-family: var(--font-mono); font-size: 11px; word-break: break-all; }
+.page .env-path { font-size: 12px; }
 .env-actions { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: center; gap: 4px; }
 
 /* ── Space settings: MCP servers, auth and per-tool policy (W6) ───── */
@@ -5401,7 +5416,9 @@ select { appearance: none; padding-right: 22px;
 /* Tabs are native radios in segmented-control clothing (the onboarding idiom: arrows move, one tab
    stop, checked state for free). Selected ≠ outlined — §2.7's translucent fill + bright text. */
 .settings-tabs { display: flex; gap: 2px; margin: 0 0 12px; padding: 2px; border: none; border-radius: var(--r-ctl); corner-shape: squircle; background: var(--rl-hover); }
-.settings-tab { flex: 1; text-align: center; padding: 5px 10px; border-radius: var(--r-chip); corner-shape: squircle; font-size: 12px; color: var(--rl-text-dim); cursor: default; }
+/* One line per option, always: a fieldset sizes to its min-content in a flex row, so a segment free to
+   wrap broke "For 5 minutes" over two lines beside a label that had the room to give. */
+.settings-tab { flex: 1; text-align: center; padding: 6px 12px; border-radius: var(--r-chip); corner-shape: squircle; font-size: 13px; white-space: nowrap; color: var(--rl-text-dim); cursor: default; }
 .settings-tab:hover { color: var(--rl-text-bright); }
 .settings-tab[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); font-weight: var(--fw-label); }
 .settings-tab input { position: absolute; opacity: 0; pointer-events: none; }
@@ -5411,7 +5428,7 @@ select { appearance: none; padding-right: 22px;
 .settings-panel { min-width: 0; }
 /* The two kinds of prose here: a NOTE is a disclosure the panel exists to make (always visible, dim,
    set off by a left tick); a HINT is auxiliary fine print (faint). */
-.settings-note { margin: 0; padding: 6px 10px; border-left: 2px solid var(--rl-line-strong); font-size: 11.5px; line-height: 1.5; color: var(--rl-text-dim); }
+.settings-note { margin: 0; padding: 6px 10px; border-left: 2px solid var(--rl-line-strong); font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); }
 /* Browser origins (Plan 14 W4): the add form is one inline row inside the field. */
 .origin-add { display: flex; gap: 8px; }
 .origin-add input { flex: 1; }
@@ -5423,16 +5440,14 @@ select { appearance: none; padding-right: 22px;
    its own shape, and putting it in a box would be a frame around a frame. */
 .tcc-app-icon { flex: none; width: 22px; height: 22px; margin-top: 1px; }
 .tcc-row { display: flex; align-items: flex-start; }
-.creds-list .settings-row { display: flex; align-items: flex-start; }
+.creds-list .settings-row { display: flex; align-items: center; }
 /* Share with ▸'s receipt: the copy went elsewhere, so nothing in this list changes — the line beside
    the button is the only place that says it happened. Quiet, and on the button's own baseline. */
 .share-note { align-self: center; font-size: 12px; color: var(--rl-text-dim); white-space: nowrap; }
-/* The empty state carries the ONE thing a person needs before saving a secret in an app: what
-   happens to it. It was a lede at the top of the page, read once and never again; here it is read
-   by exactly the person about to add their first. */
-.creds-empty { display: flex; flex-direction: column; gap: 6px; padding: 22px 4px; }
-.creds-empty-line { margin: 0; font-size: 13.5px; color: var(--rl-text-dim); }
-.creds-empty-sub { margin: 0; max-width: 62ch; font-size: 12.5px; line-height: 1.55; color: var(--rl-text-faint); }
+/* The empty state is a row of the card it will fill — the card's shape is the promise of a list —
+   carrying the ONE thing a person needs before saving a secret: what happens to it. Its label is a
+   sentence about nothing yet, so it takes the secondary ink rather than a name's. */
+.creds-empty .settings-row-name { color: var(--rl-text-dim); font-weight: var(--fw-medium); }
 .creds-form { gap: 12px; }
 /* ── Memory: one editor, and the mechanics folded under it ───────────────────────────────────── */
 .memory-panel { gap: 14px; width: 100%; min-width: 0; }
@@ -5460,13 +5475,13 @@ select { appearance: none; padding-right: 22px;
 .memory-details-body { display: flex; flex-direction: column; gap: 14px; padding-top: 10px; }
 /* A heading INSIDE the disclosure is a sub-heading, not a peer of the editor's label. */
 .memory-sub { font-size: 12px; color: var(--rl-text-faint); }
-.settings-note code { font: 11px var(--font-mono); }
+.settings-note code { font: 12px var(--font-mono); }
 /* The foot note: separated by air and a rule above it rather than by a tinted box, which at the
    bottom of a page reads as a banner nobody put there on purpose. */
 .settings-note-foot { margin-top: 20px; padding-top: 14px; border-top: var(--hairline-w) solid var(--rl-hairline); }
 /* Settings → Sign-ins: a stacked label+input inside a `.field`. Its own label line rather than
    `.field > span`, which is already spoken for by the field's own heading. */
-.settings-input-label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--rl-text-dim); }
+.settings-input-label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--rl-text-dim); }
 /* A Realm text field: a fill and a curve, no outline. These were hairline rectangles — the browser
    default with a colour on it — which in a sheet full of this app's own surfaces read as four bare
    boxes. The focus ring REPLACES the border rather than adding to it, so focus is a change of state
@@ -5480,7 +5495,9 @@ select { appearance: none; padding-right: 22px;
 }
 .settings-input-label input::placeholder { color: var(--rl-text-faint); }
 .settings-input-label input:focus { box-shadow: 0 0 0 1.5px var(--rl-accent); }
-.settings-hint { margin: 0; font-size: 11px; line-height: 1.5; color: var(--rl-text-faint); }
+/* 12.5 in the secondary ink. It was 11px in the tertiary one, which measures 3.5:1 on the dark ground
+   — under AA for text that size — and a page of it is what read as "small and hard to read". */
+.settings-hint { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim); }
 .settings-hint[data-tone="danger"] { color: var(--rl-danger); }
 /* A choice the app has carried out and is reporting on, not one it refused — the contrast a moved
    colour actually landed at. Orange rather than red: the window still works.
@@ -5543,15 +5560,19 @@ select { appearance: none; padding-right: 22px;
    a list. */
 .settings-row {
   position: relative;
-  display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px;
-  background: var(--rl-frame); border-radius: 0; corner-shape: squircle;
+  display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+  background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); border-radius: 0; corner-shape: squircle;
 }
+/* The rim runs round the RUN, not round each row: a row under another row hands its top edge to the
+   divider, which is inset from both ends as Codex's is, so the card reads as one object ruled
+   inside rather than as a stack of boxes. */
+.settings-row + .settings-row { border-top: 0; }
 .settings-row:not(.settings-row + .settings-row) { border-start-start-radius: var(--r-panel); border-start-end-radius: var(--r-panel); }
 .settings-row:not(:has(+ .settings-row)) { border-end-start-radius: var(--r-panel); border-end-end-radius: var(--r-panel); }
 /* The divider, inset to the label's own edge. Drawn on the LOWER row, so a run's last row can never
    end on a rule with nothing under it. */
 .settings-row + .settings-row::before {
-  content: ""; position: absolute; inset: 0 0 auto 14px; height: var(--hairline-w); background: var(--rl-hairline);
+  content: ""; position: absolute; inset: 0 16px auto 16px; height: var(--hairline-w); background: var(--rl-card-rim);
 }
 /* A run of rows that are NOT peers — a theme grid, a slider, a pair of selects — so the container
    is a plain box rather than a list element claiming they are the same kind of thing. No gap, for
@@ -5577,12 +5598,14 @@ select { appearance: none; padding-right: 22px;
 .settings-row > .settings-text:focus { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
 .settings-row > .settings-tabs { flex: none; margin: 0; }
 .settings-row-main { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
-.settings-row-name { font-size: 13.5px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
-/* 12.5/1.5 — this is reading copy, not a caption. On the Library page it is three lines per card. */
-.settings-row-desc { flex-basis: 100%; font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim); }
+.settings-row-name { font-size: 14px; line-height: 20px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
+/* 13/18 — reading copy, not a caption, in the ink that stays legible at that size: on the Library
+   page it is three lines per card. A DETAIL is the same line by another name (a row's one sentence
+   under its label), and it had no rule at all — it ran on beside the label at the label's size. */
+.settings-row-desc, .settings-row-detail { flex-basis: 100%; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
 /* An invalid skill is SHOWN, reason and all — the silence W1 designed against would start here. */
-.settings-row-problem { flex-basis: 100%; display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--rl-warning); }
-.settings-chip { padding: 1px 7px; border-radius: 999px; font: 11px var(--font-mono); color: var(--rl-text-dim); background: var(--rl-hover); white-space: nowrap; }
+.settings-row-problem { flex-basis: 100%; display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--rl-warning); }
+.settings-chip { padding: 1px 7px; border-radius: 999px; font: 12px var(--font-mono); color: var(--rl-text-dim); background: var(--rl-hover); white-space: nowrap; }
 /* Laya's section (Settings ▸ Engines). The facts are machine state — a device, a checkpoint — so
    they are mono, and the numbers beside them are tabular so a latency that updates does not make
    the line jitter. A failure is the process's own words, verbatim, and reads as such. */
@@ -5596,8 +5619,8 @@ select { appearance: none; padding-right: 22px;
 
 .settings-agent-row { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; }
 .settings-agent-row > svg { flex: none; margin-top: 1px; }
-.settings-agent-note { font-size: 11.5px; line-height: 1.5; color: var(--rl-text-dim); }
-.settings-agent-note code { font: 11px var(--font-mono); }
+.settings-agent-note { font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); }
+.settings-agent-note code { font: 12px var(--font-mono); }
 
 /* One switch idiom for every per-space toggle: a native checkbox drawn as a 30×17 pill. */
 /*
@@ -5724,7 +5747,7 @@ select { appearance: none; padding-right: 22px;
    tab list rather than at the thing it names. The two rail measurements are variables so the indent
    and the rail can never drift apart. */
 .page { --page-rail-w: 180px; --page-rail-gap: 20px; }
-.page-head { flex: none; display: flex; align-items: baseline; gap: 12px; padding: 22px 24px 12px; }
+.page-head { flex: none; display: flex; align-items: baseline; gap: 12px; padding: 24px 24px 18px; }
 .page:has(.page-rail) .page-head { padding-left: calc(24px + var(--page-rail-w) + var(--page-rail-gap)); }
 .page-glyph { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--r-ctl);
   background: color-mix(in srgb, currentColor 14%, transparent); }
@@ -5742,7 +5765,7 @@ select { appearance: none; padding-right: 22px;
    "y" were being clipped by the hidden overflow — the title read as sitting too low in its own box.
    Ellipsis needs the clip, so the clip stays on a child rule that only applies when there is
    something to ellipsize. */
-.page-title h1 { margin: 0; font-size: 22px; line-height: 1.3; font-weight: var(--fw-title);
+.page-title h1 { margin: 0; font-size: 24px; line-height: 1.3; font-weight: var(--fw-title);
   letter-spacing: -0.02em; color: var(--rl-text-bright); white-space: nowrap;
   text-overflow: ellipsis; min-width: 0; }
 .page-title { overflow: hidden; }
@@ -5752,7 +5775,11 @@ select { appearance: none; padding-right: 22px;
 .page-body { flex: 1; min-height: 0; display: flex; align-items: stretch; gap: var(--page-rail-gap); padding: 0 24px 20px; }
 .page-rail { flex: none; width: var(--page-rail-w); display: flex; flex-direction: column; gap: 2px; align-self: flex-start;
   margin: 0; padding: 0; border: none; background: none; }
-.page-rail .settings-tab { flex: none; text-align: left; padding: 6px 10px; font-size: 13px; border-radius: var(--r-ctl); corner-shape: squircle; }
+.page-rail .settings-tab { flex: none; display: flex; align-items: center; gap: 10px; text-align: left; padding: 6px 10px; font-size: 13.5px; border-radius: var(--r-ctl); corner-shape: squircle; }
+/* Each page beside its glyph, as Codex's settings column lists them: the glyph is found before the
+   word is read, so a column of eleven pages is scanned by shape. It takes the row's own ink — lit
+   with it when chosen — so it never outshouts the label it stands for. */
+.page-rail-glyph { flex: none; }
 /* The profile page's spaces (Plan 14 W2), now a second list in the rail rather than a chip strip
    over the title. One list per kind of destination; the rail's own gap separates the rows inside a
    list, and the bigger gap between the lists is what says they are not the same question.
@@ -5880,10 +5907,10 @@ select { appearance: none; padding-right: 22px;
   .settings-tabs { overflow-x: auto; scrollbar-width: none; }
   .settings-tabs .settings-tab { flex: none; white-space: nowrap; }
 }
-.page-lede { margin: 0; font-size: 13px; line-height: 1.55; color: var(--rl-text-dim); }
+.page-lede { margin: 0; font-size: 14px; line-height: 1.55; color: var(--rl-text-dim); }
 .page-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 14px;
   border: 1px dashed var(--rl-line-strong); border-radius: var(--r-ctl); }
-.page-empty p { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--rl-text-dim); }
+.page-empty p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--rl-text-dim); }
 .page-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .page-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; text-align: left;
   border: none; border-radius: var(--r-ctl); corner-shape: squircle; background: none; color: var(--rl-text-dim); font-size: 13px; cursor: default; }
@@ -6478,7 +6505,7 @@ select { appearance: none; padding-right: 22px;
 /* ── Failover: what happens to a turn the agent could not finish ─────────────────────────────── */
 /* A section heading inside a settings tab. 13px rather than the 11px of a hint: this names a group
    of controls, and a group label set smaller than the copy inside it stops being a label. */
-.settings-head { margin: 20px 0 6px; font-size: 13px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.settings-head { margin: 20px 0 6px; font-size: 15px; line-height: 20px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
 .settings-row-title { margin: 0; font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
 .failover { display: flex; flex-direction: column; gap: 4px; }
 .failover .settings-row { align-items: center; }
@@ -6491,8 +6518,8 @@ select { appearance: none; padding-right: 22px;
   flex: none; width: 14px; text-align: center;
   font: 11px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--rl-text-faint);
 }
-.failover-name { flex: 1; min-width: 0; font-size: 13px; color: var(--rl-text-bright); }
-.failover-note { flex: none; font-size: 11px; color: var(--rl-text-faint); }
+.failover-name { flex: 1; min-width: 0; font-size: 14px; color: var(--rl-text-bright); }
+.failover-note { flex: none; font-size: 12.5px; color: var(--rl-text-dim); }
 /* Drawn only on a row that is IN the chain, because reordering something that is not in it means
    nothing — but the buttons keep their box so the switches stay in one column down the list. */
 .failover-order { flex: none; display: inline-flex; gap: 2px; }
@@ -6508,8 +6535,8 @@ select { appearance: none; padding-right: 22px;
   color: var(--rl-text-dim); white-space: pre-wrap; word-break: break-word; user-select: text; }
 .tcc-row { align-items: flex-start; }
 .tcc-row .btn-quiet { flex: none; margin-top: 1px; }
-.tcc-state { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 999px;
-  font-size: 11px; background: var(--rl-hover); color: var(--rl-text-dim); }
+.tcc-state { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px;
+  font-size: 12.5px; background: var(--rl-hover); color: var(--rl-text-dim); }
 .tcc-state[data-state="granted"] { color: var(--rl-success); }
 .tcc-state[data-state="denied"] { color: var(--rl-warning); }
 /* "Apps on this Mac" (the grantable half of the Permissions tab). A row can carry two or three
@@ -6520,7 +6547,7 @@ select { appearance: none; padding-right: 22px;
 .mac-row-actions { flex: none; display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin-top: 1px; }
 .mac-row-actions .btn-quiet { white-space: nowrap; }
 /* The command Realm is about to run, shown before it runs. */
-.mac-grant-cmd code { font: 11px var(--font-mono); color: var(--rl-text-bright); }
+.mac-grant-cmd code { font: 12px var(--font-mono); color: var(--rl-text-bright); }
 /* Settings ▸ Computer use: one card per space — its mark, its name and its switch — and under it the
    apps it lets agents drive. Those are bundle ids, which are identifiers and read as code. */
 .computer-space { align-items: center; }
@@ -6534,7 +6561,29 @@ select { appearance: none; padding-right: 22px;
 .settings-page-pane .settings-tabs { max-width: 340px; }
 /* Every Settings tab is a stack of titled groups now, and `.form`'s 12px gap already separates
    them — so the heads drop the top margin they carry where they punctuate free-standing controls. */
-.settings-page-pane .settings-head { margin: 8px 0 0; }
+/* Codex's rhythm: a group's heading stands well clear of the card above it and close over its own,
+   so the air says which card a heading belongs to without a rule. The first sits under the title. */
+.settings-page-pane .settings-head { margin: 24px 0 2px; }
+.settings-page-pane .form > .settings-head:first-child { margin-top: 0; }
+/* A group's heading with the group's one action at its end — Codex's "Saved sign-ins … Add". */
+.settings-head-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 24px; }
+.settings-page-pane .settings-head-row > .settings-head { margin: 0; }
+.settings-page-pane .form > .settings-head-row:first-child { margin-top: 0; }
+/* A row that folds what it names under itself — the full sentences one click below the line that
+   lists them. The summary IS the row (label, line, caret), so the card's rhythm holds whether it is
+   open or shut, and the body indents to the label's own edge. */
+.settings-disclosure { display: block; padding: 0; }
+.settings-disclosure > summary { display: flex; align-items: center; gap: 12px; padding: 14px 16px; list-style: none; cursor: default; border-radius: inherit; }
+.settings-disclosure > summary::-webkit-details-marker { display: none; }
+.settings-disclosure > summary:focus-visible { outline: 1.5px solid var(--rl-accent); outline-offset: -1.5px; }
+.settings-disclosure-caret { flex: none; color: var(--rl-text-faint); transition: rotate var(--dur-hover) ease; }
+.settings-disclosure[open] .settings-disclosure-caret { rotate: 90deg; }
+.settings-disclosure-body { display: flex; flex-direction: column; gap: 10px; padding: 0 16px 16px; }
+.settings-disclosure-body p { margin: 0; max-width: 72ch; font-size: 13px; line-height: 1.55; color: var(--rl-text-dim); }
+/* A condition that changes what the page can do — no encryption key, no Touch ID sensor — said once,
+   above everything it affects, in the state colour it is. */
+.settings-alert { padding: 10px 14px; border-radius: var(--r-panel); corner-shape: squircle;
+  background: color-mix(in srgb, var(--rl-warning) 12%, transparent); color: var(--rl-text-bright); }
 /* The Permissions tab's three sections. They were `.field`s — a dim label over a column of controls
    — which is the shape this pass replaced everywhere: a head names the section, the rows carry
    themselves, and only the lines that say something a row cannot survive between them. */
@@ -6542,9 +6591,11 @@ select { appearance: none; padding-right: 22px;
 .settings-page-pane .bypass-confirm { align-self: flex-start; margin-top: 6px; text-align: left; }
 
 .scope-group { display: flex; flex-direction: column; gap: 0; }
-.scope-group + .scope-group { margin-top: 12px; }
-.scope-group-label { margin: 0; font-size: 11px; font-weight: var(--fw-title); text-transform: uppercase; letter-spacing: .06em; color: var(--rl-text-faint); }
-.scope-move { flex: none; font-size: 11.5px; }
+.scope-group + .scope-group { margin-top: 28px; }
+/* Sentence case, at a heading's size: "This space" and "From Personal" name the groups under them,
+   and the tracked capitals they wore are the eyebrow design.md refuses. */
+.scope-group-label { margin: 0 0 10px; font-size: 15px; line-height: 20px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.scope-move { flex: none; font-size: 12.5px; }
 .scope-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 8px; border-radius: var(--r-ctl); background: var(--rl-raised); font-size: 12px; }
 .scope-confirm-copy { flex: 1; min-width: min(200px, 100%); color: var(--rl-text-dim); } /* a floor wider than the pane is a floor that overflows it */
 
@@ -7112,7 +7163,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 .mode-card input { position: absolute; opacity: 0; pointer-events: none; }
 .mode-card[data-selected] { box-shadow: 0 0 0 2px var(--rl-accent); }
 .mode-card:has(input:focus-visible) { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
-.mode-card-name { font-size: 11.5px; font-weight: var(--fw-label); text-align: center; }
+.mode-card-name { font-size: 13px; font-weight: var(--fw-label); text-align: center; }
 /* The System card shows both faces side by side, each clipped to half the frame — the choice cannot
    promise which one you will get, so the card does not pretend to either. */
 .mode-card-preview { display: flex; gap: 0; border-radius: var(--r-chip); overflow: hidden; }
@@ -7163,7 +7214,7 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
    names, so every light palette's --surface dot sits on a --page within a step of it and would
    otherwise vanish into the card. A fixed hairline would be the invisible one on half the set. */
 .theme-card-swatches span { width: 14px; height: 14px; border-radius: 999px; }
-.theme-card-name { font-size: 12px; font-weight: var(--fw-label); }
+.theme-card-name { font-size: 13px; font-weight: var(--fw-label); }
 
 /* ── Imported VS Code themes ──────────────────────────────────────────────
    Under the grid, not in it. Importing is a thing you do once, and a card shaped like a palette that

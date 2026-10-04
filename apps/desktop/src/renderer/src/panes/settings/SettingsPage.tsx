@@ -27,7 +27,7 @@ import { KeybindingsPanel } from "../../components/settings/KeybindingsPanel";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import { ShareWith } from "../../components/profiles/ShareWith";
 import { PageRail } from "../../components/page-nav";
-import { CATEGORY_COPY, SETTINGS_GROUPS, searchSettings, settingPlace, type SettingEntry, type SettingsTab } from "./settings-index";
+import { CATEGORY_COPY, SETTINGS_GROUPS, searchSettings, settingPlace, settingsTabLabel, type SettingEntry, type SettingsTab } from "./settings-index";
 
 /**
  * The Settings page (Plan 12 W6, Universe screenshot 5) — a `settings-page` destination on W4's
@@ -69,8 +69,11 @@ export function SettingsPage(_props: PaneProps) {
 
   return (
     <div className="page settings-page-pane" ref={page}>
+      {/* The page names the section it shows, as Codex's does — "Sign-ins" over sign-ins. "Settings"
+          is already the pane bar's word and the column's, and a third copy of it here was the one
+          heading on the page that said nothing about what was under it. */}
       <header className="page-head">
-        <div className="page-title"><h1>Settings</h1></div>
+        <div className="page-title"><h1>{results !== null ? "Search" : settingsTabLabel(tab)}</h1></div>
       </header>
       <div className="page-body">
         <PageRail label="Settings">
@@ -97,6 +100,7 @@ export function SettingsPage(_props: PaneProps) {
                   return (
                     <label key={t.id} className="settings-tab page-rail-tab" data-selected={on || undefined}>
                       <input type="radio" name="settings-page-tab" value={t.id} checked={on} onChange={() => open(t.id)} />
+                      <Icon name={t.icon} size={16} className="page-rail-glyph" />
                       {t.label}
                     </label>
                   );
@@ -1747,105 +1751,102 @@ function SignInsTab() {
   }
 
   return (
-    <div className="form">
+    <div className="form signins">
 
       {status !== null && !status.available && (
-        <p className="settings-hint" role="alert">
+        <p className="settings-hint settings-alert" role="alert">
           macOS isn't offering Realm an encryption key right now, so sign-ins can't be saved. Realm
           won't store one unencrypted.
         </p>
       )}
       {status !== null && status.available && !status.canPromptTouchID && (
-        <p className="settings-hint" role="alert">
+        <p className="settings-hint settings-alert" role="alert">
           This Mac has no Touch ID sensor. Sign-ins can be saved, but filling one always needs Touch ID,
           so fills will be refused here.
         </p>
       )}
+      {/* Whose these are, in one line under the title. It was a paragraph that also explained why,
+          which the Share with ▸ menu on every row already says by existing. */}
       {profile && (
-        <p className="settings-hint" data-setting="signins-profile">
-          These are {profile.name}'s. Each profile keeps its own sign-ins and passkeys, as it keeps its own
-          browser cookies, and only {profile.name}'s agents and browser panes can use them.
+        <p className="page-lede" data-setting="signins-profile"
+          title={`Each profile keeps its own sign-ins and passkeys, as it keeps its own browser cookies. Share with ▸ copies one into another profile.`}>
+          Only {profile.name}'s agents and browser panes can use these. Each profile keeps its own.
         </p>
       )}
 
-      <div className="field" data-setting="saved-signins">
-        <div className="mcp-section-head">
-          <span>Saved sign-ins</span>
-          {/* A saved sign-in is a secret. Composing one is a sequence — an address, a username, a
-              password, and the pinning rule that governs all three — and it sat permanently open in
-              the middle of the page, four fields deep, whether or not anyone was adding anything.
-              In a sheet it is something you start and finish. */}
-          <button type="button" className="btn" disabled={status !== null && !status.available}
-            onClick={() => setAdding(true)}>
-            <Icon name="add" size={14} /> Add a sign-in
-          </button>
-        </div>
-        {credentials === null ? <p className="env-empty">Loading…</p> : credentials.length === 0 ? (
-          <div className="creds-empty">
-            <p className="creds-empty-line">No saved sign-ins yet.</p>
-            <p className="creds-empty-sub">
-              One saved here can be typed into a page by an agent that never sees it. Realm checks the
-              page is really on the site you saved it for, asks you to approve that specific fill, and
-              asks for Touch ID — every time.
-            </p>
-          </div>
-        ) : (
-          <ul className="settings-list creds-list">
-            {credentials.map((c) => (
-              <li key={c.id} className="settings-row" aria-label={`${c.origin}${c.username ? `: ${c.username}` : ""}`}>
-                <span className="creds-mark" aria-hidden="true"><Icon name="lock" size={16} /></span>
-                <div className="settings-row-main">
-                  <span className="settings-row-name">{c.origin}</span>
-                  <span className="settings-row-desc">{[c.username, c.label].filter(Boolean).join(" · ") || "No username or label"}</span>
-                </div>
-                {profileId && <ShareWith fromProfileId={profileId} what={`the sign-in for ${c.origin}`} share={(to) => shareCredential(profileId, c.id, to)} />}
-                <button type="button" className="btn-quiet" onClick={() => { if (profileId) run(() => removeCredential(profileId, c.id)); }}>Remove</button>
-              </li>
-            ))}
-          </ul>
-        )}
+      <div className="settings-head-row" data-setting="saved-signins">
+        <h3 className="settings-head">Saved sign-ins</h3>
+        {/* A saved sign-in is a secret. Composing one is a sequence — an address, a username, a
+            password, and the pinning rule that governs all three — so it is a sheet you start and
+            finish, not four fields sitting open in the middle of the page. */}
+        <button type="button" className="btn" disabled={status !== null && !status.available}
+          onClick={() => setAdding(true)}>
+          <Icon name="add" size={14} /> Add a sign-in
+        </button>
       </div>
+      {credentials === null ? <p className="env-empty">Loading…</p> : (
+        <ul className="settings-list creds-list">
+          {credentials.length === 0 ? (
+            /* The empty state carries the one thing a person needs before saving a secret in an app:
+               what happens to it. One line of it; the rest is in the sheet that takes the secret. */
+            <li className="settings-row creds-empty">
+              <span className="creds-mark" aria-hidden="true"><Icon name="padlock" size={16} /></span>
+              <div className="settings-row-main">
+                <span className="settings-row-name">No saved sign-ins yet.</span>
+                <span className="settings-row-desc">An agent can type one into its site without ever seeing it. You approve each fill with Touch ID.</span>
+              </div>
+            </li>
+          ) : credentials.map((c) => (
+            <li key={c.id} className="settings-row" aria-label={`${c.origin}${c.username ? `: ${c.username}` : ""}`}>
+              <span className="creds-mark" aria-hidden="true"><Icon name="padlock" size={16} /></span>
+              <div className="settings-row-main">
+                <span className="settings-row-name">{c.origin}</span>
+                <span className="settings-row-desc">{[c.username, c.label].filter(Boolean).join(" · ") || "No username or label"}</span>
+              </div>
+              {profileId && <ShareWith fromProfileId={profileId} what={`the sign-in for ${c.origin}`} share={(to) => shareCredential(profileId, c.id, to)} />}
+              <button type="button" className="btn-quiet" onClick={() => { if (profileId) run(() => removeCredential(profileId, c.id)); }}>Remove</button>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {/* Passkeys have no Add button, and the absence is the feature: one exists because a site asked
           for it in a pane and the user answered Touch ID. There is nothing to type and no IPC an
           agent could call to mint one. */}
-      <div className="field" data-setting="passkeys">
-        <div className="mcp-section-head"><span>Passkeys</span></div>
-        {passkeys === null ? <p className="env-empty">Loading…</p> : passkeys.length === 0 ? (
-          <div className="creds-empty">
-            <p className="creds-empty-line">No passkeys yet.</p>
-            <p className="creds-empty-sub">
-              When a site offers to set up a passkey, doing it in a browser pane creates one here.
-              Realm holds the key and asks for Touch ID every time a page uses it.
-            </p>
-          </div>
-        ) : (
-          <ul className="settings-list creds-list">
-            {passkeys.map((p) => (
-              <li key={p.id} className="settings-row" aria-label={`${p.rpId}${p.userName ? `: ${p.userName}` : ""}`}>
-                <span className="creds-mark" aria-hidden="true"><Icon name="key" size={16} /></span>
-                <div className="settings-row-main">
-                  <span className="settings-row-name">{p.rpId}</span>
-                  <span className="settings-row-desc">
-                    {[p.userName || p.userDisplayName, p.lastUsedAt === null ? "Never used" : `Used ${relativeTime(p.lastUsedAt, Date.now())}`]
-                      .filter(Boolean).join(" · ")}
-                  </span>
-                </div>
-                {profileId && <ShareWith fromProfileId={profileId} what={`the passkey for ${p.rpId}`} share={(to) => sharePasskey(profileId, p.id, to)} />}
-                <button type="button" className="btn-quiet" onClick={() => { if (profileId) run(() => removePasskey(profileId, p.id)); }}>Remove</button>
-              </li>
-            ))}
-          </ul>
-        )}
-        {/* The half a Remove button cannot do, which is the half that locks someone out if they
-            assume it did. */}
-        {passkeys !== null && passkeys.length > 0 && (
-          <p className="settings-hint">
-            Removing one here deletes Realm's copy of the key. The site still lists the passkey, so
-            remove it there too.
-          </p>
-        )}
-      </div>
+      <h3 className="settings-head" data-setting="passkeys">Passkeys</h3>
+      {passkeys === null ? <p className="env-empty">Loading…</p> : (
+        <ul className="settings-list creds-list">
+          {passkeys.length === 0 ? (
+            <li className="settings-row creds-empty">
+              <span className="creds-mark" aria-hidden="true"><Icon name="key" size={16} /></span>
+              <div className="settings-row-main">
+                <span className="settings-row-name">No passkeys yet.</span>
+                <span className="settings-row-desc">Set one up on a site in a browser pane and Realm keeps it here.</span>
+              </div>
+            </li>
+          ) : passkeys.map((p) => (
+            <li key={p.id} className="settings-row" aria-label={`${p.rpId}${p.userName ? `: ${p.userName}` : ""}`}>
+              <span className="creds-mark" aria-hidden="true"><Icon name="key" size={16} /></span>
+              <div className="settings-row-main">
+                <span className="settings-row-name">{p.rpId}</span>
+                <span className="settings-row-desc">
+                  {[p.userName || p.userDisplayName, p.lastUsedAt === null ? "Never used" : `Used ${relativeTime(p.lastUsedAt, Date.now())}`]
+                    .filter(Boolean).join(" · ")}
+                </span>
+              </div>
+              {profileId && <ShareWith fromProfileId={profileId} what={`the passkey for ${p.rpId}`} share={(to) => sharePasskey(profileId, p.id, to)} />}
+              <button type="button" className="btn-quiet" onClick={() => { if (profileId) run(() => removePasskey(profileId, p.id)); }}>Remove</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {/* The half a Remove button cannot do, which is the half that locks someone out if they
+          assume it did. Only where there is something to remove. */}
+      {passkeys !== null && passkeys.length > 0 && (
+        <p className="settings-hint">
+          Removing one deletes Realm's copy of the key. The site still lists the passkey, so remove it there too.
+        </p>
+      )}
 
       {adding && (
       <Sheet title="Add a sign-in" onClose={() => setAdding(false)} width={480}>
@@ -1868,11 +1869,13 @@ function SignInsTab() {
         </label>
         {error !== null && <p className="settings-hint" role="alert">{error}</p>}
         {/* The pinning rule, next to the field it constrains rather than under the button. It is
-            the thing a person needs BEFORE typing an address, not after committing one. */}
+            the thing a person needs BEFORE typing an address, not after committing one. And where
+            the secret goes, on the one surface that takes it (CREDENTIAL_STORAGE_NOTE's duty). */}
         <p className="settings-hint">
           Realm pins the sign-in to exactly this address. A sign-in saved for https://example.com will
           not fill on https://login.example.com or on any lookalike — subdomains are different sites.
         </p>
+        <p className="settings-hint">{CREDENTIAL_STORAGE_NOTE}</p>
         <div className="sheet-actions">
           <span className="diff-head-spacer" />
           <button type="button" className="btn" onClick={() => setAdding(false)}>Cancel</button>
@@ -1886,26 +1889,40 @@ function SignInsTab() {
       </Sheet>
       )}
 
-      <div className="field" data-setting="touch-id"><span>Touch ID</span>
-        <fieldset className="settings-tabs" aria-label="Ask for Touch ID">
-          {CREDENTIAL_PRESENCE_TTLS.map((ms) => (
-            <label key={ms} className="settings-tab" data-selected={status?.presenceTtlMs === ms || undefined}>
-              <input type="radio" name="settings-credential-ttl" value={ms} checked={status?.presenceTtlMs === ms}
-                onChange={() => run(() => setCredentialPresenceTtl(ms))} />
-              {PRESENCE_TTL_LABELS[ms]}
-            </label>
-          ))}
-        </fieldset>
-        <p className="settings-hint">
-          A window only starts after a successful check, and never survives quitting Realm. Signing in
-          is often two fills a few seconds apart, which is what the windows are for.
-        </p>
-      </div>
-
-      <div className="field"><span>What Realm can't do</span>
-        <p className="settings-hint">{CREDENTIAL_2FA_NOTE}</p>
-        <p className="settings-hint">{CREDENTIAL_STORAGE_NOTE}</p>
-        <p className="settings-hint">{PASSKEY_STORAGE_NOTE}</p>
+      <h3 className="settings-head">Security</h3>
+      <div className="settings-group">
+        <div className="settings-row" data-setting="touch-id"
+          title="A window only starts after a successful check, and never survives quitting Realm.">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Ask for Touch ID</span>
+            <span className="settings-row-desc">Signing in is often two fills seconds apart, and a window covers both with one touch.</span>
+          </div>
+          <fieldset className="settings-tabs" aria-label="Ask for Touch ID">
+            {CREDENTIAL_PRESENCE_TTLS.map((ms) => (
+              <label key={ms} className="settings-tab" data-selected={status?.presenceTtlMs === ms || undefined}>
+                <input type="radio" name="settings-credential-ttl" value={ms} checked={status?.presenceTtlMs === ms}
+                  onChange={() => run(() => setCredentialPresenceTtl(ms))} />
+                {PRESENCE_TTL_LABELS[ms]}
+              </label>
+            ))}
+          </fieldset>
+        </div>
+        {/* The limits, folded to one row. They were three paragraphs at the foot of the page, read
+            once; the row names all three, and the full sentences are one click under it. */}
+        <details className="settings-row settings-disclosure">
+          <summary>
+            <div className="settings-row-main">
+              <span className="settings-row-name">What Realm can't do</span>
+              <span className="settings-row-desc">Two-factor steps, showing a password back, and iCloud Keychain passkeys.</span>
+            </div>
+            <Icon name="chevronRight" size={14} className="settings-disclosure-caret" />
+          </summary>
+          <div className="settings-disclosure-body">
+            <p>{CREDENTIAL_2FA_NOTE}</p>
+            <p>{CREDENTIAL_STORAGE_NOTE}</p>
+            <p>{PASSKEY_STORAGE_NOTE}</p>
+          </div>
+        </details>
       </div>
     </div>
   );

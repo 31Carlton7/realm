@@ -26,10 +26,14 @@ describe("the Library page (Plan 12 W4)", () => {
     /* Files leads. Skills and memory are what you INSTALL into a space and change rarely; files are
        what the work produced, and they are the reason someone opens a Library at all. */
     await mount();
-    expect(screen.getByRole("heading", { name: "Library" })).toBeInTheDocument();
+    // The head names the SECTION, as Settings' does — "Library" is the pane bar's word.
+    expect(screen.getByRole("heading", { name: "Files", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Files" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "Skills" })).not.toBeChecked();
     expect(screen.getByRole("radio", { name: "Memory" })).not.toBeChecked();
+    // THE mutant: a title fixed at the first section's name.
+    fireEvent.click(screen.getByRole("radio", { name: "Memory" }));
+    expect(await screen.findByRole("heading", { name: "Memory", level: 1 })).toBeInTheDocument();
   });
 
   it("the Skills tab IS the shared grouped panel — same groups, same disclosures, no fork", async () => {

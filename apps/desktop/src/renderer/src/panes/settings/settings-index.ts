@@ -1,3 +1,4 @@
+import type { IconName } from "@realm/ui";
 import {
   AGENT_META, EDITOR_CURSOR_BLINK_COPY, KEY_COMMANDS, NOTIFICATION_CATEGORIES, SELECTABLE_AGENT_KINDS,
   TERMINALS_CURSOR_BLINK_COPY, TERMINALS_CURSOR_STYLE_COPY, TERMINALS_HISTORY_COPY, type NotificationCategory,
@@ -19,12 +20,15 @@ export type SettingsTab =
  * about: themselves and the app's manners, the engines and what they cost, the browser, the Mac, and
  * the data Realm keeps.
  */
-export const SETTINGS_GROUPS: readonly { label: string; tabs: readonly { id: SettingsTab; label: string }[] }[] = [
-  { label: "You", tabs: [{ id: "general", label: "General" }, { id: "appearance", label: "Appearance" }, { id: "keys", label: "Keys" }, { id: "notifications", label: "Notifications" }] },
-  { label: "Engines", tabs: [{ id: "engines", label: "Engines" }, { id: "usage", label: "Usage" }] },
-  { label: "Browser", tabs: [{ id: "signins", label: "Sign-ins" }] },
-  { label: "Computer", tabs: [{ id: "permissions", label: "Permissions" }, { id: "computer-use", label: "Computer use" }] },
-  { label: "Data", tabs: [{ id: "import", label: "Import" }, { id: "archived", label: "Archived" }] },
+export const SETTINGS_GROUPS: readonly { label: string; tabs: readonly { id: SettingsTab; label: string; icon: IconName }[] }[] = [
+  { label: "You", tabs: [
+    { id: "general", label: "General", icon: "settings" }, { id: "appearance", label: "Appearance", icon: "sun" },
+    { id: "keys", label: "Keys", icon: "command" }, { id: "notifications", label: "Notifications", icon: "bell" },
+  ] },
+  { label: "Engines", tabs: [{ id: "engines", label: "Engines", icon: "cpu" }, { id: "usage", label: "Usage", icon: "gauge" }] },
+  { label: "Browser", tabs: [{ id: "signins", label: "Sign-ins", icon: "key" }] },
+  { label: "Computer", tabs: [{ id: "permissions", label: "Permissions", icon: "shield" }, { id: "computer-use", label: "Computer use", icon: "pointer" }] },
+  { label: "Data", tabs: [{ id: "import", label: "Import", icon: "inboxDownload" }, { id: "archived", label: "Archived", icon: "archive" }] },
 ];
 
 export function settingsTabLabel(tab: SettingsTab): string {

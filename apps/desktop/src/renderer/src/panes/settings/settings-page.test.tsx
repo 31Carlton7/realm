@@ -40,11 +40,18 @@ afterEach(() => { vi.unstubAllGlobals(); });
 describe("the Settings page (Plan 12 W6)", () => {
   it("wears the page pattern: head, then a rail of pages under five headings, General first", async () => {
     await mount();
-    expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    // The head names the page it shows, as Codex's does: "Settings" is the pane bar's word.
+    expect(screen.getByRole("heading", { name: "General", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "General" })).toBeChecked();
     for (const tab of ["Appearance", "Keys", "Notifications", "Engines", "Usage", "Sign-ins", "Permissions", "Import"]) {
       expect(screen.getByRole("radio", { name: tab }), tab).not.toBeChecked();
     }
+    // THE mutant: a title fixed at the first page's name.
+    fireEvent.click(screen.getByRole("radio", { name: "Sign-ins" }));
+    expect(await screen.findByRole("heading", { name: "Sign-ins", level: 1 })).toBeInTheDocument();
+    // A search is not any page, so the head says so rather than naming the page underneath it.
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "theme" } });
+    expect(await screen.findByRole("heading", { name: "Search", level: 1 })).toBeInTheDocument();
   });
 
   it("the tabs ARE the page's rail, which is what widens the page's measure to hold them", async () => {
@@ -1108,7 +1115,9 @@ describe("Sign-ins tab", () => {
 
   it("states plainly that the passkeys in iCloud Keychain are out of reach, rather than letting a user wonder", async () => {
     await signIns();
-    expect(await screen.findByText(/iCloud Keychain/)).toBeInTheDocument();
+    // Named in the folded row's line, and said in full under it.
+    expect(await screen.findByText(/Realm cannot reach the passkeys in your iCloud Keychain/)).toBeInTheDocument();
+    expect(screen.getByText(/iCloud Keychain passkeys\./)).toBeInTheDocument();
   });
 
   /* Plan 27 Phase 2: sign-ins and passkeys are a profile's own. The window is on s1, a Work (p1)
@@ -1122,7 +1131,7 @@ describe("Sign-ins tab", () => {
     expect(await screen.findByRole("listitem", { name: "https://example.com: ada" })).toBeInTheDocument();
     expect(screen.queryByRole("listitem", { name: /school\.example/ })).toBeNull();
     expect(screen.getByRole("listitem", { name: "github.com: ada@example.com" })).toBeInTheDocument();
-    expect(screen.getByText(/These are Work's\. Each profile keeps its own sign-ins and passkeys/)).toBeInTheDocument();
+    expect(screen.getByText(/Only Work's agents and browser panes can use these\. Each profile keeps its own\./)).toBeInTheDocument();
   });
 
   it("a sign-in saved here is saved into the window's profile, and nobody else's", async () => {

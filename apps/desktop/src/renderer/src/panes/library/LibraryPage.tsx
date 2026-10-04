@@ -13,7 +13,9 @@ import { PageRail } from "../../components/page-nav";
 
 /* Files leads. Skills and memory are what you INSTALL into a space and change rarely; files are
    what the work produced, and they are the reason someone opens a Library at all. */
-const LIBRARY_TABS = [{ id: "files", label: "Files" }, { id: "skills", label: "Skills" }, { id: "memory", label: "Memory" }] as const;
+const LIBRARY_TABS = [
+  { id: "files", label: "Files", icon: "artifact" }, { id: "skills", label: "Skills", icon: "sparkles" }, { id: "memory", label: "Memory", icon: "context" },
+] as const;
 type LibraryTab = (typeof LIBRARY_TABS)[number]["id"];
 
 /**
@@ -63,6 +65,7 @@ export function LibraryPage({ item }: PaneProps) {
               is checked while a skill is open — clicking it is how the list comes back. */}
           <input type="radio" name={`library-tab-${item.id}`} value={t.id} checked={shown === t.id}
             onChange={() => pick(t.id)} onClick={() => { if (openSkill !== null) pick(t.id); }} />
+          <Icon name={t.icon} size={16} className="page-rail-glyph" />
           {t.label}
         </label>
       ))}
@@ -82,7 +85,9 @@ export function LibraryPage({ item }: PaneProps) {
             <Icon name="chevronLeft" size={14} />
           </button>
         )}
-        <div className="page-title"><h1>{openName ?? "Library"}</h1></div>
+        {/* The section it shows, as Settings' head names its page: "Library" is the pane bar's word and
+            the column's Back already says where back goes. */}
+        <div className="page-title"><h1>{openName ?? LIBRARY_TABS.find((t) => t.id === shown)!.label}</h1></div>
         {/* The vantage, kept. It used to live in the sub-title paragraph, and that paragraph went —
             but WHICH space a scope-grouped page is seen from is a fact about what it is showing, not
             decoration, and it is the only place that fact appears. */}

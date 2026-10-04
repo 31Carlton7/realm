@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ItemKindSchema } from "@realm/contracts";
-import { icons, isIconName } from "@realm/ui";
+import { brandMarks, icons, isIconName } from "@realm/ui";
 
 /**
  * Every item kind has a glyph.
@@ -44,5 +44,20 @@ describe("every item kind has an icon", () => {
      than throwing inside a list. What this test refuses is a KIND relying on it. */
   it("keeps the folder fallback for names that are not kinds at all", () => {
     expect(isIconName("a-glyph-from-some-future-release")).toBe(false);
+  });
+});
+
+/**
+ * No glyph shares a name with a brand mark.
+ *
+ * `Icon` asks the brand marks first, so a glyph whose key is also a brand's never draws: Settings'
+ * "Computer use" page was given `cursor` for its pointer and rendered Cursor's cube, because the
+ * Cursor editor is one of the agents with a mark. Nothing about that is a type error — the two maps
+ * are one namespace by design — and it reads as a deliberate, if odd, choice of glyph.
+ */
+describe("glyph names and brand names never collide", () => {
+  it("leaves every glyph reachable", () => {
+    const shadowed = Object.keys(icons).filter((k) => Object.prototype.hasOwnProperty.call(brandMarks, k));
+    expect(shadowed, "glyphs a brand mark of the same name draws over").toEqual([]);
   });
 });

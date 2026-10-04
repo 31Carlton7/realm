@@ -1,5 +1,5 @@
 import { MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, SPACE_COLORS, type McpServer, type Profile, type Skill } from "@realm/contracts";
-import { Icon } from "@realm/ui";
+import { Icon, type IconName } from "@realm/ui";
 import { useEffect, useState } from "react";
 import { useApp, type ProfilePageTab, type ProfileUsage } from "../../state/store";
 import { MoveScopeConfirm } from "../../components/scoped/ScopeGroups";
@@ -11,11 +11,11 @@ import { PageRail } from "../../components/page-nav";
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
-const PROFILE_TABS: { id: ProfilePageTab; label: string }[] = [
-  { id: "general", label: "General" },
-  { id: "skills", label: "Skills" },
-  { id: "connections", label: "Connections" },
-  { id: "memory", label: "Memory" },
+const PROFILE_TABS: { id: ProfilePageTab; label: string; icon: IconName }[] = [
+  { id: "general", label: "General", icon: "settings" },
+  { id: "skills", label: "Skills", icon: "sparkles" },
+  { id: "connections", label: "Connections", icon: "plug" },
+  { id: "memory", label: "Memory", icon: "context" },
 ];
 
 /** The one sentence every pre-scoping row carries here: these rows are governed per space, so the
@@ -69,6 +69,7 @@ export function ProfilePage({ item }: PaneProps) {
             {PROFILE_TABS.map((t) => (
               <label key={t.id} className="settings-tab page-rail-tab" data-selected={tab === t.id || undefined}>
                 <input type="radio" name={`profile-page-tab-${item.id}`} value={t.id} checked={tab === t.id} onChange={() => { setProfilePageTab(profile.id, t.id); navigateInPane(item.id, t.id); }} />
+                <Icon name={t.icon} size={16} className="page-rail-glyph" />
                 {t.label}
               </label>
             ))}
