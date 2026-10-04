@@ -163,6 +163,14 @@ Rules:
   the story told about it. Chrome above content may take a seam; chrome above more chrome may
   not, and two stacked seams in the same 60px is the failure this rule exists to catch.
 - Hairlines separate structure. Shadows indicate elevation. Resting objects do not cast shadows.
+- The window is chrome round a sheet. The rail and the head row across the whole window — the
+  traffic lights, the sidebar's head, every pane's top bar — are one ground, a step off the
+  sidebar's; the work sits below and beside them in one sheet, under a rim that runs along its top
+  and down its left edge and rounds the corner where they meet. Move the CHROME a step, not the
+  sheet: the sheet's grounds are the ones the translucency controls are calibrated on. The rim is
+  the rung lighter than both sides of it, as Codex's is (chrome 60, sheet 47, rim 65, measured).
+  A corner over a translucent ground is a hole in that ground with the chrome laid in it — tinting
+  over the ground instead composites twice and reads a shade darker than the rail beside it.
 - A hairline with NO change of surface beside it needs its own weight, and its own token. The
   ordinary line is sized for the ordinary case, where a surface step carries most of the boundary
   and the line only sharpens it. Where both sides are the same ground the line is the whole
