@@ -113,7 +113,7 @@ globalThis.__live = {
     return !!document.querySelector(".settings-page-pane");
   },
   async page(value) {
-    document.querySelector('.settings-page-pane .page-rail input[value="' + value + '"]').click();
+    document.querySelector('.settings-rail input[value="' + value + '"]').click();
     await new Promise((r) => setTimeout(r, 250));
     return true;
   },
@@ -124,7 +124,7 @@ globalThis.__live = {
     return true;
   },
   rail() {
-    const rail = document.querySelector(".settings-page-pane .page-rail");
+    const rail = document.querySelector(".page-rail.settings-rail");
     const body = document.querySelector(".settings-page-pane .page-body");
     const search = rail.querySelector(".settings-search");
     const heads = [...rail.querySelectorAll(".page-rail-head")];
@@ -290,7 +290,7 @@ async function main() {
     return {
       rows: rows.map((li) => ({ text: li.querySelector('.settings-row-name').textContent, place: li.querySelector('.settings-result-place').textContent, ...__live.box(li.querySelector('.settings-result-hit')) })),
       col: __live.box(col), scroll: col.scrollWidth, client: col.clientWidth,
-      checked: document.querySelectorAll('.settings-page-pane .page-rail input:checked').length,
+      checked: document.querySelectorAll('.settings-rail input:checked').length,
       general: !!document.querySelector('[aria-label="Ask before deleting"]'),
     };
   })()`);
@@ -309,7 +309,7 @@ async function main() {
     const col = document.querySelector('.settings-page-pane .page-content');
     const sel = row.querySelector('select');
     return { row: __live.box(row), col: __live.box(col), focused: document.activeElement === sel, found: row.hasAttribute('data-found'),
-      lit: [...document.querySelectorAll('.settings-page-pane .page-rail-tab[data-selected]')].map((t) => t.textContent),
+      lit: [...document.querySelectorAll('.settings-rail .page-rail-tab[data-selected]')].map((t) => t.textContent),
       edge: getComputedStyle(row).boxShadow, query: document.querySelector('.settings-search').value };
   })()`);
   check("the result opened Appearance and cleared the search", JSON.stringify(landed.lit) === '["Appearance"]' && landed.query === "", { lit: landed.lit, query: landed.query });
@@ -344,12 +344,17 @@ async function main() {
   const after = await evalIn(c, `document.querySelector('[data-setting="${foldId}"] details').open`);
   check(`Enter on "${folded}" opens the folded face it lands on`, before === false && after === true, { before, after });
 
-  /* ── 4. Narrow ───────────────────────────────────────────────────────────────────────────── */
+  /* ── 4. Narrow ─────────────────────────────────────────────────────────────────────
+     The strip is the rail lying down INSIDE the page, which it is only while the page holds its own
+     rail: with the sidebar open, Settings' sections are in the sidebar's column (page-nav.tsx). So the
+     sidebar is collapsed for this, and the rail comes back into the page where it can lie down. */
+  await evalIn(c, `(() => { document.querySelector('.app-rail button[aria-label^="Hide sidebar"]').click(); return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector('.settings-page-pane .page-rail.settings-rail')`), 5000, "the rail back in the page");
   await size(600);
   await sleep(500);
   await evalIn(c, `__live.page("general")`);
   const narrow = await evalIn(c, `(() => {
-    const rail = document.querySelector('.settings-page-pane .page-rail');
+    const rail = document.querySelector('.page-rail.settings-rail');
     const lists = rail.querySelector('.settings-rail-lists');
     const search = rail.querySelector('.settings-search');
     const col = document.querySelector('.settings-page-pane .page-content');
@@ -367,6 +372,8 @@ async function main() {
   check("…and the content starts under the strip", narrow.col.t >= narrow.lists.b, { col: narrow.col, lists: narrow.lists });
   await shoot(c, "narrow-dark", { x: 0, y: Math.max(0, narrow.rail.t - 60), width: 600, height: 300 });
   await size(1300);
+  await evalIn(c, `(() => { document.querySelector('.app-rail button[aria-label^="Show sidebar"]').click(); return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector('.sb-page-nav .page-rail.settings-rail')`), 5000, "the rail back in the sidebar");
   await sleep(400);
 
   /* ── 5. The light face ───────────────────────────────────────────────────────────────────── */
@@ -401,7 +408,7 @@ async function main() {
   await shoot(c, "results-light", { x: col.l - 8, y: col.t - 8, width: col.w + 16, height: Math.min(col.h, 420) + 16 });
   await evalIn(c, `(() => { [...document.querySelectorAll('.settings-result-hit')].find((b) => b.textContent.startsWith('Volume')).click(); return true; })()`);
   await sleep(450);
-  const light = await evalIn(c, `(() => { const row = document.querySelector('[data-setting="sound-volume"]'); return { row: __live.box(row), found: row.hasAttribute('data-found'), lit: [...document.querySelectorAll('.settings-page-pane .page-rail-tab[data-selected]')].map((t) => t.textContent) }; })()`);
+  const light = await evalIn(c, `(() => { const row = document.querySelector('[data-setting="sound-volume"]'); return { row: __live.box(row), found: row.hasAttribute('data-found'), lit: [...document.querySelectorAll('.settings-rail .page-rail-tab[data-selected]')].map((t) => t.textContent) }; })()`);
   const lEdge = await sample(c, light.row.l + 1, light.row.t + Math.round(light.row.h / 2) - 1);
   const lFill = await sample(c, light.row.l + 40, light.row.t + Math.round(light.row.h / 2) - 1);
   check("light: a result lands on Notifications with the edge showing", JSON.stringify(light.lit) === '["Notifications"]' && light.found && lEdge.some((v, i) => Math.abs(v - lFill[i]) > 30), { lit: light.lit, lEdge, lFill });
@@ -695,7 +702,7 @@ async function appearanceChecks(c, size) {
   const sizes = () => evalIn(c, `(() => {
     const px = (el) => Number.parseFloat(getComputedStyle(el).fontSize);
     return { body: px(document.body), row: px(document.querySelector('.settings-page-pane .settings-row-name')),
-      head: px(document.querySelector('.settings-page-pane .page-rail-head')),
+      head: px(document.querySelector('.settings-rail .page-rail-head')),
       code: px(document.querySelector('.settings-page-pane .code-preview')),
       zoom: window.realm?.zoomFactor?.() ?? null };
   })()`);
@@ -704,7 +711,9 @@ async function appearanceChecks(c, size) {
   const base = await sizes();
   note("text sizes at the defaults", base);
   await shoot(c, "text-ui-14-dark", await textClip());
-  check("at the defaults every size is the stylesheet's own", base.body === 14 && base.row === 13.5 && base.head === 11.5, base);
+  // The rail's headings are the sidebar's own group labels while the rail is in its column.
+  const headSize = (await evalIn(c, `!!document.querySelector('.sb-page-nav .page-rail-head')`)) ? 12.5 : 11.5;
+  check("at the defaults every size is the stylesheet's own", base.body === 14 && base.row === 13.5 && base.head === headSize, { ...base, headSize });
   await setRange("UI font size", 18);
   await sleep(400);
   const big = await sizes();

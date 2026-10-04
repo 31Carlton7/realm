@@ -196,6 +196,42 @@ async function main() {
   const api = rpc(SERVER_PORT, await daemonToken(path.join(scratch, "home")));
   await api.ready;
 
+  /* ── 0. A page's own sections take the sidebar's place (components/page-nav.tsx) ──────── */
+  await c.send("Emulation.setDeviceMetricsOverride", { width: 1500, height: 950, deviceScaleFactor: 2, mobile: false });
+  await sleep(300);
+  // The sidebar's row text edge, from the column itself before any page is up: 8px in from its padding.
+  const rowEdge = await evalIn(c, `(() => { const l = document.querySelector('.sb-list'); const cs = getComputedStyle(l);
+    return Math.round(l.getBoundingClientRect().left + parseFloat(cs.paddingLeft) + 8); })()`);
+  await evalIn(c, `__live.dest("Settings")`);
+  await until(() => evalIn(c, `!!document.querySelector('.sb-page-nav .settings-rail')`), 10000, "Settings' sections in the sidebar");
+  await sleep(400);
+  const nav = await evalIn(c, `(() => {
+    const tabs = [...document.querySelectorAll('.sb-page-nav .settings-tab')];
+    const textLeft = (el) => { const n = [...el.childNodes].find((x) => x.nodeType === 3 && x.textContent.trim()); if (!n) return null;
+      const r = document.createRange(); r.selectNodeContents(n); const box = r.getClientRects()[0]; return box ? Math.round(box.left) : null; };
+    const back = document.querySelector('.sb-page-back').getBoundingClientRect();
+    return { inPage: !!document.querySelector('.page-overlay .page-rail'), listHidden: document.querySelector('.sb-list').hidden,
+      tabs: tabs.length, text: tabs.slice(0, 3).map(textLeft), h: Math.round(tabs[0].getBoundingClientRect().height),
+      // Not inherited: what decides a click is the nearest box that sets a region at all.
+      region: (() => { for (let el = tabs[0]; el; el = el.parentElement) { const v = getComputedStyle(el).getPropertyValue('-webkit-app-region');
+        if (v && v !== 'none') return v; } return null; })(),
+      back: { t: Math.round(back.top), b: Math.round(back.bottom) } };
+  })()`);
+  check("Settings' sections are in the sidebar, the spaces hidden under them, and none left in the page",
+    nav.tabs > 5 && !nav.inPage && nav.listHidden === true, nav);
+  check("…their text on the sidebar's own row edge, at the sidebar's row height",
+    nav.text.every((x) => x !== null && Math.abs(x - rowEdge) <= 1) && nav.h >= 32, { rowEdge, text: nav.text, h: nav.h });
+  check("…under a Back in the header band", nav.back.t >= 0 && nav.back.b <= 40, nav.back);
+  // The column is a window-drag region, and these rows are labels; drag would take the click.
+  if (nav.region !== null) check("…and the rows answer clicks rather than dragging the window", nav.region === "no-drag", { region: nav.region });
+  await shot(c, "takeover-settings", { x: 0, y: 0, width: 760, height: 520 });
+  await evalIn(c, `(() => { [...document.querySelectorAll('.sb-page-nav .settings-tab')].find((t) => t.textContent.trim() === 'Usage').click(); return true; })()`);
+  const usage = await until(() => evalIn(c, `document.querySelector('.sb-page-nav .settings-tab[data-selected]')?.textContent.trim() === 'Usage' && !!document.querySelector('.page-overlay .checkbox')`), 10000, "Usage from the sidebar").catch(() => false);
+  check("a section picked in the sidebar is the one the page shows", usage === true);
+  await evalIn(c, `(() => { document.querySelector('.sb-page-back').click(); return true; })()`);
+  const back = await until(() => evalIn(c, `!document.querySelector('.page-overlay') && !document.querySelector('.sb-page') && document.querySelector('.sb-list').hidden === false`), 10000, "the spaces back").catch(() => false);
+  check("Back closes the page and gives the sidebar its spaces back", back === true);
+
   /* ── 1. Page headers ────────────────────────────────────────────────────── */
   await c.send("Emulation.setDeviceMetricsOverride", { width: 1500, height: 950, deviceScaleFactor: 2, mobile: false });
   await sleep(300);

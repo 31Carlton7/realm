@@ -304,5 +304,7 @@ main()
   .catch((e) => { console.log(`FAIL harness ${e.message}`); process.exitCode = 1; })
   .finally(() => {
     electron?.kill("SIGTERM");
-    setTimeout(() => { try { fs.rmSync(scratch, { recursive: true, force: true }); } catch {} process.exit(process.exitCode ?? 0); }, 800);
+    // SIGTERM alone left the window running after the script had exited — holding this harness's
+    // CDP port, so the next run refused to start. The SIGKILL is what makes the teardown a teardown.
+    setTimeout(() => { electron?.kill("SIGKILL"); try { fs.rmSync(scratch, { recursive: true, force: true }); } catch {} process.exit(process.exitCode ?? 0); }, 1200);
   });

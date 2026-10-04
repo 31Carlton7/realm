@@ -497,9 +497,11 @@ async function main() {
     wide.map((r) => ({ pane: r.page.w, head: r.headSpan.l, column: text(r) })));
   check("settings: the reading column keeps its 720px measure at every width",
     settings.every((r) => r.content.w - BLEED * 2 <= 720), settings.map((r) => ({ pane: r.page.w, content: r.content.w - BLEED * 2 })));
-  check("settings: the rail stays beside the column at the body's own 20px gap",
-    settings.filter((r) => r.page.w > 640).every((r) => text(r) - r.rail.r === 20),
-    settings.map((r) => ({ pane: r.page.w, gap: text(r) - r.rail.r })));
+  /* Over the panes, Settings' sections are in the sidebar's column (page-nav.tsx), so the page has no
+     rail of its own to keep beside the column — at any width. */
+  const railHome = await evalIn(c, `({ inSidebar: !!document.querySelector('.sb-page-nav .settings-rail'), inPage: !!document.querySelector('.page-overlay .page-rail') })`);
+  check("settings: its sections are in the sidebar's column, and the page has no rail beside its own",
+    railHome.inSidebar && !railHome.inPage && settings.every((r) => r.rail === null), { ...railHome, rails: settings.map((r) => r.rail) });
   const narrow = settings.filter((r) => r.page.w <= 640);
   check("settings: a narrow pane is spent on content, not on margins — the column stays full-bleed",
     narrow.length > 0 && narrow.every((r) => r.gaps.left <= 16),
@@ -557,7 +559,7 @@ async function main() {
   /* The profile's spaces were a band of chips over the column, and this measured that they shared
      it. They are a list in the page's rail now (480b2e56), where the rail's own measures above reach
      them; what is left to say here is that the band is gone and the list is in the rail. */
-  const spacesAt = await evalIn(c, `({ inRail: !!document.querySelector('.profile-page-pane .page-rail [aria-label^="Spaces of"]'), band: !!document.querySelector('.profile-page-pane .profile-spaces') })`);
+  const spacesAt = await evalIn(c, `({ inRail: !!document.querySelector('.page-rail [aria-label^="Spaces of"]'), band: !!document.querySelector('.profile-page-pane .profile-spaces') })`);
   check("profile: its spaces are a list in the rail, not a band of chips over the column", spacesAt.inRail && !spacesAt.band, { ...spacesAt, widths: profile.length });
 
   await evalIn(c, `__live.palette('Open space')`);

@@ -429,7 +429,7 @@ const browserItem = async (spaceId, browserId) => (await api.call("items.list", 
 async function openSignIns(c, m, windowId) {
   await inMain(m, `(() => { require("electron").BrowserWindow.fromId(${windowId}).webContents.send("app:command", "settings.open"); return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('.settings-page-pane')`), 10_000, "settings");
-  await evalIn(c, `(() => { document.querySelector('.settings-page-pane .page-rail input[value="signins"]').click(); return true; })()`);
+  await evalIn(c, `(() => { document.querySelector('.settings-rail input[value="signins"]').click(); return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('[data-setting="saved-signins"]')`), 10_000, "the sign-ins tab");
   await sleep(500);
 }
@@ -604,9 +604,9 @@ async function main() {
   check("Share with offers Work, and says what happened", offered.join() === "Work" && receipt === "Shared with Work.", { offered, receipt });
   await shot(c, "signins-personal-shared");
   // Work's list, read again.
-  await evalIn(c2, `(() => { document.querySelector('.settings-page-pane .page-rail input[value="general"]').click(); return true; })()`);
+  await evalIn(c2, `(() => { document.querySelector('.settings-rail input[value="general"]').click(); return true; })()`);
   await sleep(300);
-  await evalIn(c2, `(() => { document.querySelector('.settings-page-pane .page-rail input[value="signins"]').click(); return true; })()`);
+  await evalIn(c2, `(() => { document.querySelector('.settings-rail input[value="signins"]').click(); return true; })()`);
   const workAfter = await until(async () => { const rows = await signInRows(c2); return rows.length > 0 ? rows : null; }, 10_000, "Work's shared row").catch(() => []);
   check("…after which Work has its own copy", workAfter.join() === `${SITE}: alice`, workAfter);
   await shot(c2, "signins-work-shared");
