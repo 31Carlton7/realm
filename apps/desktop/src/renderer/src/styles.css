@@ -2604,13 +2604,16 @@ button.panel-title:hover { background: var(--rl-hover); }
    the inset ground, since an icon is not a colour to show. */
 .profile-icon-choice { width: 30px; height: 30px; display: inline-grid; place-items: center; background: var(--inset); color: var(--rl-text-dim); }
 .profile-icon-choice[data-selected] { color: var(--rl-text-bright); }
-/* Deleting a profile is a section, not a row: the counts, the name to type, then the two buttons. */
-.profile-delete { flex-direction: column; align-items: stretch; gap: 10px; }
 .hex { width: 90px; height: 26px; padding: 0 8px; border-radius: var(--r-chip); border: var(--hairline-w) solid var(--rl-line); background: var(--rl-panel); font: 12px var(--font-mono); }
 /* The gap is what sets it apart, not a rule across the form. What makes this section dangerous is
    the colour of the button in it. */
 .danger-zone { justify-content: flex-start; align-items: center; margin-top: 8px; padding-top: 12px; }
 .danger-zone .muted { flex: 1; }
+/* Deleting a profile is a section, not a row: the counts, the name to type, then the two buttons, all
+   on the sentence's left edge. After `.danger-zone`, whose centring is for a one-line row. */
+.danger-zone.profile-delete { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.profile-delete .settings-input-label { width: min(320px, 100%); }
+.profile-delete .form-actions { justify-content: flex-start; }
 
 .palette-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; background: var(--scrim-soft); }
 /* ⌘K wears the app's curve. `--r-float` (16px) is the window rung and read as a plain dialog beside
