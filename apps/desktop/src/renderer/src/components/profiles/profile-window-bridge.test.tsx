@@ -35,8 +35,13 @@ describe("ProfileWindowBridge", () => {
     const store = createAppStore(api);
     await store.getState().boot();
     render(<StoreContext.Provider value={store}><ProfileWindowBridge /></StoreContext.Provider>);
-    api.data.profiles.push(profile("p7", "Clients"));
-    await act(async () => { listeners.get("profiles.changed")?.(); await Promise.resolve(); await Promise.resolve(); });
+    // A new list, not the old one pushed to: the fake hands the store its own array, and a push would
+    // show up without anything having been read again.
+    api.data.profiles = [...api.data.profiles, profile("p7", "Clients")];
+    expect(store.getState().profiles.map((p) => p.name)).not.toContain("Clients");
+    const fire = listeners.get("profiles.changed");
+    expect(fire).toBeDefined();
+    await act(async () => { fire!(); await Promise.resolve(); await Promise.resolve(); });
     expect(store.getState().profiles.map((p) => p.name)).toContain("Clients");
   });
 });
