@@ -16,6 +16,8 @@
  *      pane is then signed in; Personal keeps its own.
  *   6. Clear browsing data in Work clears Work's jar only, behind a confirm that names Work.
  *   7. A sign-in saved in Personal (Settings ▸ Sign-ins) is invisible in Work until Share with ▸ Work.
+ *   7b. A space moved from Personal to Work takes its open browser into Work's jar — a new view, which
+ *      main still knows is Work's — and back again.
  *   8. Deleting Work is guarded — it counts what goes, and only the typed name arms it — and takes
  *      Work's window, cookies and sign-ins with it; the last profile cannot be deleted.
  *
@@ -547,6 +549,28 @@ async function main() {
   check("on disk each sign-in names its profile, and holds no password", file.version === 2
     && file.credentials.map((r) => r.profileId).sort().join() === [personal.id, work.id].sort().join()
     && !JSON.stringify(file).includes("correct horse"), file.credentials.map((r) => ({ profileId: r.profileId, origin: r.origin })));
+
+  // ── 7b. A space moved to another profile takes its open browser with it ───────────────────────
+  await evalIn(c, `(() => { document.querySelector('.page-overlay-bar [aria-label^="Close"]')?.click(); return true; })()`);
+  const spare = await api.call("spaces.create", { profileId: personal.id, name: "Spare" });
+  await until(() => evalIn(c, `!!document.querySelector('[aria-label="Switch to space Spare"]')`), 10_000, "Spare in the strip");
+  await evalIn(c, `(() => { document.querySelector('[aria-label="Switch to space Spare"]').click(); return true; })()`);
+  await until(() => evalIn(c, `document.querySelector('.space-name')?.textContent === 'Spare'`), 10_000, "on Spare");
+  const spareBrowser = await openBrowserIn(c, spare.id);
+  await until(async () => (await fixtureViews(m)).some((v) => v.windowId === personalWindowId && v.partition === "persist:browser" && v.title === "Signed in as alice"), 15_000, "Spare's view in Personal's jar");
+  await api.call("spaces.update", { id: spare.id, profileId: work.id });
+  const moved = await until(async () => (await fixtureViews(m)).find((v) => v.windowId === personalWindowId && v.partition === WORK_PARTITION && v.title.startsWith("Signed")), 15_000, "Spare's view in Work's jar").catch(() => null);
+  const movedMenu = await openPaneMenu(c, m);
+  await inMain(m, `(() => { const L = globalThis.__live; const last = L.menus.at(-1); last?.opts.callback?.(); return true; })()`);
+  const movedShare = movedMenu.rows.find((r) => r.label === "Share this site's sign-in with");
+  check("a space moved to Work takes its open browser into Work's jar — signed out there, and main knows the new view is Work's",
+    moved?.title === "Signed out" && movedShare?.sub?.map((r) => r.label).join() === "Personal", { moved, shareTo: movedShare?.sub?.map((r) => r.label) ?? null });
+  await api.call("spaces.update", { id: spare.id, profileId: personal.id });
+  const back = await until(async () => (await fixtureViews(m)).find((v) => v.windowId === personalWindowId && v.partition === "persist:browser" && v.title.startsWith("Signed")), 15_000, "Spare back in Personal's jar").catch(() => null);
+  check("…and moved back, into Personal's again, signed in", back?.title === "Signed in as alice", back);
+  await api.call("browsers.close", { browserId: spareBrowser }).catch(() => {});
+  await api.call("spaces.delete", { id: spare.id });
+  await until(() => evalIn(c, `document.querySelector('.space-name')?.textContent === 'Live'`), 10_000, "back on Live").catch(() => {});
 
   // ── 8. Deleting Work is guarded ───────────────────────────────────────────────────────────────
   // Work holds the site's cookies again, so the delete has a jar to clear.
