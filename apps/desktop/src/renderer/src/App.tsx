@@ -5,6 +5,7 @@ import { Sidebar } from "./components/sidebar/Sidebar";
 import { SidebarToggle } from "./components/sidebar/SidebarToggle";
 import { NewSpaceSheet } from "./components/sidebar/NewSpaceSheet";
 import { NewProfileSheet } from "./components/profiles/NewProfileSheet";
+import { ProfileWindowBridge } from "./components/profiles/ProfileWindowBridge";
 import { NewLectureSheet, WrapUpLectureSheet } from "./components/LectureSheets";
 import { ArtifactSheet, SessionPlanSheet } from "./panes/session/SessionSummary";
 import { PlynnImportSheet } from "./components/PlynnImportSheet";
@@ -571,6 +572,7 @@ export function App() {
       <ThemeBridge />
       <QuietBridge />
       <KeyWindowBridge />
+      <ProfileWindowBridge />
       <ScrollbarStyleBridge />
       <RubberBandBridge />
       <PressTrackingBridge />

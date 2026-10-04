@@ -62,6 +62,31 @@ describe("store · profiles made real", () => {
     expect(store.getState().profiles.map((p) => p.name)).toContain("Elsewhere");
   });
 
+  it("switchProfile brings forward the window ALREADY showing a profile, and switches this one only when none does", async () => {
+    /* THE mutant: switch this window regardless, and one profile ends up in two windows — each holding
+       the same panes, each believing the views are its own. */
+    const spaces = [space("s1", "p1", "Versed"), space("s2", "p2", "Homework")];
+    const elsewhere = fakeApi({ spaces, profilesInOtherWindows: ["p2"] });
+    const a = createAppStore(elsewhere);
+    await a.getState().boot();
+    await a.getState().switchProfile("p2");
+    expect(elsewhere.calls).toContain("focusProfileWindow:p2");
+    expect(a.getState().activeSpaceId).toBe("s1");
+    const nowhere = fakeApi({ spaces });
+    const b = createAppStore(nowhere);
+    await b.getState().boot();
+    await b.getState().switchProfile("p2");
+    expect(b.getState().activeSpaceId).toBe("s2");
+  });
+
+  it("openProfileWindow asks main for the profile's window", async () => {
+    const api = fakeApi();
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openProfileWindow("p2");
+    expect(api.calls).toContain("openProfileWindow:p2");
+  });
+
   it("openNewProfileSheet opens the New profile sheet", async () => {
     const store = createAppStore(fakeApi());
     await store.getState().boot();

@@ -257,6 +257,8 @@ export type FakeData = {
    *  profile's own, and the fake answers each profile with its rows alone, as main does. */
   /** The profile this fake window was opened for (`window.realm.profileId`); absent = the first window. */
   boundProfileId?: string | null;
+  /** Profiles another (fake) window is showing — what `focusProfileWindow` answers yes for. */
+  profilesInOtherWindows?: string[];
   credentials?: (BrowserCredential & { profileId?: string })[];
   credentialStatus?: CredentialStatus;
   /** Passkeys Realm holds. Like `credentials`, the fixture carries NO private key field — a fake
@@ -380,6 +382,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     detachedSince: overrides.detachedSince ?? null,
     profiles: overrides.profiles ?? [profile("p1", "Work"), profile("p2", "School")],
     boundProfileId: overrides.boundProfileId ?? null,
+    profilesInOtherWindows: overrides.profilesInOtherWindows ?? [],
     spaces: overrides.spaces ?? [space("s1", "p1", "Versed", { color: "#7c6cff" }), space("s2", "p1", "Homework", { color: "#3ddc97" })],
     items: overrides.items ?? { s1: [item("i1", "s1", { title: "Terminal" })] },
     projects: overrides.projects ?? {},
@@ -681,6 +684,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return { spaces: spaces.length, sessions: data.sessions.filter((se) => spaces.some((sp) => sp.id === se.spaceId)).length };
     },
     boundProfileId: () => data.boundProfileId ?? null,
+    openProfileWindow: async (profileId) => { calls.push(`openProfileWindow:${profileId}`); },
+    /** Another window shows the profile when the test says one does (`profilesInOtherWindows`). */
+    focusProfileWindow: async (profileId) => {
+      calls.push(`focusProfileWindow:${profileId}`);
+      return data.profilesInOtherWindows.includes(profileId);
+    },
     listSpaces: async () => { calls.push("listSpaces"); await wait("listSpaces"); return [...data.spaces]; },
     listItems: async (sid) => { calls.push(`listItems:${sid}`); await wait(`listItems:${sid}`); return data.items[sid] ?? []; },
     listAllItems: async () => {

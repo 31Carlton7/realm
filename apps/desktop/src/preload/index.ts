@@ -211,6 +211,14 @@ contextBridge.exposeInMainWorld("realm", {
   },
   /** The same state, asked for — what a window that opened behind another app learns on mount. */
   isWindowKey: (): Promise<boolean> => ipcRenderer.invoke("window:is-key"),
+  /** A window per profile (Plan 27 Phase 2). `openProfile` opens the profile in a window of its own,
+   *  or brings forward the window already showing it; `focusProfile` answers whether ANOTHER window
+   *  shows it (and brings that one forward); `setProfile` tells main which profile this window shows. */
+  windows: {
+    openProfile: (profileId: string): Promise<void> => ipcRenderer.invoke("window:open-profile", profileId),
+    focusProfile: (profileId: string): Promise<boolean> => ipcRenderer.invoke("window:focus-profile", profileId),
+    setProfile: (profileId: string | null): void => ipcRenderer.send("window:set-profile", profileId),
+  },
   /** The person's keybindings, for the menu bar to show and for main to hand their chords to the
    *  page rather than to the menu (main/app-menu.ts). */
   setMenuKeybindings: (rules: unknown[]): void => ipcRenderer.send("menu:keybindings", rules),

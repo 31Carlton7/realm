@@ -12,6 +12,8 @@ export const liveApi = (): Api => ({
   deleteProfile: async (id) => { await rpc().call("profiles.delete", { id }); },
   profileUsage: (id) => rpc().call("profiles.usage", { id }),
   boundProfileId: () => window.realm.profileId ?? null,
+  openProfileWindow: async (profileId) => { await window.realm.windows?.openProfile(profileId); },
+  focusProfileWindow: async (profileId) => (await window.realm.windows?.focusProfile(profileId)) ?? false,
   listSpaces: () => rpc().call("spaces.list", {}),
   listItems: (spaceId) => rpc().call("items.list", { spaceId }),
   listAllItems: () => rpc().call("items.listAll", {}),

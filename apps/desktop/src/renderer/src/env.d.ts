@@ -17,6 +17,12 @@ interface Window {
     /** The profile this window was opened for (Plan 27 Phase 2: a window per profile), or undefined for
      *  the first window, which shows whichever profile its saved space is in. Boot lands in it. */
     profileId?: string;
+    /** A window per profile. Optional like every bridge: jsdom has none. */
+    windows?: {
+      openProfile(profileId: string): Promise<void>;
+      focusProfile(profileId: string): Promise<boolean>;
+      setProfile(profileId: string | null): void;
+    };
     /** The window's page zoom, 1 at 100% (`webFrame.getZoomFactor`). Optional like every other
      *  bridge: jsdom has none, and a renderer without it reads as 100%, which is what the app
      *  assumed before anything asked. */

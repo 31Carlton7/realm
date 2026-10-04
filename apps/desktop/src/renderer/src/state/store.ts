@@ -155,6 +155,10 @@ export type Api = {
   /** The profile this WINDOW was opened for (`window.realm.profileId`), or null for the first window,
    *  which shows whichever profile its saved space is in. */
   boundProfileId(): string | null;
+  /** Open a profile in a window of its own, or bring forward the window already showing it. */
+  openProfileWindow(profileId: string): Promise<void>;
+  /** Whether ANOTHER window shows this profile — which, if so, main has just brought forward. */
+  focusProfileWindow(profileId: string): Promise<boolean>;
   /** Global list across all profiles, in user sort order. */
   listSpaces(): Promise<Space[]>;
   listItems(spaceId: string): Promise<Item[]>;
@@ -1521,6 +1525,12 @@ export type AppState = {
   refreshProfiles(): Promise<void>;
   /** The New profile sheet (name, icon, colour). */
   openNewProfileSheet(): void;
+  /** "Open in new window": the profile in a window of its own — or the window already showing it,
+   *  brought forward, since a profile is open in at most one window. */
+  openProfileWindow(profileId: string): Promise<void>;
+  /** The profile switcher's choice. A profile already open in another window brings THAT window
+   *  forward and this one stays as it is; otherwise this window switches to it (`selectProfile`). */
+  switchProfile(profileId: string): Promise<void>;
   createSpace(input: CreateSpaceInput): Promise<void>;
   updateSpace(input: UpdateSpaceInput): Promise<void>;
   deleteSpace(id: string): Promise<void>;
@@ -3623,6 +3633,11 @@ await get().refreshCustomThemes().catch(() => {});
       },
       async refreshProfiles() { set({ profiles: await api.listProfiles() }); },
       openNewProfileSheet() { get().openSheet({ kind: "new-profile" }); },
+      openProfileWindow(profileId) { return api.openProfileWindow(profileId); },
+      async switchProfile(profileId) {
+        if (await api.focusProfileWindow(profileId)) return;
+        await get().selectProfile(profileId);
+      },
       async createSpace(input) {
         const s = await api.createSpace(input);
         set({ spaces: [...get().spaces.filter((x) => x.id !== s.id), s] });

@@ -79,6 +79,18 @@ describe("CommandPalette", () => {
     expect(store.getState().paletteOpen).toBe(false);
   });
 
+  it("offers every OTHER profile in a window of its own, and a new profile — the window's own profile is already here", async () => {
+    /* THE mutant: list this window's own profile too. Picking it would bring this same window forward
+       and do nothing, which reads as a broken command. */
+    const { api, store } = await mount();
+    expect(screen.queryByRole("option", { name: /Open Work in a new window/ })).toBeNull();
+    fireEvent.click(screen.getByRole("option", { name: /Open School in a new window/ }));
+    await waitFor(() => expect(api.calls).toContain("openProfileWindow:p2"));
+    act(() => store.setState({ paletteOpen: true }));
+    fireEvent.click(screen.getByRole("option", { name: /New profile…/ }));
+    expect(store.getState().sheet).toEqual({ kind: "new-profile" });
+  });
+
   it("a browser's row wears its page's own icon, as its tab does", async () => {
     // THE mutant: the kind's glyph here while the tab and the sidebar row show the page's mark.
     const ICON = "data:image/x-icon;base64,AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQ";

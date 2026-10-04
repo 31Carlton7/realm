@@ -2,7 +2,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SAVE_DEBOUNCE_MS, readWindowState, restoredBounds, trackWindowState, type SavedWindow } from "./window-state";
+import { SAVE_DEBOUNCE_MS, readWindowState, restoredBounds, trackWindowState, windowStateFileName, type SavedWindow } from "./window-state";
 
 const DEFAULTS = { width: 1400, height: 900, minWidth: 900, minHeight: 600 };
 const LAPTOP = { x: 0, y: 25, width: 1512, height: 920 };
@@ -68,5 +68,16 @@ describe("remembering it", () => {
     listeners.get("close")!();
     expect(write).toHaveBeenCalledTimes(2);
     expect(JSON.parse(write.mock.calls[1]![1] as string)).toEqual({ x: 10, y: 20, width: 1200, height: 800, maximized: true, fullScreen: false });
+  });
+});
+
+describe("windowStateFileName", () => {
+  it("keeps the first window's place where it always was, and each profile window's apart", () => {
+    /* THE mutant: one file for every window — Work's window opens exactly over the first, and closing
+       either moves the other's saved place. */
+    expect(windowStateFileName(null)).toBe("window-state.json");
+    expect(windowStateFileName("01ARZ3NDEKTSV4RRFFQ69G5FAV")).toBe("window-state-01ARZ3NDEKTSV4RRFFQ69G5FAV.json");
+    expect(windowStateFileName("../../etc")).toBe("window-state-etc.json");
+    expect(windowStateFileName("/")).toBe("window-state-profile.json");
   });
 });
