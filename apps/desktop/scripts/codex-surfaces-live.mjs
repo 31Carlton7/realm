@@ -235,8 +235,8 @@ async function boot() {
 function seedFiles() {
   const dir = path.join(scratch, "files");
   fs.mkdirSync(dir, { recursive: true });
-  const ref = path.join(repoRoot, "..", ".verify", "ref");
-  const pictures = ["codex-settings-cards.png", "codex-library-half.png", "codex-prs-half.png"].map((f) => path.join(ref, f)).filter((f) => fs.existsSync(f));
+  // The repo's own product captures: real pictures, and on every checkout.
+  const pictures = ["docs/images/workspace.png", "docs/images/connections.png", "site/public/product/session.png"].map((f) => path.join(repoRoot, f));
   const files = [];
   const put = (name, body) => { const p = path.join(dir, name); fs.writeFileSync(p, body); files.push(p); };
   pictures.forEach((p, i) => { const to = path.join(dir, ["dashboard-dark.png", "library-mockup.png", "review-screen.png"][i]); fs.copyFileSync(p, to); files.push(to); });
