@@ -25,7 +25,8 @@ import { StoreContext, createAppStore, useApp, type AppState } from "./state/sto
 import { useStore, type StoreApi } from "zustand";
 import { liveApi } from "./state/live-api";
 import { rpc } from "./rpc/client";
-import { emptyLayout, type EventName, type EventPayload } from "@realm/contracts";
+import { allItems, emptyLayout, type EventName, type EventPayload, type Item, type Layout } from "@realm/contracts";
+import { PaneFor } from "./panes/registry";
 import { useApplyTheme } from "./theme/useTheme";
 import { useZoom } from "./theme/zoom";
 import { installRubberBand } from "./rubber-band";
@@ -305,6 +306,7 @@ function SheetHost() {
 export function Main() {
   const layout = useApp((s) => s.layout);
   const spaceItems = useApp((s) => s.items);
+  const offscreenBrowsers = useApp((s) => s.offscreenBrowsers);
   /* A peek may be another profile's session, whose row is in no list of this window's — and the host
      draws a tab only from a row it was handed. */
   const peek = useApp((s) => s.peek?.item ?? null);
@@ -350,7 +352,25 @@ export function Main() {
         onEqualize={equalizeSplit}
         onDropItem={(id, leafId, edge) => run(() => openItemAt(id, leafId, edge))}
         onDropNewSession={(leafId, edge) => run(() => newSessionInstant(leafId, edge))} />
+      <OffscreenBrowsers ids={offscreenBrowsers} layout={layout} items={items} />
     </>
+  );
+}
+
+/**
+ * The browsers an agent opened for a session that is not on screen, mounted hidden so the agent can
+ * drive them (`offscreenBrowsers`). A browser's native view exists only while a pane holds it; these
+ * are in that session's side pane off screen, and come into view with it — at which point the pane
+ * host mounts them instead, and the hidden mount here steps aside in the same render.
+ */
+function OffscreenBrowsers({ ids, layout, items }: { ids: string[]; layout: Layout | null; items: Item[] }) {
+  const onScreen = new Set(layout ? allItems(layout) : []);
+  const hidden = ids.filter((id) => !onScreen.has(id)).map((id) => items.find((i) => i.id === id)).filter((i): i is Item => i?.kind === "browser");
+  if (hidden.length === 0) return null;
+  return (
+    <div className="offscreen-panes" hidden aria-hidden="true">
+      {hidden.map((it) => <div key={it.id} className="pane-slot"><PaneFor item={it} visible={false} focused={false} /></div>)}
+    </div>
   );
 }
 

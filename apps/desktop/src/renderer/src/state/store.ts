@@ -979,6 +979,14 @@ export type AppState = {
    *  only ever wanted "what is on screen" — the pane host, the sidebar glyph, focus, the hotkeys —
    *  reads one tree. Never set alone. */
   layout: Layout | null;
+  /**
+   * Browsers an agent opened this run while none of its session's chain was on screen — kept in that
+   * session's side pane off screen (`view.sidePanes`) and MOUNTED hidden all the same, by the shell.
+   * A browser's native view exists only while a pane holds it, and one that never had a pane is a page
+   * the agent that just opened it cannot drive. In memory only: after a relaunch the agent's turn is
+   * over, and the tab comes back with its session.
+   */
+  offscreenBrowsers: string[];
   /** Items across every space (palette search); refreshed when the palette opens. */
   allItems: Item[];
   /** Agent of the last session created or switched to, persisted across launches; null until one exists
@@ -3305,8 +3313,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const view = get().view;
       if (!view || !layoutHydrated) return;
       const peek = get().peek;
-      const next = pruneView(view, liveIds(), existIds(), { keep: get().focusedLeafId, transient: peek ? new Set([peek.item.id]) : undefined });
+      const live = liveIds();
+      const next = pruneView(view, live, existIds(), { keep: get().focusedLeafId, transient: peek ? new Set([peek.item.id]) : undefined });
       if (next !== view) set(writeView(next));
+      const kept = get().offscreenBrowsers.filter((id) => live.has(id));
+      if (kept.length !== get().offscreenBrowsers.length) set({ offscreenBrowsers: kept });
     };
     /** After `spaces` changed: load the spaces that joined the profile and drop the ones that left it,
      *  with whatever they had on screen. */
@@ -3373,7 +3384,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const last = lastSpaceId && get().spaces.some((sp) => sp.id === lastSpaceId && sp.profileId === pid) ? lastSpaceId : null;
       set({
         activeProfileId: pid, items: [], projects: [], environments: {}, sessions: keepQuickChatSession({}),
-        view: null, layout: null, focusedLeafId: null, peek: null, sheetSnap: null, error: null,
+        view: null, layout: null, focusedLeafId: null, peek: null, sheetSnap: null, error: null, offscreenBrowsers: [],
         // Diffs and patches are keyed by checkout path, and every pane that could show one belongs to
         // the profile being left.
         diffs: {}, diffLoading: {}, patches: {},
@@ -3403,6 +3414,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const view = viewNow();
       if (findLeafOfItem(view.layout, itemId)) return true;
       const next = rememberSidePane(view, keeper, itemId);
+      const isBrowser = get().items.find((i) => i.id === itemId)?.kind === "browser";
+      if (isBrowser && !get().offscreenBrowsers.includes(itemId)) set({ offscreenBrowsers: [...get().offscreenBrowsers, itemId] });
       if (next === view) return true;
       set(writeView(next));
       await persist();
@@ -3476,7 +3489,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
+      sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, swipeInvert: false, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
       allItems: [], archivedSessions: null, lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", paletteReplaces: null, peek: null, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
@@ -4264,6 +4277,7 @@ await get().refreshCustomThemes().catch(() => {});
         const view = viewNow();
         if (!findLeafOfItem(view.layout, itemId)) {
           // Only a tab of a side pane kept off screen: it leaves that, and the screen is untouched.
+          if (get().offscreenBrowsers.includes(itemId)) set({ offscreenBrowsers: get().offscreenBrowsers.filter((id) => id !== itemId) });
           if (!Object.values(view.sidePanes).some((sp) => sp.tabs.includes(itemId))) return;
           const sidePanes: WindowView["sidePanes"] = {};
           for (const [owner, sp] of Object.entries(view.sidePanes)) {

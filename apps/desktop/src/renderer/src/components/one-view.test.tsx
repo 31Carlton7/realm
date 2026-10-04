@@ -193,6 +193,29 @@ describe("focusing a pane", () => {
 
 });
 
+describe("a browser an agent opened for a session off screen", () => {
+  it("is mounted hidden, so the agent can drive it, and moves into the side pane when its session is shown", async () => {
+    // THE MUTANT: keep it only in the session's side pane off screen. Its native view never exists,
+    // and the agent's next step is refused with "the pane is not open in the app".
+    const created: string[] = [];
+    setBrowserBridgesForTests(fakeBrowserBridges({ host: { create: async (id: string) => { created.push(id); } } }));
+    const { store } = await mount("main", {
+      items: { s1: [item("ia", "s1", { kind: "session", refId: "a", title: "Alpha" }), item("iz", "s1", { kind: "session", refId: "z", title: "Zulu" }),
+        item("wz", "s1", { kind: "browser", refId: "bz", title: "Zulu web" })] },
+      sessions: [session("a", "s1"), session("z", "s1")],
+    });
+    await act(async () => { await store.getState().openItem("ia"); });
+    await act(async () => { await store.getState().applyAgentPaneOpened({ spaceId: "s1", itemId: "wz", openedBy: "z" }); });
+    await waitFor(() => expect(created).toContain("bz"));
+    const hidden = document.querySelector(".offscreen-panes");
+    expect(hidden).not.toBeNull();
+    expect(hidden).toHaveAttribute("hidden");
+    await act(async () => { await store.getState().openItem("iz"); });
+    await waitFor(() => expect(document.querySelector(".offscreen-panes")).toBeNull());
+    expect(document.querySelector(".panel[data-tabbed]")).not.toBeNull();
+  });
+});
+
 // The pane host must never be handed a zoom it cannot render — but a stale id (a leaf pruned by a
 // concurrent edit) must degrade to the ordinary split rather than to a blank screen.
 describe("a stale focus", () => {

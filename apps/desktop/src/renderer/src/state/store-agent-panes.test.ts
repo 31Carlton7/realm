@@ -240,9 +240,45 @@ describe("what agents open goes into the side pane of the session that asked", (
     expect(open(store)).toEqual(["i-a"]);
     expect(store.getState().focusedLeafId).toBe(leafOf(store, "i-a"));
     expect(store.getState().view!.sidePanes["i-z"]).toEqual({ tabs: ["i-br1"], itemId: "i-br1" });
+    // …and mounted all the same, off screen, so the agent that opened it can drive it.
+    expect(store.getState().offscreenBrowsers).toEqual(["i-br1"]);
     // Showing the session shows what its agent opened, beside it.
     await store.getState().openItem("i-z");
     expect(findSidePane(store.getState().layout!, "i-z")).toMatchObject({ itemId: "i-br1", tabs: ["i-br1"] });
+  });
+
+  it("forgets an off-screen browser once it is closed, deleted, or the profile is left", async () => {
+    // THE MUTANT: never let go. A browser closed or deleted would stay mounted out of sight, a
+    // renderer process holding a page nobody can reach.
+    api.data.items.s1 = [item("i-a", "s1", { kind: "session", refId: "a" }), item("i-z", "s1", { kind: "session", refId: "z" })];
+    api.data.sessions = [session("a", "s1"), session("z", "s1")];
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openItem("i-a");
+    browser("i-br1"); browser("i-br2");
+    await store.getState().applyAgentPaneOpened({ spaceId: "s1", itemId: "i-br1", openedBy: "z" });
+    await store.getState().applyAgentPaneOpened({ spaceId: "s1", itemId: "i-br2", openedBy: "z" });
+    expect(store.getState().offscreenBrowsers).toEqual(["i-br1", "i-br2"]);
+    await store.getState().closeFromLayout("i-br1");
+    expect(store.getState().offscreenBrowsers).toEqual(["i-br2"]);
+    await store.getState().deleteItem("i-br2");
+    expect(store.getState().offscreenBrowsers).toEqual([]);
+    browser("i-br3");
+    await store.getState().applyAgentPaneOpened({ spaceId: "s1", itemId: "i-br3", openedBy: "z" });
+    await store.getState().selectProfile("p2");
+    expect(store.getState().offscreenBrowsers).toEqual([]);
+  });
+
+  it("a terminal kept off screen needs no mount — its shell runs on the server", async () => {
+    api.data.items.s1 = [item("i-a", "s1", { kind: "session", refId: "a" }), item("i-z", "s1", { kind: "session", refId: "z" }),
+      item("i-t", "s1", { kind: "terminal", refId: "t" })];
+    api.data.sessions = [session("a", "s1"), session("z", "s1")];
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openItem("i-a");
+    await store.getState().applyAgentPaneOpened({ spaceId: "s1", itemId: "i-t", openedBy: "z" });
+    expect(store.getState().view!.sidePanes["i-z"]?.tabs).toEqual(["i-t"]);
+    expect(store.getState().offscreenBrowsers).toEqual([]);
   });
 
   it("a sub-agent's open with no one on screen is kept for the session the user opens — the top of its chain", async () => {
