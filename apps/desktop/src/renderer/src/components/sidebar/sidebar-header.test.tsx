@@ -20,13 +20,13 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const header = (container: HTMLElement) => container.querySelector<HTMLElement>(".sb-header")!;
 
 describe("the sidebar's head row", () => {
-  it("is the profile, then search and a new session — and nothing else", async () => {
+  it("is the profile and the window's back and forward, then search and a new session — and nothing else", async () => {
+    // THE MUTANT: leave the window's back and forward in the rail, under the traffic lights, while
+    // there is a head row beside them to carry them — the second pair Codex's layout does without.
     const { container } = await mount();
     const row = within(header(container));
-    expect(row.getByRole("button", { name: "Profile: Work" })).toBeInTheDocument();
-    expect(row.getByRole("button", { name: "Search" })).toBeInTheDocument();
-    expect(row.getByRole("button", { name: "New session" })).toBeInTheDocument();
-    expect(row.getAllByRole("button")).toHaveLength(3);
+    expect(row.getAllByRole("button").map((b) => b.getAttribute("aria-label")))
+      .toEqual(["Profile: Work", "Go back", "Go forward", "Search", "New session"]);
     // First in the column: it is the row in the traffic lights' band.
     expect(container.querySelector(".sidebar")!.firstElementChild).toBe(header(container));
     // No space title, flat space list or space menu any more: the spaces are the list's sections.

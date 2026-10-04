@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { actionsThatFit } from "./components/pane-bar-fit";
+import { BAR_CHROME, actionsThatFit } from "./components/pane-bar-fit";
 import { REALM_SEED, deriveVars } from "@realm/ui";
 import { AGENT_FRAME, oklchToHex } from "@realm/contracts";
 import { PICTURE_RADIUS, SCREEN_INSET, SCREEN_PAD, SCREEN_RADIUS } from "./panes/machine/fit";
@@ -371,18 +371,16 @@ describe("§6 motion table", () => {
   });
 
   it("the bar's action budget never outlives the furniture it budgets for", () => {
-    /* `BAR_CHROME` includes the nav pair's 48px, because at the widths this rung operates in the nav
-       is still drawn. Below `@container (max-width: 300px)` it is not — so the estimate would be
-       48px too pessimistic there, and the bar would collapse an action it had room for. The ladder
-       only stays honest if the budget has already reached zero by the time that rule fires.
-       THE mutant: raise `BAR_CHROME` or `TITLE_MIN` far enough that actions survive past 300px. */
-    const navGone = Number(/\(max-width: (\d+)px\) \{ \.panel-nav/.exec(css)?.[1]);
-    expect(navGone).toBeGreaterThan(0);
+    /* `BAR_CHROME` is what the bar always draws besides its title and actions. The pane's own back and
+       forward were part of it (48px) until the window's one pair moved to the sidebar's head row
+       (WindowNav): nothing may still style them, and the budget may not still be paying for them.
+       THE mutant: leave the 48px in the sum, and every narrow bar folds an action it has room for. */
+    expect(RULES.filter((r) => r.selectors.some((x) => x.includes(".panel-nav")))).toEqual([]);
+    expect(BAR_CHROME).toBeLessThan(144 - 48 + 1);
     // The observer reports the CONTENT box, so the bar's own padding comes off the rule's number.
     const padding = 28;
-    expect(actionsThatFit(navGone - padding)).toBe(0);
-    // …and the rung above it, where the meta goes, must still be leaving room for something — a
-    // ladder whose last two rungs fire together is one rung with two names.
+    // The rung where the meta goes must still be leaving room for something — a ladder whose rungs
+    // fire together is one rung with two names.
     const metaGone = Number(/\(max-width: (\d+)px\) \{ \.panel-meta/.exec(css)?.[1]);
     expect(actionsThatFit(metaGone - padding)).toBeGreaterThan(0);
   });
@@ -1123,8 +1121,12 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       .flatMap((r) => r.selectors);
     // Unconditional now: collapsed, the rail is still beside the panes (Plan 27), so the line is still
     // between two surfaces rather than a stray rule down the window's own edge.
-    expect(edge).toEqual([".app > .main"]);
+    // Collapsed, there is no sidebar for it to stand against: the frame's rim takes the sheet's left
+    // edge from it, round the corner, and the border goes rather than doubling the rim.
+    expect(edge).toEqual([".app > .main", ".app[data-sidebar-collapsed] > .main"]);
     expect(bodiesFor(".app > .main").join(" ")).toContain("var(--rl-line)");
+    expect(bodiesFor(".app[data-sidebar-collapsed] > .main").join(" ")).toContain("border-left: 0");
+    expect(bodiesFor(".app[data-sidebar-collapsed] .main::before").join(" ")).toMatch(/border-left: var\(--hairline-w\) solid var\(--rl-line-strong\)/);
     // And no inset shadow creeps back onto .main to say the same thing twice, invisibly.
     expect(bodiesFor(".main").join(" ")).not.toContain("box-shadow: inset");
   });
@@ -1134,14 +1136,19 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     // composed --sidebar-ground, because the number is the user's. What has NOT moved is which
     // surface is translucent — exactly one, so text on a pane never renders over the desktop.
     expect(bodiesFor(".sidebar").join(" ")).toContain("background: var(--sidebar-ground)");
-    expect(bodiesFor(".app-rail").join(" ")).toContain("background: var(--sidebar-ground)");
+    // The rail is the window's chrome: the sidebar's ground, a step off it (the window's frame).
+    expect(bodiesFor(".app-rail").join(" ")).toContain("background: linear-gradient(var(--chrome-tint), var(--chrome-tint)), var(--sidebar-ground)");
     // The old per-mode rgba override is gone — --page flips with data-mode on its own.
     expect(css).not.toContain("rgba(244,244,244,.82)");
     // THE second-ground mutant: give .main or a pane a color-mix over --page too. The window looks
     // better on a nice wallpaper and every pane's body text starts depending on it.
     const translucent = RULES.filter((r) => /background:[^;]*var\(--sidebar-ground\)/.test(r.body)).flatMap((r) => r.selectors);
-    // The rail and the sidebar are one column of chrome that folds in half (Plan 27): one ground.
-    expect(translucent).toEqual([".app-rail", ".sidebar"]);
+    // Chrome only: the rail, the sidebar, the head row across the window (the panes' top band, the
+    // page's bar) and the frame's corner where the sheet meets the rail. Never a pane's BODY — the
+    // panes' ground below the head row is --pane-ground, painted once by `.main`.
+    expect(translucent.sort()).toEqual([".app-rail", ".app[data-sidebar-collapsed] .main::after", ".app[data-sidebar-collapsed] > .main",
+      ".main", ".sidebar"].sort());
+    expect(bodiesFor(".main").join(" ")).toMatch(/var\(--pane-ground\)\) 0 var\(--frame-top\)/);
   });
 
   it("the ground's alpha is driven, defaulted opaque in CSS, and overridden by reduced transparency", () => {
@@ -2972,9 +2979,11 @@ describe("narrow panes", () => {
     expect(narrow).toMatch(/\.settings-row > \.settings-row-main \{[^}]*flex-basis: 100%/);
   });
 
-  it("the panel bar spends a narrow pane on identity: meta goes, then the trail, never the title", () => {
+  it("the panel bar spends a narrow pane on identity: the meta goes, never the title", () => {
     expect(blockAfter("@container (max-width: 380px)")).toMatch(/\.panel-meta \{[^}]*display: none/);
-    expect(blockAfter("@container (max-width: 300px)")).toMatch(/\.panel-nav \{[^}]*display: none/);
+    // The pane's own back and forward are gone from the bar (WindowNav has the window's one pair), and
+    // with them the rung that hid them.
+    expect(css).not.toMatch(/\.panel-nav/);
   });
 
   it("the diff head breaks onto its own row under 560px, and the commit bar holds out to 380", () => {

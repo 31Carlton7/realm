@@ -5,6 +5,7 @@ import { useApp } from "../../state/store";
 import { Avatar } from "../Avatar";
 import { Menu } from "../Menu";
 import { SidebarToggle } from "./SidebarToggle";
+import { WindowNav } from "./WindowNav";
 import { waitingCount } from "./model";
 import { useChord } from "./use-sidebar-model";
 
@@ -16,16 +17,19 @@ import { useChord } from "./use-sidebar-model";
  * person (their page, Settings) and an update that is ready. It is never collapsed: ⌘B folds the
  * sidebar away and leaves this, so Home's count and the way back are always on screen.
  *
- * The traffic lights sit in its top band and the window's own back and forward under them. Nothing
+ * The traffic lights sit in its top band, and — while the sidebar is folded away, so the head row that
+ * carries them is gone — the window's own back and forward under them. Nothing
  * here opens a surface over the panes except the OS menu at its foot, which may (design.md: menus
  * are the system's).
  */
 export function Rail() {
+  // The window's back and forward are the sidebar's head row's while there is a sidebar (WindowNav).
+  const collapsed = useApp((s) => s.sidebarCollapsed);
   const waiting = useApp((s) => waitingCount({ sessionStatus: s.sessionStatus, quickChatId: s.quickChat?.sessionId ?? null }));
   const unread = useApp((s) => s.notificationsUnread);
   return (
     <nav className="app-rail" aria-label="Destinations">
-      <WindowNav />
+      {collapsed && <WindowNav />}
       <div className="rail-group">
         {/* Home's count is the one number that says something waits on you when the sidebar is away. */}
         <RailPage kind="agents-page" label="Home" icon="home" count={waiting} countLabel={`${waiting} waiting on you`}
@@ -41,27 +45,6 @@ export function Rail() {
         <RailUpdate />
       </div>
     </nav>
-  );
-}
-
-/**
- * Go back and Go forward through the window's trail (⌃- and ⌃⇧- by default) — rooms included, the
- * same steps the Go menu takes. Greyed at either end rather than hidden, so the pair never moves.
- */
-function WindowNav() {
-  const canBack = useApp((s) => s.canStepWindow(-1));
-  const canForward = useApp((s) => s.canStepWindow(1));
-  const stepWindow = useApp((s) => s.stepWindow);
-  const run = useApp((s) => s.run);
-  const back = useChord("window.back");
-  const forward = useChord("window.forward");
-  return (
-    <div className="rail-nav">
-      <button type="button" className="rail-nav-btn" aria-label="Go back" title={back ? `Go back (${back})` : "Go back"}
-        disabled={!canBack} onClick={() => run(() => stepWindow(-1))}><Icon name="chevronLeft" size={14} /></button>
-      <button type="button" className="rail-nav-btn" aria-label="Go forward" title={forward ? `Go forward (${forward})` : "Go forward"}
-        disabled={!canForward} onClick={() => run(() => stepWindow(1))}><Icon name="chevronRight" size={14} /></button>
-    </div>
   );
 }
 

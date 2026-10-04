@@ -21,8 +21,9 @@ import { useEffect, useState, type RefObject } from "react";
  * decides both halves, so the bar and the menu cannot disagree about where an action is.
  */
 
-/** The nav pair after its -8 margin (48), the kind glyph (14), the three 8px gaps between them (24),
- *  and the trailing ⋯ + × with their gap (58).
+/** The kind glyph (14), the two 8px gaps either side of the title (16), and the trailing ⋯ + × with
+ *  their gap (58). The pane's own back and forward used to lead the bar (48 after their -8 margin,
+ *  and a third gap); the window's one pair is the sidebar's head row's now (WindowNav).
  *
  *  NOT the bar's 28px of padding, and that is the one number here it is easy to get wrong: a
  *  `ResizeObserver` reports the CONTENT box, so the padding is already out of the width this is
@@ -31,7 +32,7 @@ import { useEffect, useState, type RefObject } from "react";
  *
  *  Measured at the width where this rung starts to matter: below 380px, where `.panel-meta` is
  *  already gone (styles.css) and is therefore not in the sum either. */
-export const BAR_CHROME = 144;
+export const BAR_CHROME = 88;
 /** The narrowest title worth keeping: about thirteen characters before the ellipsis. This is the
  *  number the whole budget exists to protect — spend it on a sixth glyph and the bar is back to
  *  telling you nothing about which pane you are looking at. */

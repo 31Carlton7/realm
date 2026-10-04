@@ -57,8 +57,17 @@ describe("the rail", () => {
     expect(container.querySelector(".sb-badge")).toBeNull();
   });
 
+  it("carries the window's back and forward only while the sidebar is folded away", async () => {
+    // Open, they are the sidebar's head row's (WindowNav): one pair in the window, not two.
+    await mount();
+    expect(within(rail()).queryByRole("button", { name: "Go back" })).toBeNull();
+    cleanup();
+    await mount({ settings: { "ui.sidebarCollapsed": true } });
+    expect(within(rail()).getByRole("button", { name: "Go back" })).toBeInTheDocument();
+  });
+
   it("steps the window back and forward, greyed at either end of the trail", async () => {
-    const { store } = await mount();
+    const { store } = await mount({ settings: { "ui.sidebarCollapsed": true } });
     const back = () => within(rail()).getByRole("button", { name: "Go back" });
     const forward = () => within(rail()).getByRole("button", { name: "Go forward" });
     expect(back()).toBeDisabled();
@@ -73,7 +82,7 @@ describe("the rail", () => {
   });
 
   it("prints the person's own chord for back and forward, not the shipped one", async () => {
-    const { store } = await mount();
+    const { store } = await mount({ settings: { "ui.sidebarCollapsed": true } });
     const rules = DEFAULT_KEYBINDINGS.map((r) => (r.command === "window.back" ? { ...r, key: "mod+[" } : r));
     act(() => store.getState().setKeybindings(rules));
     expect(within(rail()).getByRole("button", { name: "Go back" })).toHaveAttribute("title", "Go back (⌘[)");

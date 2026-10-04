@@ -680,7 +680,10 @@ async function appearanceChecks(c, size) {
       if (slash >= 0) return Number.parseFloat(bg.slice(slash + 1)); const parts = bg.split(','); return parts.length === 4 ? Number.parseFloat(parts[3]) : 1; };
     const root = getComputedStyle(document.documentElement);
     return { ground: root.getPropertyValue('--ground-alpha').trim(), pane: root.getPropertyValue('--pane-alpha').trim(),
-      sidebar: alpha(document.querySelector('.sidebar')), main: alpha(document.querySelector('.main')) };
+      // The panes' ground is a layer of \`.main\`'s frame (below the head row's chrome), not its colour: read
+      // the ground itself, off a probe that wears it as one.
+      sidebar: alpha(document.querySelector('.sidebar')), main: (() => { const p = document.createElement('div'); p.style.background = 'var(--pane-ground)';
+        document.querySelector('.main').appendChild(p); const a = alpha(p); p.remove(); return a; })() };
   })()`);
   const setRange = (label, value) => evalIn(c, `(() => {
     const el = document.querySelector('input[aria-label="${label}"]');

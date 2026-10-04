@@ -30,12 +30,6 @@ export function PanelBar({ item, leafId, tabs, onSplit, onClose, zoomed = false,
 }) {
   const deleteItem = useApp((s) => s.deleteItem);
   const run = useApp((s) => s.run);
-  // Subscribed to the trail itself, not to canPaneNav(): the selector has to re-read on every history
-  // write or the arrows would stay greyed out until some other state change happened to re-render.
-  const history = useApp((s) => s.paneHistory[leafId]);
-  const stepPaneNav = useApp((s) => s.stepPaneNav);
-  const canBack = !!history && history.index > 0;
-  const canForward = !!history && history.index < history.entries.length - 1;
   // The palette's "Rename focused item" arms renamingItemId; items are unique in the layout, so at
   // most one PanelBar answers. Local state covers the click-to-rename path.
   const renameArmed = useApp((s) => s.renamingItemId === item.id);
@@ -108,16 +102,8 @@ export function PanelBar({ item, leafId, tabs, onSplit, onClose, zoomed = false,
   ) : null;
   return (
     <div className="panel-bar" ref={bar}>
-      {/* The pane's own trail, at the LEFT edge where every back button in every app lives. Rendered
-          disabled rather than hidden at the ends of the trail: arrows that come and go would shift
-          the title under the pointer mid-click, and a greyed arrow is how a user learns the pane
-          remembers at all. */}
-      <span className="panel-nav">
-        <button className="icon-btn" aria-label={`Back in ${item.title}`} title="Back (⌘[)"
-          disabled={!canBack} onClick={() => run(() => stepPaneNav(leafId, -1))}><Icon name="chevronLeft" size={14} /></button>
-        <button className="icon-btn" aria-label={`Forward in ${item.title}`} title="Forward (⌘])"
-          disabled={!canForward} onClick={() => run(() => stepPaneNav(leafId, 1))}><Icon name="chevronRight" size={14} /></button>
-      </span>
+      {/* No arrows of its own: the window's one pair is in the sidebar's head row (WindowNav), and the
+          pane's own trail is walked from the keyboard, ⌘[ and ⌘]. */}
       {!tabs && (space ? (
         <>
           <button type="button" className="panel-crumb" aria-label={`Open ${space.name}`} title="Open the space's page"

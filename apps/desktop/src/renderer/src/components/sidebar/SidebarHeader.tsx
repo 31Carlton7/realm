@@ -5,6 +5,7 @@ import { FALLBACK_AGENT, useApp } from "../../state/store";
 import { REALM_NEW_SESSION_TYPE } from "../drag-types";
 import { ProfileSwitcher } from "./ProfileSwitcher";
 import { useChord } from "./use-sidebar-model";
+import { WindowNav } from "./WindowNav";
 
 /**
  * The sidebar's head row, in the same 40px band as the traffic lights beside it: the profile, then
@@ -27,6 +28,9 @@ export function SidebarHeader({ hidden = false }: { hidden?: boolean } = {}) {
   return (
     <div className="sb-header" hidden={hidden || undefined}>
       <ProfileSwitcher />
+      {/* The window's back and forward: the head row is the window's, and the profile is where you
+          are, so where you were goes beside it (WindowNav). */}
+      <WindowNav />
       <span className="sb-header-actions">
         <button type="button" className="icon-btn" aria-label="Search" title={search ? `Search (${search})` : "Search"}
           onClick={() => setPaletteOpen(true)}><Icon name="search" size={14} /></button>

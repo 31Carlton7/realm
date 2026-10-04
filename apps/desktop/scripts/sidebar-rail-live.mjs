@@ -213,6 +213,21 @@ async function clickAt(c, { x, y }) {
 const centre = (b) => ({ x: Math.round((b.l + b.r) / 2), y: Math.round((b.t + b.b) / 2) });
 const park = (c) => c.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 900, y: 500 });
 
+/** The window as painted, sampled: the luminance at each [x, y] (CSS px) of a fresh capture, decoded
+ *  in the page. A capture has no macOS material behind the translucent grounds, so it can say which
+ *  surfaces are the SAME and which are a step apart — never what the step looks like on the desktop. */
+async function lumAt(c, points) {
+  const { data } = await c.send("Page.captureScreenshot", { format: "png" });
+  return evalIn(c, `(async () => {
+    const img = new Image(); img.src = "data:image/png;base64," + ${JSON.stringify(data)}; await img.decode();
+    const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height;
+    const g = cv.getContext("2d"); g.drawImage(img, 0, 0);
+    const k = img.width / window.innerWidth;
+    return ${JSON.stringify(points)}.map(([x, y]) => { const p = g.getImageData(Math.round(x * k), Math.round(y * k), 1, 1).data;
+      return Math.round(0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2]); });
+  })()`);
+}
+
 async function shot(c, tag, clip) {
   const r = await c.send("Page.captureScreenshot", { format: "png", ...(clip ? { clip: { ...clip, scale: 2 } } : {}) });
   fs.mkdirSync(SHOTS, { recursive: true });
@@ -369,7 +384,8 @@ async function main() {
   check("the sidebar starts where the rail ends", Math.abs(sb.box.l - rail.box.r) < 0.5, { rail: rail.box.r, sidebar: sb.box.l });
   const firstBtn = rail.buttons[0];
   check("the rail's first control sits below the traffic lights' 40px band", firstBtn.box.t >= 40, firstBtn);
-  check("…and it is the window's back, then forward", rail.buttons[0].name === "Go back" && rail.buttons[1].name === "Go forward", rail.buttons.slice(0, 2).map((b) => b.name));
+  // One pair in the window: while there is a sidebar, the head row has the window's back and forward.
+  check("…and with the sidebar open, the window's back and forward are not in the rail", !rail.buttons.some((b) => /^Go (back|forward)$/.test(b.name)), rail.buttons.slice(0, 2).map((b) => b.name));
   const names = rail.buttons.map((b) => b.name);
   check("Home, Library, Connections, Scheduled tasks and the bell, then the toggle and you at the foot",
     ["Library", "Connections", "Scheduled tasks"].every((n) => names.includes(n)) && names.some((n) => /^Home/.test(n))
@@ -381,8 +397,35 @@ async function main() {
 
   /* ── 2. The head row ────────────────────────────────────────────────────────────────────────── */
   const head = await evalIn(c, `__live.header()`);
-  check("the head row is the 40px band beside the lights: profile, search, new session", head.box.t === 0 && head.box.h === 40
-    && head.buttons.length === 3 && /^Profile: /.test(head.buttons[0]) && head.buttons[1] === "Search" && head.buttons[2] === "New session", head);
+  check("the head row is the 40px band beside the lights: profile, back and forward, search, new session", head.box.t === 0 && head.box.h === 40
+    && head.buttons.length === 5 && /^Profile: /.test(head.buttons[0]) && head.buttons[1] === "Go back" && head.buttons[2] === "Go forward"
+    && head.buttons[3] === "Search" && head.buttons[4] === "New session", head);
+  check("…and no pane's bar carries a pair of its own", await evalIn(c, `!document.querySelector('.panel-bar [aria-label^="Back in "], .panel-bar [aria-label^="Forward in "]')`));
+
+  /* ── 2b. The window's frame: chrome round a sheet ───────────────────────────────────────── */
+  const sbBox = (await evalIn(c, `__live.sidebar()`)).box;
+  const mainB = await evalIn(c, `__live.box(document.querySelector('.main'))`);
+  const sbMid = sbBox.l + sbBox.w / 2, mainMid = mainB.l + 200;
+  const frame = async () => {
+    const [rail, headSb, headMain, sheetSb, sheetMain, rimTop, rimLeft, notch, inCorner] = await lumAt(c, [
+      [rail0.box.l + 38, 300], [sbMid, 20], [mainMid, 8], [sbMid, 600], [mainMid, 600],
+      [sbMid, 40], [sbBox.l, 300], [sbBox.l + 1.5, 41.5], [sbBox.l + 10, 50]]);
+    return { rail, headSb, headMain, sheetSb, sheetMain, rimTop, rimLeft, notch, inCorner };
+  };
+  const rail0 = rail;
+  const fr = await frame();
+  check("the rail and the head row across the window are one chrome", Math.abs(fr.rail - fr.headSb) <= 2 && Math.abs(fr.headSb - fr.headMain) <= 3, fr);
+  check("…the sidebar's list and the panes a step off it, as the sheet the chrome is round", Math.abs(fr.rail - fr.sheetSb) >= 8 && Math.abs(fr.headMain - fr.sheetMain) >= 8, fr);
+  check("…under a rim along its top and down its left edge, lighter than either side of it",
+    fr.rimTop > Math.max(fr.headSb, fr.sheetSb) && fr.rimLeft > Math.max(fr.rail, fr.sheetSb), fr);
+  check("…and the corner where they meet is rounded: chrome outside the curve, sheet inside it",
+    Math.abs(fr.notch - fr.rail) <= 3 && Math.abs(fr.inCorner - fr.sheetSb) <= 3, fr);
+  // THE MUTANT: no tint — the chrome is the sidebar's ground again, and the step was never the frame's.
+  await evalIn(c, `(() => { const st = document.createElement('style'); st.id = 'mutant-frame'; st.textContent = ':root, :root[data-mode] { --chrome-tint: transparent !important; }'; document.head.appendChild(st); return true; })()`);
+  await sleep(150);
+  const untinted = await frame();
+  await evalIn(c, `(() => { document.getElementById('mutant-frame').remove(); return true; })()`);
+  check("the mutant reproduces the old window (no tint ⇒ the rail and the sidebar's list are one ground)", Math.abs(untinted.rail - untinted.sheetSb) <= 2, untinted);
 
   /* ── 3. Needs you ───────────────────────────────────────────────────────────────────────────── */
   const needs = await evalIn(c, `__live.needs()`);
@@ -510,6 +553,12 @@ async function main() {
   check("collapsing leaves the rail on screen, where it was", railC.shown && railC.box.l === 0 && railC.box.w === rail.box.w, railC.box);
   check("…the sidebar out of reach, and the panes taking its room", sbC.inert && sbC.opacity === "0" && Math.abs(mainBox.l - railC.box.r) < 0.5, { sidebar: sbC, main: mainBox.l });
   check("…with Home's count and the way back still on screen", railC.buttons.some((b) => b.name === "Home, 1 waiting on you") && railC.buttons.some((b) => b.name === "Show sidebar (⌘B)"), railC.buttons.map((b) => b.name));
+  check("…and the window's back and forward under the lights, the head row that had them gone with the sidebar",
+    railC.buttons[0]?.name === "Go back" && railC.buttons[1]?.name === "Go forward", railC.buttons.slice(0, 2).map((b) => b.name));
+  const [cRail, cNotch, cInCorner, cSheet, cRimA, cRimB] = await lumAt(c, [[railC.box.l + 38, 300], [mainBox.l + 1.5, 41.5], [mainBox.l + 10, 50], [mainBox.l + 200, 600], [mainBox.l, 300], [mainBox.l + 0.6, 300]]);
+  const cRimLeft = Math.max(cRimA, cRimB);
+  check("…and the panes take the sheet's rounded corner where the sidebar had it",
+    Math.abs(cNotch - cRail) <= 3 && Math.abs(cInCorner - cSheet) <= 3 && cRimLeft > cSheet, { cRail, cNotch, cInCorner, cSheet, cRimLeft });
   await park(c);
   await shot(c, "collapsed-dark");
   /* Collapsed with a page up, the way back must still take the click. A page drawn over the toggle
