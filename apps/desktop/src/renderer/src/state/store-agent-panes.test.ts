@@ -219,6 +219,26 @@ describe("what agents open goes into the side pane of the session that asked", (
     expect(open(store)).toHaveLength(5);
   });
 
+  it("browsers opened in quick succession all stay, as tabs in the order they were opened", async () => {
+    // THE BUG (side-pane-live): announced faster than the server answers, each pane's refresh was
+    // overtaken by the next one's, landed first, and pruned with the list from before — closing the tab
+    // just opened ahead of its row, so only the last browser was left. THE MUTANTS: answer an overtaken
+    // fetch with the list it was holding; let the panes' handlers run side by side.
+    const store = await twoLeads();
+    // A real server answers with the list as it stood when it was asked, and takes a while to do it.
+    const base = api.listItems;
+    api.listItems = async (sid) => { const snap = [...(api.data.items[sid] ?? [])]; await new Promise((r) => setTimeout(r, 30)); return snap; };
+    const opening: Promise<void>[] = [];
+    for (const id of ["i-br1", "i-br2", "i-br3"]) {
+      browser(id);
+      opening.push(store.getState().applyAgentPaneOpened({ spaceId: "s1", itemId: id, openedBy: "a" }));
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    await Promise.all(opening);
+    api.listItems = base;
+    expect(findSidePane(store.getState().layout!, "i-a")?.tabs).toEqual(["i-br1", "i-br2", "i-br3"]);
+  });
+
   it("a sub-agent's browser goes beside its lead — the child has no pane to be beside", async () => {
     // THE MUTANT: look only for the asking session's own pane, and a child's browser opens nowhere.
     const store = await twoLeads();

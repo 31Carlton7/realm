@@ -3233,13 +3233,25 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     };
     /** Fetch one space's items into `items` — unless a newer fetch of that space started since, or the
      *  window has left that space's profile. Answers whether this fetch's list is the one applied. */
-    const loadSpaceItems = async (sid: string): Promise<boolean> => {
+    /** Per space, the newest load of its items — what a load another overtook waits for (below). */
+    const latestItemsLoad = new Map<string, Promise<boolean>>();
+    const loadSpaceItems = (sid: string): Promise<boolean> => {
       const seq = nextItemsSeq(sid);
       const epoch = profileEpoch;
-      const fresh = await api.listItems(sid);
-      if (epoch !== profileEpoch || !inProfile(sid) || seq !== itemsFetchSeq.get(sid)) return false;
-      set({ items: withSpaceItems(sid, fresh) });
-      return true;
+      const load = (async () => {
+        const fresh = await api.listItems(sid);
+        if (epoch !== profileEpoch || !inProfile(sid)) return false;
+        /* Overtaken by a newer fetch of this space: its answer is dropped, and this waits for the newer
+           one to land and answers with that. Returning at once would hand the caller the list from
+           before — and the prune that follows a refresh would take off the screen whatever was opened
+           ahead of its row, the next fetch's to bring (an agent's browsers, opened in a row, kept only
+           the last). */
+        if (seq !== itemsFetchSeq.get(sid)) return (await latestItemsLoad.get(sid)?.catch(() => false)) ?? false;
+        set({ items: withSpaceItems(sid, fresh) });
+        return true;
+      })();
+      latestItemsLoad.set(sid, load);
+      return load;
     };
     /** File picks for a new tab still waiting on the server — see `applyDocumentOpenRequested`. */
     let newTabPicks = 0;
@@ -3466,6 +3478,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * side pane its session will have when it is next shown. Never a pane of its own beside whatever
      * has focus (design.md: what an agent opens arrives in ONE side pane beside its session).
      */
+    /** The tail of the agent-pane queue (`applyAgentPaneOpened`). */
+    let agentPanes: Promise<void> = Promise.resolve();
+    const openAgentPane = async ({ spaceId, itemId, openedBy }: { spaceId: string; itemId: string; openedBy: string }) => {
+      if (!inProfile(spaceId)) return;
+      await get().refreshItems(spaceId);
+      if (!inProfile(spaceId)) return;
+      if (await get().openInSidePane(openedBy, itemId)) return;
+      // None of its chain is on screen: kept in the side pane its session will have when it is
+      // shown, never a column of its own beside whatever has focus.
+      await keepInSidePane(openedBy, itemId);
+    };
     const keepInSidePane = async (sessionId: string, itemId: string): Promise<boolean> => {
       const keeper = await keeperOf(sessionId);
       if (!keeper) return false;
@@ -4325,14 +4348,12 @@ await get().refreshCustomThemes().catch(() => {});
         // it was peeked beside — or, another profile's, with the window switched to that profile.
         await get().revealSession(peek.item.refId, peek.item.spaceId);
       },
-      async applyAgentPaneOpened({ spaceId, itemId, openedBy }) {
-        if (!inProfile(spaceId)) return;
-        await get().refreshItems(spaceId);
-        if (!inProfile(spaceId)) return;
-        if (await get().openInSidePane(openedBy, itemId)) return;
-        // None of its chain is on screen: kept in the side pane its session will have when it is
-        // shown, never a column of its own beside whatever has focus.
-        await keepInSidePane(openedBy, itemId);
+      applyAgentPaneOpened(p) {
+        // One at a time, in the order they were announced: an agent opening three browsers in a row
+        // gets three tabs in that order, not whichever refresh happened to land first.
+        const next = agentPanes.then(() => openAgentPane(p));
+        agentPanes = next.catch(() => {});
+        return next;
       },
       async openItemBesideQuiet(itemId) {
         const view = viewNow();

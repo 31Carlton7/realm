@@ -1032,6 +1032,24 @@ describe("app store", () => {
       expect(allItems(store.getState().layout!)).toEqual(["i2"]); // not pruned by the stale response
     });
 
+    it("a refresh another overtook prunes with the list that won, not the one it was holding", async () => {
+      // THE MUTANT: answer an overtaken fetch with nothing — its refresh then prunes with the list from
+      // before both, and takes off the screen what was opened ahead of its row, the newer fetch's to bring.
+      const store = createAppStore(api);
+      await store.getState().boot();
+      const releaseOld = gateNextListItems();
+      const older = store.getState().refreshItems();  // snapshots [i1]
+      api.data.items.s1!.push(item("i2", "s1"));      // created server-side…
+      const releaseNew = gateNextListItems();
+      const newer = store.getState().refreshItems();  // …and fetched again: snapshots [i1, i2], held
+      await store.getState().openItem("i2");          // on screen ahead of its row, as an agent's pane is
+      releaseOld(); await tick(); await tick();       // the older answer lands first
+      expect(allItems(store.getState().layout!)).toContain("i2");
+      releaseNew(); await Promise.all([older, newer]); await tick();
+      expect(store.getState().items.map((i) => i.id)).toEqual(["i1", "i2"]);
+      expect(allItems(store.getState().layout!)).toContain("i2");
+    });
+
     it("nothing is written while the view is still loading — and a stored view is read, not rewritten", async () => {
       api.data.settings["ui.view:p1"] = { v: 1, layout: { type: "split", id: "sp", dir: "col", sizes: [40, 60], children: [leaf("l1", "i1"), leaf("l2", null)] },
         zoomedLeafId: null, sidePanes: {}, focusedItemId: "i1" };
