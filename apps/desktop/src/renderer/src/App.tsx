@@ -52,8 +52,12 @@ export function AppShell() {
   // animation is a negative margin of exactly this number: one variable on the shell, read by
   // everything that has to agree with it.
   const width = useApp((s) => s.sidebarWidth);
+  /* First run takes the whole window. Nothing in the rail or the sidebar works before a space exists
+     — the destinations need one, and the list has nothing in it — so while onboarding is up they are
+     away, and what someone sees on their first launch is the one page that is asking them something. */
+  const firstRun = useApp((s) => s.booted && s.spaces.length === 0);
   return (
-    <div className="app" data-sidebar-collapsed={collapsed || undefined}
+    <div className="app" data-sidebar-collapsed={collapsed || undefined} data-first-run={firstRun || undefined}
       style={{ "--sidebar-w": `${width}px` } as CSSProperties}>
       <Rail />
       {/* Mounted whether or not it is showing, so collapsing is a MOVE rather than an unmount —
@@ -582,6 +586,9 @@ export function App() {
       st.run(() => st.refreshCliStatus());
       st.run(() => st.probeAgents(true));
     });
+    // A first-run sign-in moving: the browser page up, a code asked for, signed in. Broadcast, so the
+    // store keeps the latest per agent and drops a replaced one's late word.
+    const offASI = rpc().on("agentSignIn.changed", (e) => store.getState().applyAgentSignIn(e));
     const offMS = rpc().on("mcp.serverStatus", (payload) => store.getState().applyMcpServerStatus(payload));
     // Laya's status, whole: an install narrating its steps, the runtime coming up or going down, and
     // the step count while agents work — all of it the Settings section's one state line.
@@ -601,7 +608,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offDO(); offSA(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offI(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offDO(); offSA(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

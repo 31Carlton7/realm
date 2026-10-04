@@ -6,7 +6,13 @@ import type { AgentKind } from "@realm/contracts";
  * `defaultAdapters()` reads its ACP specs' `bin` from here rather than restating them, so pointing an
  * adapter at a stub binary points the CLI manager's provenance lookup at the same one. Claude and
  * Codex resolve their own defaults inside their probes (`probeClaude`, `probeCodex`) from the same two
- * env vars; `provenance.test.ts` pins those names by proving an override moves both.
+ * env vars; `provenance.test.ts` pins those names by proving an override moves both. The first run's
+ * sign-in (`agents/signin-service.ts`) resolves through here too, so an override reaches every place
+ * that would run the CLI — a live check's stub included.
+ *
+ * Claude's default has a step this table cannot hold: with no override and no `claude` on PATH, the
+ * probe falls back to the copy the Agent SDK carries inside Realm (`bundledClaude`). That copy is on no
+ * PATH, which is how `CliService` tells it apart.
  *
  * `fake` is null: the scripted dev adapter is compiled in and has no binary to find.
  */

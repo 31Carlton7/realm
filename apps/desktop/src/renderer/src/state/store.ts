@@ -13,7 +13,7 @@ import {
   AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_FAST_SUPPORT_KEY, readFastSupport, EDITOR_CURSOR_BLINK_DEFAULT, EDITOR_CURSOR_BLINK_KEY, isTerminalCursorStyle, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, type TerminalCursorStyle, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
-  type AgentKind, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
+  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves } from "./no-overlay";
@@ -410,6 +410,8 @@ export type Api = {
   prefillTerminal(terminalId: string, command: string): Promise<void>;
   /** `force` bypasses the server's probe cache (the install card's retry / focus refresh). */
   probeAgents(force: boolean): Promise<AgentProbe[]>;
+  /** `agents.probeOne` — one agent, fresh; null for a kind with no adapter. */
+  probeAgent(kind: AgentKind): Promise<AgentProbe | null>;
   /** `cli.status` — install/update situation per agent CLI. `force` bypasses the server's probe
    *  cache AND its six-hour version sweep; that is the "Check for updates" gesture. */
   cliStatus(force: boolean): Promise<CliStatus[]>;
@@ -420,6 +422,13 @@ export type Api = {
    *  Resolves once the shell is running with the command typed, NOT when the sign-in finishes: the
    *  terminal and then the consent pane arrive as `sessionId`'s panes, the way an agent's own do. */
   startSignIn(spaceId: string, kind: AgentKind, sessionId: string | null): Promise<{ terminalId: string; command: string }>;
+  /** `agentSignIn.start` — sign `kind` in with no space around it (the first run's buttons). Its
+   *  progress arrives as `agentSignIn.changed`. */
+  agentSignInStart(kind: AgentKind): Promise<AgentSignIn>;
+  /** `agentSignIn.code` — type the sign-in page's code back into the CLI that asked for it. */
+  agentSignInCode(id: string, code: string): Promise<void>;
+  /** `agentSignIn.cancel` — stop a sign-in that is still running. */
+  agentSignInCancel(id: string): Promise<void>;
   /** `models.catalog` — prices, context windows and reasoning efforts for the picker. Never rejects
    *  on a dead network: the server answers with its cache, or with nothing. */
   modelCatalog(force: boolean): Promise<ModelInfo[]>;
@@ -758,6 +767,9 @@ const SETTING_SIDEBAR_OPEN_SPACES = "ui.sidebarOpenSpaces";
 const SETTING_CONFIRM_DELETE = "ui.confirmDelete";
 /** How a session's file browser lays a folder out — see `filesView`. */
 export const SETTING_FILES_VIEW = "ui.filesView";
+/** How far along a space-less sign-in is, so a late report of an earlier step is not applied over a
+ *  later one. The three endings share a rank: whichever the server says last is the answer. */
+const SIGN_IN_ORDER: Record<AgentSignIn["state"], number> = { starting: 0, browser: 1, code: 2, done: 3, failed: 3, cancelled: 3 };
 /** How the Library lays its files out. Its own key, not the session browser's: the Library opens on
  *  tiles, as Codex's does, and a person who reads a folder as rows has not said anything about it. */
 export const SETTING_LIBRARY_VIEW = "ui.libraryView";
@@ -1199,7 +1211,12 @@ export type AppState = {
    *  `NOTIFICATIONS_SLACK_WEBHOOK_KEY`). Empty strings mean nowhere, which is the default. */
   notificationRelay: { imessage: string; slackWebhook: string };
   soundVolume: number;
+  /** What the probes last said, one row per agent. Mostly a whole `agents.probe`, but `probeAgent`
+   *  upserts single rows into it, so a kind missing from it is not yet known to be missing — that
+   *  is what `agentsProbed` is for. */
   agentProbe: AgentProbe[];
+  /** A whole probe has answered at least once, so a kind it did not report is not on this Mac. */
+  agentsProbed: boolean;
   /** Per-agent install/update situation. Empty until something asks; the engines list and the
    *  install card both read it, and neither may block on it. */
   cliStatus: CliStatus[];
@@ -1209,6 +1226,8 @@ export type AppState = {
   /** The install or update running (or just finished) for each kind, keyed by kind rather than by job
    *  id because that is how every reader asks: "is this row busy, and what did it say". */
   cliJobs: Record<string, CliJob>;
+  /** The latest space-less sign-in per agent (`agentSignIn.*`), as the server last reported it. */
+  agentSignIns: Partial<Record<AgentKind, AgentSignIn>>;
   /** The Settings page's App-tab preferences (Plan 12 W6), read from the server's settings rows:
    *  which notification categories are switched OFF (`NOTIFICATIONS_DISABLED_KEY` — default-on
    *  polarity, matching the service), and the permission mode new sessions start in
@@ -1953,6 +1972,10 @@ export type AppState = {
   /** Refresh `agentProbe`. Unforced calls (prompter mount, onboarding) ride the server's TTL cache and
    *  are deduped here too; `force` is the install card's "Check again" and its window-focus refresh. */
   probeAgents(force?: boolean): Promise<void>;
+  /** Probe one agent, fresh, and put its row in `agentProbe` — for a screen that leads with one or
+   *  two agents and must not wait on the slowest of all of them (an ACP agent's model listing can
+   *  take half a minute; `agents.probe` answers when every adapter has). */
+  probeAgent(kind: AgentKind): Promise<void>;
   /** Refresh `cliStatus`. Unforced rides the server's caches; `force` is "Check for updates" and the
    *  refresh after an install finishes. */
   refreshCliStatus(force?: boolean): Promise<void>;
@@ -1960,6 +1983,13 @@ export type AppState = {
   /** Start signing this agent in, in `spaceId` (else the current space). The panes it opens are the
    *  feedback — in `sessionId`'s side pane, the session whose card asked. */
   startSignIn(kind: AgentKind, spaceId?: string | null, sessionId?: string | null): Promise<void>;
+  /** Sign `kind` in from the first run, with no space: the CLI's own login, its page in the browser,
+   *  and a code typed back if it asks. Progress lands in `agentSignIns`; a finished one re-probes. */
+  startAgentSignIn(kind: AgentKind): Promise<void>;
+  sendAgentSignInCode(kind: AgentKind, code: string): Promise<void>;
+  cancelAgentSignIn(kind: AgentKind): Promise<void>;
+  /** An `agentSignIn.changed` event, or a start's own answer. */
+  applyAgentSignIn(s: AgentSignIn): void;
   /**
    * Whether this SPACE lets Realm finish a sign-in itself, including the click on Authorize.
    *
@@ -3592,7 +3622,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       failover: null,
       laya: null,
       spacePageTab: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null, agentsView: "list", officeWorld: null,
-      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], cliStatus: [], cliJobs: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, modelInfo: {}, spaceSkillSources: {},
+      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null,
@@ -5457,10 +5487,17 @@ await get().refreshCustomThemes().catch(() => {});
         const pending = probing[force ? "forced" : "plain"];
         if (pending) { await pending; return; }
         const p = api.probeAgents(force)
-          .then((agentProbe) => { set({ agentProbe }); })
+          .then((agentProbe) => { set({ agentProbe, agentsProbed: true }); })
           .finally(() => { probing[force ? "forced" : "plain"] = null; });
         probing[force ? "forced" : "plain"] = p;
         await p;
+      },
+      async probeAgent(kind) {
+        const row = await api.probeAgent(kind);
+        if (!row) return;
+        // In place, so the list keeps the server's order; appended when no whole probe has landed yet.
+        const rows = get().agentProbe;
+        set({ agentProbe: rows.some((r) => r.kind === kind) ? rows.map((r) => (r.kind === kind ? row : r)) : [...rows, row] });
       },
       async refreshCliStatus(force = false) {
         // Same mount-storm collapse as probeAgents, keyed by force for the same reason: an unforced
@@ -5493,6 +5530,30 @@ await get().refreshCustomThemes().catch(() => {});
            it is until the agent really is signed in — which only a re-probe can say, and which "Check
            again" and the window-focus listener already ask. A local "signing in…" flag would be this
            client's guess at a state the server is the one holding. */
+      },
+      async startAgentSignIn(kind) {
+        get().applyAgentSignIn(await api.agentSignInStart(kind));
+      },
+      async sendAgentSignInCode(kind, code) {
+        const s = get().agentSignIns[kind];
+        if (s) await api.agentSignInCode(s.id, code);
+      },
+      async cancelAgentSignIn(kind) {
+        const s = get().agentSignIns[kind];
+        if (s) await api.agentSignInCancel(s.id);
+      },
+      applyAgentSignIn(s) {
+        const now = get().agentSignIns[s.kind];
+        // The sign-in a newer one replaced, reporting its cancellation late, says nothing about the
+        // newer one — and a start's own answer arriving after its events must not walk them back.
+        if (now && now.id !== s.id && s.state === "cancelled") return;
+        if (now && now.id === s.id && SIGN_IN_ORDER[now.state] > SIGN_IN_ORDER[s.state]) return;
+        set({ agentSignIns: { ...get().agentSignIns, [s.kind]: s } });
+        // Signed in: the probe is what the rest of the app reads, so it is asked again at once rather
+        // than at the next window focus.
+        // That agent alone, fresh — a second or so, where every agent's probe waits on the slowest
+        // of them to say nothing about this one.
+        if (s.state === "done") get().run(() => get().probeAgent(s.kind));
       },
       async runCliAction(kind, action) {
         const started = await api.runCli(kind, action);

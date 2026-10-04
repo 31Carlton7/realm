@@ -31,6 +31,7 @@ import type { FontsService } from "../fonts/service";
 import type { McpService } from "../mcp/service";
 import type { ComputerAppAllowlist } from "../computer/allowlist";
 import { announceSignIn, type SignInFlow } from "../browsers/signin-flow";
+import type { AgentSignInService } from "../agents/signin-service";
 import type { BrowserPermissionBroker } from "../browsers/permissions";
 import type { McpHub } from "../mcp/hub";
 import type { McpGateway } from "../mcp/gateway";
@@ -88,6 +89,7 @@ export type Deps = {
   planLimits: PlanLimitsService;
   delegation: DelegationEngine;
   laya: LayaService;
+  agentSignIn: AgentSignInService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -256,6 +258,13 @@ export function registerMethods(d: Deps): void {
     void (p.sessionId ? announceSignIn(rpc, p.spaceId, p.sessionId, started) : started.settled);
     return { terminalId: started.terminalId, command: started.command };
   });
+  /* The first run's sign-in, with no space around it. `start` answers with the first state at once;
+     the service broadcasts every one after it as `agentSignIn.changed`. Refused mid-drain like the
+     other things that start work: the daemon closing would kill the CLI under the person in the
+     browser. */
+  reg("agentSignIn.start", (p) => { refuseWhileDraining("sign in"); return d.agentSignIn.start(p.kind); });
+  reg("agentSignIn.code", (p) => { d.agentSignIn.code(p.id, p.code); return { ok: true as const }; });
+  reg("agentSignIn.cancel", (p) => { d.agentSignIn.cancel(p.id); return { ok: true as const }; });
   reg("settings.get", (p) => ({ value: d.settings.get(p.key) }));
   reg("settings.set", (p) => {
     d.settings.set(p.key, p.value);
@@ -876,6 +885,7 @@ export function registerMethods(d: Deps): void {
   reg("delegation.running", (p) => ({ running: d.delegation.liveRuns(p.sessionId) }));
 
   reg("agents.probe", (p) => d.sessions.probe({ force: p.force }));
+  reg("agents.probeOne", async (p) => (await d.sessions.probeAgent(p.kind)) ?? null);
   reg("models.catalog", async (p) => ({ rows: await d.modelCatalog.list({ force: p.force }) }));
 
   reg("cli.status", async (p) => ({ rows: await d.cli.status({ force: p.force }) }));

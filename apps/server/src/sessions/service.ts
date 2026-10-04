@@ -187,6 +187,23 @@ export class SessionService {
 
   probe(opts: { force?: boolean } = {}): Promise<ProbeResult[]> { return this.probeCache.get(opts); }
 
+  /**
+   * One agent's probe, fresh, for a caller that needs to know about one CLI now. Every adapter's
+   * probe is another wait: an ACP agent's opens a throwaway session that can run to its 30 s timeout,
+   * and a sign-in that waited on all of them said "done" half a minute after the CLI had. What it
+   * learns replaces that agent's row in the cache — and in whatever a probe still out lands with —
+   * so the next cheap read agrees with what this caller was just told. `undefined` for an agent
+   * with no adapter.
+   */
+  async probeAgent(kind: AgentKind): Promise<ProbeResult | undefined> {
+    const adapter = this.d.adapters[kind];
+    if (!adapter) return undefined;
+    const row = await adapter.probe().catch((e: unknown): ProbeResult =>
+      ({ kind, available: false, version: null, loggedIn: null, reason: e instanceof Error ? e.message : String(e) }));
+    this.probeCache.amend((rows) => rows.map((r) => (r.kind === kind ? row : r)));
+    return row;
+  }
+
   /** One adapter's probe throwing must not hide the others; it reports as unavailable with the reason. */
   async probeAll(): Promise<ProbeResult[]> {
     const adapters = Object.values(this.d.adapters);

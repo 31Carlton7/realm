@@ -23,6 +23,12 @@ export const PROBE_TTL_MS = 30_000;
 export class ProbeCache<T = ProbeResult[]> {
   private cached: { at: number; value: T } | null = null;
   private inflight: { forced: boolean; p: Promise<T> } | null = null;
+  /** Probes out right now, tracked or not — an older unforced one still answers its own joiners. */
+  private out = 0;
+  private seq = 0;
+  /** What `amend` learned while a probe was out, numbered so each probe re-applies only what was
+   *  learned after it started looking. Dropped once nothing is out to need it. */
+  private amendments: { seq: number; fn: (value: T) => T }[] = [];
   private ttlMs: number;
   private now: () => number;
   constructor(private compute: () => Promise<T>, opts: { ttlMs?: number; now?: () => number } = {}) {
@@ -34,13 +40,31 @@ export class ProbeCache<T = ProbeResult[]> {
     if (!force && this.cached && this.now() - this.cached.at < this.ttlMs) return this.cached.value;
     const pending = this.inflight;
     if (pending && (!force || pending.forced)) return pending.p;
-    const p = this.compute().then((value) => {
+    const from = this.seq;
+    this.out++;
+    const p = this.compute().then((raw) => {
+      // It read the machine before anything amended since, so those still stand over what it saw.
+      const value = this.amendments.filter((a) => a.seq > from).reduce((v, a) => a.fn(v), raw);
       // Only the newest probe owns the cache: an older unforced one landing late must not overwrite
       // a forced result with the stale truth the force was escaping.
       if (this.inflight?.p === p) this.cached = { at: this.now(), value };
       return value;
-    }).finally(() => { if (this.inflight?.p === p) this.inflight = null; });
+    }).finally(() => {
+      if (this.inflight?.p === p) this.inflight = null;
+      if (--this.out === 0) this.amendments = [];
+    });
     this.inflight = { forced: force, p };
     return p;
+  }
+
+  /**
+   * Rewrite part of the answer with something learned more recently than the rest — one agent probed
+   * on its own, say, the moment its sign-in finished. The cached value takes it without its age
+   * changing (one fresh row does not make the others fresh), and so does whatever a probe still out
+   * lands with: that probe looked before this was known, and landing late must not undo it.
+   */
+  amend(fn: (value: T) => T): void {
+    if (this.cached) this.cached = { at: this.cached.at, value: fn(this.cached.value) };
+    if (this.out > 0) this.amendments.push({ seq: ++this.seq, fn });
   }
 }

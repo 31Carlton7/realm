@@ -3,7 +3,7 @@ export { AsyncQueue } from "./event-queue";
 export { FakeAdapter, type FakeScript, type FakeStep } from "./fake/fake-adapter";
 export { createSdkMapper } from "./claude/map-sdk-message";
 export { ClaudeAdapter } from "./claude/claude-adapter";
-export { probeClaude } from "./claude/probe";
+export { bundledClaude, claudeExecutable, probeClaude } from "./claude/probe";
 export { generateSvgIcon } from "./claude/generate-svg-icon";
 export { generateSessionTitle } from "./claude/generate-session-title";
 export { cleanSummary, SUMMARY_MAX } from "./claude/generate-session-summary";

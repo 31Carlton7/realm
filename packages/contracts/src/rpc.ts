@@ -303,6 +303,44 @@ const CliJobStartSchema = z.object({
 }) satisfies z.ZodType<CliJobStart>;
 
 /**
+ * An agent CLI's own sign-in, run by Realm with no space around it: the first run's "Sign in with
+ * Claude" and "Sign in with ChatGPT", which happen before there is a space for `signin.start`'s
+ * terminal pane to open in.
+ *
+ * The CLI's login command runs in a pty the server owns (both CLIs draw their login as a full-screen
+ * TUI that hangs without one), and its rendered screen is read for the two things a person needs:
+ * the sign-in page — which the CLI opens in the browser itself, `url` being the way to open it again
+ * — and a prompt for a code to paste back from that page, which `agentSignIn.code` types in. The
+ * command comes from Realm's own table, never from a caller.
+ *
+ *  - `starting`  — spawned; nothing to show yet.
+ *  - `browser`   — the sign-in page is up; the person finishes in the browser.
+ *  - `code`      — the CLI is asking for the code the page shows.
+ *  - `done`      — the CLI exited cleanly and a fresh probe of that agent agrees it is signed in.
+ *  - `failed`    — it ended any other way; `detail` is the last of what it printed.
+ *  - `cancelled` — `agentSignIn.cancel`, or another sign-in for the same agent replaced it.
+ */
+export const AgentSignInSchema = z.object({
+  id: z.string(),
+  kind: AgentKindSchema,
+  state: z.enum(["starting", "browser", "code", "done", "failed", "cancelled"]),
+  url: z.string().nullable(),
+  detail: z.string().nullable(),
+});
+export type AgentSignIn = z.infer<typeof AgentSignInSchema>;
+
+/** One agent as a probe found it: installed or not, which version, and whether it is signed in —
+ *  `loggedIn: null` when the CLI cannot be asked without starting a session. */
+export const AgentProbeRowSchema = z.object({
+  kind: AgentKindSchema,
+  available: z.boolean(),
+  version: z.string().nullable(),
+  loggedIn: z.boolean().nullable(),
+  reason: z.string().nullable(),
+  models: z.array(z.object({ id: z.string(), label: z.string() })).nullable().optional(),
+});
+
+/**
  * Everything Settings needs about one space's execution sandbox, in one answer.
  *
  * Mirrors `ExecutionSandboxService.state()` field for field. The lock is on the server side rather
@@ -960,6 +998,16 @@ export const Methods = {
     params: z.object({ spaceId: IdSchema, kind: AgentKindSchema, sessionId: IdSchema.optional() }),
     result: z.object({ terminalId: IdSchema, command: z.string() }),
   },
+  /**
+   * Start signing `kind` in with no space (`AgentSignInSchema`). Answers at once with the sign-in's
+   * first state; every later one arrives as `agentSignIn.changed`. A second start for the same agent
+   * replaces the first, which is reported `cancelled`. Refuses an agent with no login command.
+   */
+  "agentSignIn.start": { params: z.object({ kind: AgentKindSchema }), result: AgentSignInSchema },
+  /** Type a code the sign-in page showed back into the CLI that asked for it, and press Return. */
+  "agentSignIn.code": { params: z.object({ id: z.string(), code: z.string().min(1).max(4096) }), result: z.object({ ok: z.literal(true) }) },
+  /** Stop a sign-in that is still running. Idempotent: a finished one is left as it finished. */
+  "agentSignIn.cancel": { params: z.object({ id: z.string() }), result: z.object({ ok: z.literal(true) }) },
   "settings.get": { params: z.object({ key: z.string() }), result: z.object({ value: z.unknown() }) },
   "settings.set": { params: z.object({ key: z.string(), value: z.unknown() }), result: z.object({ ok: z.literal(true) }) },
 
@@ -1606,7 +1654,14 @@ export const Methods = {
   "laya.stopRecording": { params: z.object({}), result: LayaStatusSchema },
   /** Every recording and every screen it kept, gone. */
   "laya.deleteRecordings": { params: z.object({}), result: LayaStatusSchema },
-  "agents.probe": { params: z.object({ force: z.boolean().default(false) }), result: z.array(z.object({ kind: AgentKindSchema, available: z.boolean(), version: z.string().nullable(), loggedIn: z.boolean().nullable(), reason: z.string().nullable(), models: z.array(z.object({ id: z.string(), label: z.string() })).nullable().optional() })) },
+  "agents.probe": { params: z.object({ force: z.boolean().default(false) }), result: z.array(AgentProbeRowSchema) },
+  /**
+   * One agent's probe, fresh, for a screen that leads with one or two agents and must not wait on
+   * the slowest of all of them — `agents.probe` answers when every adapter has, and an ACP agent's
+   * model listing can take half a minute. The row also replaces that agent's in the cache
+   * `agents.probe` serves. `null` for a kind with no adapter registered.
+   */
+  "agents.probeOne": { params: z.object({ kind: AgentKindSchema }), result: AgentProbeRowSchema.nullable() },
   "sessions.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(SessionSchema) },
   /** Every session across every space — the client's sessionId→spaceId map for cross-space badges. */
   /** Every session Realm holds, or every session in ONE profile. Scoped by the server's space→profile
@@ -1749,6 +1804,9 @@ export const Events = {
   /** An install or update finished. The probe and the version sweep have already been re-run by the
    *  time this lands, so a client that refetches `cli.status` on it reads the new machine. */
   "cli.done": z.object({ id: z.string(), kind: AgentKindSchema, ok: z.boolean(), code: z.number().nullable(), error: z.string().nullable() }),
+  /** A space-less agent sign-in moved (`AgentSignInSchema`). Broadcast: the first run in any window
+   *  may be the one watching. */
+  "agentSignIn.changed": AgentSignInSchema,
   /** Laya's status changed: an install step moved, the runtime came up or went down, a row was
    *  logged, the log was deleted. Carries the whole status, which is small. */
   "laya.changed": LayaStatusSchema,

@@ -258,8 +258,10 @@ Rules:
   as a control leaving, where the blur this replaced destroyed them and read as a broken render. So
   chrome that must stay legible while the content moves belongs OUTSIDE the scroller, and a z-index
   on a control inside one is a claim the browser ignores.
-- A decorative colour wash belongs on a surface a person passes through, such as first run or a
-  feed. A page of controls someone sits on all day stays plain.
+- A decorative colour wash belongs on a surface a person passes through, such as a feed — never on a
+  page asking someone to decide something, which is why first run stays plain and earns its presence
+  from the mark, the type and the two agents' own marks instead. A page of controls someone sits on
+  all day stays plain.
 
 The light theme is an equal mode, not an inverted dark screenshot. Use its authored token values.
 
@@ -410,6 +412,17 @@ string staying that way.
   be defaulted (the space's name from the folder's), fold what was merely detected behind one line,
   and keep the primary action outside the scroller so it is live from the first frame. Ask the
   question the user actually arrived with — where the code is — before the ones the product needs.
+- For someone who has never opened a terminal, first run's decision is which assistant, signed in
+  with which account — and a card that only REPORTS "Not installed" or "Signed out" hands them a
+  problem with no way to solve it. The agents Realm carries end to end are cards that do what their
+  state needs in place: Install, Sign in with Claude, Sign in with ChatGPT, a field for the code the
+  sign-in page shows, Ready. No command to copy, no terminal, no space required first; Claude needs
+  no install at all, because Realm carries the binary its sessions run. Where Realm cannot do the
+  step (no npm on the Mac), the card says why and points at what provides it. The page takes the whole
+  window: nothing in the rail or the sidebar works before a space exists, and a first launch should
+  not open on controls that do nothing. What the page leads with is asked for on its own: the two
+  cards are probed ahead of the agents behind the fold, because a card that says "Checking…" until
+  every agent has answered is waiting on the slowest one to say nothing about it.
 - A row is a label and its control. A sentence under it has to say something neither of them says:
   what else the switch does, why the control you expected is absent, what a click will execute on
   your machine. A description that restates the row's own state chip — "macOS reports the grant"

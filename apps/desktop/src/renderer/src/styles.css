@@ -42,7 +42,7 @@
 .theme-import textarea, .tool-body pre, .tool-stat, .tool-summary, .tool-well, .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .composer-queue-item .queue-position, .composer-queue-item .queue-attach, .terminal-dock-title,
-.sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id {
+.sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code {
   letter-spacing: normal;
 }
 
@@ -4697,75 +4697,114 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   box-shadow: var(--rl-shadow);
 }
 
-/* ── First-run onboarding (W4): the whole pane, one centered sheet, nothing behind it ── */
-.onboarding-stage { flex: 1; display: grid; place-items: center; padding: 24px; overflow: auto; }
-/* Timing now comes from the shared `.sheet` rule (§6: 240ms) — W5 unified it, so this is geometry only. */
-/* Wide enough for two columns of real content: an agent row needs its icon, its name and a status
-   pill without ellipsizing, and the space column has to hold a path. Narrower than this and the grid
-   below folds back to one column, which is the honest outcome rather than two cramped ones. */
-.sheet.onboarding { width: min(720px, 100%); display: flex; flex-direction: column; }
-/* The form is the sheet's flex column: head, a body that scrolls, and a foot that never does. The
-   sheet used to scroll as one piece, which put the name field and the button under twelve rows of
-   agents — the decision below the fold of the screen that exists to make it. */
-.onboarding-form { display: flex; flex-direction: column; min-height: 0; flex: 1; }
-.onboarding-body { display: flex; flex-direction: column; gap: 14px; overflow: auto; min-height: 0; flex: 1; }
-.onboarding-lead { margin: 0; font-size: 12.5px; line-height: 1.5; }
-/* The two halves of first run: the agent inventory, and the space being made. `auto-fit` rather than
-   a breakpoint — the sheet is centred in a window the user can make any width, and the columns fold
-   into one the moment there is not room for two without a media query having to guess where that is.
-   `align-items: start` because the columns are not the same height and never will be: the agent list
-   grows with what is installed, and a short form stretched to match it is empty surface claiming room
-   it had nothing to put in.
-
-   No rule between them. The gap is the separation — a hairline here would be the decoration the
-   divider rules exist to catch, and these are two groups in one sheet, not two surfaces.
-
-   `minmax(min(248px, 100%), …)`, not `minmax(248px, …)`: a bare minimum is a FLOOR, so a track keeps
-   its 248px after there is only 191px to put it in and the columns hang out of the sheet. Measured
-   at a 520px window, where the sidebar leaves the stage barely wider than one column. The `min()`
-   lets the track give up its minimum when the container is smaller than it. */
-.onboarding-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(248px, 100%), 1fr)); gap: 16px 22px; align-items: start; }
-/* Each column is its own flow. `min-width: 0` on both because a grid child defaults to min-content
-   and a folder path would otherwise push the column wider than its track. */
-.onboarding-col { display: flex; flex-direction: column; min-width: 0; }
-.onboarding-space { gap: 12px; }
-/* The legends are the columns' headings and read as peers, so they take the same weight rather than
-   the quieter field-label tone `.cli-field legend` gives a lone group. */
-.onboarding-cols legend { margin-bottom: 2px; font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
-.onboarding-note { margin: 0; font-size: 11.5px; line-height: 1.45; color: var(--rl-text-faint); }
-/* The same note, while the probe it describes is still running. A row rather than a paragraph, so
-   the orb sits ON the line with the sentence instead of above it, and centred on the text rather
-   than on the line box — a 12px orb against 11.5px text is the case where `baseline` would hang it
-   a pixel low. */
-.onboarding-note[data-busy] { display: flex; align-items: center; gap: 6px; }
-/* Denser than the settings idiom the row comes from: eight found agents is an ordinary machine,
-   and at the settings pitch that is most of a window before the folder and the name. */
-.onboarding .cli-row { padding: 6px 10px; margin-top: 2px; }
-.onboarding-optional { margin-left: 4px; color: var(--rl-text-faint); }
-/* The fold: one quiet line for the agents the probe did not find. A text button, not a row, so it
-   cannot be mistaken for a thirteenth agent. */
-.onboarding-more { display: inline-flex; align-items: center; gap: 5px; margin-top: 6px; padding: 4px 6px; font-size: 11.5px;
-  color: var(--rl-text-dim); border-radius: var(--r-chip); corner-shape: squircle; }
+/* ── First run: the whole window, one page asking one thing at a time ──────────────────────────
+   What Realm is, the agent that will answer, the space it works in, Start — top to bottom in a column
+   that reads at a glance. The rail and the sidebar are away while it is up (`.app[data-first-run]`):
+   nothing in them works before a space exists, and a first launch should not open on controls that
+   do nothing. The top band stays a window-drag region, as the head row is everywhere else, so the
+   window can still be moved by its top; everything you can press opts out. */
+.app[data-first-run] > .app-rail, .app[data-first-run] > .sidebar { display: none; }
+/* One ground for the whole window: the frame's head-row band would read as an empty title bar over a
+   page that has no bars, and the panes' ground is the one the translucency is calibrated to read on. */
+.app[data-first-run] > .main { border-left: 0; background: var(--pane-ground); }
+.app[data-first-run] > .main::before, .app[data-first-run] > .main::after { display: none; }
+.onboarding-stage {
+  position: relative; flex: 1; min-height: 0; overflow: auto; display: grid; justify-items: center;
+  align-content: safe center; padding: 56px 24px 40px;
+}
+.onboarding-stage::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 44px; -webkit-app-region: drag; }
+.onboarding { position: relative; width: min(640px, 100%); display: flex; flex-direction: column; gap: 30px;
+  -webkit-app-region: no-drag; }
+/* The page arrives in its parts — the welcome, the agent, the space, Start — each a beat after the
+   one before (design.md: stagger a composed entrance by semantic parts, not every child), on §6's
+   stagger: the rise rung, an 8px lift, 40ms steps. One shot, and gone under Reduce motion like
+   every keyframe here. */
+.onboarding > * { animation: onboarding-rise var(--dur-rise) var(--spring-smooth) both; }
+.onboarding > :nth-child(2) { animation-delay: calc(40ms * 2); }
+.onboarding > :nth-child(3) { animation-delay: calc(40ms * 4); }
+.onboarding > :nth-child(4) { animation-delay: calc(40ms * 6); }
+@keyframes onboarding-rise { from { opacity: 0; translate: 0 8px; } }
+.onboarding-hero { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+.onboarding-mark { width: 40px; height: 48px; margin-bottom: 6px; }
+:root[data-mode="light"] .onboarding-mark { filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.18)) brightness(0.92); }
+.onboarding-hero h1 { margin: 0; font-size: 28px; line-height: 1.2; font-weight: var(--fw-title); letter-spacing: -0.02em; color: var(--rl-text-bright); }
+.onboarding-lead { margin: 0; font-size: 15px; line-height: 1.5; color: var(--rl-text-dim); text-wrap: balance; }
+/* A step: its number and name, one line under it saying what it is for, then the thing itself. */
+.onboarding-step { display: flex; flex-direction: column; gap: 12px; min-width: 0; margin: 0; padding: 0; border: none; }
+.onboarding-step-head { display: flex; align-items: center; gap: 10px; padding: 0; font-size: 17px; line-height: 24px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.onboarding-step-n { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
+  font-size: 13px; font-weight: var(--fw-title); color: var(--accent-ink); background: var(--accent-tint); }
+.onboarding-step-sub { margin: -4px 0 0 34px; font-size: 13.5px; line-height: 1.5; color: var(--rl-text-dim); }
+/* The two lead agents, side by side: a card each, its head the pick (a radio, so the arrows move
+   between them and the choice is one stop), its foot whatever that agent needs next. The card is a
+   tile — raised off the ground, ringed a rung lighter — and the chosen one wears the accent's ring. */
+.agent-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 12px; }
+.agent-card {
+  display: flex; flex-direction: column; min-width: 0; border-radius: var(--r-panel); corner-shape: squircle;
+  background: var(--rl-tile); box-shadow: inset 0 0 0 var(--hairline-w) var(--rl-card-rim);
+  transition: box-shadow var(--dur-hover) ease;
+}
+.agent-card[data-selected] { box-shadow: inset 0 0 0 1.5px var(--rl-accent); }
+.agent-card-pick { display: flex; align-items: center; gap: 12px; padding: 16px 16px 10px; cursor: default; }
+.agent-card-pick > input { position: absolute; opacity: 0; pointer-events: none; }
+.agent-card:has(.agent-card-pick > input:focus-visible) { box-shadow: inset 0 0 0 2px var(--rl-accent); }
+.agent-card-mark { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--r-ctl); corner-shape: squircle;
+  background: var(--rl-hover); }
+.agent-card-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.agent-card-name { font-size: 15px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.agent-card-by { font-size: 12.5px; color: var(--rl-text-dim); }
+.agent-card-foot { display: flex; align-items: center; min-height: 52px; padding: 4px 16px 14px; }
+.agent-card-signin { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; width: 100%; }
+.agent-card-status { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--rl-text-dim); }
+/* Ready is a fact, not an alarm: the check in the state colour, the word in the row's ink. */
+.agent-card-status[data-tone="ready"] { color: var(--rl-text-bright); }
+.agent-card-status[data-tone="ready"] > svg { color: var(--rl-success); }
+.agent-card-action { gap: 8px; }
+.agent-card-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-left: -10px; }
+.agent-card-note { font-size: 12.5px; line-height: 1.45; color: var(--rl-text-dim); }
+.agent-card-note[data-tone="danger"] { color: var(--rl-danger); }
+.agent-card-tail { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11.5px var(--font-mono); color: var(--rl-text-dim); }
+.agent-code-row { display: flex; gap: 8px; width: 100%; }
+.agent-code { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border: none; border-radius: var(--r-ctl); corner-shape: squircle;
+  background: var(--field); color: var(--rl-text-bright); font: 13px var(--font-mono); outline: none; }
+.agent-code:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+/* The other agents: one line to open them, then a quiet list — still a pick, each a radio in the
+   same group as the cards. */
+.onboarding-more { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin-left: 28px; padding: 4px 8px;
+  font-size: 13px; color: var(--rl-text-dim); border-radius: var(--r-chip); corner-shape: squircle; }
 .onboarding-more:hover { color: var(--rl-text-bright); background: var(--rl-hover); }
 .onboarding-more svg { transition: rotate var(--dur-hover) ease; }
 .onboarding-more[aria-expanded="true"] svg { rotate: 180deg; }
+.onboarding-others { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(190px, 100%), 1fr)); gap: 2px 8px; margin: -4px 0 0 34px; }
+.onboarding-other { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 8px; border-radius: var(--r-ctl); corner-shape: squircle;
+  font-size: 13px; color: var(--rl-text-dim); cursor: default; }
+.onboarding-other:hover { background: var(--rl-hover); }
+.onboarding-other[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); }
+.onboarding-other input { margin: 0; accent-color: var(--rl-accent); }
+.onboarding-other-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.onboarding-other-state { flex: none; font-size: 12px; color: var(--rl-text-dim); }
+.onboarding-others > .onboarding-note { grid-column: 1 / -1; margin: 6px 8px 0; }
+.onboarding-note { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--rl-text-dim); }
+/* The space: name and folder on one row, how it looks in the sidebar under them. */
+.onboarding-space-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 12px 16px; margin-left: 34px; }
+.onboarding-space-row .field > span { font-size: 13px; }
+.onboarding-name input { height: 34px; font-size: 14px; }
+.onboarding-optional { margin-left: 4px; color: var(--rl-text-faint); }
+.onboarding-look { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; margin-left: 34px; }
+.onboarding-look-label { font-size: 13px; color: var(--rl-text-dim); }
 /* The folder step: a control and its hint on one line, the whole thing a drop target. Dashed only
    while a drag is over it — a dashed box at rest is an empty state asking to be filled, and this one
    is optional. */
-.onboarding-folder { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 4px 6px 4px 4px; border-radius: var(--r-ctl); corner-shape: squircle;
-  outline: var(--hairline-w) dashed transparent; outline-offset: -1px; }
+.onboarding-folder { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 0 6px 0 0; border-radius: var(--r-ctl); corner-shape: squircle;
+  outline: var(--hairline-w) dashed transparent; outline-offset: 2px; }
 .onboarding-folder[data-dropping] { outline-color: var(--rl-accent); background: var(--accent-tint); }
-.onboarding-folder-path { flex: 1; min-width: 0; font-size: 12.5px; color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.onboarding-folder-path { flex: 1; min-width: 0; font-size: 13px; color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 .onboarding-folder > .icon-btn { flex: none; }
-.cli-field { border: none; margin: 0; padding: 0; min-width: 0; }
-.cli-field legend { padding: 0; font-size: 12px; color: var(--rl-text-dim); }
-.cli-row { display: flex; align-items: center; gap: 8px; margin-top: 5px; padding: 8px 10px; border-radius: var(--r-ctl); corner-shape: squircle;
-  color: var(--rl-text-dim); background: transparent; cursor: default; }
-.cli-row:hover { background: var(--rl-hover); }
-/* Selected ≠ outlined (§2.7): translucent pill fill + bright text. */
-.cli-row[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); }
-.cli-row input { accent-color: var(--rl-accent); margin: 0; }
-.cli-name { flex: 1; min-width: 0; font-size: 13px; }
+/* Start, with what it will do beside it. */
+.onboarding-foot { display: flex; align-items: center; justify-content: flex-end; gap: 16px; padding-top: 4px; }
+.onboarding-summary { flex: 1; min-width: 0; margin: 0; font-size: 13px; line-height: 1.45; color: var(--rl-text-dim); text-align: right; }
+.onboarding-summary[data-tone="warn"] { color: var(--orange); }
+.onboarding-start { --btn-h: 36px; min-width: 112px; font-size: 14px; }
 /* Plan 9 W2 — BUI StatusPill: fully-round tint fill, full-strength colour text, and a leading dot
    on the coloured tones (atoms/StatusPill.tsx). Ready stays a bare label; muted stays neutral. */
 .status-pill { flex: none; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: var(--fw-medium); max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -4815,7 +4854,7 @@ select { appearance: none; padding-right: 22px;
 :where(:root:not([data-overlay-scrollbars])) :where(
   /* chrome and navigation. `.space-body` is NOT here — see the carve-out below. */
   .menu, .mention-picker, .skill-picker-list, .mp-list, .mp-detail-body, .ip-grid,
-  .palette-list, .spaces-list, .sheet, .onboarding-stage, .onboarding-body, .page-content, .settings-rail-lists, .sb-page-nav, .summary-scroll, .ql-view,
+  .palette-list, .spaces-list, .sheet, .onboarding-stage, .page-content, .settings-rail-lists, .sb-page-nav, .summary-scroll, .ql-view,
   /* the transcript and everything it draws inside itself */
   .transcript, .md pre, .msg-error pre, .tool-well, .tool-body pre, .permission-details pre,
   .code-block, .code-body, .fd-file, .fd-body, .term-out, .md-scroll, .math-display,

@@ -1,4 +1,5 @@
 import { AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, agentLabel, type AgentKind } from "@realm/contracts";
+import { bundledClaude, claudeExecutable } from "@realm/adapters";
 import { isOAuthConsentUrl } from "./guards";
 import { screenText, type TerminalScreen } from "../terminals/screen";
 import type { SignInTickets } from "./signin";
@@ -102,10 +103,11 @@ export class SignInFlow {
 
     // Wider and taller than the 80×24 default: what runs here lays itself out against the size it
     // finds, and a menu that fits on screen is one that can be read in a single look.
+    const typed = await typedCommand(kind, command);
     const { terminalId, itemId } = this.d.terminals.open({ spaceId, cols: 100, rows: 30 });
     await this.d.terminals.quiet(terminalId, 300, 4_000);
-    await this.d.terminals.manager.writeWhenQuiet(terminalId, `${command}\r`);
-    return { ok: true, terminalId, terminalItemId: itemId, command, settled: this.settle(spaceId, terminalId) };
+    await this.d.terminals.manager.writeWhenQuiet(terminalId, `${typed}\r`);
+    return { ok: true, terminalId, terminalItemId: itemId, command: typed, settled: this.settle(spaceId, terminalId) };
   }
 
   /** The waiting half. Every failure becomes an outcome, for the reason `settled` gives. */
@@ -164,6 +166,20 @@ export function announceSignIn(
     }
     return settled;
   });
+}
+
+/**
+ * The line typed for `kind`'s login: the table's own, except where the `claude` Realm would run is the
+ * copy it carries. That copy is not on PATH — it is why a Mac with no npm runs Claude sessions at all —
+ * so a shell told `claude auth login` answers "command not found"; it gets that binary's path, quoted.
+ * Everywhere a `claude` IS on PATH the line is exactly the table's, as it always was.
+ */
+async function typedCommand(kind: AgentKind, command: string): Promise<string> {
+  if (kind !== "claude") return command;
+  const bin = await claudeExecutable().catch(() => null);
+  if (!bin || bin !== bundledClaude()) return command;
+  const [, ...args] = command.split(/\s+/);
+  return [`'${bin.replaceAll("'", `'\\''`)}'`, ...args].join(" ");
 }
 
 const EMPTY_SCREEN: TerminalScreen = { screen: [], scrollback: [], cursor: { row: 0, col: 0 }, cols: 100, rows: 30, altScreen: false };

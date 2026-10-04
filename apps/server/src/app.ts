@@ -57,6 +57,7 @@ import type { LayaRuntime } from "./laya/runtime";
 import { createTerminalAgentProvider } from "./terminals/agent-tools";
 import { SignInTickets } from "./browsers/signin";
 import { SignInFlow } from "./browsers/signin-flow";
+import { AgentSignInService } from "./agents/signin-service";
 import { createAppUiProvider } from "./app-ui/agent-tools";
 import { createMachineAgentProvider } from "./machines/agent-tools";
 import { createSimulatorAgentProvider } from "./simulators/agent-tools";
@@ -944,6 +945,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     env: opts.cli?.env,
     spawnImpl: opts.cli?.spawnImpl,
   });
+  /* The first run's sign-in (`agentSignIn.*`): the CLI's own login, in a pty with no space around it.
+     A clean exit is confirmed by a fresh probe of that one agent. The CLI manager's env too,
+     for the reason the installer takes it: a suite's PATH must be the one the test built, so no
+     `createApp` in a suite can find — let alone start — the developer's real `codex login`. */
+  const agentSignIn = new AgentSignInService({ rpc, probe: (kind) => sessions.probeAgent(kind), env: opts.cli?.env });
   // Spend and activity for Settings → Usage, and the budget watcher behind it. Reads only; the one
   // thing it writes is the budget row, and the one thing it emits is a threshold notification.
   usage = new UsageService({ db, settings, catalog: modelCatalog, notifications });
@@ -978,7 +984,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
     profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch: new ProjectSearchService(), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
-    iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya,
+    iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, agentSignIn,
     /* A drain was accepted: watch for quiescence and close once it holds. The watcher owns the clock
        and the close; `methods.ts` owns the refusals that make quiescence reachable at all. Unref'd —
        a daemon with nothing to do must not be held open by its own timer. */
@@ -1043,6 +1049,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     summaries?.close(); // a debounced recap must not fire onto a closing handle, or outlive the process
     terminals.closeAll();
     cliInstaller.disposeAll();
+    // While the socket is still open, so a window that outlives this daemon hears the sign-in end.
+    agentSignIn.disposeAll();
     // The last steps' rows go down first, then laya-serve — which must not outlive the app holding
     // a gigabyte of weights — and any install in flight.
     await layaShadow.close();

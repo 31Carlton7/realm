@@ -61,9 +61,10 @@ describe("cli.status / cli.run routes", () => {
     expect(rows.every((r: { installed: boolean }) => r.installed === false)).toBe(true);
     // `fake` is compiled in and has no install route, so it must never carry a command.
     expect(rows.find((r: { kind: string }) => r.kind === "fake")).toMatchObject({ action: "none", command: null });
-    // Everything else offers its install command and no version, because there is nothing to update.
+    // The suite's PATH has no npm, so Codex's npm route is REFUSED rather than offered: a button that
+    // could only fail with `spawn npm ENOENT` says why instead (CliService's package-manager check).
     expect(rows.find((r: { kind: string }) => r.kind === "codex")).toMatchObject({
-      action: "install", command: "npm install -g @openai/codex", latest: null,
+      action: "none", command: null, latest: null, refusal: expect.stringContaining("Node.js"),
     });
     c.close();
   });

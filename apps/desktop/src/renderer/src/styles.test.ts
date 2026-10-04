@@ -151,9 +151,9 @@ describe("§6 motion table", () => {
   it("sheets enter at 240ms on the spring with a .96 scale — one rule for every sheet, no per-sheet carve-out", () => {
     expect(bodiesFor(".sheet").join(" ")).toContain(`animation: rl-sheet-in ${dur("--dur-slow")} var(--spring-smooth)`);
     expect(blockAfter("@keyframes rl-sheet-in")).toContain("scale(.96)");
-    // W4b scoped 240ms to onboarding alone; W5's whole job was to hoist it. If the override comes
-    // back, the shared sheet has silently regressed to something else.
-    expect(bodiesFor(".sheet.onboarding").join(" ")).not.toContain("animation");
+    // W4b scoped 240ms to onboarding alone; W5's whole job was to hoist it. First run is no longer a
+    // sheet at all — it is the window's own page, entering by its parts on the stagger.
+    expect(bodiesFor(".onboarding > *").join(" ")).toContain("animation: onboarding-rise var(--dur-rise)");
   });
 
   it("the sheet scrim fades on its own at 160ms", () => {
@@ -1123,7 +1123,10 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     // between two surfaces rather than a stray rule down the window's own edge.
     // Collapsed, there is no sidebar for it to stand against: the frame's rim takes the sheet's left
     // edge from it, round the corner, and the border goes rather than doubling the rim.
-    expect(edge).toEqual([".app > .main", ".app[data-sidebar-collapsed] > .main"]);
+    // First run has neither the rail nor the sidebar beside it (`.app[data-first-run]`), so there is
+    // nothing for the line to stand between and it goes with them.
+    expect(edge).toEqual([".app > .main", ".app[data-sidebar-collapsed] > .main", ".app[data-first-run] > .main"]);
+    expect(bodiesFor(".app[data-first-run] > .main").join(" ")).toContain("border-left: 0");
     expect(bodiesFor(".app > .main").join(" ")).toContain("var(--rl-line)");
     expect(bodiesFor(".app[data-sidebar-collapsed] > .main").join(" ")).toContain("border-left: 0");
     expect(bodiesFor(".app[data-sidebar-collapsed] .main::before").join(" ")).toMatch(/border-left: var\(--hairline-w\) solid var\(--rl-line-strong\)/);

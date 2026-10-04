@@ -1,22 +1,23 @@
 /**
- * Live check for the first-run sheet's two columns (run with: node apps/desktop/scripts/onboarding-live.mjs)
+ * Live check for the first run (run with: pnpm build && node apps/desktop/scripts/onboarding-live.mjs)
  *
- * Onboarding is two columns that fold into one, and jsdom has no layout — it will tell you the two
- * fieldsets exist and nothing at all about whether they are beside each other, whether either one
- * fits, or where the Start button ended up. Those are the only questions this screen raises.
+ * First run is one page that takes the whole window — what Realm is, the agent (Claude and Codex as
+ * cards that install and sign in in place), the space, Start — and jsdom has no layout: it will say
+ * the cards exist and nothing about whether they sit side by side, whether the page fits, whether
+ * the rail and sidebar really went, or where Start ended up. Those are the questions this answers.
  *
- * It boots the built app on a scratch home, which lands straight on the sheet (no spaces exist), and
- * measures at a wide window and a very narrow one, in both faces. It waits for the agent PROBE to
- * land first: before it does, the list is all thirteen kinds, which is not the state a real machine
- * sits in and not the one worth reviewing.
+ * It boots the built app on a scratch home, which lands straight on the page (no spaces exist), and
+ * measures at a wide window and a very narrow one, in both faces, after the agent PROBE lands. The
+ * cards' states are this Mac's (a read-only probe of the CLIs on PATH and the one Realm carries), so
+ * they are reported, not claimed.
  *
- * What it caught, and would catch again: `minmax(248px, 1fr)` reads like a hint and is a FLOOR, so
- * the columns kept their 248px in a 191px sheet and hung out of it — visible only at a width where
- * the sidebar leaves the stage barely wider than one column.
+ * What it caught before, and would catch again: `minmax(248px, 1fr)` reads like a hint and is a
+ * FLOOR, so a track keeps its minimum after there is less room than that and hangs out of the page —
+ * visible only at a width barely wider than one column.
  *
- * Ports: env-overridable. Touches only a scratch dir; kills only the process it started.
+ * Ports: env-overridable. Touches only a scratch dir; kills only what holds its own two ports.
  */
-import { spawn } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import { connect } from "node:net";
 import fs from "node:fs";
 import os from "node:os";
@@ -25,7 +26,7 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9381), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8947);
-const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-divider-audit-"));
+const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-onboarding-live-"));
 let electron = null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -115,31 +116,47 @@ async function main() {
   const c = cdp(t.webSocketDebuggerUrl); await c.ready;
   await c.send("Runtime.enable"); await c.send("Page.enable");
   await until(() => evalIn(c, `!!document.querySelector('.onboarding')`), 20000, "onboarding");
-  // Wait for the probe to actually LAND — the pre-probe state lists all thirteen kinds, which is not
-  // the state a real machine sits in and not the one worth reviewing.
-  await until(() => evalIn(c, `!document.body.textContent.includes('Checking which agents are installed')`), 30000, "probe");
+  // The window this opens is rarely the key one, and an unkeyed Mac window greys its accent — the
+  // chosen card's ring and Start are drawn in it, so the run is told it has focus and kept so.
+  await c.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+  await evalIn(c, `(() => { const r = document.documentElement; const hold = () => r.removeAttribute('data-window-inactive');
+    hold(); new MutationObserver(hold).observe(r, { attributes: true, attributeFilter: ['data-window-inactive'] }); return true; })()`);
+  // Wait for the probe to actually LAND: before it, both cards say "Checking…", which is not the state
+  // a real machine sits in and not the one worth reviewing.
+  await until(() => evalIn(c, `![...document.querySelectorAll('.agent-card-status')].some((e) => e.textContent.includes('Checking'))`), 40000, "probe");
   await sleep(600);
+  const OUT = process.env.LIVE_OUT ?? os.tmpdir();
+  fs.mkdirSync(OUT, { recursive: true });
 
   const GEO = `(() => {
-    const box = (sel) => { const e = document.querySelector(sel); if (!e) return null; const r = e.getBoundingClientRect();
+    const box = (e) => { if (!e) return null; const r = e.getBoundingClientRect();
       return { x: +r.x.toFixed(1), y: +r.y.toFixed(1), w: +r.width.toFixed(1), h: +r.height.toFixed(1), right: +r.right.toFixed(1), bottom: +r.bottom.toFixed(1) }; };
-    const cols = [...document.querySelectorAll('.onboarding-col')].map((e) => { const r = e.getBoundingClientRect();
-      return { legend: e.querySelector('legend')?.textContent, x: +r.x.toFixed(1), y: +r.y.toFixed(1), w: +r.width.toFixed(1), h: +r.h?.toFixed?.(1) ?? +r.height.toFixed(1) }; });
-    const body = document.querySelector('.onboarding-body');
-    return { sheet: box('.sheet.onboarding'), cols, foot: box('.sheet-foot'),
-             scrolls: body ? body.scrollHeight > body.clientHeight + 1 : null,
-             focused: document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.tagName,
-             rows: document.querySelectorAll('.onboarding-col .cli-row').length,
-             fold: document.querySelector('.onboarding-more')?.textContent?.trim() ?? null,
-             swatches: document.querySelectorAll('.onboarding-space .swatch').length,
-             iconTrigger: !!document.querySelector('.onboarding-space .icon-picker-trigger') };
+    const shown = (sel) => { const e = document.querySelector(sel); return !!e && getComputedStyle(e).display !== 'none'; };
+    const stage = document.querySelector('.onboarding-stage');
+    const mark = document.querySelector('img.onboarding-mark');
+    return {
+      firstRun: document.querySelector('.app')?.hasAttribute('data-first-run') ?? false,
+      rail: shown('.app-rail'), sidebar: shown('.sidebar'),
+      stage: box(stage), win: { w: innerWidth, h: innerHeight },
+      overflowX: stage ? stage.scrollWidth > stage.clientWidth + 1 : null,
+      scrolls: stage ? stage.scrollHeight > stage.clientHeight + 1 : null,
+      drag: stage ? getComputedStyle(stage, '::before').getPropertyValue('-webkit-app-region') : null,
+      mark: mark ? { loaded: mark.complete && mark.naturalWidth > 0, ...box(mark) } : null,
+      cards: [...document.querySelectorAll('.agent-card')].map((e) => ({ name: e.querySelector('.agent-card-name')?.textContent,
+        state: e.querySelector('.agent-card-foot')?.textContent?.trim(), ...box(e) })),
+      start: box(document.querySelector('.onboarding-start')),
+      summary: document.querySelector('.onboarding-summary')?.textContent ?? null,
+      focused: document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.tagName,
+      swatches: document.querySelectorAll('.onboarding-space .swatch').length,
+      iconTrigger: !!document.querySelector('.onboarding-space .icon-picker-trigger'),
+    };
   })()`;
 
-  const shot = async (name, clipEl) => {
-    const b = await evalIn(c, `(() => { const e = document.querySelector(${JSON.stringify(clipEl)}); const r = e.getBoundingClientRect();
-      return { x: Math.max(0, r.x - 12), y: Math.max(0, r.y - 12), width: r.width + 24, height: r.height + 24 }; })()`);
-    const png = await c.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false, clip: { ...b, scale: 2 } });
-    fs.writeFileSync(`/tmp/onboarding-${name}.png`, Buffer.from(png.data, "base64"));
+  const shot = async (name) => {
+    const png = await c.send("Page.captureScreenshot", { format: "png" });
+    const file = path.join(OUT, `onboarding-${name}.png`);
+    fs.writeFileSync(file, Buffer.from(png.data, "base64"));
+    console.log(`SCREENSHOT ${file}`);
   };
 
   for (const [label, w, h] of [["wide", 1200, 860], ["narrow", 520, 860]]) {
@@ -149,32 +166,41 @@ async function main() {
       await evalIn(c, `(() => { document.documentElement.dataset.mode = ${JSON.stringify(mode)}; return true; })()`);
       await sleep(300);
       const g = await evalIn(c, GEO);
-      await shot(`${label}-${mode}`, ".sheet.onboarding");
-      if (mode === "dark") {
-        const [a, sp] = g.cols;
-        const sideBySide = a && sp && Math.abs(a.y - sp.y) < 2 && sp.x > a.x + a.w - 2;
-        const stacked = a && sp && sp.y > a.y + 2 && Math.abs(a.x - sp.x) < 2;
-        console.log(`${label} ${w}x${h}: sheet ${g.sheet.w}x${g.sheet.h}  cols=${JSON.stringify(g.cols.map((x) => [x.legend, x.x, x.y, x.w]))}`);
-        console.log(`  scrolls=${g.scrolls}  focus=${g.focused}  agentRows=${g.rows}  fold=${JSON.stringify(g.fold)}`);
-        if (label === "wide") {
-          check("wide: the two columns sit side by side, agent left", sideBySide, g.cols);
-          check("wide: the agent column is the left one", g.cols[0]?.legend === "Agent" && g.cols[0].x < g.cols[1].x, g.cols.map((x) => x.legend));
-          // Not "nothing scrolls" — with no agent installed the list is all thirteen kinds and the
-          // body is SUPPOSED to scroll. The invariant is the one the sheet was built around: the
-          // decision lives outside the scroller, so Start is on screen whatever the list does.
-          check("wide: Start stays out of the scroller and on screen", g.foot.bottom <= g.sheet.bottom + 1 && g.foot.h > 0, { foot: g.foot, sheet: g.sheet });
-        } else {
-          check("narrow: the columns fold into one, in source order", stacked, g.cols);
-        }
-        check(`${label}: focus lands in the name field`, g.focused === "Space name", g.focused);
-        check(`${label}: the identity controls are both there`, g.swatches === 10 && g.iconTrigger, { swatches: g.swatches, iconPicker: g.iconTrigger });
-        check(`${label}: nothing overflows the sheet`, g.cols.every((x) => x.x >= g.sheet.x - 1 && x.x + x.w <= g.sheet.right + 1), { sheet: g.sheet, cols: g.cols });
+      await shot(`${label}-${mode}`);
+      if (mode !== "dark") continue;
+      console.log(`INFO ${label} ${w}x${h} ${JSON.stringify({ cards: g.cards.map((k) => [k.name, k.state]), summary: g.summary, scrolls: g.scrolls })}`);
+      check(`${label}: first run takes the whole window — no rail, no sidebar`, g.firstRun && !g.rail && !g.sidebar && Math.abs(g.stage.w - g.win.w) <= 1, { firstRun: g.firstRun, rail: g.rail, sidebar: g.sidebar, stage: g.stage, win: g.win });
+      check(`${label}: the window can still be dragged by its top band`, g.drag === "drag", g.drag);
+      check(`${label}: Realm's mark is drawn`, g.mark?.loaded === true, g.mark);
+      const [a, b] = g.cards;
+      if (label === "wide") {
+        check("wide: Claude and Codex as two cards, side by side", g.cards.length === 2 && a.name === "Claude" && b.name === "Codex" && Math.abs(a.y - b.y) < 2 && b.x >= a.right - 1, g.cards);
+        // The first impression is the whole decision: at an ordinary window it fits, Start included.
+        check("wide: the whole page fits the window, Start on screen", !g.scrolls && g.start.bottom <= g.win.h, { start: g.start, win: g.win });
+      } else {
+        check("narrow: the cards stack, Claude first", g.cards.length === 2 && b.y >= a.bottom - 1 && Math.abs(a.x - b.x) < 2, g.cards);
       }
+      check(`${label}: nothing runs off the side`, g.overflowX === false, { overflowX: g.overflowX });
+      check(`${label}: focus lands in the name field`, g.focused === "Space name", g.focused);
+      check(`${label}: the identity controls are both there`, g.swatches === 10 && g.iconTrigger, { swatches: g.swatches, iconPicker: g.iconTrigger });
     }
   }
   await c.send("Emulation.clearDeviceMetricsOverride");
-  console.log("wrote /tmp/onboarding-{wide,narrow}-{dark,light}.png");
   c.close();
 }
-main().catch((e) => { console.log("FAIL", e.message); process.exitCode = 1; })
-  .finally(() => { electron?.kill(); fs.rmSync(scratch, { recursive: true, force: true }); });
+/**
+ * The server is a SECOND Electron, spawned by the one this started, and killing the parent leaves it
+ * holding REALM_PORT — an earlier run's sat on both ports for forty minutes. So teardown clears the
+ * two ports by owner rather than by pid, which also catches an orphan of an interrupted run; the run
+ * refused to start while either was taken, so nothing else can be on them.
+ */
+function reap() {
+  electron?.kill("SIGKILL");
+  for (const port of [SERVER_PORT, CDP_PORT]) {
+    const out = execSync(`lsof -nP -iTCP:${port} -sTCP:LISTEN -t || true`, { encoding: "utf8" }).trim();
+    for (const pid of out.split("\n").filter(Boolean)) { try { process.kill(Number(pid), "SIGKILL"); } catch {} }
+  }
+  fs.rmSync(scratch, { recursive: true, force: true });
+}
+main().catch((e) => { console.log("FAIL", e.message); process.exitCode = 1; }).finally(reap);
+for (const sig of ["SIGINT", "SIGTERM", "SIGALRM"]) process.on(sig, () => { reap(); process.exit(1); });

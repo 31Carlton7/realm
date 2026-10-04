@@ -88,6 +88,52 @@ describe("ProbeCache", () => {
     expect(p.passes).toBe(2);
   });
 
+  it("amend rewrites the cached answer without making it any younger", async () => {
+    // One agent probed on its own is fresh; the rest of the rows are as old as they were.
+    let now = 0;
+    const p = prober(() => "v1");
+    const c = new ProbeCache(p.run, { ttlMs: 30_000, now: () => now });
+    await c.get();
+    now = 29_999;
+    c.amend((rows) => rows.map((r) => ({ ...r, loggedIn: true })));
+    expect((await c.get())[0]!.loggedIn).toBe(true);
+    expect(p.passes).toBe(1);
+    now = 30_000;
+    await c.get();
+    expect(p.passes).toBe(2);
+  });
+
+  it("a probe out when something is amended lands with it, rather than over it", async () => {
+    // The sign-in that just finished, against the window-focus probe that looked a moment before:
+    // landing late, that probe would put "not signed in" back in the cache for every caller.
+    const p = prober(() => "v1");
+    p.gate.hold = true;
+    const c = new ProbeCache(p.run, { now: () => 0 });
+    const out = c.get({ force: true });
+    await Promise.resolve();
+    c.amend((rows) => rows.map((r) => ({ ...r, loggedIn: true })));
+    p.let();
+    expect((await out)[0]).toMatchObject({ version: "v1", loggedIn: true });
+    expect((await c.get())[0]!.loggedIn).toBe(true);
+  });
+
+  it("a probe that started after an amendment answers with what it saw itself", async () => {
+    // It looked after the amendment was learned, so its own reading is the newer one.
+    let version = "v1";
+    const p = prober(() => version);
+    p.gate.hold = true;
+    const c = new ProbeCache(p.run, { now: () => 0 });
+    const first = c.get();
+    await Promise.resolve();
+    c.amend((rows) => rows.map((r) => ({ ...r, version: "amended" })));
+    version = "v2";
+    p.gate.hold = false;
+    expect((await c.get({ force: true }))[0]!.version).toBe("v2");
+    p.let();
+    // …while the one that was already out when it was learned still lands with it.
+    expect((await first)[0]!.version).toBe("amended");
+  });
+
   it("two forced gets in flight share one pass — a double-click is one question", async () => {
     const p = prober(() => "v1");
     p.gate.hold = true;

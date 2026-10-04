@@ -188,7 +188,8 @@ describe("CliService.status", () => {
   });
 
   it("offers the install command, and no version, for a CLI that is not there", async () => {
-    const env = machine([]);
+    // npm is on this machine — the offer below is one `cli.run` can actually carry out.
+    const env = machine([{ bin: "npm", under: "unknown" }]);
     const { impl, urls } = fakeFetch({});
     const svc = new CliService({ probe: probes([{ kind: "codex", available: false, reason: "not found" }]), fetchImpl: impl, env });
     const codex = row(await svc.status(), "codex");
@@ -249,6 +250,75 @@ describe("CliService.status", () => {
     const { impl } = fakeFetch({ [CODEX_LATEST]: { latest: "0.153.4" } });
     const svc = new CliService({ probe: probes([{ kind: "codex", version: "codex-cli 0.146.0" }]), fetchImpl: impl, env });
     expect(row(await svc.status(), "codex").updateAvailable).toBe(false);
+  });
+});
+
+describe("CliService on a Mac that is missing things", () => {
+  it("says Node.js is missing instead of offering an npm install that cannot run", async () => {
+    /* THE MUTANT: offer the route's command whatever is on PATH. On a Mac with no npm, `cli.run`
+       spawns one anyway and the person who pressed Install reads `spawn npm ENOENT`. */
+    const env = machine([]);
+    const svc = new CliService({ probe: probes([{ kind: "codex", available: false }]), fetchImpl: fakeFetch({}).impl, env });
+    const codex = row(await svc.status(), "codex");
+    expect(codex).toMatchObject({ installed: false, action: "none", command: null });
+    // Node.js by name: it is the thing to go and get, and the first run offers it beside this line.
+    expect(codex.refusal).toBe("Codex installs with npm, which comes with Node.js — and Node.js isn't on this Mac yet.");
+  });
+
+  it("names Homebrew and uv the same way for the routes that run them", async () => {
+    const env = machine([{ bin: "npm", under: "unknown" }]);
+    const svc = new CliService({
+      probe: probes([{ kind: "acp:goose", available: false }, { kind: "acp:openhands", available: false }]),
+      fetchImpl: fakeFetch({}).impl, env,
+    });
+    const rows = await svc.status();
+    expect(row(rows, "acp:goose")).toMatchObject({ action: "none", command: null });
+    expect(row(rows, "acp:goose").refusal).toContain("Homebrew isn't on this Mac");
+    expect(row(rows, "acp:openhands").refusal).toContain("uv isn't on this Mac");
+    // A vendor script needs only curl and bash, so its offer stands with none of the three present.
+    expect(row(rows, "acp:cursor")).toMatchObject({ action: "install", refusal: null });
+  });
+
+  it("notices Node.js arriving within the probe's thirty seconds, not the registry check's six hours", async () => {
+    /* THE MUTANT: look for the tools in the six-hour sweep. Someone who read "Node.js isn't on this
+       Mac yet", installed it and came back would still find no Install button for the rest of the
+       day. Inside the thirty seconds the cached look stands, which keeps a status call free of fs. */
+    const env = machine([]);
+    let clock = 0;
+    const svc = new CliService({ probe: probes([{ kind: "codex", available: false }]), fetchImpl: fakeFetch({}).impl, env, now: () => clock });
+    expect(row(await svc.status(), "codex").action).toBe("none");
+    writeFileSync(join(env.PATH, "npm"), "#!/bin/sh\n", { mode: 0o755 });
+    clock = 10_000;
+    expect(row(await svc.status(), "codex").action).toBe("none");
+    clock = 30_001;
+    expect(row(await svc.status(), "codex")).toMatchObject({ action: "install", command: "npm install -g @openai/codex", refusal: null });
+  });
+
+  it("looks again at once when forced — Settings' Check for updates", async () => {
+    const env = machine([]);
+    const svc = new CliService({ probe: probes([{ kind: "codex", available: false }]), fetchImpl: fakeFetch({}).impl, env });
+    expect(row(await svc.status(), "codex").action).toBe("none");
+    writeFileSync(join(env.PATH, "npm"), "#!/bin/sh\n", { mode: 0o755 });
+    expect(row(await svc.status({ force: true }), "codex").action).toBe("install");
+  });
+
+  it("offers nothing to run for the Claude that comes with Realm, and says why", async () => {
+    /* THE MUTANT: treat it like any Claude. The probe answered from the SDK's own binary because
+       there is no `claude` on PATH, so the self-updater this row would offer spawns a binary that is
+       not there — and Realm's copy is Realm's to update in any case. */
+    const env = machine([]);
+    const svc = new CliService({ probe: probes([{ kind: "claude", version: "2.1.281 (Claude Code)", loggedIn: true }]), fetchImpl: fakeFetch({}).impl, env });
+    const claude = row(await svc.status(), "claude");
+    expect(claude).toMatchObject({ installed: true, version: "2.1.281 (Claude Code)", action: "none", command: null, updateAvailable: false });
+    expect(claude.refusal).toContain("comes with Realm");
+  });
+
+  it("still offers claude's own updater when there IS a claude on PATH", async () => {
+    // The other half of the mutant above: every Claude read as Realm's copy, and nobody's own CLI
+    // ever offered `claude update` again.
+    const env = machine([{ bin: "claude", under: "unknown" }]);
+    const svc = new CliService({ probe: probes([{ kind: "claude", version: "2.1.258 (Claude Code)" }]), fetchImpl: fakeFetch({}).impl, env });
+    expect(row(await svc.status(), "claude")).toMatchObject({ action: "update", command: "claude update", refusal: null });
   });
 });
 

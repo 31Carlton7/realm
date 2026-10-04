@@ -1323,6 +1323,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       await wait("probeAgents");
       return data.agentProbe;
     },
+    probeAgent: async (kind) => {
+      calls.push(`probeAgent:${kind}`);
+      await wait("probeAgent");
+      return data.agentProbe.find((r) => r.kind === kind) ?? null;
+    },
     cliStatus: async (force) => {
       calls.push(`cliStatus:${force}`);
       await wait("cliStatus");
@@ -1340,6 +1345,14 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`startSignIn:${spaceId}:${kind}${sessionId ? `:${sessionId}` : ""}`);
       return { terminalId: `term-${kind}`, command: `${kind} auth login` };
     },
+    // The space-less sign-in answers with the page already up, as a real CLI does within a second; a
+    // test moves it on by applying events itself.
+    agentSignInStart: async (kind) => {
+      calls.push(`agentSignInStart:${kind}`);
+      return { id: `si-${kind}`, kind, state: "browser", url: `https://example.com/oauth/authorize?client=${kind}`, detail: null };
+    },
+    agentSignInCode: async (id, code) => { calls.push(`agentSignInCode:${id}:${code.length}`); },
+    agentSignInCancel: async (id) => { calls.push(`agentSignInCancel:${id}`); },
     modelCatalog: async (force) => {
       calls.push(`modelCatalog:${force}`);
       await wait("modelCatalog");
