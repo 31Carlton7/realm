@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AGENT_CLI_COMMANDS } from "@realm/contracts";
-import { SignInFlow, signInUrlOn, type SignInFlowDeps } from "./signin-flow";
+import { SignInFlow, announceSignIn, signInUrlOn, type SignInFlowDeps } from "./signin-flow";
 import { renderScreen } from "../terminals/screen";
 
 const SPACE = "space1";
@@ -157,5 +157,19 @@ describe("starting a sign-in", () => {
     expect(settled.browserId).toBeNull();
     expect(settled.screen.screen[0]).toContain("Checking for updates");
     expect(calls.opened).toEqual(["terminal"]);
+  });
+});
+
+describe("announcing a sign-in's panes", () => {
+  it("names the terminal as the session's at once and the page only once it is open", async () => {
+    const { flow } = setup({ output: ["Checking for updates…", `Open this link: ${CONSENT}`] });
+    const r = await flow.start(SPACE, "claude");
+    if (!r.ok) throw new Error(r.reason);
+    const said: { event: string; payload: unknown }[] = [];
+    const pending = announceSignIn({ broadcast: (event, payload) => { said.push({ event, payload }); } }, SPACE, "se1", r);
+    expect(said).toEqual([{ event: "terminal.agentOpened", payload: { spaceId: SPACE, terminalId: "t1", itemId: "i1", openedBy: "se1" } }]);
+    const settled = await pending;
+    expect(settled.browserId).toBe("b1");
+    expect(said[1]).toEqual({ event: "browser.agentOpened", payload: { spaceId: SPACE, browserId: "b1", itemId: "i2", openedBy: "se1" } });
   });
 });

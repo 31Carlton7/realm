@@ -2,6 +2,7 @@ import { AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, agentLabel, type AgentKind } fro
 import { isOAuthConsentUrl } from "./guards";
 import { screenText, type TerminalScreen } from "../terminals/screen";
 import type { SignInTickets } from "./signin";
+import type { RpcServer } from "../rpc/server";
 
 /**
  * Signing an agent CLI in, without handing the user a command to go and run.
@@ -141,6 +142,28 @@ export class SignInFlow {
       if (!alive) return { url: screen ? signInUrlOn(screen) : null, screen: screen ?? EMPTY_SCREEN };
     }
   }
+}
+
+/**
+ * Say whose panes a started sign-in made: the terminal now, the consent page once it is open, both
+ * as `openedBy`'s — a tab each of that session's side pane, the way panes it opened itself arrive.
+ * Unannounced, the app learns of them only as items, and a sidebar that lists sessions shows them
+ * nowhere: the user would click "Sign in" and see nothing happen.
+ *
+ * Shared by the agent's tool and the session card's button, which differ only in whether they wait.
+ * Resolves with the outcome and never rejects, because `settled` never does.
+ */
+export function announceSignIn(
+  rpc: Pick<RpcServer, "broadcast">, spaceId: string, openedBy: string,
+  started: Extract<SignInStart, { ok: true }>,
+): Promise<SignInSettled> {
+  rpc.broadcast("terminal.agentOpened", { spaceId, terminalId: started.terminalId, itemId: started.terminalItemId, openedBy });
+  return started.settled.then((settled) => {
+    if (settled.browserId && settled.browserItemId) {
+      rpc.broadcast("browser.agentOpened", { spaceId, browserId: settled.browserId, itemId: settled.browserItemId, openedBy });
+    }
+    return settled;
+  });
 }
 
 const EMPTY_SCREEN: TerminalScreen = { screen: [], scrollback: [], cursor: { row: 0, col: 0 }, cols: 100, rows: 30, altScreen: false };

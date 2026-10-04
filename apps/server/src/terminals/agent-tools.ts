@@ -8,7 +8,7 @@ import type { McpService } from "../mcp/service";
 import type { ItemsStore } from "../store/items";
 import type { TerminalsStore } from "../store/terminals";
 import type { BrowserPermissionBroker } from "../browsers/permissions";
-import type { SignInFlow } from "../browsers/signin-flow";
+import { announceSignIn, type SignInFlow } from "../browsers/signin-flow";
 import { MAX_SCROLLBACK_LINES, screenText, type TerminalScreen } from "./screen";
 import type { TerminalService } from "./service";
 
@@ -409,15 +409,9 @@ const HANDLERS: Record<string, Handler> = {
 
     const started = await d.signIn.start(ctx.spaceId, args.value.kind);
     if (!started.ok) return err(started.reason);
-    // Both panes the flow makes are this session's, as ones it opened itself are: a tab each of its
-    // side pane. Unannounced, the app learns of them only as items — a sidebar row, nothing on screen.
-    d.rpc.broadcast("terminal.agentOpened", { spaceId: ctx.spaceId, terminalId: started.terminalId, itemId: started.terminalItemId, openedBy: ctx.sessionId });
     // A tool call wants the whole outcome, so it waits for the half a button does not — see
     // `SignInStart.settled`.
-    const settled = await started.settled;
-    if (settled.browserId && settled.browserItemId) {
-      d.rpc.broadcast("browser.agentOpened", { spaceId: ctx.spaceId, browserId: settled.browserId, itemId: settled.browserItemId, openedBy: ctx.sessionId });
-    }
+    const settled = await announceSignIn(d.rpc, ctx.spaceId, ctx.sessionId, started);
 
     // The terminal this flow made belongs to this session, on the same terms one it opened itself
     // does: the code typed back at the end goes into THIS pty, and having to re-approve a terminal

@@ -30,7 +30,7 @@ import type { ThemesService } from "../themes/service";
 import type { FontsService } from "../fonts/service";
 import type { McpService } from "../mcp/service";
 import type { ComputerAppAllowlist } from "../computer/allowlist";
-import type { SignInFlow } from "../browsers/signin-flow";
+import { announceSignIn, type SignInFlow } from "../browsers/signin-flow";
 import type { BrowserPermissionBroker } from "../browsers/permissions";
 import type { McpHub } from "../mcp/hub";
 import type { McpGateway } from "../mcp/gateway";
@@ -248,12 +248,12 @@ export function registerMethods(d: Deps): void {
   reg("fonts.remove", (p) => { d.fonts.remove(p.family); rpc.broadcast("fonts.changed", {}); return { ok: true as const }; });
   reg("fonts.faces", (p) => ({ faces: d.fonts.faces(p.family) }));
   /* Answers on the terminal, not on the outcome — see the method's own doc comment. The waiting half
-     is deliberately dropped on the floor here rather than awaited: it opens the consent pane by
-     itself, through the same item broadcast every pane arrives on, and it cannot reject. */
+     is deliberately not awaited: it opens the consent pane by itself, announced as the asking
+     session's when there is one, and it cannot reject. */
   reg("signin.start", async (p) => {
     const started = await d.signIn.start(p.spaceId, p.kind);
     if (!started.ok) throw new RpcError("BAD_REQUEST", started.reason);
-    void started.settled;
+    void (p.sessionId ? announceSignIn(rpc, p.spaceId, p.sessionId, started) : started.settled);
     return { terminalId: started.terminalId, command: started.command };
   });
   reg("settings.get", (p) => ({ value: d.settings.get(p.key) }));

@@ -2026,11 +2026,13 @@ describe("the CLI-missing install card (W4)", () => {
     expect(screen.queryByText(AGENT_CLI_COMMANDS.claude.install)).toBeNull();
   });
 
-  it("offers Sign in on the signed-out card, and starts the flow for THAT agent", async () => {
+  it("offers Sign in on the signed-out card, and starts the flow for THAT agent, from THIS session", async () => {
     const { api } = await mountAgent([signedOut]);
     await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Sign in" })); });
-    expect(api.calls.some((c) => c.startsWith("startSignIn:") && c.endsWith(":claude"))).toBe(true);
+    // The session id is what puts the terminal and the consent page in this session's side pane; a
+    // sign-in started without it opens panes the sidebar of sessions never shows.
+    expect(api.calls).toContain("startSignIn:s1:claude:se1");
   });
 
   /**

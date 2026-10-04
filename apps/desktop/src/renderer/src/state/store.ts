@@ -418,8 +418,8 @@ export type Api = {
   runCli(kind: AgentKind, action: "install" | "update"): Promise<CliJobStart>;
   /** `signin.start` — open a terminal in this space and run the agent CLI's own login command.
    *  Resolves once the shell is running with the command typed, NOT when the sign-in finishes: the
-   *  terminal and then the consent pane arrive as items, the way every other pane does. */
-  startSignIn(spaceId: string, kind: AgentKind): Promise<{ terminalId: string; command: string }>;
+   *  terminal and then the consent pane arrive as `sessionId`'s panes, the way an agent's own do. */
+  startSignIn(spaceId: string, kind: AgentKind, sessionId: string | null): Promise<{ terminalId: string; command: string }>;
   /** `models.catalog` — prices, context windows and reasoning efforts for the picker. Never rejects
    *  on a dead network: the server answers with its cache, or with nothing. */
   modelCatalog(force: boolean): Promise<ModelInfo[]>;
@@ -1955,8 +1955,8 @@ export type AppState = {
   refreshCliStatus(force?: boolean): Promise<void>;
   runCliAction(kind: AgentKind, action: "install" | "update"): Promise<void>;
   /** Start signing this agent in, in `spaceId` (else the current space). The panes it opens are the
-   *  feedback. */
-  startSignIn(kind: AgentKind, spaceId?: string | null): Promise<void>;
+   *  feedback — in `sessionId`'s side pane, the session whose card asked. */
+  startSignIn(kind: AgentKind, spaceId?: string | null, sessionId?: string | null): Promise<void>;
   /**
    * Whether this SPACE lets Realm finish a sign-in itself, including the click on Authorize.
    *
@@ -5457,15 +5457,15 @@ await get().refreshCustomThemes().catch(() => {});
       async setSpaceSignInEnabled(spaceId, enabled) {
         await api.setSetting(`${AGENT_SIGNIN_KEY}:${spaceId}`, enabled);
       },
-      async startSignIn(kind, spaceId = null) {
+      async startSignIn(kind, spaceId = null, sessionId = null) {
         const sid = spaceFor(spaceId);
         if (!sid) return;
-        await api.startSignIn(sid, kind);
-        /* Nothing is stored. What the user gets back is the terminal pane, which arrives through
-           `items.changed` like any other, and the card they clicked from stays where it is until the
-           agent really is signed in — which only a re-probe can say, and which "Check again" and the
-           window-focus listener already ask. A local "signing in…" flag would be this client's guess
-           at a state the server is the one holding. */
+        await api.startSignIn(sid, kind, sessionId);
+        /* Nothing is stored. What the user gets back is the terminal pane, which the server announces
+           as the asking session's (`terminal.agentOpened`), and the card they clicked from stays where
+           it is until the agent really is signed in — which only a re-probe can say, and which "Check
+           again" and the window-focus listener already ask. A local "signing in…" flag would be this
+           client's guess at a state the server is the one holding. */
       },
       async runCliAction(kind, action) {
         const started = await api.runCli(kind, action);

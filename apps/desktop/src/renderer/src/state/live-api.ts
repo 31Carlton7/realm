@@ -167,7 +167,7 @@ export const liveApi = (): Api => ({
   probeAgents: (force) => rpc().call("agents.probe", { force }),
   cliStatus: async (force) => (await rpc().call("cli.status", { force })).rows,
   runCli: (kind, action) => rpc().call("cli.run", { kind, action }),
-  startSignIn: (spaceId, kind) => rpc().call("signin.start", { spaceId, kind }),
+  startSignIn: (spaceId, kind, sessionId) => rpc().call("signin.start", { spaceId, kind, ...(sessionId ? { sessionId } : {}) }),
   modelCatalog: async (force) => (await rpc().call("models.catalog", { force })).rows,
   usageSummary: (p) => rpc().call("usage.summary", p),
   usageActiveDays: (p) => rpc().call("usage.activeDays", p),

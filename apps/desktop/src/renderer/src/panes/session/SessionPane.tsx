@@ -608,7 +608,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onOpenInTerminal={(command) => run(() => prefillTerminal(id, command))}
             offer={cliOffer} job={cliJob ?? null}
             onInstall={() => run(() => runCliAction(session.agentKind, "install"))}
-            onSignIn={() => run(() => startSignIn(session.agentKind, session.spaceId))}
+            onSignIn={() => run(() => startSignIn(session.agentKind, session.spaceId, session.id))}
             onDismissJob={() => dismissCliJob(session.agentKind)} />
         : <Composer session={session} status={status} gitInfo={gitInfo} todos={todos} quote={quote}
             onOpenDiff={() => run(() => openDiff(session.environmentId))} draft={draft} onDraftChange={(t) => setDraft(id, t)}

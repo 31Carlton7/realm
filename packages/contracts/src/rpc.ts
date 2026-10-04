@@ -949,11 +949,15 @@ export const Methods = {
    * started was already visible. What follows (reading the URL, opening the consent pane) arrives
    * as panes, through the item broadcasts every other pane uses.
    *
+   * `sessionId` names the session whose card asked. Both panes are then announced as its own
+   * (`terminal.agentOpened`, then `browser.agentOpened`) and open in its side pane; without one they
+   * arrive only as items, which a sidebar of sessions does not show.
+   *
    * Refuses for an agent with no login command — Gemini's route is an API key, which is a sentence
    * rather than a line to run.
    */
   "signin.start": {
-    params: z.object({ spaceId: IdSchema, kind: AgentKindSchema }),
+    params: z.object({ spaceId: IdSchema, kind: AgentKindSchema, sessionId: IdSchema.optional() }),
     result: z.object({ terminalId: IdSchema, command: z.string() }),
   },
   "settings.get": { params: z.object({ key: z.string() }), result: z.object({ value: z.unknown() }) },
