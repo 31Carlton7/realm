@@ -2373,6 +2373,8 @@ describe("light mode", () => {
     [".media-lightbox-bar .media-name", "on a video frame"], [".media-lightbox-bar .media-detail", "on a video frame"],
     [".media-lightbox-bar .media-action", "on a video frame"], [".media-lightbox-bar .media-action:hover", "on a video frame"],
     [".attach-tile[data-image] .attach-ext", "on the attached picture"],
+    // The Library tile's caption, which comes up over the file's own picture.
+    [".library-tile-caption", "on the file's own picture"],
     /* A switch knob is white in both modes, the way it is on every platform that has one. It used to
        take `--surface`, which flips — so in dark mode the OFF state was a dark dot on a light track,
        backwards from every switch a person has ever used, and the ON state was a dark dot on the
@@ -2443,14 +2445,14 @@ describe("light mode", () => {
   });
 
   it("a file card set into the dock's raised surface takes the raised frame step, and light's is no weaker than dark's", () => {
-    /* One card, two grounds. In the Library it is --rl-frame on the canvas, and stays so; in the Files
-       dock it stands on --surface, where --rl-frame is one rung off white on the light face and
-       measured 1.04:1 — a card with no edge. THE MUTANTS: point the dock's card or its well back at
-       --rl-frame; drop the dock's hover (its fill then out-ranks the Library's `:hover`, and the card
-       stops answering the pointer); or set the light value back up the ladder. */
-    expect(bodiesFor(".library-tile").join(" ")).toContain("background: var(--rl-frame)");
+    /* One card, two grounds. In the Library it is a tile raised off the canvas (--rl-tile), as Codex's
+       are; in the Files dock it stands on --surface, where a lift off white is no step at all, so it
+       takes the raised frame step instead — --rl-frame one rung off white measured 1.04:1 there, a
+       card with no edge. THE MUTANTS: point the dock's card back at the Library's fill; drop the
+       dock's hover (its fill then out-ranks the Library's `:hover`, and the card stops answering the
+       pointer); or set the light value back up the ladder. */
+    expect(bodiesFor(".library-tile").join(" ")).toContain("background: var(--rl-tile)");
     expect(bodiesFor(".session-files .library-tile").join(" ")).toContain("background: var(--rl-frame-raised)");
-    expect(bodiesFor(".session-files .library-tile-mark").join(" ")).toContain("background: var(--rl-frame-raised)");
     expect(bodiesFor(".session-files .library-tile:hover").join(" ")).toContain("background: var(--rl-frame-raised-hover)");
     expect(bodiesFor(":root").join(" ")).toContain("--rl-frame-raised: var(--page)");
 

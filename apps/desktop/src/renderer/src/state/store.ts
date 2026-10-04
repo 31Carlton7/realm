@@ -758,6 +758,9 @@ const SETTING_SIDEBAR_OPEN_SPACES = "ui.sidebarOpenSpaces";
 const SETTING_CONFIRM_DELETE = "ui.confirmDelete";
 /** How a session's file browser lays a folder out — see `filesView`. */
 export const SETTING_FILES_VIEW = "ui.filesView";
+/** How the Library lays its files out. Its own key, not the session browser's: the Library opens on
+ *  tiles, as Codex's does, and a person who reads a folder as rows has not said anything about it. */
+export const SETTING_LIBRARY_VIEW = "ui.libraryView";
 /** Per-session terminal-panel state (open + width), keyed by session id. */
 export const SETTING_TERMINAL_PANEL = "ui.terminalPanel";
 /** The quick chat: which session it is, and where its window sits. One key, because the two are only
@@ -950,6 +953,8 @@ export type AppState = {
    * on every launch is a chore rather than a preference.
    */
   filesView: FilesView;
+  /** The Library's grid or rows (`SETTING_LIBRARY_VIEW`); tiles unless the person chose rows. */
+  libraryView: FilesView;
   /**
    * The space strip sorts by activity instead of the order you last dragged it into.
    *
@@ -1616,6 +1621,8 @@ export type AppState = {
   toggleSidebar(): Promise<void>;
   /** Lay the session file browser out as `view`, and remember it (`SETTING_FILES_VIEW`). */
   setFilesView(view: FilesView): Promise<void>;
+  /** Lay the Library's files out as `view`, and remember it (`SETTING_LIBRARY_VIEW`). */
+  setLibraryView(view: FilesView): Promise<void>;
   /** Show the space's items or the call feed. Turning the feed ON clears any narrowing the sheet
    *  left behind — a filter nobody can see in this column would silently hide rows — and leaves the
    *  reading to the feed itself. */
@@ -3578,7 +3585,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
+      sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, error: null,
       allItems: [], archivedSessions: null, lastAgentKind: null, renamingItemId: null,
       connectionState: "connected",
       keybindings: DEFAULT_KEYBINDINGS, paletteOpen: false, paletteMode: "all", paletteReplaces: null, peek: null, spacesOpen: false, lastSpaceByProfile: {}, sheet: null, browserRects: [], sheetSnap: null, browserActions: {}, browserDriving: {}, terminalDriving: {}, machineState: {}, simulatorState: {}, goals: {}, machineGrab: {}, machineImageProgress: {}, machineScale: {},
@@ -3601,13 +3608,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, openSpaces, askDelete, lastAgent, eggs, konami, panels, quick, filesView, system, avatarPath] = await Promise.all([
+        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, openSpaces, askDelete, lastAgent, eggs, konami, panels, quick, filesView, libraryView, system, avatarPath] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_ACTIVE_PROFILE), api.getSetting(SETTING_THEME),
           api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_PANE_ALPHA), api.getSetting(REDUCED_MOTION_KEY), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_SIDEBAR_OPEN_SPACES), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
           api.getSetting(SETTING_TERMINAL_PANEL),
           api.getSetting(SETTING_QUICK_CHAT),
           api.getSetting(SETTING_FILES_VIEW),
+          api.getSetting(SETTING_LIBRARY_VIEW),
           // Labels, not dependencies: a failure here must not take boot down with it — the strip
           // simply shows no machine name, and the greeting no name.
           api.systemInfo().catch(() => ({ machineName: "", userName: "", detachedSince: null })),
@@ -3634,6 +3642,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           // Rows unless the row says cards: an unset key, and a word a newer build wrote that this
           // one does not know, both get the layout the panel shipped with.
           filesView: filesView === "grid" ? "grid" : "list",
+          // Tiles unless the row says rows — the same posture the other way round.
+          libraryView: libraryView === "list" ? "list" : "grid",
           // Defaulted OFF: the strip's resting order is the one the user dragged it into, and a
           // preference nobody could read must not rearrange their spaces on them at launch.
           sidebarActivityOrder: activityOrder === true,
@@ -4102,6 +4112,10 @@ await get().refreshCustomThemes().catch(() => {});
       async setFilesView(view) {
         set({ filesView: view });
         await api.setSetting(SETTING_FILES_VIEW, view);
+      },
+      async setLibraryView(view) {
+        set({ libraryView: view });
+        await api.setSetting(SETTING_LIBRARY_VIEW, view);
       },
       setSidebarView(view) {
         if (get().sidebarView === view) return;

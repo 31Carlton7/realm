@@ -65,6 +65,9 @@ export const LibraryQuerySchema = z.object({
   /** Null spans every space in the profile, which is what "across all sessions" means. */
   spaceId: z.string().nullable().default(null),
   kind: z.enum(ARTIFACT_KINDS).nullable().default(null),
+  /** The broad type a file reads as (`artifactTypeOf`), answered from the stored extension — so a type
+   *  narrows the whole index, never only the page already in the renderer. Null is every type. */
+  type: z.lazy(() => z.enum(ARTIFACT_TYPES)).nullable().default(null),
   /** Matched against the file's NAME, not its path: a user looking for `report.md` should not have
    *  to also match the eleven directories above it. */
   query: z.string().default(""),
@@ -105,6 +108,14 @@ const TYPE_BY_EXT: Record<string, ArtifactType> = {
 };
 
 export const artifactTypeOf = (ext: string): ArtifactType => TYPE_BY_EXT[ext] ?? "other";
+
+/** Every extension that reads as `type`, for a query that narrows by type: the stored `ext` column is
+ *  an indexed equality, so a type is an `IN` over these. `other` has no list of its own — it is every
+ *  extension NOT in any list, which is `extsOfType`'s answer for the other six put together. */
+export function extsOfType(type: Exclude<ArtifactType, "other">): string[] {
+  return Object.keys(TYPE_BY_EXT).filter((ext) => TYPE_BY_EXT[ext] === type);
+}
+export const KNOWN_EXTS: readonly string[] = Object.keys(TYPE_BY_EXT);
 
 /**
  * The artifacts one persisted event produced, if any.

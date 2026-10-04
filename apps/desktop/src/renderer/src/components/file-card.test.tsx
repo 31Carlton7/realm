@@ -52,7 +52,7 @@ describe("a file card's picture", () => {
 
     await show();
     await waitFor(() => expect(asked).toHaveBeenCalledWith("/space/shot.png", "card"));
-    await waitFor(() => expect(container.querySelector(".library-tile-art[data-thumb] img.library-tile-thumb")).not.toBeNull());
+    await waitFor(() => expect(container.querySelector(".library-tile[data-thumb] > img.library-tile-thumb")).not.toBeNull());
   });
 
   it("stops watching the moment it has been seen", async () => {

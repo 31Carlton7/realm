@@ -103,6 +103,12 @@
   --rl-card: var(--overlay-lighten-100);
   --rl-card-hover: var(--overlay-lighten-200);
   --rl-card-rim: var(--line);
+  /* A file's tile, which Codex raises further than a settings card — its tiles are sixteen levels
+     over the page where its cards are six — because a tile is an object you pick up, not a group of
+     controls you read. */
+  --rl-tile: var(--overlay-lighten-200);
+  --rl-tile-hover: var(--overlay-lighten-300);
+  --rl-tile-press: var(--overlay-lighten-400);
   /* borders: BUI hairlines are solid and crisp, not alpha — hairline = line now */
   --rl-line: var(--line);                        /* BUI --line */
   --rl-line-strong: var(--line-strong);          /* BUI --line-strong */
@@ -236,6 +242,9 @@
   --rl-frame-raised-hover: oklch(0.915 0.003 247.86);
   --rl-card: var(--surface);
   --rl-card-hover: oklch(0.975 0.002 247.85);
+  --rl-tile: var(--surface);
+  --rl-tile-hover: oklch(0.975 0.002 247.85);
+  --rl-tile-press: oklch(0.955 0.002 247.85);
   --rl-shadow: var(--shadow-lg);                 /* shadow-plugin's smooth lg stack (BUI light --shadow-overlay, shadow half) */
   /* Dark on the light face too: a guest machine's desktop is arbitrary, and a near-white surround
      would fight it. */
@@ -5809,6 +5818,9 @@ select { appearance: none; padding-right: 22px;
    where nothing is painting it. */
 :root[data-mode="light"] .settings-page-pane .search-field { --sq-fill: var(--surface); }
 :root[data-mode="light"]:not([data-squircle]) .settings-page-pane .search-field { background: var(--surface); }
+/* The Library's search stands on the same ground, so it takes the same step. */
+:root[data-mode="light"] .library-search > .search-field { --sq-fill: var(--surface); }
+:root[data-mode="light"]:not([data-squircle]) .library-search > .search-field { background: var(--surface); }
 @container (max-width: 640px) {
   .page-rail.settings-rail { flex-direction: column; gap: 8px; overflow: visible; max-height: none; }
   .settings-rail-lists { flex-direction: row; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
@@ -6129,73 +6141,107 @@ select { appearance: none; padding-right: 22px;
 .fan-out-note { font-size: 11.5px; line-height: 1.45; color: var(--rl-text-faint); }
 
 /* ── The Library's file browser ────────────────────────────────────────────
-   A grid of tiles grouped by day, which is what a file browser over a timeline of work is: the
-   question is almost always "the thing from this afternoon", and a flat list sorted by date answers
-   it only after you have counted rows. Tiles rather than a table because a name and where it came
-   from are the two facts that matter, and a table would spend most of its width on columns nobody
-   scans (a path nobody types, a size nobody compares). */
-.library-files { display: flex; flex-direction: column; }
-.library-day { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
-.library-day-label { margin: 0; font-size: 11px; font-weight: var(--fw-title); color: var(--rl-text-faint); }
+   Codex's library, measured off its window: the kinds of file as tabs over a grid of square tiles,
+   210pt wide and 16 apart, a step brighter than the ground. Grouped by day, because the question
+   is almost always "the thing from this afternoon", and a flat list sorted by date answers it only
+   after you have counted rows. The toolbar is the column's own head and stands outside its
+   scroller, so it never dissolves with the files moving under it. */
+.library-files { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+/* Inset by the scroller's own bleed, so the tabs' first edge and the first tile's sit on one line. */
+.library-toolbar { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; margin: 0 0 14px; }
+.library-types { flex: 1; min-width: 0; }
+.library-tools { flex: none; display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.library-filter { --btn-h: 32px; width: var(--btn-h); height: var(--btn-h); }
+/* Lit while it narrows something — the state the toolbar would otherwise hide behind a menu. */
+.library-filter[data-on] { background: var(--rl-active); color: var(--rl-text-bright); }
+.library-view { padding: 2px; }
+.library-view .seg-opt { display: grid; place-items: center; width: 30px; height: 24px; padding: 0; }
+/* The search field wears its glyph inside its own curve, as Codex's does. */
+.library-search { position: relative; display: block; width: 240px; }
+.library-search > svg { position: absolute; left: 11px; top: 50%; translate: 0 -50%; color: var(--rl-text-faint); pointer-events: none; }
+.library-search > .search-field { --search-h: 32px; padding-left: 32px; }
+.library-narrowing { gap: 5px; padding-right: 8px; }
+.library-narrowing > svg { color: var(--rl-text-faint); }
+.library-empty { padding: 8px 0; }
+.library-day { display: flex; flex-direction: column; gap: 12px; margin-bottom: 28px; }
+.library-day-label { margin: 0; font-size: 13px; line-height: 18px; font-weight: var(--fw-title); color: var(--rl-text-dim); }
 .library-grid {
   list-style: none; margin: 0; padding: 0;
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 16px;
 }
-/* A card, not a row: a preview field over a caption, the way a drive shows a file. The field is
-   the card's reason to be tall — a screenshot or a frame of video is recognisable at this size
-   where it was a 44px smudge beside a name — and a glyph, which says less, sits small in its well
-   at the field's centre so the card's shape does not change from file to file. */
+/* The tile: ONE square for every file, so the grid's shape never changes from file to file. A file
+   with no picture is its name at the top, its glyph in the middle and what the list knows at the
+   foot; a file whose picture IS the file is that picture, edge to edge. */
 .library-tile {
-  display: flex; flex-direction: column; align-items: stretch;
-  width: 100%; padding: 0; text-align: left; font: inherit; border: none; overflow: hidden;
-  border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-frame); cursor: default;
+  position: relative; display: flex; flex-direction: column; gap: 6px;
+  width: 100%; aspect-ratio: 1; padding: 14px 14px 12px; text-align: left; font: inherit; border: none; overflow: hidden;
+  border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-tile);
+  box-shadow: inset 0 0 0 var(--hairline-w) var(--rl-card-rim); cursor: default;
   transition: background var(--dur-hover) ease;
 }
-/* Every card opens now, so every card answers the mouse. It used to be only the files the documents
-   pane could render, which left most of a grid — archives, images, binaries — as inert grey boxes
-   that took a click and did nothing, with no way to find out why. The preview is the answer to "what
-   can Realm do with this", and it exists for every file. */
-.library-tile:hover { background: var(--rl-hover); }
-.library-tile:is([data-pressed], :active:focus-visible) { background: var(--hover-2); }
-/* The preview field. A fixed aspect rather than a fixed height, so the grid's columns can widen
-   with the pane and every card in a row still shares one shape. One step below the card, which is
-   what separates the field from the caption without a rule. */
-.library-tile-art { position: relative; display: grid; place-items: center; width: 100%; aspect-ratio: 4 / 3;
-  background: var(--inset); overflow: hidden; }
-.library-tile:hover .library-tile-art { background: var(--hover-2); }
-/* The glyph's well, at the field's centre. */
-.library-tile-mark { --btn-h: 56px; display: grid; place-items: center; width: var(--btn-h); height: var(--btn-h);
-  border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
-  background: var(--rl-frame); color: var(--rl-text-dim); }
-.library-tile:hover .library-tile-mark { background: var(--rl-hover); }
-/* One tint per broad type, at the same weight the engine pills use — enough to sort a screenful of
-   tiles by eye, nowhere near enough to compete with the names. */
+/* Every card opens, so every card answers the mouse — the preview is where "what can Realm do with
+   this" gets answered, and it exists for every file. */
+.library-tile:hover { background: var(--rl-tile-hover); }
+.library-tile:is([data-pressed], :active:focus-visible) { background: var(--rl-tile-press); }
+/* Wraps between the name's words (`breakableName`), never inside one, and stops at three lines —
+   room for any name a person would type, without letting one push the glyph out of the square. */
+.library-tile-name {
+  flex: none; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+  overflow-wrap: break-word; font-size: 13px; line-height: 18px; font-weight: var(--fw-medium); color: var(--rl-text-bright);
+}
+.library-tile-art { flex: 1; min-height: 0; display: grid; place-items: center; }
+/* The glyph alone, tinted by type at the weight the engine pills use — enough to sort a screenful
+   of tiles by eye, nowhere near enough to compete with the names. No well: the tile is the well. */
+.library-tile-mark { display: grid; place-items: center; color: var(--rl-text-dim); }
+.library-tile-mark[data-type="document"] { color: var(--rl-accent); }
 .library-tile-mark[data-type="image"] { color: var(--rl-success); }
 .library-tile-mark[data-type="video"], .library-tile-mark[data-type="audio"] { color: var(--rl-accent); }
 .library-tile-mark[data-type="data"] { color: var(--orange); }
 .library-tile-mark[data-type="code"] { color: var(--rl-text-bright); }
-/* A mark holding a PICTURE is a different object from a mark holding a glyph, and the tinted well is
-   the difference. A glyph needs the well to read as a mark at all; a picture is the subject and wants
-   the whole square, so the fill goes and the hairline comes on — the same one-device-pixel inset
-   outline every other image in the app wears (`.attach-art`), which is what keeps a screenshot with a
-   pale edge from bleeding into the card behind it. */
-.library-tile-art[data-thumb] { background: none; box-shadow: var(--shadow-hairline); }
-/* Anchored to the TOP: the field is squarer than most screenshots, and the top of a page is the
-   part that names it. A centred crop of a wide capture showed a band of nothing in particular. */
-.library-tile-thumb { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
-/* The caption: the name, over whatever the list knows about the file — where it came from in the
-   Library, how big it is in a session's folder (the card is shared, `FileCard.tsx`). One line style
-   for both, so the second line reads as the same kind of fact whichever list drew it. */
-.library-tile-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 10px 12px 12px; }
-.library-tile-name { min-width: 0; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.library-tile-from, .library-tile-meta { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 11.5px; color: var(--rl-text-faint); }
+/* The foot: what the list knows beyond the name — where it came from in the Library, how big it is
+   in a session's folder (the card is shared, `FileCard.tsx`). */
+.library-tile-from, .library-tile-meta { flex: none; display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 12px; color: var(--rl-text-dim); }
 .library-tile-kind { flex: none; }
 /* The one item on the row that is user data of unbounded length, so it takes all the slack and gives
    it back first. Everything beside it is a fixed 12px glyph. */
 .library-tile-session { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A picture tile. The picture fills the square — anchored to the TOP, because the top of a page is
+   the part that names it — under the one-device-pixel outline every image in the app wears. Its name
+   and provenance come up over a scrim under the pointer or the focus ring, at once, and fade on the
+   way out (design.md: hover arrives instantly). The scrim is a picture's, so its ink is white on
+   both faces. */
+.library-tile[data-thumb] { padding: 0; }
+.library-tile-thumb { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+.library-tile[data-thumb]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset var(--shadow-hairline); pointer-events: none; }
+.library-tile-caption {
+  position: absolute; inset: auto 0 0 0; display: flex; flex-direction: column; gap: 3px; padding: 32px 12px 10px;
+  background: linear-gradient(to top, rgb(0 0 0 / 0.8), rgb(0 0 0 / 0.55) 55%, transparent);
+  opacity: 0; transition: opacity var(--dur-hover) ease;
+}
+.library-tile[data-thumb]:is(:hover, :focus-visible) .library-tile-caption { opacity: 1; transition-duration: 0s; }
+.library-tile-caption .library-tile-name { -webkit-line-clamp: 2; color: var(--rl-on-media); }
+.library-tile-caption .library-tile-from, .library-tile-caption .library-tile-meta { color: color-mix(in srgb, var(--rl-on-media) 80%, transparent); }
+/* The rows: Codex's list, a file to a line — its mark, its name, where it came from, and when. */
+.library-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.library-row {
+  display: grid; grid-template-columns: 32px minmax(0, 1.4fr) minmax(0, 1fr) auto; align-items: center; gap: 12px;
+  width: 100%; min-height: 44px; padding: 6px 10px; text-align: left; font: inherit; border: none;
+  border-radius: var(--r-ctl); corner-shape: squircle; background: none; cursor: default;
+}
+.library-row:hover { background: var(--rl-hover); }
+.library-row:is([data-pressed], :active:focus-visible) { background: var(--rl-active); }
+.library-row-mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--r-chip); corner-shape: squircle; overflow: hidden;
+  background: var(--rl-tile); color: var(--rl-text-dim); box-shadow: inset 0 0 0 var(--hairline-w) var(--rl-card-rim); }
+.library-row-mark[data-type="document"], .library-row-mark[data-type="video"], .library-row-mark[data-type="audio"] { color: var(--rl-accent); }
+.library-row-mark[data-type="image"] { color: var(--rl-success); }
+.library-row-mark[data-type="data"] { color: var(--orange); }
+.library-row-mark[data-type="code"] { color: var(--rl-text-bright); }
+.library-row-mark > img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+.library-row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
+.library-row-time { font-size: 12.5px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* The pager's sentinel. It has to have height, or an IntersectionObserver on a zero-height box at
    the end of a grid never fires. */
-.library-more { min-height: 40px; display: grid; place-items: center; font-size: 12px; color: var(--rl-text-faint); }
+.library-more { min-height: 40px; display: grid; place-items: center; font-size: 12.5px; color: var(--rl-text-dim); }
 /* A break inside one chip row, between two filters that narrow different things. */
 .filter-sep { align-self: center; width: var(--hairline-w); height: 16px; margin: 0 4px; background: var(--rl-hairline); }
 
@@ -6217,14 +6263,16 @@ select { appearance: none; padding-right: 22px;
 .search-field::placeholder { color: var(--rl-text-faint); }
 .search-field:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
 .filter-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+/* Codex's tabs: a word until it is chosen, then a filled pill. A fill on every chip at rest made a
+   row of six equal buttons, and the one that was on had to be found by its weight. */
 .filter-chip {
-  --btn-h: 28px;
-  display: inline-flex; align-items: center; gap: 6px; height: var(--btn-h); padding: 0 11px;
-  border: none; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
-  background: var(--rl-hover); color: var(--rl-text-dim); font: inherit; font-size: 12.5px; cursor: default;
+  --btn-h: 30px;
+  display: inline-flex; align-items: center; gap: 6px; height: var(--btn-h); padding: 0 12px;
+  border: none; border-radius: calc(var(--btn-h) / 2);
+  background: none; color: var(--rl-text-dim); font: inherit; font-size: 13.5px; cursor: default;
   transition: background var(--dur-hover) ease, color var(--dur-hover) ease;
 }
-.filter-chip:hover { color: var(--rl-text-bright); }
+.filter-chip:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .filter-chip[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); font-weight: var(--fw-label); }
 /* The count is the quieter half of the chip: what it says is the label, how many is the footnote. */
 .filter-chip-count { color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
@@ -7706,5 +7754,5 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
    the card's own ground through the field exactly as it does in the Library. The hover follows,
    because a fill at this specificity would otherwise out-rank the Library's `:hover` and the card
    would stop answering the pointer. */
-.session-files .library-tile, .session-files .library-tile-mark { background: var(--rl-frame-raised); }
+.session-files .library-tile { background: var(--rl-frame-raised); }
 .session-files .library-tile:hover { background: var(--rl-frame-raised-hover); }

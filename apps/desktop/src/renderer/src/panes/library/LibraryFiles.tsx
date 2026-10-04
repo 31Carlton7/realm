@@ -1,23 +1,28 @@
 import { Icon } from "@realm/ui";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ARTIFACT_KINDS, artifactTypeOf, LIBRARY_PAGE_SIZE, type ArtifactKind, type LibraryEntry } from "@realm/contracts";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { ARTIFACT_KINDS, artifactTypeOf, LIBRARY_PAGE_SIZE, type ArtifactKind, type ArtifactType, type LibraryEntry } from "@realm/contracts";
 import { useApp } from "../../state/store";
-import { FileCard } from "../../components/FileCard";
+import { FileCard, FileRow } from "../../components/FileCard";
 import { FilePreview } from "../../components/FilePreview";
-import { SCOPE_LABEL } from "../../components/scoped/ScopeGroups";
+import { Menu, type MenuItem } from "../../components/Menu";
+import { PageScroll } from "../../components/ScrollFades";
 
-/** Files first, then a scope, then a kind — the three narrowings, coarsest first. */
-const SCOPES = [
-  { id: "space", label: SCOPE_LABEL.thisSpace },
-  { id: "all", label: SCOPE_LABEL.everywhere },
-] as const;
-type Scope = (typeof SCOPES)[number]["id"];
+type Scope = "space" | "all";
 
-const KIND_FILTERS: { id: ArtifactKind | "all"; label: string }[] = [
+/* The tabs along the top, as Codex's library has them: what KIND of thing a file is, which is the
+   first thing a person narrows by ("the screenshot", "that CSV"). The other two narrowings — where it
+   was made and whether an agent made it — are rarer, so they live behind the filter button and show
+   themselves as chips only while they are narrowing something. */
+const TYPE_TABS: { id: ArtifactType | "all"; label: string }[] = [
   { id: "all", label: "All" },
-  { id: "output", label: "Made" },
-  { id: "upload", label: "Uploaded" },
+  { id: "image", label: "Images" },
+  { id: "document", label: "Documents" },
+  { id: "code", label: "Code" },
+  { id: "data", label: "Data" },
 ];
+
+const SCOPE_WORDS: Record<Scope, string> = { space: "In this space", all: "In every space" };
+const KIND_WORDS: Record<ArtifactKind | "all", string> = { all: "All files", output: "Made by agents", upload: "Uploaded by you" };
 
 /** The day a file landed, as a person asks about one. Groups the grid, the way a file browser does. */
 function dayLabel(ts: number, now = Date.now()): string {
@@ -47,6 +52,40 @@ export function groupByDay<T extends { ts: number }>(entries: T[], now = Date.no
   return out;
 }
 
+/** The time of day a file landed, for a row under its day's heading. */
+const timeOf = (ts: number): string => new Date(ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
+/**
+ * Arrow keys walk the grid the way Finder's do: across a row, and up or down to the tile in the
+ * nearest column. Asked of the layout rather than computed from a column count, because the count
+ * changes with the pane and a day's run of files ends mid-row.
+ */
+function walkGrid(e: ReactKeyboardEvent<HTMLElement>) {
+  const dir = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+  if (!dir || e.metaKey || e.altKey || e.ctrlKey) return;
+  const from = (e.target as HTMLElement).closest<HTMLElement>(".library-tile");
+  if (!from) return;
+  const tiles = [...e.currentTarget.querySelectorAll<HTMLElement>(".library-tile")];
+  const at = from.getBoundingClientRect();
+  const [dx, dy] = dir as [number, number];
+  let best: HTMLElement | null = null;
+  let bestCost = Infinity;
+  for (const t of tiles) {
+    if (t === from) continue;
+    const r = t.getBoundingClientRect();
+    const ox = r.left - at.left, oy = r.top - at.top;
+    // Only tiles that lie in the arrow's direction; a row is one band of tops, a column of lefts.
+    if (dx !== 0 && (Math.abs(oy) > at.height / 2 || Math.sign(ox) !== dx)) continue;
+    if (dy !== 0 && (Math.abs(oy) < at.height / 2 || Math.sign(oy) !== dy)) continue;
+    const cost = dx !== 0 ? Math.abs(ox) : Math.abs(oy) * 4 + Math.abs(ox);
+    if (cost < bestCost) { bestCost = cost; best = t; }
+  }
+  if (!best) return;
+  e.preventDefault();
+  best.focus();
+  best.scrollIntoView({ block: "nearest" });
+}
+
 /**
  * Every file every session in this profile made or was given, browsable.
  *
@@ -55,20 +94,30 @@ export function groupByDay<T extends { ts: number }>(entries: T[], now = Date.no
  * in memory, which is affordable for the one session you are looking at and is not for a home with
  * two hundred of them (packages/contracts/src/library.ts).
  *
+ * Laid out as Codex's library is: one toolbar over the files — the kinds as tabs, then the filter,
+ * the view and the search — and the files as tiles or rows under it. The toolbar stands OUTSIDE the
+ * scroller, so it stays put and legible while the files move under it (design.md: chrome that must
+ * stay legible belongs outside the scroller).
+ *
  * Paging is driven by a sentinel at the end of the list rather than by a scroll handler, so the cost
  * of "am I near the bottom" is the browser's rather than a listener firing on every wheel tick.
  */
 export function LibraryFiles({ spaceId }: { spaceId: string }) {
   const libraryArtifacts = useApp((s) => s.libraryArtifacts);
+  const view = useApp((s) => s.libraryView);
+  const setLibraryView = useApp((s) => s.setLibraryView);
   const run = useApp((s) => s.run);
 
   const [scope, setScope] = useState<Scope>("all");
   const [kind, setKind] = useState<ArtifactKind | "all">("all");
+  const [type, setType] = useState<ArtifactType | "all">("all");
   const [query, setQuery] = useState("");
   const [entries, setEntries] = useState<LibraryEntry[]>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [filtering, setFiltering] = useState(false);
+  const filterBtn = useRef<HTMLButtonElement>(null);
   /* The card that was clicked, held whole rather than by path: the preview needs the provenance the
      index joined on (which session, which space, made or uploaded), and re-deriving it from a path
      would mean a second query for a row already in hand. */
@@ -82,8 +131,9 @@ export function LibraryFiles({ spaceId }: { spaceId: string }) {
   const params = useCallback((before: { ts: number; id: string } | null) => ({
     spaceId: scope === "space" ? spaceId : null,
     kind: kind === "all" ? null : kind,
+    type: type === "all" ? null : type,
     query, limit: LIBRARY_PAGE_SIZE, before,
-  }), [scope, spaceId, kind, query]);
+  }), [scope, spaceId, kind, type, query]);
 
   // First page, and every re-query a filter or the search box causes.
   useEffect(() => {
@@ -122,53 +172,104 @@ export function LibraryFiles({ spaceId }: { spaceId: string }) {
   }, [more, done]);
 
   const groups = groupByDay(entries);
+  const narrowed = scope !== "all" || kind !== "all";
+  const filterItems: MenuItem[] = [
+    ...(["space", "all"] as const).map((s) => ({ label: SCOPE_WORDS[s], checked: scope === s, onSelect: () => setScope(s) })),
+    { kind: "separator" as const },
+    ...(["all", "output", "upload"] as const).map((k) => ({ label: KIND_WORDS[k], checked: kind === k, onSelect: () => setKind(k) })),
+  ];
 
   return (
     <div className="library-files">
-      <div className="page-filters">
-        <input className="search-field" type="search" aria-label="Search files" placeholder="Search files…"
-          value={query} onChange={(e) => setQuery(e.target.value)} />
-        <div className="filter-chips" role="group" aria-label="Filter files">
-          {SCOPES.map((s) => (
-            <button key={s.id} type="button" className="filter-chip" data-selected={scope === s.id || undefined}
-              aria-pressed={scope === s.id} onClick={() => setScope(s.id)}>{s.label}</button>
+      <div className="library-toolbar">
+        <div className="filter-chips library-types" role="group" aria-label="Kind of file">
+          {TYPE_TABS.map((t) => (
+            <button key={t.id} type="button" className="filter-chip" data-selected={type === t.id || undefined}
+              aria-pressed={type === t.id} onClick={() => setType(t.id)}>{t.label}</button>
           ))}
-          <span className="filter-sep" aria-hidden="true" />
-          {KIND_FILTERS.map((k) => (
-            <button key={k.id} type="button" className="filter-chip" data-selected={kind === k.id || undefined}
-              aria-pressed={kind === k.id} onClick={() => setKind(k.id)}>{k.label}</button>
-          ))}
+          {/* A narrowing the filter menu made, said where the tabs are — so a list that is shorter
+              than it should be says why — and undone from the same place. Only while it narrows. */}
+          {scope !== "all" && (
+            <button type="button" className="filter-chip library-narrowing" onClick={() => setScope("all")}
+              title="Show files from every space">
+              {SCOPE_WORDS[scope]} <Icon name="close" size={12} />
+            </button>
+          )}
+          {kind !== "all" && (
+            <button type="button" className="filter-chip library-narrowing" onClick={() => setKind("all")}
+              title="Show every file, made or uploaded">
+              {KIND_WORDS[kind]} <Icon name="close" size={12} />
+            </button>
+          )}
+        </div>
+        <div className="library-tools">
+          <button ref={filterBtn} type="button" className="icon-btn library-filter" aria-label="Filter files"
+            aria-haspopup="menu" aria-expanded={filtering} data-on={narrowed || undefined}
+            title={`${SCOPE_WORDS[scope]} · ${KIND_WORDS[kind]}`}
+            onClick={() => setFiltering((v) => !v)}>
+            <Icon name="filter" size={16} />
+          </button>
+          <fieldset className="seg library-view">
+            <legend className="visually-hidden">View files as</legend>
+            {(["grid", "list"] as const).map((v) => (
+              <label key={v} className="seg-opt" data-selected={view === v || undefined} title={v === "grid" ? "Tiles" : "Rows"}>
+                <input type="radio" name="library-view" value={v} checked={view === v}
+                  onChange={() => run(() => setLibraryView(v))} aria-label={v === "grid" ? "Tiles" : "Rows"} />
+                <Icon name={v} size={14} />
+              </label>
+            ))}
+          </fieldset>
+          <label className="library-search">
+            <Icon name="search" size={14} />
+            <input className="search-field" type="search" aria-label="Search files" placeholder="Search files"
+              value={query} onChange={(e) => setQuery(e.target.value)} />
+          </label>
         </div>
       </div>
+      {filtering && <Menu items={filterItems} anchorRef={filterBtn} align="right" label="Filter files" onClose={() => setFiltering(false)} />}
 
-      {/* Two different emptinesses, and they need different words. "Nothing here yet" over a home
-          with four hundred files, because the search matched none of them, is a lie about the app. */}
-      {entries.length === 0 && !loading && (
-        <p className="env-empty">
-          {total === 0
-            ? "Nothing here yet. Every file a session writes, and every file you attach to a message, shows up here."
-            : "No file here matches that."}
-        </p>
-      )}
+      <PageScroll wide>
+        {/* Two different emptinesses, and they need different words. "Nothing here yet" over a home
+            with four hundred files, because the search matched none of them, is a lie about the app. */}
+        {entries.length === 0 && !loading && (
+          <p className="env-empty library-empty">
+            {total === 0
+              ? "Nothing here yet. Every file a session writes, and every file you attach to a message, shows up here."
+              : "No file here matches that."}
+          </p>
+        )}
 
-      {groups.map((g) => (
-        <section key={`${g.label}-${g.entries[0]!.id}`} className="library-day">
-          <h2 className="library-day-label">{g.label}</h2>
-          <ul className="library-grid">
-            {g.entries.map((e) => (
-              <li key={e.id}>
-                <FileCard path={e.path} name={e.name} type={artifactTypeOf(e.ext)} title={e.path} onOpen={() => setPreview(e)}>
-                  <Provenance entry={e} />
-                </FileCard>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ))}
+        {groups.map((g) => (
+          <section key={`${g.label}-${g.entries[0]!.id}`} className="library-day">
+            <h2 className="library-day-label">{g.label}</h2>
+            {view === "grid" ? (
+              <ul className="library-grid" onKeyDown={walkGrid}>
+                {g.entries.map((e) => (
+                  <li key={e.id}>
+                    <FileCard path={e.path} name={e.name} type={artifactTypeOf(e.ext)} title={e.path} onOpen={() => setPreview(e)}>
+                      <Provenance entry={e} />
+                    </FileCard>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <ul className="library-rows">
+                {g.entries.map((e) => (
+                  <li key={e.id}>
+                    <FileRow path={e.path} name={e.name} type={artifactTypeOf(e.ext)} title={e.path} time={timeOf(e.ts)} onOpen={() => setPreview(e)}>
+                      <Provenance entry={e} />
+                    </FileRow>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        ))}
 
-      {/* The pager. Present only while there is more, so an exhausted list has no observer attached
-          and no spinner sitting under it forever. */}
-      {!done && <div ref={sentinel} className="library-more">{loading ? "Loading…" : ""}</div>}
+        {/* The pager. Present only while there is more, so an exhausted list has no observer attached
+            and no spinner sitting under it forever. */}
+        {!done && <div ref={sentinel} className="library-more">{loading ? "Loading…" : ""}</div>}
+      </PageScroll>
 
       {/* The same preview a session summary opens. The Library adds the provenance, which is the one
           thing it knows and the summary does not — everything else about the file behaves identically

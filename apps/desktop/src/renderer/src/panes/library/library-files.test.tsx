@@ -5,6 +5,7 @@ import { LibraryPage } from "./LibraryPage";
 import { groupByDay } from "./LibraryFiles";
 import { createAppStore, StoreContext } from "../../state/store";
 import { resetThumbnailCache } from "../../components/use-thumbnail";
+import { breakableName } from "../../components/FileCard";
 import { allOnScreen } from "../../components/on-screen.test-fakes";
 import { resetMediaCache } from "../session/media/use-media";
 import { fakeApi, item, session, type FakeData } from "../../state/store.test-fakes";
@@ -101,19 +102,99 @@ describe("the Library's file browser", () => {
     expect(api.calls.some((c) => c.startsWith("libraryArtifacts:") && c.endsWith(":zzz"))).toBe(true);
   });
 
-  it("narrows by scope and by kind, and asks the SERVER to do it", async () => {
+  it("narrows by kind of file from the tabs, and asks the SERVER to do it", async () => {
     /* The mutant: filter the loaded page in the renderer. That answers correctly only for the rows
        already fetched, so a filter over a paged list would quietly show a page's worth of matches
        and call it the whole answer. */
     const { api } = await mount({ artifacts: [
       file({ id: "report.md" }),
+      file({ id: "shot.png", ext: "png" }),
+    ] });
+    await screen.findByText("report.md");
+    const tabs = screen.getByRole("group", { name: "Kind of file" });
+    expect(within(tabs).getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(within(tabs).getByRole("button", { name: "Images" }));
+    await waitFor(() => expect(api.calls.some((c) => c.startsWith("libraryArtifacts:") && c.includes(":image:"))).toBe(true));
+    await waitFor(() => expect(screen.queryByText("report.md")).toBeNull());
+    expect(screen.getByText("shot.png")).toBeTruthy();
+    expect(within(tabs).getByRole("button", { name: "Images" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("narrows by space and by who made it from the filter menu, and says so where the tabs are", async () => {
+    /* The two rarer narrowings live behind one button — and a list that is shorter than it should be
+       has to say why. THE mutants: a narrowing with no chip (the list just shrinks), or a chip that
+       does not undo it. */
+    const { api } = await mount({ artifacts: [
+      file({ id: "report.md" }),
       file({ id: "shot.png", kind: "upload" }),
     ] });
     await screen.findByText("report.md");
-    fireEvent.click(screen.getByRole("button", { name: "Uploaded" }));
+    const filter = screen.getByRole("button", { name: "Filter files" });
+    expect(filter).not.toHaveAttribute("data-on");
+    fireEvent.click(filter);
+    fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Uploaded by you" }));
     await waitFor(() => expect(api.calls.some((c) => c.includes(":upload:"))).toBe(true));
-    fireEvent.click(screen.getByRole("button", { name: "This space" }));
-    await waitFor(() => expect(api.calls.some((c) => c.startsWith("libraryArtifacts:s1:"))).toBe(true));
+    // The menu leaves on a short fade (design.md: a menu has no entrance, and exits quietly).
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Filter files" }));
+    fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: "In this space" }));
+    await waitFor(() => expect(api.calls.some((c) => c.startsWith("libraryArtifacts:s1:upload:"))).toBe(true));
+    expect(screen.getByRole("button", { name: "Filter files" })).toHaveAttribute("data-on");
+    // Said where the tabs are, and undone from there.
+    const chip = screen.getByRole("button", { name: /In this space/ });
+    fireEvent.click(chip);
+    await waitFor(() => expect(api.calls.at(-1)).toMatch(/^libraryArtifacts:all:upload:/));
+    fireEvent.click(screen.getByRole("button", { name: /Uploaded by you/ }));
+    await waitFor(() => expect(api.calls.at(-1)).toMatch(/^libraryArtifacts:all:any:/));
+    expect(screen.getByRole("button", { name: "Filter files" })).not.toHaveAttribute("data-on");
+  });
+
+  it("lays the files out as tiles or as rows, and remembers which", async () => {
+    // THE mutant: a view that is component state, so the Library forgets it every time it opens.
+    const { api, store } = await mount({ artifacts: [file({ id: "report.md" })] });
+    await screen.findByText("report.md");
+    expect(store.getState().libraryView).toBe("grid");
+    expect(document.querySelector(".library-tile")).not.toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: "Rows" }));
+    await waitFor(() => expect(document.querySelector(".library-row")).not.toBeNull());
+    expect(document.querySelector(".library-tile")).toBeNull();
+    expect(api.calls).toContain("setSetting:ui.libraryView=list");
+    // The row says what the tile says: the name, where it came from, and when.
+    const row = document.querySelector(".library-row")!;
+    expect(row.querySelector(".library-row-name")!.textContent).toBe("report.md");
+    expect(within(row as HTMLElement).getByText("Made in The parser rewrite")).toBeTruthy();
+    expect(row.querySelector(".library-row-time")!.textContent).not.toBe("");
+  });
+
+  it("opens on the view it was left in", async () => {
+    await mount({ artifacts: [file({ id: "report.md" })], settings: { "ui.libraryView": "list" } });
+    await screen.findByText("report.md");
+    expect(document.querySelector(".library-row")).not.toBeNull();
+    expect(screen.getByRole("radio", { name: "Rows" })).toBeChecked();
+  });
+
+  it("walks the tiles with the arrow keys, by where they are on screen", async () => {
+    /* jsdom lays nothing out, so the tiles are given the boxes a three-column grid would: a, b, c
+       across the top, d under a. THE mutants: step by DOM order (Down from a lands on b), or let
+       Right off the end of a row wrap into the next one. */
+    await mount({ artifacts: ["a", "b", "c", "d"].map((id, i) => file({ id: `${id}.md`, ts: 1_700_000_000_000 - i })) });
+    await screen.findByText("d.md");
+    const tiles = [...document.querySelectorAll<HTMLElement>(".library-tile")];
+    const boxes: [number, number][] = [[0, 0], [200, 0], [400, 0], [0, 200]];
+    tiles.forEach((t, i) => {
+      const [x, y] = boxes[i]!;
+      t.getBoundingClientRect = () => ({ left: x, top: y, right: x + 180, bottom: y + 180, width: 180, height: 180, x, y, toJSON() {} }) as DOMRect;
+      t.scrollIntoView = () => {};
+    });
+    tiles[0]!.focus();
+    fireEvent.keyDown(tiles[0]!, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(tiles[3]);
+    fireEvent.keyDown(tiles[3]!, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(tiles[0]);
+    fireEvent.keyDown(tiles[0]!, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(tiles[1]);
+    fireEvent.keyDown(tiles[2]!, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(tiles[1]);
   });
 
   it("asks main for a picture only where the picture IS the file", async () => {
@@ -135,11 +216,10 @@ describe("the Library's file browser", () => {
     expect(realm.attachmentThumbnail.mock.calls.map((c) => c[0])).not.toContain("/tmp/theme.css");
   });
 
-  it("lays each file out as a card — a preview field over the caption — whether or not it has a picture", async () => {
-    /* The Drive-style shape: the field comes first in source order (it is what the eye lands on),
-       the picture fills it, and a file with no picture gets its glyph in a well at the field's
-       centre rather than a different, shorter card. The mutant: render the glyph directly in the
-       field, or put the caption first. */
+  it("lays every file out on one square — the picture edge to edge, or the name over its glyph", async () => {
+    /* Codex's tile, with one improvement: the picture's name comes up over it rather than being lost.
+       THE mutants: a picture tile that keeps the glyph's layout (a thumbnail in a well under the
+       name), or a glyph tile with no name at its head. */
     bridge();
     allOnScreen();
     await mount({ artifacts: [
@@ -149,13 +229,23 @@ describe("the Library's file browser", () => {
     await screen.findByText("notes.md");
     const cards = [...document.querySelectorAll(".library-tile")];
     expect(cards).toHaveLength(2);
-    for (const card of cards) {
-      expect(card.children[0]).toHaveClass("library-tile-art");
-      expect(card.children[1]).toHaveClass("library-tile-text");
-      expect(card.querySelector(".library-tile-text .library-tile-name")).not.toBeNull();
-    }
-    await waitFor(() => expect(cards[0]!.querySelector(".library-tile-art[data-thumb] img.library-tile-thumb")).not.toBeNull());
-    expect(cards[1]!.querySelector(".library-tile-art:not([data-thumb]) .library-tile-mark")).not.toBeNull();
+    await waitFor(() => expect(cards[0]).toHaveAttribute("data-thumb"));
+    expect(cards[0]!.children[0]).toHaveClass("library-tile-thumb");
+    expect(cards[0]!.querySelector(".library-tile-caption .library-tile-name")!.textContent).toBe("shot.png");
+    expect(cards[0]!.querySelector(".library-tile-mark")).toBeNull();
+    expect(cards[1]).not.toHaveAttribute("data-thumb");
+    expect(cards[1]!.children[0]).toHaveClass("library-tile-name");
+    expect(cards[1]!.children[1]).toHaveClass("library-tile-art");
+    expect(cards[1]!.querySelector(".library-tile-art .library-tile-mark")).not.toBeNull();
+  });
+
+  it("wraps a long name between its words and keeps its extension whole", () => {
+    // THE mutant: break anywhere, which is how Codex's own tile ends up with "…pd" over "f".
+    const { container } = render(<span>{breakableName("NextGen_Fellows_2026_application.pdf")}</span>);
+    const span = container.firstElementChild!;
+    expect(span.textContent).toBe("NextGen_Fellows_2026_application.pdf");
+    expect(span.querySelectorAll("wbr")).toHaveLength(3);
+    expect([...span.childNodes].filter((n) => n.nodeType === 3).at(-1)!.textContent).toBe("application.pdf");
   });
 });
 

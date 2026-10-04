@@ -295,6 +295,19 @@ async function main() {
     await until(() => evalIn(c, `!!document.querySelector('.library-page-pane')`), 15_000, "library");
     await sleep(1200);
     await shoot(c, `library-files-${face}`);
+    // A picture tile under the pointer: its name comes up over the scrim.
+    const tile = await evalIn(c, `(() => { const t = document.querySelector('.library-tile[data-thumb]'); return t ? __live.box(t) : null; })()`);
+    if (tile) {
+      await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: tile.l + tile.w / 2, y: tile.t + tile.h / 2 });
+      await sleep(300);
+      await shoot(c, `library-files-hover-${face}`, { x: tile.l - 20, y: tile.t - 20, width: tile.w * 3 + 80, height: tile.h + 40 });
+      await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 5, y: 450 });
+    }
+    await evalIn(c, `(() => { document.querySelector('input[name="library-view"][value="list"]')?.click(); return true; })()`);
+    await sleep(800);
+    await shoot(c, `library-files-list-${face}`);
+    await evalIn(c, `(() => { document.querySelector('input[name="library-view"][value="grid"]')?.click(); return true; })()`);
+    await sleep(400);
     await evalIn(c, `__live.library("memory")`);
     await sleep(800);
     await shoot(c, `library-memory-${face}`);

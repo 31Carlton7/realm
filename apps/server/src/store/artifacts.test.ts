@@ -130,6 +130,20 @@ describe("ArtifactsStore", () => {
     expect(artifacts.count("nope")).toBe(0);
   });
 
+  it("narrows by the type a file reads as — answered by the index, and Other as everything no type claims", () => {
+    const { events, session, artifacts } = fresh();
+    for (const name of ["shot.PNG", "brief.pdf", "index.ts", "usage.csv", "bundle.zip", "Makefile"]) events.append(session.id, write(`/tmp/${name}`));
+    const names = (type: Parameters<typeof artifacts.list>[0]["type"]) => artifacts.list({ type }).map((a) => a.name).sort();
+    expect(names("image")).toEqual(["shot.PNG"]);
+    expect(names("document")).toEqual(["brief.pdf"]);
+    expect(names("code")).toEqual(["index.ts"]);
+    expect(names("data")).toEqual(["usage.csv"]);
+    /* THE mutants: "other" as an IN over an empty list (nothing, ever), or as no filter at all
+       (everything). It is the complement — a file with no extension is other too. */
+    expect(names("other")).toEqual(["Makefile", "bundle.zip"]);
+    expect(names(null)).toHaveLength(6);
+  });
+
   it("goes with the session: deleting one takes its files out of the Library", () => {
     const { events, session, sessions, artifacts } = fresh();
     events.append(session.id, write("/tmp/a/report.md"));

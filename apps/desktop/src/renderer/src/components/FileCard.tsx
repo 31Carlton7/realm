@@ -1,5 +1,5 @@
 import { Icon, type IconName } from "@realm/ui";
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { ArtifactType } from "@realm/contracts";
 import { useThumbnail } from "./use-thumbnail";
 import { fileDragProps, quickLookOnSpace } from "./file-actions";
@@ -62,10 +62,34 @@ function useSeen(ref: RefObject<Element | null>, watch: boolean): boolean {
 }
 
 /**
- * The card: a picture over a caption.
+ * A file name with the places it may wrap: after each `_`, `-`, `.` or space inside its stem. A name
+ * like `NextGen_Fellows_2026_application.pdf` then wraps between its words, and the last word keeps
+ * its extension — where breaking anywhere, which Codex's own tiles do, leaves "…pd" over "f".
+ * `<wbr>` adds no text, so the element's own text is still the whole name.
+ */
+export function breakableName(name: string): ReactNode {
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const parts = stem.split(/(?<=[_\-. ])/);
+  return (
+    <>
+      {parts.map((p, i) => <Fragment key={i}>{i > 0 && <wbr />}{i === parts.length - 1 && dot > 0 ? p + name.slice(dot) : p}</Fragment>)}
+    </>
+  );
+}
+
+/**
+ * The card: the file, as a tile.
  *
  * Its own component because of the hook: a thumbnail is per-path state, and a grid cannot ask for
  * sixty of them from inside a `map`.
+ *
+ * Two faces on ONE square, the way Codex's library lays them out, so the grid's shape never changes
+ * from file to file. A file whose picture IS the file — a screenshot, a frame of video — is that
+ * picture, edge to edge, with its name over a scrim on hover and focus. Every other file is its name
+ * at the top, its glyph in the middle, and what the list knows about it at the foot. Either way the
+ * button's own text is the name and that line, so a reader hears the same file whichever face it
+ * wears.
  *
  * Every card opens, whatever the file is. `onOpen` is the LIST's decision, because the list is what
  * knows where a file of this kind goes — the Library opens its preview, a folder listing routes the
@@ -81,7 +105,7 @@ export function FileCard({ path, name, type, title, onOpen, children }: {
   /** The tooltip. Each list says the path the way its own rows do. */
   title: string;
   onOpen: () => void;
-  /** The caption's second line: whatever the list knows about the file beyond its name. */
+  /** The tile's foot: whatever the list knows about the file beyond its name. */
   children?: ReactNode;
 }) {
   const card = useRef<HTMLButtonElement>(null);
@@ -91,22 +115,61 @@ export function FileCard({ path, name, type, title, onOpen, children }: {
   return (
     // A card is a file the way a Finder icon is: Space shows it in Quick Look, and it drags out.
     <button ref={card} type="button" className="library-tile" title={title} onClick={onOpen}
+      data-type={type} data-thumb={thumb ? "" : undefined}
       onKeyDown={quickLookOnSpace(path)} {...fileDragProps(path)}>
-      {/* The card is a PICTURE over a caption, the way a drive lays out files: the preview field
-          takes the top of the card, and the name and whatever the list knows sit under it. A picture
-          fills the field edge to edge; a glyph sits in a tinted well at its centre, because a glyph
-          needs the well around it to read as a mark at all and a picture is the subject.
-          `data-thumb` is what the stylesheet keys the two treatments on. */}
-      <span className="library-tile-art" data-type={type} data-thumb={thumb ? "" : undefined}>
-        {/* alt="" on purpose — the name is right under it, and a screen reader must not read the
-            file twice. */}
-        {thumb ? <img className="library-tile-thumb" src={thumb} alt="" draggable={false} />
-          : <span className="library-tile-mark" data-type={type}><Icon name={type === "folder" ? "folder" : TYPE_ICON[type]} size={20} /></span>}
+      {thumb ? (
+        <>
+          {/* alt="" on purpose — the name is in the caption, and a screen reader must not read the
+              file twice. */}
+          <img className="library-tile-thumb" src={thumb} alt="" draggable={false} />
+          <span className="library-tile-caption">
+            <span className="library-tile-name">{breakableName(name)}</span>
+            {children}
+          </span>
+        </>
+      ) : (
+        <>
+          <span className="library-tile-name">{breakableName(name)}</span>
+          <span className="library-tile-art">
+            {/* off-ladder: the glyph stands in for a picture across a tile up to 260px square — Codex's
+                are 32pt there — and the card rung's 20 is a speck in a field that size. */}
+            <span className="library-tile-mark" data-type={type}><Icon name={type === "folder" ? "folder" : TYPE_ICON[type]} size={28} /></span>
+          </span>
+          {children}
+        </>
+      )}
+    </button>
+  );
+}
+
+/**
+ * The same file as a ROW, for the Library's list view: its mark (the picture, small, where the
+ * picture is the file), its name, what the list knows, and when. One component beside the card so
+ * the two views can never disagree about which files get a picture or how a file opens and drags.
+ */
+export function FileRow({ path, name, type, title, onOpen, time, children }: {
+  path: string;
+  name: string;
+  type: ArtifactType;
+  title: string;
+  onOpen: () => void;
+  /** The time of day, already worded — the list is grouped by day, so the date is the heading's. */
+  time: string;
+  children?: ReactNode;
+}) {
+  const row = useRef<HTMLButtonElement>(null);
+  const wantsPicture = THUMBNAIL_TYPES.has(type);
+  const seen = useSeen(row, wantsPicture);
+  const thumb = useThumbnail(wantsPicture ? path : null, "tile", seen);
+  return (
+    <button ref={row} type="button" className="library-row" title={title} onClick={onOpen}
+      onKeyDown={quickLookOnSpace(path)} {...fileDragProps(path)}>
+      <span className="library-row-mark" data-type={type} data-thumb={thumb ? "" : undefined}>
+        {thumb ? <img src={thumb} alt="" draggable={false} /> : <Icon name={TYPE_ICON[type]} size={16} />}
       </span>
-      <span className="library-tile-text">
-        <span className="library-tile-name">{name}</span>
-        {children}
-      </span>
+      <span className="library-row-name">{name}</span>
+      {children}
+      <span className="library-row-time">{time}</span>
     </button>
   );
 }

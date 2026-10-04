@@ -242,9 +242,11 @@ describe("the session file browser, laid out as cards", () => {
     await waitFor(() => expect(attachmentThumbnail).toHaveBeenCalledWith(`${folderPath}/shot.png`, "card"));
     expect(attachmentThumbnail).toHaveBeenCalledTimes(1);
     const [shot, notes, sheet] = cards();
-    await waitFor(() => expect(shot!.querySelector(".library-tile-art[data-thumb] img.library-tile-thumb")).not.toBeNull());
-    expect(notes!.querySelector(".library-tile-art:not([data-thumb]) .library-tile-mark[data-type='document']")).not.toBeNull();
-    expect(sheet!.querySelector(".library-tile-art:not([data-thumb]) .library-tile-mark[data-type='folder']")).not.toBeNull();
+    await waitFor(() => expect(shot!.querySelector(":scope > img.library-tile-thumb")).not.toBeNull());
+    expect(shot).toHaveAttribute("data-thumb");
+    expect(notes).not.toHaveAttribute("data-thumb");
+    expect(notes!.querySelector(".library-tile-art .library-tile-mark[data-type='document']")).not.toBeNull();
+    expect(sheet!.querySelector(".library-tile-art .library-tile-mark[data-type='folder']")).not.toBeNull();
   });
 
   it("descends into a folder from its card, and walks back out by the crumbs", async () => {

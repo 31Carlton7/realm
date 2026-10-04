@@ -103,13 +103,15 @@ export function LibraryPage({ item }: PaneProps) {
       ) : (
       <div className="page-body">
         <PageRail label="Library">{rail}</PageRail>
-        {/* Both ends dissolve, but only when there is something under them — and only over the
-            column: a band on the body would be drawn over the rail above it. */}
-        <PageScroll>
-          {tab === "files" && <LibraryFiles spaceId={spaceId} />}
-          {tab === "skills" && <SkillsPanel spaceId={spaceId} onOpen={(id) => setLibrarySkill(spaceId, id)} />}
-          {tab === "memory" && <LibraryMemoryTab spaceId={spaceId} />}
-        </PageScroll>
+        {/* Files brings its own scroller, because its toolbar stands outside it; the other two are
+            reading columns. Both ends dissolve, but only when there is something under them — and
+            only over the column: a band on the body would be drawn over the rail above it. */}
+        {tab === "files" ? <LibraryFiles spaceId={spaceId} /> : (
+          <PageScroll>
+            {tab === "skills" && <SkillsPanel spaceId={spaceId} onOpen={(id) => setLibrarySkill(spaceId, id)} />}
+            {tab === "memory" && <LibraryMemoryTab spaceId={spaceId} />}
+          </PageScroll>
+        )}
       </div>
       )}
     </div>

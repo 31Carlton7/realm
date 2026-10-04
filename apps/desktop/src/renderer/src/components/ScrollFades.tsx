@@ -123,12 +123,15 @@ export function useFadedScroller() {
  *
  * It owns the ref as well, because every page that had one used it for nothing else.
  */
-export function PageScroll({ children }: { children: ReactNode }) {
+export function PageScroll({ children, wide = false }: { children: ReactNode;
+  /** Opt out of the reading measure, for a column of work that wants the width — the Library's grid
+   *  of files, the Tasks lens — rather than one of prose. */
+  wide?: boolean }) {
   const scroller = useRef<HTMLDivElement>(null);
   return (
     <div className="page-scroll">
       <ScrollFades scroller={scroller} />
-      <div className="page-content" ref={scroller}>{children}</div>
+      <div className="page-content" ref={scroller} data-wide={wide || undefined}>{children}</div>
     </div>
   );
 }

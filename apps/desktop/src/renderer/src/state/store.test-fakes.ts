@@ -2,7 +2,7 @@
 import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_KEYBINDINGS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack } from "@realm/contracts";
 import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
-import { basenameOf, expandCommand, mimeForPath, nextFireOf } from "@realm/contracts";
+import { artifactTypeOf, basenameOf, expandCommand, mimeForPath, nextFireOf } from "@realm/contracts";
 import type { CliStatus, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
@@ -703,13 +703,14 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return data.searchResults;
     },
     libraryArtifacts: async (q) => {
-      calls.push(`libraryArtifacts:${q.spaceId ?? "all"}:${q.kind ?? "any"}:${q.query ?? ""}`);
+      calls.push(`libraryArtifacts:${q.spaceId ?? "all"}:${q.kind ?? "any"}:${q.type ?? "any"}:${q.query ?? ""}`);
       await wait("libraryArtifacts");
       const all = data.artifacts;
       const needle = (q.query ?? "").trim().toLowerCase();
       const matching = all.filter((a) =>
         (q.spaceId == null || a.spaceId === q.spaceId)
         && (q.kind == null || a.kind === q.kind)
+        && (q.type == null || artifactTypeOf(a.ext) === q.type)
         && (needle === "" || a.name.toLowerCase().includes(needle)));
       // Same keyset the server uses, so a test that pages here is testing the page's real cursor.
       const before = q.before ?? null;

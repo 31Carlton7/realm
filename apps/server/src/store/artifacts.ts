@@ -1,4 +1,4 @@
-import { artifactsFromEvent, LibraryQuerySchema, type Artifact, type LibraryEntry, type LibraryQuery } from "@realm/contracts";
+import { artifactsFromEvent, extsOfType, KNOWN_EXTS, LibraryQuerySchema, type Artifact, type LibraryEntry, type LibraryQuery } from "@realm/contracts";
 import type { Db } from "../db/database";
 import type { SettingsStore } from "./settings";
 
@@ -59,6 +59,13 @@ export class ArtifactsStore {
     const args: (string | number)[] = [];
     if (q.spaceId !== null) { where.push("s.space_id = ?"); args.push(q.spaceId); }
     if (q.kind !== null) { where.push("a.kind = ?"); args.push(q.kind); }
+    if (q.type !== null) {
+      // "Other" is everything no type claims, so it is the complement of the whole table of them —
+      // an extension a later build learns to call code stops being other without a migration.
+      const exts = q.type === "other" ? KNOWN_EXTS : extsOfType(q.type);
+      where.push(`a.ext ${q.type === "other" ? "NOT IN" : "IN"} (${exts.map(() => "?").join(", ")})`);
+      args.push(...exts);
+    }
     const needle = q.query.trim();
     if (needle !== "") {
       where.push("a.name LIKE ? ESCAPE '\\'");
