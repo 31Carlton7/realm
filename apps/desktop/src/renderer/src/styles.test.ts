@@ -308,6 +308,13 @@ describe("§6 motion table", () => {
     // …and it comes after the shared hover rule it overrides, or the cascade would hand the fade back.
     const shared = RULES.findIndex((r) => r.selectors.includes(".palette-opt") && r.body.includes("transition: background-color"));
     expect(RULES.indexOf(rows!)).toBeGreaterThan(shared);
+    // …and no LATER rule for one of them states a transition again: `.seg-opt`'s own rule did, after
+    // this one, and every segmented control in the app faded its choice in and out.
+    const after = RULES.slice(RULES.indexOf(rows!) + 1);
+    for (const sel of rows!.selectors) {
+      const later = after.filter((r) => r.selectors.includes(sel) && /(^|;)\s*transition(-duration)?:/.test(r.body));
+      expect(later.map((r) => r.body), sel).toEqual([]);
+    }
   });
 
   it("the send↔stop icon swap cross-fades over 160ms with opacity, scale and blur", () => {
@@ -2704,6 +2711,16 @@ describe("row and control layout", () => {
     expect(bodiesFor(".item-disclose").join(" ")).toContain("width: 22px");
     expect(bodiesFor(".item-disclose::after").join(" ")).toContain("inset: -6px");
     expect(bodiesFor('.item-disclose[aria-expanded="true"] svg').join(" ")).toContain("rotate(90deg)");
+  });
+
+  it("the sidebar's lens takes the column's own fills, not the shared control's opaque track", () => {
+    /* Spaces | Recent sits on the column's translucent ground, where `.seg`'s opaque `--rl-frame` track
+       read as a hole in the sidebar and the loudest thing in it. Share the component, let the ground
+       choose the step (design.md): the track is a hover's step, the chosen reading a selected row's. */
+    expect(bodiesFor(".sb-lens.seg").join(" ")).toContain("background: var(--rl-hover)");
+    const chosen = bodiesFor(".sb-lens .seg-opt[data-selected]").join(" ");
+    expect(chosen).toContain("background: var(--rl-active)");
+    expect(chosen).toContain("box-shadow: none");
   });
 
   it("a cross-space row's space name keeps its width, and the title is what gives way", () => {

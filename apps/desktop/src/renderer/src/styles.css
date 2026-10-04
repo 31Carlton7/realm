@@ -406,9 +406,15 @@ kbd { font: 11px var(--font-mono); }
 .sb-profile-caret { flex: none; color: var(--rl-text-faint); }
 .sb-header-actions { flex: none; margin-left: auto; display: flex; align-items: center; gap: 2px; }
 .sb-header .icon-btn[data-dragging] { opacity: .45; }
-/* The lens: the shared segmented control, across the column, its two readings sharing the width. */
+/* The lens: the shared segmented control, across the column, its two readings sharing the width. It
+   sits on the column's translucent ground, not on a pane, where the control's opaque track read as a
+   hole in the sidebar and the loudest thing in it. So it takes the column's own fills — the track a
+   hover's step, the chosen reading the step a selected row takes (design.md: share the component,
+   let the ground choose the step). */
 .sb-lens { display: flex; }
+.sb-lens.seg { background: var(--rl-hover); border-color: transparent; }
 .sb-lens .seg-opt { flex: 1; text-align: center; }
+.sb-lens .seg-opt[data-selected] { background: var(--rl-active); box-shadow: none; }
 /* What needs you: rows in the column's own anatomy, and under a waiting row the session's own request
    card, at the column's full width — a card squeezed under an indent wraps every option. */
 .sb-needs, .sb-pinned { display: flex; flex-direction: column; }
@@ -443,8 +449,10 @@ kbd { font: 11px var(--font-mono); }
 .rail-btn:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* Lit while its page is up — one rung past hover, so on always reads as more than under the pointer. */
 .rail-btn[aria-pressed="true"] { background: var(--rl-active); color: var(--rl-text-bright); }
-/* The glyph is what a count hangs off: the badge overhangs the glyph's shoulder, not the button's. */
+/* The glyph is what a count hangs off: the badge overhangs the glyph's shoulder, not the button's —
+   its centre near the glyph's corner, so the glyph under it is still the glyph it is. */
 .rail-glyph { position: relative; display: grid; place-items: center; }
+.rail-glyph .sb-badge { top: -8px; right: -12px; }
 /* A ready update is the one control here that wants a click soon, so it takes the accent. */
 .rail-update { color: var(--rl-accent); }
 /* A count at a rail glyph's shoulder — Home's waiting count and the bell's unread (`.rail-glyph`).
@@ -7182,10 +7190,11 @@ body[data-media-lightbox] .transcript .media-el { visibility: hidden; }
 /* A segmented control: one row of radios wearing a shared track. */
 .seg { display: inline-flex; gap: 2px; margin: 0; padding: 2px; border: var(--hairline-w) solid var(--rl-line);
   border-radius: var(--r-ctl); corner-shape: squircle; background: var(--rl-frame); }
+/* No transition: a segment is a choice, and a choice changes instantly both ways (design.md). This
+   rule comes after the instant list, so a `transition` here handed the fade back to every segment. */
 .seg-opt {
   padding: 3px 9px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim);
   border-radius: var(--r-chip); corner-shape: squircle; cursor: default; white-space: nowrap;
-  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease;
 }
 .seg-opt input { position: absolute; opacity: 0; pointer-events: none; }
 .seg-opt:hover { color: var(--rl-text-bright); }
