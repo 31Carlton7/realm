@@ -558,7 +558,8 @@ export function acpWellKnownMode(id: string, wellKnown: "plan" | "agent" | "ask"
  */
 export type AcpConfigOption = {
   id: string;
-  /** `"mode"` and `"model"` are the two Realm consumes; anything else is carried and ignored. */
+  /** `"mode"`, `"model"` and `"thought_level"` (the spec's reasoning-level selector) are the three
+   *  Realm consumes; anything else is carried and ignored. */
   category: string | null;
   currentValue: string | null;
   options: { value: string; name: string | null; description: string | null }[];
@@ -579,6 +580,13 @@ export type AcpSessionConfig = {
   models: AgentModel[];
   currentModelId: string | null;
   modelConfigId: string | null;
+  /** The agent's reasoning levels, off a `thought_level` option — ACP's own category for "thought /
+   *  reasoning level" (`SessionConfigOptionCategory`, `@agentclientprotocol/sdk` 0.17.1) — with the one
+   *  it starts on and the id a write goes through. Empty, null and null for an agent that offers none,
+   *  which is every agent that has not adopted `configOptions`: the deprecated shape had no such axis. */
+  efforts: { id: string; label: string }[];
+  currentEffort: string | null;
+  effortConfigId: string | null;
 };
 
 const asObj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
@@ -630,7 +638,7 @@ export function parseAcpConfigOptions(raw: unknown): AcpConfigOption[] {
  * The axis Realm does not read is not lost, only unoffered: fx's provider is a real switch its own
  * `session/set_config_option` accepts, and a second axis in the picker is a feature, not a fix.
  */
-function pickConfigOption(cfg: readonly AcpConfigOption[], axis: "mode" | "model"): AcpConfigOption | undefined {
+function pickConfigOption(cfg: readonly AcpConfigOption[], axis: "mode" | "model" | "thought_level"): AcpConfigOption | undefined {
   const inCategory = cfg.filter((o) => o.category === axis);
   return inCategory.find((o) => o.id === axis) ?? inCategory[0];
 }
@@ -649,6 +657,7 @@ export function acpSessionConfig(session: unknown): AcpSessionConfig {
   const cfg = parseAcpConfigOptions(s.configOptions);
   const modeOpt = pickConfigOption(cfg, "mode");
   const modelOpt = pickConfigOption(cfg, "model");
+  const effortOpt = pickConfigOption(cfg, "thought_level");
 
   const legacyModes = asObj(s.modes);
   const legacyModeRows = (Array.isArray(legacyModes.availableModes) ? legacyModes.availableModes : [])
@@ -673,6 +682,9 @@ export function acpSessionConfig(session: unknown): AcpSessionConfig {
     models: modelOpt ? modelOpt.options.map((o) => ({ id: o.value, label: o.name ?? o.value })) : legacyModelRows,
     currentModelId: modelOpt ? modelOpt.currentValue : asStr(legacyModels.currentModelId),
     modelConfigId: modelOpt ? modelOpt.id : null,
+    efforts: effortOpt ? effortOpt.options.map((o) => ({ id: o.value, label: o.name ?? o.value })) : [],
+    currentEffort: effortOpt?.currentValue ?? null,
+    effortConfigId: effortOpt && effortOpt.options.length > 0 ? effortOpt.id : null,
   };
 }
 

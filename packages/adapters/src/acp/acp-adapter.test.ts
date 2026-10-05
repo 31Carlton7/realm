@@ -837,6 +837,49 @@ describe("AcpAdapter", () => {
     await handle.dispose();
   });
 
+  describe("reasoning level", () => {
+    type Journal = { calls: { method: string; params: Record<string, unknown> }[] };
+    const writes = async (handle: AgentHandle, evs: SessionEvent[]) => {
+      await turn(handle, evs, "REVEAL");
+      const journal = JSON.parse(texts(evs).at(-1)!) as Journal;
+      return journal.calls.filter((c) => c.method === "session/set_config_option" && c.params.configId === "thought_level").map((c) => c.params.value);
+    };
+
+    it("reports the agent's own levels on init, off its thought_level option", async () => {
+      const { handle, evs } = await booted({}, { env: { FAKE_ACP_CONFIGOPTIONS: "1" } });
+      expect(of(evs, "init")[0]!.payload).toMatchObject({
+        efforts: [{ id: "low", label: "Low" }, { id: "medium", label: "Medium" }, { id: "high", label: "High" }], defaultEffort: "medium",
+      });
+      await handle.dispose();
+    });
+
+    it("writes the session's level at boot through set_config_option, and only one the agent lists", async () => {
+      for (const [effort, written] of [["high", ["high"]], ["max", []], ["medium", []]] as const) {
+        // `max` is no level of this agent's; `medium` is the one it already starts on.
+        const { handle, evs } = await booted({ effort }, { env: { FAKE_ACP_CONFIGOPTIONS: "1" } });
+        expect(await writes(handle, evs), effort).toEqual(written);
+        await handle.dispose();
+      }
+    });
+
+    it("moves the level mid-session, and a reset writes the agent's own starting level back by name", async () => {
+      const { handle, evs } = await booted({}, { env: { FAKE_ACP_CONFIGOPTIONS: "1" } });
+      await handle.setOptions({ effort: "low" });
+      await handle.setOptions({ effort: null });
+      await handle.setOptions({ effort: "xhigh" });
+      expect(await writes(handle, evs)).toEqual(["low", "medium"]);
+      await handle.dispose();
+    });
+
+    it("never writes a level to an agent that offers no thought_level option", async () => {
+      const { handle, evs } = await booted({ effort: "high" });
+      await handle.setOptions({ effort: "low" });
+      expect(await writes(handle, evs)).toEqual([]);
+      expect(of(evs, "init")[0]!.payload).not.toHaveProperty("efforts");
+      await handle.dispose();
+    });
+  });
+
   it("re-enters Plan at boot — with the agent's own id — when the session's row says plan", async () => {
     const { handle, evs } = await booted({ permissionMode: "plan" });
     await turn(handle, evs, "REVEAL");

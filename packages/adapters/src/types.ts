@@ -122,7 +122,10 @@ export interface AgentHandle {
  * and an unavailable CLI obviously can't be asked. Never an invented list: ids here are ids the
  * provider itself handed over, verbatim.
  */
-export type ProbeResult = { kind: AgentKind; available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null; models?: AgentModel[] | null };
+export type ProbeResult = { kind: AgentKind; available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null; models?: AgentModel[] | null;
+  /** An agent's reasoning levels where they are a session setting (an ACP `thought_level` option), with
+   *  the one it starts on. Absent where the agent offers none, or was not asked. */
+  efforts?: { id: string; label: string }[]; defaultEffort?: string | null };
 
 export interface AgentAdapter {
   readonly kind: AgentKind;
