@@ -3046,6 +3046,19 @@ describe("row and control layout", () => {
  *  is a declaration that parses and nothing more. What is checkable here is the arithmetic: that each
  *  page shape is capped at what that shape's own parts add up to, read from the rules that state
  *  those parts, so a drift in either place fails. */
+describe("no header is pinned", () => {
+  it("nothing is sticky but a long table's column heads and a code block's line numbers", () => {
+    /* The owner, 10-05: "the header shouldn't be sticky at all". A page's head is in its column and
+       scrolls with it (page-heads.test.tsx mounts every page to hold that). Two pins stay, each a
+       thing read ACROSS while it scrolls rather than a header over a page: a markdown table's heads,
+       which name the columns of the rows passing under them, and a code block's numbers, which stay
+       beside the lines they count while the code scrolls sideways. THE mutant: `position: sticky` on
+       anything else. */
+    const pinned = RULES.filter((r) => /position:\s*sticky/.test(r.body)).flatMap(partsOf).sort();
+    expect(pinned).toEqual([".code-gutter", ".md thead th"]);
+  });
+});
+
 describe("the page measure", () => {
   /** A declaration from the first rule that states it for `sel` — the base rule, which the narrow
    *  container block further down the file overrides rather than replaces. */
@@ -3077,23 +3090,26 @@ describe("the page measure", () => {
     return MEASURES.get(sel)!;
   };
 
-  it("the header's indent is built from the SAME two numbers the rail is", () => {
-    /* The title now starts where the content column does, which on a railed page means clearing the
-       rail. Written as a literal, that number silently stops matching the moment the rail moves —
-       so the indent is `calc(gutter + rail + gap)` off the variables, and this is what says so. */
-    const indent = decl(".page:has(.page-rail) .page-head", "padding-left");
-    expect(indent).toContain("--page-rail-w");
-    expect(indent).toContain("--page-rail-gap");
+  it("the head stands in the column it names, so it takes no indent — and the rail starts level with its band", () => {
+    /* The head is the column's first child now (PageScroll), so it starts where the content does by
+       construction, and an indent written for the head ABOVE the column would push it past the
+       content it names. THE mutants: an indent back on the head, or the rail left at the body's top
+       edge, a whole title band above the head beside it. The band is one variable, so the two cannot
+       drift. */
+    expect(decl(".page-head", "padding")).toBe("var(--page-head-top) 0 18px");
+    const indented = RULES.filter((r) => r.selectors.some((s) => /\.page-head$/.test(s)) && /padding-(left|inline)/.test(r.body));
+    expect(indented).toEqual([]);
+    expect(decl(".page-body > .page-rail", "margin-top")).toBe("var(--page-head-top)");
     expect(decl(".page-rail", "width")).toBe("var(--page-rail-w)");
     expect(decl(".page-body", "gap")).toBe("var(--page-rail-gap)");
   });
 
-  it("head, rail and content are ONE centred block — the title stays over the column it introduces", () => {
-    // The mutant: drop `.page-head` from this rule. The form centres itself in the pane and the title
-    // that names it stays at the pane's left edge, introducing nothing.
-    const band = RULES.filter((r) => r.selectors.includes(".page-head") && r.body.includes("margin-inline: auto"));
+  it("rail and column are ONE centred block, and the head rides in the column — the title stays over what it introduces", () => {
+    // The mutant: centre the column alone. The rail would stand at the pane's left edge beside a
+    // column in the middle of it, belonging to neither.
+    const band = RULES.filter((r) => r.selectors.includes(".page-body") && r.body.includes("margin-inline: auto"));
     expect(band).toHaveLength(1);
-    expect(band[0]!.selectors).toContain(".page-body");
+    expect(band[0]!.selectors).not.toContain(".page-head");
     // The load-bearing one: an auto cross-axis margin switches a flex item's stretch OFF, so without
     // an explicit width each band shrinks to fit its own longest line instead of filling the cap.
     expect(band[0]!.body).toContain("width: 100%");
@@ -3870,8 +3886,10 @@ describe("Settings' search and grouped rail", () => {
 
   it("wide, the lists scroll under the search when the page is shorter than the rail", () => {
     /* 530px of rail against 479px of page at the 600px minimum window. THE mutant: let the rail
-       size to its content, and Import sits below the page with nothing to scroll it into view. */
-    expect(bodiesFor(".page-rail.settings-rail").join(" ")).toMatch(/max-height: 100%/);
+       size to its content, and Import sits below the page with nothing to scroll it into view. In the
+       page the rail starts a head's band down, so its cap gives that band back; in the sidebar's
+       column there is no band, and the cap is the column. */
+    expect(bodiesFor(".page-rail.settings-rail").join(" ")).toMatch(/max-height: calc\(100% - var\(--page-head-top, 0px\)\)/);
     const lists = bodiesFor(".settings-rail-lists").join(" ");
     expect(lists).toContain("min-height: 0");
     expect(lists).toContain("overflow-y: auto");

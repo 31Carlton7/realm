@@ -25,15 +25,15 @@ export function ConnectionsPage({ item }: PaneProps) {
 
   return (
     <div className="page connections-page-pane">
-      <header className="page-head">
-        <div className="page-title"><h1>Connections</h1></div>
-        <span className="page-vantage">{space.name}</span>
-      </header>
       <div className="page-body">
         {/* Both ends dissolve, but only when there is something under them — and only over the
             column, which is what `PageScroll` wraps. The column pads by their depth so a row under
             one is still clickable. */}
         <PageScroll>
+          <header className="page-head">
+            <div className="page-title"><h1>Connections</h1></div>
+            <span className="page-vantage">{space.name}</span>
+          </header>
           <ConnectorMarket spaceId={spaceId} />
           <McpSection spaceId={spaceId} />
         </PageScroll>

@@ -6699,15 +6699,17 @@ select { appearance: none; padding-right: 22px;
 .page:has(.page-rail) { --page-measure: 968px; }   /* + the 180px rail and its 20px gap */
 .page:has(.page-content[data-wide]) { --page-measure: 1348px; }  /* the Tasks lens's own 1100px cap */
 /* `width: 100%` is load-bearing: an auto cross-axis margin switches off a flex item's stretch, so
-   without it each band would shrink to fit its own longest line instead of filling the cap. */
-.page-head, .page-body { width: 100%; max-width: var(--page-measure); margin-inline: auto; }
-/* A page's title sits where its CONTENT starts, not where the window does. On a railed page the
-   content column begins past the rail, and a title left-aligned to the window instead pointed at the
-   tab list rather than at the thing it names. The two rail measurements are variables so the indent
-   and the rail can never drift apart. */
+   without it the band would shrink to fit its own longest line instead of filling the cap. */
+.page-body { width: 100%; max-width: var(--page-measure); margin-inline: auto; }
 .page { --page-rail-w: 180px; --page-rail-gap: 20px; }
-.page-head { flex: none; display: flex; align-items: baseline; gap: 12px; padding: 24px 24px 18px; }
-.page:has(.page-rail) .page-head { padding-left: calc(24px + var(--page-rail-w) + var(--page-rail-gap)); }
+/* A page's head is the first thing IN its column (`PageScroll`), and scrolls away with what it names:
+   pinned above the column it read as a sticky header on every page (the owner, 10-05: "the header
+   shouldn't be sticky at all"). There it already starts where the content does — past the rail, over
+   the thing it names, which a head above the column had to be indented to reach — so it carries only
+   the band above and below the title. The rail beside the column starts level with that band. */
+.page { --page-head-top: 24px; }
+.page-head { display: flex; align-items: baseline; gap: 12px; padding: var(--page-head-top) 0 18px; }
+.page-body > .page-rail { margin-top: var(--page-head-top); }
 .page-glyph { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--r-ctl);
   background: color-mix(in srgb, currentColor 14%, transparent); }
 .page-title { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
@@ -6757,7 +6759,7 @@ select { appearance: none; padding-right: 22px;
 /* Nine pages under five headings are taller than the page at the smallest window the app allows
    (530px against 479 at 600), so the lists scroll under a search that stays put rather than the
    last pages falling off the bottom with nothing to scroll them back. */
-.page-rail.settings-rail { min-height: 0; max-height: 100%; }
+.page-rail.settings-rail { min-height: 0; max-height: calc(100% - var(--page-head-top, 0px)); }
 .settings-rail-lists { display: flex; flex-direction: column; gap: 16px; min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; }
 .settings-search { flex: none; }
 /* `--field` is the canvas itself on the light face (both 0.961), so a field laid on this page's
@@ -6838,7 +6840,8 @@ select { appearance: none; padding-right: 22px;
    its trailing action fall under the title instead of crushing it, and every row's action cluster
    takes its own line rather than pinching the text it acts on down to one character per line. */
 @container (max-width: 640px) {
-  .page-head, .page:has(.page-rail) .page-head { flex-wrap: wrap; gap: 10px; padding: 14px 16px 10px; }
+  .page-body { --page-head-top: 14px; }
+  .page-head { flex-wrap: wrap; gap: 10px; padding: var(--page-head-top) 0 10px; }
   /* Only the trailing action is meant to fall to a second line. Given a shrinkable basis the title
      stays beside its glyph; left at `auto` its full text is the basis, and the glyph ended up
      stranded alone on the first line. */

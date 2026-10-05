@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { ARTIFACT_KINDS, artifactTypeOf, LIBRARY_PAGE_SIZE, type ArtifactKind, type ArtifactType, type LibraryEntry } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { FileCard, FileRow } from "../../components/FileCard";
@@ -102,7 +102,9 @@ function walkGrid(e: ReactKeyboardEvent<HTMLElement>) {
  * Paging is driven by a sentinel at the end of the list rather than by a scroll handler, so the cost
  * of "am I near the bottom" is the browser's rather than a listener firing on every wheel tick.
  */
-export function LibraryFiles({ spaceId }: { spaceId: string }) {
+export function LibraryFiles({ spaceId, head }: { spaceId: string;
+  /** The page's head, drawn first in this column and scrolling away with it, the toolbar under it. */
+  head?: ReactNode }) {
   const libraryArtifacts = useApp((s) => s.libraryArtifacts);
   // "Every space" is every space of THIS window's profile — profiles are separate homes for their
   // spaces, and the sidebar beside this page lists only its own.
@@ -185,54 +187,55 @@ export function LibraryFiles({ spaceId }: { spaceId: string }) {
 
   return (
     <div className="library-files">
-      <div className="library-toolbar">
-        <div className="filter-chips library-types" role="group" aria-label="Kind of file">
-          {TYPE_TABS.map((t) => (
-            <button key={t.id} type="button" className="filter-chip" data-selected={type === t.id || undefined}
-              aria-pressed={type === t.id} onClick={() => setType(t.id)}>{t.label}</button>
-          ))}
-          {/* A narrowing the filter menu made, said where the tabs are — so a list that is shorter
-              than it should be says why — and undone from the same place. Only while it narrows. */}
-          {scope !== "all" && (
-            <button type="button" className="filter-chip library-narrowing" onClick={() => setScope("all")}
-              title="Show files from every space">
-              {SCOPE_WORDS[scope]} <Icon name="close" size={12} />
-            </button>
-          )}
-          {kind !== "all" && (
-            <button type="button" className="filter-chip library-narrowing" onClick={() => setKind("all")}
-              title="Show every file, made or uploaded">
-              {KIND_WORDS[kind]} <Icon name="close" size={12} />
-            </button>
-          )}
-        </div>
-        <div className="library-tools">
-          <button ref={filterBtn} type="button" className="icon-btn library-filter" aria-label="Filter files"
-            aria-haspopup="menu" aria-expanded={filtering} data-on={narrowed || undefined}
-            title={`${SCOPE_WORDS[scope]} · ${KIND_WORDS[kind]}`}
-            onClick={() => setFiltering((v) => !v)}>
-            <Icon name="filter" size={16} />
-          </button>
-          <fieldset className="seg library-view">
-            <legend className="visually-hidden">View files as</legend>
-            {(["grid", "list"] as const).map((v) => (
-              <label key={v} className="seg-opt" data-selected={view === v || undefined} title={v === "grid" ? "Tiles" : "Rows"}>
-                <input type="radio" name="library-view" value={v} checked={view === v}
-                  onChange={() => run(() => setLibraryView(v))} aria-label={v === "grid" ? "Tiles" : "Rows"} />
-                <Icon name={v} size={14} />
-              </label>
-            ))}
-          </fieldset>
-          <label className="library-search">
-            <Icon name="search" size={14} />
-            <input className="search-field" type="search" aria-label="Search files" placeholder="Search files"
-              value={query} onChange={(e) => setQuery(e.target.value)} />
-          </label>
-        </div>
-      </div>
-      {filtering && <Menu items={filterItems} anchorRef={filterBtn} align="right" label="Filter files" onClose={() => setFiltering(false)} />}
-
       <PageScroll wide>
+        {head}
+        <div className="library-toolbar">
+          <div className="filter-chips library-types" role="group" aria-label="Kind of file">
+            {TYPE_TABS.map((t) => (
+              <button key={t.id} type="button" className="filter-chip" data-selected={type === t.id || undefined}
+                aria-pressed={type === t.id} onClick={() => setType(t.id)}>{t.label}</button>
+            ))}
+            {/* A narrowing the filter menu made, said where the tabs are — so a list that is shorter
+                than it should be says why — and undone from the same place. Only while it narrows. */}
+            {scope !== "all" && (
+              <button type="button" className="filter-chip library-narrowing" onClick={() => setScope("all")}
+                title="Show files from every space">
+                {SCOPE_WORDS[scope]} <Icon name="close" size={12} />
+              </button>
+            )}
+            {kind !== "all" && (
+              <button type="button" className="filter-chip library-narrowing" onClick={() => setKind("all")}
+                title="Show every file, made or uploaded">
+                {KIND_WORDS[kind]} <Icon name="close" size={12} />
+              </button>
+            )}
+          </div>
+          <div className="library-tools">
+            <button ref={filterBtn} type="button" className="icon-btn library-filter" aria-label="Filter files"
+              aria-haspopup="menu" aria-expanded={filtering} data-on={narrowed || undefined}
+              title={`${SCOPE_WORDS[scope]} · ${KIND_WORDS[kind]}`}
+              onClick={() => setFiltering((v) => !v)}>
+              <Icon name="filter" size={16} />
+            </button>
+            <fieldset className="seg library-view">
+              <legend className="visually-hidden">View files as</legend>
+              {(["grid", "list"] as const).map((v) => (
+                <label key={v} className="seg-opt" data-selected={view === v || undefined} title={v === "grid" ? "Tiles" : "Rows"}>
+                  <input type="radio" name="library-view" value={v} checked={view === v}
+                    onChange={() => run(() => setLibraryView(v))} aria-label={v === "grid" ? "Tiles" : "Rows"} />
+                  <Icon name={v} size={14} />
+                </label>
+              ))}
+            </fieldset>
+            <label className="library-search">
+              <Icon name="search" size={14} />
+              <input className="search-field" type="search" aria-label="Search files" placeholder="Search files"
+                value={query} onChange={(e) => setQuery(e.target.value)} />
+            </label>
+          </div>
+        </div>
+        {filtering && <Menu items={filterItems} anchorRef={filterBtn} align="right" label="Filter files" onClose={() => setFiltering(false)} />}
+
         {/* Two different emptinesses, and they need different words. "Nothing here yet" over a home
             with four hundred files, because the search matched none of them, is a lie about the app. */}
         {entries.length === 0 && !loading && (

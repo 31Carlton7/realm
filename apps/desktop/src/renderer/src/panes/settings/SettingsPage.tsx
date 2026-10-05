@@ -71,12 +71,6 @@ export function SettingsPage(_props: PaneProps) {
 
   return (
     <div className="page settings-page-pane" ref={page}>
-      {/* The page names the section it shows, as Codex's does — "Sign-ins" over sign-ins. "Settings"
-          is already the pane bar's word and the column's, and a third copy of it here was the one
-          heading on the page that said nothing about what was under it. */}
-      <header className="page-head">
-        <div className="page-title"><h1>{results !== null ? "Search" : settingsTabLabel(tab)}</h1></div>
-      </header>
       <div className="page-body">
         <PageRail label="Settings">
         <div className="page-rail settings-rail">
@@ -119,6 +113,12 @@ export function SettingsPage(_props: PaneProps) {
             to a page: one scroller for all of them opened General as far down as Appearance had been
             left, which a jump to a row near the bottom of a page made the usual case. */}
         <PageScroll key={results === null ? tab : "results"}>
+          {/* The page names the section it shows, as Codex's does — "Sign-ins" over sign-ins. "Settings"
+              is already the pane bar's word and the column's, and a third copy of it here was the one
+              heading on the page that said nothing about what was under it. */}
+          <header className="page-head">
+            <div className="page-title"><h1>{results !== null ? "Search" : settingsTabLabel(tab)}</h1></div>
+          </header>
           {results !== null ? <SearchResults query={query.trim()} results={results} onPick={jump} /> : (
             <>
               {tab === "general" && <GeneralTab />}

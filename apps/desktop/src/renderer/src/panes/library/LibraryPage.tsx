@@ -79,40 +79,46 @@ export function LibraryPage({ item }: PaneProps) {
 
   if (!space) return <div className="pane-placeholder muted">This page's space no longer exists.</div>;
 
+  /* The head is the column's first child wherever the column is drawn — the list's, Files' own, a
+     skill's — so it scrolls away with what it names. */
+  const head = (
+    <header className="page-head">
+      {/* Reading a skill, the head is the skill's — its name is the h1, and the way back to the list
+          is the control immediately left of it. A second "Library" title above a skill's name would
+          be two headings for one page, and the back button already says where back goes. */}
+      {openSkill !== null && (
+        <button type="button" className="icon-btn page-back" aria-label="Back to skills" onClick={closeSkill}>
+          <Icon name="chevronLeft" size={14} />
+        </button>
+      )}
+      {/* The section it shows, as Settings' head names its page: "Library" is the pane bar's word and
+          the column's Back already says where back goes. */}
+      <div className="page-title"><h1>{openName ?? LIBRARY_TABS.find((t) => t.id === shown)!.label}</h1></div>
+      {/* The vantage, kept. It used to live in the sub-title paragraph, and that paragraph went —
+          but WHICH space a scope-grouped page is seen from is a fact about what it is showing, not
+          decoration, and it is the only place that fact appears. */}
+      <span className="page-vantage">{shown === "skills" ? space.name : profileName}</span>
+    </header>
+  );
+
   return (
     <div className="page library-page-pane">
-      <header className="page-head">
-        {/* Reading a skill, the head is the skill's — its name is the h1, and the way back to the list
-            is the control immediately left of it. A second "Library" title above a skill's name would
-            be two headings for one page, and the back button already says where back goes. */}
-        {openSkill !== null && (
-          <button type="button" className="icon-btn page-back" aria-label="Back to skills" onClick={closeSkill}>
-            <Icon name="chevronLeft" size={14} />
-          </button>
-        )}
-        {/* The section it shows, as Settings' head names its page: "Library" is the pane bar's word and
-            the column's Back already says where back goes. */}
-        <div className="page-title"><h1>{openName ?? LIBRARY_TABS.find((t) => t.id === shown)!.label}</h1></div>
-        {/* The vantage, kept. It used to live in the sub-title paragraph, and that paragraph went —
-            but WHICH space a scope-grouped page is seen from is a fact about what it is showing, not
-            decoration, and it is the only place that fact appears. */}
-        <span className="page-vantage">{shown === "skills" ? space.name : profileName}</span>
-      </header>
       {openSkill !== null ? (
         <>
           {/* Reading a skill, the Library's sections stay in the sidebar, so the column does not change
               under it; in the page there is only the skill, with its own way back beside its name. */}
           <PageRail label="Library" inline={false}>{rail}</PageRail>
-          <SkillViewer spaceId={spaceId} id={openSkill} onBack={closeSkill} />
+          <SkillViewer spaceId={spaceId} id={openSkill} onBack={closeSkill} head={head} />
         </>
       ) : (
       <div className="page-body">
         <PageRail label="Library">{rail}</PageRail>
-        {/* Files brings its own scroller, because its toolbar stands outside it; the other two are
-            reading columns. Both ends dissolve, but only when there is something under them — and
+        {/* Files brings its own scroller, because its toolbar rides in it under the head; the other two
+            are reading columns. Both ends dissolve, but only when there is something under them — and
             only over the column: a band on the body would be drawn over the rail above it. */}
-        {tab === "files" ? <LibraryFiles spaceId={spaceId} /> : (
+        {tab === "files" ? <LibraryFiles spaceId={spaceId} head={head} /> : (
           <PageScroll>
+            {head}
             {tab === "skills" && <SkillsPanel spaceId={spaceId} onOpen={(id) => setLibrarySkill(spaceId, id)} />}
             {tab === "memory" && <LibraryMemoryTab spaceId={spaceId} />}
           </PageScroll>

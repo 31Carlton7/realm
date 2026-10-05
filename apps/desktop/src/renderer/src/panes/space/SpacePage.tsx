@@ -13,6 +13,7 @@ import { SkillsPanel } from "../../components/settings/SkillsPanel";
 import { MemoryPanel } from "../../components/settings/MemoryPanel";
 import type { PaneProps } from "../registry";
 import { PageRail } from "../../components/page-nav";
+import { PageScroll } from "../../components/ScrollFades";
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -622,16 +623,6 @@ export function SpacePage({ item }: PaneProps) {
   return (
     // `.page` establishes the pattern; the modifier is `space-page-pane`.
     <div className="page space-page-pane">
-      <header className="page-head">
-        {/* Plain text. The space's colour is carried by its icon in the sidebar, which is where a
-            person looks to tell spaces apart — a coloured TITLE reads as a link or a status, and on
-            a purple space it fought the accent it was nearly the same hue as. */}
-        <div className="page-title"><h1>{space.name}</h1></div>
-        <span className="page-vantage">{count === 1 ? "1 session" : `${count} sessions`}</span>
-        <button type="button" className="btn primary" onClick={() => run(() => newSessionInstant())}>
-          <Icon name="add" size={14} /> New session
-        </button>
-      </header>
       <div className="page-body">
         {/* The sheet's native-radio tab idiom, stood upright: arrow keys move, one tab stop. Over the
             panes it takes the sidebar's column (page-nav.tsx). */}
@@ -647,7 +638,17 @@ export function SpacePage({ item }: PaneProps) {
           ))}
         </fieldset>
         </PageRail>
-        <div className="page-content" data-wide={tab === "tasks" || undefined}>
+        <PageScroll wide={tab === "tasks"}>
+          <header className="page-head">
+            {/* Plain text. The space's colour is carried by its icon in the sidebar, which is where a
+                person looks to tell spaces apart — a coloured TITLE reads as a link or a status, and on
+                a purple space it fought the accent it was nearly the same hue as. */}
+            <div className="page-title"><h1>{space.name}</h1></div>
+            <span className="page-vantage">{count === 1 ? "1 session" : `${count} sessions`}</span>
+            <button type="button" className="btn primary" onClick={() => run(() => newSessionInstant())}>
+              <Icon name="add" size={14} /> New session
+            </button>
+          </header>
           {tab === "general" && <GeneralTab spaceId={spaceId} />}
           {tab === "memory" && <MemoryTab spaceId={spaceId} />}
           {/* The same skill rows, opening the same viewer. It lives on the Library page, so this
@@ -670,7 +671,7 @@ export function SpacePage({ item }: PaneProps) {
           {tab === "sessions" && <SessionsTab spaceId={spaceId} />}
           {tab === "tasks" && <TasksTab spaceId={spaceId} />}
           {tab === "history" && <HistoryTab spaceId={spaceId} />}
-        </div>
+        </PageScroll>
       </div>
     </div>
   );

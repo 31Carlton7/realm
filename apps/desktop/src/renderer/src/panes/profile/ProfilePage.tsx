@@ -8,6 +8,7 @@ import { IconPicker } from "../../components/IconPicker";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import type { PaneProps } from "../registry";
 import { PageRail } from "../../components/page-nav";
+import { PageScroll } from "../../components/ScrollFades";
 import { MemoryDoc } from "../../components/settings/MemoryDoc";
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -54,9 +55,6 @@ export function ProfilePage({ item }: PaneProps) {
 
   return (
     <div className="page profile-page-pane">
-      <header className="page-head">
-        <div className="page-title"><h1>{profile.name}</h1></div>
-      </header>
       <div className="page-body">
         {/* Two lists, one rail. The page's sections and the profile's spaces are both "where this
             page can take you", and as a chip strip above the head the spaces were a third band that
@@ -91,12 +89,15 @@ export function ProfilePage({ item }: PaneProps) {
           )}
         </div>
         </PageRail>
-        <div className="page-content">
+        <PageScroll>
+          <header className="page-head">
+            <div className="page-title"><h1>{profile.name}</h1></div>
+          </header>
           {tab === "general" && <ProfileGeneralTab profile={profile} />}
           {tab === "skills" && <ProfileSkillsTab spaceId={spaceId} profileId={profile.id} profileName={profile.name} spaceName={space.name} />}
           {tab === "connections" && <ProfileConnectionsTab spaceId={spaceId} profileId={profile.id} profileName={profile.name} spaceName={space.name} />}
           {tab === "memory" && <ProfileMemoryTab profileId={profile.id} profileName={profile.name} />}
-        </div>
+        </PageScroll>
       </div>
     </div>
   );

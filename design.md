@@ -100,6 +100,11 @@ Treat a Realm screen as a field of work, not a stack of cards.
   and the column already say Settings or Library, and a third copy of that word was the one heading
   on the page that said nothing about what was under it. Each section in the column wears a glyph
   beside its name, as Codex's do, so eleven pages are found by shape before they are read.
+- A page's head scrolls away with its page: it is the first thing in the column, never a band pinned
+  above it (the owner, 10-05: "the header shouldn't be sticky at all"). Pinned, a head is chrome the
+  page keeps paying for at every scroll position to repeat a name the bar already holds. What stays
+  put is what is used while the content moves — a page's rail, a sheet's title and its decision, a
+  long table's column heads — and nothing else.
 - Preserve source order as reading order. A visual split must still read sensibly when stacked.
 - Use empty space to isolate a focal object, not to make sparse content look premium.
 - Repetition is for true peers. If one object is decisive, give it different scale or placement.
@@ -805,7 +810,8 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - A browser of files leads with what KIND of thing a file is, as tabs, because that is the first
   narrowing a person reaches for. The rarer ones — which space, who made it — live behind a filter
   that lights while it narrows and says so as a chip by the tabs, undone from there: a list that is
-  shorter than it should be has to say why. The toolbar is the column's head, outside its scroller.
+  shorter than it should be has to say why. The toolbar rides under the page's head, in the column,
+  and scrolls away with it.
 - A documents pane with nothing open is a home, not a void: what this session made and was given,
   then the Library's, under one search that also reaches the checkout's own names, and a New that
   says what every kind it writes is — a code file among them, since nothing else on screen says a
