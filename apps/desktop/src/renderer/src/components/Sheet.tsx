@@ -42,12 +42,12 @@ export function Sheet({ title, onClose, children, footer, width = 420 }: {
     ((el.querySelector(".sheet-body") ?? el).querySelector<HTMLElement>(FOCUSABLE) ?? el).focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        /* A popover the panel opened is portalled OUT of it (the icon picker), and it answers its
-           own Escape. Both listen on window and this one was registered first, so without this
-           the key that closes the picker closed the sheet under it too — mount order, not stacking
-           order (design.md). Focus on the body is no surface's, so that Escape is still the sheet's. */
-        const t = e.target;
-        if (t instanceof Node && t !== document.body && t !== document.documentElement && !el.contains(t)) return;
+        /* A popup that a control in the panel has open — the icon picker, portalled out of it —
+           answers its own Escape. Both listen on window and this one was registered first, so
+           without this the key that closes the picker closed the sheet under it too: mount order,
+           not stacking order (design.md). Asked of the control, which says so whether the focus is
+           in the popup, on the control, or nowhere at all. */
+        if (el.querySelector('[aria-haspopup]:not([aria-haspopup="false"])[aria-expanded="true"]')) return;
         e.stopPropagation(); onClose(); return;
       }
       if (e.key !== "Tab") return;

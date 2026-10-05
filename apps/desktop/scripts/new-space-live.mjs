@@ -279,9 +279,13 @@ async function main() {
   const expected = path.join(home, "personal", "versed");
   check("with no folder, it says where the space's sessions will run, from the server", location.includes(expected), { location, expected });
 
-  // Escape in the picker is the picker's: the sheet stays up under it.
+  // The picker's search has the keyboard once it is up — and Escape in it is the picker's, with the
+  // sheet staying up under it.
   await click(c, ".space-tile", "the icon tile");
   await until(() => evalIn(c, `!!document.querySelector('.icon-picker')`), 5000, "the icon picker");
+  const searching = await until(() => evalIn(c, `document.activeElement?.closest('.icon-picker') ? document.activeElement.getAttribute('aria-label') : null`), 3000, "the picker's search to take the keyboard")
+    .catch(() => null);
+  check("the icon picker's search takes the keyboard when it opens", searching === "Search", { focused: await evalIn(c, `__live.focusedLabel()`) });
   await sleep(300);
   await shot(c, "dark-icon-picker");
   await press(c, "Escape");
@@ -290,6 +294,9 @@ async function main() {
   check("Escape in the icon picker closes the picker and leaves the sheet up", !afterEscape.picker && afterEscape.sheet, afterEscape);
 
   await click(c, ".space-tile", "the icon tile");
+  await until(() => evalIn(c, `document.activeElement?.closest('.icon-picker') !== null`), 3000, "the picker's search");
+  await c.send("Input.insertText", { text: "rocket" });
+  await sleep(200);
   await click(c, '.icon-picker [aria-label="Icon rocket"]', "the rocket");
   await until(() => evalIn(c, `!document.querySelector('.icon-picker')`), 5000, "the picker to close on a pick");
   await click(c, '[role="radio"][aria-label="Color #ff6b8b"]', "a colour");
@@ -341,7 +348,7 @@ async function main() {
   await c.send("Input.insertText", { text: "Field notes" });
   await click(c, ".space-tile", "the icon tile");
   await click(c, '.icon-picker [role="tab"]:nth-child(2)', "the Emoji tab");
-  await until(() => evalIn(c, `!!document.querySelector('.icon-picker .ip-emoji')`), 10000, "the emoji grid");
+  await until(() => evalIn(c, `!!document.querySelector('.icon-picker .ip-emoji') && document.activeElement?.closest('.icon-picker') !== null`), 10000, "the emoji grid, search focused");
   await c.send("Input.insertText", { text: "seedling" });
   await sleep(300);
   await click(c, ".icon-picker .ip-emoji", "the first emoji");

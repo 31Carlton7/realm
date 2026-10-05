@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { createPortal } from "react-dom";
 import { Sheet } from "./Sheet";
 import { StoreContext, createAppStore } from "../state/store";
@@ -88,25 +89,36 @@ describe("Sheet escapes its opener's containment", () => {
   });
 });
 
-/** A popover the panel opens is portalled to the body, outside the panel, and answers its own Escape
- *  — the icon picker in the New space sheet is the case. Both listen on window and the sheet was
- *  registered first, so the key that closed the picker closed the sheet under it too. */
+/** A popover a control in the panel opens is portalled to the body, outside the panel, and answers
+ *  its own Escape — the icon picker in the New space sheet is the case. Both listen on window and
+ *  the sheet was registered first, so the key that closed the picker closed the sheet under it too. */
 describe("Escape, with a popover open over the sheet", () => {
-  function Popover() { return createPortal(<input aria-label="Search icons" />, document.body); }
+  function Picker() {
+    const [open, setOpen] = useState(true);
+    return (
+      <>
+        <button type="button" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((v) => !v)}>Change icon</button>
+        {open && createPortal(<div role="dialog" aria-label="Choose an icon"><input aria-label="Search icons" /></div>, document.body)}
+      </>
+    );
+  }
 
-  it("MUTANT: from the popover it is the popover's; from the panel, or from nothing, it closes the sheet", () => {
+  it("MUTANT: while a control's popup is open the key is the popup's — from the popup or from the control — and after, the sheet's", () => {
     const closed: string[] = [];
-    render(<Sheet title="New space" onClose={() => closed.push("sheet")}><input aria-label="Name" /><Popover /></Sheet>);
+    render(<Sheet title="New space" onClose={() => closed.push("sheet")}><input aria-label="Name" /><Picker /></Sheet>);
     const search = screen.getByRole("textbox", { name: "Search icons" });
-    expect(screen.getByRole("dialog").contains(search)).toBe(false);
+    expect(screen.getByRole("dialog", { name: "New space" }).contains(search)).toBe(false);
     search.focus();
     fireEvent.keyDown(search, { key: "Escape" });
-    expect(closed).toEqual([]);
-    const name = screen.getByRole("textbox", { name: "Name" });
-    name.focus();
-    fireEvent.keyDown(name, { key: "Escape" });
-    expect(closed).toEqual(["sheet"]);
+    // Outside jsdom the picker's field may not have the keyboard yet; the trigger still says it is open.
+    const trigger = screen.getByRole("button", { name: "Change icon" });
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "Escape" });
     fireEvent.keyDown(document.body, { key: "Escape" });
-    expect(closed).toEqual(["sheet", "sheet"]);
+    expect(closed).toEqual([]);
+    fireEvent.click(trigger);
+    expect(screen.queryByRole("dialog", { name: "Choose an icon" })).toBeNull();
+    fireEvent.keyDown(trigger, { key: "Escape" });
+    expect(closed).toEqual(["sheet"]);
   });
 });

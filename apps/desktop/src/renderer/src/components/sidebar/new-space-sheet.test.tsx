@@ -213,10 +213,20 @@ describe("NewSpaceSheet", () => {
   it("Escape in the icon picker closes the picker and leaves the sheet up; Escape again closes the sheet", async () => {
     const { store } = await mount();
     fireEvent.click(tile());
+    // The picker's search takes the keyboard once it is placed, so a name can be typed into it at once.
     const search = await screen.findByRole("textbox", { name: "Search" });
+    await waitFor(() => expect(document.activeElement).toBe(search));
     // The picker listens from the tick after it opened, so the click that opened it cannot close it.
     await new Promise((r) => setTimeout(r, 0));
     fireEvent.keyDown(search, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Choose an icon" })).toBeNull());
+    expect(store.getState().sheet?.kind).toBe("new-space");
+    // Opened again with the keyboard left on the tile, as a press on it leaves it: still the picker's.
+    fireEvent.click(tile());
+    await screen.findByRole("dialog", { name: "Choose an icon" });
+    await new Promise((r) => setTimeout(r, 0));
+    tile().focus();
+    fireEvent.keyDown(tile(), { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Choose an icon" })).toBeNull());
     expect(store.getState().sheet?.kind).toBe("new-space");
     fireEvent.keyDown(nameField(), { key: "Escape" });

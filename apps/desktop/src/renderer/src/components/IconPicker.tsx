@@ -93,8 +93,14 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
   onClose: () => void; onPick: (icon: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const search = useRef<HTMLInputElement>(null);
   const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef, onClose, exit: true });
   const [tab, setTab] = useState<Tab>("default");
+  /* The search takes the keyboard once the surface is placed, and again on a tab that has one. The
+     popover renders hidden until it is measured and a hidden field cannot be focused, so the
+     `autoFocus` this replaces came to nothing outside jsdom. */
+  const placed = pos !== null;
+  useEffect(() => { if (placed) search.current?.focus(); }, [placed, tab]);
   const [query, setQuery] = useState("");
   const [prompt, setPrompt] = useState("");
   const [generating, setGenerating] = useState(false);
@@ -160,7 +166,7 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
       {(tab === "default" || tab === "emoji") && (
         <div className="ip-search">
           <Icon name="search" size={14} />
-          <input autoFocus type="text" value={query} onChange={(e) => setQuery(e.target.value)}
+          <input ref={search} type="text" value={query} onChange={(e) => setQuery(e.target.value)}
             placeholder={tab === "default" ? "Search icons…" : "Search emoji…"} aria-label="Search" />
         </div>
       )}
