@@ -914,8 +914,10 @@ export const Methods = {
    * checkout when omitted), add `path` to its tab strip as the active tab, and broadcast
    * `documents.openRequested` so a mounted pane opens the tab and the store brings the item on screen.
    * The agent-facing `docs_open` tool and the store's own "open this lecture" both come through here.
+   * `path` comes back as the tab now names it — relative to the workspace root, whatever shape the
+   * caller sent — so a caller that wants a LINE of it shown can say which tab the line belongs to.
    */
-  "documents.openPath": { params: z.object({ spaceId: IdSchema, environmentId: IdSchema.optional(), path: z.string() }), result: z.object({ documentsId: IdSchema, itemId: IdSchema, environmentId: IdSchema }) },
+  "documents.openPath": { params: z.object({ spaceId: IdSchema, environmentId: IdSchema.optional(), path: z.string() }), result: z.object({ documentsId: IdSchema, itemId: IdSchema, environmentId: IdSchema, path: z.string() }) },
   /** A guide's quiz history from its sidecar; empty when there is none. */
   "documents.progressRead": { params: z.object({ documentsId: IdSchema, path: z.string() }), result: GuideProgressSchema },
   /** Fold one quiz attempt into the sidecar and return the updated history. */
