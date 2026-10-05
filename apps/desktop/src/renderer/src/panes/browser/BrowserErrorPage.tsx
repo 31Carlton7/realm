@@ -3,10 +3,11 @@ import { useId, useRef } from "react";
 import { useDissolve } from "../../components/ScrollFades";
 
 /**
- * Realm's hexagon wound in on itself: a spiral of six-sided turns that ends in a flat stroke, the way
- * the mark's own bands do. It is the pane reaching for a page, so it is still when nothing is being
- * tried — the error page wears it at rest — and while a load is in flight a pulse runs out along it
- * from the middle. Drawn in once as it arrives. Under reduced motion it is simply drawn.
+ * Realm's hexagon wound in on itself: a spiral of six-sided turns, lying flat as the mark's cube does,
+ * that ends in a stroke along its floor. It is the pane reaching for a page, so it is still when
+ * nothing is being tried — the error page wears it at rest — and while a load is in flight a pulse
+ * runs out along it from the middle. Drawn in once as it arrives. Under reduced motion it is simply
+ * drawn.
  */
 const SPIRAL = "M18.99 20.48 L18.31 19.31 L20.07 16.26 L25.76 16.26 L29.69 23.06 L24.68 31.74 L12.49 31.74 L5.31 19.31 L13.57 5 L32.26 5 L42.69 23.06 L31.18 43 L5.99 43";
 
