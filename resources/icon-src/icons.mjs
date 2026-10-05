@@ -26,7 +26,7 @@ const ORIGIN = (CANVAS - BODY) / 2;
  * Neither a circular radius nor a superellipse: those miss the system's own edge by up to 55 and 21 px
  * at 1024. The curve's control points are SwiftUI's, read off `Path(roundedRect:cornerRadius:style:)`
  * on this Mac (shape.swift prints it). The radius is fitted to the body macOS renders for its own
- * apps: at 214.5 px the two edges lie within 0.14 px of each other along their whole length.
+ * apps: at 214.5 px the two edges lie within 0.15 px of each other along their whole length.
  */
 const RADIUS = 214.5;
 /** One corner of the continuous rounded rectangle, in multiples of the radius from the corner: where
