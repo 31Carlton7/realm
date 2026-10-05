@@ -205,6 +205,7 @@ export function registerMethods(d: Deps): void {
 
   reg("spaces.list", () => d.spaces.listAll());
   reg("spaces.create", (p) => { const r = d.spaces.create(p); rpc.broadcast("spaces.changed", {}); return r; });
+  reg("spaces.folderFor", (p) => ({ path: d.spaces.folderFor(p.profileId, p.name) }));
   reg("spaces.update", (p) => { const r = d.spaces.update(p); rpc.broadcast("spaces.changed", {}); return r; });
   reg("spaces.reorder", (p) => { d.spaces.reorder(p.ids); rpc.broadcast("spaces.changed", {}); return { ok: true as const }; });
   reg("spaces.setLayout", (p) => { const r = d.spaces.setLayout(p.id, p.layout); rpc.broadcast("spaces.changed", {}); return r; });

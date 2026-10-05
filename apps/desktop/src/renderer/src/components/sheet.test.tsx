@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { createPortal } from "react-dom";
 import { Sheet } from "./Sheet";
 import { StoreContext, createAppStore } from "../state/store";
 import { fakeApi } from "../state/store.test-fakes";
@@ -84,5 +85,28 @@ describe("Sheet escapes its opener's containment", () => {
     const panel = screen.getByRole("dialog");
     expect(panel.closest(".sheet-backdrop")).not.toBeNull();
     expect(panel.closest(".panel")).toBeNull(); // the whole point: no containment ancestor above it
+  });
+});
+
+/** A popover the panel opens is portalled to the body, outside the panel, and answers its own Escape
+ *  — the icon picker in the New space sheet is the case. Both listen on window and the sheet was
+ *  registered first, so the key that closed the picker closed the sheet under it too. */
+describe("Escape, with a popover open over the sheet", () => {
+  function Popover() { return createPortal(<input aria-label="Search icons" />, document.body); }
+
+  it("MUTANT: from the popover it is the popover's; from the panel, or from nothing, it closes the sheet", () => {
+    const closed: string[] = [];
+    render(<Sheet title="New space" onClose={() => closed.push("sheet")}><input aria-label="Name" /><Popover /></Sheet>);
+    const search = screen.getByRole("textbox", { name: "Search icons" });
+    expect(screen.getByRole("dialog").contains(search)).toBe(false);
+    search.focus();
+    fireEvent.keyDown(search, { key: "Escape" });
+    expect(closed).toEqual([]);
+    const name = screen.getByRole("textbox", { name: "Name" });
+    name.focus();
+    fireEvent.keyDown(name, { key: "Escape" });
+    expect(closed).toEqual(["sheet"]);
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(closed).toEqual(["sheet", "sheet"]);
   });
 });

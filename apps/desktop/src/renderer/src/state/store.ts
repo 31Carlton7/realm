@@ -32,6 +32,9 @@ import { SIDEBAR_WIDTH, clampSidebarWidth } from "../components/sidebar/sidebar-
 import type { SettingsTab } from "../panes/settings/settings-index";
 
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
+/** What the New space sheet hands over: the row, and what is made WITH it — the folder its sessions
+ *  work in (its first project) and its memory document. */
+export type NewSpaceInput = CreateSpaceInput & { folder?: string | null; memory?: string };
 export type NewProfileInput = { name: string; icon?: string; color?: string };
 export type UpdateProfileInput = { id: string; name?: string; icon?: string; color?: string };
 /** What deleting a profile takes with it. */
@@ -179,6 +182,8 @@ export type Api = {
   /** `environments.createWorktree` — makes the worktree on disk AND its row, as one operation. */
   createWorktree(spaceId: string, title: string | null): Promise<Environment>;
   createSpace(input: CreateSpaceInput): Promise<Space>;
+  /** `spaces.folderFor` — the folder `createSpace` would make for this name, without making it. */
+  spaceFolderFor(profileId: string, name: string): Promise<string>;
   updateSpace(input: UpdateSpaceInput): Promise<Space>;
   reorderSpaces(ids: string[]): Promise<void>;
   deleteSpace(id: string): Promise<void>;
@@ -1592,7 +1597,11 @@ export type AppState = {
   /** The profile switcher's choice. A profile already open in another window brings THAT window
    *  forward and this one stays as it is; otherwise this window switches to it (`selectProfile`). */
   switchProfile(profileId: string): Promise<void>;
-  createSpace(input: CreateSpaceInput): Promise<void>;
+  /** The New space sheet's Create: the space, then a session in it with the keyboard — never the
+   *  space's Overview (see `openNewSpace`). */
+  createSpace(input: NewSpaceInput): Promise<void>;
+  /** Where a space of this name would work if it is given no folder (`spaces.folderFor`). */
+  spaceFolderFor(profileId: string, name: string): Promise<string>;
   updateSpace(input: UpdateSpaceInput): Promise<void>;
   deleteSpace(id: string): Promise<void>;
   reorderSpaces(ids: string[]): Promise<void>;
@@ -3449,6 +3458,29 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       }
     };
     /**
+     * A new space, opened on its first session — how first run ends and how the New space sheet's
+     * Create does. Not on the space's Overview, which is where `selectSpace` takes a space with
+     * nothing in it: someone who has just named a space came to work in it, not to read its
+     * settings. A folder becomes the space's first project and the session opens IN it rather than
+     * in the empty folder Realm allocates; the memory is written before the session exists, so its
+     * first turn reads it. Then the keyboard, the way an open from a list hands it over, so the hand
+     * that pressed Create can type.
+     */
+    const openNewSpace = async (input: CreateSpaceInput & { folder: string | null; memory?: string; agentKind: AgentKind }) => {
+      const before = profileSpaceIds();
+      const space = await api.createSpace({ name: input.name, icon: input.icon, profileId: input.profileId, color: input.color });
+      set({ spaces: [...get().spaces.filter((x) => x.id !== space.id), space] });
+      if (get().activeProfileId !== input.profileId) await get().selectProfile(input.profileId);
+      else await syncProfileSpaces(before);
+      if (input.memory?.trim()) await get().saveMemoryDoc(space.id, input.memory);
+      const project = input.folder ? await api.createProject(space.id, folderName(input.folder), input.folder) : null;
+      if (project) await get().refreshProjects(space.id);
+      await get().newSession({ agentKind: input.agentKind, projectId: project?.id ?? null, spaceId: space.id });
+      // The space is a moment old, so the one session in it is the one just made.
+      const session = Object.values(get().sessions).find((s) => s.spaceId === space.id);
+      if (session) set({ keyboardFor: { sessionId: session.id, n: (get().keyboardFor?.n ?? 0) + 1 } });
+    };
+    /**
      * The window's view for the active profile, from what was saved — or, the first time a profile is
      * opened by a build without rooms, from the active split of the space it was last in, so the user
      * sees what they last saw. That migration is written straight back, so it happens once; the
@@ -3894,15 +3926,11 @@ await get().refreshCustomThemes().catch(() => {});
         if (await api.focusProfileWindow(profileId)) return;
         await get().selectProfile(profileId);
       },
-      async createSpace(input) {
-        const before = profileSpaceIds();
-        const s = await api.createSpace(input);
-        set({ spaces: [...get().spaces.filter((x) => x.id !== s.id), s] });
-        await syncProfileSpaces(before);
-        // There, as a click on it would go: another profile's switches the window, and a space with
-        // nothing in it yet opens on its Overview.
-        await get().selectSpace(s.id);
+      async createSpace({ folder = null, memory, ...input }) {
+        // Another profile's switches the window, as a click on one of its spaces would.
+        await openNewSpace({ ...input, folder, memory, agentKind: get().lastAgentKind ?? FALLBACK_AGENT });
       },
+      spaceFolderFor(profileId, name) { return api.spaceFolderFor(profileId, name); },
       async updateSpace(input) {
         const before = profileSpaceIds();
         mergeSpace(await api.updateSpace(input));
@@ -4183,19 +4211,7 @@ await get().refreshCustomThemes().catch(() => {});
         // the very first screen can never be a dead end.
         const profileId = get().activeProfileId ?? get().profiles[0]?.id ?? (await get().createProfile("Personal")).id;
         await get().setDefaultAgent(agentKind);
-        // Made here rather than through `createSpace`, which lands on the new space's Overview: the
-        // screen after onboarding is a prompter, opened below.
-        const before = profileSpaceIds();
-        const space = await api.createSpace({ name, icon, profileId, color });
-        set({ spaces: [...get().spaces.filter((x) => x.id !== space.id), space] });
-        if (get().activeProfileId !== profileId) await get().selectProfile(profileId);
-        else await syncProfileSpaces(before);
-        // The folder becomes the space's first project, and the session opens IN it — not in the
-        // empty space folder Realm allocates, which is where a first session used to land even when
-        // the user had a repo in mind.
-        const project = folder ? await api.createProject(space.id, folderName(folder), folder) : null;
-        if (project) await get().refreshProjects(space.id);
-        await get().newSession({ agentKind, projectId: project?.id ?? null, spaceId: space.id });
+        await openNewSpace({ name, icon, color, profileId, folder, agentKind });
       },
       async pickAndLinkProject(spaceId = null) {
         const path = await api.pickFolder();

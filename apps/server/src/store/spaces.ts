@@ -65,10 +65,15 @@ export class SpacesStore {
     const r = this.db.prepare("SELECT * FROM spaces WHERE id = ?").get(id) as Row | undefined;
     return r ? toSpace(r) : null;
   }
+  /** The folder `create` would make for `name` under this profile, without making it — the one
+   *  answer for both, so what the New space sheet names is the folder the space gets. */
+  folderFor(profileId: string, name: string): string {
+    const prof = this.db.prepare("SELECT name FROM profiles WHERE id = ?").get(profileId) as { name: string } | undefined;
+    if (!prof) throw new NotFoundError("profile", profileId);
+    return this.allocateFolder(slugify(prof.name), slugify(name));
+  }
   create(input: { profileId: string; name: string; icon: string; color?: string }): Space {
-    const prof = this.db.prepare("SELECT name FROM profiles WHERE id = ?").get(input.profileId) as { name: string } | undefined;
-    if (!prof) throw new NotFoundError("profile", input.profileId);
-    const folder = this.allocateFolder(slugify(prof.name), slugify(input.name));
+    const folder = this.folderFor(input.profileId, input.name);
     mkdirSync(folder, { recursive: true });
     const max = (this.db.prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM spaces").get() as { m: number }).m;
     const countAll = (this.db.prepare("SELECT COUNT(*) AS c FROM spaces").get() as { c: number }).c;

@@ -28,6 +28,7 @@ export const liveApi = (): Api => ({
   listEnvironments: (spaceId) => rpc().call("environments.list", { spaceId }),
   createWorktree: (spaceId, title) => rpc().call("environments.createWorktree", { spaceId, title }),
   createSpace: (input) => rpc().call("spaces.create", input),
+  spaceFolderFor: async (profileId, name) => (await rpc().call("spaces.folderFor", { profileId, name })).path,
   updateSpace: (input) => rpc().call("spaces.update", input),
   reorderSpaces: async (ids) => { await rpc().call("spaces.reorder", { ids }); },
   deleteSpace: async (id) => { await rpc().call("spaces.delete", { id }); },

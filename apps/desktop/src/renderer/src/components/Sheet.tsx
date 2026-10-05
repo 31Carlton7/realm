@@ -41,7 +41,15 @@ export function Sheet({ title, onClose, children, footer, width = 420 }: {
     const prev = document.activeElement as HTMLElement | null;
     ((el.querySelector(".sheet-body") ?? el).querySelector<HTMLElement>(FOCUSABLE) ?? el).focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.stopPropagation(); onClose(); return; }
+      if (e.key === "Escape") {
+        /* A popover the panel opened is portalled OUT of it (the icon picker), and it answers its
+           own Escape. Both listen on window and this one was registered first, so without this
+           the key that closes the picker closed the sheet under it too — mount order, not stacking
+           order (design.md). Focus on the body is no surface's, so that Escape is still the sheet's. */
+        const t = e.target;
+        if (t instanceof Node && t !== document.body && t !== document.documentElement && !el.contains(t)) return;
+        e.stopPropagation(); onClose(); return;
+      }
       if (e.key !== "Tab") return;
       const nodes = Array.from(el.querySelectorAll<HTMLElement>(FOCUSABLE)); if (nodes.length === 0) return;
       const first = nodes[0]!, last = nodes[nodes.length - 1]!;
