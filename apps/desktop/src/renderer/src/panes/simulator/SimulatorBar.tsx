@@ -130,7 +130,8 @@ const BUTTON_ICONS: Record<SimulatorButton, IconName> = {
  * one, with a row back up at its head — because an OS menu cannot change under the pointer and Realm's
  * menus carry no submenus. Both are read when the overflow opens rather than when their row is picked:
  * an OS menu is built once, when it opens, and a list still on its way when the drill-down opened would
- * open as one row saying so.
+ * open as one row saying so. Read quietly, too — nobody who opened this for Volume up asked for either
+ * list, so a device that will not answer says so inside the drill-down, not in a toast.
  */
 function MoreMenu({ simulatorId, state, overflow, frame, shownAs }: {
   simulatorId: string; state: SimulatorState; overflow: Press[]; frame: Frame; shownAs: string | null;
@@ -228,12 +229,15 @@ const TOGGLES = ["reduce-motion", "increase-contrast", "reduce-transparency", "s
  */
 function useDeviceRows(simulatorId: string, wsUrl: string | null, up: () => void) {
   const [ui, setUi] = useState<SimulatorUiState | null>(null);
+  const [unread, setUnread] = useState<string | null>(null);
   const [events, setEvents] = useState<SimulatorEvent[] | null>(null);
   const run = useApp((s) => s.run);
 
   const load = () => {
     setEvents(null);
-    void run(async () => { setUi((await rpc().call("simulators.ui", { simulatorId })).ui); });
+    setUi(null);
+    setUnread(null);
+    rpc().call("simulators.ui", { simulatorId }).then((r) => setUi(r.ui), (e: unknown) => setUnread(e instanceof Error ? e.message : String(e)));
   };
   const set = (option: string, value: string) => run(async () => {
     const r = await rpc().call("simulators.setUi", { simulatorId, option, value });
@@ -249,6 +253,9 @@ function useDeviceRows(simulatorId: string, wsUrl: string | null, up: () => void
 
   const rows = (): MenuItem[] => {
     const out: MenuItem[] = [{ label: "← Device settings", keepOpen: true, onSelect: up }];
+    // Its settings are the DEVICE's, read as the overflow opened: a device that did not answer leaves
+    // every row unticked, and this line says why rather than letting them read as all off.
+    if (unread !== null) out.push({ label: `The device did not say how it is set: ${unread}`, disabled: true, onSelect: () => {} });
     /* Appearance and Liquid Glass first: they change what every screenshot of this device looks
        like, which is what most people open this menu for. */
     for (const option of ["appearance", "liquid-glass", "color-filter"] as const) {
@@ -384,12 +391,13 @@ function useAppRows(simulatorId: string, physical: boolean, up: () => void) {
   const [apps, setApps] = useState<SimulatorApp[] | null>(null);
   const [app, setApp] = useState<SimulatorApp | null>(null);
   const [permission, setPermission] = useState<string | null>(null);
+  const [unread, setUnread] = useState<string | null>(null);
   const run = useApp((s) => s.run);
   const pickFiles = useApp((s) => s.pickFiles);
 
   const load = () => {
-    setApp(null); setPermission(null);
-    void run(async () => { setApps((await rpc().call("simulators.apps", { simulatorId })).apps); });
+    setApps(null); setApp(null); setPermission(null); setUnread(null);
+    rpc().call("simulators.apps", { simulatorId }).then((r) => setApps(r.apps), (e: unknown) => setUnread(e instanceof Error ? e.message : String(e)));
   };
   const act = (a: SimulatorAct) => run(async () => {
     const r = await rpc().call("simulators.act", { simulatorId, act: a });
@@ -399,7 +407,7 @@ function useAppRows(simulatorId: string, physical: boolean, up: () => void) {
   const rows = (): MenuItem[] => {
     if (app === null) {
       const head: MenuItem[] = [{ label: "← Apps", keepOpen: true, onSelect: up }, { kind: "separator" }];
-      if (apps === null) return [...head, { label: "Reading the device…", disabled: true, onSelect: () => {} }];
+      if (apps === null) return [...head, { label: unread === null ? "Reading the device…" : `The device did not list its apps: ${unread}`, disabled: true, onSelect: () => {} }];
       return apps.length === 0
         ? [...head, { label: "No apps on this device", disabled: true, onSelect: () => {} }]
         : [...head, ...apps.map((a) => ({ label: a.name, title: a.bundleId, keepOpen: true, onSelect: () => setApp(a) }))];

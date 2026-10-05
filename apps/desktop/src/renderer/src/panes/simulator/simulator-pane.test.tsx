@@ -17,6 +17,8 @@ let settings: Record<string, unknown> = {};
 /** Which toolchain the stored row says this pane is pointed at. It decides which device art the
  *  stream is framed as, and it comes off the ROW rather than being inferred from the stream. */
 let platform: "ios" | "android" = "ios";
+/** What the device says when asked for its apps and its settings — or, set, the refusal it gives. */
+let refusal: string | null = null;
 
 vi.mock("../../rpc/client", () => ({
   rpc: () => ({
@@ -29,6 +31,8 @@ vi.mock("../../rpc/client", () => ({
       if (method === "simulators.stop") return { state: off("sim-1") };
       if (method === "simulators.ax") { calls.push({ method: "ax", params }); return { tree: AX_TREE }; }
       if (method === "simulators.act") return { ok: true, detail: "" };
+      if (method === "simulators.apps") { if (refusal) throw new Error(refusal); return { apps: [{ bundleId: "com.apple.mobilesafari", name: "Safari" }] }; }
+      if (method === "simulators.ui") { if (refusal) throw new Error(refusal); return { ui: { appearance: "dark", "reduce-motion": "on" } }; }
       if (method === "settings.get") return { value: settings[params.key] ?? null };
       if (method === "settings.set") { settings[params.key] = params.value; return { ok: true }; }
       throw new Error(`unexpected ${method}`);
@@ -116,7 +120,7 @@ const rowNames = (menu: HTMLElement) => [...menu.querySelectorAll('[role^="menui
 const frameRow = (menu: HTMLElement) => within(menu).getByRole("menuitemcheckbox", { name: "Show device frame" });
 
 beforeEach(() => {
-  calls.length = 0; sockets.length = 0; settings = {}; platform = "ios"; socketsOpen = true;
+  calls.length = 0; sockets.length = 0; settings = {}; platform = "ios"; socketsOpen = true; refusal = null;
   devices = [
     { udid: "UDID-1", platform: "ios", name: "iPhone 17 Pro", runtime: "iOS 27.0", state: "Shutdown", serial: null, physical: false },
     { udid: "UDID-2", platform: "ios", name: "iPad Pro 13-inch", runtime: "iPadOS 27.0", state: "Booted", serial: null, physical: false },
@@ -546,10 +550,28 @@ describe("the device's toolbar", () => {
     await waitFor(() => expect(rowNames(menu)).toContain("Device settings…"));
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Device settings…" }));
     await waitFor(() => expect(rowNames(menu)[0]).toBe("← Device settings"));
-    expect(rowNames(menu)).toContain("Appearance: Dark");
+    // Ticked from the device's own answer, not from a copy the pane kept.
+    expect(within(menu).getByRole("menuitemcheckbox", { name: "Appearance: Dark" })).toHaveAttribute("aria-checked", "true");
+    expect(within(menu).getByRole("menuitemcheckbox", { name: "Reduce Motion" })).toHaveAttribute("aria-checked", "true");
     // Both were read as the overflow opened, so neither opens on a list still on its way.
     expect(calls.filter((c) => c.method === "simulators.apps")).toHaveLength(1);
     expect(calls.filter((c) => c.method === "simulators.ui")).toHaveLength(1);
+  });
+
+  it("says inside the drill-down when the device will not answer, and raises no toast for opening the overflow", async () => {
+    /* THE MUTANT: read the two lists through the store's `run`, which toasts a failure — and then
+       opening the overflow for Volume up raises an error nobody asked about. */
+    refusal = "the simulator is not responding";
+    const { store } = await mount(RUNNING);
+    const menu = await openMore();
+    await waitFor(() => expect(calls.filter((c) => c.method === "simulators.apps")).toHaveLength(1));
+    await act(async () => {});
+    expect(store.getState().toasts).toEqual([]);
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Apps…" }));
+    await waitFor(() => expect(rowNames(menu)).toContain("The device did not list its apps: the simulator is not responding"));
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "← Apps" }));
+    fireEvent.click(await within(menu).findByRole("menuitem", { name: "Device settings…" }));
+    await waitFor(() => expect(rowNames(menu)[1]).toBe("The device did not say how it is set: the simulator is not responding"));
   });
 
   it("gives a phone what Realm can do to one: no rotation, no side button, none of the simulator's settings", async () => {

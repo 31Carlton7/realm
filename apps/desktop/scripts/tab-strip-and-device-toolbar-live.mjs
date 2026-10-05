@@ -115,7 +115,12 @@ async function shoot(c, name, selector, pad = 16) {
   const box = selector ? await evalIn(c, `(() => { const e = document.querySelector(${JSON.stringify(selector)}); if (!e) return null;
     const r = e.getBoundingClientRect(); return { x: Math.max(0, r.x - ${pad}), y: Math.max(0, r.y - ${pad}), width: r.width + ${2 * pad}, height: r.height + ${2 * pad} }; })()`) : null;
   if (selector && !box) { console.log(`  (no ${selector} to shoot for ${name})`); return; }
+  /* The window's material is not in the DOM, so a capture composites the translucent grounds over
+     nothing and the chrome comes out see-through grey. For the capture alone the root is painted with
+     a ground standing in for the material over a plain wallpaper, dark or light as the face is. */
+  await evalIn(c, `(() => { const r = document.documentElement; r.style.background = r.dataset.mode === "light" ? "#e9e9ec" : "#17181b"; return true; })()`);
   const { data } = await c.send("Page.captureScreenshot", { format: "png", ...(box ? { clip: { ...box, scale: 1 } } : {}) });
+  await evalIn(c, `(() => { document.documentElement.style.background = ""; return true; })()`);
   const file = path.join(shots, `${name}.png`);
   fs.writeFileSync(file, Buffer.from(data, "base64"));
   console.log(`  shot ${file}`);
@@ -193,7 +198,8 @@ async function main() {
   const sim = await until(() => evalIn(c, `(() => { const i = ${store("items")}.find((x) => x.kind === 'simulator'); return i ? { itemId: i.id, simulatorId: i.refId } : null; })()`), 10000, "simulator item");
   await evalIn(c, `${store(`updateItem({ id: ${JSON.stringify(sim.itemId)}, title: "iPhone 17 Pro" })`)}, true`);
   if (env) await evalIn(c, `${store(`openDocuments(${JSON.stringify(env)}, null, { sessionId: ${JSON.stringify(lead.sessionId)} })`)}, true`);
-  const docs = await evalIn(c, `${store("items")}.find((x) => x.kind === 'documents')?.id ?? null`);
+  // The item lands in the store a beat after the call returns.
+  const docs = env ? await until(() => evalIn(c, `${store("items")}.find((x) => x.kind === 'documents')?.id ?? null`), 10000, "documents item") : null;
   const side = () => evalIn(c, `(() => { const walk = (n) => n.type === 'leaf' ? (n.tabs ? n : null) : n.children.map(walk).find(Boolean) ?? null;
     const leaf = walk(${store("layout")}); if (!leaf) return null;
     const parent = (n) => n.type === 'split' ? (n.children.some((k) => k.id === leaf.id) ? n : n.children.map(parent).find(Boolean) ?? null) : null;
@@ -214,7 +220,7 @@ async function main() {
     const cs = getComputedStyle(s); const add = document.querySelector(${JSON.stringify(sel(".pane-tabs-add"))});
     return { tabs: s.querySelectorAll('.pane-tab').length, scrollWidth: s.scrollWidth, clientWidth: s.clientWidth, scrollLeft: Math.round(s.scrollLeft),
       ends: s.dataset.dissolveX ?? null, mask: cs.webkitMaskImage || cs.maskImage, start: cs.getPropertyValue('--dissolve-start').trim(), end: cs.getPropertyValue('--dissolve-end').trim(),
-      bar: s.offsetHeight - s.clientHeight, addOutside: !!add && !s.contains(add), actionsOutside: !s.contains(document.querySelector(${JSON.stringify(sel(".panel-actions"))})) }; })()`);
+      bar: s.offsetHeight - s.clientHeight, slackY: s.scrollHeight - s.clientHeight, addOutside: !!add && !s.contains(add), actionsOutside: !s.contains(document.querySelector(${JSON.stringify(sel(".panel-actions"))})) }; })()`);
   const scrollStrip = async (to) => { await evalIn(c, `(() => { const s = document.querySelector(${JSON.stringify(sel(".pane-tabs"))}); s.scrollLeft = ${to === "end" ? "s.scrollWidth" : to === "middle" ? "(s.scrollWidth - s.clientWidth) / 2" : 0}; return true; })()`); await sleep(400); };
 
   // ── 1. Two tabs: the strip fits, and wears no dissolve ──────────────────────────────────────
@@ -247,6 +253,7 @@ async function main() {
   check("the mask is on the strip itself", many && /linear-gradient/.test(many.mask ?? ""), many?.mask);
   check("the + and the bar's own buttons are outside the masked strip", many && many.addOutside && many.actionsOutside, many);
   check("no scrollbar under the strip", many && many.bar === 0, many);
+  check("…and nothing to scroll up and down", many && many.slackY === 0, many);
   await shoot(c, "strip-many-start-dark", sel(".panel-bar"), 6);
   await scrollStrip("middle");
   const mid = await strip();
@@ -406,9 +413,13 @@ async function main() {
 
   // ── The same pane on an Android emulator ──────────────────────────────────────────────────────
   execFileSync("sqlite3", [path.join(home, "realm.db"), `UPDATE simulators SET platform = 'android', name = 'Realm Pixel' WHERE id = '${sim.simulatorId}'`]);
+  const row = (await api.call("simulators.get", { simulatorId: sim.simulatorId })).simulator;
+  console.log(`  the row now reads ${JSON.stringify({ platform: row.platform, name: row.name })}`);
   await evalIn(c, `${store(`updateItem({ id: ${JSON.stringify(sim.itemId)}, title: "Realm Pixel" })`)}, true`);
   if (docs) await show(docs);
+  const unmounted = await evalIn(c, `!document.querySelector(${JSON.stringify(sel(".sim-pane"))})`);
   await show(sim.itemId);
+  console.log(`  the device pane ${unmounted ? "unmounted and came back" : "stayed mounted"} across the tab switch`);
   const PIXEL = { width: 1080, height: 2400, orientation: "portrait" };
   await evalIn(c, `${store(`applySimulatorState(${JSON.stringify(running(PIXEL, "Recipes"))})`)}, true`);
   await sleep(900);
