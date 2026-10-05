@@ -10,8 +10,8 @@ import { brandMarks, icons, isIconName } from "@realm/ui";
  * `name` is an `IconName | string` by the time it arrives from a schema. So a kind added without a
  * glyph does not crash, does not warn, and does not look obviously wrong. It looks like a folder.
  *
- * That is not a hypothetical. `agents-page` shipped without one and wore a folder in the sidebar and
- * in its own pane bar for as long as the page existed; nobody filed it, because a folder icon on a
+ * That is not a hypothetical. A destination page shipped without one and wore a folder in the sidebar
+ * and in its own pane bar for as long as the page existed; nobody filed it, because a folder icon on a
  * page is a thing you assume was deliberate. This test is what turns that whole class of failure —
  * silent, permanent, invisible to types and to every rendered assertion that does not happen to
  * mount the offending row — into a red suite.

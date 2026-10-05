@@ -241,9 +241,6 @@ async function main() {
     await settingsTab("Keys");
     await snap(`${mode}-06-settings-keys`);
     await esc(); await sleep(400);
-    await palette("Agents");
-    await snap(`${mode}-07-agents`);
-    await esc(); await sleep(400);
     await palette("New space");
     await snap(`${mode}-08-sheet`);
     await esc(); await sleep(400);

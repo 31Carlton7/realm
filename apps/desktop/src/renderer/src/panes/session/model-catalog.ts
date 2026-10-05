@@ -5,7 +5,7 @@ import type { AgentProbe } from "../../state/store";
 /**
  * Everything Realm knows about the models a session could be put on, as plain functions over plain
  * data: which models exist and which harness would run each (`modelRows`), how a list of them reads
- * (`filterRows`, `groupRows`, `modelLabel`), what each can be asked for (`effortLevels`,
+ * (`filterRows`, `groupRows`, `modelLabel`), what each can be asked for (`effortOptions`,
  * `fastModeAvailability`), what to say about one (`modelAbout`), and which model a person meant by a
  * name (`resolveModelName`).
  *
@@ -335,19 +335,84 @@ export function chipLabel(kind: AgentKind, model: string | null, rows: ModelRow[
  *  each get their cap, and no hyphen is invented that the CLIs never print. */
 export const formatEffort = (e: string): string => (e === "xhigh" ? "XHigh" : e.charAt(0).toUpperCase() + e.slice(1));
 
-export type EffortLevel = (typeof EFFORT_LEVELS)[number];
+/** One reasoning level a model can be run at: the id the harness takes, and its name. */
+export type EffortChoice = { id: string; label: string };
+
+/** What a model takes on a harness: its levels, lowest first as the harness lists them, and the one it
+ *  runs when none is asked for — null where nothing says which that is. */
+export type EffortOptions = { levels: EffortChoice[]; defaultId: string | null };
+
+const NO_EFFORT: EffortOptions = { levels: [], defaultId: null };
+const choicesOf = (ids: readonly string[]): EffortChoice[] => ids.map((id) => ({ id, label: formatEffort(id) }));
 
 /**
- * The effort levels worth offering for a model on a harness: none where the harness never receives
- * the level (`AGENT_TAKES_EFFORT`), Realm's levels narrowed to the ones the public catalog says the
- * model accepts where it lists any, and all of them where it says nothing — an unlisted model is not
- * one without levels, and the CLI downgrades a level a model lacks rather than refusing the turn.
+ * The reasoning levels worth offering for the model a session asks for, from whoever can say:
+ *
+ * - **Claude** — the levels Claude Code said this model takes (`MODEL_EFFORTS_KEY`, filed off a
+ *   session's `supportedModels()`), and until one has, Realm's levels narrowed to the public catalog's
+ *   list for the model. The SDK documents `high` as the default.
+ * - **Codex** — the model's own `supportedReasoningEfforts` and `defaultReasoningEffort`, off the probe's
+ *   catalog; the default row reads the model the catalog marks as default.
+ * - **An ACP agent** — its `thought_level` option: this session's own (`init`) once it has booted, the
+ *   probe's throwaway session's before.
+ *
+ * Nothing where the harness never receives a level (`AGENT_TAKES_EFFORT`), or where nothing has named
+ * any — a control wired to nothing is the thing this exists to prevent.
  */
-export function effortLevels(kind: AgentKind, info?: ModelInfo | null): EffortLevel[] {
-  if (!AGENT_TAKES_EFFORT[kind]) return [];
-  const listed = new Set(info?.efforts ?? []);
-  const narrowed = EFFORT_LEVELS.filter((l) => listed.has(l));
-  return narrowed.length > 0 ? narrowed : [...EFFORT_LEVELS];
+export function effortOptions({ kind, model, agentProbe, info, remembered, init }: {
+  kind: AgentKind;
+  /** What the session asks for — `session.model`, null for the harness's default. */
+  model: string | null;
+  agentProbe: AgentProbe[];
+  /** The public catalog's entry for the model, where it has one. */
+  info?: ModelInfo | null;
+  /** `MODEL_EFFORTS_KEY`, as the store mirrors it. */
+  remembered: Record<string, string[]>;
+  /** This session's own handshake, where it has one. */
+  init?: { model?: string; efforts?: EffortChoice[]; defaultEffort?: string } | null;
+}): EffortOptions {
+  if (!AGENT_TAKES_EFFORT[kind]) return NO_EFFORT;
+  if (kind === "claude") {
+    const said = remembered[fastSupportKey(kind, model)];
+    const listed = new Set(info?.efforts ?? []);
+    const narrowed = EFFORT_LEVELS.filter((l) => listed.has(l));
+    const levels = said ?? (narrowed.length > 0 ? narrowed : [...EFFORT_LEVELS]);
+    return { levels: choicesOf(levels), defaultId: levels.includes("high") ? "high" : null };
+  }
+  const probe = agentProbe.find((p) => p.kind === kind);
+  if (kind === "codex") {
+    // The thread's own model once its handshake has named it: a session left on Codex's default runs
+    // whatever Codex's config says, and the row Codex marks as its default is only the guess before
+    // then. A model its catalog does not carry takes no level from Realm, so it gets no track.
+    const id = model ?? init?.model ?? null;
+    const m = probe?.models?.find((x) => (id === null ? x.isDefault === true : x.id === id));
+    return m?.efforts?.length ? { levels: choicesOf(m.efforts), defaultId: m.defaultEffort ?? null } : NO_EFFORT;
+  }
+  // An ACP agent's levels are its own names for them; a value with no name of its own reads as Realm
+  // would print it.
+  const levels = init?.efforts ?? probe?.efforts ?? [];
+  if (levels.length === 0) return NO_EFFORT;
+  return {
+    levels: levels.map((l) => ({ id: l.id, label: l.label === l.id ? formatEffort(l.id) : l.label })),
+    defaultId: init?.efforts ? init.defaultEffort ?? null : probe?.defaultEffort ?? null,
+  };
+}
+
+/** The effort control as the picker draws it: the levels, what the session asked for (null for the
+ *  model's own default), and the default by name where it is known. */
+export type EffortControl = EffortOptions & {
+  value: string | null;
+  onChange: (id: string | null) => void;
+};
+
+/** The level in force: the session's own when it is one this model takes, else the default where one
+ *  is named — with its place on the track, -1 for "the harness's own, unnamed". A level the model does
+ *  not take (one set under another model) is not what runs, so it is not what the control shows. */
+export function effortCurrent(e: Pick<EffortControl, "levels" | "value" | "defaultId">): { index: number; choice: EffortChoice | null; chosen: boolean } {
+  const asked = e.levels.findIndex((l) => l.id === e.value);
+  if (asked >= 0) return { index: asked, choice: e.levels[asked]!, chosen: true };
+  const fallback = e.levels.findIndex((l) => l.id === e.defaultId);
+  return fallback >= 0 ? { index: fallback, choice: e.levels[fallback]!, chosen: false } : { index: -1, choice: null, chosen: false };
 }
 
 /** Where an answer about fast mode came from, most direct first. */
@@ -438,12 +503,25 @@ export type FastMode = {
   requested: boolean | null;
   onChange: (on: boolean) => void;
   availability: Exclude<FastAvailability, { state: "none" }>;
+  /** What fast mode buys and costs, in the harness catalog's own words where it has them
+   *  (`fastModeTip`) — the bolt's tooltip. */
+  tip: string;
 };
+
+/**
+ * What the bolt's tooltip says fast mode is: Codex's catalog describes its own tier ("1.5x speed,
+ * increased usage", which is what Codex's picker shows over its bolt), and for a harness whose catalog
+ * says nothing Realm says only what is true of every fast mode it can ask for.
+ */
+export function fastModeTip(kind: AgentKind, model: string | null, agentProbe: AgentProbe[]): string {
+  const m = agentProbe.find((p) => p.kind === kind)?.models?.find((x) => (model === null ? x.isDefault === true : x.id === model));
+  return m?.fastDescription ? `Fast mode: ${m.fastDescription}.` : "Fast mode: faster responses, at a higher cost.";
+}
 
 /** The harness's reason codes, said out loud. An unrecognised code is shown verbatim rather than
  *  swallowed: a build newer than this one knows something worth passing on. */
 const FAST_REASON: Record<string, string> = {
-  free: "your plan does not include fast mode",
+  free: "your plan does not include it",
   preference: "it is turned off in Claude Code's own settings",
   extra_usage_disabled: "extra usage is turned off for this account",
   network_error: "the request to enable it did not get through",
@@ -469,22 +547,40 @@ export const fastModeUntried = (f: Pick<FastMode, "state" | "requested">): boole
 export function fastModeNote(f: Pick<FastMode, "on" | "state" | "reason" | "requested">): string | null {
   if (!f.on) return null;
   if (f.state === "on") return null;
-  if (fastModeUntried(f)) return "Takes effect on the next turn.";
-  if (f.state === "cooldown") return "Paused by a rate limit — it will resume on its own.";
-  return `Not running: ${FAST_REASON[f.reason ?? "unknown"] ?? f.reason ?? "the harness did not say why"}.`;
+  if (fastModeUntried(f)) return "Fast mode starts on the next turn.";
+  if (f.state === "cooldown") return "Fast mode is paused by a rate limit — it will resume on its own.";
+  return `Fast mode isn’t running: ${FAST_REASON[f.reason ?? "unknown"] ?? f.reason ?? "the harness did not say why"}.`;
 }
 
-/** The one line under the picker's fast-mode switch: where the alternatives are for a model that
- *  cannot run it, that the first turn will settle it where nothing has, and otherwise the report. */
-export function fastModeHint(f: FastMode): string | null {
+/** "Opus 5.5", "Opus 5.5 and Sonnet 5", "A, B and C" — the alternatives as a sentence names them. */
+const listed = (names: readonly string[]): string =>
+  names.length === 1 ? names[0]! : `${names.slice(0, -1).join(", ")} and ${names.at(-1)!}`;
+
+/**
+ * The line under the effort control about fast mode, or null — and it is null unless fast mode is
+ * ASKED FOR, because the bolt's tooltip already says everything that is true of an unpressed bolt, and
+ * a note that appears every time is a note nobody reads. Asked for, it says what the request will
+ * meet: a model that cannot run it (and which can), the first turn that will check, or the report.
+ */
+export function fastModeHint(f: FastMode, model: string): string | null {
+  if (!f.on) return null;
   const a = f.availability;
   if (a.state === "unavailable") {
-    if (a.alternatives.length === 0) return null;
-    const names = a.alternatives.length === 1 ? a.alternatives[0]! : `${a.alternatives.slice(0, -1).join(", ")} and ${a.alternatives.at(-1)!}`;
-    return `${names} ${a.alternatives.length === 1 ? "offers" : "offer"} it.`;
+    return a.alternatives.length === 0 ? `Fast mode isn’t offered on ${model}.`
+      : `Fast mode isn’t offered on ${model} — ${listed(a.alternatives)} ${a.alternatives.length === 1 ? "offers" : "offer"} it.`;
   }
-  if (a.state === "unknown" && f.state === null) return "Checked on the first turn.";
+  if (a.state === "unknown" && f.state === null) return "Fast mode is asked for — the first turn checks it.";
   return fastModeNote(f);
+}
+
+/** The bolt's tooltip: what fast mode is, and what is known about it on this model. */
+export function fastModeTitle(f: FastMode, model: string): string {
+  const a = f.availability;
+  if (a.state === "unavailable") {
+    return a.alternatives.length === 0 ? `Fast mode isn’t offered on ${model}.`
+      : `Fast mode isn’t offered on ${model} — ${listed(a.alternatives)} ${a.alternatives.length === 1 ? "offers" : "offer"} it.`;
+  }
+  return a.state === "unknown" ? `${f.tip} The first turn checks whether ${model} can run it.` : f.tip;
 }
 
 /** Whether the chip may wear the bolt: asked for, on a model nothing has said cannot run it, and not

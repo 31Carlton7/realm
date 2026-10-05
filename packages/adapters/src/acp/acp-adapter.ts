@@ -5,7 +5,7 @@ import { acpAskMode, acpBuildMode, acpPlanMode, acpSessionConfig, askCardFromEli
 import { AsyncQueue } from "../event-queue";
 import { JsonRpcCallError, StdioJsonRpc, withTimeout, type JsonRpcId } from "../jsonrpc/stdio";
 import { createAcpMapper } from "./map-acp";
-import { fetchAcpModels, probeAcp } from "./probe";
+import { fetchAcpCatalog, probeAcp } from "./probe";
 import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
 import { obj, str, type Bag } from "../bag";
 
@@ -233,10 +233,11 @@ export class AcpAdapter implements AgentAdapter {
   async probe(): Promise<ProbeResult> {
     const base = await probeAcp(this.spec.bin, undefined, this.spec.env);
     // tmpdir because the throwaway catalog session needs SOME real cwd and must not imply a project.
-    const models = base.available && this.spec.modelCatalog === true
-      ? await fetchAcpModels({ bin: this.spec.bin, args: this.spec.args, cwd: tmpdir(), env: this.spec.env })
+    const catalog = base.available && this.spec.modelCatalog === true
+      ? await fetchAcpCatalog({ bin: this.spec.bin, args: this.spec.args, cwd: tmpdir(), env: this.spec.env })
       : null;
-    return { kind: this.kind, ...base, models };
+    return { kind: this.kind, ...base, models: catalog?.models ?? null,
+      ...(catalog && catalog.efforts.length > 0 ? { efforts: catalog.efforts, defaultEffort: catalog.defaultEffort } : {}) };
   }
 
   start(opts: StartOptions): AgentHandle {
@@ -260,6 +261,12 @@ export class AcpAdapter implements AgentAdapter {
     let modeConfigId: string | null = null;
     /** The same seam for the model axis. */
     let modelConfigId: string | null = null;
+    /** And for the reasoning level: the agent's `thought_level` option, when it offers one, with the
+     *  values it takes and the one it started on — what a reset writes back. There is no legacy
+     *  channel for this axis, so no option means nothing is ever sent. */
+    let effortConfigId: string | null = null;
+    let effortLevels: string[] = [];
+    let effortDefault: string | null = null;
     /** `modes.currentModeId` at boot — `acpBuildMode`'s fallback when the agent has no `agent` id. */
     let bootModeId: string | null = null;
     /** True only for the duration of `session/load`, whose replay Realm has already persisted. */
@@ -509,6 +516,9 @@ export class AcpAdapter implements AgentAdapter {
         bootModeId = cfg.currentModeId;
         modeConfigId = cfg.modeConfigId;
         modelConfigId = cfg.modelConfigId;
+        effortConfigId = cfg.effortConfigId;
+        effortLevels = cfg.efforts.map((e) => e.id);
+        effortDefault = cfg.currentEffort;
         // The session's pinned model is transmitted HERE, not merely displayed: ACP's `session/new`
         // takes `{cwd, mcpServers}` and nothing else, so a model picked in an earlier run (or before
         // the first message) only reaches the agent through a follow-up write. Failure is a log line,
@@ -526,12 +536,19 @@ export class AcpAdapter implements AgentAdapter {
             log(`${method} ${opts.model} failed (${message(e)}); staying on the agent's default`);
           }
         }
+        // The session's level, through the agent's own option — and only a value that option lists: a
+        // level from another harness is one this agent never named.
+        if (opts.effort && effortConfigId && effortLevels.includes(opts.effort) && opts.effort !== effortDefault) {
+          try { await ask("session/set_config_option", { sessionId: id, configId: effortConfigId, value: opts.effort }, SESSION_TIMEOUT_MS); }
+          catch (e) { log(`session/set_config_option ${effortConfigId}=${opts.effort} failed (${message(e)}); staying on the agent's own level`); }
+        }
         events.push(sessionEvent("init", {
           providerSessionId: id,
           model: pinned ? str(opts.model) : cfg.currentModelId ?? str(opts.model),
           tools: [],
           cwd: opts.cwd,
           ...(availableModes.length ? { availableModes } : {}),
+          ...(effortConfigId ? { efforts: cfg.efforts, ...(effortDefault ? { defaultEffort: effortDefault } : {}) } : {}),
           ...(opts.resume ? { resumeRequested: true } : {}),
           ...(resumeOutcome ? { resumeOutcome } : {}),
         }));
@@ -630,6 +647,13 @@ export class AcpAdapter implements AgentAdapter {
         if (o.model !== undefined) {
           if (modelConfigId) await attempt("session/set_config_option", { sessionId, configId: modelConfigId, value: o.model });
           else await attempt("session/set_model", { sessionId, modelId: o.model });
+        }
+        // A reset writes the level the agent started on back by name; anything not on its list is not
+        // sent, and an agent with no `thought_level` option is never asked.
+        if (o.effort !== undefined && effortConfigId) {
+          const value = o.effort ?? effortDefault;
+          if (value && effortLevels.includes(value)) await attempt("session/set_config_option", { sessionId, configId: effortConfigId, value });
+          else if (value) log(`effort ${value} is not one this agent offers; nothing sent`);
         }
       },
       dispose: async () => {

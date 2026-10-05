@@ -42,8 +42,8 @@ const optionsFor = (toolName: string): typeof OPTIONS => {
  *  via aria-label; the number chips and footer hints are visual only. */
 export function PermissionCard({ permission, onDecide, autoFocus = false, enter = false, ownsEscape = true }: {
   permission: PendingPermission; onDecide: (d: PermissionDecision) => void; autoFocus?: boolean; enter?: boolean;
-  /** False where the surface around the card owns Escape (the Agents page, the need-you list), so
-   *  Escape leaves it instead: the card then neither answers on Escape nor offers it as a key. */
+  /** False where the surface around the card owns Escape (the need-you list), so Escape leaves it
+   *  instead: the card then neither answers on Escape nor offers it as a key. */
   ownsEscape?: boolean;
 }) {
   const summary = clip(toolSummary(permission.toolName, permission.input), 200);

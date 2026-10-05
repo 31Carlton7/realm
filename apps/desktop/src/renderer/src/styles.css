@@ -29,13 +29,13 @@
    surface that reads --font-mono gives it up. styles.test.ts keeps this list in step with that set.
    The UI face is untouched: the bundled Inter has no `liga` at all (its GSUB carries calt/dlig only),
    so there is no standard ligature to win there, and buying calt would cost the app its tracking. */
-.activity-call, .activity-duration, .activity-time, .agent-hint-text code, .agent-tile-mono, .agents-row-mono, .cli-job-output,
+.activity-call, .activity-duration, .activity-time, .agent-hint-text code, .cli-job-output,
 .cmd-cwd, .cmd-line, .code-body, .code-gutter, .code-preview, .composer-attach-note .attach-note-files,
 .diff-counts, .diff-hunk-head, .diff-line, .diff-status, .documents-picker-head, .documents-raw,
 .documents-rich-surface code, .documents-source, .env-path, .failover-pos, .fd-line, .fd-path, .fd-stat,
 .files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
 .mcp-tool-name, .md code, .md-code-lang, .media-name, .media-time, .mention-row-id, .mp-about code,
-.msg-error pre, .office-drawn-size, .office-kept, .pane-empty-path, .permission-details pre, .permission-tool code, .req-target,
+.msg-error pre, .pane-empty-path, .permission-details pre, .permission-tool code, .req-target,
 .sched-cron, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
 .font-installed-size, .sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-file-name code, .skill-picker-row-id,
 .summary-diff, .summary-fact .summary-row-name, .summary-file-path, .term-exit, .term-out, .terminal-hint-path,
@@ -270,7 +270,7 @@ button { font: inherit; color: inherit; background: none; border: none; padding:
    win. A label points only round a box or a radio, where a click on its words is a click on the
    control; round a text field it is the field's caption. */
 :where(button, a[href], summary, select, [role="button"], [role="link"], [role="tab"], [role="menuitem"],
-  [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [role="switch"], [role="checkbox"], [role="radio"],
+  [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"],
   input:is([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="button"], [type="submit"], [type="reset"]),
   label:has(input:is([type="checkbox"], [type="radio"]))) { cursor: pointer; }
 /* …and the arrow wherever a click does nothing: a control that is off, the words beside one, and
@@ -684,7 +684,7 @@ kbd { font: 11px var(--font-mono); }
   background: conic-gradient(var(--rl-accent) var(--update-progress, 0%), var(--mark) 0);
   mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px)); }
-/* A count at a rail glyph's shoulder — Home's waiting count and the bell's unread (`.rail-glyph`).
+/* A count at a rail glyph's shoulder — the bell's unread (`.rail-glyph`).
    `overflow: visible` and negative offsets on purpose: a badge that overhangs its glyph is how every
    bell on this platform is drawn, and a digit squeezed inside would go under the type floor.
    The colours are the warning pill's: orange on its own 14% tint, which is what "something is
@@ -1428,24 +1428,47 @@ kbd { font: 11px var(--font-mono); }
   font-size: 11px; color: var(--rl-text-dim); white-space: nowrap; transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .mp-seg-opt:hover { color: var(--rl-text-bright); }
 .mp-seg-opt[aria-pressed="true"] { background: var(--surface); color: var(--rl-text-bright); box-shadow: var(--rl-edge); }
-/* Fast mode: its name on the label column's edge, the bolt the chip wears beside it, the switch at
-   the end — and the one line under it that says how much is known. */
-.mp-fast { display: grid; grid-template-columns: auto auto 1fr auto; align-items: center; column-gap: 5px; min-height: 22px; }
-.mp-fast-label { font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
-.mp-fast-mark { color: var(--rl-text-faint); }
-.mp-fast > .switch, .mp-fast-off { grid-column: 4; }
-.mp-fast-off { font-size: 12px; color: var(--rl-text-faint); white-space: nowrap; }
-.mp-fast-note { grid-column: 1 / -1; margin: 3px 0 0; font-size: 12px; line-height: 1.4; color: var(--rl-text-faint); text-wrap: pretty; }
+/* How the answer runs, as Codex draws it: the bolt at one end, the level by name over the model it is
+   for in the middle, the way back to the default at the other end, and the track under all three. */
+.mp-run { display: flex; flex-direction: column; gap: 9px; }
+.mp-run-head { display: grid; grid-template-columns: 28px 1fr 28px; align-items: center; column-gap: 8px; }
+.mp-run-gap { width: 28px; height: 28px; }
+.mp-run-title { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 1px; }
+/* The level in the accent: it is the value this control holds, the one thing on the card in colour. */
+.mp-run-level { font-size: 14px; line-height: 18px; font-weight: var(--fw-label); color: var(--rl-accent); }
+.mp-run-level[data-unset] { color: var(--rl-text-dim); }
+.mp-run-model { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.mp-bolt, .mp-run-reset { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; --btn-h: 28px;
+  border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; background: transparent; color: var(--rl-text-dim);
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+.mp-bolt:hover, .mp-run-reset:hover { background: var(--hover); color: var(--rl-text-bright); }
+/* Asked for: the bolt takes the accent the way a pressed segment would, on its own tint. */
+.mp-bolt[aria-pressed="true"] { background: var(--accent-tint); color: var(--rl-accent); }
+.mp-bolt[aria-disabled="true"] { color: var(--rl-text-faint); background: transparent; }
+/* The track: a well with a dot per level, the fill up to the knob in the accent. `--at` is a place on
+   the run between the first dot and the last, inset by half the track's height so the knob at either
+   end sits inside it. */
+.mp-track { --inset: 11px; position: relative; height: 22px; border-radius: 999px; background: var(--hover); touch-action: none; }
+.mp-track:focus-visible { outline: 1.5px solid var(--rl-accent); outline-offset: 2px; }
+.mp-track-fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--rl-accent);
+  width: calc(var(--inset) * 2 + (100% - var(--inset) * 2) * var(--at, 0)); transition: width var(--dur-hover) var(--ease-out-strong); }
+.mp-track-dot { position: absolute; top: 50%; left: calc(var(--inset) + (100% - var(--inset) * 2) * var(--at, 0)); width: 4px; height: 4px; margin: -2px 0 0 -2px;
+  border-radius: 50%; background: var(--mark-strong); pointer-events: none; }
+.mp-track-dot[data-passed] { background: color-mix(in oklab, var(--rl-accent-contrast) 55%, transparent); }
+.mp-track-knob { position: absolute; top: 50%; left: calc(var(--inset) + (100% - var(--inset) * 2) * var(--at, 0)); width: 18px; height: 18px; margin: -9px 0 0 -9px;
+  border-radius: 50%; background: #fff; box-shadow: 0 1px 2px #0000003d, 0 0 0 var(--hairline-w) #00000014; pointer-events: none;
+  transition: left var(--dur-hover) var(--ease-out-strong); }
+.mp-fast-note { margin: 0; font-size: 12px; line-height: 1.4; color: var(--rl-text-faint); text-align: center; text-wrap: pretty; }
 .mp-fast-note[data-tone="warning"] { color: var(--rl-warning); }
 
 /* ── Easter eggs: the heavy efforts ──
    Every rule here hangs off [data-eggs] or [data-sweep], so the switch in Settings ▸ General takes the
    whole treatment away by taking one attribute away. Nothing below is ever the only thing saying
-   which level is selected — that is [aria-pressed], which is drawn the same with the eggs off.
+   which level is in force — that is the knob and the name over it, drawn the same with the eggs off.
 
-   The field covers the WHOLE strip rather than the one option, which is the thing that makes it read
-   as a state the control is in rather than a decoration on a pill. `:has()` is what lets the parent
-   know which of its children is hot, so there is no JavaScript in this at all.
+   The field is the track's FILL — the run up to the knob — so it reads as the heat the level is
+   putting out rather than as a decoration on one dot, and it answers a level the session CHOSE
+   (`data-effort` on the track), never one the pointer is passing over.
 
    Three layers, and they are chosen to beat against each other rather than to look smooth:
 
@@ -1455,47 +1478,25 @@ kbd { font: 11px var(--font-mono); }
      · a wash on ::before, smooth and much slower, in `plus-lighter` so where it crosses a bright
        band the two ADD instead of one covering the other. That is what makes the bright parts look
        like light rather than paint.
-     · a bloom on the strip's own shadow at Max only, breathing on its own period.
+     · a bloom on the fill's own shadow at Max only, breathing on its own period.
 
    Hue is not free (theme/grain.ts's rule): both band layers are the live accent rotated inside the
    same ±40° arc the decorative wash uses, so the field is the palette's own colour at every theme
    rather than a purple somebody picked. */
-.model-picker[data-eggs] .mp-seg { position: relative; isolation: isolate; }
-/* The options sit above the field; the pressed one keeps its solid pill, which is what stays
-   readable while everything behind it moves. */
-.model-picker[data-eggs] .mp-seg-opt { position: relative; z-index: 1; }
-
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="high"]:hover) {
-  background-image: linear-gradient(100deg, transparent 30%,
-    oklch(from var(--accent) l c calc(h - 20) / .18) 50%, transparent 70%); }
-
 /* XHigh and Max share the machinery and differ in --heat, which drives every alpha below. A
    treatment every level wore would not be about the level. */
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="xhigh"]:hover),
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="xhigh"][aria-pressed="true"]),
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"]:hover),
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"][aria-pressed="true"]) {
-  --heat: .5;
-  /* Chunky cells with wide dark gaps, and a crisp bright line every other cell. The proportions were
-     chosen by putting three candidates on screen in the real window and looking at them: a 50% duty
-     cycle at full chroma lit the whole strip and drowned the labels, and pulling the body down to
-     the ground's own lightness made it vanish entirely. This is the one that reads as cells of heat
-     with the labels still sitting on top of them. */
+.model-picker[data-eggs] .mp-track[data-effort="xhigh"] .mp-track-fill,
+.model-picker[data-eggs] .mp-track[data-effort="max"] .mp-track-fill {
+  --heat: .5; isolation: isolate; overflow: hidden;
+  /* Chunky cells with wide dark gaps, and a crisp bright line every other cell — the proportions the
+     segmented strip this replaced settled on by putting three candidates on screen in the real
+     window, kept so the heat reads the same across the change. */
   background-image:
     repeating-linear-gradient(90deg, oklch(from var(--accent) calc(l - .14) c calc(h - 34) / calc(var(--heat) * .55)) 0 12px, transparent 12px 26px),
     repeating-linear-gradient(90deg, transparent 0 14px, oklch(from var(--accent) calc(l + .2) c calc(h + 28) / calc(var(--heat) * .9)) 14px 17px);
   background-size: 220% 100%, 170% 100%;
   animation: eggs-bands 3.6s steps(20, end) infinite;
 }
-/* Every label stays readable while the field is on — the whole strip is lit, so the levels that are
-   not chosen must not be the price of it. This is the one thing the field is not allowed to spend. */
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="xhigh"]:hover) .mp-seg-opt,
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="xhigh"][aria-pressed="true"]) .mp-seg-opt,
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"]:hover) .mp-seg-opt,
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"][aria-pressed="true"]) .mp-seg-opt {
-  color: var(--rl-text-bright); text-shadow: 0 1px 2px oklch(from var(--page) l c h / .9); }
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"]:hover),
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"][aria-pressed="true"]) { --heat: 1; }
 /* One keyframe moving BOTH layers, because `background-position` is one property and two animations
    on it would not compose — the later one would simply win. The two layers travel opposite ways at
    unequal rates, which is the interference. */
@@ -1506,13 +1507,10 @@ kbd { font: 11px var(--font-mono); }
 
 /* The wash. Its own element so it can be smooth while the bands step, and `plus-lighter` so it adds
    light to them instead of painting over them. */
-.model-picker[data-eggs] .mp-seg::before { content: none; }
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="xhigh"]:hover)::before,
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="xhigh"][aria-pressed="true"])::before,
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"]:hover)::before,
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"][aria-pressed="true"])::before {
+.model-picker[data-eggs] .mp-track[data-effort="xhigh"] .mp-track-fill::before,
+.model-picker[data-eggs] .mp-track[data-effort="max"] .mp-track-fill::before {
   content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
-  border-radius: inherit; corner-shape: inherit;
+  border-radius: inherit;
   mix-blend-mode: plus-lighter;
   background-image: linear-gradient(100deg, transparent 8%,
     oklch(from var(--accent) calc(l + .12) c calc(h - 10) / calc(var(--heat) * .28)) 42%,
@@ -1525,20 +1523,15 @@ kbd { font: 11px var(--font-mono); }
   to { background-position: -60% center; }
 }
 
-/* Max alone gets the bloom, and it breathes rather than travelling — the one thing on the strip that
+/* Max alone gets the bloom, and it breathes rather than travelling — the one thing on the track that
    is not moving sideways, so the eye reads it as intensity rather than as another layer. */
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"]:hover),
-.model-picker[data-eggs] .mp-seg:has(.mp-seg-opt[data-effort="max"][aria-pressed="true"]) {
+.model-picker[data-eggs] .mp-track[data-effort="max"] .mp-track-fill {
+  --heat: 1; overflow: visible;
   animation: eggs-bands 3.6s steps(20, end) infinite, eggs-bloom 1.4s ease-in-out infinite alternate; }
 @keyframes eggs-bloom {
   from { box-shadow: 0 0 0 0 oklch(from var(--accent) l c h / 0); }
   to { box-shadow: 0 0 14px 1px oklch(from var(--accent) calc(l + .1) c h / .45); }
 }
-/* The chosen level's own label, lit. The pill stays solid underneath it — legibility is not what
-   this is allowed to spend. */
-.model-picker[data-eggs] .mp-seg-opt[data-effort="max"][aria-pressed="true"],
-.model-picker[data-eggs] .mp-seg-opt[data-effort="xhigh"][aria-pressed="true"] {
-  color: var(--rl-text-bright); text-shadow: 0 0 8px oklch(from var(--accent) calc(l + .15) c h / .7); }
 
 /* One pass across the chip when the session commits to a heavy effort; Max gets two. The popover is
    already closing by then, which is the point — the control that changed is the one that answers. */
@@ -1567,11 +1560,11 @@ kbd { font: 11px var(--font-mono); }
      identical to the light ones, which for this reader is a switch that did nothing. */
   /* `!important`, and not for tidiness: the global kill above is `* { animation: none !important }`,
      and `*` does not match a PSEUDO-ELEMENT. The wash lives on `::before`, so it sails straight
-     through the app-wide rule — and the rule that starts it carries a `:has()`, whose argument adds
-     its own specificity, so a plain override here loses to it as well. Measured: without this the
+     through the app-wide rule — and the rule that starts it names the track's level, which outweighs
+     a plain override here as well. Measured on the segmented strip this replaced: without it the
      field kept travelling with reduced motion on. */
-  .model-picker[data-eggs] .mp-seg { animation: none !important; }
-  .model-picker[data-eggs] .mp-seg::before { animation: none !important; background-position: 50% center !important; }
+  .model-picker[data-eggs] .mp-track-fill { animation: none !important; }
+  .model-picker[data-eggs] .mp-track-fill::before { animation: none !important; background-position: 50% center !important; }
 }
 
 /* ── Quiet: what the app stops doing when nobody is looking ──────────────────
@@ -5477,7 +5470,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 :root[data-squircle] .install-card::after,
 :root[data-squircle] .commit-card::after {
   content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
-  --sq-fill: inherit; --sq-ring: inherit; --sq-ring-w: inherit;
+  --sq-fill: inherit; --sq-ring: inherit; --sq-ring-w: inherit; --sq-ring-open: inherit;
   --sq-radius-top: inherit; --sq-radius-bottom: inherit; --sq-n: inherit;
   background: paint(rl-squircle);
 }
@@ -5612,13 +5605,24 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 :root[data-squircle] .composer-todos:has(~ .composer[data-mode="plan"]),
 :root[data-squircle] .composer-overstrip:has(~ .composer[data-mode="plan"]) {
   --sq-ring: color-mix(in srgb, var(--rl-warning) 34%, transparent);
+  box-shadow: none;
 }
 :root[data-squircle] .composer-goal:has(~ .composer[data-mode="ask"]),
 :root[data-squircle] .composer-todos:has(~ .composer[data-mode="ask"]),
 :root[data-squircle] .composer-overstrip:has(~ .composer[data-mode="ask"]) {
   --sq-ring: color-mix(in srgb, var(--rl-success) 34%, transparent);
+  box-shadow: none;
 }
-/* The painter is gated; without it the same edge is a box-shadow, and it has to say the same thing. */
+/* The under-strip is the same object seen below the card, so the mode reaches it too: left on the
+   neutral ring, its sides ran grey into a card ringed in the mode's colour, the notch the band above
+   was given the mode to remove. It is a LATER sibling of the card, so it needs no `:has`. */
+:root[data-squircle] .composer[data-mode="plan"] ~ .composer-understrip { --sq-ring: color-mix(in srgb, var(--rl-warning) 34%, transparent); box-shadow: none; }
+:root[data-squircle] .composer[data-mode="ask"] ~ .composer-understrip { --sq-ring: color-mix(in srgb, var(--rl-success) 34%, transparent); box-shadow: none; }
+/* The painter is gated; without it the same edge is a box-shadow, and it has to say the same thing.
+   ONLY without it — the `box-shadow: none` above is what keeps it so. A box-shadow under the gate is
+   drawn on the border box, which the painter has squared to radius 0, and it drew a second ring round
+   every strip: square, out past the painted corners, and straight across the band where two strips
+   meet — the seam the stacked strips' open-topped ring exists to avoid. */
 .composer-goal:has(~ .composer[data-mode="plan"]),
 .composer-todos:has(~ .composer[data-mode="plan"]),
 .composer-overstrip:has(~ .composer[data-mode="plan"]) {
@@ -5629,15 +5633,21 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .composer-overstrip:has(~ .composer[data-mode="ask"]) {
   box-shadow: 0 0 0 var(--hairline-w) color-mix(in srgb, var(--rl-success) 34%, transparent);
 }
-/* …but only the tab that IS the band's top keeps the ring and the corners. Every strip arriving
-   under another gives up both: a ring on a middle tab would trace a hairline straight across the
-   band where the two meet — a second seam inside one object, which is what design.md's hairline
-   rule exists to catch. Each join is drawn from the strip that arrives UNDERNEATH, never by a rule
+.composer[data-mode="plan"] ~ .composer-understrip { box-shadow: 0 0 0 var(--hairline-w) color-mix(in srgb, var(--rl-warning) 34%, transparent); }
+.composer[data-mode="ask"] ~ .composer-understrip { box-shadow: 0 0 0 var(--hairline-w) color-mix(in srgb, var(--rl-success) 34%, transparent); }
+/* …but only the tab that IS the band's top keeps the corners and the top edge. Every strip arriving
+   under another gives up its top corners, and its ring leaves the top OPEN (`--sq-ring-open`): a ring
+   across a middle tab would trace a hairline straight across the band where the two meet — a second
+   seam inside one object, which is what design.md's hairline rule exists to catch — and no ring at
+   all left the band's sides bare all the way down the lower tab. That was the git footer under the
+   plan strip: its fill is the pane's own ground, so with the ring gone the band read as an open-sided
+   box exactly where the card tucks over it. The sides now run unbroken from the top tab into the
+   card's own edge. Each join is drawn from the strip that arrives UNDERNEATH, never by a rule
    reaching up into the one above (the fallback's `border-radius: 0` sits beside the layout rule —
    under the gate the corner is the painter's, so the squaring has to be as well). */
 :root[data-squircle] .composer-goal + .composer-todos,
 :root[data-squircle] .composer-goal + .composer-overstrip,
-:root[data-squircle] .composer-todos + .composer-overstrip { --sq-radius-top: 0px; --sq-ring-w: 0; }
+:root[data-squircle] .composer-todos + .composer-overstrip { --sq-radius-top: 0px; --sq-ring-open: top; }
 /* The under-strip's top edge is hidden beneath the card, so only its bottom corners are drawn. */
 :root[data-squircle] .composer-understrip {
   --sq-fill: var(--rl-frame); --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w);
@@ -7207,182 +7217,14 @@ select { appearance: none; padding-right: 22px;
 .sched-modal-advanced:hover { color: var(--rl-text-dim); }
 .sched-modal-advanced svg { transition: transform var(--dur-pop) var(--ease-out-strong); }
 .sched-modal-advanced[aria-expanded="true"] svg { transform: rotate(180deg); }
-/* ── The Agents page: every session, by what it needs from you ─────────────
-   A list of cards under state headings, not a table: each row is a title over two machine names,
-   and the heading is the fact the page exists for. The dot beside the heading is the same colour
-   the sidebar badges use for the same state, so the two surfaces teach one vocabulary. */
-.agents-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 20px; }
-.agents-group-label { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 12px; font-weight: var(--fw-title); color: var(--rl-text-dim); }
-.agents-group-count { font-weight: var(--fw-medium); color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
-.agents-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--rl-text-faint); }
-.agents-dot[data-status="waiting_permission"] { background: var(--rl-warning); }
-.agents-dot[data-status="running"] { background: var(--rl-accent); }
-.agents-dot[data-status="error"] { background: var(--rl-danger); }
-.agents-dot[data-status="idle"] { background: var(--rl-success); }
-.agents-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.agents-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; text-align: left; font: inherit; border: none;
-  border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-frame); color: var(--rl-text-bright);
-  transition: background var(--dur-hover) ease; }
-.agents-row:hover { background: var(--rl-hover); }
-.agents-row:is([data-pressed], :active:focus-visible) { background: var(--hover-2); }
-/* A row waiting on you is the one the page exists to surface; it wears the warning tint. */
-.agents-row[data-status="waiting_permission"] { background: var(--orange-tint); }
-.agents-row-mark { flex: none; }
-.agents-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.agents-row-title { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agents-row-sub { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 12px; color: var(--rl-text-faint); }
-.agents-row-sub > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agents-row-mono { font-family: var(--font-mono); font-size: 11px; }
-.agents-row-when { flex: none; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
-/* The row's eye (W11b) takes the time's slot under the pointer or the keyboard, rather than a slot
-   of its own the time would have to give up at rest: one at the far right, whichever is showing.
-   The same eye rides the Notifications page's rows (`PeekButton`), revealed the same way. */
-.agents-list > li { position: relative; }
+/* A session row's eye (W11b) is out of sight until its row is under the pointer or the keyboard. The
+   Notifications page's rows carry it (`PeekButton`). */
 .peek-btn { opacity: 0; transition: opacity var(--dur-hover) var(--ease-out-strong); }
-.agents-list > li:hover .peek-btn, .agents-list > li:focus-within .peek-btn,
 .notif-cards > li:hover .peek-btn, .notif-cards > li:focus-within .peek-btn { opacity: 1; }
-.agents-list > li:has(.peek-btn):hover .agents-row-when,
-.agents-list > li:has(.peek-btn):focus-within .agents-row-when { visibility: hidden; }
+/* A line of text rather than a row, so it cannot be mistaken for one: the sidebar's Show more. */
 .agents-more { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; padding: 4px 6px; font-size: 12px;
   color: var(--rl-text-dim); border-radius: var(--r-chip); corner-shape: squircle; }
 .agents-more:hover { color: var(--rl-text-bright); background: var(--rl-hover); }
-.agents-more svg { transition: rotate var(--dur-hover) ease; }
-.agents-more[aria-expanded="true"] svg { rotate: 180deg; }
-/* Answering in place. A row is a button that opens its session, so whatever answers the session —
-   its request, or Stop — is the row's SIBLING in an item that stacks them, never a control inside it:
-   a click inside the button would answer and navigate at once. The row keeps its own card look. */
-.agents-item, .agent-tile-item { position: relative; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.agents-ask { display: flex; flex-direction: column; gap: 6px; }
-/* What rides on a row — the eye, and Stop — sits over the row's right end in one group, placed
-   absolutely because it cannot be inside the row, and centred on the row's own LINE: the item also
-   holds the request card hung under a waiting row, and centring on the item put the eye on the card.
-   One group, so the eye stands beside Stop rather than on it; the row gives back the width Stop
-   covers so the title and the clock never run under it. The quiet button is 22px; the hit area is
-   not — the pseudo-element takes it to the 40px a desktop target is owed. */
-.agents-line { position: relative; }
-.agents-line-end { position: absolute; right: 8px; top: 50%; translate: 0 -50%; display: flex; align-items: center; gap: 4px; }
-.agents-stop { position: relative; display: inline-flex; align-items: center; gap: 4px; }
-.agents-stop::before { content: ""; position: absolute; inset: -9px -4px; }
-.agents-line:has(.agents-stop) > .agents-row { padding-right: 84px; }
-
-/* The page head's right-hand cluster: which reading is on screen, and the one action that makes
-   more agents. Baseline-aligned with the title like everything else in the head. */
-.agents-head-actions { flex: none; display: flex; align-items: center; gap: 8px; align-self: center; }
-.agents-views { display: flex; gap: 2px; padding: 2px; border-radius: var(--r-ctl); background: var(--rl-frame); }
-.agents-view { padding: 3px 10px; font-size: 12px; font-weight: var(--fw-medium); border: none; border-radius: var(--r-chip);
-  background: transparent; color: var(--rl-text-dim);
-  transition: background var(--dur-hover) ease, color var(--dur-hover) ease; }
-.agents-view:hover { color: var(--rl-text-bright); }
-/* One appearance for "this one is on", carried by the fill alone — the label names the VIEW, and
-   `aria-pressed` is the only place the state is said in words. */
-.agents-view[aria-pressed="true"] { background: var(--rl-active); color: var(--rl-text-bright); }
-
-/* The wall. `auto-fill` rather than `auto-fit`: a group holding one agent should draw one tile at
-   the column width the others use, not one tile stretched across the page. */
-.agent-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; }
-.agent-tile { display: flex; flex-direction: column; align-items: stretch; gap: 5px; padding: 10px 12px; text-align: left;
-  font: inherit; border: none; border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-frame);
-  color: var(--rl-text-bright);
-  transition: background var(--dur-hover) ease; }
-.agent-tile:hover { background: var(--rl-hover); }
-.agent-tile:is([data-pressed], :active:focus-visible) { background: var(--hover-2); }
-.agent-tile-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.agent-tile-mark { flex: none; }
-/* The title is the unbounded user data, so it takes the slack and gives it back first; the clock
-   beside it is four characters of fixed width that are reserved before the title gets any. */
-.agent-tile-title { flex: 1; min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agent-tile-when { flex: none; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
-/* What it is doing now. Not mono, and that is a decision rather than an omission: the line is a
-   command as often as it is a sentence, and setting prose in the machine face would say the wrong
-   thing about half of them. The glyph is what tells the two apart. */
-.agent-tile-doing { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; color: var(--rl-text-dim); }
-.agent-tile-doing-mark { flex: none; color: var(--rl-text-faint); }
-.agent-tile-doing-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agent-tile-sub { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 11px; color: var(--rl-text-faint); }
-.agent-tile-sub > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* The stated yielding order for this row: the space name goes first and the folder last, because a
-   fan-out's agents share a space and are told apart by the worktree they run in. */
-.agent-tile-sub > span:first-child { flex: 1 3 auto; }
-.agent-tile-mono { flex: 0 1 auto; font-family: var(--font-mono); }
-/* A tile waiting on you takes the whole row. It is the decisive one on the wall, and the card it
-   carries is a card — numbered options, a footer of keys, a field for an answer — that a 240px column
-   would fold into a smear. On a running tile Stop sits at the foot, beside the line that yields
-   first, which gives back its width. */
-.agent-tile-item[data-status="waiting_permission"] { grid-column: 1 / -1; }
-.agent-tile-item > .agents-stop { position: absolute; bottom: 6px; right: 8px; }
-.agent-tile-item:has(> .agents-stop) .agent-tile-sub { padding-right: 68px; }
-
-/* The farm (easter eggs only — AgentWall mounts it or does not). A band under the last row of
-   tiles, with a hairline for the ground the figures stand on. No surface and no fill: it is the
-   page's own canvas with some pixels on it, and giving it a card would make it a panel the eye is
-   asked to read. */
-.agent-farm { display: block; width: 100%; margin-top: 10px; }
-/* The ground. Drawn here rather than on the canvas so it is one hairline on the app's own token
-   rather than a second thing the accent paints. */
-.agents-page .agent-farm { border-bottom: var(--hairline-w) solid var(--rl-line); }
-
-/* The office. A canvas that takes the page's remaining height — an office is a room, and a room
-   drawn into a 200px band is a diorama. `--rl-frame` behind it so a world smaller than the pane
-   sits on the app's own ground rather than on nothing. */
-.agent-office { display: flex; flex-direction: column; min-height: 0; flex: 1;
-  border-radius: var(--r-panel); background: var(--rl-frame); overflow: hidden; }
-.agent-office-canvas { display: block; width: 100%; flex: 1; min-height: 0; }
-
-/* The prompter, above the room. Chrome, so it sits OUTSIDE the canvas and stays put while the world
-   under it changes — and so it never goes soft, which is the rule about what may dissolve. */
-.office-prompter { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; }
-.office-ask { display: flex; align-items: center; gap: 8px; }
-.office-ask-mark { flex: none; color: var(--rl-accent); }
-.office-ask-input { flex: 1; min-width: 0; height: 30px; padding: 0 10px; font: inherit; font-size: 13px;
-  border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field);
-  color: var(--rl-text-bright); outline: none; }
-.office-ask-input::placeholder { color: var(--rl-text-faint); }
-.office-ask-input:focus { border-color: var(--rl-accent); }
-.office-themes { display: flex; flex-wrap: wrap; gap: 4px; }
-.office-theme { padding: 3px 9px; font-size: 12px; font-weight: var(--fw-medium); border: none;
-  border-radius: var(--r-chip); background: var(--rl-hover); color: var(--rl-text-dim);
-  transition: background var(--dur-hover) ease, color var(--dur-hover) ease; }
-.office-theme:hover:not(:disabled) { background: var(--rl-active); color: var(--rl-text-bright); }
-.office-theme:disabled { opacity: 0.45; cursor: default; }
-/* Why a world was refused. Every line is one thing the model got wrong and one thing a person could
-   say differently, so they are listed rather than summarised into "that did not work". */
-.office-problems { margin: 0; padding-left: 16px; font-size: 12px; line-height: 1.5; color: var(--rl-warning); }
-/* The vendored-work credit, quieter than the app's own signature line above it. */
-.settings-attribution-credit { font-size: 11px; line-height: 1.5; color: var(--rl-text-faint); max-width: 44ch; }
-
-.office-draw { display: flex; flex-direction: column; gap: 8px; }
-/* The preview. A generated sprite can validate perfectly and still be an unrecognisable smudge, and
-   that is a judgment only a person looking at it can make — so it is shown at 4x before anything
-   reaches the catalog. `image-rendering: pixelated` because a smoothed pixel sprite is a lie about
-   what will be placed. */
-.office-drawn { display: flex; align-items: center; gap: 10px; padding: 8px 10px;
-  border-radius: var(--r-panel); background: var(--rl-raised); }
-/* No `image-rendering: pixelated` here, and that is the point rather than an omission: the preview
-   is drawn at DEVICE resolution (one sprite pixel becomes an exact whole number of device pixels),
-   so there is no resampling to disown. Claiming sharpness over a resampled picture is a statement
-   that is not true, and the machine pane's screen is the only place in the app where it is. */
-.office-drawn-preview { flex: none; }
-.office-drawn-name { font-size: 13px; color: var(--rl-text-bright); }
-.office-drawn-size { font-size: 11px; font-family: var(--font-mono); color: var(--rl-text-faint); margin-right: auto; }
-.office-kept { margin: 0; font-size: 11px; font-family: var(--font-mono); color: var(--rl-text-faint); }
-/* The office is the one page content that is a ROOM rather than a list, so its column stops being a
-   scroller and becomes a frame: the canvas fits the world to whatever height it is given, and a
-   column that scrolls would hand it an unbounded one and then clip what it drew. */
-.agents-page .page-content:has(.agent-office) { display: flex; flex-direction: column; overflow: hidden; }
-
-/* The fan-out sheet. */
-.fan-out-brief { resize: vertical; min-height: 76px; }
-/* There is no generic placeholder rule in this stylesheet — every field opts in — so a field that
-   forgets renders its hint at the weight of typed text, and the user reads a brief nobody wrote. */
-.fan-out-brief::placeholder { color: var(--rl-text-faint); }
-.fan-out-row { display: grid; grid-template-columns: 6rem 1fr; gap: 12px; }
-.fan-out-switch { display: flex; align-items: flex-start; gap: 9px; }
-.fan-out-switch > input { flex: none; margin-top: 2px; }
-.fan-out-switch > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.fan-out-switch strong { font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
-/* The one sentence under the row that says something the label and the control do not: what the
-   switch being off would cost. It changes with the switch, because that is the whole of its job. */
-.fan-out-note { margin: 0; font-size: 12px; line-height: 1.45; color: var(--rl-text-faint); }
 
 /* ── The Library's file browser ────────────────────────────────────────────
    Codex's library, measured off its window: the kinds of file as tabs over a grid of square tiles,
@@ -7669,8 +7511,7 @@ select { appearance: none; padding-right: 22px;
 .notif-kind { flex: none; font-size: 11px; color: var(--rl-text-faint); }
 .notif-row[data-unread] .notif-title { color: var(--rl-text-bright); font-weight: var(--fw-title); }
 .notif-time { flex: none; font-size: 11px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
-/* A session row's eye (W11b), placed as the Agents page places it: a sibling over the row's far end,
-   since the row is a button, and in the slot the time and the unread dot hold at rest — they give it
+/* A session row's eye (W11b): a sibling over the row's far end, since the row is a button, and in the slot the time and the unread dot hold at rest — they give it
    up while it shows, and nothing is reserved for it while it does not. Centred on the TITLE's line
    rather than on the row: a row with a body is taller than its first line, which is where the time
    and the dot sit. 7px is the row's 11px padding plus half the 20px line, less half the 28px button. */

@@ -14,9 +14,10 @@ const ended = (animationName: string) => {
   Object.defineProperty(e, "animationName", { value: animationName });
   act(() => { chip().dispatchEvent(e); });
 };
+const LEVELS = ["low", "medium", "high", "xhigh", "max"].map((id) => ({ id, label: id }));
 const picker = (effort: string | null, eggs: boolean) => (
-  <ModelPicker kind="claude" model={null} effort={effort} rows={rows} info={{}}
-    onToggleFavorite={() => {}} onPick={() => {}} effortItems={[]} eggs={eggs} />
+  <ModelPicker kind="claude" model={null} effort={{ levels: LEVELS, value: effort, defaultId: "high", onChange: () => {} }} rows={rows} info={{}}
+    onToggleFavorite={() => {}} onPick={() => {}} eggs={eggs} />
 );
 
 describe("the chip answers when the session commits to a heavy effort", () => {

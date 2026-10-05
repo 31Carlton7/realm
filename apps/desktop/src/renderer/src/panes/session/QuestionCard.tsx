@@ -58,8 +58,8 @@ export function QuestionCard({ card, onAnswer, onSkip, autoFocus = false, enter 
   onSkip: () => void;
   autoFocus?: boolean;
   enter?: boolean;
-  /** False where the surface around the card owns Escape (the Agents page, the need-you list), so
-   *  Escape leaves it instead: the card then neither answers on Escape nor offers it as a key. */
+  /** False where the surface around the card owns Escape (the need-you list), so Escape leaves it
+   *  instead: the card then neither answers on Escape nor offers it as a key. */
   ownsEscape?: boolean;
 }) {
   const [page, setPage] = useState(0);

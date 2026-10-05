@@ -237,6 +237,13 @@ Rules:
   the ring is also a per-segment decision: a segment that is FILLED (Full access, Ask, Plan) wears
   no ring on its side. The fill already says "control" there, and a hairline over a tint reads as a
   second, disagreeing edge.
+- A join inside one object takes the ring's TOP away, never its sides. The strips stacked above the
+  prompter once dropped the whole ring at each join, so no hairline would cross the band, and the
+  lower strip's sides went with it: its fill is the pane's own ground, so the ring was its only
+  edge, and the git footer under the plan strip read as an open-sided box right where the card
+  tucks over it. The painter leaves a ring's top open (`--sq-ring-open`), and the sides run on into
+  the card's own edge. An edge the fallback draws as a box-shadow is the fallback's alone: under the
+  painter it traces the squared border box, a second ring with square corners and a seam.
 - Floating menus, palettes, sheets, composers, and overlays use the established layered shadow
   stacks. Never invent a single heavy drop shadow.
 - The blue accent is a condiment: focus, selection, progress, links, and primary actions. It is not a
@@ -561,9 +568,14 @@ acronym that is uppercase anyway (a file extension on a tile).
   and a control offered on a guess is one whose only outcome is a refusal. Where the owner has
   said nothing, show nothing — not a disabled control, which invites a user to work out how to
   enable something nobody has claimed. The one exception is a REQUEST Realm can make and the owner
-  will answer: fast mode before a session's first turn is a switch that says "checked on the first
-  turn", because waiting for the answer made it unreachable for exactly the turn it was wanted on.
-  Where the owner said no, say which of its models say yes.
+  will answer: fast mode before a session's first turn is a bolt whose tooltip says the first turn
+  checks it, because waiting for the answer made it unreachable for exactly the turn it was wanted
+  on. Where the owner said no, say which of its models say yes.
+- A setting shows the value in force, never a blank. Unset, the effort card names the model's own
+  default and the chip wears it; the reset appears only once the level has moved, and it hands the
+  choice back to the harness rather than writing the default down as though someone had picked it.
+  The levels are the model's own list, a dot each — never a fixed five that one model takes and
+  the next refuses.
 - A link is shown as what it points AT. A pasted Slack permalink is ninety characters of nothing
   a person reads; its meaning is "this thread", and the chip says that: the app's mark, then a
   name (a thread's timestamp, an issue key, a page title). Only where Realm can name the link — a
@@ -720,12 +732,16 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   with the keyboard in the prompter; it used to open the space's Overview, a page of settings for
   something named a second earlier in order to work in it. Settings are where a thing is visited
   later, and the sheet that made it has already asked everything that had no default.
-- Several agents need one page that answers "what should I look at": every session across every
-  space by what it needs from you — blocked on a permission first, then working, failed, finished.
-  The per-space badges say the same thing per space; the page says it once, with enough on each
-  row (space, folder, model, how long ago it moved) to choose without opening. A relay beyond the
-  Mac (a text, a Slack line) carries only those moments a person has to come back for, and one
+- What needs you is said where you already look — the session's own row, Needs you at the head of
+  the sidebar, the bell's count — and not on a page of its own. An Agents page once ranked every
+  session by what it needed and drew the live ones as a wall and an office; it said again what those
+  rows said, from a second place you had to go to, and the owner removed it (10-05). A relay beyond
+  the Mac (a text, a Slack line) carries only those moments a person has to come back for, and one
   open condition is sent once.
+- Home is the way back to the work, not a page: it puts away whatever page is up and lands on the
+  session that was in front, in its space — or on a fresh prompter when nothing was, as closing the
+  last pane does. A control that only ever returns is not a toggle, so it is never lit and carries no
+  count.
 - The sidebar answers where the user is and what else is available. Keep primary destinations,
   spaces, open items, and contextual actions visually separate.
 - One column of navigation at a time. A page with sections of its own — Settings, the Library, a

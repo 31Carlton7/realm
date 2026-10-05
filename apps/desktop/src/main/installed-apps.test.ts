@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { beforeEach, describe, expect, it } from "vitest";
+import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
+import { tempDir } from "@realm/test-utils";
 import { join } from "node:path";
 import { InstalledApps, dockBundleIds, icnsPng, parseBinaryPlist, parsePlist, parseXmlPlist, scanApplications } from "./installed-apps";
 
@@ -83,7 +83,7 @@ function bundle(dir: string, name: string, plist: string | Uint8Array, resources
 }
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "realm-apps-"));
+  root = tempDir("realm-apps-");
   const apps = at("Applications");
   mkdirSync(apps, { recursive: true });
   // An XML plist with everything a real one carries around the keys that matter: a comment, a date,
@@ -115,7 +115,6 @@ beforeEach(() => {
   // The same bundle id in the user's own folder: the first folder scanned keeps it.
   bundle(at("User", "Applications"), "Sketchpad copy", xmlPlist(keys({ CFBundleIdentifier: "com.example.sketchpad" })));
 });
-afterEach(() => { rmSync(root, { recursive: true, force: true }); });
 
 const dirs = () => [at("Applications"), at("User", "Applications")];
 
