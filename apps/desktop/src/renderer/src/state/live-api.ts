@@ -203,7 +203,9 @@ export const liveApi = (): Api => ({
   computerAccessOpenSettings: (id) => window.realm.computerAccess.openSettings(id),
   updateStatus: () => window.realm.updates.status(),
   checkUpdates: () => window.realm.updates.check(),
+  downloadUpdate: () => window.realm.updates.download(),
   installUpdate: () => window.realm.updates.install(),
+  onUpdateStatus: (cb) => window.realm.updates.onChanged(cb),
   showDesktopNotification: (input) => window.realm.notify.show(input),
   // cuelume builds nothing until the first `play`, so importing it costs no AudioContext. It then
   // refuses to sound until the document has had a user gesture, checking

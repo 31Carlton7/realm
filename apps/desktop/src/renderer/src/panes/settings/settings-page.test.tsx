@@ -793,6 +793,18 @@ describe("General → Updates row (Plan 15 W1)", () => {
     await waitFor(() => expect(api.calls).toContain("installUpdate"));
   });
 
+  it("an update whose download did not finish offers that download again, and the row follows its progress", async () => {
+    const { api } = await openApp({ updateStatus: { version: "1.0.0", state: { kind: "available", version: "1.1.0" } } });
+    expect(await screen.findByText("v1.1.0 is available. Its download did not finish.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Download v1.1.0" }));
+    await waitFor(() => expect(api.calls).toContain("downloadUpdate"));
+    expect(await screen.findByText("Downloading v1.1.0…")).toBeInTheDocument();
+    // Main's push, not a poll: the figure arrives while the page sits open.
+    act(() => api.emitUpdateStatus({ version: "1.0.0", state: { kind: "downloading", version: "1.1.0", percent: 61.7 } }));
+    expect(await screen.findByText("Downloading v1.1.0… 62%")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Check for updates" })).toBeDisabled();
+  });
+
   it("a failed check reports the error and leaves the button usable for a retry", async () => {
     await openApp({ updateStatus: { version: "1.0.0", state: { kind: "error", message: "ENOTFOUND github.com" } } });
     expect(await screen.findByText("Update check failed: ENOTFOUND github.com")).toBeInTheDocument();

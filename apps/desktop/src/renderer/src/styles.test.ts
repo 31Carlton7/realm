@@ -1055,6 +1055,9 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // real pixels, which only the laid-out tile has. Carries a `none` fallback, so a tile measured
       // before layout is unclipped rather than clipped away to nothing.
       "--attach-clip",
+      // How far an update's download has got (Rail.tsx, RailUpdate): main's own percentage, set inline
+      // as it arrives, with a 0% fallback for the moment before main has said.
+      "--update-progress",
     ]);
     const used = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]!));
     expect([...used].filter((n) => !defined.has(n) && !n.startsWith("--dsg-")).sort()).toEqual([]);

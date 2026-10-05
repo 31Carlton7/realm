@@ -500,8 +500,14 @@ export type Api = {
    *  that same state rather than pretending to check. */
   updateStatus(): Promise<UpdateStatus>;
   checkUpdates(): Promise<UpdateStatus>;
+  /** Start the download of an update main knows of and is not fetching; main answers any other
+   *  state unchanged. */
+  downloadUpdate(): Promise<UpdateStatus>;
   /** Quit-and-install; main ignores it unless an update is actually downloaded. */
   installUpdate(): Promise<void>;
+  /** Every change of main's updater state, a download's progress included. Optional: a renderer
+   *  with no preload bridge simply never hears one. */
+  onUpdateStatus?(cb: (status: UpdateStatus) => void): () => void;
   /** Ask main to post an OS toast for a surfaced feed row. Answers whether one was actually shown —
    *  main suppresses it while the Realm window is focused, and that call is main's to make. */
   showDesktopNotification(input: { id: string; title: string; body: string | null }): Promise<boolean>;
@@ -2385,8 +2391,12 @@ export type AppState = {
   /** Run a real update check (or receive the disabled state unchanged — main's gate decides).
    *  The interim `checking` shown is main's genuine in-flight state, not renderer theatre. */
   checkForUpdates(): Promise<void>;
+  /** Fetch an update main knows of but is not downloading (`available`) — a no-op in main otherwise. */
+  downloadUpdate(): Promise<void>;
   /** Restart into a downloaded update; a no-op in main unless one is actually downloaded. */
   installUpdate(): Promise<void>;
+  /** Hold `updateStatus` to main's every change while the returned stop has not been called. */
+  watchUpdateStatus(): () => void;
   /** Fetch the feed's first page (replacing what is held — sized to cover at least what was showing,
    *  so a refetch triggered by `notifications.changed` never shrinks the visible list). */
   refreshNotifications(): Promise<void>;
@@ -6360,7 +6370,9 @@ await get().refreshCustomThemes().catch(() => {});
         if (held && held.state.kind !== "disabled") set({ updateStatus: { ...held, state: { kind: "checking" } } });
         set({ updateStatus: await api.checkUpdates() });
       },
+      async downloadUpdate() { set({ updateStatus: await api.downloadUpdate() }); },
       async installUpdate() { await api.installUpdate(); },
+      watchUpdateStatus() { return api.onUpdateStatus?.((status) => set({ updateStatus: status })) ?? (() => {}); },
       async refreshNotifications() {
         // Sized to cover what is already showing: a refetch triggered by a broadcast must not shrink
         // the list the user is scrolled into. Capped at the wire's own limit.

@@ -1241,9 +1241,13 @@ updater = new RealmUpdater({
       cancelId: 1,
     }).then(({ response }) => { if (response === 0) updater.install(); });
   },
+  // Pushed, not polled: a download's progress has to reach the rail's button while the window sits
+  // at the front, which is exactly when nothing else would make the renderer ask.
+  onChange: (status) => { for (const w of BrowserWindow.getAllWindows()) w.webContents.send("updates:changed", status); },
 });
 ipcMain.handle("updates:status", () => updater.status());
 ipcMain.handle("updates:check", () => updater.check());
+ipcMain.handle("updates:download", () => updater.download());
 ipcMain.handle("updates:install", () => { updater.install(); });
 
 /**

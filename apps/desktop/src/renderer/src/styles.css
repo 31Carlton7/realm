@@ -569,8 +569,21 @@ kbd { font: 11px var(--font-mono); }
    its centre near the glyph's corner, so the glyph under it is still the glyph it is. */
 .rail-glyph { position: relative; display: grid; place-items: center; }
 .rail-glyph .sb-badge { top: -8px; right: -12px; }
-/* A ready update is the one control here that wants a click soon, so it takes the accent. */
-.rail-update { color: var(--rl-accent); }
+/* A newer Realm (RailUpdate): the accent disc Codex keeps at the foot of its rail. It is the one
+   control here that wants a click soon, so it is the one filled thing in the column — white on the
+   fill in both modes, as every accent-filled control is. A press darkens the fill (design.md: a press
+   is a fill, not a size). While it downloads there is nothing to press, so it takes no hover; its
+   share runs round the disc instead: a conic fill on a box a few px wider, masked to a 2px band, the
+   rail's own progress track under the accent's run. */
+.rail-update, .rail-update:hover { color: var(--rl-accent-contrast); }
+.rail-update-disc { position: relative; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--rl-accent); }
+.rail-update:is([data-pressed], :active:focus-visible) .rail-update-disc { background: var(--rl-accent-press); }
+.rail-update[data-state="downloading"]:hover { background: none; }
+.rail-update[data-state="downloading"] .rail-update-disc::before { content: ""; position: absolute; inset: -4px; border-radius: 50%;
+  background: conic-gradient(var(--rl-accent) var(--update-progress, 0%), var(--mark) 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px)); }
 /* A count at a rail glyph's shoulder — Home's waiting count and the bell's unread (`.rail-glyph`).
    `overflow: visible` and negative offsets on purpose: a badge that overhangs its glyph is how every
    bell on this platform is drawn, and a digit squeezed inside would go under the type floor.
