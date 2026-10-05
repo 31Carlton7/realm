@@ -1483,12 +1483,13 @@ kbd { font: 11px var(--font-mono); }
 .mp-track[data-effort="xhigh"] .mp-track-fill, .mp-track[data-effort="max"] .mp-track-fill { overflow: hidden; isolation: isolate; }
 .mp-track-facets, .mp-track-flow, .mp-track-core { position: absolute; pointer-events: none; }
 /* The facets: the mark's cube tiled, a light top over a mid left wall and a dark right wall as the
-   mark draws them, faint enough to read as the glass's grain rather than as a pattern laid on it. One
-   tile wider than the fill, so drifting it one whole tile loops with no seam. */
-.mp-track-facets { top: 0; bottom: 0; left: -18px; width: calc(100% + 18px); opacity: calc(.55 * var(--heat));
+   mark draws them, faint enough to read as the glass's grain rather than as a pattern laid on it, and
+   only toward the knob, where the light gathers — the glass the hero's streams run into. One tile
+   wider than the fill, so drifting it one whole tile loops with no seam. */
+.mp-track-facets { top: 0; bottom: 0; left: -18px; width: calc(100% + 18px); opacity: calc(.34 * var(--heat));
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='10.392' viewBox='0 0 18 10.392'%3E%3Cpath fill='white' fill-opacity='.5' d='M0 0L-6 -0L-3 -5.20L3 -5.20ZM0 10.39L-6 10.39L-3 5.20L3 5.20ZM18 0L12 -0L15 -5.20L21 -5.20ZM18 10.39L12 10.39L15 5.20L21 5.20ZM9 5.20L3 5.20L6 0L12 0Z'/%3E%3Cpath fill='white' fill-opacity='.22' d='M0 0L3 5.20L-3 5.20L-6 -0ZM0 10.39L3 15.59L-3 15.59L-6 10.39ZM18 0L21 5.20L15 5.20L12 -0ZM18 10.39L21 15.59L15 15.59L12 10.39ZM9 5.20L12 10.39L6 10.39L3 5.20Z'/%3E%3Cpath fill='black' fill-opacity='.16' d='M0 0L3 -5.20L6 0L3 5.20ZM0 10.39L3 5.20L6 10.39L3 15.59ZM18 0L21 -5.20L24 0L21 5.20ZM18 10.39L21 5.20L24 10.39L21 15.59ZM9 5.20L12 0L15 5.20L12 10.39Z'/%3E%3C/svg%3E");
   background-size: 18px 10.392px;
-  mask-image: linear-gradient(90deg, transparent, black 45%);
+  mask-image: linear-gradient(90deg, transparent 20%, black 88%);
   animation: rl-facets var(--mp-drift) linear infinite; }
 @keyframes rl-facets { from { transform: translateX(0); } to { transform: translateX(18px); } }
 /* The streams: the hero's three, at three wavelengths that do not divide each other so the pattern
@@ -1519,10 +1520,10 @@ kbd { font: 11px var(--font-mono); }
 .mp-track[data-effort="xhigh"] .mp-track-knob, .mp-track[data-effort="max"] .mp-track-knob {
   box-shadow: 0 1px 2px #0000003d, 0 0 0 var(--hairline-w) #00000014,
     0 0 calc(12px * var(--heat)) calc(2px * var(--heat)) oklch(from var(--rl-accent) calc(l + .12) calc(c * .8) calc(h - 6) / calc(.65 * var(--heat))); }
-.mp-track-shine { position: absolute; inset: -2px; border-radius: 50%; pointer-events: none;
-  background: conic-gradient(transparent 0 60%, oklch(from var(--rl-accent) calc(l + .08) c h / calc(.9 * var(--heat))) 78%,
-    oklch(from var(--rl-accent) .99 .01 h / calc(.95 * var(--heat))) 86%, transparent 93%);
-  mask-image: radial-gradient(closest-side, transparent 70%, black 77%);
+.mp-track-shine { position: absolute; inset: -3px; border-radius: 50%; pointer-events: none;
+  background: conic-gradient(transparent 0 52%, oklch(from var(--rl-accent) calc(l + .06) c h / var(--heat)) 74%,
+    oklch(from var(--rl-accent) .97 .04 h / var(--heat)) 86%, transparent 94%);
+  mask-image: radial-gradient(closest-side, transparent 66%, black 72% 92%, transparent);
   animation: rl-shine var(--mp-turn) linear infinite; }
 @keyframes rl-shine { to { transform: rotate(1turn); } }
 
@@ -1536,11 +1537,12 @@ kbd { font: 11px var(--font-mono); }
 .model-chip, .mp-run { --mp-moment: calc(var(--dur-move) * 1.5); }
 .mp-bolt[data-charge] { animation: rl-bolt-charge var(--mp-moment) var(--ease-out-strong); }
 .mp-bolt[data-charge] svg { animation: rl-bolt-spark var(--mp-moment) ease-out; }
+/* The ring is the outline going out and fading, a line of light rather than a disc of tint. */
 @keyframes rl-bolt-charge {
-  0% { transform: scale(1); box-shadow: 0 0 0 0 oklch(from var(--rl-accent) l c h / .5); }
+  0% { transform: scale(1); outline: 1.5px solid oklch(from var(--rl-accent) calc(l + .1) c h / .9); outline-offset: 0; }
   30% { transform: scale(1.18) rotate(-8deg); }
   60% { transform: scale(.96) rotate(2deg); }
-  100% { transform: scale(1); box-shadow: 0 0 0 10px oklch(from var(--rl-accent) l c h / 0); }
+  100% { transform: scale(1); outline: 1.5px solid oklch(from var(--rl-accent) calc(l + .1) c h / 0); outline-offset: 9px; }
 }
 @keyframes rl-bolt-spark {
   0%, 100% { filter: none; }
@@ -1550,43 +1552,41 @@ kbd { font: 11px var(--font-mono); }
    still, when nothing runs — it is transparent, so a pass that never played leaves nothing behind. */
 .mp-track-glint { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0;
   mix-blend-mode: plus-lighter;
-  background-image: linear-gradient(100deg, transparent 38%, oklch(from var(--rl-accent) calc(l + .16) calc(c * .7) calc(h - 6) / .55) 46%,
-    oklch(from var(--rl-accent) .99 .01 h / .95) 50%, oklch(from var(--rl-accent) calc(l + .16) calc(c * .7) calc(h - 6) / .55) 54%, transparent 62%);
-  background-size: 260% 100%; background-repeat: no-repeat;
+  background-image: linear-gradient(100deg, transparent 43%, oklch(from var(--rl-accent) calc(l + .16) calc(c * .7) calc(h - 6) / .5) 47.5%,
+    oklch(from var(--rl-accent) .99 .01 h / .95) 50%, oklch(from var(--rl-accent) calc(l + .16) calc(c * .7) calc(h - 6) / .5) 52.5%, transparent 57%);
+  background-size: 300% 100%; background-repeat: no-repeat;
   animation: rl-track-glint var(--mp-moment) var(--ease-out-strong) both; }
 @keyframes rl-track-glint {
-  0% { opacity: 1; background-position: 115% 0; }
-  80% { opacity: 1; }
-  100% { opacity: 0; background-position: -15% 0; }
+  0% { opacity: 1; background-position: 110% 0; }
+  85% { opacity: 1; }
+  100% { opacity: 0; background-position: -10% 0; }
 }
 /* On a light well, adding light to near-white adds nothing: the glint lays its tint on instead. */
 :root[data-mode="light"] .mp-track-glint { mix-blend-mode: normal; }
 
 /* ── The chip answers ──
-   One pass across it when the session commits to a heavy level — Max gets two — and a quicker,
-   brighter glint when fast mode goes on, the bolt it now wears sparking with it. The popover is often
-   closing by then, which is the point: the control that changed is the one that answers. */
-.model-chip[data-sweep] {
-  background-image: linear-gradient(100deg, transparent 18%,
-    oklch(from var(--rl-accent) calc(l + .1) calc(c * .8) calc(h - 6) / .4) 42%,
-    oklch(from var(--rl-accent) .97 .02 h / .42) 50%,
-    oklch(from var(--rl-accent) l c calc(h + 8) / .38) 58%, transparent 82%);
-  background-size: 240% 100%;
+   One pass of light along its words when the session commits to a heavy level — Max gets two — and a
+   quicker one when fast mode goes on, the bolt it now wears sparking with it. The popover is often
+   closing by then, which is the point: the control that changed is the one that answers.
+
+   On the WORDS, clipped to the glyphs, and not on the chip's ground: the ground is the squircle
+   painter's (`:root[data-squircle] .ghost-chip` spends `background` on `paint(rl-squircle)`, and
+   out-ranks any rule here), so a gradient laid on the chip lost to it — silently, from the day the
+   chips were painted — and the easter egg's pass had not been drawn since. `-webkit-text-fill-color`
+   rather than `color`, so `currentColor` in the gradient is still the word's own ink either side of
+   the light. */
+.model-chip { --glint-halo: oklch(from var(--rl-accent) calc(l + .14) calc(c * .8) calc(h - 6)); --glint-core: oklch(from var(--rl-accent) .98 .02 h); }
+/* On a light chip a white core would vanish into the ground for its length; the light there is the accent. */
+:root[data-mode="light"] .model-chip { --glint-halo: oklch(from var(--rl-accent) calc(l + .1) c h); --glint-core: var(--rl-accent); }
+.model-chip[data-sweep] :is(.chip-label, .chip-effort) {
+  background-image: linear-gradient(100deg, currentColor 36%, var(--glint-halo) 45%, var(--glint-core) 50%, var(--glint-halo) 55%, currentColor 64%);
+  background-size: 250% 100%; background-position: 100% 0;
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
   animation: rl-chip-sweep var(--dur-move) var(--ease-out-strong); }
-.model-chip[data-sweep="max"] { animation-iteration-count: 2; }
-.model-chip[data-sweep="fast"] { animation-duration: var(--mp-moment);
-  background-image: linear-gradient(100deg, transparent 32%, oklch(from var(--rl-accent) calc(l + .16) calc(c * .7) calc(h - 6) / .45) 44%,
-    oklch(from var(--rl-accent) .99 .01 h / .7) 50%, oklch(from var(--rl-accent) calc(l + .16) calc(c * .7) calc(h - 6) / .45) 56%, transparent 68%); }
+.model-chip[data-sweep="max"] :is(.chip-label, .chip-effort) { animation-iteration-count: 2; }
+.model-chip[data-sweep="fast"] :is(.chip-label, .chip-effort) { animation-duration: var(--mp-moment); }
 .model-chip[data-sweep="fast"] .chip-fast { animation: rl-bolt-spark var(--mp-moment) ease-out; }
-/* `animation` is one property, so the focus ring's halo and the sweep cannot each claim it: on a chip
-   that has keyboard focus — which is where the picker hands focus back after a keyboard pick — the
-   later rule would silently cancel the other. Named together here instead, and the iteration count
-   and duration given per animation so Max's second pass does not draw the ring in twice. */
-.model-chip[data-sweep]:focus-visible {
-  animation: rl-chip-sweep var(--dur-move) var(--ease-out-strong), rl-focus-ring var(--dur-slow) var(--spring-smooth); }
-.model-chip[data-sweep="max"]:focus-visible { animation-iteration-count: 2, 1; }
-.model-chip[data-sweep="fast"]:focus-visible { animation-duration: var(--mp-moment), var(--dur-slow); }
-@keyframes rl-chip-sweep { from { background-position: 140% center; } to { background-position: -40% center; } }
+@keyframes rl-chip-sweep { from { background-position: 100% 0; } to { background-position: 0 0; } }
 
 /* ── Easter eggs: the same light, run hot ──
    Every rule here hangs off [data-eggs], so the switch in Settings ▸ General takes it away by taking
@@ -1612,7 +1612,7 @@ kbd { font: 11px var(--font-mono); }
    drawing nothing would make the heavy levels identical to the light ones. What it cannot reach is a
    background: with no animation there is no `animationend` to take the chip's mark off again. */
 @media (prefers-reduced-motion: reduce) {
-  .model-chip[data-sweep] { background-image: none; }
+  .model-chip[data-sweep] :is(.chip-label, .chip-effort) { background-image: none; -webkit-text-fill-color: currentcolor; }
 }
 
 /* ── Quiet: what the app stops doing when nobody is looking ──────────────────

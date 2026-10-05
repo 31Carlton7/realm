@@ -708,7 +708,7 @@ async function ownerReal() {
     await until(async () => (await mine())?.fastMode === true, 5000, "fast on again").catch(() => null);
     await sleep(300);
     card = await runCard(c);
-    check("real: both reached the running CLI's flag layer", JSON.stringify(flagWrites()) === JSON.stringify([{ effortLevel: "max" }, { fastMode: true }]), flagWrites());
+    check("real: every change reached the running CLI's flag layer, in order", JSON.stringify(flagWrites()) === JSON.stringify([{ effortLevel: "max" }, { fastMode: true }, { fastMode: false }, { fastMode: true }]), flagWrites());
     await shootPicker(c, "real-dark-max-fast");
     await closePicker(c);
     const second = await send("again");
@@ -813,13 +813,14 @@ async function frames(c, name, clip, n, gapMs) {
 }
 /** What a frame holds, decoded in the page: how bright it is on average, how colourful its most
  *  saturated pixel, and — along one row — the column the light peaks at. */
-const stats = (c, b64, rowAt = 0.5) => evalIn(c, `(async () => {
+const stats = (c, b64, rowAt = 0.5, span = [0, 1]) => evalIn(c, `(async () => {
   const i = new Image(); i.src = "data:image/png;base64," + ${JSON.stringify(b64)}; await i.decode();
   const cv = document.createElement("canvas"); cv.width = i.width; cv.height = i.height;
   const x = cv.getContext("2d"); x.drawImage(i, 0, 0); const px = x.getImageData(0, 0, cv.width, cv.height).data;
   let sum = 0, chroma = 0; for (let k = 0; k < px.length; k += 4) { sum += 0.299 * px[k] + 0.587 * px[k+1] + 0.114 * px[k+2]; chroma = Math.max(chroma, Math.max(px[k], px[k+1], px[k+2]) - Math.min(px[k], px[k+1], px[k+2])); }
   const y = Math.round((cv.height - 1) * ${rowAt}); let peak = 0, at = 0;
-  for (let k = 0; k < cv.width; k++) { const o = (y * cv.width + k) * 4; const l = px[o] + px[o+1] + px[o+2]; if (l > peak) { peak = l; at = k; } }
+  const k0 = Math.round(cv.width * ${span[0]}), k1 = Math.round(cv.width * ${span[1]});
+  for (let k = k0; k < k1; k++) { const o = (y * cv.width + k) * 4; const l = px[o] + px[o+1] + px[o+2]; if (l > peak) { peak = l; at = k; } }
   return { mean: Math.round(sum / (px.length / 4)), chroma, peakAt: Math.round(at / cv.width * 100) };
 })()`);
 /** The share of pixels that differ between two frames of one clip, in percent. */
@@ -843,6 +844,8 @@ async function lightPhase() {
   const { c, api, home, sessionId } = await boot(stubs(path.join(scratch, "bin-light"), { acp: false }), "light");
   const mine = async () => (await api.call("sessions.listAll", { profileId: null })).find((s) => s.id === sessionId);
   const trackClip = async () => { const t = (await runCard(c)).track.box; return { x: t.x + 2, y: t.y + 2, width: t.w - 4, height: t.h - 4 }; };
+  // The run every level fills — the first two-fifths — so a brightness there compares light with light.
+  const filledClip = async () => { const t = (await runCard(c)).track.box; return { x: t.x + 4, y: t.y + 4, width: Math.round(t.w * 0.4), height: t.h - 8 }; };
   const cardClip = async () => { const k = (await runCard(c)).card; return { x: k.x - 12, y: k.y - 10, width: k.w + 24, height: k.h + 20 }; };
   try {
     for (const mode of ["dark", "light"]) {
@@ -856,6 +859,7 @@ async function lightPhase() {
       check(`light ${mode}: Max carries all four layers of the light`, lit.length === 4, lit);
       const maxFrames = await frames(c, `light-${mode}-max`, await cardClip(), 10, 160);
       const maxTrack = await frames(c, `track-${mode}-max`, await trackClip(), 2, 700);
+      const maxFilled = await frames(c, `filled-${mode}-max`, await filledClip(), 4, 220);
       const maxMove = await changed(c, maxTrack[0], maxTrack[1]);
       check(`light ${mode}: at Max the light moves`, maxMove > 3, { changed: maxMove });
       await key(c, "ArrowLeft");
@@ -863,39 +867,62 @@ async function lightPhase() {
       await sleep(700);
       await frames(c, `light-${mode}-xhigh`, await cardClip(), 10, 160);
       const xTrack = await frames(c, `track-${mode}-xhigh`, await trackClip(), 2, 700);
+      const xFilled = await frames(c, `filled-${mode}-xhigh`, await filledClip(), 4, 220);
       const xMove = await changed(c, xTrack[0], xTrack[1]);
       check(`light ${mode}: at XHigh it moves too, and less of it`, xMove > 0.5, { changed: xMove });
       await key(c, "ArrowLeft");
       await until(async () => (await mine())?.effort === "high", 5000, "high");
       await sleep(500);
       const hTrack = await frames(c, `track-${mode}-high`, await trackClip(), 2, 700);
+      const hFilled = await frames(c, `filled-${mode}-high`, await filledClip(), 4, 220);
       const hMove = await changed(c, hTrack[0], hTrack[1]);
       check(`light ${mode}: at High the track is the plain control it always was`, hMove === 0 && !(await evalIn(c, `!!document.querySelector(".mp-track-flow")`)), { changed: hMove });
-      const [sMax, sX, sH] = [await stats(c, maxTrack[0]), await stats(c, xTrack[0]), await stats(c, hTrack[0])];
-      check(`light ${mode}: the light scales with the level — Max over XHigh over High`, sMax.mean > sX.mean - 1 && (sMax.chroma >= sX.chroma || sMax.mean > sX.mean), { max: sMax, xhigh: sX, high: sH });
+      const meanOf = async (fs) => { let t = 0; for (const f of fs) t += (await stats(c, f)).mean; return Math.round(t / fs.length); };
+      const [sMax, sX, sH] = [{ mean: await meanOf(maxFilled) }, { mean: await meanOf(xFilled) }, { mean: await meanOf(hFilled) }];
+      check(`light ${mode}: the light scales with the level — brighter at Max than at XHigh, and either over plain High`, sMax.mean > sX.mean && sX.mean > sH.mean, { max: sMax, xhigh: sX, high: sH });
       await key(c, "End");
       await until(async () => (await mine())?.effort === "max", 5000, "max again");
       await sleep(500);
       if ((await mine())?.fastMode) { await clickAt(c, (await runCard(c)).bolt.box.cx, (await runCard(c)).bolt.box.cy); await sleep(400); }
-      // Fast mode's moment, slowed twelve and a half times, so its passes can be seen frame by frame.
+      // Fast mode's moment, slowed twenty times, so its passes can be seen frame by frame — once over
+      // the card, then again over the chip, each its own small clip so the frames come quickly.
       const card = await runCard(c), chipBox = await box(c, CHIP);
-      const x0 = Math.min(card.card.x, chipBox.x) - 12, y0 = Math.min(card.card.y, chipBox.y) - 10;
-      const clip = { x: x0, y: y0, width: Math.max(card.card.x + card.card.w, chipBox.x + chipBox.width) + 12 - x0,
-        height: Math.max(card.card.y + card.card.h, chipBox.y + chipBox.height) + 10 - y0 };
+      const cardOnly = { x: card.card.x - 14, y: card.card.y - 12, width: card.card.w + 28, height: card.card.h + 24 };
+      const chipOnly = { x: chipBox.x - 10, y: chipBox.y - 8, width: chipBox.width + 20, height: chipBox.height + 16 };
       await c.send("Animation.enable");
-      await c.send("Animation.setPlaybackRate", { playbackRate: 0.08 });
+      await c.send("Animation.setPlaybackRate", { playbackRate: 0.05 });
       await clickAt(c, card.bolt.box.cx, card.bolt.box.cy);
       const during = await evalIn(c, `({ charge: document.querySelector(".mp-bolt")?.hasAttribute("data-charge"), glint: !!document.querySelector(".mp-track-glint"),
         chip: document.querySelector(${JSON.stringify(CHIP)})?.getAttribute("data-sweep") ?? null })`);
       check(`fast ${mode}: switching it on charges the bolt, glints the track and glints the chip`, during.charge && during.glint && during.chip === "fast", during);
-      const moment = await frames(c, `fast-${mode}`, clip, 12, 380);
-      const tclip = await trackClip();
+      // Where the pass is, read off the animation itself between batches of frames: the light's own
+      // streams are as bright as the glint, so the brightest column in a frame says nothing.
+      const glintAt = () => evalIn(c, `(() => { const g = document.querySelector(".mp-track-glint"); return g ? Math.round(parseFloat(getComputedStyle(g).backgroundPosition)) : null; })()`);
+      const at = [await glintAt()];
+      await frames(c, `fast-${mode}-card`, cardOnly, 5, 420);
+      at.push(await glintAt());
+      await frames(c, `fast-${mode}-card-late`, cardOnly, 5, 420);
+      at.push(await glintAt());
+      check(`fast ${mode}: the glint runs along the track, left to right`, at.every((p, i) => p !== null && (i === 0 || p < at[i - 1])), at);
       await c.send("Animation.setPlaybackRate", { playbackRate: 1 });
-      await sleep(600);
+      await sleep(700);
       check(`fast ${mode}: …and each comes off again once its pass is over`, await evalIn(c, `!document.querySelector(".mp-bolt")?.hasAttribute("data-charge") && !document.querySelector(${JSON.stringify(CHIP)})?.hasAttribute("data-sweep")`));
-      void tclip; void moment;
+      // Off, quietly, and on again for the chip's frames.
+      await clickAt(c, card.bolt.box.cx, card.bolt.box.cy);
+      await sleep(500);
+      await c.send("Animation.setPlaybackRate", { playbackRate: 0.05 });
+      await clickAt(c, card.bolt.box.cx, card.bolt.box.cy);
+      const words = await evalIn(c, `(() => { const k = document.querySelector(${JSON.stringify(CHIP)}); const l = getComputedStyle(k.querySelector(".chip-label"));
+        return { sweep: k.getAttribute("data-sweep"), image: l.backgroundImage.startsWith("linear-gradient"), clip: l.backgroundClip, fill: l.webkitTextFillColor, anim: l.animationName }; })()`);
+      check(`fast ${mode}: the chip's words carry the light, past the squircle painter that owns its ground`,
+        words.sweep === "fast" && words.image && words.clip === "text" && words.anim === "rl-chip-sweep", words);
+      await frames(c, `fast-${mode}-chip`, chipOnly, 10, 420);
+      await c.send("Animation.setPlaybackRate", { playbackRate: 1 });
+      await sleep(700);
       await shootPicker(c, `light-${mode}-picker-max-fast`);
-      // Off is quiet.
+      // Off is quiet — pressed where the bolt was, which is where it still is.
+      const now = await runCard(c);
+      check(`fast ${mode}: the bolt is still where it was pressed`, now.bolt.box.x === card.bolt.box.x && now.bolt.box.y === card.bolt.box.y, { before: card.bolt.box, after: now.bolt.box });
       await clickAt(c, card.bolt.box.cx, card.bolt.box.cy);
       await sleep(80);
       const off = await evalIn(c, `({ charge: document.querySelector(".mp-bolt")?.hasAttribute("data-charge"), chip: document.querySelector(${JSON.stringify(CHIP)})?.getAttribute("data-sweep") ?? null })`);
