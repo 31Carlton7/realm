@@ -644,6 +644,12 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - Respect reduced-motion and reduced-transparency preferences. Realm's own Reduce motion setting is
   applied by changing what the window reports for `prefers-reduced-motion`, so a surface that honours
   the media query honours both, and nothing should ask about motion any other way.
+- Motion that says where something IS holds still at its shown end, never paused mid-cycle. The
+  caret blinks because someone chose a blink, and under Reduce motion or Low power it goes solid
+  (`data-caret-still`) rather than freezing where it stood: a blink paused at nothing is a field with
+  no caret. Drawn in place of the platform's, it stands on the platform's pixel — measured against it
+  at the same offsets, both painted one colour (`caret-live.mjs`) — and steps aside wherever the
+  platform's own does: a selection, a window not in front, an input method composing.
 - Playful motion is the one exception to the rule above it, and it is fenced. It ships only behind
   the easter-eggs switch, which defaults off, so the rules in this section still describe what Realm
   does out of the box. It never carries information a person would otherwise have to read from it, it
