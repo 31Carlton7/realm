@@ -57,6 +57,7 @@ import type { GraphifyService } from "../graphify/service";
 import type { RunService } from "../runs/service";
 import type { ScheduleService } from "../schedules/service";
 import type { ReviewService } from "../delegation/review";
+import type { CodeReviewService } from "../code-review/service";
 import type { DelegationEngine } from "../delegation/engine";
 import type { DelegatedChildren } from "../delegation/children";
 import type { AgentRunService } from "../delegation/agent-run";
@@ -99,6 +100,8 @@ export type Deps = {
   agentSignIn: AgentSignInService;
   /** The views MCP servers draw for tool calls (MCP Apps). */
   appViews: AppViewService;
+  /** Pull requests through the person's own `gh` (the Code Review page). */
+  codeReview: CodeReviewService;
 };
 
 export function registerMethods(d: Deps): void {
@@ -903,6 +906,25 @@ export function registerMethods(d: Deps): void {
   reg("review.request", (p) => d.reviews.request(p.environmentId));
   reg("review.get", (p) => ({ review: d.reviews.get(p.environmentId) }));
   reg("review.dismiss", (p) => { d.reviews.dismiss(p.environmentId); return { ok: true as const }; });
+  // The Code Review page. Every read is the service's cached `gh`; `codeReview.submit` is the one
+  // write, and the page's Submit button is the only thing that sends it.
+  reg("codeReview.status", (p) => d.codeReview.ghStatus(p.force));
+  reg("codeReview.list", (p) => d.codeReview.list(p.section, p.cursor, p.force));
+  reg("codeReview.search", (p) => d.codeReview.search(p.query, p.cursor));
+  reg("codeReview.detail", (p) => d.codeReview.detail(p.ref, p.force));
+  reg("codeReview.files", (p) => d.codeReview.files(p.ref, p.headSha));
+  reg("codeReview.patches", async (p) => ({ patches: await d.codeReview.patches(p.ref, p.headSha, p.paths) }));
+  reg("codeReview.fileLines", async (p) => ({ lines: await d.codeReview.fileLines(p.ref, p.headSha, p.path) }));
+  reg("codeReview.submit", (p) => d.codeReview.submit(p));
+  reg("codeReview.instructions", (p) => d.codeReview.instructions(p.profileId));
+  reg("codeReview.setInstructions", (p) => d.codeReview.setInstructions(p.profileId, p.text));
+  reg("codeReview.pins", (p) => ({ pins: d.codeReview.pins(p.profileId) }));
+  reg("codeReview.setPinned", (p) => ({ pins: d.codeReview.setPinned(p.profileId, p.pr, p.pinned) }));
+  reg("codeReview.review", (p) => d.codeReview.review(p));
+  reg("codeReview.reviewGet", (p) => ({ review: d.codeReview.reviewOf(p.ref) }));
+  reg("codeReview.places", async (p) => ({ places: await d.codeReview.places(p.profileId) }));
+  reg("codeReview.thread", (p) => { const t = d.codeReview.thread(p.ref); return { sessionId: t?.sessionId ?? null, spaceId: t?.spaceId ?? null }; });
+  reg("codeReview.ask", (p) => d.codeReview.ask(p));
   // Live registry state, not a table: the engine holds it in memory and it dies with the process, so
   // a pane mounting mid-run has no other way to learn what its session is waiting on.
   reg("delegation.running", (p) => ({ running: d.delegation.liveRuns(p.sessionId) }));

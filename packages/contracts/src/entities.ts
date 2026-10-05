@@ -74,7 +74,7 @@ export type Project = z.infer<typeof ProjectSchema>;
  *  that looks a session's item up can be handed its tab instead.
  *  `app-view` (v2) is a view an MCP server drew for one tool call (MCP Apps), opened as a tab of its
  *  session's side pane. Its `refId` is the VIEW's id — an `app_views` row, which names the session. */
-export const ItemKindSchema = z.enum(["session", "terminal", "browser", "machine", "simulator", "artifact", "context", "diff", "documents", "agents", "app-view", "space-page", "library-page", "connections-page", "notifications-page", "settings-page", "profile-page", "schedules-page", "agents-page", "you-page"]);
+export const ItemKindSchema = z.enum(["session", "terminal", "browser", "machine", "simulator", "artifact", "context", "diff", "documents", "agents", "app-view", "space-page", "library-page", "connections-page", "code-review-page", "settings-page", "profile-page", "schedules-page", "agents-page", "you-page"]);
 export type ItemKind = z.infer<typeof ItemKindSchema>;
 
 /**
@@ -91,7 +91,6 @@ export type ItemKind = z.infer<typeof ItemKindSchema>;
 export const PAGE_REF_IDS = {
   "library-page": "00000000000000000000000001",
   "connections-page": "00000000000000000000000002",
-  "notifications-page": "00000000000000000000000003",
   "settings-page": "00000000000000000000000004",
   // Plan 14 W2. The page shows the VANTAGE space's profile — the profile is derived live from
   // `item.spaceId`, never stored in the item, so a space moved between profiles moves its page's
@@ -107,6 +106,10 @@ export const PAGE_REF_IDS = {
    *  up to, and the rhythm of the days you used Realm. Read from every space, so the vantage space
    *  an overlay carries is only where it was opened from. */
   "you-page": "00000000000000000000000008",
+  /** Pull requests on GitHub, through the person's own `gh` (v2) — the rail's place where
+   *  Notifications was. Its own sentinel rather than the retired page's …003: a row an older build
+   *  left under that id is pruned as a page item, and must not come back as this one. */
+  "code-review-page": "00000000000000000000000009",
 } as const;
 export type DestinationPageKind = keyof typeof PAGE_REF_IDS;
 
