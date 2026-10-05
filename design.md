@@ -768,6 +768,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   each. What a field offers comes from Realm's own sources (the model catalog, the checkout, the
   workspace), never from the asker, and every label is drawn as text. Answered, it stays where it was
   asked as the question and its answer, a masked answer only ever its mark.
+- A view an MCP server ships is the vendor's drawing set in Realm's ground: named for its server,
+  compact under the call that drew it, a tab when opened and never a split, and framed on an origin
+  of its own so nothing of Realm's can be reached from inside it. What it asks to DO — run a tool,
+  put words to the agent, open a page — waits on Realm's card, drawn outside the frame where the view
+  can neither reach nor imitate it, and only a click answers.
 - A closing line names the WORK, not the residue. "This session produced 1 file · 4 attached" is
   true and tells a reader coming back nothing; the ask, the files that changed, whether anything
   ran or failed, and then what came out is the shape of an answer. Derive it from the transcript
@@ -789,6 +794,12 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   from git at its settle, not from what its tool calls claimed; Undo appears only when restoring
   takes back that turn and nothing after it, and says why when it cannot. A file named in prose
   becomes a link only once the disk says it is in this checkout, and opens beside the session.
+- A long log gets a map, not a second scrollbar: a tick per prompt down its left edge, laid over the
+  transcript's own padding so it never takes the column's width, and placed by where the prompt sits
+  — at least a pitch below the last, so a log of short turns is simply evenly spaced and only a long
+  turn opens a gap. The prompt being read is the one tick in ink; a turn that changed files carries a
+  dot, said in words on the tick's card, never a colour. A click goes there and leaves the keyboard in
+  the prompter, as a scrollbar's track does.
 - Never invent human-like agent presence, mood, or certainty.
 
 ## Documents, diffs, terminals, and data

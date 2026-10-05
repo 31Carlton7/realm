@@ -168,6 +168,7 @@ function RealmProviders({ spaceId }: { spaceId: string }) {
 function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer }) {
   const run = useApp((s) => s.run);
   const setMcpEnabled = useApp((s) => s.setMcpEnabled);
+  const setMcpShowViews = useApp((s) => s.setMcpShowViews);
   const removeMcpServer = useApp((s) => s.removeMcpServer);
   const retryMcpServer = useApp((s) => s.retryMcpServer);
   const testMcpServer = useApp((s) => s.testMcpServer);
@@ -182,6 +183,9 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
   const [test, setTest] = useState<McpTestResult | "testing" | null>(null);
 
   const endpoint = server.transport === "stdio" ? [server.command, ...server.args].filter(Boolean).join(" ") : server.url;
+  // MCP Apps: a server whose tools draw their results in views of their own. Read off the cached
+  // tools, so the row says so before anything has connected this launch.
+  const hasViews = server.tools.some((t) => t.view);
   // Inherited = defined at the profile (§2's contract): toggleable here (the per-space override — the
   // same setEnabled wire, routed server-side), never editable in place. The editor still opens, but as
   // "Edit in profile": the SAME McpServerForm, wearing a banner that names the defining scope — mcp.update
@@ -208,6 +212,7 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
         <span className="status-dot" data-status={server.status} title={STATUS_LABEL[server.status]} aria-label={`Status: ${STATUS_LABEL[server.status]}`} />
         <span className="env-name">{server.name}</span>
         <span className="env-kind">{server.transport}</span>
+        {hasViews && <span className="env-kind" title="Its tools draw their results in views of their own, shown under the call and openable as a tab.">Views</span>}
         {/* The hub status dot only says whether calls currently succeed — it says nothing about auth,
             so a server needing reauth otherwise looks completely normal until Edit is opened. */}
         {server.authKind === "oauth" && server.oauthStatus === "reconnect_needed" && (
@@ -261,6 +266,18 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
           onCancel={() => setConfirmMove(false)}
           onConfirm={() => { setConfirmMove(false); run(() => (inherited ? demoteMcpServer : promoteMcpServer)(spaceId, server.id)); }} />
       )}
+      {/* The server's own switch, not this space's — a view is the vendor's drawing, and whether to see
+          it is a choice about the vendor — so it sits on a line of its own, apart from Enabled, whose
+          scope is the space. On until someone turns it off. */}
+      {hasViews && (
+        <div className="mcp-views">
+          <label className="mcp-enable" title={`Whether Realm shows ${server.name}'s views, in every space. Off, its tools answer in text only.`}>
+            <input type="checkbox" role="switch" className="switch" aria-label={`Show ${server.name}'s views`} checked={server.showViews}
+              onChange={(e) => run(() => setMcpShowViews(server.id, e.target.checked))} />
+            Show views
+          </label>
+        </div>
+      )}
       {server.status === "circuit_open" && (
         <div className="mcp-circuit">
           <span>{CIRCUIT_OPEN_COPY}</span>
@@ -312,6 +329,7 @@ function McpToolsPolicy({ spaceId, server }: { spaceId: string; server: McpServe
                 <label>
                   <input type="checkbox" className="checkbox" checked={isAllowed(t.name)} onChange={(e) => toggle(t.name, e.target.checked)} />
                   <span className="mcp-tool-name">{t.name}</span>
+                  {t.appOnly && <span className="env-kind" title="Only this server's own view calls it, on your click. The agent is never shown it.">For its view</span>}
                 </label>
               </li>
             ))}
