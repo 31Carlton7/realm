@@ -17,9 +17,9 @@ import { useApp } from "../state/store";
  * keep, and no reason to outlive the moment you are looking at it.
  *
  * So it is an overlay, and one at a time. It covers the pane host and nothing else — the rail and the
- * sidebar stay reachable, because they are the way out: a session in the sidebar, the column's Back, the
- * lit rail button pressed again, or Escape. Its bar draws no close of its own (the owner, 10-05: "Remove
- * the close button… Can nav this with the sidebar"). It is drawn inside the panes' own
+ * sidebar stay reachable, because they are the way out: Home or the lit rail button pressed again, a
+ * session in the sidebar, the column's Back, or Escape. Its bar draws no close of its own (the owner,
+ * 10-05: "Remove the close button… Can nav this with the sidebar"). It is drawn inside the panes' own
  * column (AppShell's `.main`) rather than over the window, so its box is the panes' box in every frame:
  * when the sidebar opens or closes, the page, its bar and the panes under it move as one.
  *

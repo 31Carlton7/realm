@@ -217,7 +217,7 @@ const BAR = `(() => {
 /** Every destination page, opened the way the app opens it, its bar read, and a capture of its top. */
 async function readBars(c, face) {
   const kinds = [
-    ["rail", "Home"], ["rail", "Library"], ["rail", "Connections"], ["rail", "Scheduled tasks"], ["rail", "Notifications"],
+    ["rail", "Library"], ["rail", "Connections"], ["rail", "Scheduled tasks"], ["rail", "Notifications"],
     ["store", "settings-page"], ["store", "you-page"], ["store", "profile-page"], ["store", "space-page"],
   ];
   const bars = [];
@@ -332,7 +332,7 @@ async function main() {
     await until(() => evalIn(c, `document.documentElement.dataset.mode === ${JSON.stringify(face)}`), 5_000, `the ${face} face`);
     const bars = await readBars(c, face);
     check(`${face}: every destination page's bar is its name alone — no close, no button at all`,
-      bars.length >= 8 && bars.every((b) => b.buttons === 0 && !b.closeTitle), bars.map((b) => [b.which, b.buttons, b.closeTitle]));
+      bars.length >= 7 && bars.every((b) => b.buttons === 0 && !b.closeTitle), bars.map((b) => [b.which, b.buttons, b.closeTitle]));
     check(`${face}: …and the whole bar moves the window, end to end`, bars.every((b) => b.regions.every((r) => r === "drag")), bars.map((b) => [b.which, b.regions]));
     check(`${face}: …the bar keeps the head row's 40px, its name centred in it`,
       bars.every((b) => b.h === 40 && Math.abs(b.markMid - 20) <= 1 && Math.abs(b.textMid - 20) <= 1.5), bars.map((b) => [b.which, b.h, b.markMid, b.textMid]));

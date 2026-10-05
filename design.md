@@ -751,10 +751,10 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   anatomy, so it is the same sidebar listing something else, and the page they leave behind is a
   centred column. Where there is no column to take — the sidebar collapsed — the rail stays in the
   page, where it can still be reached (`components/page-nav.tsx`).
-- A destination page is left the way it was reached — a session in the sidebar, the column's Back, the
-  lit rail button pressed again — or with Escape, which goes back to where you were. Its bar is its
-  name and nothing else (the owner, 10-05): a × at the bar's far end was one more way out, away from
-  the ones used to arrive.
+- A destination page is left the way it was reached — Home or the lit rail button, a session in the
+  sidebar, the column's Back — or with Escape, which goes back to where you were. Its bar is its name
+  and nothing else (the owner, 10-05): a × at the bar's far end was one more way out, away from the
+  ones used to arrive.
 - Closing a pane should never imply deleting the object behind it. That rule is about objects that
   outlive their pane — a session's transcript, a diff's checkout — and the × in a pane bar is right
   exactly where one exists. It has no work to do where there is nothing underneath: a terminal,
