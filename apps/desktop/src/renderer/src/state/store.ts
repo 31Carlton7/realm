@@ -1,6 +1,6 @@
 import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef, type DelegationOutcome, type DelegatedChild, type DelegableModel } from "@realm/contracts";
 import { CARET_DEFAULT, CARET_KEY, parseCaretPrefs, type CaretPrefs, type CaretShape } from "@realm/contracts";
-import { destinationTarget, pageHidesSidebar, pageItemId } from "./page-item";
+import { destinationTarget, pageHidesSidebar } from "./page-item";
 import { MAC_SKILL_ID, keepLiveRefs, mentionRefLabel, type AppViewRef, type InstalledApp, type MentionRef, type UnlabelledRef } from "@realm/contracts";
 import { attachmentDisposition } from "@realm/contracts";
 import { VIEWER_SLOT, ownerOf, type Marking, type OpenViewerInput, type ViewerFile, type ViewerState } from "./viewer";
@@ -690,7 +690,7 @@ export type McpProvider = { name: string; enabled: boolean; offered: boolean | n
 export const DESTINATION_PAGE_TITLES: Record<DestinationPageKind, string> = {
   "library-page": "Library",
   "connections-page": "Connections",
-  "notifications-page": "Notifications",
+  "code-review-page": "Code review",
   "settings-page": "Settings",
   // Static like the rest: the page header renders the live profile name; the item row's title has
   // nothing to go stale against (Plan 14 W2).
@@ -1145,11 +1145,6 @@ export type AppState = {
   /** The pane took (or declined) the keyboard it was handed: the request is spent, so a later remount
    *  of the same pane can never pull the caret back out of wherever the person has put it since. */
   keyboardTaken(n: number): void;
-  /** The notifications page's selected row, or null for the bare list. USER-level, not per space and
-   *  not per item: the feed is one global thing, so the page's vantage into it is too — opening
-   *  Notifications from any space lands on the row you were reading. Panes record moves into their own
-   *  leaf's trail, so Back retraces them; the selection itself has no other home. */
-  notificationsSelectedId: string | null;
   /** The projects of every space of the active profile. */
   projects: Project[];
   /** The checkouts of every space of the active profile, by id — what tells the prompter a session
@@ -1268,15 +1263,13 @@ export type AppState = {
   allSessions: Record<string, Session>;
   /** Transcripts by session id, kept across space switches (cheap, and a session pane may be revisited). */
   transcripts: Record<string, TranscriptEntry>;
-  /** The fetched slice of the GLOBAL notifications feed (W5), newest first — what the page renders.
-   *  Empty until the page (or a broadcast) loads it; broadcasts prepend surfaced rows. */
+  /** The fetched slice of the GLOBAL notifications feed (W5), newest first — what a clicked toast is
+   *  looked up in. Empty until a click needs it; broadcasts prepend surfaced rows once it is held. */
   notifications: Notification[];
   /** The whole feed's unread count, applied VERBATIM from `notifications.list`/`notifications.changed`
    *  — never derived by counting `notifications`, which only holds the pages fetched so far. One
    *  derivation site (the server's store), one number everywhere. */
   notificationsUnread: number;
-  /** `nextCursor` of the last page fetched; null = end reached (or nothing fetched yet). */
-  notificationsCursor: string | null;
   /** Whether the feed is allowed to reach the OS — toasts and the dock badge (`NOTIFICATIONS_DESKTOP_KEY`,
    *  default-on). Held HERE rather than inside `settingsPrefs` because it is needed from the moment
    *  the first broadcast can arrive, and `settingsPrefs` stays null until the Settings page mounts —
@@ -2598,11 +2591,9 @@ export type AppState = {
   installUpdate(): Promise<void>;
   /** Hold `updateStatus` to main's every change while the returned stop has not been called. */
   watchUpdateStatus(): () => void;
-  /** Fetch the feed's first page (replacing what is held — sized to cover at least what was showing,
-   *  so a refetch triggered by `notifications.changed` never shrinks the visible list). */
+  /** Fetch the feed's first page (replacing what is held — sized to cover at least what was held, so
+   *  a refetch triggered by `notifications.changed` never drops a row a click may still look up). */
   refreshNotifications(): Promise<void>;
-  /** Page further on the held cursor; no-op at the end of the feed. */
-  loadMoreNotifications(): Promise<void>;
   /** Mark rows read — named ids, or the whole global feed ("all"). Applies the server's returned
    *  unread count; the broadcast that follows carries the same number. */
   markNotificationsRead(ids: string[] | "all"): Promise<void>;
@@ -2621,10 +2612,10 @@ export type AppState = {
   applyNotificationsChanged(payload: { notification: Notification | null; unread: number }): void;
   /** Land on the thing the notification is ABOUT, and mark the row read — it has, by definition, been
    *  seen. A row naming a session lands on that session's pane (a `permission` through
-   *  jumpToPermission, whose focus move is what pops the card); every other row — an MCP server, a
-   *  probe, a budget ceiling — has no pane of its own, so it lands on the feed page with the row
-   *  selected, which is also where a session whose item is gone ends up. Either way the landing is a
-   *  stop on the pane's trail, exactly as clicking the row inside the page would leave it. */
+   *  jumpToPermission, whose focus move is what pops the card); a row about something with a page of
+   *  its own lands there — an MCP server on Connections, a probe on Settings ▸ Engines, a budget on
+   *  Usage, a run on Scheduled. Anything else has nowhere to go, and the window coming forward is the
+   *  whole of the landing. */
   openNotificationTarget(n: Notification): Promise<void>;
   /** A clicked OS toast, by row id (main knows nothing but the id). Resolves the row from the held
    *  feed — refetching once if the page was never opened — and lands on it like any other jump. */
@@ -2670,10 +2661,6 @@ export type AppState = {
    *  typed; the server reads them at send time, so there is nothing to restart. */
   setNotificationRelay(patch: Partial<{ imessage: string; slackWebhook: string }>): Promise<void>;
   setSoundVolume(volume: number): Promise<void>;
-  /** Select a feed row into the page's detail column (null = back to the bare list). Records the move
-   *  on the trail of the pane showing `pageItemId`, so the arrows retrace it, and marks the row read —
-   *  opening a notification is the definition of having seen it. */
-  selectNotification(pageItemId: string, id: string | null): Promise<void>;
   /** Open the removal confirmation for a worktree, reading its cost first. */
   askRemoveWorktree(environmentId: string): Promise<void>;
   /** Confirm it: re-read the cost, and remove ONLY if it still matches what the user was shown. */
@@ -3020,9 +3007,10 @@ const themeDefOf = (t: StoredTheme): ThemeDef => ({
   light: t.mode === "light" ? t.seed : null,
 });
 
-/** The item kinds that used to be pages in the layout. Pruned on boot — see `prunePageItems`. */
-const PAGE_ITEM_KINDS: ReadonlySet<Item["kind"]> = new Set<Item["kind"]>([
-  ...(Object.keys(PAGE_REF_IDS) as Item["kind"][]), "space-page",
+/** The item kinds that used to be pages in the layout, and the one page retired since — a home that
+ *  last ran with Notifications as an item still holds its row. Pruned on boot — see `refreshItems`. */
+const PAGE_ITEM_KINDS: ReadonlySet<string> = new Set<string>([
+  ...Object.keys(PAGE_REF_IDS), "space-page", "notifications-page",
 ]);
 
 const storedPalette = (stored: unknown, legacy: unknown, mode: Mode): ThemeName => {
@@ -3353,14 +3341,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *
      * Each kind owns the meaning of its own `view` string, and each one is written back to the very
      * state the pane already reads, so a step Back is indistinguishable from having clicked there:
-     * the notifications page's selected row, the space/profile pages' tab. A kind with no in-pane
+     * the space/profile pages' tab. A kind with no in-pane
      * view (a session, a terminal) has nothing to restore and falls through — its `view` is always
      * null. Junk can't reach here: every view string is one this app minted via `navigateInPane`.
      */
     const applyNavView = (entry: NavEntry) => {
       const item = get().items.find((i) => i.id === entry.itemId);
       if (!item) return;
-      if (item.kind === "notifications-page") { set({ notificationsSelectedId: entry.view }); return; }
       if (item.kind === "space-page") {
         // The space page's refId IS its space id — the key `spacePageTab` is already stored under.
         get().setSpacePageTab(item.refId, (entry.view ?? "general") as SpacePageTab);
@@ -4010,7 +3997,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
-      notifications: [], notificationsUnread: 0, notificationsCursor: null, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalColors: TERMINALS_COLORS_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, openFilesIn: null, editors: [], caret: CARET_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, notificationsSelectedId: null, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null,
+      notifications: [], notificationsUnread: 0, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalColors: TERMINALS_COLORS_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, openFilesIn: null, editors: [], caret: CARET_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null,
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       profileSpaces() { const pid = get().activeProfileId; return pid === null ? [] : get().spaces.filter((s) => s.profileId === pid); },
@@ -4488,7 +4475,12 @@ await get().refreshCustomThemes().catch(() => {});
       setWindowActive(v) {
         // Guarded: focus and blur both fire more than once for one switch (the window, then the
         // page), and a state write per event would be a re-render per event.
-        if (get().windowActive !== v) set({ windowActive: v });
+        if (get().windowActive === v) return;
+        set({ windowActive: v });
+        /* Coming back to the window is reading what was announced while it was away. There is no
+           feed page to read it on any more, so without this the Dock's count only ever climbs — a
+           number nobody can clear. The rows stay; only their read mark moves. */
+        if (v && get().notificationsUnread > 0) void get().run(() => get().markNotificationsRead("all"));
       },
       async refreshEggPacks() {
         const { packs } = await api.eggsList();
@@ -6969,16 +6961,7 @@ await get().refreshCustomThemes().catch(() => {});
         // the list the user is scrolled into. Capped at the wire's own limit.
         const limit = Math.min(200, Math.max(NOTIFICATIONS_PAGE, get().notifications.length));
         const page = await api.listNotifications(null, limit);
-        set({ notifications: page.notifications, notificationsCursor: page.nextCursor });
-        applyUnread(page.unread);
-      },
-      async loadMoreNotifications() {
-        const cursor = get().notificationsCursor; if (!cursor) return;
-        const page = await api.listNotifications(cursor, NOTIFICATIONS_PAGE);
-        // Guard against a duplicate landing across a refetch that raced this page in.
-        const known = new Set(get().notifications.map((n) => n.id));
-        set({ notifications: [...get().notifications, ...page.notifications.filter((n) => !known.has(n.id))],
-          notificationsCursor: page.nextCursor });
+        set({ notifications: page.notifications });
         applyUnread(page.unread);
       },
       async markSessionSeen(sessionId) {
@@ -7063,9 +7046,7 @@ await get().refreshCustomThemes().catch(() => {});
       }); },
       async openNotificationTarget(n) {
         // Read first, before anything moves: the row is read because the user clicked it, not because
-        // a landing turned out to be reachable. selectNotification below then finds it already read
-        // and has nothing left to stamp, so one click is one markRead however many surfaces it
-        // passes through.
+        // a landing turned out to be reachable.
         if (n.readAt === null) await get().markNotificationsRead([n.id]);
         // A row that names a session is about that session's pane; `permission` goes through
         // jumpToPermission because putting the pane in the focused leaf is what pops its card open.
@@ -7073,16 +7054,14 @@ await get().refreshCustomThemes().catch(() => {});
           ? await get().jumpToPermission(n.sessionId)
           : await get().revealSession(n.sessionId, n.spaceId));
         if (landed) return;
-        // Everything else — an MCP server that fell over, a probe that stopped answering, a budget
-        // ceiling — has no pane of its own, and neither does a session whose item is gone. For those
-        // the feed row IS the thing the notification is about, so the click lands on the page with the
-        // row selected: selectNotification is the in-page click's own path, which is what makes this
-        // landing a stop on the pane's trail rather than a jump the arrows cannot retrace.
-        /* The feed row IS the thing this notification is about, so the page comes up with the row
-           selected. The id is the overlay's synthetic item id — `pageItemOf`'s — because that is what
-           the page keys its selection by. */
-        get().openDestinationPage("notifications-page");
-        if (get().pageOverlay) await get().selectNotification(pageItemId("notifications-page", PAGE_REF_IDS["notifications-page"]), n.id);
+        /* The rest have no pane, and there is no feed to land on any more: each goes to the page
+           that owns what it is about — the server that fell over, the CLI that stopped answering,
+           the month's spend, the run. A worktree refusal, or a session whose item is gone, has no
+           such page; the window coming forward is the whole of the landing, and the toast said it. */
+        if (n.category === "mcp_health") get().openDestinationPage("connections-page");
+        else if (n.category === "agent_probe") get().openSettingsPage("engines");
+        else if (n.category === "budget") get().openSettingsPage("usage");
+        else if (n.category === "run_blocked" || n.category === "run_done") get().openDestinationPage("schedules-page");
       },
       async activateDesktopNotification(id) {
         // Main hands back an id and nothing else. The feed may never have been loaded — a toast is
@@ -7164,33 +7143,6 @@ await get().refreshCustomThemes().catch(() => {});
         const v = cueVolume(volume);
         await api.setSetting(NOTIFICATIONS_SOUND_VOLUME_KEY, v);
         set({ soundVolume: v });
-      },
-      /**
-       * Select a feed row — which is now ONLY a selection.
-       *
-       * It used to mark the row read as a side effect, on the reasoning that opening a row is having
-       * seen it. Two things were wrong with that. A row opened by accident was silently consumed,
-       * with no way to put it back; and once the detail became a modal offering "Mark as read", that
-       * button would have been dead the moment it was drawn — the row was already read behind it.
-       *
-       * Marking read is now something the reader does: the modal's button for one row, "Mark all
-       * read" for the feed. `openNotificationTarget` still marks on the way past, because ACTING on
-       * a notification — jumping to the session it names — genuinely is consuming it.
-       */
-      async selectNotification(_pageItemId, id) {
-        set({ notificationsSelectedId: id });
-        /* No pane-trail write any more. The feed is an OVERLAY rather than a layout item, so there is
-           no leaf whose back/forward arrows could retrace "the list" and "the list with this row
-           open" — the trail it used to write was keyed by an item id that is now in no pane, which
-           would be a history nothing could ever navigate. */
-        /* Opening a row IS having seen it.
-         *
-         * This went away for a version, on the reasoning that a row opened by accident should not be
-         * silently consumed. In practice the opposite is the annoyance: a feed you have read through
-         * that still says nine unread, and a per-row button to press for each one. The modal keeps
-         * showing the read state; what it no longer needs is a button to set it. */
-        const n = id ? get().notifications.find((x) => x.id === id) : null;
-        if (n && n.readAt === null) await get().markNotificationsRead([n.id]);
       },
       async askRemoveWorktree(environmentId) {
         const status = await api.worktreeStatus(environmentId);

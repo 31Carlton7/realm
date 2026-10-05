@@ -3107,7 +3107,7 @@ describe("app-level pages are an OVERLAY, not a pane", () => {
     const layout = allItems(store.getState().layout!);
     const focused = store.getState().focusedLeafId;
 
-    for (const kind of ["agents-page", "library-page", "connections-page", "notifications-page", "schedules-page", "settings-page"] as const) {
+    for (const kind of ["agents-page", "library-page", "connections-page", "code-review-page", "schedules-page", "settings-page"] as const) {
       store.getState().openDestinationPage(kind);
     }
     expect(allItems(store.getState().layout!)).toEqual(layout);

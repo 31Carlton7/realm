@@ -503,7 +503,7 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
     expect(store.getState().desktopNotifications).toBe(true);
     expect(screen.getByRole("switch", { name: "Notify me outside Realm" })).toBeChecked();
     expect(screen.getByText(/Only when Realm is not the app you are in/)).toBeInTheDocument();
-    expect(screen.getByText(/count unread ones on the dock icon/)).toBeInTheDocument();
+    expect(screen.getByText(/count them on the Dock until you come back to Realm/)).toBeInTheDocument();
   });
 
   it("a stored OFF renders OFF, and toggling writes the key and clears the dock badge without touching the categories", async () => {

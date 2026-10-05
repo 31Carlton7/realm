@@ -23,7 +23,7 @@ const lead = () => document.querySelector<HTMLElement>(".window-lead")!;
 describe("the rail", () => {
   it("holds the app's destinations as icon buttons, each with a name and a tooltip", async () => {
     await mount();
-    for (const name of ["Home", "Library", "Connections", "Scheduled tasks", "Notifications"]) {
+    for (const name of ["Home", "Library", "Connections", "Scheduled tasks", "Code review"]) {
       const button = within(rail()).getByRole("button", { name });
       expect(button).toHaveAttribute("title");
       expect(button.textContent).toBe(""); // icon only: the name is the accessible name, not a label

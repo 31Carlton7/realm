@@ -8,7 +8,6 @@ import type { PaneProps } from "../panes/registry";
 import { AgentsPage } from "../panes/agents/AgentsPage";
 import { ConnectionsPage } from "../panes/connections/ConnectionsPage";
 import { LibraryPage } from "../panes/library/LibraryPage";
-import { NotificationsPage } from "../panes/notifications/NotificationsPage";
 import { ProfilePage } from "../panes/profile/ProfilePage";
 import { SettingsPage } from "../panes/settings/SettingsPage";
 import { SpacePage } from "../panes/space/SpacePage";
@@ -34,7 +33,6 @@ const PAGES: { name: string; kind: ItemKind; Page: ComponentType<PaneProps>; ref
   { name: "Library ▸ Memory", kind: "library-page", Page: LibraryPage, tab: "Memory" },
   { name: "You", kind: "you-page", Page: YouPage },
   { name: "Home", kind: "agents-page", Page: AgentsPage },
-  { name: "Notifications", kind: "notifications-page", Page: NotificationsPage },
   { name: "a profile", kind: "profile-page", Page: ProfilePage },
   { name: "a space", kind: "space-page", Page: SpacePage, refId: "s1" },
 ];

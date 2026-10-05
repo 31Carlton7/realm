@@ -1647,7 +1647,9 @@ export const Methods = {
    * its link and summary, its diff as an attached file, and the checkout when the place has the
    * repository.
    */
-  "codeReview.ask": { params: z.object({ ref: PrRefSchema, spaceId: IdSchema, projectId: IdSchema.nullable().default(null), agentKind: AgentKindSchema, model: z.string().nullable().default(null), effort: z.string().nullable().default(null), text: z.string().trim().min(1) }), result: z.object({ sessionId: IdSchema, itemId: IdSchema.nullable() }) },
+  "codeReview.ask": { params: z.object({ ref: PrRefSchema, spaceId: IdSchema, projectId: IdSchema.nullable().default(null), agentKind: AgentKindSchema, model: z.string().nullable().default(null), effort: z.string().nullable().default(null), text: z.string().trim().min(1),
+    /** Files the person attached in the prompter, beside the request's own. */
+    attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]) }), result: z.object({ sessionId: IdSchema, itemId: IdSchema.nullable() }) },
 
   /** The delegated runs this session is waiting on right now. The registry is in memory and dies
    *  with the process, so this is a read of live state, not of a table — a pane opened after a run

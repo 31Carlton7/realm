@@ -43,7 +43,7 @@ export const PAGE_LABEL: Partial<Record<Item["kind"], string>> = {
   "agents-page": "Agents",
   "library-page": "Library",
   "connections-page": "Connections",
-  "notifications-page": "Notifications",
+  "code-review-page": "Code review",
   "schedules-page": "Scheduled tasks",
   "settings-page": "Settings",
   "space-page": "Overview",
@@ -54,16 +54,17 @@ export const PAGE_LABEL: Partial<Record<Item["kind"], string>> = {
 /**
  * What a page asks of the shell around it, beyond its name.
  *
- * `sidebar: "none"` is a page with no use for the spaces beside it. Connections and Notifications are
- * about the whole profile, not a space, and the Scheduled page draws its own column of tasks — beside
- * the spaces that would be two columns of navigation, one of them about somewhere else. While such a
+ * `sidebar: "none"` is a page with no use for the spaces beside it. Connections is about the whole
+ * profile, not a space, and the Scheduled and Code Review pages draw their own columns — tasks, pull
+ * requests — beside which the spaces would be two columns of navigation, one of them about somewhere
+ * else. While such a
  * page is up the spaces sidebar is away and the page takes the width right of the rail; leaving it
  * brings the sidebar back as it was, because the person's own collapse setting is never touched.
  */
 export type PageShell = { sidebar?: "none" };
 export const PAGE_SHELL: Partial<Record<Item["kind"], PageShell>> = {
   "connections-page": { sidebar: "none" },
-  "notifications-page": { sidebar: "none" },
+  "code-review-page": { sidebar: "none" },
   "schedules-page": { sidebar: "none" },
 };
 

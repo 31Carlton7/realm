@@ -6,6 +6,7 @@ import { useDissolve } from "../../components/ScrollFades";
 import { Markdown } from "../session/Markdown";
 import { patchKey, turnPatchKey, useApp, type TurnDiffScope } from "../../state/store";
 import type { PaneProps } from "../registry";
+import { UnifiedPatch as Patch } from "./PatchView";
 
 /** One letter, the way `git status` writes it — the densest honest label for a row. */
 const STATUS_LETTER: Record<DiffFile["status"], string> = {
@@ -22,32 +23,6 @@ function PathLabel({ path, oldPath }: { path: string; oldPath: string | null }) 
       <span className="diff-base">{path.slice(cut + 1)}</span>
       {oldPath && <span className="diff-dir"> ← {oldPath}</span>}
     </span>
-  );
-}
-
-/** One side of one file, once it has been fetched. Renders nothing but lines: the pane's own header
- *  already said which file and which side, so a second header here would be noise. */
-function Patch({ patch }: { patch: FileDiff | undefined }) {
-  if (!patch) return <div className="diff-loading">Loading…</div>;
-  if (patch.binary) return <div className="diff-note">Binary file — no preview.</div>;
-  if (patch.hunks.length === 0) return <div className="diff-note">No textual changes.</div>;
-  return (
-    <div className="diff-hunks">
-      {patch.hunks.map((h, i) => (
-        <div className="diff-hunk" key={`${h.oldStart}-${h.newStart}-${i}`}>
-          <div className="diff-hunk-head">@@ −{h.oldStart},{h.oldLines} +{h.newStart},{h.newLines} @@{h.header ? ` ${h.header}` : ""}</div>
-          {h.lines.map((l, j) => (
-            <div className="diff-line" data-kind={l.kind} key={j}>
-              <span className="diff-gutter">{l.oldLine ?? ""}</span>
-              <span className="diff-gutter">{l.newLine ?? ""}</span>
-              <span className="diff-mark">{l.kind === "add" ? "+" : l.kind === "del" ? "−" : l.kind === "meta" ? "\\" : " "}</span>
-              <span className="diff-text">{l.text}</span>
-            </div>
-          ))}
-        </div>
-      ))}
-      {patch.truncated && <div className="diff-note">Cut short — {patch.truncatedReason}. Open the file to see the rest.</div>}
-    </div>
   );
 }
 

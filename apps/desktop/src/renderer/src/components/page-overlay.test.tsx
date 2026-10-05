@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { PAGE_REF_IDS } from "@realm/contracts";
+import { PAGE_REF_IDS, type Item } from "@realm/contracts";
 /* The pane components register themselves by side effect (`panes/index.ts`); the overlay renders
    through the same registry, so a test that never imports them gets the placeholder. */
 import "../panes";
@@ -22,7 +22,7 @@ async function mount(overrides: FakeData = {}) {
   return { api, store, ...r };
 }
 
-const overlay = () => screen.queryByRole("dialog", { name: /Library|Settings|Notifications|Connections|Agents|Scheduled tasks/ });
+const overlay = () => screen.queryByRole("dialog", { name: /Library|Settings|Code review|Connections|Agents|Scheduled tasks/ });
 
 afterEach(() => cleanup());
 
@@ -80,11 +80,13 @@ describe("the pages a previous version left in the layout", () => {
       item("p1", "s1", { kind: "library-page", title: "Library", refId: PAGE_REF_IDS["library-page"] }),
       item("p2", "s1", { kind: "settings-page", title: "Settings", refId: PAGE_REF_IDS["settings-page"] }),
       item("p3", "s1", { kind: "space-page", title: "Overview", refId: "s1" }),
+      // A page retired since (v2): no longer a kind at all, and still a row an older home holds.
+      item("p4", "s1", { kind: "notifications-page" as unknown as Item["kind"], title: "Notifications", refId: "00000000000000000000000003" }),
       item("keep", "s1", { kind: "session", title: "A session", refId: "se1" }),
     ];
     const { api, store } = await mount({ items: { s1: stale } });
     await waitFor(() => expect(store.getState().items.map((i) => i.id)).toEqual(["keep"]));
-    for (const id of ["p1", "p2", "p3"]) expect(api.calls).toContain(`deleteItem:${id}`);
+    for (const id of ["p1", "p2", "p3", "p4"]) expect(api.calls).toContain(`deleteItem:${id}`);
     // …and only those: a session is an object with a transcript under it.
     expect(api.calls).not.toContain("deleteItem:keep");
   });

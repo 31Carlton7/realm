@@ -11,7 +11,6 @@
  *      is that its box is not the OS's size and its tick is drawn by us — both facts about the
  *      rendered element, and neither readable from the stylesheet, since `appearance: none` either
  *      takes or it does not.
- *   3. **Notifications.** One measured column of cards, no wash, and a modal for the row you pick.
  *
  * Ports: env-overridable. Touches only a scratch dir; kills only the process it started.
  */
@@ -362,24 +361,6 @@ async function main() {
   check("and the tick it draws is ours", box.tickOpacity === "1" && parseFloat(box.tickWidth) > 0, box);
   await shot(c, "checkbox", { x: box.box.l - 30, y: box.box.t - 20, width: 320, height: 70 });
 
-  /* ── 3. Notifications ───────────────────────────────────────────────────── */
-  await evalIn(c, `__live.dest("Notifications")`);
-  await until(() => evalIn(c, `!!document.querySelector('.notifications-page-pane')`), 15000, "notifications");
-  await sleep(400);
-  const notif = await evalIn(c, `(() => {
-    const page = document.querySelector('.notifications-page-pane');
-    const feed = page.querySelector('.notif-feed');
-    return { wash: page.classList.contains('wash'), split: !!page.querySelector('.notif-split'),
-             feed: feed ? __live.box(feed) : null, page: __live.box(page),
-             bg: getComputedStyle(page).backgroundImage };
-  })()`);
-  check("no decorated ground under the feed", !notif.wash && notif.bg === "none", notif);
-  check("no two-column split", !notif.split, notif);
-  if (notif.feed) {
-    const slackL = notif.feed.l - notif.page.l, slackR = notif.page.r - notif.feed.r;
-    check("the feed is centred in its pane", Math.abs(slackL - slackR) <= 24, { slackL, slackR });
-  }
-  await shot(c, "notifications", { x: notif.page.l, y: 0, width: Math.min(1000, notif.page.w), height: 520 });
   api.close();
 
   check("no renderer console errors", c.events.length === 0, c.events.slice(0, 5));
