@@ -285,8 +285,8 @@ These arrive as JSON-RPC **requests with an `id`** and **must be answered** or t
 | `item/commandExecution/requestApproval` | `{threadId, turnId, itemId, startedAtMs, approvalId?, environmentId, reason?, command?, cwd?, commandActions?, proposedExecpolicyAmendment?, proposedNetworkPolicyAmendments?, availableDecisions}` | `{decision: CommandExecutionApprovalDecision}` |
 | `item/fileChange/requestApproval` | `{threadId, turnId, itemId, startedAtMs, reason?, grantRoot?}` | `{decision: FileChangeApprovalDecision}` *(unverified — not triggered in capture)* |
 | `item/permissions/requestApproval` | `{threadId, turnId, itemId, environmentId, startedAtMs, cwd, reason, permissions}` | `{permissions: GrantedPermissionProfile, scope: PermissionGrantScope, strictAutoReview?}` *(unverified)* |
-| `item/tool/requestUserInput` | `{threadId, turnId, itemId, questions[], autoResolutionMs}` | *(unverified)* |
-| `mcpServer/elicitation/request` | MCP elicitation passthrough | *(unverified)* |
+| `item/tool/requestUserInput` | `{threadId, turnId, itemId, questions: {id, header, question, isOther, isSecret, options: {label, description}[] \| null}[], isBlocking, autoResolutionMs}` | `{answers: {[questionId]: {answers: string[]}}}` *(from `generate-ts` 0.154.0; answered by Realm's question card)* |
+| `mcpServer/elicitation/request` | `{threadId, turnId \| null, serverName} & ({mode: "form", message, requestedSchema, _meta} \| {mode: "url", message, url, elicitationId, _meta} \| {mode: "openai/form" …})` | `{action: "accept" \| "decline" \| "cancel", content, _meta}` *(from `generate-ts` 0.154.0; a form or URL is drawn as Realm's card, anything else declined)* |
 | `account/chatgptAuthTokens/refresh`, `attestation/generate` | only if you opt in via capabilities | *(unverified)* |
 
 ```ts
@@ -302,6 +302,9 @@ type FileChangeApprovalDecision = "accept" | "acceptForSession" | "decline" | "c
 `availableDecisions: [...]` — the exact decision variants the server will accept for *this* request.
 Prefer rendering buttons from it over hard-coding the enum. Treat the bindings as a lower bound on
 what the wire carries. (verified)
+
+A non-blocking `requestUserInput` (`isBlocking: false`) may be resolved by Codex itself; it then sends
+`serverRequest/resolved {threadId, requestId}` and Realm withdraws the card without replying.
 
 ### Legacy (v1) approvals — do not implement
 
