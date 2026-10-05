@@ -76,6 +76,7 @@ function DocumentPicture({ path, name, version, onBackdrop }: { path: string; na
   if (still === null) {
     return (
       <StageNote onBackdrop={onBackdrop}>
+        {/* off-ladder: the stage's placeholder is a picture of a file on an empty stage, not a UI glyph — 28, as the panes' empty states draw theirs. */}
         <Icon name="artifact" size={28} className="media-viewer-glyph" aria-hidden="true" />
         <span>macOS has no preview for {name}.</span>
       </StageNote>
