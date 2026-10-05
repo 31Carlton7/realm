@@ -3617,7 +3617,8 @@ button.edit-file:hover { background: var(--rl-hover); }
   position: absolute; z-index: 3; left: 0; top: var(--fade-top-h); bottom: var(--fade-top-h);
   width: calc(var(--track-x) + 13px); pointer-events: none; }
 /* A rung heavier on the light face, for the divider's reason: black on near-white loses more of
-   itself than white on near-black, and the dark face's step measured half as far off its ground. */
+   itself than white on near-black. On `--mark-strong` a resting tick measured 1.16:1 on the light
+   ground against 1.57:1 on the dark one (scroll-track-live.mjs); a rung heavier is 1.43:1. */
 :root[data-mode="light"] .scroll-track { --tick: var(--overlay-darken-500); }
 .track-tick { position: absolute; left: 0; width: 100%; pointer-events: auto; }
 .track-line { position: absolute; left: var(--track-x); width: 6px; height: 2px; margin-top: -1px; border-radius: var(--r-sm);
