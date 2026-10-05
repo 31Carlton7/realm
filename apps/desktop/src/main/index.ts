@@ -519,6 +519,10 @@ const agentHost = new BrowserAgentHost({
     listCredentials: (profileId) => secrets()?.listCredentials(profileId) ?? [],
     getCredential: (profileId, id) => secrets()?.getCredential(profileId, id) ?? null,
     withCredentialValue: async (profileId, id, use) => secrets()?.withCredentialValue(profileId, id, use) ?? { ok: false, refused: "no_credential" },
+    // No store means no place to keep a password, which is a different answer from "nothing is
+    // enrolled" — and the only safe one, since Realm must not type a secret it cannot save.
+    withGeneratedCredentialValue: async (profileId, input, use) =>
+      secrets()?.withGeneratedCredentialValue(profileId, input, use) ?? { ok: false, refused: "no_store" },
     audit: (entry) => secrets()?.audit(entry),
   },
   profileOf: (id) => profileOfPane(id),

@@ -490,8 +490,13 @@ export async function performAct(send: CdpSend, action: BrowserAction): Promise<
  * thing this file ever sees is the `type` closure it wrote itself.
  */
 export type CredentialFill = {
-  /** Metadata only. `origin` is the enrolled origin the live page must EXACTLY equal. */
-  credential: { id: string; origin: string };
+  /** The origin the live page must EXACTLY equal: the one an enrolled credential is pinned to, or —
+   *  for a generated fill — the one the approval card named and the store is about to pin a new row
+   *  to. Either way it is Realm's own normalized string, never the agent's and never the page's. */
+  origin: string;
+  /** Which kind of sign-in this is, and the ONLY thing it decides: the nouns in the result strings.
+   *  Every gate below is identical for the two, which is the property the feature rests on. */
+  kind: "saved" | "generated";
   reveal(type: (value: string) => Promise<void>): Promise<{ ok: true } | { ok: false; refused: BrowserRefusal }>;
 };
 
@@ -501,19 +506,28 @@ export type CredentialFill = {
  * is unconditional and stays unconditional, because it governs a `type` action carrying agent-authored
  * text. This op carries no text at all.
  *
+ * It serves both halves of the tool: filling a credential the user enrolled, and filling one the store
+ * mints during this call. The difference lives entirely behind `reveal`; every gate below runs
+ * identically for the two, and that is deliberate rather than convenient. A generated password is
+ * still a secret going into a page, so it is worth the same origin check, the same presence check and
+ * the same approval — and a second executor for the new case is how one of the three quietly goes
+ * missing from one of them.
+ *
  * The order of the three gates is load-bearing:
  *
  *   1. **Origin, from CDP, before anything else.** `Page.getNavigationHistory`'s current entry is the
  *      browser's own record of what it loaded — the same class of trustworthy identity
  *      `browser_describe` reports, and specifically NOT page text, a snapshot, a title, or anything a
- *      page can author. It must normalize to exactly the enrolled origin: no subdomain match, no
+ *      page can author. It must normalize to exactly the origin the fill names: no subdomain match, no
  *      registrable-domain fallback (see `normalizeOrigin`). A lookalike host gets `origin_mismatch`.
  *   2. **Presence, only after the origin matched.** Deliberately second. Prompting for Touch ID on a
  *      phishing page and then refusing would teach the user that the fingerprint prompt is noise to
  *      swat away; by the time a prompt appears, Realm has already established the page is the right
  *      one and the only question left is whether the human is there.
  *   3. **Type, into the ref, character by character** — the same key events `performAct`'s `type`
- *      dispatches, because a password field behind React ignores value writes.
+ *      dispatches, because a password field behind React ignores value writes. For a generated fill
+ *      the store has written the row by then, so a failure here leaves a password the user can find
+ *      in Settings rather than one only the page ever saw.
  *
  * FAIL CLOSED everywhere: an unreadable navigation history, a ref that will not focus, or a thrown
  * CDP call all refuse. No branch here falls through to typing.
@@ -523,7 +537,8 @@ export type CredentialFill = {
  * into a tool result, which goes into the model's context.
  */
 export async function performFillCredential(send: CdpSend, ref: number, fill: CredentialFill): Promise<BrowserActResult> {
-  const { credential } = fill;
+  const generated = fill.kind === "generated";
+  const noun = generated ? "new sign-in" : "saved sign-in";
   let pageOrigin: string | null;
   try {
     pageOrigin = await currentOrigin(send);
@@ -533,14 +548,17 @@ export async function performFillCredential(send: CdpSend, ref: number, fill: Cr
   if (pageOrigin === null) {
     return { ok: false, refused: "origin_mismatch", error: "could not establish the page's current origin from the browser, so nothing was filled" };
   }
-  if (pageOrigin !== credential.origin) {
+  if (pageOrigin !== fill.origin) {
     // Both origins are named because both are Realm's own normalized strings — neither is page-authored
     // text, and the user (who sees this through the tool error) needs to know which page they are on.
-    return { ok: false, refused: "origin_mismatch", error: `this pane is on ${pageOrigin}, but that saved sign-in is for ${credential.origin} — nothing was filled` };
+    // For a generated fill this is the navigation that happened between the approval and the typing:
+    // the card named an origin, the pane is somewhere else now, and nothing is minted or typed.
+    return { ok: false, refused: "origin_mismatch", error: `this pane is on ${pageOrigin}, but that ${noun} is for ${fill.origin} — nothing was filled` };
   }
 
   // Focus BEFORE presence: a ref that is already gone should fail as a stale ref, not burn a Touch ID
-  // prompt on an act that cannot land.
+  // prompt on an act that cannot land — and, for a generated fill, not mint a password for a field
+  // that was never going to receive it.
   if (!(await focusRef(send, ref))) {
     return { ok: false, error: `could not focus ref=${ref} — it may be gone; take a fresh browser_snapshot` };
   }
@@ -548,20 +566,26 @@ export async function performFillCredential(send: CdpSend, ref: number, fill: Cr
   try {
     const outcome = await fill.reveal(async (value) => { await typeCharacters(send, value); });
     if (!outcome.ok) {
-      return { ok: false, refused: outcome.refused, error: REVEAL_REFUSALS[outcome.refused] ?? "the saved sign-in was not available" };
+      return { ok: false, refused: outcome.refused, error: REVEAL_REFUSALS[outcome.refused] ?? `the ${noun} was not available` };
     }
   } catch {
     // The catch is bare ON PURPOSE. A CDP failure mid-typing can carry the characters it was
     // dispatching in its message, and that message would otherwise reach a tool result. Nothing about
     // the caught error is inspected, formatted, or forwarded.
-    return { ok: false, error: "the saved sign-in could not be typed into that field" };
+    return { ok: false, error: `the ${noun} could not be typed into that field` };
   }
-  return { ok: true, detail: `filled saved credential for ${credential.origin}` };
+  return {
+    ok: true,
+    detail: generated
+      ? `generated a password for ${fill.origin}, saved it to Realm's sign-ins, and filled it`
+      : `filled saved credential for ${fill.origin}`,
+  };
 }
 
 /** Refusal wording for the reasons the STORE decides (this module never learns more than the code). */
 const REVEAL_REFUSALS: Partial<Record<BrowserRefusal, string>> = {
   no_credential: "no saved sign-in is enrolled under that id — the user adds them in Realm's Settings, under Sign-ins",
+  no_store: "macOS is not offering Realm an encryption key right now, so Realm will not generate a password it cannot store — nothing was filled",
   no_presence: "the Touch ID / login check was cancelled or failed, so nothing was filled",
 };
 

@@ -5,8 +5,8 @@
  * (filled from CDP events from the moment of first attach), the download-block notes, and the
  * previous snapshot's fingerprint index that `*[new]` markers diff against.
  */
-import { DOWNLOAD_GRANT_TTL_MS, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
-import { ANNOTATE_BINDING, DEFAULT_AGENT_ACCENT, PICK_BINDING, armAnnotate, armElementPick, buildSnapshot, cancelFileChooser, captureAnnotated, describeElement, describePick, disarmAnnotate, disarmElementPick, markAct, performAct, performFillCredential, performUpload, readPageText, resolveAnnotatedNode, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex } from "./browser-agent";
+import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, type BrowserAction, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
+import { ANNOTATE_BINDING, DEFAULT_AGENT_ACCENT, PICK_BINDING, armAnnotate, armElementPick, buildSnapshot, cancelFileChooser, captureAnnotated, describeElement, describePick, disarmAnnotate, disarmElementPick, markAct, performAct, performFillCredential, performUpload, readPageText, resolveAnnotatedNode, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex, type CredentialFill } from "./browser-agent";
 import type { CredentialAuditEntry } from "./secret-store";
 import { axElementAt, readAxSnapshot } from "./device-ax";
 
@@ -113,6 +113,15 @@ export type BrowserAgentHostDeps = {
       id: string,
       use: (value: string) => Promise<void>,
     ): Promise<{ ok: true } | { ok: false; refused: "no_credential" | "no_presence" }>;
+    /** Mint a password for an origin, keep it, and type it — the generated half of the fill op. Same
+     *  callback shape as `withCredentialValue`, so this dependency cannot hand the host the password
+     *  it just created either; what comes back is the metadata row, which is what the agent needs to
+     *  fill the same new value again into a confirm field. The row is the named profile's own. */
+    withGeneratedCredentialValue(
+      profileId: string,
+      input: { origin: string; username: string; label: string; length: number; symbols: boolean },
+      use: (value: string) => Promise<void>,
+    ): Promise<{ ok: true; credential: BrowserCredential } | { ok: false; refused: "no_store" | "no_presence" }>;
     audit(entry: CredentialAuditEntry): void;
   };
   /**
@@ -149,7 +158,8 @@ export type BrowserAgentHostDeps = {
 /** Executor refusals → audit outcomes. `password` is absent because a fill cannot produce it (that
  *  refusal belongs to `act`), and an unmapped code degrades to `error` rather than inventing a row. */
 const FILL_OUTCOMES: Partial<Record<string, CredentialAuditEntry["outcome"]>> = {
-  origin_mismatch: "origin_mismatch", no_credential: "no_credential", no_presence: "no_presence",
+  origin_mismatch: "origin_mismatch", no_credential: "no_credential", no_store: "no_store",
+  no_presence: "no_presence",
 };
 
 const CONSOLE_MAX = 200;
@@ -584,10 +594,11 @@ export class BrowserAgentHost {
         return { dismissed: true, detail: "the file chooser was cancelled — the page was told nothing was picked" } satisfies BrowserDismissDialogResult;
       }
       /**
-       * Enrolled sign-ins, METADATA ONLY — the `BrowserCredential` type has no value field, so this
-       * op has nothing to redact. It exists because `fill_credential` takes a `credentialId` and the
-       * agent needs some way to learn one; origin/username/label are the same three facts the
-       * permission card shows the user, and the user typed all three themselves in Settings.
+       * Saved sign-ins, METADATA ONLY — the `BrowserCredential` type has no value field, so this op
+       * has nothing to redact. It exists because `fill_credential` takes a `credentialId` and the
+       * agent needs some way to learn one; origin/username/label are the same facts the permission
+       * card shows the user, typed by the user in Settings or, for a generated row, asked for by an
+       * earlier approved fill. Neither is page-authored.
        */
       case "credentials": {
         // No profile named, no sign-ins: a call that cannot say whose it is asking for is answered as
@@ -596,25 +607,73 @@ export class BrowserAgentHost {
         return { credentials: profileId ? this.d.secrets?.listCredentials(profileId) ?? [] : [] };
       }
       /**
-       * Fill one enrolled credential into `ref`. Every outcome writes an audit line — including the
-       * refusals, which are the ones worth having a record of.
+       * Fill a sign-in into `ref`: one the user enrolled, named by `credentialId`, or one the store
+       * mints now for the origin the permission card named (`generate`). Every outcome writes an audit
+       * line — including the refusals, which are the ones worth having a record of.
        *
-       * The lookup happens HERE rather than in the executor so that an unknown id never reaches CDP
-       * at all, and so the executor receives only `{ id, origin }`: the piece of the row it needs to
-       * decide the origin gate, and nothing else.
+       * Both routes resolve to a single `CredentialFill` before any CDP call, so the origin gate, the
+       * presence check and the typing are literally the same code for the two. What differs is the one
+       * closure that may see a value, and — for the generated route — that the credential does not
+       * exist until that closure has run, which is why its id is settled afterwards.
+       *
+       * The enrolled route's lookup happens HERE rather than in the executor so an unknown id never
+       * reaches CDP, and so the executor receives only the origin: the piece of the row it needs to
+       * decide the gate, and nothing else.
        */
       case "fillCredential": {
-        const credentialId = String(params.credentialId ?? "");
         const ref = Number(params.ref);
         const profileId = typeof params.profileId === "string" ? params.profileId : "";
         const store = this.d.secrets;
-        const credential = profileId ? store?.getCredential(profileId, credentialId) ?? null : null;
-        // A pane of another profile is refused as a sign-in that does not exist, before anything
-        // reaches the page: its cookie jar is not the profile's whose secret this is.
+        const generate = readGenerate(params.generate);
+        let fill: CredentialFill;
+        let origin: string;
+        /** The row the fill used, for the audit line and the result. Empty until a generated fill has
+         *  actually minted one — an audit line for a credential that was never created would name an
+         *  id nothing in Settings can be matched against. */
+        let credentialId = "";
+        // A pane of another profile is refused before anything reaches the page, on both routes: its
+        // cookie jar is not the profile's whose secret this is — and a password minted into one
+        // profile's store and typed into another's jar would be an account neither of them can find.
+        // A call that names no profile is answered the same way: it cannot say whose store it means.
         const paneProfile = this.d.profileOf?.(browserId);
-        if (!store || !credential || (paneProfile !== undefined && paneProfile !== profileId)) {
-          this.auditFill(credentialId, "", "no_credential");
-          return { ok: false, refused: "no_credential", error: "no saved sign-in is enrolled under that id — the user adds them in Realm's Settings, under Sign-ins" } satisfies BrowserActResult;
+        const notThisProfile = !profileId || (paneProfile !== undefined && paneProfile !== profileId);
+        if (generate) {
+          // The origin comes from realm-server, which read it off this pane and put it on the card the
+          // user approved. Re-normalized here, and checked against the LIVE page by the executor a
+          // moment later: the card's origin and the filled origin are the same fact or nothing is
+          // filled. A value that will not normalize refuses without reaching the page at all.
+          const approved = normalizeOrigin(String(params.origin ?? ""));
+          if (notThisProfile) {
+            this.auditFill("", approved ?? "", "no_store");
+            return { ok: false, refused: "no_store", error: "this pane belongs to another profile, so there is no store here to keep a new password in — none was generated or filled" } satisfies BrowserActResult;
+          }
+          if (!store || approved === null) {
+            this.auditFill("", approved ?? "", "no_store");
+            return { ok: false, refused: "no_store", error: "Realm has nowhere to keep a new password right now (macOS is not offering an encryption key), so none was generated or filled" } satisfies BrowserActResult;
+          }
+          origin = approved;
+          fill = {
+            origin,
+            kind: "generated",
+            reveal: async (type) => {
+              const minted = await store.withGeneratedCredentialValue(profileId, { origin, ...generate }, type);
+              if (!minted.ok) return minted;
+              credentialId = minted.credential.id;
+              // Deliberately not `minted`: the executor learns that the value was typed, never which
+              // row it came from.
+              return { ok: true };
+            },
+          };
+        } else {
+          const id = String(params.credentialId ?? "");
+          const credential = notThisProfile ? null : store?.getCredential(profileId, id) ?? null;
+          if (!store || !credential) {
+            this.auditFill(id, "", "no_credential");
+            return { ok: false, refused: "no_credential", error: "no saved sign-in is enrolled under that id — the user adds them in Realm's Settings, under Sign-ins" } satisfies BrowserActResult;
+          }
+          credentialId = credential.id;
+          origin = credential.origin;
+          fill = { origin, kind: "saved", reveal: (type) => store.withCredentialValue(profileId, credential.id, type) };
         }
         const entry = this.ensure(browserId);
         // No `markAct` here, unlike `act`. Every mark is drawn by evaluating script in the page, and
@@ -623,18 +682,19 @@ export class BrowserAgentHost {
         // the user which pane.
         let result: BrowserActResult;
         try {
-          result = await performFillCredential(entry.binding.send, ref, {
-            credential: { id: credential.id, origin: credential.origin },
-            reveal: (type) => store.withCredentialValue(profileId, credential.id, type),
-          });
+          result = await performFillCredential(entry.binding.send, ref, fill);
         } catch {
           // Bare, like the executor's own: a thrown CDP error can carry the characters it was
           // dispatching, and nothing about it may reach a tool result.
-          this.auditFill(credential.id, credential.origin, "error");
-          return { ok: false, error: "the saved sign-in could not be typed into that field" } satisfies BrowserActResult;
+          this.auditFill(credentialId, origin, "error");
+          return { ok: false, error: `the ${generate ? "new" : "saved"} sign-in could not be typed into that field` } satisfies BrowserActResult;
         }
-        this.auditFill(credential.id, credential.origin, result.ok ? "filled" : FILL_OUTCOMES[result.refused ?? "password"] ?? "error");
-        return result;
+        this.auditFill(credentialId, origin, result.ok ? (generate ? "generated" : "filled") : FILL_OUTCOMES[result.refused ?? "password"] ?? "error");
+        // The id travels back only for a generated fill, and only as metadata: it is how the agent
+        // fills this same new password into a confirm field without ever being told what it is.
+        return result.ok && generate && credentialId
+          ? { ...result, credentialId } satisfies BrowserFillCredentialResult
+          : result;
       }
       /**
        * Download the file behind `ref`, into the directory the SERVER resolved from the space's
@@ -933,4 +993,19 @@ export class BrowserAgentHost {
 function pushRing(list: string[], line: string, max: number): void {
   list.push(line);
   while (list.length > max) list.shift();
+}
+
+/** The `generate` half of a `fillCredential` op's params, or null when the op names a credentialId
+ *  instead. realm-server has already validated this against `BrowserGeneratedCredentialSchema`; it is
+ *  read field by field anyway, because this is the process that makes the password and a length that
+ *  arrived as a string must not get that far. */
+function readGenerate(raw: unknown): { username: string; label: string; length: number; symbols: boolean } | null {
+  if (raw === null || typeof raw !== "object") return null;
+  const asked = raw as Record<string, unknown>;
+  return {
+    username: typeof asked.username === "string" ? asked.username : "",
+    label: typeof asked.label === "string" ? asked.label : "",
+    length: typeof asked.length === "number" ? asked.length : GENERATED_PASSWORD_LENGTH,
+    symbols: asked.symbols !== false,
+  };
 }

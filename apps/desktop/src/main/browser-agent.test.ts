@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { UPLOAD_DROP_MAX_BYTES, type BrowserAction } from "@realm/contracts";
+import { UPLOAD_DROP_MAX_BYTES, type BrowserAction, type BrowserRefusal } from "@realm/contracts";
 import { buildSnapshot, performAct, performFillCredential, performUpload, SNAPSHOT_STYLES, isOpaqueColor, cursorTargetFor, DEFAULT_AGENT_ACCENT, HIGHLIGHT_ATTR, highlightTargetRef, markAct, MARK_CURSOR, MARK_FRAME, MARK_RING, viewportCentre, type CdpSend, type UploadSeams } from "./browser-agent";
 import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_MOTION, CURSOR_FORM_FOR_CSS } from "./agent-cursor";
 import { tickStylesFor } from "./browser-agent";
@@ -405,11 +405,14 @@ describe("performFillCredential", () => {
 
   /** A store stand-in. `presence` false is a cancelled Touch ID; `revealed` records whether the
    *  presence/unseal path was entered, which the origin tests assert stays false. */
-  function fakeStore(opts: { presence?: boolean } = {}) {
+  function fakeStore(opts: { presence?: boolean; refused?: BrowserRefusal } = {}) {
     const state = { revealed: false, typed: false };
     const reveal = async (type: (v: string) => Promise<void>) => {
       state.revealed = true;
       if (opts.presence === false) return { ok: false as const, refused: "no_presence" as const };
+      // `refused` stands in for whatever else the store decides — `no_store` is the one only a
+      // generated fill can reach, and the executor must report it without inventing its own wording.
+      if (opts.refused) return { ok: false as const, refused: opts.refused };
       await type(SECRET);
       state.typed = true;
       return { ok: true as const };
@@ -417,12 +420,14 @@ describe("performFillCredential", () => {
     return { state, reveal };
   }
 
-  const cred = { id: "cred-1", origin: "https://example.com" };
+  /** The enrolled half of a fill, as the executor sees it: an origin to match and which nouns to
+   *  use. `kind: "generated"` runs the identical gates, which the tests below say out loud. */
+  const saved = { origin: "https://example.com", kind: "saved" as const };
 
   it("types the value character by character and reports ONLY the origin (mutant: value or length in the detail)", async () => {
     const { send, calls } = fakeSend({ history: { url: "https://example.com/login" } });
     const store = fakeStore();
-    const result = await performFillCredential(send, 7, { credential: cred, reveal: store.reveal });
+    const result = await performFillCredential(send, 7, { ...saved, reveal: store.reveal });
 
     expect(result).toEqual({ ok: true, detail: "filled saved credential for https://example.com" });
     // The whole point: the secret went into the page and into nothing else.
@@ -437,7 +442,7 @@ describe("performFillCredential", () => {
   it("REFUSES a lookalike origin and never asks for presence (mutant: origin gate removed)", async () => {
     const { send, calls } = fakeSend({ history: { url: "https://examp1e.com/login" } });
     const store = fakeStore();
-    const result = await performFillCredential(send, 7, { credential: cred, reveal: store.reveal });
+    const result = await performFillCredential(send, 7, { ...saved, reveal: store.reveal });
 
     expect(!result.ok && result.refused).toBe("origin_mismatch");
     expect(store.state.revealed).toBe(false); // no Touch ID prompt on a phishing page
@@ -447,7 +452,7 @@ describe("performFillCredential", () => {
   it("a SUBDOMAIN is a different site — no registrable-domain leniency (mutant: suffix match)", async () => {
     const { send } = fakeSend({ history: { url: "https://login.example.com/" } });
     const store = fakeStore();
-    const result = await performFillCredential(send, 7, { credential: cred, reveal: store.reveal });
+    const result = await performFillCredential(send, 7, { ...saved, reveal: store.reveal });
     expect(!result.ok && result.refused).toBe("origin_mismatch");
     expect(store.state.revealed).toBe(false);
   });
@@ -456,7 +461,7 @@ describe("performFillCredential", () => {
     for (const url of ["http://example.com/", "https://example.com:8443/"]) {
       const { send } = fakeSend({ history: { url } });
       const store = fakeStore();
-      const result = await performFillCredential(send, 7, { credential: cred, reveal: store.reveal });
+      const result = await performFillCredential(send, 7, { ...saved, reveal: store.reveal });
       expect(!result.ok && result.refused, url).toBe("origin_mismatch");
       expect(store.state.revealed).toBe(false);
     }
@@ -465,7 +470,7 @@ describe("performFillCredential", () => {
   it("fails CLOSED when the browser will not report a history (mutant: unknown origin treated as a match)", async () => {
     const { send } = fakeSend({ history: "throw" });
     const store = fakeStore();
-    const result = await performFillCredential(send, 7, { credential: cred, reveal: store.reveal });
+    const result = await performFillCredential(send, 7, { ...saved, reveal: store.reveal });
     expect(!result.ok && result.refused).toBe("origin_mismatch");
     expect(store.state.revealed).toBe(false);
   });
@@ -473,14 +478,14 @@ describe("performFillCredential", () => {
   it("an opaque page (about:blank) has no origin to match and is refused", async () => {
     const { send } = fakeSend({ history: { url: "about:blank" } });
     const store = fakeStore();
-    const result = await performFillCredential(send, 7, { credential: cred, reveal: store.reveal });
+    const result = await performFillCredential(send, 7, { ...saved, reveal: store.reveal });
     expect(!result.ok && result.refused).toBe("origin_mismatch");
   });
 
   it("a cancelled Touch ID refuses AFTER the origin matched, and types nothing", async () => {
     const { send, calls } = fakeSend({ history: { url: "https://example.com/login" } });
     const store = fakeStore({ presence: false });
-    const result = await performFillCredential(send, 7, { credential: cred, reveal: store.reveal });
+    const result = await performFillCredential(send, 7, { ...saved, reveal: store.reveal });
 
     expect(!result.ok && result.refused).toBe("no_presence");
     expect(store.state.revealed).toBe(true); // it DID get as far as asking
@@ -491,7 +496,7 @@ describe("performFillCredential", () => {
   it("a ref that will not focus fails as a stale ref, without burning a presence prompt", async () => {
     const { send } = fakeSend({ history: { url: "https://example.com/login" }, focus: "throw" });
     const store = fakeStore();
-    const result = await performFillCredential(send, 7, { credential: cred, reveal: store.reveal });
+    const result = await performFillCredential(send, 7, { ...saved, reveal: store.reveal });
     expect(result.ok).toBe(false);
     expect(store.state.revealed).toBe(false);
   });
@@ -506,7 +511,7 @@ describe("performFillCredential", () => {
       return {};
     };
     const store = fakeStore();
-    const result = await performFillCredential(send, 7, { credential: cred, reveal: store.reveal });
+    const result = await performFillCredential(send, 7, { ...saved, reveal: store.reveal });
 
     expect(result.ok).toBe(false);
     expect(JSON.stringify(result)).not.toContain(SECRET);
@@ -528,6 +533,46 @@ describe("performFillCredential", () => {
     expect(JSON.stringify(snap)).not.toContain(SECRET);
   });
 
+  it("a GENERATED fill reports what happened without the value, the length, or a character of it", async () => {
+    const { send, calls } = fakeSend({ history: { url: "https://example.com/signup" } });
+    const store = fakeStore();
+    const result = await performFillCredential(send, 7, { origin: "https://example.com", kind: "generated", reveal: store.reveal });
+
+    expect(result).toEqual({ ok: true, detail: "generated a password for https://example.com, saved it to Realm's sign-ins, and filled it" });
+    expect(store.state.typed).toBe(true);
+    expect(JSON.stringify(result)).not.toContain(SECRET);
+    expect(calls.filter((c) => c.method === "Input.dispatchKeyEvent").length).toBe(SECRET.length * 2);
+  });
+
+  it("a GENERATED fill gets the SAME origin gate — a lookalike page mints nothing (mutant: gate skipped for the new path)", async () => {
+    // The whole reason generating and filling are one op behind one executor: a second code path for
+    // the new case is how one of the three gates goes missing from one of them.
+    const { send, calls } = fakeSend({ history: { url: "https://examp1e.com/signup" } });
+    const store = fakeStore();
+    const result = await performFillCredential(send, 7, { origin: "https://example.com", kind: "generated", reveal: store.reveal });
+
+    expect(!result.ok && result.refused).toBe("origin_mismatch");
+    expect(store.state.revealed).toBe(false); // nothing minted, no Touch ID prompt
+    expect(calls.filter((c) => c.method === "Input.dispatchKeyEvent")).toHaveLength(0);
+  });
+
+  it("a GENERATED fill onto a stale ref mints nothing — the focus check comes first", async () => {
+    const { send } = fakeSend({ history: { url: "https://example.com/signup" }, focus: "throw" });
+    const store = fakeStore();
+    const result = await performFillCredential(send, 7, { origin: "https://example.com", kind: "generated", reveal: store.reveal });
+    expect(result.ok).toBe(false);
+    expect(store.state.revealed).toBe(false);
+  });
+
+  it("nowhere to keep a generated password refuses in the store's words, and types nothing", async () => {
+    const { send, calls } = fakeSend({ history: { url: "https://example.com/signup" } });
+    const store = fakeStore({ refused: "no_store" });
+    const result = await performFillCredential(send, 7, { origin: "https://example.com", kind: "generated", reveal: store.reveal });
+
+    expect(!result.ok && result.refused).toBe("no_store");
+    expect(!result.ok && result.error).toMatch(/will not generate a password it cannot store/);
+    expect(calls.filter((c) => c.method === "Input.dispatchKeyEvent")).toHaveLength(0);
+  });
 });
 
 describe("isOpaqueColor", () => {

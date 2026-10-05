@@ -19,8 +19,9 @@ type PendingPrompt = { sessionId: string; toolKey: string; resolve: (d: Permissi
  * Per-call gate behaviour.
  *
  * `alwaysPrompt` makes ONE call prompt every single time: `bypassPermissions` does not skip it and
- * `allow_always` neither satisfies it nor gets recorded by it. Exactly one caller sets it —
- * `browser_fill_credential`, the only tool that puts a real secret onto a page.
+ * `allow_always` neither satisfies it nor gets recorded by it. Exactly one tool sets it —
+ * `browser_fill_credential`, the only tool that puts a real secret onto a page, and it sets it for
+ * the password Realm generates as much as for the one the user enrolled.
  *
  * The reasoning, since this is the sole place a mode's meaning is narrowed: `bypassPermissions` means
  * "stop asking me about ordinary actions", and Realm has never treated a secret entering a page as an

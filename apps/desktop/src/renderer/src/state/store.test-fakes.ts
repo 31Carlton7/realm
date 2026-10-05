@@ -1230,7 +1230,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     credentialStatus: async () => { calls.push("credentialStatus"); return { ...data.credentialStatus }; },
     credentialAdd: async (profileId, input) => {
       calls.push(`credentialAdd:${input.origin}`);
-      const row = { id: `cred-${data.credentials.length + 1}`, origin: input.origin, username: input.username, label: input.label, createdAt: 0 };
+      const row = { id: `cred-${data.credentials.length + 1}`, origin: input.origin, username: input.username, label: input.label, createdAt: 0, generated: false };
       data.credentials.push({ ...row, profileId });
       return row;
     },

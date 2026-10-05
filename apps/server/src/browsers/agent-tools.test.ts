@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
-import type { Browser, BrowserPageActivity, BrowserSnapshotElement, BrowserSnapshotResult } from "@realm/contracts";
+import { GENERATED_CREDENTIAL_NOTE, type Browser, type BrowserPageActivity, type BrowserSnapshotElement, type BrowserSnapshotResult } from "@realm/contracts";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createBrowserAgentProvider, BROWSER_PROVIDER_NAME, type BrowserAgentToolsDeps } from "./agent-tools";
 import type { GateResult } from "./permissions";
@@ -49,7 +49,7 @@ function setup(opts: {
     act: { ok: true, detail: "clicked" },
     navigate: { url: "https://example.com/next" },
     screenshot: { data: "aW1n", mimeType: "image/png" },
-    credentials: { credentials: [{ id: "cred-1", origin: "https://example.com", username: "ada", label: "Work", createdAt: 1 }] },
+    credentials: { credentials: [{ id: "cred-1", origin: "https://example.com", username: "ada", label: "Work", createdAt: 1, generated: false }] },
     fillCredential: { ok: true, detail: "filled saved credential for https://example.com" },
     download: { ok: true, name: "week-3.pdf", bytes: 204_800, relPath: "downloads/week-3.pdf" },
     upload: { ok: true, method: "input", names: ["hero.png"], value: "hero.png", accept: "image/*", multiple: true },
@@ -505,11 +505,13 @@ describe("browser_credentials / browser_fill_credential", () => {
     expect(tool.description).toMatch(/never receive the value|cannot read it back/i);
   });
 
-  it("empty list says so AND says enrollment is not something the agent can do", async () => {
+  it("empty list says so, and is exact about which half of enrollment the agent cannot do", async () => {
     const { call } = setup({ bridgeResults: { credentials: { credentials: [] } } });
     const r = await call("browser_credentials", {});
     expect(text(r)).toMatch(/Settings/);
-    expect(text(r)).toMatch(/no way for you to create one|no tool that could/i);
+    // Handing the store a password of the user's stays impossible; asking Realm to mint one does not.
+    expect(text(r)).toMatch(/no way for you to enroll a password of theirs/i);
+    expect(text(r)).toMatch(/generate/);
   });
 
   it("gates BEFORE the bridge, with a card naming origin, username and label — and never a value", async () => {
@@ -609,6 +611,101 @@ describe("browser_credentials / browser_fill_credential", () => {
     expect(calls.bridge.some((b) => b.op === "fillCredential")).toBe(false);
   });
 
+  it("refuses a call that names both a credentialId and generate, or neither — before any card or bridge op", async () => {
+    const { call, calls } = setup();
+    for (const args of [
+      { browserId: "b1", ref: 7 },
+      { browserId: "b1", ref: 7, credentialId: "cred-1", generate: {} },
+    ]) {
+      const r = await call("browser_fill_credential", args);
+      expect(r.isError, JSON.stringify(args)).toBe(true);
+      expect(text(r)).toContain("exactly one");
+    }
+    expect(calls.gates).toHaveLength(0);
+    expect(calls.bridge.some((b) => b.op === "fillCredential")).toBe(false);
+  });
+
+  it("a GENERATED fill gates on a card naming the ORIGIN READ OFF THE PANE and the cost of not being able to read it back", async () => {
+    const { call, calls } = setup();
+    const r = await call("browser_fill_credential", { browserId: "b1", ref: 7, generate: { username: "ada", label: "Sign-up" } });
+
+    expect(r.isError).toBeFalsy();
+    const gate = calls.gates[0]!;
+    // `describe` answers https://example.com/checkout, so the origin is Realm's, not the agent's.
+    expect(gate.title).toContain("Create a new saved password for https://example.com");
+    expect(gate.title).toContain('the agent labels it "ada · Sign-up"');
+    expect(gate.title).toContain(GENERATED_CREDENTIAL_NOTE);
+    expect(gate.alwaysPrompt).toBe(true);
+    expect(Object.keys(gate.input)).toEqual(["browserId", "ref", "origin", "username", "label", "generate"]);
+    expect(gate.input).toMatchObject({ origin: "https://example.com", generate: true });
+  });
+
+  it("an origin the AGENT supplies is ignored — the pane decides what a new sign-in is pinned to", async () => {
+    const { call, calls } = setup();
+    await call("browser_fill_credential", { browserId: "b1", ref: 7, generate: { username: "ada", origin: "https://evil.example" } });
+    expect(calls.gates[0]!.input).toMatchObject({ origin: "https://example.com" });
+    const sent = calls.bridge.find((b) => b.op === "fillCredential")!;
+    expect(sent.params.origin).toBe("https://example.com");
+    expect(Object.keys(sent.params.generate as object).sort()).toEqual(["label", "length", "symbols", "username"]);
+    // THE mutant: the generated route sent without the profile. Main refuses a call that names
+    // none, so every real generated fill would fail; and the row joins the session's profile.
+    expect(sent.params.profileId).toBe("profile-work");
+  });
+
+  it("a denied card on a generated fill mints nothing (mutant: the bridge call before the answer)", async () => {
+    const { call, calls } = setup({ gate: { allowed: false, reason: "the user denied this action" } });
+    const r = await call("browser_fill_credential", { browserId: "b1", ref: 7, generate: {} });
+    expect(r.isError).toBe(true);
+    expect(calls.bridge.some((b) => b.op === "fillCredential")).toBe(false);
+  });
+
+  it("a pane on no http(s) page refuses WITHOUT a card — there is no site to pin a password to", async () => {
+    const { call, calls } = setup({ bridgeResults: { describe: { open: true, url: "about:blank", title: "", element: null } } });
+    const r = await call("browser_fill_credential", { browserId: "b1", ref: 7, generate: {} });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("not on an http(s) page");
+    expect(calls.gates).toHaveLength(0);
+    expect(calls.bridge.some((b) => b.op === "fillCredential")).toBe(false);
+  });
+
+  it("reports the new credentialId so the same password can be filled again, and tells the agent not to offer the value", async () => {
+    const { call } = setup({
+      bridgeResults: { fillCredential: { ok: true, detail: "generated a password for https://example.com, saved it to Realm's sign-ins, and filled it", credentialId: "cred-9" } },
+    });
+    const r = await call("browser_fill_credential", { browserId: "b1", ref: 7, generate: {} });
+    expect(r.isError).toBeFalsy();
+    expect(text(r)).toContain("credentialId cred-9");
+    expect(text(r)).toMatch(/confirm-password/);
+    expect(text(r)).toMatch(/do not offer to tell them what it is/);
+  });
+
+  it("a refused generated fill says nothing was generated either, and attaches no screenshot", async () => {
+    const { call, calls } = setup({
+      bridgeResults: { fillCredential: { ok: false, refused: "no_store", error: "Realm has nowhere to keep a new password right now" } },
+    });
+    const r = await call("browser_fill_credential", { browserId: "b1", ref: 7, generate: {} });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("no password was generated or filled");
+    expect(r.content.some((c) => c.type === "image")).toBe(false);
+    expect(calls.bridge.some((b) => b.op === "screenshot")).toBe(false);
+  });
+
+  it("the tool DESCRIPTION tells the agent to generate rather than hand the user a password", async () => {
+    const { provider, ctx } = setup();
+    const tool = (await provider.tools(ctx)).find((t) => t.name === "browser_fill_credential")!;
+    expect(tool.description).toMatch(/never put one in your reply/i);
+    expect(tool.inputSchema.required).toEqual(["browserId", "ref"]);
+  });
+
+  it("generating cannot be batched either — the same refusal, before the batch's prompt", async () => {
+    const { call, calls } = setup();
+    const r = await call("browser_batch", {
+      actions: [{ tool: "browser_fill_credential", arguments: { browserId: "b1", ref: 7, generate: {} } }],
+    });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("cannot run inside browser_batch");
+    expect(calls.gates).toHaveLength(0);
+  });
 });
 
 /**

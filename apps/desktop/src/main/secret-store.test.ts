@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { SecretStore, SecretStoreError, type SecretStoreDeps } from "./secret-store";
+import { generatePassword, SecretStore, SecretStoreError, type SecretStoreDeps } from "./secret-store";
+import { GENERATED_PASSWORD_LENGTH, GENERATED_PASSWORD_MAX_LENGTH, GENERATED_PASSWORD_MIN_LENGTH } from "@realm/contracts";
 
 /**
  * The store's mutants:
@@ -8,7 +9,9 @@ import { SecretStore, SecretStoreError, type SecretStoreDeps } from "./secret-st
  *   - a denied Touch ID opening the TTL window anyway;
  *   - a plaintext fallback when safeStorage is unavailable;
  *   - the credential key exportable alongside the oauth one;
- *   - an audit line missing, or carrying the value.
+ *   - an audit line missing, or carrying the value;
+ *   - a GENERATED password minted before presence, minted with nowhere to keep it, or typed before the
+ *     row that holds it was written.
  */
 
 const SECRET = "correct horse battery staple";
@@ -60,7 +63,7 @@ describe("SecretStore — enrollment", () => {
   it("stores a credential and answers with metadata that has NO field for the value", () => {
     const { store } = makeStore();
     const row = store.addCredential(P, input());
-    expect(row).toEqual({ id: "cred-1", origin: "https://example.com", username: "ada", label: "Work", createdAt: 1_000_000 });
+    expect(row).toEqual({ id: "cred-1", origin: "https://example.com", username: "ada", label: "Work", createdAt: 1_000_000, generated: false });
     expect(Object.keys(row)).not.toContain("sealed");
     expect(JSON.stringify(store.listCredentials(P))).not.toContain(SECRET);
   });
@@ -199,6 +202,154 @@ describe("SecretStore — the one door out", () => {
   });
 });
 
+describe("SecretStore — generated passwords", () => {
+  const ask = (over: Partial<{ origin: string; username: string; label: string; length: number; symbols: boolean }> = {}) => ({
+    origin: "https://example.com", username: "ada", label: "Sign-up", length: GENERATED_PASSWORD_LENGTH, symbols: true, ...over,
+  });
+
+  it("mints a value, keeps it, types it, and returns metadata with no field for it", async () => {
+    const { store, disk } = makeStore();
+    let typed: string | null = null;
+    const minted = await store.withGeneratedCredentialValue(P, ask(), async (v) => { typed = v; });
+
+    expect(minted.ok).toBe(true);
+    expect(typed).toHaveLength(GENERATED_PASSWORD_LENGTH);
+    expect(minted.ok && minted.credential).toEqual({
+      id: "cred-1", origin: "https://example.com", username: "ada", label: "Sign-up",
+      createdAt: 1_000_000, generated: true,
+    });
+    // The value reached the callback and nothing else: not the resolution, not the list, not the file.
+    expect(JSON.stringify(minted)).not.toContain(typed!);
+    expect(JSON.stringify(store.listCredentials(P))).not.toContain(typed!);
+    expect(disk.file).not.toContain(typed!);
+  });
+
+  it("is fillable afterwards by id, from a store reopened over the same file — the confirm-field case", async () => {
+    const { store, disk, deps } = makeStore();
+    let typed: string | null = null;
+    const minted = await store.withGeneratedCredentialValue(P, ask(), async (v) => { typed = v; });
+
+    const reopened = new SecretStore({ ...deps, readFile: () => disk.file });
+    let refilled: string | null = null;
+    expect(await reopened.withCredentialValue(P, (minted as { credential: { id: string } }).credential.id, async (v) => { refilled = v; })).toEqual({ ok: true });
+    expect(refilled).toBe(typed);
+  });
+
+  it("two mints for the same origin are different passwords (mutant: a fixed or derived value)", async () => {
+    const { store } = makeStore();
+    const seen: string[] = [];
+    await store.withGeneratedCredentialValue(P, ask(), async (v) => { seen.push(v); });
+    await store.withGeneratedCredentialValue(P, ask(), async (v) => { seen.push(v); });
+    expect(seen[0]).not.toBe(seen[1]);
+    expect(store.listCredentials(P)).toHaveLength(2);
+  });
+
+  it("asks for presence BEFORE minting, and a cancelled check creates nothing", async () => {
+    const { store, presence } = makeStore();
+    presence.grant = false;
+    let typed = false;
+    expect(await store.withGeneratedCredentialValue(P, ask(), async () => { typed = true; })).toEqual({ ok: false, refused: "no_presence" });
+    expect(typed).toBe(false);
+    expect(store.listCredentials(P)).toEqual([]);
+    expect(presence.asked).toEqual(["create and fill a new saved password for ada on https://example.com"]);
+  });
+
+  it("with safeStorage unavailable it refuses no_store WITHOUT prompting — a password Realm cannot keep is never typed", async () => {
+    const { store, presence } = makeStore({ available: false });
+    let typed = false;
+    expect(await store.withGeneratedCredentialValue(P, ask(), async () => { typed = true; })).toEqual({ ok: false, refused: "no_store" });
+    expect(typed).toBe(false);
+    expect(presence.asked).toEqual([]);
+    expect(store.listCredentials(P)).toEqual([]);
+  });
+
+  it("refuses an origin it cannot pin a sign-in to, and normalizes the one it can", async () => {
+    const { store } = makeStore();
+    expect(await store.withGeneratedCredentialValue(P, ask({ origin: "about:blank" }), async () => {})).toEqual({ ok: false, refused: "no_store" });
+    const minted = await store.withGeneratedCredentialValue(P, ask({ origin: "https://EXAMPLE.com:443/signup" }), async () => {});
+    expect(minted.ok && minted.credential.origin).toBe("https://example.com");
+  });
+
+  it("writes the row BEFORE typing, so a fill that fails leaves a password the user can find", async () => {
+    // The order that matters: the other way round, a failed fill would leave the page holding a secret
+    // nothing on this Mac has, and the account would only be reachable by the site's reset.
+    const { store } = makeStore();
+    await expect(store.withGeneratedCredentialValue(P, ask(), async () => { throw new Error("CDP went away"); })).rejects.toThrow();
+    expect(store.listCredentials(P)).toHaveLength(1);
+    expect(store.listCredentials(P)[0]!.generated).toBe(true);
+  });
+
+  it("marks the row generated, and an enrolled one not — the distinction Settings shows the user", async () => {
+    const { store } = makeStore();
+    store.addCredential(P, input());
+    await store.withGeneratedCredentialValue(P, ask(), async () => {});
+    expect(store.listCredentials(P).map((c) => c.generated)).toEqual([false, true]);
+  });
+
+  it("a row written before `generated` existed still loads, as an enrolled one", () => {
+    const { store, disk, deps } = makeStore();
+    store.addCredential(P, input());
+    const shipped = JSON.parse(disk.file!) as { credentials: Record<string, unknown>[] };
+    delete shipped.credentials[0]!.generated;
+    const reopened = new SecretStore({ ...deps, readFile: () => JSON.stringify(shipped) });
+    // The trap this guards: a required field drops every sign-in enrolled before the update.
+    expect(reopened.listCredentials(P)).toHaveLength(1);
+    expect(reopened.listCredentials(P)[0]!.generated).toBe(false);
+  });
+
+  it("shared into another profile, a generated row is still marked generated there", async () => {
+    // THE mutant: the copy built from an explicit field list that leaves `generated` out — the other
+    // profile's Settings would show a password nobody has seen as one the user typed.
+    const { store } = makeStore();
+    const minted = await store.withGeneratedCredentialValue(P, ask(), async () => {});
+    const id = (minted as { credential: { id: string } }).credential.id;
+    expect(store.shareCredential(P, id, "pWork")?.generated).toBe(true);
+    expect(store.listCredentials("pWork").map((c) => c.generated)).toEqual([true]);
+  });
+
+  it("is the minting profile's own: another profile neither lists it nor fills it", async () => {
+    // THE mutant: a generated row written without the profile, or under another — the per-profile
+    // jar that keeps Work's agents off Personal's sign-ins would leak through the one door a
+    // model can open.
+    const { store } = makeStore();
+    const minted = await store.withGeneratedCredentialValue(P, ask(), async () => {});
+    const id = (minted as { credential: { id: string } }).credential.id;
+    expect(store.listCredentials("pWork")).toEqual([]);
+    expect(await store.withCredentialValue("pWork", id, async () => {})).toEqual({ ok: false, refused: "no_credential" });
+    expect(store.listCredentials(P).map((c) => c.id)).toEqual([id]);
+  });
+});
+
+describe("generatePassword", () => {
+  it("honors the length asked for, within the bounds the schema offers", () => {
+    expect(generatePassword(GENERATED_PASSWORD_MIN_LENGTH, true)).toHaveLength(GENERATED_PASSWORD_MIN_LENGTH);
+    expect(generatePassword(32, true)).toHaveLength(32);
+  });
+
+  it("clamps a length the schema would have refused, rather than looping forever on a short one", () => {
+    expect(generatePassword(1, true)).toHaveLength(GENERATED_PASSWORD_MIN_LENGTH);
+    expect(generatePassword(9_000, true)).toHaveLength(GENERATED_PASSWORD_MAX_LENGTH);
+  });
+
+  it("always includes every class it draws from, because sites enforce class rules", () => {
+    for (let i = 0; i < 200; i++) {
+      const password = generatePassword(GENERATED_PASSWORD_MIN_LENGTH, true);
+      expect(password, password).toMatch(/[a-z]/);
+      expect(password, password).toMatch(/[A-Z]/);
+      expect(password, password).toMatch(/[0-9]/);
+      expect(password, password).toMatch(/[-_.!@#$%&*+=?]/);
+    }
+  });
+
+  it("omits punctuation entirely when the site rejects it (mutant: symbols ignored)", () => {
+    for (let i = 0; i < 200; i++) {
+      const password = generatePassword(20, false);
+      expect(password, password).toMatch(/^[A-Za-z0-9]+$/);
+      expect(password, password).toMatch(/[0-9]/);
+    }
+  });
+});
+
 describe("SecretStore — persistence and the keyring", () => {
   it("a second store over the same file opens the same credential", async () => {
     const { store, disk, deps } = makeStore();
@@ -245,7 +396,7 @@ describe("SecretStore — the key handoff and the audit log", () => {
     // can open credential blobs, and this assertion is where that lands.
     expect(Object.getOwnPropertyNames(SecretStore.prototype)).not.toContain("exportCredentialKey");
     expect(Object.getOwnPropertyNames(SecretStore.prototype).filter((m) => /credential/i.test(m) && /key|export|reveal|value/i.test(m)))
-      .toEqual(["withCredentialValue"]);
+      .toEqual(["withCredentialValue", "withGeneratedCredentialValue"]);
   });
 
   it("with no encryption available there is no key to hand out — realm-server keeps its old plaintext posture", () => {

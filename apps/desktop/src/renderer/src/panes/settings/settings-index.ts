@@ -143,7 +143,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
 
   // Sign-ins
   { id: "signins-profile", tab: "signins", label: "Sign-ins for this profile", terms: "profile share copy cookies isolate separate" },
-  { id: "saved-signins", tab: "signins", label: "Saved sign-ins", terms: "password credential login account" },
+  { id: "saved-signins", tab: "signins", label: "Saved sign-ins", terms: "password credential login account generated agent sign-up" },
   { id: "passkeys", tab: "signins", label: "Passkeys", terms: "webauthn" },
   { id: "touch-id", tab: "signins", label: "Touch ID", terms: "fingerprint presence biometric" },
 

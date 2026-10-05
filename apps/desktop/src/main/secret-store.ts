@@ -16,7 +16,7 @@
  * passphrase of its own.
  *
  *     { version, keyring: "<safeStorage blob>", credentials: [ { id, profileId, origin, username,
- *                                                     label, createdAt, sealed } ], passkeys, presenceTtlMs }
+ *                                         label, createdAt, generated, sealed } ], passkeys, presenceTtlMs }
  *
  * ## A profile's own
  *
@@ -48,16 +48,21 @@
  *
  * ## The invariant
  *
- * A credential's plaintext leaves this module through exactly one door — the `use` callback of
- * `withCredentialValue` — and that door is only ever opened by the fill executor in Electron main,
- * with the value going straight into CDP key events. `listCredentials` returns `BrowserCredential`,
- * a type with no field for a value. Nothing here returns, logs, throws, or broadcasts one.
+ * A credential's plaintext leaves this module through exactly two doors — the `use` callbacks of
+ * `withCredentialValue` and `withGeneratedCredentialValue` — and both are only ever opened by the
+ * fill executor in Electron main, with the value going straight into CDP key events. The second door
+ * is the one Realm mints a password behind, and it is the same shape as the first on purpose: the
+ * value is a parameter, `use`'s result is discarded, and what resolves is metadata. `listCredentials`
+ * returns `BrowserCredential`, a type with no field for a value. Nothing here returns, logs, throws,
+ * or broadcasts one.
  */
+import { randomInt } from "node:crypto";
 import {
   isSealed, newSecretKey, open, seal, SECRET_KEY_BYTES, type SecretDomain,
 } from "@realm/contracts/src/secret-box";
 import {
-  CREDENTIAL_PRESENCE_TTLS, normalizeOrigin, PASSKEY_NAME_MAX,
+  CREDENTIAL_PRESENCE_TTLS, GENERATED_PASSWORD_MAX_LENGTH, GENERATED_PASSWORD_MIN_LENGTH,
+  normalizeOrigin, PASSKEY_NAME_MAX,
   type BrowserCredential, type BrowserCredentialInput, type Passkey,
 } from "@realm/contracts";
 
@@ -76,7 +81,10 @@ export type CredentialAuditEntry = {
   ts: number;
   origin: string;
   credentialId: string;
-  outcome: "filled" | "origin_mismatch" | "no_credential" | "no_presence" | "error";
+  /** `generated` is a fill that minted its own password on the way in — one line, not two, because it
+   *  is one thing that happened: a new sign-in for this origin now exists AND was typed into it.
+   *  `no_store` is that fill refused for having nowhere to keep the password. */
+  outcome: "filled" | "generated" | "origin_mismatch" | "no_credential" | "no_store" | "no_presence" | "error";
 };
 
 /** One line of the passkey audit log, written to the same file for the same reason: an auditor asks
@@ -208,11 +216,16 @@ export class SecretStore {
   }
 
   /**
-   * Enroll one credential. Reachable ONLY from the Settings UI's IPC handler — there is no tool, no
-   * RPC method, no file importer and no chat path that lands here, which is the design's second
-   * hard requirement after the value never coming back out. If a model could call this, the
-   * anti-phishing gate would be a formality: it could enroll a credential for the origin it is
-   * standing on and then "fill" it.
+   * Enroll one credential the USER typed. Reachable only from the Settings UI's IPC handler — there
+   * is no tool, no RPC method, no file importer and no chat path that lands here, which is the
+   * design's second hard requirement after the value never coming back out. If a model could call
+   * this, the anti-phishing gate would be a formality: it could enroll a password the user already
+   * uses elsewhere against the origin it is standing on, and then "fill" it.
+   *
+   * `withGeneratedCredentialValue` is the one other way a row comes into being, and it does not
+   * reopen that hole: the value there is Realm's own random string rather than anything the caller
+   * supplied, so a row minted for a lookalike page is a secret that page could have invented itself.
+   * What the gate protects is the user's OWN secrets, and no caller can put one of those here.
    */
   addCredential(profileId: string, input: BrowserCredentialInput): BrowserCredential {
     if (!this.available) {
@@ -222,15 +235,23 @@ export class SecretStore {
     if (!origin) {
       throw new SecretStoreError(`"${input.origin}" is not an http(s) address Realm can pin a sign-in to. Enter the site's address, for example https://example.com.`);
     }
+    return this.enroll(profileId, { origin, username: input.username, label: input.label, generated: false }, input.value);
+  }
+
+  /** Seal one value under an already-normalized origin and write the row as this profile's. The two
+   *  callers that reach here are the only two routes into this file: Settings' own form, and a
+   *  generated fill. */
+  private enroll(profileId: string, meta: { origin: string; username: string; label: string; generated: boolean }, value: string): BrowserCredential {
     const file = this.rows();
     const row: StoredCredential = {
       id: this.d.newId(),
       profileId,
-      origin,
-      username: input.username.trim(),
-      label: input.label.trim(),
+      origin: meta.origin,
+      username: meta.username.trim(),
+      label: meta.label.trim(),
       createdAt: this.d.now(),
-      sealed: seal(this.key("credential"), "credential", input.value),
+      generated: meta.generated,
+      sealed: seal(this.key("credential"), "credential", value),
     };
     file.credentials.push(row);
     this.save();
@@ -262,15 +283,18 @@ export class SecretStore {
     const source = this.credentialOf(fromProfileId, id);
     if (!source || toProfileId === "" || toProfileId === fromProfileId) return null;
     const same = file.credentials.find((c) => c.profileId === toProfileId && c.origin === source.origin && c.username === source.username);
+    // A copy says who made its value, as the original does: a Realm-made password shared into another
+    // profile is still one nobody has seen, and that profile's Settings has to say so too.
     if (same) {
       same.sealed = source.sealed;
       same.label = source.label;
+      same.generated = source.generated === true;
       this.save();
       return strip(same);
     }
     const row: StoredCredential = {
       id: this.d.newId(), profileId: toProfileId, origin: source.origin, username: source.username,
-      label: source.label, createdAt: this.d.now(), sealed: source.sealed,
+      label: source.label, createdAt: this.d.now(), generated: source.generated === true, sealed: source.sealed,
     };
     file.credentials.push(row);
     this.save();
@@ -317,6 +341,49 @@ export class SecretStore {
 
     await use(value);
     return { ok: true };
+  }
+
+  /**
+   * Mint a password for `origin`, keep it, and run `use` with it — the generated half of
+   * `browser_fill_credential`, and the second door out. Same shape as `withCredentialValue` for the
+   * same structural reason: the value is a parameter, never a resolution, and what comes back is the
+   * metadata row so a caller can fill the SAME new password again (a confirm field) by id.
+   *
+   * `origin` arrives already normalized, and from the pane's own URL rather than from anything the
+   * agent said — see `BrowserGeneratedCredentialSchema`. It is re-normalized here anyway, because
+   * this is the method that decides what a row is pinned to and a store that trusts its caller on
+   * that point is one refactor away from an unpinned credential.
+   *
+   * ORDER, and every step of it is load-bearing:
+   *
+   *   1. **No store, no mint.** Refused before the prompt, like `hasPasskeyFor`: a fingerprint check
+   *      that could only ever fail teaches the user to swat prompts away. And a password Realm typed
+   *      but could not keep is worse than no password at all — the account would exist with a secret
+   *      nothing on this Mac has ever known.
+   *   2. **Presence.** The same check, the same shared window, and the same reason as an enrolled
+   *      fill: the question left at this point is whether the human is there.
+   *   3. **Write, THEN type.** Not the other way round. If typing fails after the write, the user has
+   *      a row in Settings they can delete; if the write failed after typing, the page would hold a
+   *      password that exists nowhere else, and the only way back into that account is the site's
+   *      reset. The cheap failure is the one to choose, so the row survives a failed fill on purpose.
+   */
+  async withGeneratedCredentialValue(
+    profileId: string,
+    input: { origin: string; username: string; label: string; length: number; symbols: boolean },
+    use: (value: string) => Promise<void>,
+  ): Promise<{ ok: true; credential: BrowserCredential } | { ok: false; refused: "no_store" | "no_presence" }> {
+    const origin = normalizeOrigin(input.origin);
+    if (!origin || !this.available) return { ok: false, refused: "no_store" };
+
+    const who = input.username ? `${input.username} on ${origin}` : origin;
+    if (!(await this.requirePresence(`create and fill a new saved password for ${who}`))) {
+      return { ok: false, refused: "no_presence" };
+    }
+
+    const value = generatePassword(input.length, input.symbols);
+    const credential = this.enroll(profileId, { origin, username: input.username, label: input.label, generated: true }, value);
+    await use(value);
+    return { ok: true, credential };
   }
 
   /**
@@ -722,7 +789,38 @@ export class SecretStore {
  *  explicit field list rather than `{ sealed, ...rest }` so that adding a field to the stored shape
  *  cannot silently start returning it. */
 function strip(c: StoredCredential): BrowserCredential {
-  return { id: c.id, origin: c.origin, username: c.username, label: c.label, createdAt: c.createdAt };
+  return { id: c.id, origin: c.origin, username: c.username, label: c.label, createdAt: c.createdAt, generated: c.generated === true };
+}
+
+/** The character classes a generated password draws from. Punctuation is the subset that survives
+ *  real sign-up forms: no quotes, no backslash, no angle brackets, nothing a site is likely to strip,
+ *  escape or reject — the agent cannot read the value back to find out which happened. */
+const PASSWORD_CLASSES = ["abcdefghijklmnopqrstuvwxyz", "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "0123456789", "-_.!@#$%&*+=?"] as const;
+
+/**
+ * A password for a site, from `randomInt` (uniform, rejection-sampled by node itself — never
+ * `Math.random`, and never a modulo over raw bytes, which biases the low end of the alphabet).
+ *
+ * Every class the alphabet includes is guaranteed to appear, by drawing the whole string again when
+ * one is missing rather than by placing required characters at fixed positions — a placement rule is
+ * a pattern, and rejection keeps the distribution uniform over the strings that satisfy the rule.
+ * The guarantee is not cryptographic (24 random characters are overwhelmingly likely to contain a
+ * digit anyway); it is there because sites enforce class rules and reject what breaks them, and the
+ * caller cannot look at the value to find out why a form complained.
+ *
+ * `length` is clamped rather than trusted: the redraw loop only terminates while the length is at
+ * least the number of classes, and a bound that lives in the function cannot be argued away by a
+ * future caller that skips the schema.
+ */
+export function generatePassword(length: number, symbols: boolean): string {
+  const classes = symbols ? PASSWORD_CLASSES : PASSWORD_CLASSES.slice(0, 3);
+  const alphabet = classes.join("");
+  const chars = Math.min(Math.max(Math.trunc(length), GENERATED_PASSWORD_MIN_LENGTH), GENERATED_PASSWORD_MAX_LENGTH);
+  for (;;) {
+    let password = "";
+    for (let i = 0; i < chars; i++) password += alphabet.charAt(randomInt(alphabet.length));
+    if (classes.every((set) => [...password].some((ch) => set.includes(ch)))) return password;
+  }
 }
 
 /** `Passkey` from a stored row — the projection that drops `sealed` and the authenticator's own
@@ -745,9 +843,14 @@ function clipName(v: string): string {
 function isStoredCredential(v: unknown): v is StoredCredential {
   if (typeof v !== "object" || v === null) return false;
   const c = v as Record<string, unknown>;
+  // `generated` is NOT required: it was added after this shape was settled, and every row written
+  // before it lacks the field. Requiring it here would drop every sign-in a user enrolled before the
+  // update — the same trap `unlockKeyring` documents for a missing keyring domain. A missing field
+  // reads as false, which is what those rows are.
   return (c.profileId === undefined || typeof c.profileId === "string")
     && typeof c.id === "string" && typeof c.origin === "string" && typeof c.username === "string"
     && typeof c.label === "string" && typeof c.createdAt === "number"
+    && (c.generated === undefined || typeof c.generated === "boolean")
     && typeof c.sealed === "string" && isSealed(c.sealed);
 }
 

@@ -1,17 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { MAX_ELEMENT_CHIPS, PICK_HTML_MAX, PICK_TEXT_MAX, type BrowserSnapshotResult } from "@realm/contracts";
+import { MAX_ELEMENT_CHIPS, PICK_HTML_MAX, PICK_TEXT_MAX, type BrowserCredential, type BrowserSnapshotResult } from "@realm/contracts";
 import { BrowserAgentHost, type CdpBinding } from "./browser-agent-host";
 import { createBridgeCore } from "./browser-agent-bridge";
 
 const SECRET = "correct horse battery staple";
+/** What the fake store "generates". A distinct string so a test can tell the two values apart in the
+ *  key events, and so a leak of either is a different failure. */
+const GENERATED = "mint3d-by-realm-!x7";
 
 /** A fake pane: one live view ("b1") whose CDP send is programmable, plus event injection. */
 function setup(opts: {
   responses?: Record<string, unknown>;
   attachFails?: boolean;
   /** Omitted = no secret store at all (safeStorage unavailable, or the app still starting). Each row
-   *  is Work's unless it names another profile. */
-  credentials?: { id: string; origin: string; username: string; label: string; createdAt: number; profileId?: string }[];
+   *  is Work's unless it names another profile; a row from before `generated` existed reads as not. */
+  credentials?: (Omit<BrowserCredential, "generated"> & { generated?: boolean; profileId?: string })[];
   /** Whose pane b1 is. Omitted = no `profileOf` dep, which is a harness built before profiles. */
   paneProfile?: string | null;
   presence?: boolean;
@@ -31,6 +34,7 @@ function setup(opts: {
   let emit: ((method: string, params: unknown) => void) | null = null;
   const calls: { method: string; params?: Record<string, unknown> }[] = [];
   const audit: { ts: number; origin: string; credentialId: string; outcome: string }[] = [];
+  const minted: (BrowserCredential & { profileId: string; length: number; symbols: boolean })[] = [];
   const grants: { browserId: string; origin: string; dir: string; expiresAt: number }[] = [];
   const liveViews = new Set(["b1"]);
   const touched: string[] = [];
@@ -60,18 +64,33 @@ function setup(opts: {
     pageState: (id) => (liveViews.has(id) ? { url: "https://example.com/x", title: "Example", ...(opts.loading ? { loading: opts.loading() } : {}) } : null),
     ...(opts.now ? { now: opts.now } : {}),
     secrets: opts.credentials === undefined ? undefined : {
-      listCredentials: (profileId) => opts.credentials!.filter((c) => (c.profileId ?? "pWork") === profileId).map(({ profileId: _p, ...c }) => c),
+      listCredentials: (profileId) => opts.credentials!.filter((c) => (c.profileId ?? "pWork") === profileId)
+        .map(({ profileId: _p, ...c }) => ({ ...c, generated: c.generated ?? false })),
       getCredential: (profileId, id) => {
         const row = opts.credentials!.find((c) => c.id === id && (c.profileId ?? "pWork") === profileId);
         if (!row) return null;
         const { profileId: _p, ...c } = row;
-        return c;
+        return { ...c, generated: c.generated ?? false };
       },
       withCredentialValue: async (profileId, id, use) => {
         if (!opts.credentials!.some((c) => c.id === id && (c.profileId ?? "pWork") === profileId)) return { ok: false, refused: "no_credential" };
         if (opts.presence === false) return { ok: false, refused: "no_presence" };
         await use(SECRET);
         return { ok: true };
+      },
+      /** The real store mints, writes the row, then types. The fake keeps that order visible: the row
+       *  it appends is what the host reports back, and `minted` is how a test sees that a refused fill
+       *  created nothing. */
+      withGeneratedCredentialValue: async (profileId, input, use) => {
+        if (opts.presence === false) return { ok: false, refused: "no_presence" };
+        const credential: BrowserCredential = {
+          id: `gen-${minted.length + 1}`, origin: input.origin, username: input.username,
+          label: input.label, createdAt: 2, generated: true,
+        };
+        minted.push({ ...credential, profileId, length: input.length, symbols: input.symbols });
+        opts.credentials!.push({ ...credential, profileId });
+        await use(GENERATED);
+        return { ok: true, credential };
       },
       audit: (entry) => { audit.push(entry); },
     },
@@ -87,7 +106,7 @@ function setup(opts: {
     readFile: opts.readFile === false ? undefined : async () => new Uint8Array([1, 2, 3]),
     ...(opts.paneProfile !== undefined ? { profileOf: (id: string) => (liveViews.has(id) ? opts.paneProfile ?? null : null) } : {}),
   });
-  return { host, calls, liveViews, audit, grants, touched, emitEvent: (method: string, params: unknown) => emit?.(method, params) };
+  return { host, calls, liveViews, audit, minted, grants, touched, emitEvent: (method: string, params: unknown) => emit?.(method, params) };
 }
 
 describe("BrowserAgentHost", () => {
@@ -297,7 +316,7 @@ describe("act mark wiring (W4; the cursor and the frame, Plan 25 W2)", () => {
  * that goes unlogged, and a log line that carries anything it shouldn't.
  */
 describe("BrowserAgentHost — fillCredential", () => {
-  const cred = { id: "cred-1", origin: "https://example.com", username: "ada", label: "Work", createdAt: 1 };
+  const cred: BrowserCredential = { id: "cred-1", origin: "https://example.com", username: "ada", label: "Work", createdAt: 1, generated: false };
 
   it("fills on a matching origin and logs exactly timestamp/origin/credentialId/outcome", async () => {
     const { host, calls, audit } = setup({ credentials: [cred] });
@@ -355,10 +374,116 @@ describe("BrowserAgentHost — fillCredential", () => {
     expect(result.refused).toBe("no_credential");
   });
 
+  it("a GENERATED fill mints for the approved origin, types it, and reports the new id (never the value)", async () => {
+    const { host, calls, minted } = setup({ credentials: [] });
+    const result = await host.handleOp("fillCredential", {
+      browserId: "b1", ref: 7, profileId: "pWork", origin: "https://example.com", generate: { username: "ada", label: "Sign-up", length: 24, symbols: true },
+    }) as { ok: boolean; detail?: string; credentialId?: string };
+
+    expect(result.ok).toBe(true);
+    expect(result.credentialId).toBe("gen-1");
+    expect(minted).toHaveLength(1);
+    expect(minted[0]).toMatchObject({ origin: "https://example.com", username: "ada", label: "Sign-up", length: 24, symbols: true, generated: true });
+    expect(JSON.stringify(result)).not.toContain(GENERATED);
+    expect(calls.filter((c) => c.method === "Input.dispatchKeyEvent").length).toBe(GENERATED.length * 2);
+  });
+
+  it("logs a generated fill as `generated`, against the id of the row it just made", async () => {
+    const { host, audit } = setup({ credentials: [] });
+    await host.handleOp("fillCredential", { browserId: "b1", ref: 7, profileId: "pWork", origin: "https://example.com", generate: {} });
+    expect(audit).toHaveLength(1);
+    expect(Object.keys(audit[0]!).sort()).toEqual(["credentialId", "origin", "outcome", "ts"]);
+    expect(audit[0]).toMatchObject({ origin: "https://example.com", credentialId: "gen-1", outcome: "generated" });
+    expect(JSON.stringify(audit)).not.toContain(GENERATED);
+  });
+
+  it("a generated fill on a pane that has NAVIGATED since the approval mints nothing", async () => {
+    // The race the approved origin closes: the card named example.com, the pane is somewhere else by
+    // the time the op runs, and main compares the two rather than trusting either alone.
+    const { host, audit, minted, calls } = setup({
+      credentials: [],
+      responses: { "Page.getNavigationHistory": { currentIndex: 0, entries: [{ url: "https://examp1e.com/signup" }] } },
+    });
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, profileId: "pWork", origin: "https://example.com", generate: {} }) as { ok: boolean; refused?: string };
+
+    expect(result.refused).toBe("origin_mismatch");
+    expect(minted).toEqual([]);
+    expect(audit[0]).toMatchObject({ outcome: "origin_mismatch", credentialId: "" });
+    expect(calls.some((c) => c.method === "Input.dispatchKeyEvent")).toBe(false);
+  });
+
+  it("checks the origin the CARD named, not one it re-derives itself (mutant: main reading the pane instead)", async () => {
+    // Main must not recompute the origin from the pane: that would make the check compare the live
+    // page against itself, always match, and quietly mint for whatever page the pane had reached by
+    // then. The pane here is on example.com and the approval was for somewhere else.
+    const { host, minted, calls } = setup({ credentials: [] });
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, profileId: "pWork", origin: "https://other.example", generate: {} }) as { ok: boolean; refused?: string };
+
+    expect(result.refused).toBe("origin_mismatch");
+    expect(minted).toEqual([]);
+    expect(calls.some((c) => c.method === "Input.dispatchKeyEvent")).toBe(false);
+  });
+
+  it("an approved origin that is not an origin refuses BEFORE touching CDP", async () => {
+    const { host, calls, audit, minted } = setup({ credentials: [] });
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, profileId: "pWork", origin: "about:blank", generate: {} }) as { ok: boolean; refused?: string };
+
+    expect(result.refused).toBe("no_store");
+    expect(minted).toEqual([]);
+    expect(audit[0]).toMatchObject({ outcome: "no_store" });
+    expect(calls.some((c) => c.method === "Page.getNavigationHistory")).toBe(false);
+  });
+
+  it("with NO store a generated fill refuses no_store — not no_credential, and never a fallback", async () => {
+    const { host } = setup();
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, profileId: "pWork", origin: "https://example.com", generate: {} }) as { ok: boolean; refused?: string };
+    expect(result.refused).toBe("no_store");
+  });
+
+  it("a cancelled Touch ID on a generated fill is logged, with no id to log it against", async () => {
+    const { host, audit, minted } = setup({ credentials: [], presence: false });
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, profileId: "pWork", origin: "https://example.com", generate: {} }) as { ok: boolean; refused?: string };
+    expect(result.refused).toBe("no_presence");
+    expect(minted).toEqual([]);
+    expect(audit[0]).toMatchObject({ outcome: "no_presence", credentialId: "" });
+  });
+
+  it("a generated fill into a pane of ANOTHER profile mints nothing and types nothing", async () => {
+    // THE mutant: the profile check left on the saved route only. Minting into Work's store and typing
+    // into Personal's jar would make an account neither profile can find its way back into.
+    const { host, minted, calls } = setup({ credentials: [], paneProfile: "pPersonal" });
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, profileId: "pWork", origin: "https://example.com", generate: {} }) as { ok: boolean; refused?: string };
+    expect(result.refused).toBe("no_store");
+    expect(minted).toEqual([]);
+    expect(calls.some((c) => c.method === "Input.dispatchKeyEvent")).toBe(false);
+  });
+
+  it("a generated fill that names no profile mints nothing — it cannot say whose store it means", async () => {
+    const { host, minted } = setup({ credentials: [] });
+    const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, origin: "https://example.com", generate: {} }) as { ok: boolean; refused?: string };
+    expect(result.refused).toBe("no_store");
+    expect(minted).toEqual([]);
+  });
+
+  it("keeps the new row in the profile that asked for it", async () => {
+    const { host, minted } = setup({ credentials: [], paneProfile: "pWork" });
+    await host.handleOp("fillCredential", { browserId: "b1", ref: 7, profileId: "pWork", origin: "https://example.com", generate: {} });
+    expect(minted.map((m) => m.profileId)).toEqual(["pWork"]);
+  });
+
+  it("the row a generated fill made is then fillable by id, like any other — the confirm-field path", async () => {
+    const { host, calls } = setup({ credentials: [] });
+    const created = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, profileId: "pWork", origin: "https://example.com", generate: {} }) as { credentialId?: string };
+    const again = await host.handleOp("fillCredential", { browserId: "b1", ref: 8, profileId: "pWork", credentialId: created.credentialId! }) as { ok: boolean };
+
+    expect(again.ok).toBe(true);
+    expect(calls.filter((c) => c.method === "DOM.focus").length).toBe(2);
+  });
+
   it("the credentials op returns metadata only — there is no value field to strip", async () => {
     const { host } = setup({ credentials: [cred] });
     const r = await host.handleOp("credentials", { profileId: "pWork" }) as { credentials: Record<string, unknown>[] };
-    expect(Object.keys(r.credentials[0]!).sort()).toEqual(["createdAt", "id", "label", "origin", "username"]);
+    expect(Object.keys(r.credentials[0]!).sort()).toEqual(["createdAt", "generated", "id", "label", "origin", "username"]);
   });
 
   it("lists and fills only the NAMED profile's sign-ins — a call naming none gets none", async () => {
