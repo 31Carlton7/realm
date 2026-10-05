@@ -1393,7 +1393,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     },
     runScheduleNow: async (id) => {
       calls.push(`runScheduleNow:${id}`);
-      const next = data.schedules.map((r) => (r.id === id ? { ...r, lastRunAt: Date.now(), lastRunId: "run1", lastSkippedAt: null } : r));
+      // A firing is a run under the task, as the server's is: queued, in the schedule's space.
+      const fired = data.schedules.find((r) => r.id === id)!;
+      const run = runRow(`run${++n}`, fired.spaceId, { scheduleId: id, title: fired.title, goal: fired.goal, createdAt: Date.now() });
+      (data.runs[fired.spaceId] ??= []).unshift(run);
+      const next = data.schedules.map((r) => (r.id === id ? { ...r, lastRunAt: Date.now(), lastRunId: run.id, lastSkippedAt: null } : r));
       data.schedules = next;
       return next.find((r) => r.id === id)!;
     },
@@ -1477,6 +1481,17 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       }
       const page = rows.slice(0, cap);
       return { runs: page, nextCursor: page.length === cap && page.length > 0 ? `${page.at(-1)!.createdAt}:${page.at(-1)!.id}` : null };
+    },
+    listScheduleRuns: async (spaceId, scheduleId, cursor, limit) => {
+      calls.push(`listScheduleRuns:${scheduleId}`);
+      let rows = [...(data.runs[spaceId] ?? [])].filter((r) => r.scheduleId === scheduleId)
+        .sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+      if (cursor) {
+        const [ts, id] = [Number(cursor.slice(0, cursor.indexOf(":"))), cursor.slice(cursor.indexOf(":") + 1)];
+        rows = rows.filter((r) => r.createdAt < ts || (r.createdAt === ts && r.id < id));
+      }
+      const page = rows.slice(0, limit);
+      return { runs: page, nextCursor: page.length === limit && page.length > 0 ? `${page.at(-1)!.createdAt}:${page.at(-1)!.id}` : null };
     },
     createRun: async ({ spaceId, goal, title }) => {
       calls.push(`createRun:${spaceId}|${goal}`);
