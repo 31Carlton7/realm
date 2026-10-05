@@ -61,7 +61,14 @@ export function useAnchoredPopover({ ref, anchorRef, at, align = "left", placeme
       // the action that dismissed it (a menu item that closes its own pane), and re-placing against
       // a missing anchor would fling the surface to the window corner mid-fade.
       if (closingRef.current) return;
-      const { width, height } = el.getBoundingClientRect();
+      /* The LAID-OUT size, not the painted one. A surface is first measured while its entrance is
+         still running — §6's scale-in from .97 — and a box read through that transform is 3% small:
+         the model picker opened 11px right of its chip and 15px down over it, and sat there until its
+         content next changed size, when it jumped to where it belonged — taking the fast-mode bolt
+         out from under the pointer that had just pressed it. jsdom lays nothing out (its offsets are
+         all 0), and there the rect is the size. */
+      const box = el.getBoundingClientRect();
+      const width = el.offsetWidth || box.width, height = el.offsetHeight || box.height;
       const a = at ? { x: at.x, y: at.y, width: 0, height: 0 } : anchorRef?.current?.getBoundingClientRect();
       if (!a) { setPos({ left: MARGIN, top: MARGIN, origin: "top left" }); return; }
       const placed = placeAnchored({

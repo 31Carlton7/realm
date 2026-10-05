@@ -69,7 +69,10 @@ const openPicker = async () => {
 };
 /** The bolt at the head of the picker's foot — fast mode's one control now, as Codex draws it. */
 const bolt = () => screen.queryByRole("button", { name: "Fast mode" });
+/** The line under the track. It is always there beside a bolt, held open so nothing moves when it fills
+ *  (ModelPicker), so "no note" is an empty line rather than a missing one. */
 const fastNote = () => document.querySelector(".mp-fast-note");
+const noNote = () => expect(fastNote()?.textContent ?? "").toBe("");
 
 describe("the prompter's fast-mode bolt", () => {
   it("is there on a brand-new session before anything has answered, and says the first turn settles it", async () => {
@@ -81,12 +84,15 @@ describe("the prompter's fast-mode bolt", () => {
     await openPicker();
     expect(bolt()).toHaveAttribute("aria-pressed", "false");
     expect(bolt()!.getAttribute("title")).toContain("The first turn checks whether Fable 5.1 can run it.");
-    expect(fastNote()).toBeNull();
+    noNote();
+    const line = fastNote();
     fireEvent.click(bolt()!);
     await waitFor(() => expect(api.calls.some((c) => c.startsWith("setSessionOptions:"))).toBe(true));
     await waitFor(() => expect(store.getState().sessions.se1?.fastMode).toBe(true));
     expect(bolt()).toHaveAttribute("aria-pressed", "true");
     expect(fastNote()).toHaveTextContent("Fast mode is asked for — the first turn checks it.");
+    // The same line, filled — not one that arrived and moved the bolt up under the pointer.
+    expect(fastNote()).toBe(line);
     // The line is the point, so pressing the bolt does not close the surface that says it.
     expect(screen.getByRole("dialog", { name: "Model picker" })).toBeInTheDocument();
   });
@@ -156,7 +162,7 @@ describe("the prompter's fast-mode bolt", () => {
       ev(sessionEvent("usage", { costUsd: 0, inputTokens: 1, outputTokens: 1, numTurns: 1, fastMode: "on" })),
     ], { fastMode: true, model: "claude-opus-5" });
     await openPicker();
-    expect(fastNote()).toBeNull();
+    noNote();
   });
 });
 

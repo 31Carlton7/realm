@@ -1458,7 +1458,10 @@ kbd { font: 11px var(--font-mono); }
 .mp-track-knob { position: absolute; top: 50%; left: calc(var(--inset) + (100% - var(--inset) * 2) * var(--at, 0)); width: 18px; height: 18px; margin: -9px 0 0 -9px;
   border-radius: 50%; background: #fff; box-shadow: 0 1px 2px #0000003d, 0 0 0 var(--hairline-w) #00000014; pointer-events: none;
   transition: left var(--dur-hover) var(--ease-out-strong); }
-.mp-fast-note { margin: 0; font-size: 12px; line-height: 1.4; color: var(--rl-text-faint); text-align: center; text-wrap: pretty; }
+/* One line, always the same height (ModelPicker's note on why): a sentence too long for it ends in an
+   ellipsis, and the whole of it is the line's tooltip. */
+.mp-fast-note { margin: -3px 0 0; height: 16px; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); text-align: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mp-fast-note[data-tone="warning"] { color: var(--rl-warning); }
 
 /* ── The heavy levels: Realm's light in the track ──

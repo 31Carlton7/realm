@@ -358,8 +358,10 @@ const chipOf = (c) => evalIn(c, `(() => { const b = document.querySelector(${JSO
  *  Hands back where each Tab went, so a failure says which stop was in the way. */
 const tabToTrack = async (c) => {
   const where = () => evalIn(c, `(() => { const a = document.activeElement; return a ? (a.getAttribute('aria-label') || a.className || a.tagName) : null; })()`);
+  // From the search field, where the picker opens: a reload can leave the keyboard on the chip.
+  await evalIn(c, `(() => { document.querySelector('.model-picker input[aria-label="Search models"]')?.focus(); return true; })()`);
   const path = [await where()];
-  for (let i = 0; i < 5 && !(await evalIn(c, `document.activeElement?.getAttribute('role') === 'slider'`)); i++) {
+  for (let i = 0; i < 6 && !(await evalIn(c, `document.activeElement?.getAttribute('role') === 'slider'`)); i++) {
     await key(c, "Tab");
     path.push(await where());
   }
@@ -666,7 +668,13 @@ async function ownerReal() {
     console.log("FOLDED AT", width);
     check("real: the prompter is docked under the transcript", (await evalIn(c, `document.querySelector('.session-pane')?.dataset.composer`)) === "docked");
     check("real: the control row folded Permissions away", await evalIn(c, `!!document.querySelector('.composer-opts[data-collapsed]')`));
+    const chipClosed = await box(c, CHIP);
+    const composerClosed = await box(c, ".composer");
     await openPicker(c);
+    const chipOpen = await box(c, CHIP);
+    const composerOpen = await box(c, ".composer");
+    console.log("CHIP", JSON.stringify({ closed: chipClosed, open: chipOpen, composerClosed, composerOpen,
+      focus: await evalIn(c, `document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.tagName`) }));
     let card = await runCard(c);
     check("real: the card is drawn, with Permissions under it", cardIsDrawn(card) && await evalIn(c, `!!document.querySelector('.mp-foot .mp-seg-group[aria-label="Permissions"]')`), card);
     // What a press at each control actually lands on.
@@ -683,10 +691,23 @@ async function ownerReal() {
     check("real: a press on the last dot sets Max on the session", await until(async () => (await mine())?.effort === "max", 5000, "max").then(() => true, () => false), (await mine())?.effort);
     card = await runCard(c);
     check("real: the card names Max", card?.level === "Max" && card.track.now === card.track.max, card && { level: card.level, now: card.track.now });
+    const beforeBolt = card.bolt.box, beforeChip = await box(c, CHIP), beforePicker = card.picker;
     await clickAt(c, card.bolt.box.cx, card.bolt.box.cy);
     check("real: a press on the bolt asks for fast mode", await until(async () => (await mine())?.fastMode === true, 5000, "fast").then(() => true, () => false), (await mine())?.fastMode);
+    await sleep(300);
     card = await runCard(c);
     check("real: the bolt shows it pressed", card?.bolt?.pressed === "true", card?.bolt);
+    // The bolt has to be where the pointer left it: a second press there is how fast mode goes off.
+    const afterChip = await box(c, CHIP);
+    check("real: the bolt stays under the pointer that pressed it", card.bolt.box.x === beforeBolt.x && card.bolt.box.y === beforeBolt.y,
+      { bolt: [beforeBolt, card.bolt.box], picker: [beforePicker, card.picker], chip: [beforeChip, afterChip] });
+    await clickAt(c, card.bolt.box.cx, card.bolt.box.cy);
+    check("real: …so a second press there switches it off again", await until(async () => (await mine())?.fastMode === false, 5000, "fast off").then(() => true, () => false), (await mine())?.fastMode);
+    check("real: …and changes nothing else", (await mine())?.effort === "max", (await mine())?.effort);
+    await clickAt(c, card.bolt.box.cx, card.bolt.box.cy);
+    await until(async () => (await mine())?.fastMode === true, 5000, "fast on again").catch(() => null);
+    await sleep(300);
+    card = await runCard(c);
     check("real: both reached the running CLI's flag layer", JSON.stringify(flagWrites()) === JSON.stringify([{ effortLevel: "max" }, { fastMode: true }]), flagWrites());
     await shootPicker(c, "real-dark-max-fast");
     await closePicker(c);
@@ -778,6 +799,137 @@ async function review() {
   }
 }
 
+/** `n` frames of a clip, `gapMs` apart, saved as `<name>-NN.png` for a contact sheet; the base64 of each. */
+async function frames(c, name, clip, n, gapMs) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const { data } = await c.send("Page.captureScreenshot", { format: "png", clip: { ...clip, scale: 2 } });
+    fs.writeFileSync(path.join(shots, `${name}-${String(i + 1).padStart(2, "0")}.png`), Buffer.from(data, "base64"));
+    out.push(data);
+    if (gapMs && i < n - 1) await sleep(gapMs);
+  }
+  console.log(`FRAMES ${name} ${n}`);
+  return out;
+}
+/** What a frame holds, decoded in the page: how bright it is on average, how colourful its most
+ *  saturated pixel, and — along one row — the column the light peaks at. */
+const stats = (c, b64, rowAt = 0.5) => evalIn(c, `(async () => {
+  const i = new Image(); i.src = "data:image/png;base64," + ${JSON.stringify(b64)}; await i.decode();
+  const cv = document.createElement("canvas"); cv.width = i.width; cv.height = i.height;
+  const x = cv.getContext("2d"); x.drawImage(i, 0, 0); const px = x.getImageData(0, 0, cv.width, cv.height).data;
+  let sum = 0, chroma = 0; for (let k = 0; k < px.length; k += 4) { sum += 0.299 * px[k] + 0.587 * px[k+1] + 0.114 * px[k+2]; chroma = Math.max(chroma, Math.max(px[k], px[k+1], px[k+2]) - Math.min(px[k], px[k+1], px[k+2])); }
+  const y = Math.round((cv.height - 1) * ${rowAt}); let peak = 0, at = 0;
+  for (let k = 0; k < cv.width; k++) { const o = (y * cv.width + k) * 4; const l = px[o] + px[o+1] + px[o+2]; if (l > peak) { peak = l; at = k; } }
+  return { mean: Math.round(sum / (px.length / 4)), chroma, peakAt: Math.round(at / cv.width * 100) };
+})()`);
+/** The share of pixels that differ between two frames of one clip, in percent. */
+const changed = (c, a, b) => evalIn(c, `(async () => {
+  const load = async (d) => { const i = new Image(); i.src = "data:image/png;base64," + d; await i.decode(); return i; };
+  const [x, y] = await Promise.all([load(${JSON.stringify(a)}), load(${JSON.stringify(b)})]);
+  const grab = (img) => { const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height;
+    cv.getContext("2d").drawImage(img, 0, 0); return cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data; };
+  const [p, q] = [grab(x), grab(y)]; let diff = 0;
+  for (let i = 0; i < p.length; i += 4) if (Math.abs(p[i] - q[i]) + Math.abs(p[i+1] - q[i+1]) + Math.abs(p[i+2] - q[i+2]) > 12) diff++;
+  return Math.round((diff / (p.length / 4)) * 1000) / 10;
+})()`);
+
+/**
+ * Realm's light at the heavy levels, and fast mode's moment, recorded rather than described: frames
+ * of the card at Max, XHigh and High in both faces, the moment slowed down through the DevTools
+ * animation clock so a 480 ms pass can be seen frame by frame, and the light held still for Reduce
+ * motion and for Low power.
+ */
+async function lightPhase() {
+  const { c, api, home, sessionId } = await boot(stubs(path.join(scratch, "bin-light"), { acp: false }), "light");
+  const mine = async () => (await api.call("sessions.listAll", { profileId: null })).find((s) => s.id === sessionId);
+  const trackClip = async () => { const t = (await runCard(c)).track.box; return { x: t.x + 2, y: t.y + 2, width: t.w - 4, height: t.h - 4 }; };
+  const cardClip = async () => { const k = (await runCard(c)).card; return { x: k.x - 12, y: k.y - 10, width: k.w + 24, height: k.h + 20 }; };
+  try {
+    for (const mode of ["dark", "light"]) {
+      await setTheme(c, api, mode);
+      await openPicker(c);
+      check(`light ${mode}: Tab reaches the track`, await tabToTrack(c));
+      await key(c, "End");
+      await until(async () => (await mine())?.effort === "max", 5000, "max");
+      await sleep(700);
+      const lit = await evalIn(c, `["mp-track-facets", "mp-track-flow", "mp-track-core", "mp-track-shine"].filter((k) => document.querySelector("." + k))`);
+      check(`light ${mode}: Max carries all four layers of the light`, lit.length === 4, lit);
+      const maxFrames = await frames(c, `light-${mode}-max`, await cardClip(), 10, 160);
+      const maxTrack = await frames(c, `track-${mode}-max`, await trackClip(), 2, 700);
+      const maxMove = await changed(c, maxTrack[0], maxTrack[1]);
+      check(`light ${mode}: at Max the light moves`, maxMove > 3, { changed: maxMove });
+      await key(c, "ArrowLeft");
+      await until(async () => (await mine())?.effort === "xhigh", 5000, "xhigh");
+      await sleep(700);
+      await frames(c, `light-${mode}-xhigh`, await cardClip(), 10, 160);
+      const xTrack = await frames(c, `track-${mode}-xhigh`, await trackClip(), 2, 700);
+      const xMove = await changed(c, xTrack[0], xTrack[1]);
+      check(`light ${mode}: at XHigh it moves too, and less of it`, xMove > 0.5, { changed: xMove });
+      await key(c, "ArrowLeft");
+      await until(async () => (await mine())?.effort === "high", 5000, "high");
+      await sleep(500);
+      const hTrack = await frames(c, `track-${mode}-high`, await trackClip(), 2, 700);
+      const hMove = await changed(c, hTrack[0], hTrack[1]);
+      check(`light ${mode}: at High the track is the plain control it always was`, hMove === 0 && !(await evalIn(c, `!!document.querySelector(".mp-track-flow")`)), { changed: hMove });
+      const [sMax, sX, sH] = [await stats(c, maxTrack[0]), await stats(c, xTrack[0]), await stats(c, hTrack[0])];
+      check(`light ${mode}: the light scales with the level — Max over XHigh over High`, sMax.mean > sX.mean - 1 && (sMax.chroma >= sX.chroma || sMax.mean > sX.mean), { max: sMax, xhigh: sX, high: sH });
+      await key(c, "End");
+      await until(async () => (await mine())?.effort === "max", 5000, "max again");
+      await sleep(500);
+      if ((await mine())?.fastMode) { await clickAt(c, (await runCard(c)).bolt.box.cx, (await runCard(c)).bolt.box.cy); await sleep(400); }
+      // Fast mode's moment, slowed twelve and a half times, so its passes can be seen frame by frame.
+      const card = await runCard(c), chipBox = await box(c, CHIP);
+      const x0 = Math.min(card.card.x, chipBox.x) - 12, y0 = Math.min(card.card.y, chipBox.y) - 10;
+      const clip = { x: x0, y: y0, width: Math.max(card.card.x + card.card.w, chipBox.x + chipBox.width) + 12 - x0,
+        height: Math.max(card.card.y + card.card.h, chipBox.y + chipBox.height) + 10 - y0 };
+      await c.send("Animation.enable");
+      await c.send("Animation.setPlaybackRate", { playbackRate: 0.08 });
+      await clickAt(c, card.bolt.box.cx, card.bolt.box.cy);
+      const during = await evalIn(c, `({ charge: document.querySelector(".mp-bolt")?.hasAttribute("data-charge"), glint: !!document.querySelector(".mp-track-glint"),
+        chip: document.querySelector(${JSON.stringify(CHIP)})?.getAttribute("data-sweep") ?? null })`);
+      check(`fast ${mode}: switching it on charges the bolt, glints the track and glints the chip`, during.charge && during.glint && during.chip === "fast", during);
+      const moment = await frames(c, `fast-${mode}`, clip, 12, 380);
+      const tclip = await trackClip();
+      await c.send("Animation.setPlaybackRate", { playbackRate: 1 });
+      await sleep(600);
+      check(`fast ${mode}: …and each comes off again once its pass is over`, await evalIn(c, `!document.querySelector(".mp-bolt")?.hasAttribute("data-charge") && !document.querySelector(${JSON.stringify(CHIP)})?.hasAttribute("data-sweep")`));
+      void tclip; void moment;
+      await shootPicker(c, `light-${mode}-picker-max-fast`);
+      // Off is quiet.
+      await clickAt(c, card.bolt.box.cx, card.bolt.box.cy);
+      await sleep(80);
+      const off = await evalIn(c, `({ charge: document.querySelector(".mp-bolt")?.hasAttribute("data-charge"), chip: document.querySelector(${JSON.stringify(CHIP)})?.getAttribute("data-sweep") ?? null })`);
+      check(`fast ${mode}: switching it off plays nothing`, !off.charge && off.chip === null, off);
+      await closePicker(c);
+    }
+
+    // Held still: Reduce motion stops the light where it stands, and so does Low power.
+    await c.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+    await openPicker(c);
+    await sleep(500);
+    const still = await frames(c, "track-reduced-max", await trackClip(), 2, 900);
+    const stillMove = await changed(c, still[0], still[1]);
+    check("reduced: the light holds still, and is still there", stillMove === 0 && await evalIn(c, `!!document.querySelector(".mp-track-flow")`), { changed: stillMove });
+    await shootPicker(c, "light-reduced-picker");
+    await closePicker(c);
+    await c.send("Emulation.setEmulatedMedia", { features: [] });
+    await api.call("settings.set", { key: "ui.lowPower", value: true });
+    await reload(c);
+    await openPicker(c);
+    await sleep(500);
+    const quiet = await frames(c, "track-lowpower-max", await trackClip(), 2, 900);
+    const quietMove = await changed(c, quiet[0], quiet[1]);
+    check("low power: the light holds still", quietMove === 0 && (await evalIn(c, `document.documentElement.dataset.quiet`)) === "always", { changed: quietMove });
+    await closePicker(c);
+    await api.call("settings.set", { key: "ui.lowPower", value: false });
+    const errs = c.errors.filter((e) => !e.includes("Autofill"));
+    check("light: no renderer console errors", errs.length === 0, errs.slice(0, 5));
+    c.close(); api.close();
+  } finally {
+    await stop(home);
+  }
+}
+
 process.on("SIGINT", () => { void stop(null).then(() => process.exit(130)); });
 const only = (process.env.LIVE_ONLY ?? "").split(",").filter(Boolean);
 const wanted = (name) => only.length === 0 || only.includes(name);
@@ -786,6 +938,7 @@ try {
   if (wanted("long")) await longList();
   if (wanted("real")) await ownerReal();
   if (wanted("review")) await review();
+  if (wanted("light")) await lightPhase();
 } catch (e) {
   console.error("ERROR", e.message);
   process.exitCode = 1;
@@ -796,4 +949,5 @@ try {
   fs.rmSync(path.join(scratch, "long-home"), { recursive: true, force: true });
   fs.rmSync(path.join(scratch, "real-home"), { recursive: true, force: true });
   fs.rmSync(path.join(scratch, "review-home"), { recursive: true, force: true });
+  fs.rmSync(path.join(scratch, "light-home"), { recursive: true, force: true });
 }

@@ -432,7 +432,12 @@ function RunCard({ effort, fast, model }: { effort?: EffortControl; fast?: FastM
         ) : <span className="mp-run-gap" aria-hidden="true" />}
       </div>
       {effort && levels.length > 1 && <EffortTrack effort={effort} glint={glint} />}
-      {hint && <p className="mp-fast-note" data-tone={refused || unavailable ? "warning" : undefined}>{hint}</p>}
+      {/* Held open whenever there is a bolt, empty or not: the popover grows upward from its chip, so a
+          line arriving under the track lifted the bolt out from under the pointer that had just
+          switched it on, and the press meant to switch it off again landed on the track instead. */}
+      {fast && (
+        <p className="mp-fast-note" data-tone={hint && (refused || unavailable) ? "warning" : undefined} title={hint ?? undefined}>{hint}</p>
+      )}
     </div>
   );
 }
