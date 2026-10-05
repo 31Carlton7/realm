@@ -3365,11 +3365,16 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    own ground. The composer is a flex sibling under the list rather than floating over it — nothing
    scrolls beneath it, so it rests: a surface step and no lift. */
 .subagents { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.subagents-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 16px 8px; }
+.subagents-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 16px 8px; display: flex; flex-direction: column; }
 .subagents-section { display: flex; flex-direction: column; gap: 10px; }
 .subagents-head { margin: 0; display: flex; align-items: baseline; gap: 8px; font-size: 12px; font-weight: var(--fw-title); color: var(--ink-2); }
 .subagents-count { font-weight: var(--fw-medium); color: var(--ink-3); font-variant-numeric: tabular-nums; }
-.subagents-empty { margin: 0; max-width: 60ch; font-size: 13px; line-height: 18px; color: var(--ink-2); }
+/* None yet: centred in the space above the composer, both ways. A sentence pinned to the top left of
+   an empty column reads as a list that has not finished loading. */
+.subagents-empty { margin: auto; max-width: 400px; padding: 24px 16px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.subagents-empty-mark { color: var(--ink-3); }
+.subagents-empty-title { margin: 6px 0 0; font-size: 18px; line-height: 24px; font-weight: var(--fw-title); color: var(--ink); text-wrap: balance; }
+.subagents-empty-line { margin: 0; font-size: 13px; line-height: 18px; color: var(--ink-2); text-wrap: balance; }
 /* Each sub-agent is several lines — model, task, what it is doing or what it said — so the list is
    one of cards with air between them, not rows under a rule (design.md). */
 .subagents-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }

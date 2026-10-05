@@ -81,22 +81,36 @@ export function AgentsTab({ item, visible }: PaneProps) {
 function SubagentList({ leadId, children, loaded, flash, onOpen }: {
   leadId: string; children: readonly DelegatedChild[]; loaded: boolean; flash: string | null; onOpen: (childId: string) => void;
 }) {
+  // Nothing until the list has answered: an empty state shown for the moment before cards arrive is
+  // a claim that there are none.
+  if (!loaded) return null;
+  if (children.length === 0) return <SubagentsEmpty />;
   return (
     <section className="subagents-section" aria-label="Sub-agents">
       {/* How many, and no more: each card says where it stands, and the session's bar already says
           how many are working. */}
       <h2 className="subagents-head">
         Sub-agents
-        {children.length > 0 && <span className="subagents-count">{children.length}</span>}
+        <span className="subagents-count">{children.length}</span>
       </h2>
-      {loaded && children.length === 0 && (
-        <p className="subagents-empty">None yet. Pick models below and describe the work — this session hands it out, and each sub-agent shows up here as it starts.</p>
-      )}
-      {children.length > 0 && (
-        <ul className="subagents-list">
-          {children.map((c) => <SubagentCard key={c.session.id} child={c} leadId={leadId} flash={flash === c.session.id} onOpen={onOpen} />)}
-        </ul>
-      )}
+      <ul className="subagents-list">
+        {children.map((c) => <SubagentCard key={c.session.id} child={c} leadId={leadId} flash={flash === c.session.id} onOpen={onOpen} />)}
+      </ul>
+    </section>
+  );
+}
+
+/** No sub-agents yet: the tab's subject, centred in the space above the composer, and the one thing
+ *  to do about it — which is the composer just below, so the composition points there rather than
+ *  growing a button that would do the same. */
+function SubagentsEmpty() {
+  return (
+    <section className="subagents-empty" aria-label="Sub-agents">
+      {/* off-ladder: the tab's one illustration, its own mark over the line that says what it is
+          for — the subject of an empty composition, as the Scheduled page's clock is. */}
+      <Icon name="agents" size={32} className="subagents-empty-mark" />
+      <h2 className="subagents-empty-title">Hand work to sub-agents</h2>
+      <p className="subagents-empty-line">Pick models below and say what to build. This session starts a sub-agent on each, and you can follow every one here.</p>
     </section>
   );
 }
