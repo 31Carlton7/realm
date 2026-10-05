@@ -133,6 +133,9 @@ describe("§6 motion ladder", () => {
     // grain's drift: an ambient tempo an order of magnitude off the slowest rung, and putting it on
     // the ladder would invite a UI transition to reach for it.
     for (const period of ["0.9s", "1.4s", "3.6s", "24s", "40ms"]) bare.delete(period);
+    // Nor is a threshold: 600ms is how long a browser pane's first page has to keep a person waiting
+    // before its spinner comes up at all — a page that answers sooner never shows one.
+    bare.delete("600ms");
     // Zero is not a rung either: it is the absence of a duration, written where a hover or a press
     // has to land on the frame the pointer did (the Press rule).
     bare.delete("0s");
@@ -2362,7 +2365,7 @@ describe("light mode", () => {
     [".sim-ax-label", "on the device's own screen"],
     // Matching the native WebContentsView's own opaque white, so the sliver it trails during a
     // resize cannot flash the panel tone through the gap.
-    [".browser-view-host", "the browser view's own ground"],
+    [".browser-view-host[data-page]:not([data-device])", "the browser view's own ground"],
     // White on a red fill, the same as white on the accent fill (--rl-accent-contrast), which is
     // deliberately one value for both modes.
     [".btn.destructive", "ink on a filled control"],

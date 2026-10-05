@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { BrowserLoadError } from "./browser-load-error";
 
 /**
  * The browser agent bridge's op payloads (Plan 11 W3) — the vocabulary realm-server (where the
@@ -152,10 +153,15 @@ export type BrowserDescribeResult = {
   url: string;
   title: string;
   element?: { role: string; name: string; tag: string; inputType: string | null } | null;
+  /** The page did not load (browser-load-error.ts) — main's own record, never the page's word. */
+  loadError?: BrowserLoadError | null;
 };
 
 export type BrowserSnapshotResult = {
   url: string; title: string; text: string; elementCount: number;
+  /** The page did not load, so there is nothing of the site's to read: what the pane shows in its
+   *  place is Realm's own error page, which is not in the page's DOM. Absent for a page that loaded. */
+  loadError?: BrowserLoadError | null;
   /** The same elements as `text`, in the same order, as data (below). Absent where the executor
    *  predates it; a walk reads a snapshot without them as a page with nothing on it. */
   elements?: BrowserSnapshotElement[];
@@ -197,8 +203,10 @@ export type BrowserSnapshotElement = {
  * Facts, not a verdict: what counts as "at rest" is the reader's to say.
  */
 export type BrowserPageActivity = { loading: boolean; requests: number; quietMs: number };
-export type BrowserReadResult = { text: string };
-export type BrowserScreenshotResult = { data: string; mimeType: string };
+/** `loadError`: as on a snapshot — a page that did not load has no text of its own. */
+export type BrowserReadResult = { text: string; loadError?: BrowserLoadError | null };
+/** `loadError`: the capture is of the empty document Chromium commits for a failed load. */
+export type BrowserScreenshotResult = { data: string; mimeType: string; loadError?: BrowserLoadError | null };
 export type BrowserNavigateResult = { url: string | null };
 
 /**

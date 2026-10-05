@@ -42,7 +42,7 @@
 .theme-import textarea, .tool-body pre, .tool-stat, .tool-summary, .tool-well, .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .composer-queue-item .queue-position, .composer-queue-item .queue-attach, .terminal-dock-title,
-.sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code {
+.sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code {
   letter-spacing: normal;
 }
 
@@ -1550,7 +1550,8 @@ kbd { font: 11px var(--font-mono); }
 :root[data-quiet] .permission-dot,
 :root[data-quiet] .gen-glow,
 :root[data-quiet] .drive-frame-glow,
-:root[data-quiet] .wash[data-grain] { animation-play-state: paused !important; }
+:root[data-quiet] .wash[data-grain],
+:root[data-quiet] .reach-mark[data-busy] .reach-mark-pulse { animation-play-state: paused !important; }
 
 /* The ping is the exception to the pause: frozen mid-flight it leaves a static ring standing around
    the dot at whatever radius it had reached, which reads as a rendering fault rather than as a state.
@@ -2428,15 +2429,18 @@ button.panel-title:hover { background: var(--rl-hover); }
 .browser-suggest-row[aria-selected="true"] { background: var(--rl-hover); }
 .browser-suggest-title { flex: 0 1 auto; max-width: 60%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
 .browser-suggest-url { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); }
-/* The placeholder the native view is bounds-synced onto. Painted the view's own opaque white so the
-   sliver the view trails behind during a resize never flashes the panel tone (research: do NOT
-   debounce the sync; match the colours instead). Pages are their own light world. */
-.browser-view-host { position: relative; flex: 1; min-width: 0; min-height: 0; background: #fff; }
-/* At a device size (Plan 26 W7e) the view is narrower than its host, and white beside a white page
-   would hide the device's edge. The pane's own ground frames it instead. */
-.browser-view-host[data-device] { background: var(--rl-panel); }
-/* Before the first navigation there is no view to match — the new-tab page sits on the panel tone. */
-.browser-pane:has(.new-tab) .browser-view-host { background: var(--rl-panel); }
+/* The placeholder the native view is bounds-synced onto. It paints NOTHING, so from the toolbar down
+   the pane is the session pane's ground — the one translucent sheet `.main` lays under every pane. It
+   was the opaque `--rl-panel` under a new tab, a device box and anything else with no page on it, and
+   beside the toolbar's translucent band that read as a lighter strip across the top of the pane on
+   every face, worst on a themed one. A page that has not drawn yet, or did not load, is not shown at
+   all (the view is hidden), so there is no blank white to match either.
+   While a page IS on screen it wears the view's own opaque white, so the sliver the view trails behind
+   during a resize never flashes the ground (research: do NOT debounce the sync; match the colours
+   instead). Pages are their own light world. At a device size (Plan 26 W7e) the view is narrower than
+   its host and white beside a white page would hide the device's edge, so the ground frames it. */
+.browser-view-host { position: relative; flex: 1; min-width: 0; min-height: 0; }
+.browser-view-host[data-page]:not([data-device]) { background: #fff; }
 /* A blank tab's tools (NewTabPage): one column of rows, set high in the pane rather than centred in
    it — the address field it continues is at the top, and a list floated to the middle of a tall
    pane reads as an empty state rather than as the next thing to pick. Scrolls past a short pane. */
@@ -2451,6 +2455,52 @@ button.panel-title:hover { background: var(--rl-hover); }
 .new-tab-row > svg { flex: none; color: var(--rl-text-dim); }
 .new-tab-row:hover:not(:disabled) { background: var(--rl-hover); }
 .new-tab-row-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A page that did not load (BrowserErrorPage), on the pane's ground like the new tab beside it, in the
+   shape every browser has taught: a glyph, what happened, why, what to try, the code, and Reload. One
+   left-aligned column at a reading measure, set a little above the middle of the pane — the address
+   that failed is already in the bar above it. Scrolls in a pane too short to hold it. Content, not
+   chrome: the code and the reason can be selected and copied. */
+.browser-error { position: absolute; inset: 0; overflow-y: auto; display: flex; }
+.browser-error-body { margin: auto; width: min(480px, 100%); padding: 32px 24px 12%; display: flex; flex-direction: column; align-items: flex-start;
+  animation: rl-error-in var(--dur-enter) var(--ease-fade); }
+@keyframes rl-error-in { from { opacity: 0; } to { opacity: 1; } }
+.browser-error-title { margin: 20px 0 0; font-size: 20px; line-height: 28px; font-weight: var(--fw-title); color: var(--rl-text-bright); text-wrap: balance; }
+.browser-error-reason { margin: 8px 0 0; font-size: 14px; line-height: 20px; color: var(--rl-text-dim); text-wrap: pretty; }
+.browser-error-reason + .browser-error-reason { margin-top: 4px; }
+.browser-error-try { margin-top: 16px; font-size: 14px; line-height: 20px; color: var(--rl-text-dim); }
+.browser-error-try p { margin: 0; }
+.browser-error-try ul { margin: 4px 0 0; padding-left: 20px; }
+/* Mono, because it is machine state; the quiet tier, because it is for whoever wants to look it up. */
+.browser-error-code { margin: 16px 0 0; font: 12px/16px var(--font-mono); color: var(--rl-text-faint); }
+.browser-error-reload { margin-top: 24px; }
+/* The first page on its way (BrowserConnecting): the mark, small, in the middle of the ground — held
+   back 600ms, a threshold rather than a rung (styles.test.ts names it), so that a page which answers
+   at once never shows it and the wait has to be one a person would notice before it says anything. */
+.browser-connecting { position: absolute; inset: 0; display: grid; place-items: center; padding-bottom: 12%; pointer-events: none;
+  animation: rl-connecting-in var(--dur-fast) var(--ease-fade) 600ms both; }
+@keyframes rl-connecting-in { from { opacity: 0; } to { opacity: 1; } }
+/* The marks (BrowserErrorPage.tsx), drawn in the stroke of one hand. The spiral is the accent's one
+   appearance on the page; the padlock is danger, because a certificate Realm will not trust is a state,
+   not a mood. The spiral draws itself in once, from the middle out. While a load is in flight it dims
+   and a pulse runs out along it, looping until the load settles, and the line lights back up. Only
+   then: an error page can sit for hours, and a loop that kept running under `opacity: 0` would spend a
+   core on a pane nobody is looking at (the power audit's finding, § Quiet). */
+.reach-mark, .lock-mark { flex: none; overflow: visible; }
+.reach-mark path, .lock-mark :is(path, rect) { fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.reach-mark { color: var(--rl-accent); }
+.lock-mark { color: var(--rl-danger); }
+.reach-mark-line { stroke-dasharray: 100; animation: rl-reach-draw var(--dur-move) var(--ease-out-strong) both; transition: opacity var(--dur-swap) var(--ease-fade); }
+.reach-mark-pulse { stroke-dasharray: 16 100; stroke-dashoffset: 16; opacity: 0; }
+.reach-mark[data-busy] .reach-mark-line { opacity: .3; }
+.reach-mark[data-busy] .reach-mark-pulse { opacity: 1; animation: rl-reach-pulse 1.4s linear infinite; }
+@keyframes rl-reach-draw { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+@keyframes rl-reach-pulse { from { stroke-dashoffset: 16; } to { stroke-dashoffset: -100; } }
+@media (prefers-reduced-motion: reduce) {
+  /* Simply drawn: nothing dims and nothing runs along it. The first page's mark goes altogether, since
+     a spinner frozen in place reads as a hang (A-L5) — the toolbar's Stop still says a load is on. */
+  .reach-mark[data-busy] .reach-mark-line { opacity: 1; }
+  .reach-mark-pulse, .browser-connecting { display: none; }
+}
 
 .error-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 8px 6px; padding: 6px 10px; border-radius: var(--r-ctl);
   background: color-mix(in srgb, var(--rl-danger) 8%, var(--rl-panel)); color: var(--rl-danger); font-size: 12px; -webkit-app-region: no-drag; }
@@ -4886,8 +4936,8 @@ select { appearance: none; padding-right: 22px;
   .subagent-body, .subagent-prose,
   /* the Google Fonts browser's result list */
   .font-results,
-  /* a blank browser tab's tools, in a pane short enough to need it */
-  .new-tab,
+  /* a blank browser tab's tools, in a pane short enough to need it, and the page a failed load leaves */
+  .new-tab, .browser-error,
   /* a machine's resting bodies — the connect form, and the failure's own detail well */
   .machine-body,
   /* and a simulator's, which is the device picker and the same kind of failure well */

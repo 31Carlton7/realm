@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { FAVICON_MAX_BYTES, isFaviconDataUrl } from "@realm/contracts";
+import { FAVICON_MAX_BYTES, isFaviconDataUrl, type BrowserLoadError } from "@realm/contracts";
 import {
-  BrowserPaneHost, DEVICE_PRESETS, FAVICON_TRIES, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, createFaviconResolver, dataUrlBytes, deviceFit, faviconDataUrl,
+  BrowserPaneHost, DEVICE_PRESETS, PageLoad, FAVICON_TRIES, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, createFaviconResolver, dataUrlBytes, deviceFit, faviconDataUrl,
   isFindShortcut, nextZoomFactor, normalizeAddress, originAllowed, rankFavicons, readCapped, shownPage, sniffImage, toViewBounds, zoomPercent,
   type DeviceMetrics,
   type BrowserViewState, type FindResult, type ViewHandle, type ViewHooks,
@@ -96,7 +96,8 @@ const P = "persist:browser";
 /** A fake ViewHandle that records calls and simulates the webContents state getters. */
 function fakeView() {
   const nav = { url: "", title: "", loading: false, back: false, forward: false,
-    entries: [] as { url: string; title: string }[], activeIndex: 0, zoom: 1, favicon: null as string | null };
+    entries: [] as { url: string; title: string }[], activeIndex: 0, zoom: 1, favicon: null as string | null,
+    error: null as BrowserLoadError | null, ready: false };
   const calls: string[] = [];
   let hooks: ViewHooks | null = null;
   const handle: ViewHandle = {
@@ -107,6 +108,7 @@ function fakeView() {
     reload: () => calls.push("reload"), stop: () => calls.push("stop"),
     canGoBack: () => nav.back, canGoForward: () => nav.forward,
     getURL: () => nav.url, getTitle: () => nav.title, isLoading: () => nav.loading, getFavicon: () => nav.favicon,
+    getLoadError: () => nav.error, isReady: () => nav.ready,
     history: () => ({ entries: nav.entries, activeIndex: nav.activeIndex }),
     goToIndex: (i) => calls.push(`goToIndex:${i}`),
     findInPage: (text, o) => calls.push(`find:${text}:${o.forward ? "forward" : "backward"}:${o.findNext ? "new" : "step"}`),
@@ -697,6 +699,70 @@ describe("the state a pane's chrome is drawn from", () => {
     v.nav.favicon = `data:image/x-icon;base64,${ICO.toString("base64")}`;
     v.getHooks().emitState();
     expect(states.at(-1)!.favicon).toBe(v.nav.favicon);
+  });
+
+  it("carries whether the page failed and whether it has anything to show, so the pane can hide the view", () => {
+    const { host, views, states } = makeHost();
+    host.create("b1", "http://localhost:3000", null, P);
+    expect(states.at(-1)).toMatchObject({ error: null, ready: false });
+    const v = views.get("b1")!;
+    v.nav.error = { code: -102, name: "ERR_CONNECTION_REFUSED", url: "http://localhost:3000/" };
+    v.getHooks().emitState();
+    expect(states.at(-1)).toMatchObject({ error: v.nav.error, ready: false });
+    // …and the agent's side reads the same record, from the host, for the view it names.
+    expect(host.loadErrorOf("b1")).toEqual(v.nav.error);
+    expect(host.loadErrorOf("nope")).toBeNull();
+  });
+});
+
+describe("PageLoad", () => {
+  const REFUSED = { code: -102, name: "ERR_CONNECTION_REFUSED", url: "http://localhost:3000/" };
+
+  it("is an error page when Chromium commits one, with the address that was asked for", () => {
+    const load = new PageLoad();
+    load.failed(REFUSED.code, REFUSED.name, REFUSED.url);
+    expect(load.error).toEqual(REFUSED);
+    expect(load.ready).toBe(false);
+  });
+
+  it("never treats a stopped load as a failure", () => {
+    /* THE mutant: drop the ERR_ABORTED guard. A page stopped mid-load — by the user, or by a
+       navigation that replaced it — would come up as an error page over a page that is fine. */
+    const load = new PageLoad();
+    load.committed("https://example.com/");
+    load.settled("https://example.com/");
+    load.failed(-3, "", "https://example.com/");
+    expect(load.error).toBeNull();
+    expect(load.ready).toBe(true);
+  });
+
+  it("is ready once a document of its own is far enough along — not the about:blank it boots on, not an error page", () => {
+    const load = new PageLoad();
+    load.committed("about:blank");
+    load.settled("about:blank");
+    expect(load.ready).toBe(false);
+    // An error page reaches DOMContentLoaded too (measured), and it is not a page to show.
+    load.failed(REFUSED.code, REFUSED.name, REFUSED.url);
+    load.settled(REFUSED.url);
+    expect(load.ready).toBe(false);
+    // The retry that worked: committed, then far enough along.
+    load.committed("http://localhost:3000/");
+    expect(load.error).toBeNull();
+    expect(load.ready).toBe(false);
+    load.settled("http://localhost:3000/");
+    expect(load.ready).toBe(true);
+  });
+
+  it("stays ready from one good page to the next, and only an error page takes it back", () => {
+    /* From page to page Chromium keeps the old one on screen until the new one paints, so hiding the
+       view at the commit would blink the pane's ground between every two pages. */
+    const load = new PageLoad();
+    load.committed("https://a.example/");
+    load.settled("https://a.example/");
+    load.committed("https://b.example/");
+    expect(load.ready).toBe(true);
+    load.failed(-105, "ERR_NAME_NOT_RESOLVED", "https://c.example/");
+    expect(load.ready).toBe(false);
   });
 });
 

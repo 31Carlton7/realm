@@ -3,7 +3,7 @@
  * import, so the guards and lifecycle are unit-testable. The Electron calls (WebContentsView,
  * webContents events) live behind `ViewFactory`, implemented in browser-pane.ts.
  */
-import { FAVICON_MAX_BYTES } from "@realm/contracts";
+import { ERR_ABORTED, FAVICON_MAX_BYTES, type BrowserLoadError } from "@realm/contracts";
 
 export type ViewRect = { x: number; y: number; width: number; height: number };
 
@@ -17,7 +17,50 @@ export type BrowserViewState = {
   /** The page's own icon as a `data:` URL (`createFaviconResolver`), or null until the page has offered
    *  one that loads — and for a page that offers none. */
   favicon: string | null;
+  /** The page did not load (`PageLoad`): the pane draws its error page in the view's place. */
+  error: BrowserLoadError | null;
+  /** The view has a document of its own to show (`PageLoad`). Until it does, the pane shows its own
+   *  ground rather than the view's blank white. */
+  ready: boolean;
 };
+
+/**
+ * Whether a view has a page worth showing, and whether the page it is on failed to load — the two
+ * facts the pane needs to keep the view's blank white off the screen.
+ *
+ * A failed main-frame load commits Chromium's error page in the failed URL's place (measured on
+ * Electron 37: the address and the history entry are the attempted URL's, Reload retries it, and the
+ * document is an empty `chrome-error://` page). Electron draws nothing on it, so the pane does, and
+ * hides the view. `did-fail-provisional-load` is that commit and nothing else: `did-fail-load` also
+ * fires, with ERR_ABORTED and no name, when a page that already committed is stopped mid-load — a page
+ * that is on screen and fine.
+ *
+ * Ready is DOMContentLoaded (or the load stopping) of a document that is not an error page and not
+ * the `about:blank` the pane boots on. It goes false again only with an error page: from one good page
+ * to the next, Chromium keeps the old one on screen until the new one paints, so there is no blank to
+ * hide; from an error page to a good one there is, because the last frame the view drew was empty.
+ */
+export class PageLoad {
+  error: BrowserLoadError | null = null;
+  ready = false;
+
+  /** A main-frame document committed (`did-navigate`). */
+  committed(url: string): void {
+    if (url !== "about:blank") this.error = null;
+  }
+
+  /** Chromium committed its error page for the main frame (`did-fail-provisional-load`). */
+  failed(code: number, name: string, url: string): void {
+    if (code === ERR_ABORTED) return;
+    this.error = { code, name, url };
+    this.ready = false;
+  }
+
+  /** The main frame's document is far enough along to show (`dom-ready`, `did-stop-loading`). */
+  settled(url: string): void {
+    if (this.error === null && url !== "about:blank" && url !== "") this.ready = true;
+  }
+}
 
 /**
  * The widths the ⋯ menu's Device size offers (Plan 26 W7e) — one phone, one tablet, one desktop, the
@@ -384,6 +427,9 @@ export type ViewHandle = {
   getURL(): string; getTitle(): string; isLoading(): boolean;
   /** The current page's icon, resolved (`createFaviconResolver`) — null until it has one. */
   getFavicon(): string | null;
+  /** `PageLoad`'s two answers for this view. */
+  getLoadError(): BrowserLoadError | null;
+  isReady(): boolean;
   /** `webContents.findInPage` — `findNext` is Electron's "this is a NEW search", not "the next match". */
   findInPage(text: string, opts: { forward: boolean; findNext: boolean }): void;
   stopFindInPage(): void;
@@ -657,6 +703,9 @@ export class BrowserPaneHost {
   /** Which cookie jar this view lives in — its profile's — or null when there is no view. */
   partitionOf(id: string): string | null { return this.views.get(id)?.partition ?? null; }
 
+  /** Why the page this view is on did not load, or null when it did (or there is no view). */
+  loadErrorOf(id: string): BrowserLoadError | null { return this.views.get(id)?.handle.getLoadError() ?? null; }
+
   /** Every view in one jar, retained or on screen: a deleted profile's panes, which must not go on
    *  running signed in to anything. */
   destroyPartition(partition: string): void {
@@ -668,7 +717,7 @@ export class BrowserPaneHost {
     this.opts.sendState({
       id, url: v.handle.getURL(), title: v.handle.getTitle(), loading: v.handle.isLoading(),
       canGoBack: v.handle.canGoBack(), canGoForward: v.handle.canGoForward(), device: v.device?.id ?? null,
-      favicon: v.handle.getFavicon(),
+      favicon: v.handle.getFavicon(), error: v.handle.getLoadError(), ready: v.handle.isReady(),
     });
   }
 }
