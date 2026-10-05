@@ -3245,9 +3245,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     const checkoutIsRepo = async (spaceId: string): Promise<boolean> => {
       const path = spaceCheckoutPath(get(), spaceId);
       if (!path) return false;
-      const info = await api.gitInfo(path);
-      set({ gitInfo: { ...get().gitInfo, [path]: info } });
-      return info !== null;
+      await get().refreshGitInfo(path);
+      return get().gitInfo[path] != null;
     };
     const refreshGitFor = (sessionId: string) => {
       const cwd = get().sessions[sessionId]?.cwd;

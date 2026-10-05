@@ -2470,8 +2470,8 @@ button.panel-title:hover { background: var(--rl-hover); }
    fifth of a second after the pointer arrives, where the system's grey box took a second and a half.
    Small and quiet — the caption rung at the label weight, the chip corner, the tooltip chip's own
    ground (built per theme in themes.ts, inverted into a dark chip on the light face), a hairline rim
-   and the lightest lift in the shadow ladder, because it floats over one control rather than over the
-   window. It arrives on a fade with a two-pixel travel out of its control, leaves on a shorter fade
+   and the card's small lift rather than a menu's, because it floats over one control rather than over
+   the window. It arrives on a fade with a two-pixel travel out of its control, leaves on a shorter fade
    with none, and appears outright for the next control within the grace period. A chord in its title
    reads as a KEY, as a menu's does. It never takes the pointer. */
 .tooltip { position: fixed; z-index: 120; left: 0; top: 0; display: flex; align-items: center; gap: 6px;

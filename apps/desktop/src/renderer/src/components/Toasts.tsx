@@ -122,7 +122,9 @@ export function Toasts() {
     ? { left: spot.left, bottom: spot.bottom, width: spot.width, height: expanded ? fannedHeight : frontHeight }
     : { visibility: "hidden" };
   return createPortal(
-    <section className="toasts" aria-label="Notifications" style={style} data-expanded={expanded || undefined}
+    // "Notices", not "Notifications": that is the feed's page, and two landmarks of one name are one
+    // too many for anyone moving between them by name.
+    <section className="toasts" aria-label="Notices" style={style} data-expanded={expanded || undefined}
       onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}
       onFocus={() => setFocused(true)}
       onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false); }}>
