@@ -4725,6 +4725,9 @@ await get().refreshCustomThemes().catch(() => {});
         for (const id of new Set([...Object.keys(get().delegatedRuns), ...Object.keys(get().transcripts)])) {
           get().run(() => get().refreshDelegatedRuns(id));
         }
+        // The lists of sub-agents are tables, not a registry, so they survived — but every child that
+        // began, settled or was collected while the socket was down went unannounced.
+        for (const id of Object.keys(get().subagents)) get().run(() => get().refreshSubagents(id));
       },
       // One overlay slot (U-M4/V-F5): sheets and the palette never stack — opening either closes the other.
       setKeybindings(rules) { set({ keybindings: rules }); },

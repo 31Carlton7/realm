@@ -1,4 +1,4 @@
-import { AGENT_META, bareToolName, type SessionStatus } from "@realm/contracts";
+import { AGENT_META, type SessionStatus } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { createContext, useContext, useEffect } from "react";
 import { Spinner } from "../../components/Spinner";
@@ -6,19 +6,14 @@ import { useApp } from "../../state/store";
 import { STATE_VERB, isLive, modelLabel, subagentElapsed, subagentState, taskTitle, type SubagentState } from "../agents-tab/subagent-state";
 import { delegatedChildIds } from "./DelegatedRuns";
 import { formatDuration, type ToolBlock } from "./tool-group";
+
+export { isDelegationLine, isDelegationWait } from "./tool-group";
 import { useElapsed } from "./use-elapsed";
 
 /** The session a transcript belongs to, for the lines inside it that need their lead: a delegation
  *  line links to its row in THIS session's Agents tab. Null in the read-only mounts (a fork preview,
  *  a test), where the line still reads and links nowhere. */
 export const LeadSessionContext = createContext<string | null>(null);
-
-/** The calls that start a sub-agent — the ones drawn as a line of their own. */
-const SPAWNS = new Set(["agent_start", "agent_run"]);
-
-/** Whether this call is drawn as a delegation line. A refused call keeps the ordinary card, whose
- *  Error well is the only place the refusal's words — which names exist, what was ambiguous — show. */
-export const isDelegationLine = (b: ToolBlock): boolean => SPAWNS.has(bareToolName(b.name)) && !b.result?.isError;
 
 /**
  * A sub-agent, as its lead's transcript shows it: one quiet line — "Subagent finished · Write the
@@ -81,6 +76,40 @@ export function DelegationLine({ block, sessionStatus, enter = false }: { block:
           </span>
         )}
         {!gone && <span className="delegation-line-time">{formatDuration(elapsed)}</span>}
+      </button>
+    </div>
+  );
+}
+
+/** One collected report per `## Agent <id> — …` heading in the call's result — `agent_wait`'s own
+ *  format (agent-run.ts `reportSection`). The ids listed as still running are not collected. */
+const COLLECTED = /^## Agent [0-9A-HJKMNP-TV-Z]{26} — /gm;
+
+/**
+ * The lead waiting for its sub-agents, as a line of the same kind: "Waiting for 2 subagents", then
+ * "Collected 2 reports". The reports themselves are each sub-agent's own, in the Agents tab — which
+ * is where the line goes.
+ */
+export function DelegationWait({ block, sessionStatus, enter = false }: { block: ToolBlock; sessionStatus: SessionStatus; enter?: boolean }) {
+  const lead = useContext(LeadSessionContext);
+  const owned = useApp((s) => (lead ? s.delegatedRuns[lead]?.filter((r) => r.owned).length ?? 0 : 0));
+  const openAgentsTab = useApp((s) => s.openAgentsTab);
+  const run = useApp((s) => s.run);
+  const waiting = block.result === null;
+  const live = waiting && (sessionStatus === "running" || sessionStatus === "waiting_permission");
+  const collected = block.result ? (block.result.content.match(COLLECTED) ?? []).length : 0;
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const label = waiting
+    ? (owned > 0 ? `Waiting for ${plural(owned, "subagent")}` : "Waiting for subagents")
+    : `Collected ${plural(collected, "report")}`;
+  return (
+    <div className="tool-card delegation-line" data-tool-use-id={block.toolUseId} data-state={waiting ? "working" : "done"} data-enter={enter || undefined}>
+      <button type="button" className="tool-row" disabled={!lead} title={lead ? "Show them in this session's Agents tab" : undefined}
+        onClick={() => { if (lead) run(() => openAgentsTab(lead)); }}>
+        <span className="tool-status" aria-hidden="true">
+          {live ? <Spinner size={16} /> : waiting ? null : <Icon name="check" size={14} />}
+        </span>
+        <span className="tool-name">{label}</span>
       </button>
     </div>
   );

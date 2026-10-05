@@ -28,6 +28,7 @@ const CATALOG: DelegableModels = { own: { kind: "claude", label: "Claude Opus 5.
   { key: "5.1-claude-fable", label: "Claude Fable 5.1", kind: "claude", id: "claude-fable-5-1", ready: true },
   { key: "5.5-claude-opus", label: "Claude Opus 5.5", kind: "claude", id: "claude-opus-5-5", ready: true },
   { key: "2-composer", label: "Composer 2", kind: "acp:cursor", id: "composer-2", ready: false },
+  { key: "5.4-gpt-nano-openai", label: "openai/gpt-5.4-nano", kind: "acp:fx", id: "openai/gpt-5.4-nano", ready: true },
 ] };
 
 async function mount(over: { lead?: typeof LEAD; children?: DelegatedChild[]; status?: Record<string, "idle" | "running" | "waiting_permission"> } = {}) {
@@ -80,6 +81,15 @@ describe("the list of a session's sub-agents", () => {
     await waitFor(() => expect(api.calls.filter((c) => c === "listDelegatedChildren:se1").length).toBeGreaterThan(before));
   });
 
+  it("re-reads after the socket comes back — what changed while it was down went unannounced", async () => {
+    const { api, store } = await mount();
+    await card(/^Write the tests\./);
+    const before = api.calls.filter((c) => c === "listDelegatedChildren:se1").length;
+    store.getState().applyConnectionState("reconnecting");
+    store.getState().applyConnectionState("connected");
+    await waitFor(() => expect(api.calls.filter((c) => c === "listDelegatedChildren:se1").length).toBeGreaterThan(before));
+  });
+
   it("says plainly when there are none yet, and where to start", async () => {
     await mount({ children: [] });
     expect(await screen.findByText(/None yet\. Pick models below/)).toBeInTheDocument();
@@ -110,6 +120,14 @@ describe("Build with", () => {
       work: "Add the dark-mode toggle.", split: false, picks: [{ label: "GPT-6 Luna", own: false, task: "" }] }) });
   });
 
+  it("suggests the vendors' own models, never the first entry of a proxy's long catalog", async () => {
+    await mount();
+    await chip(/GPT-6 Luna/);
+    const chips = [...document.querySelectorAll(".subagents-pick .subagents-pick-label")].map((n) => n.textContent);
+    // Mutant: suggest the first ready model of every harness — fx's first of 165 becomes a chip.
+    expect(chips).toEqual(["Claude Opus 5.5", "Claude Fable 5.1", "GPT-6 Luna", "More models"]);
+  });
+
   it("the session's own model is offered first, and picking it names no model", async () => {
     const { api } = await mount();
     fireEvent.click(await chip(/Claude Opus 5\.5.*this session/));
@@ -138,7 +156,7 @@ describe("Build with", () => {
     await mount();
     fireEvent.click(await screen.findByRole("button", { name: "More models" }));
     const list = await screen.findByRole("listbox", { name: "Models" });
-    expect(within(list).getAllByRole("group").map((g) => g.getAttribute("aria-label"))).toEqual(["This session", "Codex", "Claude", "Cursor"]);
+    expect(within(list).getAllByRole("group").map((g) => g.getAttribute("aria-label"))).toEqual(["This session", "Codex", "Claude", "Cursor", "fx"]);
     fireEvent.click(within(list).getByRole("option", { name: /Claude Fable 5\.1/ }));
     expect(within(list).getByRole("option", { name: /Claude Fable 5\.1/ })).toHaveAttribute("aria-selected", "true");
     // Mutant: let an unready harness's row toggle — a sub-agent the server would refuse to start.

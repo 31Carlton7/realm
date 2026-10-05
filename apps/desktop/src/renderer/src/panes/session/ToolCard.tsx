@@ -8,7 +8,7 @@ import { ToolInputBody, ToolResultBody } from "./rich/ToolViews";
 import { DRAW_LIMIT, mediaWorkFor, toolInputView, toolMediaPath, toolResultView } from "./rich/tool-view";
 import { GeneratingCanvas, ToolMedia } from "./media/MediaView";
 import { ChildSessions, delegatedChildIds } from "./DelegatedRuns";
-import { DelegationLine, isDelegationLine } from "./DelegationLine";
+import { DelegationLine, DelegationWait, isDelegationLine, isDelegationWait } from "./DelegationLine";
 import { useElapsed } from "./use-elapsed";
 
 type ToolState = "running" | "ok" | "error" | "none";
@@ -107,9 +107,9 @@ type ToolCardProps = {
  *  component rather than a branch inside this one, because a call can turn from one into the other
  *  when a refusal lands, and the two hold different hooks. */
 export const ToolCard = memo(function ToolCard(props: ToolCardProps) {
-  return isDelegationLine(props.block)
-    ? <DelegationLine block={props.block} sessionStatus={props.sessionStatus} enter={props.enter} />
-    : <ToolCardBody {...props} />;
+  if (isDelegationLine(props.block)) return <DelegationLine block={props.block} sessionStatus={props.sessionStatus} enter={props.enter} />;
+  if (isDelegationWait(props.block)) return <DelegationWait block={props.block} sessionStatus={props.sessionStatus} enter={props.enter} />;
+  return <ToolCardBody {...props} />;
 });
 
 function ToolCardBody({ block, sessionStatus, enter = false, nested }: ToolCardProps) {

@@ -1,4 +1,4 @@
-import { AGENT_META, sessionModeOf, type DelegatedChild, type Session } from "@realm/contracts";
+import { AGENT_META, sessionModeOf, type AgentKind, type DelegatedChild, type Session } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { ScrollFades } from "../../components/ScrollFades";
@@ -15,6 +15,10 @@ import { STATE_LABEL, isLive, modelLabel, reportSummary, subagentElapsed, subage
 
 /** How many models the composer offers as one-click chips before the rest are a chooser away. */
 const CHIPS = 5;
+/** The harnesses a chip is suggested from unasked: the vendors' own CLIs, whose lists are curated or
+ *  in the vendor's order. A proxy's catalog runs to hundreds in no order anyone chose (fx's 165), and
+ *  its first entry is nobody's suggestion — those wait in the chooser, or among the starred models. */
+const SUGGESTED: readonly AgentKind[] = ["claude", "codex"];
 /** How long a row asked for from the transcript stays lit — long enough to find, then gone. */
 const FLASH_MS = 1600;
 
@@ -77,13 +81,13 @@ export function AgentsTab({ item, visible }: PaneProps) {
 function SubagentList({ leadId, children, loaded, flash, onOpen }: {
   leadId: string; children: readonly DelegatedChild[]; loaded: boolean; flash: string | null; onOpen: (childId: string) => void;
 }) {
-  const statuses = useApp((s) => s.sessionStatus);
-  const working = children.filter((c) => statuses[c.session.id] === "running" || statuses[c.session.id] === "waiting_permission").length;
   return (
     <section className="subagents-section" aria-label="Sub-agents">
+      {/* How many, and no more: each card says where it stands, and the session's bar already says
+          how many are working. */}
       <h2 className="subagents-head">
         Sub-agents
-        {children.length > 0 && <span className="subagents-count">{working > 0 ? `${working} working · ${children.length}` : children.length}</span>}
+        {children.length > 0 && <span className="subagents-count">{children.length}</span>}
       </h2>
       {loaded && children.length === 0 && (
         <p className="subagents-empty">None yet. Pick models below and describe the work — this session hands it out, and each sub-agent shows up here as it starts.</p>
@@ -201,17 +205,18 @@ function BuildWith({ lead, prefill }: { lead: Session; prefill: { plan: string; 
   const labelOf = (key: string) => (key === OWN ? own?.label ?? "" : byKey.get(key)?.label ?? key);
   const kindOf = (key: string) => (key === OWN ? own?.kind ?? lead.agentKind : byKey.get(key)?.kind ?? lead.agentKind);
   /* The one-click chips: the session's own model, whatever is picked, the user's starred models, then
-     the first ready model on each other harness — a short list of the likely, with the full catalog
-     one click further. A chip never leaves while picked, so a choice made in the chooser stays in
-     sight. */
+     the first ready model of each vendor CLI — a short list of the likely, with the full catalog one
+     click further. A chip never leaves while picked, so a choice made in the chooser stays in sight. */
   const chips = useMemo(() => {
     const out: string[] = own ? [OWN] : [];
     const add = (k: string) => { if (!out.includes(k) && (k === OWN || byKey.has(k))) out.push(k); };
     picks.forEach(add);
     const isOwn = (k: string) => { const m = byKey.get(k); return !!m && !!own && m.kind === own.kind && m.label === own.label; };
     for (const k of favorites) if (out.length < CHIPS && byKey.get(k)?.ready && !isOwn(k)) add(k);
-    const seen = new Set(out.map((k) => (k === OWN ? own?.kind : byKey.get(k)?.kind)));
-    for (const m of models) if (out.length < CHIPS && m.ready && !seen.has(m.kind) && !isOwn(m.key)) { add(m.key); seen.add(m.kind); }
+    for (const kind of SUGGESTED) {
+      const m = models.find((x) => x.kind === kind && x.ready && !isOwn(x.key));
+      if (m && out.length < CHIPS) add(m.key);
+    }
     return out;
   }, [own, picks, favorites, byKey, models]);
 
@@ -261,7 +266,8 @@ function BuildWith({ lead, prefill }: { lead: Session; prefill: { plan: string; 
           claim lives on the component. */}
       <div className="subagents-compose" data-no-agent="sub-agent launch">
         <textarea ref={field} className="subagents-work" value={work} rows={3} aria-label="What to build"
-          placeholder={picks.length > 1 ? "Describe the plan or feature — the agent splits it between the models" : "Describe the plan or feature, or paste one"}
+          placeholder={splitting ? "What every model should know — the plan, the files, the constraints"
+            : picks.length > 1 ? "Describe the plan or feature — the agent splits it between them" : "Describe the plan or feature, or paste one"}
           onChange={(e) => { setWork(e.target.value); if (e.target.value === "") setFromPlan(false); }} onKeyDown={onKey} />
         {splitting && (
           <div className="subagents-tasks">

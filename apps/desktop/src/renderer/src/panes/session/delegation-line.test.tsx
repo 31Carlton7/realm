@@ -72,6 +72,23 @@ describe("a sub-agent in its lead's transcript", () => {
     expect(screen.queryByText(/^Subagent/)).toBeNull();
   });
 
+  it("a fan-out stands out of the ledger: two starts and a wait are lines, never a collapsed run", async () => {
+    const OTHER = "01JC0000000000000000000003";
+    const wait = [
+      sessionEvent("tool_call", { toolUseId: "w1", name: "mcp__realm__realm-agent__agent_wait", input: {}, parentToolUseId: null }),
+      sessionEvent("tool_result", { toolUseId: "w1", isError: false,
+        content: `All 2 delegated agents finished.\n\n## Agent ${CHILD} — finished\n\nok\n\n## Agent ${OTHER} — finished\n\nok` }),
+    ];
+    const second = start("Write the migration", { text: `Started delegated agent ${OTHER}.` }).map((e) =>
+      ({ ...e, payload: { ...e.payload, toolUseId: "t2" } }) as typeof e);
+    await mount([...start("Write the tests", { text: `Started delegated agent ${CHILD}.` }), ...second, ...wait], [
+      child(), child({ session: session(OTHER, "s1", { agentKind: "claude", model: "claude-fable-5-1", dispatchedBy: { sessionId: LEAD, kind: "agent_run" } }), goal: "Write the migration" })]);
+    // Mutant: let these group like any run of calls — settled, the run folds to "Worked for <1s".
+    expect(await screen.findAllByRole("button", { name: /^Subagent finished/ })).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Collected 2 reports" })).toBeInTheDocument();
+    expect(document.querySelector(".tool-group")).toBeNull();
+  });
+
   it("in a read-only mount it still reads, and links nowhere", async () => {
     await mount(start("Write the tests", { text: `Started delegated agent ${CHILD}.` }), [child()], { sessionId: null });
     expect(await screen.findByRole("button", { name: /Write the tests/ })).toBeDisabled();
