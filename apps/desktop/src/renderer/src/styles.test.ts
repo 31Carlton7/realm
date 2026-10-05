@@ -1195,6 +1195,10 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // fallback — the span's own colour, and xterm's own half — so a host that never receives them
       // draws faint text exactly as xterm would.
       "--term-fg", "--term-dim", ...Array.from({ length: 16 }, (_, i) => `--term-ansi-${i}`),
+      // A drawn diagram's own width (panes/session/rich/UiBlock.tsx): Mermaid's viewBox, set inline
+      // because the drawing's size is the diagram's and not the stylesheet's; the rule that shrinks it
+      // to four fifths and then scrolls is arithmetic on that one number.
+      "--diagram-w",
     ]);
     const used = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]!));
     expect([...used].filter((n) => !defined.has(n) && !n.startsWith("--dsg-")).sort()).toEqual([]);

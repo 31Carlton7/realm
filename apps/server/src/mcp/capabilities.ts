@@ -1,3 +1,5 @@
+import { CHART_POINTS_MAX, CHART_SERIES_MAX } from "@realm/contracts";
+
 /**
  * What Realm tells an ordinary session about Realm's OWN tools, at every agent start.
  *
@@ -11,7 +13,8 @@
  * **Only what the session actually has.** The caller passes the providers this session will really
  * see (`McpGateway.realmProvidersFor`), and an unknown name contributes nothing. A space that turned
  * the browser off must not be told it has one — the same rule the interface follows, offering a
- * capability only where its owner has said it exists. Everything off means no preamble at all.
+ * capability only where its owner has said it exists. Everything off leaves only the note on what
+ * Realm draws, which is true of every session whatever its space switched off.
  *
  * **Each block says when NOT to reach for the tools**, and that half is not decoration: the failure
  * mode of a preamble like this is an agent that delegates a one-line edit because it has just been
@@ -142,17 +145,40 @@ const BLOCKS: Record<string, string> = {
  *  day and below it the next. */
 const ORDER = ["realm-agent", "realm-ui", "realm-browser", "realm-docs", "realm-schedule", "realm-terminal", "realm-simulator", "realm-app", "realm-computer", "realm-vm"] as const;
 
-const HEADER =
-  "# Realm\n\n" +
-  "This session runs in Realm, a workspace on the user's Mac. Alongside your own tools, the `realm` MCP server " +
+const HEADER = "# Realm\n\nThis session runs in Realm, a workspace on the user's Mac.";
+const TOOLS =
+  "Alongside your own tools, the `realm` MCP server " +
   "carries the tools below. Weigh them while you are still planning the work: each one reaches something this " +
   "session sits beside, and none of it is reachable any other way.";
 
-/** The preamble for a session that can see `providers`, or undefined when it can see none of them. */
-export function capabilitiesContext(providers: readonly string[]): string | undefined {
+/**
+ * What Realm draws in the agent's own Markdown (`contracts/ui-blocks.ts`). Not a tool and not a
+ * provider — every transcript and every Markdown document draws these fences — so it is said to every
+ * session this preamble reaches, tools or none. Short, because it is read on every turn, and concrete:
+ * nothing tells the agent a block failed, so the shapes it is shown are the only way it gets them
+ * right. Each example is a body the schema takes (`capabilities.test.ts` parses them).
+ */
+const DRAWN =
+  "## Blocks Realm draws\n\n" +
+  "In your replies and in Markdown files, Realm draws three fenced blocks as what they describe. Use one where " +
+  "a picture is faster to read than the sentence it replaces, and only with values you have; a body that does " +
+  "not parse is shown as code.\n" +
+  "- ```mermaid — a Mermaid diagram: a flowchart, a sequence of calls, states, an entity model.\n" +
+  "- ```realm-chart — JSON such as " +
+  '{"kind": "lines", "title": "Startup time", "unit": "ms", "x": ["1.0", "1.1"], "series": [{"label": "Cold", "values": [820, null]}]}. ' +
+  `kind is columns, bars, lines or sparkline. One value per x label, null where there is none; at most ${CHART_SERIES_MAX} series ` +
+  `and ${CHART_POINTS_MAX} points. Columns stack their series from zero, bars take one series, lines may go negative, and a ` +
+  "sparkline needs no x.\n" +
+  "- ```realm-compare — JSON such as " +
+  '{"title": "Where the store lives", "options": ["Postgres", "SQLite"], "rows": [{"label": "Setup", "values": ["A server", "A file"]}], "pick": "SQLite"}. ' +
+  "One value per option; pick sets the recommended column apart.";
+
+/** The preamble for a session that can see `providers`: Realm's own tools it has, then what Realm draws. */
+export function capabilitiesContext(providers: readonly string[]): string {
   const have = new Set(providers);
   const blocks = ORDER.filter((name) => have.has(name)).map((name) => BLOCKS[name]!);
-  return blocks.length > 0 ? `${HEADER}\n\n${blocks.join("\n\n")}` : undefined;
+  const head = blocks.length > 0 ? `${HEADER} ${TOOLS}\n\n${blocks.join("\n\n")}` : HEADER;
+  return `${head}\n\n${DRAWN}`;
 }
 
 /** The names this module knows how to describe — `capabilities.test.ts`'s drift guard reads it. */
