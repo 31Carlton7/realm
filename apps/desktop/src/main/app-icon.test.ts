@@ -98,14 +98,18 @@ describe("app icon", () => {
     const src = join(__dirname, "../../../../resources/icon-src");
     const { bodyPath } = (await import(join(src, "icons.mjs"))) as { bodyPath: () => string };
     const apple = JSON.parse(readFileSync(join(src, "apple-icon-body.json"), "utf8")) as { radius: number; d: string };
-    // Each cubic as its three points; the two paths start at different places on the same curve.
-    const cubics = (d: string) => [...d.matchAll(/C([^CLMZ]+)/g)]
-      .map((m) => m[1]!.trim().split(/[\s,]+/).map(Number))
-      .sort((a, b) => a[0]! - b[0]! || a[1]! - b[1]!);
-    const mine = cubics(bodyPath()), theirs = cubics(apple.d);
-    expect(mine).toHaveLength(12);
-    expect(theirs).toHaveLength(12);
-    mine.forEach((c, i) => c.forEach((v, j) => expect(Math.abs(v - theirs[i]![j]!), `cubic ${i} value ${j}`).toBeLessThan(0.01)));
+    // Every point of both outlines — where each corner leaves its edge, and each cubic's controls and
+    // end. SwiftUI's starts half way down the right edge, a point on a straight line that this one has
+    // no need of, so that one is dropped.
+    const points = (d: string) => {
+      const n = [...d.matchAll(/-?\d+(?:\.\d+)?/g)].map((m) => Number(m[0]));
+      return Array.from({ length: n.length / 2 }, (_, i) => [n[2 * i]!, n[2 * i + 1]!] as const);
+    };
+    const sorted = (ps: (readonly [number, number])[]) => [...ps].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const mine = sorted(points(bodyPath())), theirs = sorted(points(apple.d).slice(1));
+    expect(mine).toHaveLength(40);
+    expect(theirs).toHaveLength(40);
+    mine.forEach((p, i) => expect(Math.hypot(p[0] - theirs[i]![0], p[1] - theirs[i]![1]), `point ${i}`).toBeLessThan(0.01));
   });
 
   /* The pictures are rendered from resources/icon-src/icons.mjs, so the drawing is a fourth list. A
