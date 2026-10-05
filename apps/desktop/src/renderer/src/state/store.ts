@@ -2587,6 +2587,25 @@ export function worktreeTitleFrom(draft: string): string | null {
   return words ? words.slice(0, 40) : null;
 }
 
+/** The checkout a space's worktrees branch from: its primary environment, which is what
+ *  `environments.createWorktree` uses when no `from` is named — the space's own folder until one exists. */
+export function spaceCheckoutPath(s: Pick<AppState, "environments" | "spaces">, spaceId: string): string | null {
+  const primary = Object.values(s.environments).find((e) => e.spaceId === spaceId && e.kind === "primary");
+  return primary?.path ?? s.spaces.find((sp) => sp.id === spaceId)?.folderPath ?? null;
+}
+
+/**
+ * Whether git has said a space's own checkout is not a repository — a plain folder, which is what a
+ * space made from nothing is (`~/Realm/<profile>/<space>`). Such a space has no worktrees and cannot
+ * make one, so nothing offers to: offering it was how a space someone had just made came up under a
+ * red "is not a git repository, so it has no worktrees". A folder nobody has asked git about yet is
+ * NOT plain — the actions ask for themselves (`checkoutIsRepo`), and say nothing either way.
+ */
+export function spaceIsPlainFolder(s: Pick<AppState, "environments" | "spaces" | "gitInfo">, spaceId: string): boolean {
+  const path = spaceCheckoutPath(s, spaceId);
+  return path !== null && s.gitInfo[path] === null;
+}
+
 /** Prune-only: drop ids that no longer exist. Never adds — an unopened item is simply an item of its space. */
 export function reconcileLayout(layout: Layout | null, items: Item[]): Layout {
   let l: Layout = layout ?? emptyLayout();
@@ -3216,6 +3235,20 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  itemsFetchSeq slot so any older in-flight refreshItems response is dropped instead of pruning
      *  the item this fetch is about to open. */
     /** Kick an event-driven git refresh for one session's cwd (no-op while the session is unknown). */
+    /**
+     * Ask git, now, whether a space's own checkout is a repository — and keep the answer where the
+     * prompter and the sidebar read it (`spaceIsPlainFolder`). Every action that would make a worktree
+     * asks this first instead of letting the server refuse, because a plain folder simply HAS no
+     * worktrees: that is a fact about the space, not a failure to report. (An empty repository reads
+     * the same way — git has no HEAD to branch a worktree from until its first commit.)
+     */
+    const checkoutIsRepo = async (spaceId: string): Promise<boolean> => {
+      const path = spaceCheckoutPath(get(), spaceId);
+      if (!path) return false;
+      const info = await api.gitInfo(path);
+      set({ gitInfo: { ...get().gitInfo, [path]: info } });
+      return info !== null;
+    };
     const refreshGitFor = (sessionId: string) => {
       const cwd = get().sessions[sessionId]?.cwd;
       if (cwd) get().run(() => get().refreshGitInfo(cwd));
@@ -5069,8 +5102,14 @@ await get().refreshCustomThemes().catch(() => {});
       },
       async newSessionInWorktree(targetLeafId = null, spaceId = null) {
         const sid = spaceFor(spaceId); if (!sid) return;
-        // The worktree is created FIRST and the session pinned to it. If creating it throws (not a
-        // repository, no commits yet) no session is made at all — `run` surfaces the reason.
+        // A plain folder has no worktrees. The session asked for still opens — in the folder, the only
+        // checkout such a space has — and nothing is said, because nothing went wrong.
+        if (!(await checkoutIsRepo(sid))) {
+          await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT, spaceId: sid }, targetLeafId);
+          return;
+        }
+        // The worktree is created FIRST and the session pinned to it. If creating it throws (git
+        // refused the add) no session is made at all — `run` surfaces the reason.
         const env = await api.createWorktree(sid, null);
         if (inProfile(sid)) set({ environments: { ...get().environments, [env.id]: env } });
         await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT, environmentId: env.id, spaceId: sid }, targetLeafId);
@@ -5101,11 +5140,14 @@ await get().refreshCustomThemes().catch(() => {});
         const text = brief.trim(); if (!text) return [];
         const n = Math.max(1, Math.min(FAN_OUT_MAX, Math.trunc(count)));
         const started: Session[] = [];
+        // A plain folder has no worktrees to give each agent; they share the folder, which is all such
+        // a space has, rather than the batch failing on its first add.
+        const isolate = worktrees && await checkoutIsRepo(sid);
         try {
           for (let i = 0; i < n; i++) {
             // Named from the brief, like "New worktree…" does, so the branches say what they are for
             // and the server's slugifier settles the collision between N of the same name.
-            const env = worktrees ? await api.createWorktree(sid, worktreeTitleFrom(text)) : null;
+            const env = isolate ? await api.createWorktree(sid, worktreeTitleFrom(text)) : null;
             if (env && inProfile(sid)) set({ environments: { ...get().environments, [env.id]: env } });
             const { session } = await api.createSession({
               spaceId: sid, agentKind, ...(env ? { environmentId: env.id } : {}), userDispatched: true,
@@ -5390,7 +5432,10 @@ await get().refreshCustomThemes().catch(() => {});
       },
       async moveSessionToNewWorktree(sessionId) {
         const s = get().sessions[sessionId]; if (!s) return;
-        // Create FIRST; if it throws (not a repo, no commits) the session stays where it was and `run`
+        // A plain folder has no worktree to move into, and the prompter does not offer one there; a
+        // request that arrives anyway leaves the session where it is.
+        if (!(await checkoutIsRepo(s.spaceId))) return;
+        // Create FIRST; if it throws (git refused the add) the session stays where it was and `run`
         // surfaces the reason — same shape as newSessionInWorktree.
         const env = await api.createWorktree(s.spaceId, worktreeTitleFrom(get().drafts[sessionId] ?? ""));
         if (inProfile(s.spaceId)) set({ environments: { ...get().environments, [env.id]: env } });

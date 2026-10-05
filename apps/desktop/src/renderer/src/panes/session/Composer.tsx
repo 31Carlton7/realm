@@ -524,6 +524,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   /** Selecting an existing environment / "New worktree…". Only reachable while the selector is a menu
    *  (no events yet — the same guard as the agent switch; the server enforces it regardless). */
   onSelectEnvironment?: (environmentId: string) => void;
+  /** Absent where the space is a plain folder: it has no worktrees, so the menu offers none. */
   onNewWorktree?: () => void;
   /** The profile's other spaces, for the chip's "Move to …" rows (Plan 27). A new session goes to the
    *  space of the session in focus; this is where that guess is corrected, on the same before-the-
@@ -899,11 +900,16 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const envIcon = currentEnv?.kind === "worktree" ? "branch" : "folder";
   // Menu only while the session has no events — ChipMenu with no items degrades to a caret-less label,
   // exactly the after-first-message rule. Same guard the agent switch reads; the server enforces it
-  // regardless, so this is the honest affordance, not the enforcement.
-  const envItems: MenuItem[] = !canSwitchAgent ? [] : [
+  // regardless, so this is the honest affordance, not the enforcement. A plain folder's session with
+  // nowhere to move to has nothing to choose at all, and gets the label too rather than a menu whose
+  // one row is the checkout it is already in.
+  const choosable = environments.length > 1 || onNewWorktree !== undefined || otherSpaces.length > 0;
+  const envItems: MenuItem[] = !canSwitchAgent || !choosable ? [] : [
     ...environments.map((e): MenuItem => ({ label: environmentLabel(e, spaceName), checked: e.id === session.environmentId, onSelect: () => onSelectEnvironment?.(e.id) })),
-    ...(environments.length > 0 ? [{ kind: "separator" } as MenuItem] : []),
-    { label: "New worktree…", onSelect: () => onNewWorktree?.() },
+    ...(onNewWorktree ? [
+      ...(environments.length > 0 ? [{ kind: "separator" } as MenuItem] : []),
+      { label: "New worktree…", onSelect: onNewWorktree },
+    ] : []),
     ...(otherSpaces.length > 0 ? [{ kind: "separator" } as MenuItem] : []),
     ...otherSpaces.map((sp): MenuItem => ({ label: `Move to ${sp.name}`, onSelect: () => onMoveToSpace?.(sp.id) })),
   ];

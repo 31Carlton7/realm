@@ -3,7 +3,7 @@ import { AGENT_META, SELECTABLE_AGENT_KINDS, VIEW_MAX_PANES, chordsForCommand, d
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import type { StoreApi } from "zustand";
 import { centerOverComplement } from "../state/no-overlay";
-import { useApp, useBrowserRects, type AppState, type PaletteMode } from "../state/store";
+import { spaceIsPlainFolder, useApp, useBrowserRects, type AppState, type PaletteMode } from "../state/store";
 import { useResolvedMode, type ThemePref } from "../theme/useTheme";
 import { ItemGlyph } from "./sidebar/ItemList";
 import { ItemIcon } from "./PageIcon";
@@ -122,6 +122,8 @@ export function CommandPalette() {
 function PaletteBody({ closing }: { closing: boolean }) {
   const spaces = useApp((s) => s.spaces);
   const activeSpaceId = useApp((s) => s.activeSpaceId);
+  // A plain folder has no worktrees, so the palette offers no session in one (store.ts).
+  const plainFolder = useApp((s) => (s.activeSpaceId ? spaceIsPlainFolder(s, s.activeSpaceId) : false));
   const items = useApp((s) => s.items);
   const allItems = useApp((s) => s.allItems);
   const layout = useApp((s) => s.layout);
@@ -316,7 +318,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
       // No ellipsis and no sheet (W3): both this and the per-agent one-shots below go straight through
       // newSession — the only difference is whether the agent is named or inherited from last use.
       act("new-session", "New session", "session", () => run(() => newSessionInstant()), kbd("session.new")),
-      act("new-session-worktree", "New session in a worktree", "branch", () => run(() => newSessionInWorktree())),
+      ...(plainFolder ? [] : [act("new-session-worktree", "New session in a worktree", "branch", () => run(() => newSessionInWorktree()))]),
       // Dispatch (Plan 13 W2): the honest simple palette shape — it dispatches the FOCUSED session's
       // current draft, and with no draft to dispatch it is disabled and says what would arm it,
       // rather than pretending to a "focus the composer with a hint" flow the palette cannot honor
@@ -379,7 +381,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
     }));
 
     return [...open, ...activeRest, ...others, ...actions, ...themes, ...palettes];
-  }, [kbd, spaces, activeSpaceId, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref, themeNames, mode, drafts, dispatchDraft,
+  }, [kbd, spaces, activeSpaceId, plainFolder, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref, themeNames, mode, drafts, dispatchDraft,
       selectSpace, revealItem, newTerminal, newBrowser, newMachine, openDocuments, newSession, newSessionInstant, newSessionInWorktree, splitFocused, closeFromLayout, requestRename,
       interruptSession, jumpToPermission, setThemePref, setThemeName, openSheet, openSpacePage, openDestinationPage, openProfilePage, openActivity, setSpacesOpen, run,
       profiles, activeProfileId, openProfileWindow, openNewProfileSheet,

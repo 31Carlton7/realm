@@ -8,7 +8,7 @@ const EMPTY_COMMANDS: readonly UserCommand[] = Object.freeze([]);
 
 /** Stable empty array for `useSyncExternalStore`: a fresh `[]` per render reads as a change forever. */
 const NO_LINKS: LinkChip[] = [];
-import { useApp, type PickedAttachment } from "../../state/store";
+import { spaceIsPlainFolder, useApp, type PickedAttachment } from "../../state/store";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import type { PaneProps } from "../registry";
 import type { MenuItem } from "../../components/Menu";
@@ -360,6 +360,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const environments = useApp((s) => s.environments);
   const setSessionEnvironment = useApp((s) => s.setSessionEnvironment);
   const moveSessionToNewWorktree = useApp((s) => s.moveSessionToNewWorktree);
+  // A plain folder has no worktrees, so its prompter offers none (store.ts, `spaceIsPlainFolder`).
+  const plainFolder = useApp((s) => (session ? spaceIsPlainFolder(s, session.spaceId) : false));
   const connectors = useApp((s) => { const sess = s.sessions[id]; return (sess && s.connectors[sess.spaceId]) ?? null; });
   const refreshConnectors = useApp((s) => s.refreshConnectors);
   const pickAndLinkProject = useApp((s) => s.pickAndLinkProject);
@@ -661,7 +663,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onManageSkills={() => openSpacePage(session.spaceId, "skills")}
             machineName={machineName} userName={userName} environments={spaceEnvironments}
             onSelectEnvironment={(envId) => run(() => setSessionEnvironment(id, envId))}
-            onNewWorktree={() => run(() => moveSessionToNewWorktree(id))}
+            onNewWorktree={plainFolder ? undefined : () => run(() => moveSessionToNewWorktree(id))}
             otherSpaces={otherSpaces} onMoveToSpace={(spaceId) => run(() => moveSessionToSpace(id, spaceId))}
             connectors={connectors} onConnectorsOpened={() => run(() => refreshConnectors(session.spaceId))}
             onAddFolder={() => run(() => pickAndLinkProject(session.spaceId))}

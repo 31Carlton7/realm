@@ -2325,12 +2325,14 @@ describe("under-strip (Plan 12 W1)", () => {
     envA: env("envA", { kind: "primary", path: "/tmp" }),
     envB: env("envB", { kind: "worktree", branch: "realm/fix-tests", path: "/tmp/wt" }),
   });
-  async function mountStrip(extra: { lastEventSeq?: number; lastSeq?: number; spaces?: ReturnType<typeof space>[] } = {}) {
+  async function mountStrip(extra: { lastEventSeq?: number; lastSeq?: number; spaces?: ReturnType<typeof space>[]; plainFolder?: boolean; onlyPrimary?: boolean } = {}) {
     const { envA, envB } = twoEnvs();
     const api = fakeApi({
       sessions: [session("se1", "s1", { status: "idle", environmentId: "envA", cwd: "/tmp", lastEventSeq: extra.lastEventSeq ?? 0 })],
-      environments: { s1: [envA, envB] },
+      environments: { s1: extra.onlyPrimary ? [envA] : [envA, envB] },
       ...(extra.spaces ? { spaces: extra.spaces } : {}),
+      // The space's folder is a repository unless the test says it is a plain one.
+      ...(extra.plainFolder ? {} : { gitInfo: { "/tmp": { branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 } } }),
     });
     const store = createAppStore(api); await store.getState().boot();
     store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: extra.lastSeq ?? 0, t: reduceAll([]) } } });
@@ -2388,6 +2390,24 @@ describe("under-strip (Plan 12 W1)", () => {
     await waitFor(() => expect(store.getState().sessions.se1?.environmentId).toBe(made.id));
     expect(api.calls).toContain(`setSessionEnvironment:se1=${made.id}`);
     await waitFor(() => expect(screen.getByRole("button", { name: "Workspace" })).toHaveTextContent(made.branch!));
+  });
+
+  /* A space made from nothing is a plain folder, and a plain folder has no worktrees. THE mutant: offer
+     "New worktree…" anyway — the one thing it can do there is put "…is not a git repository, so it has
+     no worktrees" on screen, which is how a space someone had just made came up under a red bar. */
+  it("a plain folder offers no worktree — the checkout it has is the only one there is", async () => {
+    const { api } = await mountStrip({ plainFolder: true });
+    await waitFor(() => expect(api.calls).toContain("gitInfo:/tmp"));
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+    const menu = screen.getByRole("menu", { name: "Workspace" });
+    expect(within(menu).queryByRole("menuitem", { name: "New worktree…" })).toBeNull();
+    expect(within(menu).getByRole("menuitem", { name: "Move to Homework" })).toBeInTheDocument();
+  });
+
+  it("…and with nowhere else to move, its chip is the folder's name rather than a menu of one row", async () => {
+    await mountStrip({ plainFolder: true, onlyPrimary: true, spaces: [space("s1", "p1", "Versed")] });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Workspace" })).toBeNull());
+    expect(document.querySelector(".composer-understrip .ghost-chip[data-static][title^='Workspace']")).toHaveTextContent("Versed");
   });
 
   it("moves a session that has not started to another space of its profile, from the same chip (Plan 27)", async () => {

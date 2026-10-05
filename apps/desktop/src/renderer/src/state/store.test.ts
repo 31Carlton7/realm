@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
-import { createAppStore, hasLeafIn, patchKey, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_FILES_VIEW, type DropEdge } from "./store";
+import { createAppStore, hasLeafIn, patchKey, spaceIsPlainFolder, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_FILES_VIEW, type DropEdge } from "./store";
 import { allItems, findLeafOfItem, firstLeaf, itemIdOfLeaf, MAX_ELEMENT_CHIPS, scanElementChips, sessionEvent, PAGE_REF_IDS, type BrowserPickedElement, type Environment, type Layout, type StoredSessionEvent } from "@realm/contracts";
 import { fakeApi, iconAsset, item, mcpServer, profile, session, skillRow, space, type FakeApi } from "./store.test-fakes";
 import { DEFAULT_GROUND_ALPHA } from "@realm/ui";
@@ -2772,6 +2772,8 @@ describe("under-strip: environment rebinding + the '+' menu's connectors cache (
     items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Fake agent session" })] },
     sessions: [session("se1", "s1", { environmentId: "envA", cwd: "/tmp/envA" })],
     environments: { s1: [env("envA", "s1", { kind: "primary" }), env("envB", "s1")] },
+    // The primary is a repository: worktrees branch from it.
+    gitInfo: { "/tmp/envA": { branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 } },
   });
 
   it("setSessionEnvironment sends EXACTLY the picked id and renders the server's answer (cwd follows)", async () => {
@@ -2809,6 +2811,39 @@ describe("under-strip: environment rebinding + the '+' menu's connectors cache (
     const a = seed(); const store = createAppStore(a); await store.getState().boot();
     await store.getState().moveSessionToNewWorktree("se1");
     expect(a.data.environments.s1!.at(-1)!.branch).toBe("realm/session");
+  });
+
+  /* A space made from nothing is a plain folder (`~/Realm/<profile>/<space>`), and a plain folder has
+     no worktrees. THE mutant for both: drop the check, and the server's refusal — "…is not a git
+     repository, so it has no worktrees" — is what such a space shows the moment anyone asks. */
+  it("in a plain folder there is no worktree to move into: the session stays where it is, and nothing is raised", async () => {
+    const a = seed(); a.data.gitInfo = {};
+    const store = createAppStore(a); await store.getState().boot();
+    await store.getState().moveSessionToNewWorktree("se1");
+    expect(a.calls.filter((c) => c.startsWith("createWorktree:"))).toEqual([]);
+    expect(store.getState().sessions.se1?.environmentId).toBe("envA");
+    expect(store.getState().toasts).toEqual([]);
+    // …and the answer is kept where the prompter reads it, so it stops offering one.
+    expect(spaceIsPlainFolder(store.getState(), "s1")).toBe(true);
+  });
+
+  it("'New session in a worktree' in a plain folder opens the session in the folder, and says nothing", async () => {
+    const a = seed(); a.data.gitInfo = {};
+    const store = createAppStore(a); await store.getState().boot();
+    await store.getState().newSessionInWorktree(null, "s1");
+    expect(a.calls.filter((c) => c.startsWith("createWorktree:"))).toEqual([]);
+    expect(a.calls.filter((c) => c.startsWith("createSession:"))).toHaveLength(1);
+    expect(store.getState().toasts).toEqual([]);
+  });
+
+  it("a folder nobody has asked git about is not called plain — only an answer is", async () => {
+    const a = seed(); const store = createAppStore(a); await store.getState().boot();
+    expect(spaceIsPlainFolder(store.getState(), "s1")).toBe(false);
+    await store.getState().refreshGitInfo("/tmp/envA");
+    expect(spaceIsPlainFolder(store.getState(), "s1")).toBe(false); // a repository
+    a.data.gitInfo = {};
+    await store.getState().refreshGitInfo("/tmp/envA");
+    expect(spaceIsPlainFolder(store.getState(), "s1")).toBe(true);
   });
 
   it("moveSessionToSpace re-homes the session and its item, and leaves it on screen", async () => {

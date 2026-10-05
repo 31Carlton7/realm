@@ -11,12 +11,14 @@ async function booted(api: FakeApi) {
   return store;
 }
 
+/** What git says about the space's folder ("/tmp") when it is a repository. */
+const REPO = { branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 };
 const created = (api: FakeApi) => api.calls.filter((c) => c.startsWith("createSession:"));
 const worktrees = (api: FakeApi) => api.calls.filter((c) => c.startsWith("createWorktree:"));
 
 describe("fanOutAgents", () => {
   let api: FakeApi;
-  beforeEach(() => { api = fakeApi(); });
+  beforeEach(() => { api = fakeApi({ gitInfo: { "/tmp": REPO } }); });
 
   it("starts one session per agent, each in its own worktree, each sent the brief", async () => {
     const store = await booted(api);
@@ -80,6 +82,16 @@ describe("fanOutAgents", () => {
     expect(created(api)).toHaveLength(2);
     expect(api.sent).toHaveLength(2);
     expect(api.calls.filter((c) => c === "listItems:s1").length).toBeGreaterThan(0);
+  });
+
+  it("a plain folder has no worktree to give each agent: they share it, and the batch starts", async () => {
+    /* THE mutant: ask the server for a worktree regardless. The first add refuses with "is not a git
+       repository, so it has no worktrees", and a batch in a space made from nothing never starts. */
+    api = fakeApi();
+    const store = await booted(api);
+    const started = await store.getState().fanOutAgents({ brief: "Tidy the notes", count: 2, agentKind: "claude", worktrees: true });
+    expect(started).toHaveLength(2);
+    expect(worktrees(api)).toEqual([]);
   });
 });
 

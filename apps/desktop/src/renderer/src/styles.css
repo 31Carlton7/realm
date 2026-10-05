@@ -6264,7 +6264,7 @@ select { appearance: none; padding-right: 22px;
 .fan-out-switch strong { font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
 /* The one sentence under the row that says something the label and the control do not: what the
    switch being off would cost. It changes with the switch, because that is the whole of its job. */
-.fan-out-note { font-size: 12px; line-height: 1.45; color: var(--rl-text-faint); }
+.fan-out-note { margin: 0; font-size: 12px; line-height: 1.45; color: var(--rl-text-faint); }
 
 /* ── The Library's file browser ────────────────────────────────────────────
    Codex's library, measured off its window: the kinds of file as tabs over a grid of square tiles,
